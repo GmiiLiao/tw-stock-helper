@@ -124,3 +124,55 @@ const AdminPanel = dynamic(() => import('@/components/Admin/AdminPanel'));  // 3
 「自動更新 vs 手動刷新」是 2 倍以上的費率斷崖，而它是純粹的產品設計決策。
 如果核心價值是選股邏輯而非秒級跳動，設計成手動刷新，成本結構完全不同。
 **這個決定要在做第 7 步之前定案**，因為它會改變前端輪詢架構的形狀。
+
+---
+
+## 第 5 步的未完成部分 —— 23 個尚未加 gate 的輪詢點
+
+第 5 步只處理了三個**全域常駐**元件（`AlertEngine` / `Header` / `AiNewsTicker`）
+加上 `lib/useLiveQuotes.ts`，因為那四個是不論使用者在哪一頁都在跑的、影響最大。
+
+以下 23 個檔案的 `setInterval` **尚未接上 `market-clock` 的 gate**，
+休市與背景分頁時仍會發請求。它們都是進到特定頁面才掛載，所以影響小於前四個，但不是零。
+
+作法就是在各自的 poll function 第一行加：
+
+```ts
+import { shouldPollNow } from '@/lib/market-clock';
+if (!shouldPollNow()) return;
+```
+
+（美股／daemon 產出這類休市仍會更新的資料，改用 `isForeground()`。）
+
+| 檔案 | setInterval 數 |
+|---|---:|
+| `components/AIRecommend/AIRecommend.tsx` | 2 |
+| `components/Admin/AdminPanel.tsx` | 2 |
+| `components/Candidates/DecisionDesk.tsx` | 2 |
+| `components/ChipSignals/ChipSignals.tsx` | 1 |
+| `components/ChipWind/ChipWind.tsx` | 1 |
+| `components/Dashboard/MarketInsights.tsx` | 1 |
+| `components/Dashboard/PremarketBrief.tsx` | 1 |
+| `components/IndexNews/IndexNewsPage.tsx` | 2 |
+| `components/MarketPattern/MarketPatternBanner.tsx` | 1 |
+| `components/MarketWind/MarketWind.tsx` | 1 |
+| `components/Portfolio/PortfolioAI.tsx` | 1 |
+| `components/Portfolio/PushSetup.tsx` | 1 |
+| `components/SectorWind/SectorWind.tsx` | 1 |
+| `components/WarRoom/ChipPicksPanel.tsx` | 1 |
+| `components/WarRoom/LimitUpPanel.tsx` | 1 |
+| `components/WarRoom/RiseFallPanel.tsx` | 1 |
+| `components/WarRoom/VolSurgePanel.tsx` | 1 |
+| `components/WarRoom/WarRoom.tsx` | 1 |
+| `components/WatchlistTracker/StockTrendChart.tsx` | 2 |
+| `components/WatchlistTracker/WatchlistTracker.tsx` | 5 |
+| `components/WindHub/WindHub.tsx` | 1 |
+| `components/shared/ChipVerdict.tsx` | 1 |
+| `components/shared/OrderBookDepth.tsx` | 1 |
+
+**不建議一次全改。** 建議跟著功能改動順手處理 ——
+每次動到某個面板時，順手把它的 gate 補上，比開一輪「全面遷移」安全。
+
+`src/hooks/useSharedPoll.ts` 是更完整的替代方案但**目前零呼叫點**。
+只有在遇到「同一支 API 被多個元件各自輪詢」時才值得換過去
+（例如 `/api/twse/market-index` 現在有 3 個常駐元件在打，那是 gate 解不掉的）。

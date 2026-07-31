@@ -71,13 +71,29 @@ import { getSession, isMarketOpen, pollInterval } from '@/lib/market-clock';
 ```
 不要再寫 `h >= 9 && h < 14`。舊 codebase 有 6 份互相不一致的實作，其中 5 份不查假日。
 
-**前端輪詢一律用 `useSharedPoll`**
+**前端輪詢：現況是「加 gate」，不是「換 hook」**
+
+現行做法 —— 在既有的 poll function 第一行加一道 gate，計時器照跑但不發請求：
 
 ```ts
-const { data } = useSharedPoll('/api/twse/market-index', fetcher, { regularMs: 5_000 });
+import { shouldPollNow } from '@/lib/market-clock';
+
+const poll = async () => {
+  if (!shouldPollNow()) return;   // 休市 or 分頁在背景 → 跳過
+  ...
+};
 ```
-它處理：多元件共用一條輪詢、`document.hidden` 時停擺、休市時停擺、間隔每次重算、
-失敗指數退避、jitter。手寫 `setInterval` 這六項全都會漏。
+
+只擋背景分頁、休市仍要更新的資料（美股、daemon 產出）用 `isForeground()`。
+
+**進度：26 個含 `setInterval` 的檔案裡，目前只有 3 個接上 gate**
+（`AlertEngine` / `Header` / `AiNewsTicker`，加上 `lib/useLiveQuotes.ts` 用遞迴 setTimeout）。
+其餘 23 個清單在 `docs/OPTIMIZATION-TODO.md`。新增輪詢時請直接加 gate。
+
+`src/hooks/useSharedPoll.ts` 是**已寫好但尚未採用**的替代方案（目前零呼叫點）。
+它多做的是：多元件共用一條輪詢、間隔每次重算、失敗指數退避、jitter。
+當你遇到「同一支 API 被多個元件各自輪詢」時才值得換過去 —— 單純為了統一而重寫不划算。
+換的時候路徑是 `@/hooks/useSharedPoll`（不是 `@/lib/`）。
 
 ## 絕對不要做的事
 
