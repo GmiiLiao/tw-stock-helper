@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { secretEquals } from '@/lib/cron-auth';
 import { listStoredCodes, readHistories } from '@/lib/history-store';
 import { computeSwingSignal } from '@/lib/signal-score';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -20,7 +21,7 @@ const HOLDS = [5, 10, 20];
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!secretEquals(secret, process.env.CRON_SECRET)) {   // timing-safe + fail-closed，見 cron-auth.ts
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   const db = getAdminDb();

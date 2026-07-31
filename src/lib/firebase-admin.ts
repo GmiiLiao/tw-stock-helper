@@ -13,6 +13,7 @@
 
 import { getApps, initializeApp, applicationDefault, cert, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getAuth, type Auth } from 'firebase-admin/auth';
 
 const PROJECT_ID =
   process.env.FIREBASE_PROJECT_ID ||
@@ -45,4 +46,19 @@ export function getAdminDb(): Firestore | null {
   const app = initAdminApp();
   cached = app ? getFirestore(app) : null;
   return cached;
+}
+
+let cachedAuth: Auth | null | undefined;
+
+/**
+ * Admin Auth，用來驗證前端帶上來的 Firebase ID token。
+ *
+ * 為什麼需要它：request body 裡的 `uid` / `email` 是呼叫端自己寫的字串，
+ * 不是身分證明。只有經過 `verifyIdToken()` 的 uid 才可以拿來查權限。
+ */
+export function getAdminAuth(): Auth | null {
+  if (cachedAuth !== undefined) return cachedAuth;
+  const app = initAdminApp();
+  cachedAuth = app ? getAuth(app) : null;
+  return cachedAuth;
 }

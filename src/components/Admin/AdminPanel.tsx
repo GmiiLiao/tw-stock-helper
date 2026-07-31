@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
-import { db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, limit } from 'firebase/firestore';
 import styles from './AdminPanel.module.css';
 
@@ -42,6 +42,12 @@ interface ActivityLog {
   action: string;
   details: Record<string, any>;
   timestamp: number;
+}
+
+// store 裡的 `user` 是序列化過的純物件，沒有 getIdToken()。
+// ID token 一律跟 Firebase Auth 的 currentUser 拿（會自動處理續期）。
+async function authToken(): Promise<string> {
+  return (await auth.currentUser?.getIdToken()) ?? '';
 }
 
 export default function AdminPanel() {
@@ -217,14 +223,15 @@ export default function AdminPanel() {
     if (!user) return;
     setIsTriggeringAgent(true);
     try {
+      // 2026-07-31：改帶 Firebase ID token。原本送 uid/email，
+      // 但那是 client 自己填的字串，server 無從分辨真偽。
       const res = await fetch('/api/ai-analysis', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'trigger',
-          uid: user.uid,
-          email: user.email,
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await authToken()}`,
+        },
+        body: JSON.stringify({ action: 'trigger' }),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
@@ -245,7 +252,11 @@ export default function AdminPanel() {
   const handleClearMessages = async () => {
     if (!confirm('確認要清空所有 AI 推送訊息佇列嗎？')) return;
     try {
-      const res = await fetch('/api/ai-analysis', { method: 'DELETE' });
+      if (!user) return;
+      const res = await fetch('/api/ai-analysis', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${await authToken()}` },
+      });
       if (res.ok) {
         setMessages([]);
       }

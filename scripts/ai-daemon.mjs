@@ -514,14 +514,35 @@ async function analyzeAll() {
 }
 
 // ── Pre-market 策略快報 (premium) — published ~08:45 Taipei on trading days ──
-const TW_HOLIDAYS_2026 = new Set([
-  '2026-01-01','2026-02-13','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20',
+// 硬編休市表只是**離線保底**：Firestore 讀不到時才用。
+// ⚠它天生會漏兩類日子，不要再手動維護它：
+//   ① 結算交割日（2026-02-12「市場無交易，僅辦理結算交割作業」原本就漏了）
+//   ② 颱風假等臨時休市（2026 年就有 03-10 / 03-13 / 03-25 / 05-20 / 07-10 五天）
+// 權威來源是 system/tradingCalendar，由 scripts/sync-trading-calendar.mjs 每日更新。
+const TW_HOLIDAYS_FALLBACK = new Set([
+  '2026-01-01','2026-02-12','2026-02-13','2026-02-16','2026-02-17','2026-02-18','2026-02-19','2026-02-20',
   '2026-02-27','2026-02-28','2026-04-03','2026-04-06','2026-05-01','2026-06-19','2026-09-25',
   '2026-09-28','2026-10-09','2026-10-26','2026-12-25',
 ]);
+let TW_HOLIDAYS = new Set(TW_HOLIDAYS_FALLBACK);
+let _calLoadedDate = null;
+
+/** 從 Firestore 載入權威休市表（每日一次；失敗維持現值，不退回 fallback）。 */
+async function loadTradingCalendar() {
+  const today = isoDate(taipei());
+  if (_calLoadedDate === today) return;
+  try {
+    const d = (await db.collection('system').doc('tradingCalendar').get()).data();
+    if (Array.isArray(d?.holidays) && d.holidays.length) {
+      TW_HOLIDAYS = new Set(d.holidays);
+      _calLoadedDate = today;
+      log(`✓ 休市日曆：${d.holidays.length} 天（官方 ${d.official?.length ?? 0}・臨時 ${d.adHoc?.length ?? 0}）`);
+    }
+  } catch (e) { log('⚠ 休市日曆讀取失敗，沿用現值:', (e.message || '').slice(0, 60)); }
+}
 function taipei() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); }
 function isoDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
-function isTradingDay(d) { const g = d.getDay(); return g !== 0 && g !== 6 && !TW_HOLIDAYS_2026.has(isoDate(d)); }
+function isTradingDay(d) { const g = d.getDay(); return g !== 0 && g !== 6 && !TW_HOLIDAYS.has(isoDate(d)); }
 
 const DISCLAIMER = '⚠️ 本快報為 AI 策略分析，僅供參考，不構成投資建議；所有進出場操作仍須會員自行評估後決策，並自負風險。';
 
@@ -1869,6 +1890,10 @@ async function runNlScreens() {
 log(`🤖 ai-daemon starting · host=${HOST} · model=${OLLAMA_MODEL} · app=${APP_BASE}`);
 await heartbeat({ note: 'starting' });
 setInterval(heartbeat, HEARTBEAT_MS);
+
+// 啟動時立刻載入權威休市表 —— 不載的話整個行程都在用硬編 fallback，
+// 而 fallback 抓不到颱風假（實例：2026-07-10 被當成交易日）。
+loadTradingCalendar();
 
 async function analyzeLoop() {
   for (;;) {
@@ -6124,7 +6149,8 @@ const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPrem
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
-let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null; let _tailTrackDate = null; let _tailEvalDate = null;
+let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
+let _calSyncDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 function execScript(name, args, tag, timeoutMin = 10) {
   import('node:child_process').then(({ execFile }) => {
@@ -6186,6 +6212,13 @@ async function dailyJobsLoop() {
               }
             }
           } catch (e) { log('✖ 營收出表日快照:', e.message); }
+        }
+        // 每日 06:40 同步休市日曆（早於 07:00 新聞與 08:45 盤前快報，
+        // 確保當天所有 isTradingDay() 判斷都吃到最新的表；颱風假當天才補得上）
+        if (mins >= 6 * 60 + 40 && _calSyncDate !== today) {
+          _calSyncDate = today;
+          execScript('sync-trading-calendar.mjs', [], '📅 休市日曆同步', 5);
+          setTimeout(() => { _calLoadedDate = null; loadTradingCalendar(); }, 90000);
         }
         // 每月首個交易日 17:20 重建龍頭名單＋model-core（權重不變·僅名單/日期更新）
         if (tw.getDate() <= 3 && mins >= 17 * 60 + 20 && _leadersMonth !== today.slice(0, 7)) {

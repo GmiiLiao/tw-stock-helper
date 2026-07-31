@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { secretEquals } from '@/lib/cron-auth';
 import { readNote, writeNote, type AiNote } from '@/lib/note-store';
 
 export const runtime = 'nodejs';
@@ -16,7 +17,7 @@ function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
   // 安全修正 (2026-07-30)：同 daily-close，改 fail-closed 並只收 header
   if (!secret) return process.env.NODE_ENV !== 'production';
-  return req.headers.get('x-cron-secret') === secret;
+  return secretEquals(req.headers.get('x-cron-secret'), secret);   // timing-safe，見 cron-auth.ts
 }
 
 export async function GET(request: NextRequest) {

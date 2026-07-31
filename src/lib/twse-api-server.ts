@@ -216,11 +216,25 @@ export function isAnyMarketActive(): boolean {
   return isMarketOpen() || isUsMarketOpen();
 }
 
+// ── 直打 MIS 的總開關 ────────────────────────────────────────
+// 這些路徑**沒有 memoize、沒有 in-flight 合流**：使用者多一個，打給 MIS 就多一次。
+// 過去在 us-central1 是「安全地壞著」—— 美國 IP 被 mis.twse.com.tw 封鎖，
+// 每次都失敗快速落到 Firestore 快照，所以沒人發現它違反了唯一不變式。
+//
+// ⚠ 一旦把 region 移到 asia-east1（台灣），這些路徑會**開始成功** ——
+//   1000 個使用者就是 1000 次直打，而 MIS 限制是每 5 秒 3 個 request，
+//   後果是伺服器 IP 被 TWSE 封鎖，且封鎖時長無人證實。
+//
+// 所以預設關閉。即時報價的唯一合法來源是常駐 daemon（台灣 IP、有 pacing）
+// 寫進 Firestore 的 marketSnapshot。真要在本機除錯才設 ALLOW_DIRECT_MIS=1。
+const ALLOW_DIRECT_MIS = process.env.ALLOW_DIRECT_MIS === '1';
+
 async function callMIS(exCh: string): Promise<Record<string, {
   name: string; price: number; open: number; high: number; low: number;
   change: number; changePercent: number; prevClose: number; tradeTime: string;
   volume: number;
 }>> {
+  if (!ALLOW_DIRECT_MIS) return {};   // 等同過去「必然失敗」的行為，但不浪費一次往返
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_=${Date.now()}`;
   try {
     const controller = new AbortController();
@@ -716,8 +730,9 @@ async function getMarketIndexDataInternalUncached(): Promise<MarketIndexData> {
 }
 
 async function getMarketIndexDataInternalRaw(): Promise<MarketIndexData> {
-  // Strategy 1: MIS Realtime
+  // Strategy 1: MIS Realtime（同樣受 ALLOW_DIRECT_MIS 管制，理由見 callMIS 上方註解）
   try {
+    if (!ALLOW_DIRECT_MIS) throw new Error('direct MIS disabled');
     const misRes = await fetch(
       'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0',
       {

@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useAppStore } from '@/lib/store';
 import { useFirebaseSync } from '@/lib/firebase-sync';
+import { setHolidays } from '@/lib/market-clock';
 import Navbar from '@/components/Navbar/Navbar';
 import Header from '@/components/Header/Header';
 import Dashboard from '@/components/Dashboard/Dashboard';
@@ -38,6 +39,18 @@ export default function App() {
 
   // Run the Firebase Auth and Data synchronization hook
   useFirebaseSync();
+
+  // 休市日曆：market-clock 的 holidays 表預設是空的（fail-open 只擋週末），
+  // 不在這裡填上的話，國定假日與颱風假都會被當成交易日照常輪詢。
+  // 一天只變一次，CDN daily tier 擋掉幾乎所有回源。
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/market-clock')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (alive && Array.isArray(j?.holidays)) setHolidays(j.holidays); })
+      .catch(() => { /* 失敗＝維持 fail-open 只擋週末，不影響可用性 */ });
+    return () => { alive = false; };
+  }, []);
 
   // Web Push 通知點擊會帶 ?code=<股票代號> 開啟本站 → 解析後直接開個股分析頁，
   // 再清掉 query 避免重新整理/返回時重複觸發。

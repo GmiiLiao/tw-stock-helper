@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { secretEquals } from '@/lib/cron-auth';
 import { getStockDayAllDataInternal, isTradingDay } from '@/lib/twse-api-server';
 import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/scoring-server';
 import {
@@ -43,7 +44,7 @@ function authorized(req: NextRequest): boolean {
     return false;
   }
   // 只收 header：原本也接受 query string，secret 會被寫進 access log。
-  return req.headers.get('x-cron-secret') === secret;
+  return secretEquals(req.headers.get('x-cron-secret'), secret);   // timing-safe，見 cron-auth.ts
 }
 
 export async function POST(request: NextRequest) {

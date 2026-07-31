@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 // `request.auth == null` 的洞才寫得進去 —— 那個洞等於任何人都能改 agent 開關。
 // admin SDK 直接繞過 rules，才能把規則收乾淨。
 import { getAdminDb } from '@/lib/firebase-admin';
+import { requireAdmin } from '@/lib/require-admin';
+import { hasCronSecret } from '@/lib/cron-auth';
 import { getMarketIndexDataInternal, getMisQuoteDataInternal, getMarketNewsDataInternal } from '@/lib/twse-api-server';
 
 export const runtime = 'nodejs';
@@ -45,6 +47,10 @@ function makeId() {
 }
 
 // ── GET: 取得佇列 ──────────────────────────────────────────
+// ⚠ 這支是**公開**的：AiNewsTicker 每 15 秒替全體使用者拉一次跑馬燈內容。
+//   內容是市場評論、本來就要給所有人看，所以不加授權閘門。
+//   （2026-07-31 一度誤鎖成 admin-only，會讓所有人的跑馬燈變空白 —— 別再改。）
+//   真正需要收的是「誰能**寫入**佇列」，見下方 POST。
 export async function GET() {
   let agentActive = true;
   let lastHeartbeat = 0;
@@ -70,12 +76,8 @@ export async function GET() {
       agentActive,
       lastHeartbeat,
     },
-    {
-      headers: {
-        'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
-      },
-    }
+    // 佇列是 in-memory、每 15 秒就變：no-store 正確；但不開放跨來源共享
+    { headers: { 'Cache-Control': 'no-store' } }
   );
 }
 
@@ -86,32 +88,12 @@ export async function POST(request: NextRequest) {
 
     // 1. Handle manual trigger action
     if (body.action === 'trigger') {
-      const { uid, email } = body;
-      if (!uid || !email) {
-        return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-      }
-
-      // Check user role in Firestore to prevent privilege escalation
-      const adb = getAdminDb();
-      if (!adb) return NextResponse.json({ error: 'DB unavailable' }, { status: 503 });
-      const userSnap = await adb.collection('users').doc(uid).get();
-      if (!userSnap.exists) {
-        return NextResponse.json({ error: 'User not found in database' }, { status: 403 });
-      }
-      
-      const userData = userSnap.data() ?? {};
-      const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'nicholas@gmii.tw';
-      // 安全修正 (2026-07-30)：原本這裡有一條 `email === adminEmail`，
-      // 而 email 來自 request body —— 等於讓呼叫端自己宣告自己是管理員。
-      // 只信任從 Firestore 讀出來的 userData。
-      const isAuthorized =
-        userData.level === 'superadmin' ||
-        userData.level === 'admin' ||
-        userData.email === adminEmail;
-
-      if (!isAuthorized) {
-        return NextResponse.json({ error: 'Permission denied' }, { status: 403 });
-      }
+      // 安全修正 (2026-07-30)：移除 `email === adminEmail`（email 來自 body）。
+      // 安全修正 (2026-07-31)：連 `uid` 也不能從 body 讀 —— 上一版仍用 body.uid
+      // 去查 users/{uid}，只要知道管理員的 uid 就能通過檢查。
+      // 現在一律驗證 Authorization: Bearer <Firebase ID token>。
+      const gate = await requireAdmin(request);
+      if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
       // --- Trigger Entire Agent Pipeline ---
       let weighted = 22000;
@@ -361,7 +343,7 @@ ${newsText}
     if (!active) {
       return NextResponse.json(
         { ok: false, status: 'paused', message: 'Agent is paused by administrator' },
-        { headers: { 'Access-Control-Allow-Origin': '*' } }
+        { headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
@@ -377,6 +359,13 @@ ${newsText}
       risk:        { label: '風險提示',   emoji: '⚠️' },
       trend:       { label: '趨勢分析',   emoji: '📈' },
     };
+
+    // 🔒 2026-07-31：推送路徑原本零授權 —— 任何人 POST 一段文字就會出現在
+    //   **全體使用者**的跑馬燈上（GET 是公開的），等於匿名內容注入。
+    //   沒有任何瀏覽器端呼叫這條路徑，所以用 server-to-server 的共享密鑰即可。
+    if (!hasCronSecret(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const typeInfo = typeMap[body.type] ?? { label: '分析', emoji: '🤖' };
 
@@ -403,7 +392,7 @@ ${newsText}
 
     return NextResponse.json(
       { ok: true, id: msg.id, queueLength: queue.length },
-      { headers: { 'Access-Control-Allow-Origin': '*' } }
+      { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 400 });
@@ -411,7 +400,10 @@ ${newsText}
 }
 
 // ── DELETE: 清空 ────────────────────────────────────────────
-export async function DELETE() {
+// 🔒 2026-07-31：原本零授權 —— 任何人 `curl -X DELETE` 就能清空整個訊息佇列。
+export async function DELETE(request: NextRequest) {
+  const gate = await requireAdmin(request);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
   queue.splice(0, queue.length);
   return NextResponse.json({ ok: true, cleared: true });
 }
