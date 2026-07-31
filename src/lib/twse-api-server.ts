@@ -678,10 +678,33 @@ export async function getMarketIndexDataInternal(): Promise<MarketIndexData> {
   return v ?? ({ weighted: 0, weightedChange: 0, weightedChangePercent: 0 } as MarketIndexData);
 }
 
+/**
+ * daemon（台灣 IP、直連 MIS）每分鐘寫入 `marketIndex/latest` —— 架構上的權威來源。
+ *
+ * 為什麼一定要比日期而不是比「有沒有值」（2026-07-31 事故）：
+ * 直抓走的 `openapi MI_INDEX` **會落後一個交易日**，而且照樣回一個 >0 的數字。
+ * 舊邏輯是「直抓失敗（weighted=0）才用備援」，於是永遠算成功、權威值永不採用。
+ * 實例：7/31 晚間站上顯示 39,933.30(−0.26%)＝7/30 收盤，
+ *      官方與 daemon 皆已是 43,119.75(+7.98%) —— 差一天、3,186 點。
+ *
+ * 兩邊都自報 tradeDate、取新的那個：盤中 daemon 較新；daemon 掛掉時
+ * openapi 補上後自然勝出。這也回到 CLAUDE.md 的鐵律：一律走 daemon → Firestore。
+ */
+async function readDaemonIndex(): Promise<Partial<MarketIndexData> | null> {
+  try {
+    const { getAdminDb } = await import('./firebase-admin');
+    const db = getAdminDb();
+    if (!db) return null;
+    const d = (await db.collection('marketIndex').doc('latest').get()).data();
+    return d && d.weighted > 0 ? (d as Partial<MarketIndexData>) : null;
+  } catch { return null; }
+}
+
 async function getMarketIndexDataInternalUncached(): Promise<MarketIndexData> {
   try {
-    const [raw, nasdaq, dow, sp500, tsmcAdr, nasdaqFutures, msciTaiwan] = await Promise.all([
+    const [raw0, daemonIdx, nasdaq, dow, sp500, tsmcAdr, nasdaqFutures, msciTaiwan] = await Promise.all([
       getMarketIndexDataInternalRaw().catch(() => ({ weighted: 0, weightedChange: 0, weightedChangePercent: 0, source: 'failed' })),
+      readDaemonIndex(),
       fetchYahooSymbolServer('^IXIC').catch(() => null),
       fetchYahooSymbolServer('^DJI').catch(() => null),
       fetchYahooSymbolServer('^GSPC').catch(() => null),
@@ -689,6 +712,13 @@ async function getMarketIndexDataInternalUncached(): Promise<MarketIndexData> {
       fetchYahooSymbolServer('NQ=F').catch(() => null),
       fetchYahooSymbolServer('EWT').catch(() => null),
     ]);
+
+    // 取 tradeDate 較新的那一份當作台股指數的真相
+    const useDaemon = !!daemonIdx
+      && (!(raw0.weighted > 0) || (daemonIdx.tradeDate || '') > ((raw0 as MarketIndexData).tradeDate || ''));
+    const raw = useDaemon
+      ? { ...raw0, ...daemonIdx, source: 'daemon_mis' } as MarketIndexData
+      : raw0;
 
     const usMarket = {
       nasdaqPrice: nasdaq ? nasdaq.price : 0,
@@ -797,6 +827,13 @@ async function getMarketIndexDataInternalRaw(): Promise<MarketIndexData> {
       );
 
       if (row) {
+        // ⚠ 回音驗證（2026-07-31）：這支 openapi 會落後一個交易日 ——
+        //   實測 7/31 21:00 仍回「日期: 1150730、收盤 39933.30」，
+        //   而官方 rwd 端點與 daemon 都已有 7/31 的 43119.75(+7.98%)。
+        //   原本的程式碼**完全沒讀 `日期` 欄位**，把昨天的指數當今天送出去。
+        //   這與上櫃日期位移事件是同一類錯誤：任何「latest」都必須自報日期。
+        const rocDate = row['日期'] || '';
+        const feedYmd = /^\d{7}$/.test(rocDate) ? `${+rocDate.slice(0, 3) + 1911}${rocDate.slice(3)}` : '';
         const closingStr  = row['收盤指數'] || row['IndexOfTheDay'] || '';
         const changeSign  = row['漲跌'] || '+';
         const changeAbsStr = row['漲跌點數'] || row['Change'] || '0';
@@ -813,6 +850,7 @@ async function getMarketIndexDataInternalRaw(): Promise<MarketIndexData> {
             weighted: closing,
             weightedChange: change,
             weightedChangePercent: pct,
+            tradeDate: feedYmd,          // 讓呼叫端能比對新舊，不要盲信
             source: 'mi_index',
           };
         }
