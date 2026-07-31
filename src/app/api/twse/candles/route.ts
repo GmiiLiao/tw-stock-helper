@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { gzipJson } from '@/lib/gzip-response';
 import { sanitizeOhlcSeries } from '@/lib/ohlc-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -42,6 +43,10 @@ async function fetchCandles(symbol: string, interval: Interval) {
 }
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'candles', 30);
+  if (limited) return limited;
+
   const code = request.nextUrl.searchParams.get('code');
   const interval = (request.nextUrl.searchParams.get('interval') || '1d') as Interval;
   if (!code || !/^\d{4,6}$/.test(code) || !['1d', '1wk', '1mo'].includes(interval)) {

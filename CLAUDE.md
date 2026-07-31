@@ -169,8 +169,10 @@ const poll = async () => {
 `.backup_before_opt/` 是 Cowork 最佳化前的檔案快照；**現在專案已有 git，回滾請用 git**，
 那個目錄留著只是保險，確認穩定後可刪。
 
-已知未做：`maxInstances` 仍為 5（容量牆，牽涉帳單，依指示不動）；
-全站無 rate limiting、無 CSP。
+已知未做：`maxInstances` 仍為 5（容量牆，牽涉帳單，依指示不動）。
+rate limiting 與 CSP 已於 2026-08-01 補上（見 docs/SECURITY-2026-07-31.md 後續補齊節）；
+rate limit 目前是 per-instance in-memory，要全域一致需自行申請 Upstash 並設
+`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`（程式已支援，填了就生效）。
 
 > ⚠ 更正（2026-08-01）：先前這裡寫「32 支 route 仍回 `no-store`」是**錯的** ——
 > 那是 grep 字串 `no-store` 的誤判，它只出現在**錯誤分支**（失敗不快取，本來就對）。

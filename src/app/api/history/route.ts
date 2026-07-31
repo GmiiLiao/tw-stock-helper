@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { readHistory, writeHistory, type DailyBar } from '@/lib/history-store';
 import { fetchDailyHistory, yearsAgoUnix } from '@/lib/history-fetch';
 
@@ -15,6 +16,10 @@ export const runtime = 'nodejs';
 const HISTORY_YEARS = 3;
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'history', 20);
+  if (limited) return limited;
+
   const sp = request.nextUrl.searchParams;
   const code = sp.get('code')?.trim();
   const days = Math.max(0, parseInt(sp.get('days') || '0', 10) || 0);

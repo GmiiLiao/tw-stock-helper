@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { gzipSync } from 'node:zlib';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import {
@@ -28,6 +29,10 @@ export const runtime = 'nodejs';
 // ============================================================
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'rating', 120);
+  if (limited) return limited;
+
   const code = request.nextUrl.searchParams.get('code')?.trim();
 
   try {

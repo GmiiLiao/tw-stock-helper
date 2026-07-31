@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -31,6 +32,10 @@ async function fetchYahooHistory(symbol: string, period1: number, period2: numbe
 // Proxy for TWSE/TPEx stock historical data
 // Endpoint: GET /api/twse/stock-history?code=2330&date=20241201
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'stock-history', 30);
+  if (limited) return limited;
+
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const date = searchParams.get('date');

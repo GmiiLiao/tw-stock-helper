@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -74,6 +75,10 @@ async function fetchYahoo(code: string): Promise<YahooQuote | null> {
 }
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'yahoo-quote', 30);
+  if (limited) return limited;
+
   const codesParam = request.nextUrl.searchParams.get('codes') ?? '';
   // 安全修正 (2026-07-30)：每個 code 會打 .TW 與 .TWO 兩次，
   // 原本上限 50 等於一次未認證呼叫放大成 100 次 Yahoo 請求。降到 10。

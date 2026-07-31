@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { readHistory, type DailyBar } from '@/lib/history-store';
 import { fetchDailyHistory, yearsAgoUnix } from '@/lib/history-fetch';
 import { computeIndicators, maSupportBuyZones } from '@/lib/indicators';
@@ -17,6 +18,10 @@ export const runtime = 'nodejs';
 const HISTORY_YEARS = 3;
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'indicators', 60);
+  if (limited) return limited;
+
   const code = request.nextUrl.searchParams.get('code')?.trim();
   if (!code || !/^\d{4,6}$/.test(code)) {
     return NextResponse.json({ error: 'Missing or invalid code' }, { status: 400 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 // 2026-07-30：改用 firebase-admin 讀寫。原本在 server 端用 client SDK，
 // 讀寫都以「未登入」身分送出，必須靠 firestore.rules 開一個
 // `request.auth == null` 的洞才寫得進去 —— 那個洞等於任何人都能改 agent 開關。
@@ -84,6 +85,9 @@ export async function GET() {
 // ── POST: 推送新訊息 ────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
+    const limited = await rateLimit(request, 'ai-analysis-post', 10);
+    if (limited) return limited;
+
     const body = await request.json().catch(() => ({}));
 
     // 1. Handle manual trigger action
@@ -402,6 +406,8 @@ ${newsText}
 // ── DELETE: 清空 ────────────────────────────────────────────
 // 🔒 2026-07-31：原本零授權 —— 任何人 `curl -X DELETE` 就能清空整個訊息佇列。
 export async function DELETE(request: NextRequest) {
+  const limited = await rateLimit(request, 'ai-analysis-del', 10);
+  if (limited) return limited;
   const gate = await requireAdmin(request);
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
   queue.splice(0, queue.length);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 import { sanitizeOhlcSeries } from '@/lib/ohlc-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
 export const runtime = 'nodejs';
@@ -59,6 +60,10 @@ async function otcCandles(interval: Interval): Promise<Bar[]> {
 }
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'index-candles', 30);
+  if (limited) return limited;
+
   const id = (request.nextUrl.searchParams.get('sym') || 'twii').toLowerCase();
   const interval = (request.nextUrl.searchParams.get('interval') || '1d') as Interval;
   if ((id !== 'otc' && !SYMS[id]) || !['1d', '1wk', '1mo'].includes(interval)) {

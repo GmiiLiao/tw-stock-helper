@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -28,6 +29,10 @@ async function fetchMaxHigh(symbol: string): Promise<{ high: number; date: strin
 }
 
 export async function GET(request: NextRequest) {
+  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
+  const limited = await rateLimit(request, 'all-time-high', 30);
+  if (limited) return limited;
+
   const code = request.nextUrl.searchParams.get('code');
   if (!code || !/^\d{4,6}$/.test(code)) {
     return NextResponse.json({ error: 'code required' }, { status: 400 });
