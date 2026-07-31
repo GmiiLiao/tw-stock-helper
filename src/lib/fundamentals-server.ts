@@ -1,0 +1,227 @@
+// ============================================================
+// Fundamentals & chips data (server-only, cached).
+// Whole-market maps keyed by stock code:
+//   • Valuation   — PER / dividend yield / PBR     (TWSE BWIBBU_ALL openapi)
+//   • Margin      — 融資今日/前日餘額 / 限額         (TWSE MI_MARGN openapi)
+//   • Institutional 三大法人買賣超(張)               (TWSE T86, dated)
+// All TWSE public endpoints, no API key. Cached ~10 min.
+// ============================================================
+
+import { isTradingDay } from './twse-api-server';
+
+export interface Valuation { pe: number | null; dividendYield: number | null; pb: number | null; }
+export interface Margin {
+  balance: number;       // 融資今日餘額 (張)
+  prevBalance: number;   // 融資前日餘額 (張)
+  limit: number;         // 融資限額 (張)
+  changePct: number;     // 日增減 %
+  utilization: number;   // 餘額 / 限額 %
+}
+export interface Institutional {
+  foreignNetLots: number; // 外資(張)，正=買超
+  trustNetLots: number;   // 投信(張)
+  dealerNetLots: number;  // 自營商(張)
+  totalNetLots: number;   // 三大法人合計(張)
+}
+
+const TTL = 10 * 60 * 1000;
+const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)', Accept: 'application/json' };
+
+async function fetchJSON(url: string): Promise<any> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 8000);
+  try {
+    const r = await fetch(url, { headers: UA, signal: c.signal, cache: 'no-store' });
+    clearTimeout(t);
+    return r.ok ? await r.json() : null;
+  } catch { clearTimeout(t); return null; }
+}
+
+function num(s: unknown): number | null {
+  if (s == null) return null;
+  const n = parseFloat(String(s).replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+function intClean(s: unknown): number {
+  const n = parseInt(String(s ?? '').replace(/,/g, '').trim(), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// ── Valuation (BWIBBU_ALL) ──────────────────────────────────
+let valCache: { map: Record<string, Valuation>; at: number } | null = null;
+export async function getValuationMap(): Promise<Record<string, Valuation>> {
+  if (valCache && Date.now() - valCache.at < TTL) return valCache.map;
+  const arr = await fetchJSON('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL');
+  const map: Record<string, Valuation> = {};
+  if (Array.isArray(arr)) {
+    for (const it of arr) {
+      const code = (it.Code || '').trim();
+      if (code) map[code] = { pe: num(it.PEratio), dividendYield: num(it.DividendYield), pb: num(it.PBratio) };
+    }
+  }
+  valCache = { map, at: Date.now() };
+  return map;
+}
+
+// ── Margin (MI_MARGN) ───────────────────────────────────────
+let marginCache: { map: Record<string, Margin>; at: number } | null = null;
+export async function getMarginMap(): Promise<Record<string, Margin>> {
+  if (marginCache && Date.now() - marginCache.at < TTL) return marginCache.map;
+  const arr = await fetchJSON('https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN');
+  const map: Record<string, Margin> = {};
+  if (Array.isArray(arr)) {
+    for (const it of arr) {
+      const code = (it['股票代號'] || '').trim();
+      if (!code) continue;
+      const balance = intClean(it['融資今日餘額']);
+      const prev = intClean(it['融資前日餘額']);
+      const limit = intClean(it['融資限額']);
+      map[code] = {
+        balance, prevBalance: prev, limit,
+        changePct: prev > 0 ? parseFloat((((balance - prev) / prev) * 100).toFixed(2)) : 0,
+        utilization: limit > 0 ? parseFloat(((balance / limit) * 100).toFixed(1)) : 0,
+      };
+    }
+  }
+  marginCache = { map, at: Date.now() };
+  return map;
+}
+
+import { getAdminDb } from './firebase-admin';
+
+// ── Institutional (T86 上市 ＋ 第二大腦 chipDaily 補上櫃, dated) ────
+let instCache: { map: Record<string, Institutional>; date: string; at: number } | null = null;
+export async function getInstitutionalMap(): Promise<{ map: Record<string, Institutional>; date: string }> {
+  if (instCache && Date.now() - instCache.at < TTL) return { map: instCache.map, date: instCache.date };
+
+  // Build candidate dates: today, then walk back over recent trading days.
+  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+  const fmt = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const candidates: string[] = [];
+  const cur = new Date(tw.getTime());
+  for (let i = 0; i < 8 && candidates.length < 4; i++) {
+    if (i === 0 || isTradingDay(cur)) candidates.push(fmt(cur));
+    cur.setDate(cur.getDate() - 1);
+  }
+
+  const map: Record<string, Institutional> = {};
+  let usedDate = '';
+  for (const date of candidates) {
+    const data = await fetchJSON(`https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${date}&selectType=ALL`);
+    if (data?.stat === 'OK' && Array.isArray(data.data) && data.data.length > 0) {
+      for (const row of data.data) {
+        const code = (row[0] || '').trim();
+        if (!code) continue;
+        const foreignNet = intClean(row[4]) + intClean(row[7]); // 外陸資 + 外資自營商
+        const trustNet = intClean(row[10]);
+        const dealerNet = intClean(row[11]);
+        const totalNet = intClean(row[18]);
+        map[code] = {
+          foreignNetLots: Math.round(foreignNet / 1000),
+          trustNetLots: Math.round(trustNet / 1000),
+          dealerNetLots: Math.round(dealerNet / 1000),
+          totalNetLots: Math.round(totalNet / 1000),
+        };
+      }
+      usedDate = date;
+      break;
+    }
+  }
+
+  // 上櫃補齊（2026-07-20 修正：T86 僅上市——台燿等上櫃股個股頁法人恆空）。
+  // 用第二大腦 chipDaily（daemon 每日合併上市+上櫃+自營）補 T86 沒有的碼。
+  try {
+    const db = getAdminDb();
+    if (db) {
+      const cd = (await db.collection('chipDaily').orderBy('date', 'desc').limit(1).get()).docs[0];
+      const m2 = cd?.data()?.codesJson ? JSON.parse(cd.data().codesJson) as Record<string, number[]> : null;
+      if (m2) {
+        let added = 0;
+        for (const code in m2) {
+          if (map[code]) continue;
+          const [f, t, d] = m2[code];
+          map[code] = { foreignNetLots: f || 0, trustNetLots: t || 0, dealerNetLots: d || 0, totalNetLots: (f || 0) + (t || 0) + (d || 0) };
+          added++;
+        }
+        if (added > 0) console.warn(`[fundamentals] chipDaily 補上櫃法人 ${added} 檔（${cd!.data().date}）`);
+      }
+    }
+  } catch { /* 第二大腦不可用時維持上市-only */ }
+
+  instCache = { map, date: usedDate, at: Date.now() };
+  return { map, date: usedDate };
+}
+
+// ── Derived factors & risk flags ────────────────────────────
+export interface FundamentalSignals {
+  valuation: Valuation | null;
+  margin: Margin | null;
+  institutional: Institutional | null;
+  /** −10..+10 contribution to score from valuation + chips. */
+  bonus: number;
+  reasons: string[];
+  riskFlags: string[];
+}
+
+/**
+ * Turn raw fundamentals/chips into a small score bonus, reasons and risk flags.
+ * Conservative weights — meant to nudge, not dominate, the technical score.
+ */
+export function deriveFundamentalSignals(
+  valuation: Valuation | null,
+  margin: Margin | null,
+  inst: Institutional | null,
+): FundamentalSignals {
+  const reasons: string[] = [];
+  const riskFlags: string[] = [];
+  let bonus = 0;
+
+  // Valuation
+  if (valuation) {
+    if (valuation.pe != null && valuation.pe > 0 && valuation.pe < 12) { bonus += 3; reasons.push(`💲 本益比偏低 (PER ${valuation.pe})，評價具吸引力`); }
+    else if (valuation.pe != null && valuation.pe > 60) { bonus -= 2; riskFlags.push(`⚠️ 本益比偏高 (PER ${valuation.pe})，評價偏貴`); }
+    if (valuation.dividendYield != null && valuation.dividendYield >= 5) { bonus += 2; reasons.push(`💰 殖利率 ${valuation.dividendYield}%，現金流報酬佳`); }
+    if (valuation.pb != null && valuation.pb > 0 && valuation.pb < 1) { bonus += 2; reasons.push(`📘 股價淨值比 < 1 (PBR ${valuation.pb})，低於帳面價值`); }
+  }
+
+  // Institutional chips (三大法人：外資 / 投信 / 自營商 + 一致性)
+  if (inst) {
+    const { foreignNetLots: f, trustNetLots: tr, dealerNetLots: dl, totalNetLots: tot } = inst;
+    // 外資
+    if (f >= 3000) { bonus += 4; reasons.push(`🌐 外資買超 ${f.toLocaleString()} 張，資金強力流入`); }
+    else if (f >= 500) { bonus += 2; reasons.push(`🌐 外資買超 ${f.toLocaleString()} 張`); }
+    else if (f <= -3000) { bonus -= 3; riskFlags.push(`🌐 外資賣超 ${Math.abs(f).toLocaleString()} 張，資金撤離`); }
+    // 投信（ETF 多由投信發行，ETF 調節籌碼亦反映於此）
+    if (tr >= 500) { bonus += 2; reasons.push(`🏦 投信買超 ${tr.toLocaleString()} 張（含 ETF 調節），作帳/認養訊號`); }
+    else if (tr <= -1000) { bonus -= 1; riskFlags.push(`🏦 投信賣超 ${Math.abs(tr).toLocaleString()} 張`); }
+    // 自營商
+    if (dl >= 1000) { bonus += 1; reasons.push(`🏛️ 自營商買超 ${dl.toLocaleString()} 張，短線承接積極`); }
+    else if (dl <= -1500) { bonus -= 1; riskFlags.push(`🏛️ 自營商賣超 ${Math.abs(dl).toLocaleString()} 張`); }
+    // 三大法人一致性（最強訊號）
+    const allBuy = f > 0 && tr > 0 && dl > 0;
+    const allSell = f < 0 && tr < 0 && dl < 0;
+    if (allBuy && tot >= 2000) { bonus += 2; reasons.push(`✅ 三大法人同步買超（合計 ${tot.toLocaleString()} 張），籌碼一致偏多`); }
+    else if (allSell) { bonus -= 2; riskFlags.push(`⚠️ 三大法人同步賣超（合計 ${tot.toLocaleString()} 張），籌碼轉弱`); }
+    else if (tot >= 5000) { bonus += 1; reasons.push(`✅ 三大法人合計買超 ${tot.toLocaleString()} 張`); }
+  }
+
+  // Margin (融資)
+  if (margin) {
+    if (margin.utilization >= 80) { bonus -= 3; riskFlags.push(`🔥 融資使用率 ${margin.utilization}%，籌碼過熱、回檔風險高`); }
+    if (margin.changePct >= 15) { bonus -= 2; riskFlags.push(`🔥 融資餘額單日暴增 ${margin.changePct}%，散戶追高`); }
+    else if (margin.changePct <= -15) { reasons.push(`🧹 融資餘額大減 ${margin.changePct}%，浮額清洗`); }
+  }
+
+  bonus = Math.max(-10, Math.min(10, bonus));
+  return { valuation, margin, institutional: inst, bonus, reasons, riskFlags };
+}
+
+/** Convenience: fetch all three maps and derive signals for one code. */
+export async function getFundamentalSignals(code: string): Promise<FundamentalSignals> {
+  const [val, margin, inst] = await Promise.all([
+    getValuationMap().catch(() => ({} as Record<string, Valuation>)),
+    getMarginMap().catch(() => ({} as Record<string, Margin>)),
+    getInstitutionalMap().catch(() => ({ map: {} as Record<string, Institutional>, date: '' })),
+  ]);
+  return deriveFundamentalSignals(val[code] ?? null, margin[code] ?? null, inst.map[code] ?? null);
+}

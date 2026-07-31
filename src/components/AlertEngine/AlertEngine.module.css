@@ -1,0 +1,178 @@
+/* AlertEngine Toast Container */
+.toastContainer {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  pointer-events: none;
+}
+
+/* Toast card */
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 300px;
+  max-width: 400px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  pointer-events: all;
+  cursor: default;
+  border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Severity variants */
+.critical {
+  background: rgba(30, 5, 5, 0.92);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.critical .toastIcon {
+  color: #ef4444;
+}
+
+.warning {
+  background: rgba(30, 18, 5, 0.92);
+  border-color: rgba(249, 115, 22, 0.4);
+  color: #fdba74;
+}
+
+.warning .toastIcon {
+  color: #f97316;
+}
+
+.info {
+  background: rgba(5, 15, 30, 0.92);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+}
+
+.info .toastIcon {
+  color: #3b82f6;
+}
+
+/* Accent left bar */
+.toast::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 12px 0 0 12px;
+}
+
+.critical::before { background: #ef4444; }
+.warning::before  { background: #f97316; }
+.info::before     { background: #3b82f6; }
+
+/* Icon */
+.toastIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  margin-top: 1px;
+}
+
+/* Body */
+.toastBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.toastTitle {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toastDetail {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.4;
+}
+
+.toastStock {
+  margin-top: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Close button */
+.toastClose {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+  margin-top: 1px;
+}
+
+.toastClose:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Enter animation: slide in from right */
+@keyframes slideInRight {
+  from {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Exit animation: fade out */
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(40px) scale(0.95);
+  }
+}
+
+.toastEnter {
+  animation: slideInRight 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+.toastExit {
+  animation: fadeOut 0.35s ease forwards;
+}

@@ -1,0 +1,718 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type { StockInfo } from '@/lib/twse-api';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
+import { logActivity } from './activity-logger';
+
+export interface WatchlistItem {
+  code: string;
+  name: string;
+  addedAt: number;
+}
+
+export interface WatchlistGroup {
+  id: string;
+  name: string;
+  color: string; // hex or css color
+  stocks: WatchlistItem[];
+  createdAt: number;
+  analysisRecords?: Array<{ timestamp: number; report: string }>;
+}
+
+export interface HoldingItem {
+  id: string;
+  code: string;
+  name: string;
+  buyPrice: number;
+  quantity: number;
+  buyDate: string;
+  note?: string;
+}
+
+export interface TradeRecord {
+  id: string;
+  code: string;
+  name: string;
+  type: 'buy' | 'sell' | 'dividend';  // 買入/賣出/股利
+  price: number;           // 成交價
+  quantity: number;        // 張數
+  fee: number;             // 手續費
+  tax: number;             // 交易稅（賣出 0.3%）
+  totalAmount: number;     // 實際金額（含費用）
+  date: string;            // YYYY-MM-DD
+  note?: string;
+  createdAt: number;
+  realizedPnL?: number;    // 已實現淨損益（賣出時，含買賣雙邊成本）
+  costBasis?: number;      // 成本基礎（買入均價）
+  dayTrade?: boolean;      // 現股當沖（證交稅減半 0.15%）
+  holdingId?: string;      // 關聯的持倉 ID（買入時）
+  consumedHoldings?: Array<{ id: string; buyPrice: number; quantity: number; buyDate: string; note?: string }>; // 扣抵的持倉明細（賣出時）
+}
+
+export interface AlertItem {
+  id: string;
+  code: string;
+  name: string;
+  type: 'PRICE_ABOVE' | 'PRICE_BELOW' | 'CHANGE_ABOVE' | 'CHANGE_BELOW';
+  value: number;
+  triggered: boolean;
+  createdAt: number;
+}
+
+export interface AppNotification {
+  id: string;
+  type: 'price_alert' | 'signal_alert' | 'volume_alert' | 'premarket_reminder' | 'ai_signal' | 'limit_up' | 'limit_down';
+  stockCode: string;
+  stockName: string;
+  message: string;
+  detail: string;
+  timestamp: number;
+  read: boolean;
+  severity: 'info' | 'warning' | 'critical';
+}
+
+const syncWatchlist = async (uid: string, watchlist: any[], watchlistGroups: any[]) => {
+  try {
+    const data = JSON.parse(JSON.stringify({ watchlist, watchlistGroups }));
+    await setDoc(doc(db, 'users', uid, 'data', 'watchlist'), data);
+  } catch (e) {
+    console.error('Error syncing watchlist:', e);
+  }
+};
+
+const syncHoldings = async (uid: string, holdings: any[]) => {
+  try {
+    const data = JSON.parse(JSON.stringify({ holdings }));
+    await setDoc(doc(db, 'users', uid, 'data', 'holdings'), data);
+  } catch (e) {
+    console.error('Error syncing holdings:', e);
+  }
+};
+
+const syncTrades = async (uid: string, tradeRecords: any[]) => {
+  try {
+    const data = JSON.parse(JSON.stringify({ tradeRecords }));
+    await setDoc(doc(db, 'users', uid, 'data', 'trades'), data);
+  } catch (e) {
+    console.error('Error syncing trades:', e);
+  }
+};
+
+const syncAlerts = async (uid: string, alerts: any[]) => {
+  try {
+    const data = JSON.parse(JSON.stringify({ alerts }));
+    await setDoc(doc(db, 'users', uid, 'data', 'alerts'), data);
+  } catch (e) {
+    console.error('Error syncing alerts:', e);
+  }
+};
+
+const syncNotifications = async (uid: string, notifications: any[]) => {
+  try {
+    const data = JSON.parse(JSON.stringify({ notifications }));
+    await setDoc(doc(db, 'users', uid, 'data', 'notifications'), data);
+  } catch (e) {
+    console.error('Error syncing notifications:', e);
+  }
+};
+
+interface AppState {
+  // View
+  currentPage: 'dashboard' | 'stock' | 'picker' | 'portfolio' | 'backtest' | 'tracker' | 'war' | 'admin' | 'help' | 'privacy' | 'indexnews';
+  pageHistory: Array<{ page: AppState['currentPage']; stock?: string | null }>;  // navigation stack
+  selectedStock: string | null;
+  activeTab: string;
+  // 頁面內分頁選取：存在 store(非持久化)，讓「進個股→返回」時回到原本的子分頁而非重置
+  pickerTab: string;      // 選股頁主分頁(recommend/strategy/screen)
+  warTab: string;         // 盤中戰情主分頁(radar/risefall/chip/limitup/volsurge/desk)
+  recommendTab: string;   // AI 推薦選股的策略子分頁(all/intraday/momentum…)
+  trackerGroupId: string; // 即時追蹤的群組分頁
+
+  // Auth
+  user: { uid: string; email: string | null; displayName: string | null; level: string } | null;
+  authLoading: boolean;
+  showAuthModal: boolean;
+
+  // Data
+  allStocks: StockInfo[];
+  lastFetchTime: number;
+
+  // User data (legacy - backward compatible)
+  watchlist: WatchlistItem[];
+  holdings: HoldingItem[];
+  tradeRecords: TradeRecord[];
+  alerts: AlertItem[];
+
+  // Watchlist groups
+  watchlistGroups: WatchlistGroup[];
+
+  // Notifications
+  notifications: AppNotification[];
+
+  // UI preferences
+  chartPeriod: '1M' | '3M' | '6M' | '1Y';
+  activeIndicators: string[];
+
+  // Actions
+  setCurrentPage: (page: AppState['currentPage']) => void;
+  navigateTo: (page: AppState['currentPage'], stock?: string | null) => void;
+  navigateBack: () => void;
+  setSelectedStock: (code: string | null) => void;
+  setActiveTab: (tab: string) => void;
+  setPickerTab: (tab: string) => void;
+  setWarTab: (tab: string) => void;
+  setRecommendTab: (tab: string) => void;
+  setTrackerGroupId: (id: string) => void;
+  setAllStocks: (stocks: StockInfo[]) => void;
+  setLastFetchTime: (time: number) => void;
+  setUser: (user: AppState['user']) => void;
+  setAuthLoading: (loading: boolean) => void;
+  setShowAuthModal: (show: boolean) => void;
+
+  // Watchlist (legacy)
+  addToWatchlist: (stock: StockInfo) => void;
+  removeFromWatchlist: (code: string) => void;
+  isInWatchlist: (code: string) => boolean;
+
+  // Watchlist Groups
+  addWatchlistGroup: (name: string, color: string) => void;
+  addWatchlistGroupWithStocks: (id: string, name: string, color: string, stocks: WatchlistItem[]) => void;
+  removeWatchlistGroup: (id: string) => void;
+  updateWatchlistGroup: (id: string, name: string, color: string) => void;
+  addToGroup: (groupId: string, stock: WatchlistItem) => void;
+  removeFromGroup: (groupId: string, code: string) => void;
+  reorderGroupStocks: (groupId: string, fromIndex: number, toIndex: number) => void;
+  addGroupAnalysisRecord: (groupId: string, record: { timestamp: number; report: string }) => void;
+
+  // Holdings
+  addHolding: (holding: Omit<HoldingItem, 'id'>) => void;
+  removeHolding: (id: string) => void;
+  updateHolding: (id: string, updates: Partial<HoldingItem>) => void;
+
+  // Trade Records
+  addTradeRecord: (record: Omit<TradeRecord, 'id' | 'createdAt'>) => void;
+  removeTradeRecord: (id: string) => void;
+
+  // Alerts
+  addAlert: (alert: Omit<AlertItem, 'id' | 'triggered' | 'createdAt'>) => void;
+  removeAlert: (id: string) => void;
+  triggerAlert: (id: string) => void;
+
+  // Notifications
+  addNotification: (n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
+  markNotificationRead: (id: string) => void;
+  clearAllNotifications: () => void;
+
+  // Chart
+  setChartPeriod: (period: AppState['chartPeriod']) => void;
+  toggleIndicator: (indicator: string) => void;
+
+  // Screener/Compare state persistence
+  compareCodes: string[];
+  compareBudget: number;
+  compareProfitTarget: number;
+  compareProfitTargetType: 'percent' | 'amount';
+  compareTradeDuration: 'day' | 'swing';
+  compareLotType: 'lot' | 'odd';
+  compareSelectedGroupId: string;
+
+  setCompareCodes: (codes: string[]) => void;
+  // 候選便條（跨頁選股工作流）：沿用 compareCodes 為候選池，各頁「＋候選」隨手撿
+  toggleCandidate: (code: string) => void;
+  clearCandidates: () => void;
+  setCompareBudget: (budget: number) => void;
+  setCompareProfitTarget: (target: number) => void;
+  setCompareProfitTargetType: (type: 'percent' | 'amount') => void;
+  setCompareTradeDuration: (duration: 'day' | 'swing') => void;
+  setCompareLotType: (type: 'lot' | 'odd') => void;
+  setCompareSelectedGroupId: (id: string) => void;
+}
+
+const DEFAULT_STOCKS: WatchlistItem[] = [
+  { code: '2330', name: '台積電', addedAt: Date.now() },
+  { code: '2317', name: '鴻海', addedAt: Date.now() },
+  { code: '2454', name: '聯發科', addedAt: Date.now() },
+  { code: '0050', name: '元大台灣50', addedAt: Date.now() },
+];
+
+const DEFAULT_GROUPS: WatchlistGroup[] = [
+  {
+    id: 'default',
+    name: '我的自選',
+    color: '#f03e3e',
+    stocks: DEFAULT_STOCKS,
+    createdAt: Date.now(),
+  },
+];
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      currentPage: 'dashboard',
+      pageHistory: [],
+      selectedStock: null,
+      activeTab: 'overview',
+      pickerTab: 'recommend',
+      warTab: 'risefall',
+      recommendTab: 'all',
+      trackerGroupId: 'tail',
+      user: null,
+      authLoading: true,
+      showAuthModal: false,
+      allStocks: [],
+      lastFetchTime: 0,
+      watchlist: DEFAULT_STOCKS,
+      holdings: [],
+      tradeRecords: [],
+      alerts: [],
+      watchlistGroups: DEFAULT_GROUPS,
+      notifications: [],
+      chartPeriod: '3M',
+      activeIndicators: ['MA5', 'MA20', 'MA60', 'MACD', 'RSI', 'KD', 'VOL'],
+
+      // Screener/Compare persistence
+      compareCodes: [],
+      compareBudget: 500000,
+      compareProfitTarget: 10,
+      compareProfitTargetType: 'percent',
+      compareTradeDuration: 'swing',
+      compareLotType: 'lot',
+      compareSelectedGroupId: 'all',
+
+      setCompareCodes: (codes) => set({ compareCodes: codes }),
+      toggleCandidate: (code) => set((state) => ({
+        compareCodes: state.compareCodes.includes(code)
+          ? state.compareCodes.filter((c) => c !== code)
+          : [...state.compareCodes, code],
+      })),
+      clearCandidates: () => set({ compareCodes: [] }),
+      setCompareBudget: (budget) => set({ compareBudget: budget }),
+      setCompareProfitTarget: (target) => set({ compareProfitTarget: target }),
+      setCompareProfitTargetType: (type) => set({ compareProfitTargetType: type }),
+      setCompareTradeDuration: (duration) => set({ compareTradeDuration: duration }),
+      setCompareLotType: (type) => set({ compareLotType: type }),
+      setCompareSelectedGroupId: (id) => set({ compareSelectedGroupId: id }),
+
+      setCurrentPage: (page) => set({ currentPage: page }),
+
+      navigateTo: (page, stock) => {
+        logActivity('navigate', { page, ...(stock ? { stock } : {}) });
+        set((state) => {
+          const nextStock = stock !== undefined ? stock : state.selectedStock;
+          // 導向與目前完全相同的頁面(且同一個股)時不推入歷史，避免「上一頁」按了沒反應
+          if (page === state.currentPage && nextStock === state.selectedStock) {
+            return { currentPage: page, selectedStock: nextStock };
+          }
+          return {
+            pageHistory: [
+              ...state.pageHistory.slice(-19),  // keep max 20 history items
+              { page: state.currentPage, stock: state.selectedStock },
+            ],
+            currentPage: page,
+            selectedStock: nextStock,
+          };
+        });
+      },
+
+      navigateBack: () => set((state) => {
+        if (state.pageHistory.length === 0) return {};
+        const prev = state.pageHistory[state.pageHistory.length - 1];
+        return {
+          pageHistory: state.pageHistory.slice(0, -1),
+          currentPage: prev.page,
+          // 精確還原來源頁的個股選取(含 null)，回到清單頁時清掉殘留的個股選取，
+          // 否則「個股分析」項目會殘留、且來源頁狀態混亂
+          selectedStock: prev.stock ?? null,
+        };
+      }),
+
+      setSelectedStock: (code) => set({ selectedStock: code }),
+      setActiveTab: (tab) => set({ activeTab: tab }),
+      setPickerTab: (tab) => set({ pickerTab: tab }),
+      setWarTab: (tab) => set({ warTab: tab }),
+      setRecommendTab: (tab) => set({ recommendTab: tab }),
+      setTrackerGroupId: (id) => set({ trackerGroupId: id }),
+      setAllStocks: (stocks) => set({ allStocks: stocks }),
+      setLastFetchTime: (time) => set({ lastFetchTime: time }),
+      setUser: (user) => set({ user }),
+      setAuthLoading: (loading) => set({ authLoading: loading }),
+      setShowAuthModal: (show) => set({ showAuthModal: show }),
+
+      addToWatchlist: (stock) => set((state) => {
+        logActivity('add_watchlist', { code: stock.code, name: stock.name });
+        const updated = state.watchlist.find(w => w.code === stock.code)
+          ? state.watchlist
+          : [...state.watchlist, { code: stock.code, name: stock.name, addedAt: Date.now() }];
+        if (state.user) syncWatchlist(state.user.uid, updated, state.watchlistGroups);
+        return { watchlist: updated };
+      }),
+
+      removeFromWatchlist: (code) => set((state) => {
+        logActivity('remove_watchlist', { code });
+        const updated = state.watchlist.filter(w => w.code !== code);
+        if (state.user) syncWatchlist(state.user.uid, updated, state.watchlistGroups);
+        return { watchlist: updated };
+      }),
+
+      isInWatchlist: (code) => get().watchlist.some(w => w.code === code),
+
+      // Watchlist Groups
+      addWatchlistGroup: (name, color) => set((state) => {
+        const updated = [
+          ...state.watchlistGroups,
+          {
+            id: `group-${Date.now()}`,
+            name,
+            color,
+            stocks: [],
+            createdAt: Date.now(),
+          },
+        ];
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      addWatchlistGroupWithStocks: (id, name, color, stocks) => set((state) => {
+        const updated = [
+          ...state.watchlistGroups,
+          {
+            id,
+            name,
+            color,
+            stocks,
+            createdAt: Date.now(),
+          },
+        ];
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      removeWatchlistGroup: (id) => set((state) => {
+        const updated = state.watchlistGroups.filter(g => g.id !== id);
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      updateWatchlistGroup: (id, name, color) => set((state) => {
+        const updated = state.watchlistGroups.map(g =>
+          g.id === id ? { ...g, name, color } : g
+        );
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      addToGroup: (groupId, stock) => set((state) => {
+        const updated = state.watchlistGroups.map(g =>
+          g.id === groupId
+            ? {
+                ...g,
+                stocks: g.stocks.find(s => s.code === stock.code)
+                  ? g.stocks
+                  : [...g.stocks, stock],
+              }
+            : g
+        );
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      removeFromGroup: (groupId, code) => set((state) => {
+        const updated = state.watchlistGroups.map(g =>
+          g.id === groupId
+            ? { ...g, stocks: g.stocks.filter(s => s.code !== code) }
+            : g
+        );
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      reorderGroupStocks: (groupId, fromIndex, toIndex) => set((state) => {
+        const groupIndex = state.watchlistGroups.findIndex(g => g.id === groupId);
+        if (groupIndex === -1) return {};
+        const group = state.watchlistGroups[groupIndex];
+        const stocks = [...group.stocks];
+        const [removed] = stocks.splice(fromIndex, 1);
+        stocks.splice(toIndex, 0, removed);
+
+        const updatedGroups = [...state.watchlistGroups];
+        updatedGroups[groupIndex] = { ...group, stocks };
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updatedGroups);
+        return { watchlistGroups: updatedGroups };
+      }),
+
+      addGroupAnalysisRecord: (groupId, record) => set((state) => {
+        const updated = state.watchlistGroups.map(g =>
+          g.id === groupId
+            ? {
+                ...g,
+                analysisRecords: [record, ...(g.analysisRecords || [])].slice(0, 10),
+              }
+            : g
+        );
+        if (state.user) syncWatchlist(state.user.uid, state.watchlist, updated);
+        return { watchlistGroups: updated };
+      }),
+
+      addHolding: (holding) => set((state) => {
+        logActivity('add_holding', { code: holding.code, buyPrice: holding.buyPrice, quantity: holding.quantity });
+        const holdingId = `h-${Date.now()}`;
+        const updated = [...state.holdings, { ...holding, id: holdingId }];
+        if (state.user) syncHoldings(state.user.uid, updated);
+        // 同步產生對應買入交易紀錄（使用者回饋：記錄持倉與交易紀錄要雙向同步——
+        // 否則交易分析/資金推算漏掉這些買入）。費稅以未折讓計。
+        const gross = Math.round(holding.buyPrice * holding.quantity * 1000);
+        const shares = Math.round(holding.quantity * 1000);
+        const fee = gross > 0 ? Math.max(shares < 1000 ? 1 : 20, Math.round(gross * 0.001425)) : 0;
+        const rec: TradeRecord = {
+          id: `t-${Date.now()}`, createdAt: Date.now(), holdingId,
+          code: holding.code, name: holding.name, type: 'buy',
+          price: holding.buyPrice, quantity: holding.quantity,
+          fee, tax: 0, totalAmount: gross + fee, date: holding.buyDate,
+          note: holding.note ? `${holding.note}（由記錄持倉同步）` : '（由記錄持倉同步）',
+        };
+        const updatedRecords = [rec, ...state.tradeRecords];
+        if (state.user) syncTrades(state.user.uid, updatedRecords);
+        return { holdings: updated, tradeRecords: updatedRecords };
+      }),
+
+      removeHolding: (id) => set((state) => {
+        const holding = state.holdings.find(h => h.id === id);
+        logActivity('remove_holding', { code: holding?.code, id });
+        const updated = state.holdings.filter(h => h.id !== id);
+        if (state.user) syncHoldings(state.user.uid, updated);
+        // 同步刪除對應的「買入」交易紀錄（使用者定案：刪持倉＝連同該筆買入一起刪，
+        // 否則現金推算殘留孤兒支出）。賣出紀錄為歷史事實不動。
+        const linked = state.tradeRecords.filter(t => t.holdingId === id && t.type === 'buy');
+        if (linked.length > 0) {
+          const updatedRecords = state.tradeRecords.filter(t => !(t.holdingId === id && t.type === 'buy'));
+          if (state.user) syncTrades(state.user.uid, updatedRecords);
+          return { holdings: updated, tradeRecords: updatedRecords };
+        }
+        return { holdings: updated };
+      }),
+
+      updateHolding: (id, updates) => set((state) => {
+        const updated = state.holdings.map(h => h.id === id ? { ...h, ...updates } : h);
+        if (state.user) syncHoldings(state.user.uid, updated);
+        return { holdings: updated };
+      }),
+
+      addTradeRecord: (record) => set((state) => {
+        logActivity('add_trade', { code: record.code, type: record.type, price: record.price, quantity: record.quantity });
+
+        let updatedHoldings = [...state.holdings];
+        let newRecord = { ...record, id: `t-${Date.now()}`, createdAt: Date.now() } as TradeRecord;
+
+        // 決策歸因快照（買入時 PIT，fire-and-forget 不影響下單）
+        if (record.type === 'buy') {
+          import('./analytics').then(({ captureTradeContext }) =>
+            captureTradeContext({ id: newRecord.id, code: record.code, type: record.type, price: record.price, quantity: record.quantity, date: record.date }, state.compareCodes)
+          ).catch(() => {});
+        }
+        
+        if (record.type === 'buy') {
+          const newHoldingId = `h-${Date.now()}`;
+          newRecord.holdingId = newHoldingId;
+          const newHolding: HoldingItem = {
+            id: newHoldingId,
+            code: record.code,
+            name: record.name,
+            buyPrice: record.price,
+            quantity: record.quantity,
+            buyDate: record.date,
+            note: record.note,
+          };
+          updatedHoldings = [...updatedHoldings, newHolding];
+        } else if (record.type === 'sell') {
+          // Consume holdings (FIFO - oldest first)
+          const stockHoldings = state.holdings.filter(h => h.code === record.code);
+          const sortedHoldings = [...stockHoldings].sort(
+            (a, b) => new Date(a.buyDate).getTime() - new Date(b.buyDate).getTime()
+          );
+          
+          let remainingToSell = record.quantity;
+          const consumedHoldings: Array<{ id: string; buyPrice: number; quantity: number; buyDate: string; note?: string }> = [];
+          
+          for (const h of sortedHoldings) {
+            if (remainingToSell <= 0) break;
+            
+            const holdingIndex = updatedHoldings.findIndex(item => item.id === h.id);
+            if (holdingIndex === -1) continue;
+            
+            const targetHolding = updatedHoldings[holdingIndex];
+            
+            if (targetHolding.quantity <= remainingToSell) {
+              consumedHoldings.push({
+                id: targetHolding.id,
+                buyPrice: targetHolding.buyPrice,
+                quantity: targetHolding.quantity,
+                buyDate: targetHolding.buyDate,
+                note: targetHolding.note,
+              });
+              remainingToSell -= targetHolding.quantity;
+              updatedHoldings.splice(holdingIndex, 1);
+            } else {
+              consumedHoldings.push({
+                id: targetHolding.id,
+                buyPrice: targetHolding.buyPrice,
+                quantity: remainingToSell,
+                buyDate: targetHolding.buyDate,
+                note: targetHolding.note,
+              });
+              updatedHoldings[holdingIndex] = {
+                ...targetHolding,
+                quantity: targetHolding.quantity - remainingToSell,
+              };
+              remainingToSell = 0;
+            }
+          }
+          if (consumedHoldings.length > 0) {
+            newRecord.consumedHoldings = consumedHoldings;
+          }
+        }
+        
+        const updatedTrades = [newRecord, ...state.tradeRecords];
+        if (state.user) {
+          syncTrades(state.user.uid, updatedTrades);
+          syncHoldings(state.user.uid, updatedHoldings);
+        }
+        return { tradeRecords: updatedTrades, holdings: updatedHoldings };
+      }),
+ 
+      removeTradeRecord: (id) => set((state) => {
+        const trade = state.tradeRecords.find(t => t.id === id);
+        logActivity('remove_trade', { code: trade?.code, id });
+        const updatedTrades = state.tradeRecords.filter(t => t.id !== id);
+        
+        let updatedHoldings = [...state.holdings];
+        if (trade) {
+          if (trade.type === 'buy') {
+            if (trade.holdingId) {
+              updatedHoldings = updatedHoldings.filter(h => h.id !== trade.holdingId);
+            } else {
+              // Fallback for older buy trade records without holdingId
+              const idx = updatedHoldings.findIndex(h =>
+                h.code === trade.code &&
+                h.buyPrice === trade.price &&
+                h.quantity === trade.quantity &&
+                h.buyDate === trade.date
+              );
+              if (idx !== -1) {
+                updatedHoldings.splice(idx, 1);
+              }
+            }
+          } else if (trade.type === 'sell' && trade.consumedHoldings) {
+            // Restore consumed holdings
+            trade.consumedHoldings.forEach(ch => {
+              const existingIndex = updatedHoldings.findIndex(h => h.id === ch.id);
+              if (existingIndex !== -1) {
+                updatedHoldings[existingIndex] = {
+                  ...updatedHoldings[existingIndex],
+                  quantity: updatedHoldings[existingIndex].quantity + ch.quantity,
+                };
+              } else {
+                updatedHoldings.push({
+                  id: ch.id,
+                  code: trade.code,
+                  name: trade.name,
+                  buyPrice: ch.buyPrice,
+                  quantity: ch.quantity,
+                  buyDate: ch.buyDate,
+                  note: ch.note,
+                });
+              }
+            });
+          }
+        }
+        
+        if (state.user) {
+          syncTrades(state.user.uid, updatedTrades);
+          syncHoldings(state.user.uid, updatedHoldings);
+        }
+        return { tradeRecords: updatedTrades, holdings: updatedHoldings };
+      }),
+
+      addAlert: (alert) => set((state) => {
+        logActivity('add_alert', { code: alert.code, type: alert.type, value: alert.value });
+        const updated = [...state.alerts, {
+          ...alert,
+          id: `a-${Date.now()}`,
+          triggered: false,
+          createdAt: Date.now()
+        }];
+        if (state.user) syncAlerts(state.user.uid, updated);
+        return { alerts: updated };
+      }),
+
+      removeAlert: (id) => set((state) => {
+        const alert = state.alerts.find(a => a.id === id);
+        logActivity('remove_alert', { code: alert?.code, type: alert?.type, id });
+        const updated = state.alerts.filter(a => a.id !== id);
+        if (state.user) syncAlerts(state.user.uid, updated);
+        return { alerts: updated };
+      }),
+
+      triggerAlert: (id) => set((state) => {
+        const updated = state.alerts.map(a => a.id === id ? { ...a, triggered: true } : a);
+        if (state.user) syncAlerts(state.user.uid, updated);
+        return { alerts: updated };
+      }),
+
+      addNotification: (n) => set((state) => {
+        const updated = [
+          {
+            ...n,
+            id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: Date.now(),
+            read: false,
+          },
+          ...state.notifications,
+        ].slice(0, 100);
+        if (state.user) syncNotifications(state.user.uid, updated);
+        return { notifications: updated };
+      }),
+
+      markNotificationRead: (id) => set((state) => {
+        const updated = state.notifications.map(n =>
+          n.id === id ? { ...n, read: true } : n
+        );
+        if (state.user) syncNotifications(state.user.uid, updated);
+        return { notifications: updated };
+      }),
+
+      clearAllNotifications: () => set((state) => {
+        if (state.user) syncNotifications(state.user.uid, []);
+        return { notifications: [] };
+      }),
+
+      setChartPeriod: (period) => set({ chartPeriod: period }),
+
+      toggleIndicator: (indicator) => set((state) => ({
+        activeIndicators: state.activeIndicators.includes(indicator)
+          ? state.activeIndicators.filter(i => i !== indicator)
+          : [...state.activeIndicators, indicator]
+      })),
+    }),
+    {
+      name: 'tw-stock-app-storage',
+      partialize: (state) => ({
+        watchlist: state.watchlist,
+        watchlistGroups: state.watchlistGroups,
+        holdings: state.holdings,
+        tradeRecords: state.tradeRecords,
+        alerts: state.alerts,
+        notifications: state.notifications,
+        chartPeriod: state.chartPeriod,
+        activeIndicators: state.activeIndicators,
+        compareCodes: state.compareCodes,
+        compareBudget: state.compareBudget,
+        compareProfitTarget: state.compareProfitTarget,
+        compareProfitTargetType: state.compareProfitTargetType,
+        compareTradeDuration: state.compareTradeDuration,
+        compareLotType: state.compareLotType,
+        compareSelectedGroupId: state.compareSelectedGroupId,
+      }),
+    }
+  )
+);

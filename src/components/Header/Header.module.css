@@ -1,0 +1,302 @@
+.header {
+  height: calc(var(--header-height) + var(--safe-top));
+  padding-top: var(--safe-top); /* clear iOS notch */
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-left: 20px;
+  padding-right: 20px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  backdrop-filter: blur(10px);
+}
+
+.indexBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+  flex-shrink: 1; /* allow shrinking to fit container */
+  max-width: 70%; /* leave room for search and clock */
+}
+
+.indexBar::-webkit-scrollbar {
+  display: none; /* Safari and Chrome */
+}
+
+.indexItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.indexLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.indexValue {
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+}
+
+.indexChange {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+.indexDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-primary);
+  flex-shrink: 0;
+}
+
+.marketStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.statusDot.open {
+  background: var(--color-up);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.statusDot.closed {
+  background: var(--color-flat);
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #818cf8;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #a5b4fc;
+}
+
+.refreshBtn:disabled {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+  cursor: not-allowed;
+}
+
+/* Search */
+.searchWrapper {
+  position: relative;
+  flex: 1;
+  max-width: 380px;
+}
+
+.searchContainer {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.875rem;
+  padding: 8px 36px 8px 34px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.searchInput:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px var(--accent-blue-glow);
+}
+
+.searchInput::placeholder { color: var(--text-muted); }
+
+.searchSpinner {
+  position: absolute;
+  right: 10px;
+}
+
+.searchDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 100;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.searchItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.searchItem:last-child { border-bottom: none; }
+.searchItem:hover { background: var(--bg-card-hover); }
+
+.searchItemInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchCode {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+  min-width: 42px;
+}
+
+.searchName {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.searchItemPrice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchPrice {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.searchChange {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+
+/* Clock */
+.clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.clockTime {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+}
+
+.clockLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── Mobile Responsive ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .header {
+    padding-left: 12px;
+    padding-right: 12px;
+    gap: 8px;
+    height: calc(50px + var(--safe-top));
+  }
+  .indexBar {
+    max-width: 100%;
+    gap: 10px;
+  }
+  .indexItem { gap: 4px; }
+  .indexLabel { font-size: 0.6875rem; }
+  .indexValue { font-size: 0.8125rem; }
+  .indexChange { font-size: 0.6875rem; }
+  .indexDivider { height: 16px; }
+  .searchWrapper { max-width: 160px; }
+  .searchInput { padding: 6px 30px 6px 30px; font-size: 0.8125rem; }
+  .clock { display: none; }
+  .refreshBtn { padding: 2px 6px; font-size: 0.625rem; margin-left: 4px; }
+  .marketStatus { font-size: 0.625rem; gap: 3px; }
+  .statusDot { width: 5px; height: 5px; }
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 6px;
+    height: calc(44px + var(--safe-top));
+  }
+  .indexBar { gap: 6px; }
+  .indexValue { font-size: 0.75rem; }
+  .indexChange { font-size: 0.625rem; }
+  .searchWrapper { max-width: 120px; }
+  .refreshBtn { display: none; }
+}
+
+/* ── 手機：頂列只留加權指數＋資料日，夜盤/那指隱藏 ── */
+@media (max-width: 640px) {
+  .indexItem { display: none; }
+  .indexItem:first-child { display: flex; }
+  .indexDivider { display: none; }
+}

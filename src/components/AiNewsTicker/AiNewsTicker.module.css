@@ -1,0 +1,824 @@
+/* ============================================================
+   AiNewsTicker — Sidebar AI Agent Panel & Marquee Ticker
+   ============================================================ */
+
+/* ── Navbar Section Container ──────────────────────────────── */
+
+.navSection {
+  flex-shrink: 0;  /* 側欄釘底布局：字體放大時不被壓縮 */
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-primary);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+/* ── Toggle Button ─────────────────────────────────────────── */
+
+.toggleBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.toggleBtn:hover {
+  background: rgba(168, 85, 247, 0.08);
+  color: #c084fc;
+}
+
+.toggleBtnActive {
+  background: linear-gradient(135deg, rgba(168,85,247,0.12), rgba(99,102,241,0.08));
+  color: #c084fc;
+  border: 1px solid rgba(168,85,247,0.25);
+}
+
+.toggleIcon {
+  font-size: 1.1rem;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.toggleLabel {
+  flex: 1;
+  font-size: 0.875rem;
+}
+
+.toggleBadge {
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: all 0.3s;
+}
+
+.toggleBadgePulse {
+  color: #a855f7;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* ── Ticker (跑馬燈) ───────────────────────────────────────── */
+
+.tickerSection {
+  padding: 0 6px 4px;
+}
+
+.tickerWrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(168,85,247,0.06);
+  border: 1px solid rgba(168,85,247,0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  height: 32px;
+}
+
+.tickerLabel {
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #a855f7;
+  background: rgba(168,85,247,0.15);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid rgba(168,85,247,0.2);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.tickerTrack {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+}
+
+.tickerContent {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  white-space: nowrap;
+  animation: tickerScroll 35s linear infinite;
+}
+
+.tickerContent:hover {
+  animation-play-state: paused;
+}
+
+.tickerChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  border-right: 1px solid rgba(168,85,247,0.15);
+  white-space: nowrap;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.tickerChip:hover {
+  color: #c084fc;
+  background: rgba(168,85,247,0.08);
+}
+
+.tickerChipEmoji {
+  font-size: 12px;
+}
+
+.tickerChipText {
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.tickerEmpty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: rgba(168,85,247,0.04);
+  border: 1px solid rgba(168,85,247,0.15);
+  border-radius: 8px;
+}
+
+.tickerLoadingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a855f7;
+  animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tickerScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ── Expanded Panel ────────────────────────────────────────── */
+
+.expandedPanel {
+  display: flex;
+  flex-direction: column;
+  margin: 0 6px 8px;
+  background: rgba(168,85,247,0.04);
+  border: 1px solid rgba(168,85,247,0.18);
+  border-radius: 10px;
+  overflow: hidden;
+  animation: slideDown 0.25s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(168,85,247,0.15);
+  background: rgba(168,85,247,0.06);
+}
+
+.panelTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c084fc;
+  letter-spacing: 0.04em;
+}
+
+.panelActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panelTime {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(168,85,247,0.3);
+  background: rgba(168,85,247,0.08);
+  color: #c084fc;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background: rgba(168,85,247,0.18);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Analysis Cards ────────────────────────────────────────── */
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.2s;
+  min-height: 72px;
+}
+
+.card:hover {
+  background: rgba(168,85,247,0.08);
+  border-color: rgba(168,85,247,0.35);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(168,85,247,0.12);
+}
+
+.cardLoading {
+  border-color: rgba(168,85,247,0.3);
+}
+
+.cardError {
+  border-color: rgba(239,68,68,0.25);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cardEmoji {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.cardLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c084fc;
+  flex: 1;
+}
+
+.cardSpinner {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid rgba(168,85,247,0.3);
+  border-top-color: #a855f7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.cardPreview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.cardLoadingText {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.dots::after {
+  content: '';
+  animation: dotsAnim 1.5s steps(4) infinite;
+}
+
+@keyframes dotsAnim {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+
+.cardErrorText {
+  color: #ef4444;
+  font-size: 13px;
+}
+
+.cardEmpty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.cardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.cardReadMore {
+  color: #a855f7;
+  font-weight: 600;
+}
+
+.panelFooter {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid rgba(168,85,247,0.12);
+  font-family: monospace;
+  letter-spacing: 0.03em;
+}
+
+/* ── Taiwan Index Widget ───────────────────────────────────── */
+
+.indexWidget {
+  flex-shrink: 0;
+  margin: 0 10px 8px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(61,142,248,0.08), rgba(61,142,248,0.03));
+  border: 1px solid rgba(61,142,248,0.2);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.indexWidgetLoading {
+  margin: 0 10px 8px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgba(61,142,248,0.04);
+  border: 1px solid rgba(61,142,248,0.12);
+  border-radius: 10px;
+}
+
+.indexDash {
+  font-family: monospace;
+}
+
+.indexWidgetTitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.indexWidgetValue {
+  font-size: 18px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.indexWidgetChange {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.indexWidgetPct {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.indexWidgetHl {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.indexHlBar {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.indexWidgetSource {
+  font-size: 12px;
+  color: #22c55e;
+  margin-top: 2px;
+  font-family: monospace;
+}
+
+/* ── Detail Modal ──────────────────────────────────────────── */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid rgba(168,85,247,0.35);
+  border-radius: 16px;
+  width: min(640px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(168,85,247,0.1);
+  animation: modalIn 0.25s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.94) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(168,85,247,0.2);
+  background: linear-gradient(135deg, rgba(168,85,247,0.08), rgba(99,102,241,0.05));
+  flex-shrink: 0;
+}
+
+.modalEmoji {
+  font-size: 22px;
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.modalTime {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.modalClose {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.modalClose:hover {
+  background: rgba(239,68,68,0.12);
+  color: #ef4444;
+  border-color: rgba(239,68,68,0.3);
+}
+
+.modalContext {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-primary);
+  background: rgba(0,0,0,0.15);
+  flex-shrink: 0;
+}
+
+.modalContextLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+}
+
+.modalContextText {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.modalBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(168,85,247,0.3) transparent;
+}
+
+.modalLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.loadingDots {
+  display: flex;
+  gap: 8px;
+}
+
+.loadingDots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #a855f7;
+  animation: bounceDot 1.2s ease-in-out infinite;
+}
+
+.loadingDots span:nth-child(2) { animation-delay: 0.2s; }
+.loadingDots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounceDot {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.modalError {
+  padding: 24px;
+  color: #ef4444;
+  font-size: 14px;
+  text-align: center;
+}
+
+.modalText {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modalSection {
+  font-size: 14px;
+  font-weight: 700;
+  color: #c084fc;
+  margin-top: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(168,85,247,0.15);
+}
+
+.modalPara {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-primary);
+  background: rgba(0,0,0,0.1);
+  flex-shrink: 0;
+}
+
+.modalModel {
+  font-size: 13px;
+  color: #a855f7;
+  font-family: monospace;
+}
+
+.modalDisclaimer {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Animations ────────────────────────────────────────────── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── Agent Message List ─────────────────────────────────────── */
+
+.msgList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(168,85,247,0.3) transparent;
+}
+
+.msgEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.msgCard {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border-primary);
+  border-left: 3px solid #475569;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.msgCard:hover {
+  background: rgba(168,85,247,0.07);
+  border-color: rgba(168,85,247,0.3);
+  transform: translateX(2px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+
+.msgCardLatest {
+  background: rgba(168,85,247,0.05);
+}
+
+.msgCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.msgEmoji {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.msgLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c084fc;
+  flex: 1;
+}
+
+.msgBadgeNew {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 1px 5px;
+  background: rgba(168,85,247,0.25);
+  color: #c084fc;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.msgTime {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+.msgSummary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.msgStockTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.msgStockTag {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 6px;
+  background: rgba(59,130,246,0.12);
+  color: #60a5fa;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.msgReadMore {
+  font-size: 12px;
+  color: #a855f7;
+  font-weight: 600;
+  align-self: flex-end;
+}
+
+/* ── Ticker chip time ──────────────────────────────────────── */
+.tickerChipTime {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: monospace;
+  opacity: 0.8;
+}
+
+/* ── Modal Stocks ──────────────────────────────────────────── */
+.modalStocks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-primary);
+  background: rgba(59,130,246,0.04);
+}
+
+.stockChip {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  background: rgba(59,130,246,0.15);
+  color: #60a5fa;
+  border-radius: 6px;
+  font-family: monospace;
+  border: 1px solid rgba(59,130,246,0.25);
+}
+
+/* ── Mobile: hide index widget & AI ticker from the bottom tab bar ──
+   These belong to the desktop sidebar; on the cramped 56px mobile bar they
+   would squeeze the nav buttons. The data is still available on the Dashboard. */
+@media (max-width: 768px) {
+  .indexWidget {
+  flex-shrink: 0; display: none; }
+  .indexWidgetLoading { display: none; } /* 載入中/無資料狀態也要藏，否則夜間「加權指數 --」擠壓底部導覽 */
+  .navSection {
+  flex-shrink: 0;  /* 側欄釘底布局：字體放大時不被壓縮 */ display: none; }
+}

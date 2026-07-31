@@ -1,0 +1,48 @@
+.chartContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.indicatorBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  flex-wrap: wrap;
+}
+
+.indicatorLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.mainChart, .subChart {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 12px 8px 8px;
+}
+
+.chartTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+  padding: 0 8px;
+}
+
+.loadingState, .emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}

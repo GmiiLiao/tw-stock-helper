@@ -1,0 +1,1136 @@
+/* ── Global Keyframes ─────────────────────────────────────────────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Price change flash — used for live 5s updates */
+@keyframes priceFlashUp {
+  0%   { background: rgba(239, 68, 68, 0.35); }
+  100% { background: transparent; }
+}
+@keyframes priceFlashDown {
+  0%   { background: rgba(59, 130, 246, 0.35); }
+  100% { background: transparent; }
+}
+
+.priceFlashUp   { animation: priceFlashUp   0.8s ease-out; border-radius: 4px; }
+.priceFlashDown { animation: priceFlashDown 0.8s ease-out; border-radius: 4px; }
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+.tracker {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #0a0e1a;
+  color: #e2e8f0;
+  font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.trackerHeader {
+  flex-shrink: 0;
+  padding: 20px 24px 0;
+  background: linear-gradient(180deg, #0d1224 0%, #0a0e1a 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.trackerTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.trackerTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.trackerMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.refreshTime {
+  font-size: 13px;
+  color: #8b9bb8;
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Tab Bar ──────────────────────────────────────────────────────────────── */
+.tabBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 0;
+  min-width: 0; /* 讓內部 .tabs 收縮捲動，而不是把右側按鈕擠出畫面 */
+}
+
+/* 右側「新增群組／管理分組」固定可見，不隨分頁增加被擠出 */
+.tabBar > button { flex-shrink: 0; }
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  cursor: grab;
+  scrollbar-width: thin;                        /* 細捲軸提示「可捲動」 */
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  touch-action: pan-x;                          /* 觸控左右滑 */
+}
+.tabs:active { cursor: grabbing; }
+.tabs::-webkit-scrollbar { display: block; height: 4px; }
+.tabs::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 2px; }
+.tabs::-webkit-scrollbar-track { background: transparent; }
+
+.tab {
+  display: flex;
+  flex-shrink: 0; /* 分頁不被壓縮變形 */
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #8b9bb8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  border-radius: 8px 8px 0 0;
+}
+
+.tab:hover {
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tabActive {
+  color: #f03e3e;
+  background: rgba(240, 62, 62, 0.06);
+  border-bottom-color: currentColor;
+}
+
+.tabDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tabCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.addGroupBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: #8b9bb8;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+
+.addGroupBtn:hover {
+  border-color: rgba(240, 62, 62, 0.5);
+  color: #f03e3e;
+  background: rgba(240, 62, 62, 0.06);
+}
+
+/* ── Main content area ────────────────────────────────────────────────────── */
+.trackerContent {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stockListArea {
+  overflow-y: auto;
+  padding: 16px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+/* ── Group Panel ──────────────────────────────────────────────────────────── */
+.groupPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: fadeInDown 0.2s ease;
+}
+
+.tableHeader {
+  display: grid;
+  grid-template-columns: 170px 1fr 80px 36px;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.emptyGroup {
+  padding: 40px 20px;
+  text-align: center;
+  color: #475569;
+  font-size: 13px;
+}
+
+/* ── Stock Row ────────────────────────────────────────────────────────────── */
+.stockRow {
+  display: grid;
+  grid-template-columns: 170px 1fr 80px 36px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.15s;
+  margin-bottom: 3px;
+}
+
+.stockRow:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.limitUp {
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  background: rgba(239, 68, 68, 0.04) !important;
+}
+
+.limitDown {
+  border-color: rgba(59, 130, 246, 0.25) !important;
+  background: rgba(59, 130, 246, 0.04) !important;
+}
+
+.stockInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stockCode {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e2e8f0;
+  font-variant-numeric: tabular-nums;
+}
+
+.stockName {
+  font-size: 14px;
+  color: #f5a623;
+  font-weight: 700;
+}
+
+.stockQuote {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stockPrice {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e2e8f0;
+  min-width: 60px;
+}
+
+.stockChange {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 50px;
+}
+
+.stockPct {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 68px;
+  justify-content: center;
+}
+
+.stockVolume {
+  font-size: 13px;
+  color: #8b9bb8;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.priceUp   { color: #ef4444; }
+.priceDown { color: #3b82f6; }
+
+.bgUp   { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.bgDown { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.bgFlat { background: rgba(255, 255, 255, 0.06); color: #8b9bb8; }
+
+.noData {
+  font-size: 12px;
+  color: #475569;
+}
+
+.stockFlags {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.aiTag {
+  font-size: 14px;
+  cursor: default;
+}
+
+.alertTag {
+  display: flex;
+  color: #f59e0b;
+}
+
+.limitTag {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  letter-spacing: 0.02em;
+}
+
+.removeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.removeBtn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* ── Add Stock Bar ────────────────────────────────────────────────────────── */
+.addStockBar {
+  position: relative;
+  margin-top: 12px;
+}
+
+.searchWrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.2s;
+}
+
+.searchWrapper:focus-within {
+  border-color: rgba(240, 62, 62, 0.4);
+  background: rgba(240, 62, 62, 0.04);
+}
+
+.searchIcon {
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  font-size: 13px;
+  outline: none;
+}
+
+.searchInput::placeholder { color: #475569; }
+
+.searchClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+}
+.searchClear:hover { color: #94a3b8; }
+
+.searchDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #141929;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  animation: fadeInDown 0.15s ease;
+}
+
+.searchResult {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+}
+
+.searchResult:hover {
+  background: rgba(240, 62, 62, 0.08);
+}
+
+.searchResultCode {
+  font-weight: 700;
+  color: #f1f5f9;
+  min-width: 50px;
+  font-variant-numeric: tabular-nums;
+}
+
+.searchResultName {
+  flex: 1;
+  color: #94a3b8;
+}
+
+.deleteGroupBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: transparent;
+  color: #ef4444;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  align-self: flex-start;
+}
+.deleteGroupBtn:hover { opacity: 1; }
+
+/* ── Notifications Panel ──────────────────────────────────────────────────── */
+.notifPanel {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: #0d1224;
+  overflow: hidden;
+}
+
+.notifHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.notifTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.unreadBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #f03e3e;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.clearBtn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #8b9bb8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.clearBtn:hover {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.notifList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+
+.notifEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.notifItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.notifItem:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.notifUnread {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Severity coloring for notification items */
+.sev-critical { border-left: 2px solid rgba(239, 68, 68, 0.5) !important; padding-left: 8px; }
+.sev-warning  { border-left: 2px solid rgba(249, 115, 22, 0.5) !important; padding-left: 8px; }
+.sev-info     { border-left: 2px solid rgba(59, 130, 246, 0.5) !important; padding-left: 8px; }
+
+.notifEmoji {
+  font-size: 16px;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.notifContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.notifMsg {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 2px;
+}
+
+.notifDetail {
+  font-size: 13px;
+  color: #8b9bb8;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.notifMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.notifCode {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f03e3e;
+  background: rgba(240, 62, 62, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.notifTime {
+  font-size: 12px;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+.unreadDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f03e3e;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+/* ── Modal ────────────────────────────────────────────────────────────────── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: #141929;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 24px;
+  width: 360px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  animation: scaleIn 0.2s ease;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.modalClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+  cursor: pointer;
+}
+.modalClose:hover { background: rgba(255, 255, 255, 0.1); }
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.formLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8b9bb8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.formInput {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.formInput:focus {
+  border-color: rgba(240, 62, 62, 0.5);
+}
+.formInput::placeholder { color: #475569; }
+
+.colorSwatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.colorSwatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.colorSwatch:hover { transform: scale(1.15); }
+.colorSwatchActive {
+  border-color: white;
+  transform: scale(1.15);
+}
+
+.modalActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.btnSecondary {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btnSecondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.btnPrimary {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #f03e3e, #c92a2a);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(240, 62, 62, 0.3);
+}
+.btnPrimary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(240, 62, 62, 0.4);
+}
+.btnPrimary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Scrollbar styles */
+.stockListArea::-webkit-scrollbar,
+.notifList::-webkit-scrollbar {
+  width: 4px;
+}
+.stockListArea::-webkit-scrollbar-track,
+.notifList::-webkit-scrollbar-track {
+  background: transparent;
+}
+.stockListArea::-webkit-scrollbar-thumb,
+.notifList::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .trackerContent {
+    grid-template-columns: 1fr;
+  }
+  .notifPanel {
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    max-height: 300px;
+  }
+  .tableHeader,
+  .stockRow {
+    grid-template-columns: 1fr 1fr 60px 32px;
+  }
+  .stockRow > .stockFlags { display: none; }
+}
+
+@media (max-width: 640px) {
+  .tableHeader,
+  .stockRow {
+    grid-template-columns: 1fr 1fr 32px;
+    padding: 8px 10px;
+    gap: 4px;
+  }
+  .stockRow > div:nth-child(3) {
+    display: none; /* Hide volume column on small screens */
+  }
+  .tableHeader > span:nth-child(3) {
+    display: none;
+  }
+  .stockRow.hasDragHandle {
+    padding-left: 26px;
+  }
+  .tableHeader.hasHeaderOffset {
+    padding-left: 26px;
+  }
+  .dragHandle {
+    left: 6px;
+  }
+}
+
+/* ── Stock Row Container and Expandable Chart ────────────────────────────── */
+.stockRowContainer {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 6px;
+  animation: fadeInDown 0.15s ease-out;
+}
+
+.chartWrapper {
+  overflow: hidden;
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.trendChartContainer {
+  background: rgba(13, 18, 36, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.chartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding-bottom: 8px;
+}
+
+.chartTitleArea {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chartTitleText {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.chartPeriodChange {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.periodTabs {
+  display: flex;
+  gap: 4px;
+}
+
+.periodTab {
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8b9bb8;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.periodTab:hover {
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.periodTabActive {
+  color: #f1f5f9;
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.chartBody {
+  display: flex;
+  gap: 16px;
+}
+
+.chartMain {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.chartLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 160px;
+  gap: 10px;
+  color: #8b9bb8;
+  font-size: 12px;
+}
+
+.chartSpinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.chartError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 160px;
+  color: #8b9bb8;
+  font-size: 12px;
+}
+
+.chartStatsPanel {
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
+  padding-left: 16px;
+  flex-shrink: 0;
+}
+
+.statGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.statBox {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.statBoxLabel {
+  font-size: 12px;
+  color: #8b9bb8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statBoxValue {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.detailBtn {
+  width: 100%;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.detailBtn:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .chartBody {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chartStatsPanel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    padding-left: 0;
+    padding-top: 12px;
+    flex-direction: row;
+    align-items: center;
+  }
+  .statGrid {
+    flex-direction: row;
+    gap: 24px;
+  }
+  .detailBtn {
+    width: auto;
+    padding: 8px 16px;
+  }
+}
+
+/* ── Drag and Drop Reordering Styles ── */
+.stockRow.hasDragHandle {
+  position: relative;
+  padding-left: 32px;
+}
+
+.dragHandle {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 24px;
+  color: #475569;
+  cursor: grab;
+  user-select: none;
+  font-size: 14px;
+  font-weight: bold;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.dragHandle:hover {
+  opacity: 1;
+  color: #818cf8;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.tableHeader.hasHeaderOffset {
+  padding-left: 32px;
+}
+
+.isDragging {
+  opacity: 0.35;
+  border: 1px dashed rgba(99, 102, 241, 0.4) !important;
+  background: rgba(99, 102, 241, 0.02) !important;
+}
+
+.dragOverTop {
+  border-top: 2px solid #6366f1 !important;
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.dragOverBottom {
+  border-bottom: 2px solid #6366f1 !important;
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+
+/* ── 急漲/急跌表與 AI 清單：桌機 grid、手機摺疊為兩欄卡片 ── */
+.surgeHeader, .surgeRow { display: grid; grid-template-columns: 1.5fr 1fr 0.8fr 0.8fr auto; }
+.aiHeader, .aiRow { display: grid; grid-template-columns: 1fr 1fr 120px 80px; }
+@media (max-width: 640px) {
+  .surgeHeader, .aiHeader { display: none; }
+  .surgeRow { grid-template-columns: 1fr auto; row-gap: 6px; }
+  .surgeRow > *:nth-child(2) { align-items: flex-end !important; text-align: right; }
+  .surgeRow > *:nth-child(4) { align-items: flex-end !important; }
+  .surgeRow > *:nth-child(5) { grid-column: 1 / -1; }
+  .aiRow { grid-template-columns: 1fr auto; row-gap: 6px; }
+  .aiRow > *:nth-child(2) { align-items: flex-end !important; text-align: right; }
+  .aiRow > *:nth-child(4) { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+}

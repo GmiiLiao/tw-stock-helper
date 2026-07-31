@@ -1,0 +1,34 @@
+.appLayout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.mainArea {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  /* Center & cap width so content doesn't stretch edge-to-edge on HD/ultra-wide.
+     Below --content-max this is a no-op, so normal screens are unaffected. */
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+}
+
+/* ── Mobile: sidebar → bottom nav, no portrait block ── */
+@media (max-width: 768px) {
+  .mainArea {
+    margin-left: 0;
+    /* bottom tab bar (56px) + iOS home-indicator safe area */
+    padding-bottom: calc(56px + var(--safe-bottom));
+  }
+}

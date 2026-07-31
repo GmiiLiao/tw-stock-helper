@@ -1,0 +1,380 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  animation: fadeIn 0.3s ease-out;
+  min-height: 100%;
+}
+
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 16px;
+}
+
+.placeholderIcon { font-size: 4rem; opacity: 0.4; }
+.placeholderText { font-size: 1rem; color: var(--text-muted); }
+
+/* Stock Header */
+.stockHeader {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  flex-wrap: wrap;
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.backBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+  transform: translateX(-2px);
+}
+
+.stockId {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.stockCode {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent-blue);
+  letter-spacing: 0.02em;
+}
+
+.stockName {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.priceBlock {
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.currentPrice {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.priceChange {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.stockStats {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.statItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statKey {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statVal {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Signal Badge Row */
+.signalBadgeRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.signalBadge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 1px solid;
+  border-radius: 30px;
+  font-size: 0.875rem;
+}
+
+.signalBadgeLabel {
+  font-weight: 600;
+}
+
+.signalStrengthBar {
+  width: 60px;
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.signalStrengthFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s;
+}
+
+.signalStrengthText {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  min-width: 28px;
+}
+
+.loadingText {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* Tabs */
+.tabsRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.periodSelector {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* Content */
+.content {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Portfolio Tab */
+.portfolioTab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.portfolioSummary {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.pnlCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.pnlLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.pnlValue {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2rem;
+  font-weight: 800;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pnlPct {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pnlSub {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.holdingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.holdingItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.holdingInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.holdingDate { font-size: 0.8125rem; color: var(--text-muted); }
+.holdingQty { font-size: 0.875rem; font-weight: 600; }
+.holdingBuyPrice { font-family: 'JetBrains Mono', monospace; font-size: 0.8125rem; color: var(--text-secondary); }
+.holdingNote { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
+
+.holdingPnl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.holdingPnlPct {
+  font-size: 0.75rem;
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 440px;
+  box-shadow: var(--shadow-lg);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modalHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.modalClose {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.modalClose:hover {
+  background: var(--color-down-bg);
+  color: var(--color-down);
+}
+
+.modalBody {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formGroup label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.inputHelper {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.costPreview {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+}
+
+.costPreview strong {
+  color: var(--accent-blue);
+}
+
+.modalFooter {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

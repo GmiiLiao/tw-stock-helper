@@ -1,0 +1,785 @@
+.panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Loading / Error */
+.loadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.errorState {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-down);
+  font-size: 0.875rem;
+}
+
+/* ─── Sections ───────────────────────────────────────── */
+.section { display: flex; flex-direction: column; gap: 10px; }
+
+.sectionTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sectionBadge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.liveTag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6875rem;
+  color: var(--color-up);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.industryTag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(61,142,248,0.1);
+  border: 1px solid rgba(61,142,248,0.25);
+  border-radius: 20px;
+  color: var(--accent-blue);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ─── Summary Section ────────────────────────────────── */
+.summarySection {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 10px 16px;
+  align-items: start;
+}
+
+.momentumTag {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 4px 14px;
+  border-radius: 20px;
+  grid-column: 1;
+  grid-row: 1;
+  width: fit-content;
+}
+
+.summaryText {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+  grid-column: 1;
+  grid-row: 2;
+}
+
+/* ─── Gauge ──────────────────────────────────────────── */
+.gaugeWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-end;
+  margin-top: -8px;
+}
+
+.gaugeSvg {
+  width: 110px;
+  height: 66px;
+}
+
+.gaugeScore {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.375rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.gaugeLevel {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.gaugeLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ─── Reason Cards ───────────────────────────────────── */
+.reasonsList { display: flex; flex-direction: column; gap: 8px; }
+
+.reasonCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s;
+}
+
+.reasonHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reasonIcon {
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.reasonTitle {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  line-height: 1.3;
+}
+
+.reasonStrength {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.04);
+  flex-shrink: 0;
+}
+
+.reasonDetail {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+/* ─── News Cards ─────────────────────────────────────── */
+.newsList { display: flex; flex-direction: column; gap: 6px; }
+
+.noNews {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.newsCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.15s;
+}
+
+.newsCard:hover {
+  border-color: var(--border-accent);
+}
+
+.newsTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.newsTypeBadge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.newsSentiment {
+  font-size: 0.875rem;
+}
+
+.newsDate {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.newsHeadline {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.newsSource {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ─── Industry Outlook Card ──────────────────────────── */
+.outlookCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Horizon Grid */
+.horizonGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.horizonItem {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.horizonPeriod {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.horizonValue {
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+/* Sentiment Bar */
+.sentimentSection { display: flex; flex-direction: column; gap: 6px; }
+
+.sentimentRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sentimentLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 68px;
+  flex-shrink: 0;
+}
+
+.sentimentTrack {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sentimentFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s ease;
+}
+
+.sentimentValue {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* Consensus Row */
+.consensusRow {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-primary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.consensusItem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.consensusLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.consensusValue {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Catalysts & Risks */
+.catalystsSection, .risksSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.catalystsTitle, .risksTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.catalystsList, .risksList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.catalystItem, .riskItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.catalystDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f03e3e;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.riskDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2f9e44;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.industryDesc {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  background: rgba(61,142,248,0.04);
+  border-left: 2px solid rgba(61,142,248,0.25);
+  border-radius: 0 4px 4px 0;
+  line-height: 1.5;
+}
+
+/* Disclaimer */
+.disclaimer {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  background: rgba(245,158,11,0.04);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid rgba(245,158,11,0.3);
+  line-height: 1.5;
+}
+
+/* ─── Extra Badges ───────────────────────────────────── */
+.scaleBadge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.timeBadge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  background: rgba(230,119,0,0.1);
+  border: 1px solid rgba(230,119,0,0.3);
+  border-radius: 20px;
+  color: #e67700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ─── Company Card ───────────────────────────────────── */
+.companyCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.companyHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.companyLogoPlaceholder {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(201,42,42,0.2) 0%, rgba(25,113,194,0.2) 100%);
+  border: 1px solid rgba(201,42,42,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.375rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.companyHeaderInfo { flex: 1; min-width: 0; }
+
+.companyFullName {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.companyCodeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.companyCodeTag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+  padding: 2px 8px;
+  background: rgba(61,142,248,0.1);
+  border-radius: 6px;
+}
+
+.companyShortName {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.companyAge {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  padding: 2px 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+}
+
+.capitalBlock {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.capitalLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.capitalValue {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Business */
+.businessSection { display: flex; flex-direction: column; gap: 6px; }
+
+.businessLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.businessText {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* Products */
+.productsSection { display: flex; flex-direction: column; gap: 8px; }
+
+.productsList { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.productTag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: rgba(201,42,42,0.07);
+  border: 1px solid rgba(201,42,42,0.2);
+  border-radius: 20px;
+  color: var(--text-primary);
+}
+
+/* Info grid */
+.companyInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.infoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.infoWide { grid-column: 1 / -1; }
+
+.infoLabel {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.infoValue {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* ─── Pre-Market Card ────────────────────────────────── */
+.preMarketCard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.recBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid;
+}
+
+.recIcon { font-size: 1.5rem; flex-shrink: 0; }
+
+.recContent { flex: 1; }
+
+.recLabel {
+  font-size: 0.875rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.recText {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Price Overview */
+.priceOverviewGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.priceOverItem {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.priceOverLabel {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.priceOverValue {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+/* Order Levels */
+.orderLevelsSection { display: flex; flex-direction: column; gap: 8px; }
+
+.orderLevelsTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.orderLevelsList { display: flex; flex-direction: column; gap: 6px; }
+
+.orderLevelCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.15s;
+}
+
+.orderLevelCard:hover { border-color: var(--border-accent); }
+
+.orderLevelHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.orderStyleBadge {
+  font-size: 0.625rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.orderLevelLabel {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.orderRiskIcon { font-size: 0.875rem; flex-shrink: 0; }
+
+.orderLevelPrice {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.orderLevelRationale {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Auction Box */
+.auctionBox {
+  background: rgba(25,113,194,0.06);
+  border: 1px solid rgba(25,113,194,0.2);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auctionTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+}
+
+.auctionText {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+/* Day Trading Note */
+.dtNote {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  background: rgba(245,158,11,0.06);
+  border-radius: var(--radius-md);
+  border-left: 3px solid rgba(245,158,11,0.4);
+}
+
+.dtNoteLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #f59e0b;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.dtNoteText {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.preMarketWarning {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: rgba(134,142,150,0.06);
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .horizonGrid { grid-template-columns: 1fr; }
+  .priceOverviewGrid { grid-template-columns: repeat(2, 1fr); }
+  .companyInfoGrid { grid-template-columns: repeat(2, 1fr); }
+}

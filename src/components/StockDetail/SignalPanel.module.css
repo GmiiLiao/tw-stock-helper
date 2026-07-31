@@ -1,0 +1,182 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.signalCard {
+  border: 1px solid;
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.signalTop {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.signalEmoji { font-size: 2rem; flex-shrink: 0; }
+
+.signalLabel {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.signalDesc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.signalStrength {
+  margin-left: auto;
+  text-align: right;
+  flex-shrink: 0;
+  min-width: 80px;
+}
+
+.strengthLabel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  text-align: right;
+}
+
+.strengthValue {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  text-align: right;
+}
+
+.strengthBar {
+  width: 80px;
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.strengthFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.sectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.indicatorTable {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.indicatorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+}
+
+.indLabel {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.indValue {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.indState {
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: center;
+}
+
+.riskTable {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.riskRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+}
+
+.riskLabel {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.riskValue {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.disclaimer {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: rgba(245,158,11,0.06);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid #f59e0b;
+}
+
+.reasonsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reasonItem {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--border-accent);
+  line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .grid2 { grid-template-columns: 1fr; }
+}

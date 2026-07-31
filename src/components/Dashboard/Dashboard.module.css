@@ -1,0 +1,353 @@
+.dashboard {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Stats */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.statCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: default;
+}
+
+.statCard:hover {
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-blue);
+}
+
+.statHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statIcon {
+  font-size: 1rem;
+}
+
+.statValue {
+  font-size: 1.625rem;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.statSub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Layout */
+.mainGrid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+  min-height: 0;
+}
+
+.leftCol, .rightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Section Cards */
+.sectionCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-elevated);
+}
+
+.sectionTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.sectionSub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.sectionBadge {
+  background: var(--accent-blue-glow);
+  color: var(--accent-blue);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+/* Watchlist */
+.watchlist {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.emptyState {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.watchlistItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.watchlistItem:last-child { border-bottom: none; }
+.watchlistItem:hover { background: var(--bg-card-hover); }
+.watchlistItem:hover .removeBtn { opacity: 1; }
+
+.watchlistLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.watchCode {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
+.watchName {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watchlistRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.watchPrice {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.watchChange {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.removeBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.removeBtn:hover {
+  background: var(--color-down-bg);
+  color: var(--color-down);
+}
+
+/* Heatmap */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 12px;
+}
+
+.heatmapCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  gap: 2px;
+}
+
+.heatmapCell:hover {
+  transform: scale(1.05);
+  z-index: 2;
+  position: relative;
+}
+
+.heatCode {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-primary);
+}
+
+.heatName {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.heatChange {
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Movers Table */
+.moversTable {
+  overflow-x: auto;
+}
+
+.moversHeader {
+  display: grid;
+  grid-template-columns: 24px 56px 1fr 80px 80px 72px;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.moversRow {
+  display: grid;
+  grid-template-columns: 24px 56px 1fr 80px 80px 72px;
+  gap: 8px;
+  padding: 9px 14px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.moversRow:last-child { border-bottom: none; }
+.moversRow:hover { background: var(--bg-card-hover); }
+
+.rankNum {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: center;
+}
+
+.moversCode {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
+.moversName {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moversPrice {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.moversChange {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.moversVol {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+@media (max-width: 1200px) {
+  .statsGrid { grid-template-columns: repeat(3, 1fr); }
+  .mainGrid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+  .statsGrid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .mainGrid { gap: 12px; }
+  .moversHeader,
+  .moversRow {
+    grid-template-columns: 20px 48px 1fr 60px 60px;
+    font-size: 0.82rem;
+  }
+  /* 手機熱力圖 3 欄，磚內文字才有可讀空間（原 5 欄擠壓） */
+  .heatmap { grid-template-columns: repeat(3, 1fr); }
+  .heatCode, .heatChange { font-size: 0.9rem; }
+  .heatName { font-size: 0.8rem; }
+}
+
+@media (max-width: 480px) {
+  .statsGrid { grid-template-columns: 1fr; gap: 6px; }
+  .moversHeader,
+  .moversRow {
+    grid-template-columns: 20px 48px 1fr 56px;
+    font-size: 0.8rem;
+  }
+}

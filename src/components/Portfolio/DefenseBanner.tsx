@@ -1,0 +1,34 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useAppStore } from '@/lib/store';
+
+// ── 崩盤防禦清單：大盤急跌日 daemon 自動生成，48 小時內顯示 ──
+
+interface Report { at: number; date: string; median: number; downRatio: number; content: string; highRisk: number }
+
+export default function DefenseBanner() {
+  const user = useAppStore(st => st.user);
+  const [rep, setRep] = useState<Report | null>(null);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'defenseReport'), snap => setRep(snap.exists() ? (snap.data() as Report) : null), () => {});
+    return () => unsub();
+  }, [user?.uid]);
+
+  if (!rep || Date.now() - rep.at > 48 * 3600000) return null;
+  return (
+    <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.45)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 800, color: '#ef4444' }}>🛡 崩盤防禦清單（{rep.date}）</span>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>大盤跌幅中位 {rep.median}%、{rep.downRatio}% 個股下跌{rep.highRisk ? ` · ${rep.highRisk} 檔逼近停損` : ''}</span>
+        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
+      </div>
+      {open && <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{rep.content.replace(/^#+ /gm, '').replace(/^- /gm, '· ').replace(/\*\*/g, '')}</div>}
+    </div>
+  );
+}

@@ -1,0 +1,40 @@
+{
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "cleanUrls": true,
+    "headers": [
+      {
+        "source": "/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ],
+    "frameworksBackend": {
+      "maxInstances": 5,
+      "memory": "1GiB",
+      "timeoutSeconds": 120,
+      "region": "us-central1"
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}
