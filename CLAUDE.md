@@ -48,7 +48,7 @@ Next.js on Firebase App Hosting（us-central1）
 | 交易時段 | 09:00–13:30（盤前試撮 08:30） | 其餘 81% 的時間資料不會變 |
 | `firebase.json` `maxInstances` | 5 × 併發 80 = 約 400 in-flight | 破口約 200–400 個同時在線使用者 |
 | function timeout | 120 秒 | 上游 hang 會佔滿 worker → 全站 503 |
-| serving region | `asia-east1`（台灣彰化，2026-07-31 由 us-central1 改） | 台灣使用者每請求少 150~200ms |
+| serving region | `asia-east1`（台灣彰化，2026-07-31 由 us-central1 遷移完成） | 實測 API TTFB 0.60s→0.18s |
 | `ALLOW_DIRECT_MIS` | 預設關閉 | **不要打開**，理由見下 |
 
 ### ⚠ 為什麼 region 改台灣之後反而更要小心

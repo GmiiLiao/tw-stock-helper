@@ -31,7 +31,7 @@
       "maxInstances": 5,
       "memory": "1GiB",
       "timeoutSeconds": 120,
-      "region": "us-central1"
+      "region": "asia-east1"
     }
   },
   "firestore": {
