@@ -47,3 +47,7 @@ firebase-debug.log*
 # Local second brain (generated)
 second-brain/**
 !second-brain/README.md
+
+# 最佳化作業產物（2026-07-30）：暫存壓縮檔與改動前備份，不進版控
+/_to_delete/
+/.backup_before_opt/
