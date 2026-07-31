@@ -555,6 +555,38 @@ let _calLoadedDate = null;
 //   ③ 回傳 dataDate 讓呼叫端誠實標記，而不是填 Date.now()
 // ════════════════════════════════════════════════════════════════════════
 
+/**
+ * 本益比／殖利率／股價淨值比（BWIBBU）—— 有三個消費端共用，所以收斂成一支。
+ *
+ * openapi 版落後一個交易日（實測 2026-07-31 回 07-30）。rwd 版可指定日期、
+ * 會 echo `date`，而且**欄位名與 openapi 完全一致**，所以只要把二維陣列
+ * 轉回物件就能直接替換，三個消費端一行都不用改。
+ *
+ * @returns {{ rows: Array, dataDate: string|null, source: string }}
+ */
+async function fetchBwibbu() {
+  const expect = ymd8(taipei());
+  const res = await fetchDated(
+    `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${expect}&response=json`, expect);
+  if (res.ok) {
+    // rwd 欄位：股票代號,股票名稱,本益比,殖利率(%),股價淨值比
+    const rows = (res.json.data || []).map(r => ({
+      Code: String(r[0] ?? '').trim(), Name: String(r[1] ?? '').trim(),
+      PEratio: r[2], DividendYield: r[3], PBratio: r[4],
+    }));
+    if (rows.length > 200) return { rows, dataDate: isoFromYmd8(res.dataDate), source: 'rwd' };
+  }
+  // 降級：openapi（已知落後一日）。仍讀它自報的日期，誠實標記而不是假裝是今天。
+  try {
+    const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!r.ok) return { rows: [], dataDate: null, source: 'none' };
+    const j = await r.json();
+    const d = isoFromYmd8(toYmd8(j?.[0]?.['日期'] ?? j?.[0]?.Date));
+    log(`  ⚠ BWIBBU 改用 openapi 降級（rwd: ${res.why}），資料日 ${d || '未知'}`);
+    return { rows: Array.isArray(j) ? j : [], dataDate: d, source: 'openapi' };
+  } catch { return { rows: [], dataDate: null, source: 'none' }; }
+}
+
 /** YYYYMMDD → YYYY-MM-DD（寫入 Firestore 的 date 欄位用）。 */
 function isoFromYmd8(v) {
   const s = String(v ?? '');
@@ -582,9 +614,17 @@ function ymdFromTitle(title) {
  * @param url        完整網址
  * @param expectYmd  期望的資料日 YYYYMMDD
  * @param dateFrom   'field'（j.date）| 'title'（j.title 內的民國日期）| 自訂函式
+ * @param mode       'exact'（預設，資料日必須等於 expect）
+ *                   | 'forward'（資料日 **>=** expect 即可）
+ *
+ * ⚠ 為什麼需要 'forward'：有些端點是**前瞻性**的。
+ *   「當日可借券賣出股數」(TWT96U) 公布的是**下一個交易時段**的可借額度，
+ *   而且傍晚就會滾動 —— 實測 07/31 23:17 已經是「115年08月03日」（8/1、8/2 週末）。
+ *   用 'exact' 去比對「最近一個完整交易日」，daemon 每晚都會判定不符而永遠跳過。
+ *   （這個錯誤是資料源健康稽核抓出來的，不是人眼。）
  * @returns {{ ok:boolean, json:object|null, dataDate:string|null, why:string }}
  */
-async function fetchDated(url, expectYmd, dateFrom = 'field') {
+async function fetchDated(url, expectYmd, dateFrom = 'field', mode = 'exact') {
   try {
     const ctl = new AbortController();
     const tm = setTimeout(() => ctl.abort(), 20000);
@@ -603,8 +643,9 @@ async function fetchDated(url, expectYmd, dateFrom = 'field') {
       : toYmd8(j.date);
 
     if (!dataDate) return { ok: false, json: j, dataDate: null, why: '來源未自報日期（無法驗證）' };
-    if (expectYmd && dataDate !== expectYmd) {
-      return { ok: false, json: j, dataDate, why: `資料日 ${dataDate} ≠ 期望 ${expectYmd}` };
+    if (expectYmd) {
+      const bad = mode === 'forward' ? dataDate < expectYmd : dataDate !== expectYmd;
+      if (bad) return { ok: false, json: j, dataDate, why: `資料日 ${dataDate} ${mode === 'forward' ? '早於' : '≠'} 期望 ${expectYmd}` };
     }
     return { ok: true, json: j, dataDate, why: '' };
   } catch (e) {
@@ -1785,7 +1826,7 @@ async function computeLending() {
   //   所以不能靠參數，只能解析 title 驗證拿到的確實是今天那一份。
   const expect = ymd8(taipei());
   const res = await fetchDated(
-    `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${expect}&response=json`, expect, 'title');
+    `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${expect}&response=json`, expect, 'title', 'forward');
   if (!res.ok) { log('  ⚠ 借券可賣量：', res.why, '（略過，不寫入舊資料）'); return; }
   // ⚠ rwd 版是**雙欄配對**：一列放兩檔（[上市代號, 上市可借量, 上櫃代號, 上櫃可借量]），
   //   而且代號包在 `<a href=...>2330</a>` 裡。openapi 版欄位乾淨但沒有日期，
@@ -1831,14 +1872,14 @@ async function computeMarketHealth() {
 
 // ── 21) 高股息存股評估 ────────────────────────────────────────
 async function computeDividendStocks() {
-  let rows = [];
-  try { const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' } }); if (r.ok) rows = await r.json(); } catch { /* skip */ }
+  const bwRes = await fetchBwibbu();
+  const rows = bwRes.rows;
   if (!rows.length) return;
   const items = rows.filter(x => /^\d{4}$/.test(x.Code || ''))
     .map(x => ({ code: x.Code, name: x.Name, yield: _f(x.DividendYield), pe: _f(x.PEratio), pb: _f(x.PBratio) }))
     .filter(x => x.yield >= 4 && x.pe > 0 && x.pe <= 20 && x.pb > 0 && x.pb <= 3)
     .sort((a, b) => b.yield - a.yield);
-  await db.collection('dividendStocks').doc('latest').set({ updatedAt: Date.now(), top: items.slice(0, 30) });
+  await db.collection('dividendStocks').doc('latest').set({ updatedAt: Date.now(), date: bwRes.dataDate, source: bwRes.source, top: items.slice(0, 30) });
   log(`✓ 高股息存股：${items.length} 檔(殖利率≥4%/PER≤20/PBR≤3)，最高 ${items[0]?.name}(${items[0]?.yield}%)`);
 }
 
@@ -2123,8 +2164,8 @@ async function fetchMonthlyRevenueAll() {
 // ── 27) 同業比較（comps-analysis 台股化）───────────────────────
 // 官方產業別(月營收彙總表) 分群，比 PE/PB/殖利率/月營收YoY/評分/RS，含產業中位數。
 async function computePeerComps() {
-  const rev = await fetchMonthlyRevenueAll(); let bw = [];
-  try { const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' } }); if (r.ok) bw = await r.json(); } catch { /* skip */ }
+  const rev = await fetchMonthlyRevenueAll();
+  const bw = (await fetchBwibbu()).rows;
   if (!rev.length) return;
   const rating = (await getJSON('/api/rating'))?.ratings || {};
   const rs = Object.fromEntries((((await db.collection('rsRanking').doc('latest').get()).data())?.top || []).map(x => [x.code, x.rs]));
@@ -2635,7 +2676,7 @@ async function _thesisData() {
   const inst = new Set((((await db.collection('institutionalStreaks').doc('latest').get()).data())?.foreign || []).map(x => x.code));
   const rev = {}; for (const x of await fetchMonthlyRevenueAll()) rev[x['公司代號']] = _f(x['營業收入-去年同月增減(%)']);
   const rs = Object.fromEntries((((await db.collection('rsRanking').doc('latest').get()).data())?.top || []).map(x => [x.code, x.rs]));
-  let bw = []; try { const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' } }); if (r.ok) bw = await r.json(); } catch { /* skip */ }
+  const bw = (await fetchBwibbu()).rows;
   const yld = {}; for (const x of bw) yld[x.Code] = _f(x.DividendYield);
   return { rating, inst, rev, rs, yld };
 }
@@ -5625,16 +5666,25 @@ async function computeChipDivergence() {
 //  (未做自由流通調整)，實際權重以發行商公告為準。皆確定性計算，非投資建議。
 const BIGCAP_ETFS = [{ code: '0050', name: '元大台灣50', aum: '4000億+' }, { code: '006208', name: '富邦台灣50', aum: '1000億+' }];
 const HIDIV_ETFS = [{ code: '0056', name: '元大高股息' }, { code: '00878', name: '國泰永續高股息' }, { code: '00919', name: '群益台灣精選高息' }];
+let _sharesFeedDate = null;
 let _sharesCache = { date: '', map: null };
 async function getIssuedShares() {
   const today = isoDate(taipei());
   if (_sharesCache.date === today && _sharesCache.map) return _sharesCache.map;
   const map = {};
   try {
+    // ⚠ 這支 opendata 沒有 rwd 對應版，只能吃 openapi（實測落後一個交易日）。
+    //   但**發行股數是慢變數**（只有增資/減資/可轉債轉換才動），落後一天不影響
+    //   週轉率濾網的判讀 —— 這是「知情後接受」，不是沒發現。
+    //   仍讀它自報的「出表日期」記錄下來，讓稽核看得見它有多舊。
     const r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) for (const x of await r.json()) {
+    if (r.ok) {
+      const arr = await r.json();
+      _sharesFeedDate = isoFromYmd8(toYmd8(arr?.[0]?.['出表日期'])) || null;
+      for (const x of arr) {
       const c = (x['公司代號'] || '').trim(); const s = (x['已發行普通股數或TDR原股發行股數'] || '').replace(/,/g, '').trim();
       if (/^\d{4}$/.test(c) && /^\d+$/.test(s)) map[c] = +s;
+      }
     }
   } catch { /* skip */ }
   if (Object.keys(map).length > 500) _sharesCache = { date: today, map };

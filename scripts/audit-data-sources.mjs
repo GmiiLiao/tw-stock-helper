@@ -113,6 +113,8 @@ const CONTRACTS = [
 const EXTERNAL_PROBES = [
   { name: '指數收盤',  url: 'https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX',      dateKeys: ['日期'] },
   { name: '個股收盤',  url: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', dateKeys: ['日期', 'Date'] },
+  // 註：TWT48U_ALL 是**除權息預告表**，它的 Date 是「未來的除權息日」不是資料日 ——
+  //     先前一度把 2026-08-05 讀成「落後 -5 天」，那是誤判，已移出探測清單。
   { name: '殖利率',    url: 'https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL',    dateKeys: ['日期', 'Date'] },
   { name: '公司基本',  url: 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L',          dateKeys: ['出表日期'] },
   { name: '融資融券', url: 'https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN',       dateKeys: ['日期', 'Date'] },
@@ -123,9 +125,12 @@ const EXTERNAL_PROBES = [
 // 證明「換掉是對的」而不是憑感覺。topLevel=true 代表日期在回應的最上層而非資料列。
 const FRESH_PROBES = [
   { name: '融資融券(rwd)', url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${d}&selectType=ALL&response=json`, from: 'field' },
-  { name: '借券(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${d}&response=json`,                  from: 'title' },
+  // forward：「當日可借券」公布的是**下一個交易時段**的額度，傍晚就滾動 ——
+  //          資料日 >= 最近交易日即為健康，用 === 會每晚誤報。
+  { name: '借券(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${d}&response=json`,                  from: 'title', mode: 'forward' },
   { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field' },
   { name: '指數(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`,        from: 'field' },
+  { name: '殖利率(rwd)',   url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${d}&response=json`,               from: 'field' },
 ];
 
 function ymdFromTitle(t) {
@@ -144,8 +149,8 @@ async function probeFresh(ltd) {
       const j = JSON.parse(t);
       const n = (j.data || []).length || (j.tables || []).reduce((s2, x) => s2 + (x.data || []).length, 0);
       const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : normDate(j.date);
-      const ok = feedDate === ltd;
-      out.push({ name: p.name, records: n, feedDate, status: ok ? 'OK' : 'MISMATCH', note: ok ? '' : `自報 ${feedDate} ≠ ${ltd}` });
+      const ok = p.mode === 'forward' ? (feedDate != null && feedDate >= ltd) : feedDate === ltd;
+      out.push({ name: p.name, records: n, feedDate, status: ok ? 'OK' : 'MISMATCH', note: ok ? (p.mode === 'forward' && feedDate > ltd ? `前瞻至 ${feedDate}（正常）` : '') : `自報 ${feedDate} ${p.mode === 'forward' ? '早於' : '≠'} ${ltd}` });
     } catch (e) { out.push({ name: p.name, status: 'ERROR', note: (e.message || '').slice(0, 40) }); }
   }
   return out;
