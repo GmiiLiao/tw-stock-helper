@@ -116,6 +116,22 @@ export function enrichScoredStock(
         }
       }
 
+      // ── Step 3b: 進場計畫自我一致性 ──
+      // 均線支撐買點在多頭噴出時會遠低於現價，tp1 跟著落在現價下方。
+      // 數字沒錯，錯在沒講前提 —— 這裡把前提標出來給呈現層用。
+      {
+        const entryPrice = standard.price;
+        const tp1 = stock.sellTargets.find(t => t.type === 'tp1');
+        const gapPct = stock.price > 0
+          ? parseFloat((((stock.price - entryPrice) / stock.price) * 100).toFixed(1))
+          : 0;
+        stock.entryPlan = {
+          gapPct,
+          pullbackRequired: gapPct > 1,
+          targetBelowPrice: !!tp1 && tp1.price <= stock.price,
+        };
+      }
+
       // ── Step 4: volatility-based sell-target probabilities ──
       stock.sellTargets = stock.sellTargets.map(t =>
         t.type === 'trailing'

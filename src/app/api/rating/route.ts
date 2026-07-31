@@ -48,9 +48,21 @@ export async function GET(request: NextRequest) {
       const base = scoreStock(parseStock(row), 'daily', riskData);
 
       // Gather history (store → live Yahoo), fundamentals and news in parallel; all best-effort.
+      // ⚠ 新鮮度閘門（2026-07-31）：stockHistory 曾是**只寫一次**的快取，
+      //   1,082 檔沒有一檔更新到當日（最舊落後 5 週），中間還有洞。
+      //   而 `price` 來自今日官方收盤 —— 兩者並排就會產出
+      //   「玉山金現價 37.7，建議買 32.53、目標 33.23」這種目標低於現價的建議。
+      //   dataDate 就在手上，直接比對：對不上就不讓過期指標覆蓋 price-based 買點。
+      const officialIso = /^\d{7}$/.test(dataDate)
+        ? `${+dataDate.slice(0, 3) + 1911}-${dataDate.slice(3, 5)}-${dataDate.slice(5, 7)}`
+        : null;
       const [bars, fund, newsItems] = await Promise.all([
         readHistory(code)
-          .then(h => (h && h.bars.length >= 20 ? h.bars : null))
+          .then(h => {
+            if (!h || h.bars.length < 20) return null;
+            if (officialIso && h.lastDate && h.lastDate < officialIso) return null;  // 過期→不用
+            return h.bars;
+          })
           .then(b => b ?? fetchDailyHistory(code, yearsAgoUnix(3)).then(r => (r.bars.length ? r.bars : null)).catch(() => null))
           .catch(() => null),
         getFundamentalSignals(code).catch(() => null),

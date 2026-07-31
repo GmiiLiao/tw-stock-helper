@@ -105,6 +105,24 @@ export interface ScoredStock {
   patterns: PatternSignal[];
   tradeSetup: TradeSetup;
 
+  /**
+   * 進場計畫的自我一致性標記（由 enrichScoredStock 補上）。
+   *
+   * 為什麼需要：進場價用的是**均線支撐**，停利是 `entry + N×(entry−停損)`。
+   * 股價一旦拉離均線（例如兩天漲 6%），entry 會遠低於現價，
+   * 連帶 tp1 也落在現價**下方** —— 呈現成「強力買進，建議 25.08 進場，
+   * 目標 25.2」而現價 27.6，讀起來就是壞掉的建議。
+   * 數字本身沒錯（那是「等回檔的限價計畫」），錯的是沒有講出前提。
+   */
+  entryPlan?: {
+    /** 進場價距現價多少 %（正值＝進場價在現價下方，需要回檔） */
+    gapPct: number;
+    /** 需要回檔才成立（gap > 1%） */
+    pullbackRequired: boolean;
+    /** tp1 已經低於現價 —— 這個計畫在現價買進毫無意義 */
+    targetBelowPrice: boolean;
+  };
+
   isAttention: boolean;
   isDisposition: boolean;
   riskLevel: 'high' | 'medium' | 'low';

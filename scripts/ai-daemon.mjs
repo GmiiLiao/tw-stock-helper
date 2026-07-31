@@ -556,11 +556,19 @@ async function publishPremarketBrief() {
   if (!top.length) { log('  ✖ no recommendations'); return false; }
 
   // Deterministic, fully-grounded per-stock entry/exit note (no AI free text → no hallucination).
-  const buildNote = (label, buy, target, stop, chg) => {
+  // ⚠ 進場價是「均線支撐」、停利是 entry+N×(entry−停損) —— 股價拉離均線時，
+  //   buy 會遠低於現價，target 甚至落在現價下方。數字沒錯（那是等回檔的限價計畫），
+  //   但只寫「強力買進，建議 25.08 進場，目標 25.2」而現價 27.6，讀起來就是壞掉的建議。
+  //   所以把前提寫進去；target 低於現價時直接說明這個計畫現價不成立。
+  const buildNote = (label, buy, target, stop, chg, price, plan) => {
     const parts = [`${label}`];
-    parts.push(buy != null ? `建議 ${buy} 附近分批進場` : '現價附近觀察');
+    if (buy == null) parts.push('現價附近觀察');
+    else if (plan?.pullbackRequired && price > 0) {
+      parts.push(`需回檔至 ${buy}（距現價 −${plan.gapPct}%）才進場，現價不追`);
+    } else parts.push(`建議 ${buy} 附近分批進場`);
     if (target != null) parts.push(`目標 ${target}`);
     if (stop != null) parts.push(`跌破 ${stop} 停損`);
+    if (plan?.targetBelowPrice) parts.push('⚠ 目標價已低於現價——此計畫僅在回檔成交後才有意義，現價買進無報酬空間');
     if (chg >= 7) parts.push('今漲幅大宜回測不追高');
     else if (chg < 0) parts.push('今走弱待止穩再進');
     return parts.join('，');
@@ -575,13 +583,13 @@ async function publishPremarketBrief() {
     const signalLabel = SIGNAL_LABEL[st.signal] || '中性';
     const chg = st.changePercent ?? 0;
     const sw = rating?.swingSignal;
-    const note = buildNote(signalLabel, buy, target, st.stopLoss ?? null, chg)
+    const note = buildNote(signalLabel, buy, target, st.stopLoss ?? null, chg, st.price, st.entryPlan)
       + (sw?.chase ? '；🚫 乖離過大嚴禁追高，等回測均線' : '');
     picks.push({
       code: st.code, name: st.name, signal: st.signal,
       signalLabel, score: st.score,
       price: st.price, changePercent: chg,
-      buy, target, stop: st.stopLoss ?? null, note,
+      buy, target, stop: st.stopLoss ?? null, note, entryPlan: st.entryPlan ?? null,
       swingAction: sw?.actionLabel ?? null, swingScore: sw?.score ?? null,
       swingBias: sw?.biasPct ?? null, chase: sw?.chase ?? false,
     });
@@ -6150,7 +6158,7 @@ async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
-let _calSyncDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
+let _calSyncDate = null; let _histTopupDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 function execScript(name, args, tag, timeoutMin = 10) {
   import('node:child_process').then(({ execFile }) => {
@@ -6212,6 +6220,13 @@ async function dailyJobsLoop() {
               }
             }
           } catch (e) { log('✖ 營收出表日快照:', e.message); }
+        }
+        // 每日 15:20 用 chipArchive 補正 stockHistory（官方收盤覆蓋，補尾端＋補洞）。
+        // 沒有這一步，/api/history 是只寫一次的快取 —— 技術指標會永遠停在
+        // 該檔第一次被查詢的那天（實測最舊落後 5 週，且中間平均 13 個洞）。
+        if (mins >= 15 * 60 + 20 && _histTopupDate !== today && isTradingDay(tw)) {
+          _histTopupDate = today;
+          execScript('topup-stock-history.mjs', [], '📈 日線補正', 20);
         }
         // 每日 06:40 同步休市日曆（早於 07:00 新聞與 08:45 盤前快報，
         // 確保當天所有 isTradingDay() 判斷都吃到最新的表；颱風假當天才補得上）
