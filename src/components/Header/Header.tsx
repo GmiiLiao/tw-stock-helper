@@ -286,13 +286,21 @@ export default function Header() {
           )}
         </div>
 
+        {/*
+          ⚠ 這**不是**台股夜盤（2026-07-31 更名）。
+          資料源是 `EWT` = iShares MSCI Taiwan ETF，在美國掛牌、**以美元計價**，
+          漲跌含美元/台幣匯率與 ETF 對淨值的溢價折價 —— 兩者都與台股漲跌無關。
+          實測 07/29~07/31：EWT −4.83% / +5.13% / +3.27%，同期加權指數僅 −0.26%，
+          單日振幅差一個數量級。標成「台股夜盤」會讓隔日沖使用者誤判明日開盤缺口。
+          真正的台股夜盤是台指期盤後交易（15:00–05:00、以指數點數報價），本專案尚無該資料源。
+        */}
         {twNight && twNight.price > 0 && (
           <>
             <div className={styles.indexDivider} />
-            <div className={styles.indexItem}>
-              <span className={styles.indexLabel}>台股夜盤(EWT)</span>
+            <div className={styles.indexItem} title="iShares MSCI Taiwan ETF（美國掛牌·美元計價）。含匯率與溢價折價，僅為台股方向的粗略參考，不等於台指期夜盤。">
+              <span className={styles.indexLabel}>台股ETF·美盤(EWT)</span>
               <span className={styles.indexValue} style={{ color: twNight.change >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                {twNight.price.toFixed(2)}
+                ${twNight.price.toFixed(2)}
               </span>
               <span className={styles.indexChange} style={{ color: twNight.change >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                 {twNight.change >= 0 ? '+' : ''}{twNight.change.toFixed(2)}

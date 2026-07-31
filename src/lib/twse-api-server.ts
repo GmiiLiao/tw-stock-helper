@@ -711,6 +711,10 @@ async function getMarketIndexDataInternalUncached(): Promise<MarketIndexData> {
       msciTaiwanChangePercent: msciTaiwan ? msciTaiwan.changePercent : 0,
     };
 
+    // ⚠ 欄位名 `twNight` 是誤稱（保留以免破壞既有 API 契約）：
+    //   來源是 EWT（iShares MSCI Taiwan ETF，美國掛牌·美元計價），
+    //   **不是**台指期夜盤。含匯率與 ETF 溢價折價，只能當台股方向的粗略參考。
+    //   前端標籤已於 2026-07-31 改為「台股ETF·美盤(EWT)」，別再標成「台股夜盤」。
     const twNight = msciTaiwan ? {
       price: msciTaiwan.price,
       change: msciTaiwan.change,

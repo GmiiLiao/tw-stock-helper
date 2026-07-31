@@ -23,6 +23,27 @@
   scrollbar-width: none; /* Firefox */
   flex-shrink: 1; /* allow shrinking to fit container */
   max-width: 70%; /* leave room for search and clock */
+  /*
+    內容溢出時本來就可橫向捲動，但捲軸被上面兩行藏起來了 ——
+    使用者只會看到「台積電ADR」被切一半，以為是壞掉（2026-07-31 實際回報）。
+    右緣加漸層淡出，明示「右邊還有」。mask 不影響命中區，捲動行為不變。
+  */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+}
+
+/* 沒有溢出時不要平白把最後一項淡掉 */
+@supports (animation-timeline: scroll()) {
+  .indexBar {
+    animation: indexBarFade linear;
+    animation-timeline: scroll(self inline);
+  }
+  @keyframes indexBarFade {
+    to {
+      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px);
+      mask-image: linear-gradient(to right, transparent 0, #000 28px);
+    }
+  }
 }
 
 .indexBar::-webkit-scrollbar {
