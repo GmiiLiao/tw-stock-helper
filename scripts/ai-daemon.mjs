@@ -539,6 +539,79 @@ let _calLoadedDate = null;
  * ⚠ `date` 是**資料日**不是寫入日。收盤後衍生的榜單一律取來源歸檔的日期，
  *   盤中即時類才用今日日期。
  */
+// ════════════════════════════════════════════════════════════════════════
+// 日期驗證抓取（wm-data-accuracy「發布前驗證閘門」／wm-source-aggregation
+// 「Provider Fallback Chain」）
+//
+// 為什麼需要共用層：本專案的資料事故有一個共同形狀 ——
+// **來源回了一批看起來完全正常的資料，但那是別天的**。
+//   · 上櫃日期位移：TPEx 對無效日期回「最近一個交易日」而不是報錯
+//   · 加權指數落後一日：openapi 鏡像固定慢一天，程式沒讀它自報的「日期」
+//   · 融資融券/借券：openapi 版連日期欄位都沒有 → 完全無法驗證
+//
+// 三條規矩，寫死在這裡而不是散在 44 個呼叫點：
+//   ① 優先用**可指定日期**的 www.twse.com.tw/rwd 端點（openapi 只當降級）
+//   ② 一律讀來源**自報的日期**（欄位或標題），對不上就當失敗
+//   ③ 回傳 dataDate 讓呼叫端誠實標記，而不是填 Date.now()
+// ════════════════════════════════════════════════════════════════════════
+
+/** YYYYMMDD → YYYY-MM-DD（寫入 Firestore 的 date 欄位用）。 */
+function isoFromYmd8(v) {
+  const s = String(v ?? '');
+  return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : null;
+}
+
+/** 民國/西元字串 → YYYYMMDD；認不得回 null。 */
+function toYmd8(v) {
+  const s = String(v ?? '').replace(/[^0-9]/g, '');
+  if (/^\d{8}$/.test(s)) return s;                                   // 20260731
+  if (/^\d{7}$/.test(s)) return `${+s.slice(0, 3) + 1911}${s.slice(3)}`; // 1150731
+  return null;
+}
+
+/** 從「115年07月31日 …」這種標題把日期挖出來（TWT96U 只在 title 自報）。 */
+function ymdFromTitle(title) {
+  const m = String(title || '').match(/(\d{2,3})年(\d{1,2})月(\d{1,2})日/);
+  if (!m) return null;
+  return `${+m[1] + 1911}${String(+m[2]).padStart(2, '0')}${String(+m[3]).padStart(2, '0')}`;
+}
+
+/**
+ * 抓一支「自報日期」的 TWSE/TPEx JSON 並驗證。
+ *
+ * @param url        完整網址
+ * @param expectYmd  期望的資料日 YYYYMMDD
+ * @param dateFrom   'field'（j.date）| 'title'（j.title 內的民國日期）| 自訂函式
+ * @returns {{ ok:boolean, json:object|null, dataDate:string|null, why:string }}
+ */
+async function fetchDated(url, expectYmd, dateFrom = 'field') {
+  try {
+    const ctl = new AbortController();
+    const tm = setTimeout(() => ctl.abort(), 20000);
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' },
+      signal: ctl.signal,
+    }).finally(() => clearTimeout(tm));
+    if (!r.ok) return { ok: false, json: null, dataDate: null, why: `HTTP ${r.status}` };
+    const text = await r.text();
+    if (text.trim().startsWith('<')) return { ok: false, json: null, dataDate: null, why: '回傳 HTML（端點路徑或參數錯誤）' };
+    const j = JSON.parse(text);
+    if (j.stat && j.stat !== 'OK') return { ok: false, json: j, dataDate: null, why: `stat=${String(j.stat).slice(0, 30)}` };
+
+    const dataDate = typeof dateFrom === 'function' ? dateFrom(j)
+      : dateFrom === 'title' ? ymdFromTitle(j.title)
+      : toYmd8(j.date);
+
+    if (!dataDate) return { ok: false, json: j, dataDate: null, why: '來源未自報日期（無法驗證）' };
+    if (expectYmd && dataDate !== expectYmd) {
+      return { ok: false, json: j, dataDate, why: `資料日 ${dataDate} ≠ 期望 ${expectYmd}` };
+    }
+    return { ok: true, json: j, dataDate, why: '' };
+  } catch (e) {
+    return { ok: false, json: null, dataDate: null, why: (e.message || '').slice(0, 50) };
+  }
+}
+
 let _dataDateCache = { at: 0, d: null };
 async function dataDate() {
   if (_dataDateCache.d && Date.now() - _dataDateCache.at < 10 * 60000) return _dataDateCache.d;
@@ -1243,7 +1316,10 @@ async function fetchT86(date8) {
   try {
     const r = await fetch(`https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${date8}&selectType=ALL`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (r.ok) { const j = await r.json();
-      if (j?.stat === 'OK' && Array.isArray(j.data)) {
+      // 回音驗證：T86 會 echo `date`。不比對的話，假日/無效日期拿到的是別天的法人買賣超，
+      // 而籌碼差一天在隔日沖口徑上就是完全不同的結論。
+      if (j?.stat === 'OK' && String(j?.date || '') !== date8) { log(`  ⚠ T86 回音 ${j?.date} ≠ 期望 ${date8}，略過`); }
+      else if (j?.stat === 'OK' && Array.isArray(j.data)) {
         for (const row of j.data) {
           const code = (row[0] || '').trim(); if (!/^\d{4}$/.test(code)) continue;
           // 外資(含外資自營) row4+row7、投信 row10、自營商合計 row11、三大法人合計 row18（張）
@@ -1507,11 +1583,21 @@ async function computeRevenue() {
 
 // ── 12) 融資融券軋空候選 ───────────────────────────────────────
 async function computeMargin() {
-  let rows = [];
-  try {
-    const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) rows = await r.json();
-  } catch { /* skip */ }
+  // 2026-07-31：原本用 openapi/v1/exchangeReport/MI_MARGN —— 那支**連日期欄位都沒有**，
+  // 完全無法判斷拿到的是哪一天的餘額，而融資融券餘額差一天就是完全不同的軋空判讀。
+  // 改用可指定日期且會回音 `date` 的 rwd 端點。
+  const expect = ymd8(taipei());
+  const res = await fetchDated(
+    `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${expect}&selectType=ALL&response=json`, expect);
+  if (!res.ok) { log('  ⚠ 融資融券：', res.why, '（略過，不寫入舊資料）'); return; }
+  // rwd 版是二維陣列：代號,名稱,買進,賣出,現金償還,前日餘額,今日餘額,次一營業日限額,
+  //                   (融券)買進,賣出,現券償還,前日餘額,今日餘額,次一營業日限額,…
+  const tb = (res.json.tables || []).find(t => (t.data || []).length > 100);
+  const rows = (tb?.data || []).map(r => ({
+    '股票代號': String(r[0] || '').trim(), '股票名稱': String(r[1] || '').trim(),
+    '融資前日餘額': r[5], '融資今日餘額': r[6],
+    '融券前日餘額': r[11], '融券今日餘額': r[12],
+  }));
   if (!rows.length) return;
   const items = rows.filter(x => /^\d{4}$/.test(x['股票代號'] || '')).map(x => {
     const marginBal = _f(x['融資今日餘額']), marginPrev = _f(x['融資前日餘額']);
@@ -1527,7 +1613,7 @@ async function computeMargin() {
   const squeeze = items.filter(x => x.shortRatio >= 10 && x.shortBal > 500).sort((a, b) => b.shortRatio - a.shortRatio).slice(0, 20);
   // 融資大增(散戶追價/籌碼集中觀察)。
   const marginSurge = items.filter(x => x.marginChg > 0).sort((a, b) => b.marginChg - a.marginChg).slice(0, 15);
-  await db.collection('marginShort').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), squeeze, marginSurge });
+  await db.collection('marginShort').doc('latest').set({ updatedAt: Date.now(), date: isoFromYmd8(res.dataDate), squeeze, marginSurge });
   log(`✓ 融資軋空：高券資比 ${squeeze.length} 檔(最高 ${squeeze[0]?.name} ${squeeze[0]?.shortRatio}%)`);
 }
 
@@ -1693,13 +1779,30 @@ async function computeDividendCalendar() {
 
 // ── 18) 借券可賣量（當日可借券賣出股數）────────────────────────
 async function computeLending() {
-  let rows = [];
-  try { const r = await fetch('https://openapi.twse.com.tw/v1/SBL/TWT96U', { headers: { 'User-Agent': 'Mozilla/5.0' } }); if (r.ok) rows = await r.json(); } catch { /* skip */ }
-  if (!rows.length) return;
-  const items = rows.filter(x => /^\d{4}$/.test(x.TWSECode || ''))
-    .map(x => ({ code: x.TWSECode, avail: _f(x.TWSEAvailableVolume) }))
-    .filter(x => x.avail > 0).sort((a, b) => b.avail - a.avail);
-  await db.collection('lending').doc('latest').set({ updatedAt: Date.now(), top: items.slice(0, 30) });
+  // 2026-07-31：原本用 openapi/v1/SBL/TWT96U —— 一樣沒有日期欄位。
+  // rwd 版把日期寫在 title（「115年07月31日 當日可借券賣出股數」）。
+  // ⚠ 這支**會忽略 date 參數**（「當日可借券」本來就只有當日概念，沒有歷史查詢），
+  //   所以不能靠參數，只能解析 title 驗證拿到的確實是今天那一份。
+  const expect = ymd8(taipei());
+  const res = await fetchDated(
+    `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${expect}&response=json`, expect, 'title');
+  if (!res.ok) { log('  ⚠ 借券可賣量：', res.why, '（略過，不寫入舊資料）'); return; }
+  // ⚠ rwd 版是**雙欄配對**：一列放兩檔（[上市代號, 上市可借量, 上櫃代號, 上櫃可借量]），
+  //   而且代號包在 `<a href=...>2330</a>` 裡。openapi 版欄位乾淨但沒有日期，
+  //   要日期就得吃這個版型 —— 兩欄都收，比原本只取上市更完整。
+  const unTag = v => String(v ?? '').replace(/<[^>]*>/g, '').trim();
+  const items = [];
+  for (const r of (res.json.data || [])) {
+    for (const [ci, vi] of [[0, 1], [2, 3]]) {
+      const code = unTag(r[ci]);
+      const avail = _f(r[vi]);
+      if (/^\d{4}$/.test(code) && avail > 0) items.push({ code, avail });
+    }
+  }
+  items.sort((a, b) => b.avail - a.avail);
+  if (!items.length) return;
+  await db.collection('lending').doc('latest').set({
+    updatedAt: Date.now(), date: isoFromYmd8(res.dataDate), top: items.slice(0, 30) });
   log(`✓ 借券可賣量：最高 ${items[0]?.code}(${Math.round((items[0]?.avail || 0) / 1000)}張)`);
 }
 
@@ -2714,7 +2817,7 @@ async function publishMonthlyReports() {
   try {
     const ymd = `${prev.getFullYear()}${String(prev.getMonth() + 1).padStart(2, '0')}01`;
     const r = await fetch(`https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=${ymd}&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) { const j = await r.json(); const rows = j.data || []; if (rows.length >= 2) { const a = _f(rows[0][4]), b = _f(rows[rows.length - 1][4]); if (a > 0) idxPct = +((b - a) / a * 100).toFixed(2); } }
+    if (r.ok) { const j = await r.json(); const rows = (String(j?.date || '') === ymd ? (j.data || []) : []); if (rows.length >= 2) { const a = _f(rows[0][4]), b = _f(rows[rows.length - 1][4]); if (a > 0) idxPct = +((b - a) / a * 100).toFixed(2); } }
   } catch { /* skip */ }
   const snap = await readSnapshotQuotes(); const q = snap?.quotes || {};
   const premium = await getPremiumUsers();
@@ -3219,7 +3322,7 @@ async function publishWeeklyReviews() {
   let idxPct = null;
   try {
     const r = await fetch(`https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=${ymd8(tw)}&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) { const j = await r.json(); const rows = (j.data || []).slice(-5); if (rows.length >= 2) { const a = _f(rows[0][4]), b = _f(rows[rows.length - 1][4]); if (a > 0) idxPct = +((b - a) / a * 100).toFixed(2); } }
+    if (r.ok) { const j = await r.json(); const rows = (String(j?.date || '') === ymd8(tw) ? (j.data || []) : []).slice(-5); if (rows.length >= 2) { const a = _f(rows[0][4]), b = _f(rows[rows.length - 1][4]); if (a > 0) idxPct = +((b - a) / a * 100).toFixed(2); } }
   } catch { /* skip */ }
   const sec = (await db.collection('sectorRotation').doc('latest').get()).data()?.sectors || [];
   const cal = (await db.collection('catalystCalendar').doc('latest').get()).data()?.events || [];
@@ -3342,7 +3445,10 @@ async function computeDayTradeRatio() {
   let rows = [];
   try {
     const r = await fetch(`https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U?date=${ymd8(tw)}&selectType=All&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' } });
-    if (r.ok) { const j = await r.json(); const tb = j.tables ? j.tables.find(t => (t.data || []).length > 10) : j; rows = tb?.data || j.data || []; }
+    if (r.ok) { const j = await r.json();
+      // 回音驗證：當沖比率是「撿尾盤」濾網的輸入，拿到別天的等於用錯濾網
+      if (String(j?.date || '') !== ymd8(tw)) log(`  ⚠ TWTB4U 回音 ${j?.date} ≠ 期望 ${ymd8(tw)}，略過`);
+      else { const tb = j.tables ? j.tables.find(t => (t.data || []).length > 10) : j; rows = tb?.data || j.data || []; } }
   } catch { /* skip */ }
   if (!rows.length) return;
   const csv = await fetchCloseCsvFull(); const volOf = {}; for (const c of csv) volOf[c.code] = c.vol;
@@ -3927,7 +4033,8 @@ async function archiveChipDaily() {
     try { const m = cur.instJson ? JSON.parse(cur.instJson) : {}; Object.assign(inst, m); } catch { /* fresh */ }
     if (!cur.instJson) {
       const t86 = await J(`https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${ymd}&selectType=ALL`);
-      if (t86?.stat === 'OK') {
+      if (t86?.stat === 'OK' && String(t86?.date || '') !== ymd) log(`  ⚠ 歸檔 T86 回音 ${t86?.date} ≠ ${ymd}，不併入`);
+      else if (t86?.stat === 'OK') {
         const fI = (t86.fields || []).indexOf('外陸資買賣超股數(不含外資自營商)');
         const tI = (t86.fields || []).findIndex(f => f.startsWith('投信買賣超'));
         for (const r of (t86.data || [])) { const c = (r[0] || '').trim(); if (/^\d{4}$/.test(c)) inst[c] = [Math.round(_f(r[fI]) / 1000), Math.round(_f(r[tI]) / 1000)]; }
@@ -3975,7 +4082,9 @@ async function archiveChipDaily() {
   const mins = tw.getHours() * 60 + tw.getMinutes();
   if (!cur.marginJson && mins >= 21 * 60 + 30) {
     const mg = await J(`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${ymd}&selectType=ALL&response=json`);
-    const mtb = (mg?.tables || []).find(t => (t.data || []).length > 100);
+    // 回音驗證：資券餘額歸檔錯日 = 整段歷史被污染，且不會有任何徵兆
+    const mtb = String(mg?.date || '') === ymd ? (mg?.tables || []).find(t => (t.data || []).length > 100) : null;
+    if (mg && String(mg?.date || '') !== ymd) log(`  ⚠ 歸檔 MI_MARGN 回音 ${mg?.date} ≠ ${ymd}，不併入`);
     const margin = {};
     for (const r of (mtb?.data || [])) { const c = (r[0] || '').trim(); if (/^\d{4}$/.test(c)) margin[c] = [Math.round(_f(r[6])), Math.round(_f(r[12]))]; }
     if (Object.keys(margin).length > 100) patch.marginJson = JSON.stringify(margin);

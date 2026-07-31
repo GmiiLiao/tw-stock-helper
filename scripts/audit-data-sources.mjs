@@ -115,9 +115,41 @@ const EXTERNAL_PROBES = [
   { name: '個股收盤',  url: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', dateKeys: ['日期', 'Date'] },
   { name: '殖利率',    url: 'https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL',    dateKeys: ['日期', 'Date'] },
   { name: '公司基本',  url: 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L',          dateKeys: ['出表日期'] },
-  { name: '融資融券',  url: 'https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN',      dateKeys: ['日期', 'Date'] },
+  { name: '融資融券', url: 'https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN',       dateKeys: ['日期', 'Date'] },
   { name: '借券',      url: 'https://openapi.twse.com.tw/v1/SBL/TWT96U',                   dateKeys: ['日期', 'Date'] },
 ];
+
+// 已改用的「可指定日期＋會回音」端點 —— 這些才是生產路徑，openapi 只留著當對照組，
+// 證明「換掉是對的」而不是憑感覺。topLevel=true 代表日期在回應的最上層而非資料列。
+const FRESH_PROBES = [
+  { name: '融資融券(rwd)', url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${d}&selectType=ALL&response=json`, from: 'field' },
+  { name: '借券(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${d}&response=json`,                  from: 'title' },
+  { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field' },
+  { name: '指數(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`,        from: 'field' },
+];
+
+function ymdFromTitle(t) {
+  const m = String(t || '').match(/(\d{2,3})年(\d{1,2})月(\d{1,2})日/);
+  return m ? `${+m[1] + 1911}-${String(+m[2]).padStart(2, '0')}-${String(+m[3]).padStart(2, '0')}` : null;
+}
+
+async function probeFresh(ltd) {
+  const want = ltd.replace(/-/g, '');
+  const out = [];
+  for (const p of FRESH_PROBES) {
+    try {
+      const r = await fetch(p.url(want), { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(20000) });
+      const t = await r.text();
+      if (t.trim().startsWith('<')) { out.push({ name: p.name, status: 'ERROR', note: '回傳 HTML' }); continue; }
+      const j = JSON.parse(t);
+      const n = (j.data || []).length || (j.tables || []).reduce((s2, x) => s2 + (x.data || []).length, 0);
+      const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : normDate(j.date);
+      const ok = feedDate === ltd;
+      out.push({ name: p.name, records: n, feedDate, status: ok ? 'OK' : 'MISMATCH', note: ok ? '' : `自報 ${feedDate} ≠ ${ltd}` });
+    } catch (e) { out.push({ name: p.name, status: 'ERROR', note: (e.message || '').slice(0, 40) }); }
+  }
+  return out;
+}
 
 function normDate(v) {
   const s = String(v || '');
@@ -291,6 +323,7 @@ async function main() {
   for (const s of specs) results.push(await auditOne(s, ltd, marketOpen));
 
   const external = NO_EXT ? [] : await probeExternal(ltd);
+  const fresh = NO_EXT ? [] : await probeFresh(ltd);
 
   if (WRITE) {
     const badN = results.filter(r => r.status !== 'OK').length;
@@ -299,7 +332,7 @@ async function main() {
       updatedAt: Date.now(), date: ltd,
       total: results.length, healthy: results.length - badN, unhealthy: badN,
       externalTotal: external.length, externalUnhealthy: extBad,
-      results, external,
+      results, external, fresh,
     });
     console.log(`[audit] ✓ 已寫入 system/dataHealth（內部異常 ${badN}、外部異常 ${extBad}）`);
   }
@@ -317,8 +350,15 @@ async function main() {
     const rec = r.records != null ? String(r.records) : '—';
     console.log(`${icon} ${r.collection.padEnd(22)} ${r.status.padEnd(11)} age=${age.padEnd(6)} n=${rec.padEnd(6)} date=${(r.dataDate || '—').padEnd(11)} ${r.notes.join('；')}`);
   }
+  if (fresh.length) {
+    console.log('\n── 生產路徑（可指定日期＋回音驗證）──');
+    for (const e of fresh) {
+      const icon = e.status === 'OK' ? '✅' : '❌';
+      console.log(`${icon} ${e.name.padEnd(14)} ${e.status.padEnd(9)} n=${String(e.records ?? '—').padEnd(6)} date=${(e.feedDate || '—').padEnd(11)} ${e.note}`);
+    }
+  }
   if (external.length) {
-    console.log('\n── 外部資料源自報日期 ──');
+    console.log('\n── openapi 鏡像對照組（已知落後，不是生產路徑）──');
     for (const e of external) {
       const icon = e.status === 'OK' ? '✅' : e.status === 'NO_DATE' ? '🟡' : '❌';
       console.log(`${icon} ${e.name.padEnd(10)} ${String(e.status).padEnd(9)} n=${String(e.records ?? '—').padEnd(6)} date=${(e.feedDate || '—').padEnd(11)} ${e.note}`);

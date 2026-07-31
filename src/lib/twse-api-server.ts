@@ -1250,14 +1250,24 @@ export async function getInstitutionalTradingDataInternal(): Promise<Institution
       }).then(r => r.ok ? r.json() : null),
     ]);
 
+    // 回音驗證（2026-07-31）：原本直接把「請求的日期」當成 dataDate ——
+    // 那是**假設**上游照做了。T86 會 echo `date`，實測可靠；假日或無效日期時
+    // 回的是別天的資料，不比對就會把別天的法人買賣超標成今天。
+    // 一律以來源自報的 `date` 為準，對不上就不採用。
+    const pickT86 = (res: PromiseSettledResult<any>, want: string) => {
+      if (res.status !== 'fulfilled') return null;
+      const v = res.value;
+      if (v?.stat !== 'OK' || !(v?.data?.length > 0)) return null;
+      const echoed = String(v?.date ?? '');
+      if (echoed && echoed !== want) {
+        console.warn(`[twse-api-server] T86 回音 ${echoed} ≠ 期望 ${want}，不採用`);
+        return null;
+      }
+      return { data: v, date: echoed || want };
+    };
     let tseData: any = null;
-    if (resToday.status === 'fulfilled' && resToday.value?.stat === 'OK' && resToday.value?.data?.length > 0) {
-      tseData = resToday.value;
-      dataDate = today;
-    } else if (resFallback.status === 'fulfilled' && resFallback.value?.stat === 'OK' && resFallback.value?.data?.length > 0) {
-      tseData = resFallback.value;
-      dataDate = fallbackDate;
-    }
+    const t86Pick = pickT86(resToday, today) ?? pickT86(resFallback, fallbackDate);
+    if (t86Pick) { tseData = t86Pick.data; dataDate = t86Pick.date; }
 
     if (tseData?.data) {
       for (const row of tseData.data) {
