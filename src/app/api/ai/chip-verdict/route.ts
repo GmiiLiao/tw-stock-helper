@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   try {
     const codesParam = new URL(request.url).searchParams.get('codes');
     const doc = (await db.collection('chipVerdicts').doc('latest').get()).data();
-    if (!doc?.byCodeJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'public, s-maxage=60' } });
+    if (!doc?.byCodeJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
     const all = JSON.parse(doc.byCodeJson as string) as Record<string, unknown>;
     let byCode: Record<string, unknown>;
     if (codesParam) {
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     }
     return NextResponse.json(
       { found: true, updatedAt: doc.updatedAt, dataDate: doc.dataDate, byCode },
-      { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' } },
+      { headers: { 'Cache-Control': cacheHeader('intraday') } },
     );
   } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
 }

@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -14,7 +15,7 @@ export async function GET() {
   try {
     const doc = await db.collection('chipCharacter').doc('latest').get();
     if (!doc.exists) {
-      return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'public, s-maxage=120' } });
+      return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
     }
     const d = doc.data() || {};
     let byCode: Record<string, unknown> = {};
@@ -23,7 +24,7 @@ export async function GET() {
     const rows = Object.entries(byCode).map(([code, v]) => ({ code, ...(v as Record<string, unknown>) }));
     return NextResponse.json(
       { found: true, updatedAt: d.at ?? null, window: d.window ?? null, counts: d.counts ?? null, rows },
-      { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' } },
+      { headers: { 'Cache-Control': cacheHeader('intraday') } },
     );
   } catch {
     return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'no-store' } });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cacheHeader } from '@/lib/api-cache';
 import { getAdminDb } from '@/lib/firebase-admin';
 export const runtime = 'nodejs';
 
@@ -19,21 +20,21 @@ export async function GET(request: NextRequest) {
     if (industryQ) {
       // 產業深頁：?industry=半導體業 → 該產業全表
       const peers = industries[industryQ] || [];
-      return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, industry: industryQ, median: summary[industryQ] ?? null, peers }, { headers: { 'Cache-Control': 'public, s-maxage=300' } });
+      return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, industry: industryQ, median: summary[industryQ] ?? null, peers }, { headers: { 'Cache-Control': cacheHeader('daily') } });
     }
     if (!code) {
       // 無 code → 只回產業清單與中位數摘要
-      return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, summary }, { headers: { 'Cache-Control': 'public, s-maxage=300' } });
+      return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, summary }, { headers: { 'Cache-Control': cacheHeader('daily') } });
     }
     for (const ind in industries) {
       const peers = industries[ind];
       if (peers.some(p => p.code === code)) {
         return NextResponse.json(
           { updatedAt: d.updatedAt, month: d.month, industry: ind, median: summary[ind] ?? null, peers },
-          { headers: { 'Cache-Control': 'public, s-maxage=300' } },
+          { headers: { 'Cache-Control': cacheHeader('daily') } },
         );
       }
     }
-    return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, industry: null, peers: [] }, { headers: { 'Cache-Control': 'public, s-maxage=300' } });
+    return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, industry: null, peers: [] }, { headers: { 'Cache-Control': cacheHeader('daily') } });
   } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
 }

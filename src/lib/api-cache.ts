@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJson } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
-import { getSession } from '@/lib/market-clock';
+import { getSession, setHolidays } from '@/lib/market-clock';
 
 /**
  * API 回應快取層級表 + daemon latest-doc 共用 helper
@@ -67,11 +67,31 @@ const NO_STORE = { 'Cache-Control': 'no-store' } as const;
  *
  * 帶 `request` 會啟用 gzip（沿用既有的 `gzipJson`，大 payload 約省 75%）。
  */
+/**
+ * server 端的休市日曆 primer。
+ *
+ * `market-clock` 的 holidays 表是模組級變數，client 由 page.tsx 打 /api/market-clock 填上；
+ * **server 端沒有人填** —— 於是 `getSession()` 在國定假日會回 'regular'，
+ * `cacheHeader` 的 CLOSED_OVERRIDE 就不會生效，假日整天用短 TTL 白白回源。
+ * （不是正確性問題，是白花錢；但既然日曆已經有了就該接上。）
+ *
+ * 每個 instance 只讀一次 Firestore，之後每 6 小時刷新，成本可忽略。
+ */
+const primeHolidays = memoize<string[]>('trading-calendar', 6 * 3600_000, async () => {
+  const db = getAdminDb();
+  if (!db) throw new Error('no db');
+  const d = (await db.collection('system').doc('tradingCalendar').get()).data();
+  const list: string[] = Array.isArray(d?.holidays) ? d!.holidays : [];
+  if (list.length) setHolidays(list);
+  return list;
+});
+
 export async function latestDoc(
   collection: string,
   tier: Tier = 'intraday',
   opts: { docId?: string; request?: Request } = {},
 ): Promise<Response> {
+  await primeHolidays().catch(() => null);   // fail-open：載不到就維持只擋週末
   const docId = opts.docId ?? 'latest';
 
   // 記憶體 TTL 取 CDN s-maxage 的一半，讓兩層錯開、避免同時到期造成回源尖峰

@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -10,8 +11,8 @@ export async function GET() {
   if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   try {
     const doc = await db.collection('swingPicks').doc('latest').get();
-    if (!doc.exists) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'public, s-maxage=60' } });
-    return NextResponse.json({ found: true, ...doc.data() }, { headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=180' } });
+    if (!doc.exists) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
+    return NextResponse.json({ found: true, ...doc.data() }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
   } catch {
     return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   }

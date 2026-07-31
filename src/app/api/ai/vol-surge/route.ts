@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -9,8 +10,8 @@ export async function GET() {
   if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   try {
     const doc = await db.collection('volSurge').doc('latest').get();
-    if (!doc.exists) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'public, s-maxage=30' } });
-    return NextResponse.json({ found: true, ...doc.data() }, { headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' } });
+    if (!doc.exists) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('quote') } });
+    return NextResponse.json({ found: true, ...doc.data() }, { headers: { 'Cache-Control': cacheHeader('quote') } });
   } catch {
     return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   }

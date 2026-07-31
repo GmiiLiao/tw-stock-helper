@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -11,15 +12,15 @@ export async function GET(req: Request) {
   try {
     const code = new URL(req.url).searchParams.get('code') || '';
     const doc = (await db.collection('marginSnap').doc('latest').get()).data();
-    if (!doc?.byCodeJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'public, s-maxage=120' } });
+    if (!doc?.byCodeJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
     const all = JSON.parse(doc.byCodeJson as string) as Record<string, (number | null)[]>;
     if (code) {
       const row = all[code] ?? null;
       return NextResponse.json({ found: !!row, dataDate: doc.dataDate, row },
-        { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' } });
+        { headers: { 'Cache-Control': cacheHeader('intraday') } });
     }
     return NextResponse.json({ found: true, dataDate: doc.dataDate, n: doc.n },
-      { headers: { 'Cache-Control': 'public, s-maxage=300' } });
+      { headers: { 'Cache-Control': cacheHeader('intraday') } });
   } catch {
     return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'no-store' } });
   }

@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -11,7 +12,7 @@ export async function GET() {
   if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   try {
     const s = (await db.collection('marketSnapshot').doc('latest').get()).data();
-    if (!s?.quotesJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'public, s-maxage=30' } });
+    if (!s?.quotesJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('quote') } });
     const q = JSON.parse(s.quotesJson as string) as Record<string, { name?: string; price?: number; change?: number; changePercent?: number; volume?: number; market?: string; open?: number; high?: number; low?: number; live?: boolean }>;
     // 20日均量表（daemon volAvg20，供量能倍數/強度分）
     let avg: Record<string, number> = {};
@@ -37,7 +38,7 @@ export async function GET() {
     }
     return NextResponse.json(
       { found: true, updatedAt: s.sweepAt ?? null, marketOpen: !!s.marketOpen, count: quotes.length, quotes },
-      { headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' } },
+      { headers: { 'Cache-Control': cacheHeader('quote') } },
     );
   } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
 }

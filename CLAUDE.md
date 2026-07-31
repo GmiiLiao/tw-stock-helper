@@ -170,8 +170,13 @@ const poll = async () => {
 那個目錄留著只是保險，確認穩定後可刪。
 
 已知未做：`maxInstances` 仍為 5（容量牆，牽涉帳單，依指示不動）；
-32 支 `doc('latest')` 樣板 route 仍回 `no-store`（可再收斂 Firestore reads）；
 全站無 rate limiting、無 CSP。
+
+> ⚠ 更正（2026-08-01）：先前這裡寫「32 支 route 仍回 `no-store`」是**錯的** ——
+> 那是 grep 字串 `no-store` 的誤判，它只出現在**錯誤分支**（失敗不快取，本來就對）。
+> 實測那些 route 早就有 `s-maxage`。真正缺的是 memoize／in-flight 合流／
+> 失敗負快取／`stale-if-error`，已於 2026-08-01 統一到 `latestDoc` 與 `cacheHeader`。
+> **教訓：grep 到字串不等於查到行為，要打線上標頭確認。**
 
 ## 驗證
 

@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
       // 代表每個使用者的每次輪詢都是一次 Firestore document read
       // （500 人開個股頁 ≈ 100 reads/秒，讀的還是同一份 doc）。
       // s-maxage=5 讓 CDN 收斂掉九成以上，使用者最多落後一個 tick。
-      { headers: { 'Cache-Control': 'public, max-age=3, s-maxage=5, stale-while-revalidate=10, stale-if-error=60' } },
+      { headers: { 'Cache-Control': cacheHeader('quote') } },
     );
   } catch {
     return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'no-store' } });
