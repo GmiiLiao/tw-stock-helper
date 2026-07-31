@@ -50,6 +50,24 @@ Next.js on Firebase App Hosting（us-central1）
 | function timeout | 120 秒 | 上游 hang 會佔滿 worker → 全站 503 |
 | serving region | `asia-east1`（台灣彰化，2026-07-31 由 us-central1 遷移完成） | 實測 API TTFB 0.60s→0.18s |
 | `ALLOW_DIRECT_MIS` | 預設關閉 | **不要打開**，理由見下 |
+| `openapi.twse.com.tw` 鏡像 | **整批固定落後一個交易日** | 見下，這是本專案最常重演的一類 bug |
+
+### ⚠ openapi 鏡像落後一日 —— 實測，不是猜測
+
+2026-07-31 全站量測（`node scripts/audit-data-sources.mjs`）：
+
+| 端點 | 用途 | 自報日期 | 落後 |
+|---|---|---|---|
+| `MI_INDEX` | 指數收盤 | 2026-07-30 | **1 天** |
+| `STOCK_DAY_ALL` | 個股收盤 | 2026-07-30 | **1 天** |
+| `BWIBBU_ALL` | 殖利率 | 2026-07-30 | **1 天** |
+| `t187ap03_L` | 發行股數（週轉率用） | 2026-07-30 | **1 天** |
+| `MI_MARGN`／`SBL/TWT96U` | 融資融券／借券 | — | **無日期欄位＝無法驗證** |
+
+**規矩**：新增任何 openapi 消費端時
+1. **一律假設它是舊的**。要當日資料就用 `www.twse.com.tw/rwd/...?date=YYYYMMDD`（可指定日期且即時）當 PRIMARY，openapi 只當 FALLBACK。
+2. **一定要讀它自報的日期欄位並比對**（回音驗證）。`STOCK_DAY_ALL` 有做，`MI_INDEX` 沒做 → 2026-07-31 站上顯示的加權指數整整慢一天、差 3,186 點。
+3. 寫進 Firestore 時，`date` 欄位一律填**來源自報的資料日**，不是 `Date.now()`。填錯的話健康稽核會失明。
 
 ### ⚠ 為什麼 region 改台灣之後反而更要小心
 
@@ -160,7 +178,26 @@ const poll = async () => {
 ```bash
 npx tsc --noEmit && npx eslint .
 npm run build          # 只能在 Mac 上跑
+node scripts/audit-data-sources.mjs     # 全站資料源健康稽核（52 內部 + 6 外部）
 ```
+
+### 資料源健康稽核（wm-freshness-health-monitoring）
+
+`scripts/audit-data-sources.mjs` 對每個資料源套**三道獨立閘門**，缺一不可：
+
+| 閘門 | 抓什麼 | 只有這道會漏掉 |
+|---|---|---|
+| `maxStale` | 多久沒更新 | 「很新但幾乎全空」 |
+| `minRecords` | 涵蓋幾筆 | 「很完整但是上週的」 |
+| **資料日漂移** | 這批**代表哪一天** | ← **本專案栽了四次的就是這道** |
+
+第三道最重要：上櫃日期位移、加權指數落後一日、stockHistory 只寫一次、
+chipDaily PIT 漂移 —— 共同特徵都是「有值、很新、筆數也夠」，
+前兩道全綠，但代表的是**別天**的資料。四次都是使用者先發現的。
+
+daemon 每日 16:10 自動執行並寫入 `system/dataHealth`，
+對外由 `/api/system/data-health` 提供。**新增資料源時記得補進 `CONTRACTS` 表**，
+否則它不在稽核範圍內，等於沒有保護。
 
 改完會影響流量的東西之後，盤中觀察三個數字：
 - **origin RPS** —— 應該與線上人數次線性成長

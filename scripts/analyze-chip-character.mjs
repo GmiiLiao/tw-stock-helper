@@ -286,6 +286,9 @@ async function main() {
       byCodeJson: JSON.stringify(byCode),
       counts: { core: byLabel.長期核心.length, spec: byLabel.炒作型.length, normal: byLabel.一般.length },
       window: { from: byDate[0]?.date, to: byDate[byDate.length - 1]?.date, days: byDate.length },
+      // 新鮮度契約：date = 這批分類**代表哪一天**（視窗最後一天），不是寫入時間。
+      // 少了它，稽核器分不出「昨天算的」和「上個月算的」。
+      date: byDate[byDate.length - 1]?.date || null,
       at: Date.now(),
     });
     console.log('\n[chip] ✔ 已寫入 chipCharacter/latest（含三法人20日與連買連賣）');

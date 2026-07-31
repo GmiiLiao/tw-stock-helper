@@ -528,6 +528,28 @@ let TW_HOLIDAYS = new Set(TW_HOLIDAYS_FALLBACK);
 let _calLoadedDate = null;
 
 /** 從 Firestore 載入權威休市表（每日一次；失敗維持現值，不退回 fallback）。 */
+/**
+ * 新鮮度契約（wm-freshness-health-monitoring）——「資料日」快取。
+ *
+ * 每個 latest doc 都必須能回答三件事：何時更新(updatedAt)、**代表哪一天(date)**、
+ * 涵蓋幾筆(n)。缺 `date` 就無法偵測「有值、很新、筆數也夠，但那是別天的資料」——
+ * 本專案已經栽在這件事上四次：上櫃日期位移、加權指數落後一日、
+ * stockHistory 只寫一次、chipDaily PIT 漂移。
+ *
+ * ⚠ `date` 是**資料日**不是寫入日。收盤後衍生的榜單一律取來源歸檔的日期，
+ *   盤中即時類才用今日日期。
+ */
+let _dataDateCache = { at: 0, d: null };
+async function dataDate() {
+  if (_dataDateCache.d && Date.now() - _dataDateCache.at < 10 * 60000) return _dataDateCache.d;
+  try {
+    const s = await db.collection('chipArchive').orderBy('date', 'desc').limit(1).get();
+    const d = s.empty ? null : s.docs[0].id;
+    if (d) _dataDateCache = { at: Date.now(), d };
+    return d;
+  } catch { return _dataDateCache.d; }
+}
+
 async function loadTradingCalendar() {
   const today = isoDate(taipei());
   if (_calLoadedDate === today) return;
@@ -833,7 +855,7 @@ async function writeSnapshot(quotes, marketOpen, source, sweeping = marketOpen) 
   const sweepAt = Date.now();
   // Store quotes as a JSON STRING — a 1900-key map exceeds Firestore's 20k
   // per-doc index-entry limit; a string is indexed once.
-  try { await db.collection('marketSnapshot').doc('latest').set({ quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source }); }
+  try { await db.collection('marketSnapshot').doc('latest').set({ quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()) }); }
   catch (e) { log('  ✖ snapshot write', (e.message || '').slice(0, 60)); }
   try { mkdirSync(MARKET_DIR, { recursive: true }); writeFileSync(join(MARKET_DIR, 'snapshot.json'), JSON.stringify({ count, liveCount, sweepAt, marketOpen, source, quotes }, null, 2)); } catch { /* ignore */ }
 }
@@ -1029,7 +1051,7 @@ async function marketSnapshotLoop() {
           applyMis(await misBatch(prio.slice(i, i + 60).map(code => byCode[code]).filter(Boolean)), true);
           await sleep(2000);
         }
-        try { await db.collection('bookDepth').doc('latest').set({ byCodeJson: JSON.stringify(depthOut), n: Object.keys(depthOut).length, at: Date.now() }); } catch { /* ignore */ }
+        try { await db.collection('bookDepth').doc('latest').set({ byCodeJson: JSON.stringify(depthOut), n: Object.keys(depthOut).length, at: Date.now(), date: isoDate(taipei()) }); } catch { /* ignore */ }
         // ② 全市場輪掃：其餘代碼每輪掃 8 批(480檔)，~2分鐘覆蓋全市場一輪。
         //    修正實案(2026-07-17)：全市場快照僅150檔live、1830檔掛昨日種子 →
         //    「即時漲跌」左欄混入大量昨日上漲的殘留資料。
@@ -1171,7 +1193,7 @@ async function detectSectorRotation() {
     value: Math.round(s.value), up: s.up, down: s.down, flat: s.flat,
     leaders: s.stocks.sort((a, b) => b.changePercent - a.changePercent).slice(0, 5),
   })).sort((a, b) => b.avgChangePct - a.avgChangePct);
-  await db.collection('sectorRotation').doc('latest').set({ updatedAt: Date.now(), marketOpen: snap.marketOpen, sectors });
+  await db.collection('sectorRotation').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), marketOpen: snap.marketOpen, sectors });
   if (sectors.length) log(`✓ 產業輪動：領漲 ${sectors[0].industry}(${sectors[0].avgChangePct}%)、領跌 ${sectors[sectors.length - 1].industry}(${sectors[sectors.length - 1].avgChangePct}%)`);
 }
 
@@ -1306,7 +1328,7 @@ async function computeTradeSignals() {
   const dayTrade = enrich.filter(x => x.amplitude >= 3).sort((a, b) => (b.amplitude * Math.log(b.value)) - (a.amplitude * Math.log(a.value))).slice(0, 15);
   // 隔日沖：收紅 + 收盤接近當日高點(動能延續，適合留倉隔日)。
   const overnight = enrich.filter(x => x.changePct > 1.5 && x.closePos >= 0.8).sort((a, b) => (b.changePct * b.closePos) - (a.changePct * a.closePos)).slice(0, 15);
-  await db.collection('tradeSignals').doc('latest').set({ updatedAt: Date.now(), dayTrade, overnight });
+  await db.collection('tradeSignals').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), dayTrade, overnight });
   log(`✓ 當沖/隔日沖：當沖 ${dayTrade.length} 檔、隔日沖 ${overnight.length} 檔`);
 }
 
@@ -1331,7 +1353,7 @@ async function computeRS() {
   rets.sort((a, b) => a.ret60 - b.ret60);
   rets.forEach((x, i) => { x.rs = Math.round((i / (rets.length - 1)) * 98) + 1; });
   const top = [...rets].sort((a, b) => b.rs - a.rs).slice(0, 30);
-  await db.collection('rsRanking').doc('latest').set({ updatedAt: Date.now(), universe: rets.length, top });
+  await db.collection('rsRanking').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), universe: rets.length, top });
   log(`✓ RS 選股：宇宙 ${rets.length} 檔，最強 ${top[0]?.name}(RS ${top[0]?.rs}, +${top[0]?.ret60}%)`);
 }
 
@@ -1437,7 +1459,7 @@ async function computeScanner() {
     }
   }
   for (const k in res) res[k] = res[k].sort((a, b) => b.changePct - a.changePct).slice(0, 15);
-  await db.collection('scanner').doc('latest').set({ updatedAt: Date.now(), ...res });
+  await db.collection('scanner').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), ...res });
   log(`✓ 技術掃描：新高${res.newHigh52.length} 爆量${res.volBreakout.length} 多頭排列${res.maBull.length} 黃金交叉${res.goldenCross.length} 缺口${res.gapUp.length} 飆股${res.strong.length}`);
 }
 
@@ -1505,7 +1527,7 @@ async function computeMargin() {
   const squeeze = items.filter(x => x.shortRatio >= 10 && x.shortBal > 500).sort((a, b) => b.shortRatio - a.shortRatio).slice(0, 20);
   // 融資大增(散戶追價/籌碼集中觀察)。
   const marginSurge = items.filter(x => x.marginChg > 0).sort((a, b) => b.marginChg - a.marginChg).slice(0, 15);
-  await db.collection('marginShort').doc('latest').set({ updatedAt: Date.now(), squeeze, marginSurge });
+  await db.collection('marginShort').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), squeeze, marginSurge });
   log(`✓ 融資軋空：高券資比 ${squeeze.length} 檔(最高 ${squeeze[0]?.name} ${squeeze[0]?.shortRatio}%)`);
 }
 
@@ -1700,7 +1722,7 @@ async function computeMarketHealth() {
   let health = upRatio * 0.5 + Math.max(0, Math.min(50, (limitUp - limitDown) * 5 + 25)) * 0.25 + Math.min(100, newHigh * 4) * 0.25;
   health = Math.round(Math.max(0, Math.min(100, health)));
   const mood = health >= 65 ? '偏多／強勢' : health >= 45 ? '中性／震盪' : '偏空／弱勢';
-  await db.collection('marketHealth').doc('latest').set({ updatedAt: Date.now(), health, mood, up, down, flat, limitUp, limitDown, upRatio: +upRatio.toFixed(1), newHigh });
+  await db.collection('marketHealth').doc('latest').set({ updatedAt: Date.now(), date: isoDate(taipei()), health, mood, up, down, flat, limitUp, limitDown, upRatio: +upRatio.toFixed(1), newHigh });
   log(`✓ 大盤健康度：${health}/100 ${mood}（漲${up}/跌${down}）`);
 }
 
@@ -1785,7 +1807,7 @@ async function computeMultiTimeframe() {
       if (dBull && wBull && mBull) out.push({ code: d.id, name: d.data().name || byName[d.id] });
     }
   }
-  await db.collection('multiTimeframe').doc('latest').set({ updatedAt: Date.now(), resonant: out.slice(0, 30) });
+  await db.collection('multiTimeframe').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), resonant: out.slice(0, 30) });
   log(`✓ 多時間框架共振：${out.length} 檔日/週/月三線齊揚`);
 }
 
@@ -3032,7 +3054,7 @@ async function buildSnipeList() {
       if (list.length) byUid[uid] = list;
     } catch { /* skip user */ }
   }
-  await db.collection('snipeList').doc('latest').set({ updatedAt: Date.now(), byUidJson: JSON.stringify(byUid) });
+  await db.collection('snipeList').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), byUidJson: JSON.stringify(byUid) });
   log(`✓ 買點狙擊清單：${Object.values(byUid).flat().length} 檔`);
 }
 const _snipeAlerted = new Set(); let _snipeDay = '';
@@ -3376,7 +3398,7 @@ async function computeEtfPremium() {
   }
   if (!items.length) return;
   const sorted = [...items].sort((a, b) => b.premium - a.premium);
-  await db.collection('etfPremium').doc('latest').set({ updatedAt: Date.now(), count: items.length, premiumTop: sorted.slice(0, 10), discountTop: sorted.slice(-10).reverse() });
+  await db.collection('etfPremium').doc('latest').set({ updatedAt: Date.now(), date: isoDate(taipei()), count: items.length, premiumTop: sorted.slice(0, 10), discountTop: sorted.slice(-10).reverse() });
   log(`✓ ETF 折溢價：${items.length} 檔，最高溢價 ${sorted[0]?.code} ${sorted[0]?.premium}%`);
   // 持股/自選 ETF 偏離 ≥1% 警報
   const today = isoDate(taipei());
@@ -4940,7 +4962,7 @@ async function computeWashoutMonitor() {
 
   const prev = (await db.collection('washoutMonitor').doc('latest').get()).data();
   await db.collection('washoutMonitor').doc('latest').set({
-    updatedAt: Date.now(), index: Math.round(now), hi66: Math.round(hi66), dd: +dd.toFixed(1),
+    updatedAt: Date.now(), date: await dataDate(), index: Math.round(now), hi66: Math.round(hi66), dd: +dd.toFixed(1),
     marginDrop: +marginDrop.toFixed(1), foreign5: Math.round(f5), volRatio: v20 > 0 ? +(v5 / v20).toFixed(2) : null,
     stage, confirming, signals, advice,
   });
@@ -6158,7 +6180,7 @@ async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
-let _calSyncDate = null; let _histTopupDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
+let _calSyncDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 function execScript(name, args, tag, timeoutMin = 10) {
   import('node:child_process').then(({ execFile }) => {
@@ -6220,6 +6242,25 @@ async function dailyJobsLoop() {
               }
             }
           } catch (e) { log('✖ 營收出表日快照:', e.message); }
+        }
+        // 每日 16:10 全站資料源健康稽核（收盤各項作業都跑完之後）。
+        // wm-freshness-health-monitoring：新鮮度不是「查一次」，是要有常設驗收閘 ——
+        // 本專案的日期漂移已經靠人眼抓到四次（上櫃位移、加權指數落後、
+        // stockHistory 只寫一次、chipDaily PIT），每一次都是使用者先發現的。
+        if (mins >= 16 * 60 + 10 && _healthAuditDate !== today) {
+          _healthAuditDate = today;
+          execScript('audit-data-sources.mjs', ['--write'], '🩺 資料源健康稽核', 10);
+          setTimeout(async () => {
+            try {
+              const h = (await db.collection('system').doc('dataHealth').get()).data();
+              if (!h) return;
+              if (h.unhealthy > 0 || h.externalUnhealthy > 0) {
+                const bad = (h.results || []).filter(r => r.status !== 'OK')
+                  .map(r => `${r.collection}(${r.status})`).join('、');
+                log(`⚠ 資料源健康：內部異常 ${h.unhealthy}、外部異常 ${h.externalUnhealthy}${bad ? ' — ' + bad : ''}`);
+              } else log('✓ 資料源健康：全部正常');
+            } catch { /* 稽核失敗不影響主流程 */ }
+          }, 120000);
         }
         // 每日 15:20 用 chipArchive 補正 stockHistory（官方收盤覆蓋，補尾端＋補洞）。
         // 沒有這一步，/api/history 是只寫一次的快取 —— 技術指標會永遠停在
