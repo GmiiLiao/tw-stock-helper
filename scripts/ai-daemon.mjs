@@ -2063,6 +2063,40 @@ async function runNlScreens() {
 // ── main loops ──
 log(`🤖 ai-daemon starting · host=${HOST} · model=${OLLAMA_MODEL} · app=${APP_BASE}`);
 await heartbeat({ note: 'starting' });
+// ── 讀取歸因儀表（READ_TRACE=1 時啟用）────────────────────────────
+// 為什麼存在：2026-08-01 Firestore 讀取暴增稽查——夜間閒置基線 ~80 reads/min
+// 全部來自 daemon（停機實測 400→20/5min），但靜態分析對不上，只能逐呼叫點計數。
+// 平常關閉零成本；打開時每 5 分鐘輸出 Top15 呼叫點（行號×讀取數）。
+if (process.env.READ_TRACE === '1') {
+  const fsMod = await import('@google-cloud/firestore');
+  const tally = new Map();
+  // ⚠第一版的教訓：stack 第一個 ai-daemon.mjs frame 是 wrapper 自己那一行，
+  //   全部歸因到 L2074 毫無意義。改抓「wrapper 區段之外」的第一個 frame。
+  const TRACE_LO = 2040, TRACE_HI = 2100;   // 本儀表區塊的行號範圍
+  const rec = (kind, n) => {
+    const st = (new Error().stack || '').split('\n');
+    let line = null;
+    for (const l of st) {
+      const m = l.match(/ai-daemon\.mjs:(\d+)/);
+      if (m) { const num = +m[1]; if (num < TRACE_LO || num > TRACE_HI) { line = num; break; } }
+    }
+    const key = `L${line ?? '?'}·${kind}`;
+    tally.set(key, (tally.get(key) || 0) + n);
+  };
+  const dGet = fsMod.DocumentReference.prototype.get;
+  fsMod.DocumentReference.prototype.get = function (...a) { rec('doc', 1); return dGet.apply(this, a); };
+  const qGet = fsMod.Query.prototype.get;
+  fsMod.Query.prototype.get = async function (...a) { const snap = await qGet.apply(this, a); rec('qry', snap.size || 1); return snap; };
+  const gAll = fsMod.Firestore.prototype.getAll;
+  fsMod.Firestore.prototype.getAll = function (...a) { rec('all', a.length); return gAll.apply(this, a); };
+  setInterval(() => {
+    const top = [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+    log('📊 READ_TRACE(5min):', top.map(([k, v]) => `${k}=${v}`).join(' '));
+    tally.clear();
+  }, 5 * 60000);
+  log('📊 READ_TRACE 啟用');
+}
+
 setInterval(heartbeat, HEARTBEAT_MS);
 
 // 啟動時立刻載入權威休市表 —— 不載的話整個行程都在用硬編 fallback，
@@ -2978,7 +3012,9 @@ async function previewEarningsCalls() {
 // → 與系統鐵律(隔日必出/停損-8%)比對 → 「若照規則出場」的模擬損益 vs 實際，
 // 把破戒代價變成具體數字。全確定性計算，寫 users/{uid}/data/shadowAccount。
 async function analyzeShadowAccount() {
-  const arch = (await db.collection('chipArchive').orderBy('date', 'asc').get()).docs.map(d => d.data());
+  // 2026-08-01：原本全量掃 chipArchive（~1,000 docs·每次 runDailyJobs 都來一次）。
+  // 影子帳戶模擬只需覆蓋使用者近期交易，260 日（約一年）綽綽有餘。
+  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(260).get()).docs.map(d => d.data()).reverse();
   const dates = arch.map(a => a.date);
   const closes = arch.map(a => a.closeJson ? JSON.parse(a.closeJson) : {});
   const closeOn = (code, dateStr) => { const i = dates.indexOf(dateStr); return i >= 0 ? closes[i]?.[code]?.[0] : null; };
@@ -6327,7 +6363,11 @@ async function checkOpenSell() {
 // 法人連續買超 + 回測：開機跑一次，之後每交易日收盤後(15:10)各跑一次。
 async function runDailyJobs(boot = false) {
   const tag = boot ? '(boot)' : '';
+  // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
+  // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
+  const BOOT_SKIP = new Set(['finReports']);
   for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+    if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
   }
 }
@@ -6597,13 +6637,52 @@ async function rebalanceSettingsLoop() {
 }
 rebalanceSettingsLoop();
 
-// RAG 問答：每 8 秒輪詢使用者提問佇列並用本地 LLM 回答(隨時可問)。
+// 互動佇列（問AI／NL選股／自訂回測）：監聽驅動，不再定時輪詢。
+//
+// 2026-08-01 讀取暴增稽查（READ_TRACE 實測）：舊版每 15 秒輪詢 3 個佇列 doc ×
+// 每個 premium 用戶 ＝ 68 reads/min、24/7 不停——夜間閒置基線 ~5,000 reads/hr
+// 的全部來源（停機實測 400→20/5min 佐證）。等人按按鈕卻整夜掃描。
+//
+// 改為 onSnapshot：閒置時 0 計費讀取（連線保持不算 reads），有人送出請求時
+// 監聽器即時喚醒對應處理器——延遲從最壞 15 秒變即時，讀取從 ~100k/日變 ~3k/日。
+// 保底：每 30 分鐘重掛監聽（涵蓋 premium 名單變動＋監聽器靜默死亡），
+// 重掛時的 initial snapshot 兼作漏網掃描——wm-resilience「cascade fallback」。
+const _queueDirty = { questions: true, nlScreen: true, customBacktest: true };  // boot 先掃一次
+let _queueWake = null;
+let _queueUnsubs = [];
+function _wakeQueue(kind) {
+  _queueDirty[kind] = true;
+  if (_queueWake) { const w = _queueWake; _queueWake = null; w(); }
+}
+async function refreshQueueListeners() {
+  for (const un of _queueUnsubs) { try { un(); } catch { /* already dead */ } }
+  _queueUnsubs = [];
+  const premium = await getPremiumUsers();
+  for (const u of premium) {
+    for (const [docId, kind] of [['questions', 'questions'], ['nlScreen', 'nlScreen'], ['customBacktest', 'customBacktest']]) {
+      const ref = db.collection('users').doc(u.id).collection('data').doc(docId);
+      _queueUnsubs.push(ref.onSnapshot(
+        () => _wakeQueue(kind),
+        () => { /* 監聽器出錯先不重掛——30 分鐘保底輪會整批重建 */ },
+      ));
+    }
+  }
+}
 async function questionLoop() {
+  try { await refreshQueueListeners(); } catch (e) { log('✖ queue listeners:', e.message); }
+  let lastRefresh = Date.now();
   for (;;) {
-    try { await answerQuestions(); } catch (e) { log('✖ question loop:', e.message); }
-    try { await runNlScreens(); } catch (e) { log('✖ nl screen loop:', e.message); }
-    try { await runCustomBacktests(); } catch (e) { log('✖ custom backtest loop:', e.message); }
-    await sleep(15000);
+    if (_queueDirty.questions) { _queueDirty.questions = false; try { await answerQuestions(); } catch (e) { log('✖ question loop:', e.message); } }
+    if (_queueDirty.nlScreen) { _queueDirty.nlScreen = false; try { await runNlScreens(); } catch (e) { log('✖ nl screen loop:', e.message); } }
+    if (_queueDirty.customBacktest) { _queueDirty.customBacktest = false; try { await runCustomBacktests(); } catch (e) { log('✖ custom backtest loop:', e.message); } }
+    if (Date.now() - lastRefresh > 30 * 60000) {
+      try { await refreshQueueListeners(); } catch (e) { log('✖ queue listeners:', e.message); }
+      lastRefresh = Date.now();
+    }
+    // 等監聽器喚醒；30 分鐘保底醒來做重掛與漏網掃描
+    if (!_queueDirty.questions && !_queueDirty.nlScreen && !_queueDirty.customBacktest) {
+      await new Promise(res => { _queueWake = res; setTimeout(res, 30 * 60000); });
+    }
   }
 }
 questionLoop();
