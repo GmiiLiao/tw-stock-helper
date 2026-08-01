@@ -828,7 +828,14 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
               />
               <YAxis
                 tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-                tickFormatter={(v: number) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toString()}
+                // 單位一致：先前是 `v>=1000 ? k : 原值`，負值走不到 k 分支 →
+                // 同一條軸上出現「1100k」與「-1100000」兩種寫法。改為依絕對值
+                // 統一縮放，並用台股慣用的「萬」（220萬 比 2200k 好讀）。
+                tickFormatter={(v: number) => {
+                  const a = Math.abs(v);
+                  if (a >= 10000) return `${(v / 10000).toFixed(0)}萬`;
+                  return v.toLocaleString();
+                }}
               />
               <Tooltip
                 contentStyle={{

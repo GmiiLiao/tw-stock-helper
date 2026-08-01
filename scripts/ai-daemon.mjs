@@ -2074,10 +2074,21 @@ async function runNlScreens() {
       // 修法：①補 RSI5/RSI10 區間欄位（chipArchive 收盤序列，與波段追強同口徑）
       //       ②LLM 須把無法表達的部分放進 unsupported ③零有效條件＝回錯誤說明，不再默默全過
       //       ④部分忽略時在結果上標注。「聽不懂」必須說出來，不能假裝聽懂。
-      const prompt = `把下列台股選股需求轉成 JSON(只輸出 JSON 物件、無其他文字、無說明)。可用欄位(需求沒提到的就省略不要放)：minScore(0-100技術評分),signal("STRONG_BUY"或"BUY"),minYield(殖利率%),minRS(1-99相對強弱排名),rsi5Min(5日RSI下限),rsi5Max(5日RSI上限),rsi10Min(10日RSI下限),rsi10Max(10日RSI上限),newHigh(true=創52週新高),foreignBuy(true=外資連買),minRevYoY(月營收年增%),unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,全部可表達就省略)。注意:RS是相對強弱「排名」、RSI是技術「指標」,兩者不同;需求寫 rsi 一律用 rsi 欄位。\n需求：「${d.query}」`;
+      const prompt = `把下列台股選股需求轉成 JSON(只輸出 JSON 物件、無其他文字、無說明)。可用欄位(需求沒提到的就省略不要放)：
+minScore(0-100技術評分),signal("STRONG_BUY"或"BUY"),minYield(殖利率%),minRS(1-99相對強弱排名),
+rsi5Min,rsi5Max,rsi10Min,rsi10Max(5日/10日RSI區間),
+rng60Min,rng60Max(近60日最高價與最低價的差距%,算法(最高-最低)/最低×100),
+offHigh60Min,offHigh60Max(現價距60日最高點%,一律為負或0,例如比高點低20%就是-20),
+offLow60Min,offLow60Max(現價距60日最低點%,一律為正或0,例如比低點高50%就是50),
+newHigh(true=創52週新高),foreignBuy(true=外資連買),minRevYoY(月營收年增%),
+unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,全部可表達就省略)。
+注意:RS是相對強弱「排名」、RSI是技術「指標」,兩者不同;需求寫 rsi 一律用 rsi 欄位。
+範例:「近60日最高與最低差距超過60%」→{"rng60Min":60}；「從高點回檔超過三成」→{"offHigh60Max":-30}；「從低點漲上來一倍以上」→{"offLow60Min":100}
+需求：「${d.query}」`;
       const out = await askOllama(prompt, { priority: 10 });
       let f = {}; try { const m = (out || '').match(/\{[\s\S]*\}/); f = m ? JSON.parse(m[0]) : {}; } catch { f = {}; }
-      const SUPPORTED = ['minScore', 'signal', 'minYield', 'minRS', 'newHigh', 'foreignBuy', 'minRevYoY', 'rsi5Min', 'rsi5Max', 'rsi10Min', 'rsi10Max'];
+      const SUPPORTED = ['minScore', 'signal', 'minYield', 'minRS', 'newHigh', 'foreignBuy', 'minRevYoY',
+        'rsi5Min', 'rsi5Max', 'rsi10Min', 'rsi10Max', 'rng60Min', 'rng60Max', 'offHigh60Min', 'offHigh60Max', 'offLow60Min', 'offLow60Max'];
       const applied = SUPPORTED.filter(k => f[k] != null && f[k] !== false && f[k] !== '');
       if (!applied.length) {
         await ref.set({
@@ -2096,8 +2107,12 @@ async function runNlScreens() {
         const div = (await db.collection('dividendStocks').doc('latest').get()).data()?.top || [];
         const inst = (await db.collection('institutionalStreaks').doc('latest').get()).data()?.foreign || [];
         const rev = (await db.collection('revenue').doc('latest').get()).data()?.topYoY || [];
-        // RSI5/RSI10 全市場——chipArchive 收盤序列，與波段追強/回測完全同口徑
-        const rsiMap = {};
+        // 技術面全市場指標——chipArchive 收盤序列，與波段追強/回測完全同口徑。
+        // 一次掃描同時算 RSI5/10 與 60 日價格區間（零額外讀取成本）。
+        // ⚠口徑誠實揭露：chipArchive 只存收盤價，**沒有盤中最高/最低**，
+        //   所以「60日高低」是 60 個交易日的**收盤價**極值，不是盤中極值
+        //   （實際盤中振幅會比這個大）。文案與結果都標明，不假裝是盤中價。
+        const rsiMap = {}, rangeMap = {};
         try {
           const arch = await loadLuArchive();
           if (arch.length >= 15) {
@@ -2106,15 +2121,33 @@ async function runNlScreens() {
               const closes = [];
               for (let k = 0; k <= L; k++) { const r = arch[k].close[code]; if (r?.[0] > 0) closes.push(r[0]); }
               if (closes.length >= 15) rsiMap[code] = rsiPair(closes);
+              const w = closes.slice(-60);
+              if (w.length >= 30) {
+                const hi = Math.max(...w), lo = Math.min(...w), last = w[w.length - 1];
+                if (lo > 0 && hi > 0) {
+                  rangeMap[code] = {
+                    hi60: +hi.toFixed(2), lo60: +lo.toFixed(2),
+                    rng60: +((hi - lo) / lo * 100).toFixed(1),        // 區間振幅%
+                    offHigh60: +((last - hi) / hi * 100).toFixed(1),  // 距高點%（≤0）
+                    offLow60: +((last - lo) / lo * 100).toFixed(1),   // 距低點%（≥0）
+                    days: w.length,
+                  };
+                }
+              }
             }
           }
-        } catch (e) { log('  ⚠ NL選股 RSI 資料載入失敗：', e.message); }
-        enrich = { newHigh: new Set((scn.newHigh52 || []).map(x => x.code)), rs: Object.fromEntries(rs.map(x => [x.code, x.rs])), yield: Object.fromEntries(div.map(x => [x.code, x.yield])), foreign: new Set(inst.map(x => x.code)), rev: Object.fromEntries(rev.map(x => [x.code, x.yoy])), rsi: rsiMap };
+        } catch (e) { log('  ⚠ NL選股 技術指標載入失敗：', e.message); }
+        enrich = { newHigh: new Set((scn.newHigh52 || []).map(x => x.code)), rs: Object.fromEntries(rs.map(x => [x.code, x.rs])), yield: Object.fromEntries(div.map(x => [x.code, x.yield])), foreign: new Set(inst.map(x => x.code)), rev: Object.fromEntries(rev.map(x => [x.code, x.yoy])), rsi: rsiMap, range: rangeMap };
       }
-      // RSI 條件但 RSI 資料載入失敗 → 誠實報錯，不能默默跳過條件
+      // 依賴歸檔的條件但歸檔載入失敗 → 誠實報錯，不能默默跳過條件
       const wantsRsi = f.rsi5Min != null || f.rsi5Max != null || f.rsi10Min != null || f.rsi10Max != null;
+      const wantsRange = f.rng60Min != null || f.rng60Max != null || f.offHigh60Min != null || f.offHigh60Max != null || f.offLow60Min != null || f.offLow60Max != null;
       if (wantsRsi && !Object.keys(enrich.rsi || {}).length) {
         await ref.set({ query: d.query, status: 'error', error: 'RSI 資料暫時無法取得，請稍後再試。', answeredAt: Date.now() });
+        continue;
+      }
+      if (wantsRange && !Object.keys(enrich.range || {}).length) {
+        await ref.set({ query: d.query, status: 'error', error: '價格區間資料暫時無法取得，請稍後再試。', answeredAt: Date.now() });
         continue;
       }
       const res = [];
@@ -2132,10 +2165,26 @@ async function runNlScreens() {
         if (f.rsi5Max != null && !(rsi?.rsi5 <= f.rsi5Max)) continue;
         if (f.rsi10Min != null && !(rsi?.rsi10 >= f.rsi10Min)) continue;
         if (f.rsi10Max != null && !(rsi?.rsi10 <= f.rsi10Max)) continue;
-        res.push({ code, name: nameMap[code] || code, score: r.score, signal: r.signal, rs: enrich.rs[code] ?? null, yield: enrich.yield[code] ?? null, ...(wantsRsi && rsi ? { rsi5: rsi.rsi5, rsi10: rsi.rsi10 } : {}) });
+        const rg = enrich.range?.[code];
+        if (f.rng60Min != null && !(rg?.rng60 >= f.rng60Min)) continue;
+        if (f.rng60Max != null && !(rg?.rng60 <= f.rng60Max)) continue;
+        if (f.offHigh60Min != null && !(rg?.offHigh60 >= f.offHigh60Min)) continue;
+        if (f.offHigh60Max != null && !(rg?.offHigh60 <= f.offHigh60Max)) continue;
+        if (f.offLow60Min != null && !(rg?.offLow60 >= f.offLow60Min)) continue;
+        if (f.offLow60Max != null && !(rg?.offLow60 <= f.offLow60Max)) continue;
+        res.push({
+          code, name: nameMap[code] || code, score: r.score, signal: r.signal,
+          rs: enrich.rs[code] ?? null, yield: enrich.yield[code] ?? null,
+          ...(wantsRsi && rsi ? { rsi5: rsi.rsi5, rsi10: rsi.rsi10 } : {}),
+          ...(wantsRange && rg ? { rng60: rg.rng60, hi60: rg.hi60, lo60: rg.lo60, offHigh60: rg.offHigh60, offLow60: rg.offLow60 } : {}),
+        });
       }
-      res.sort((a, b) => b.score - a.score);
-      const note = f.unsupported ? `「${String(f.unsupported).slice(0, 80)}」不在支援範圍，已忽略——結果僅按其餘條件（${applied.join('、')}）篩選。` : null;
+      // 用了區間條件就依區間排序（照分數排會讓「振幅最大」的問題答非所問）
+      res.sort((a, b) => (wantsRange ? (b.rng60 ?? -1) - (a.rng60 ?? -1) : 0) || b.score - a.score);
+      const notes = [];
+      if (f.unsupported) notes.push(`「${String(f.unsupported).slice(0, 80)}」不在支援範圍，已忽略——結果僅按其餘條件（${applied.join('、')}）篩選。`);
+      if (wantsRange) notes.push('60日高低為「收盤價」極值（歸檔無盤中最高/最低），實際盤中振幅會比此數字大。');
+      const note = notes.length ? notes.join('\n') : null;
       await ref.set({ query: d.query, status: 'done', filters: f, ...(note ? { note } : {}), results: res.slice(0, 30), count: res.length, answeredAt: Date.now() });
       log(`  ✓ NL選股 ${u.id}「${d.query}」→ ${res.length} 檔（條件 ${JSON.stringify(f)}）`);
     } catch (e) { await ref.set({ query: d.query, status: 'error', error: (e.message || '').slice(0, 80) }, { merge: true }); log('  ✖ NL選股', u.id, e.message); }

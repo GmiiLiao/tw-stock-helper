@@ -10,14 +10,25 @@ import { useAppStore } from '@/lib/store';
 
 const PREMIUM = ['premium', 'admin', 'superadmin'];
 
-interface Result { code: string; name: string; score: number; signal: string; rs: number | null; yield: number | null }
+interface Result {
+  code: string; name: string; score: number; signal: string; rs: number | null; yield: number | null;
+  rsi5?: number; rsi10?: number;
+  rng60?: number; hi60?: number; lo60?: number; offHigh60?: number; offLow60?: number;
+}
 interface Doc { query: string; status: string; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string; note?: string }
 
 const SIG: Record<string, { t: string; c: string }> = {
   STRONG_BUY: { t: '強力買進', c: '#dc2626' }, BUY: { t: '買進', c: '#f97316' },
   WATCH: { t: '觀察', c: '#f59e0b' }, NEUTRAL: { t: '中性', c: '#94a3b8' },
 };
-const EXAMPLES = ['外資連買且月營收年增超過30%', '評分80以上、創新高的股票', '殖利率5%以上的便宜股', 'RS90以上的強勢股'];
+const EXAMPLES = [
+  '外資連買且月營收年增超過30%',
+  '近60日最高與最低差距超過60%',
+  '從60日高點回檔超過三成',
+  '評分80以上、創新高的股票',
+  '殖利率5%以上的便宜股',
+  'RSI5在60~75且RSI10大於60',
+];
 
 export default function NlScreen() {
   const user = useAppStore(st => st.user);
@@ -87,7 +98,17 @@ export default function NlScreen() {
                     評分 <b style={{ color: '#fbbf24' }}>{r.score}</b>
                     {r.rs != null && <> · RS <b style={{ color: '#fbbf24' }}>{r.rs}</b></>}
                     {r.yield != null && <> · 殖 <b style={{ color: '#fbbf24' }}>{r.yield}%</b></>}
+                    {r.rsi5 != null && <> · RSI <b style={{ color: '#fbbf24' }}>{r.rsi5}</b>/<b style={{ color: '#fbbf24' }}>{r.rsi10}</b></>}
                   </div>
+                  {/* 命中條件的實際數值——讓使用者能自己驗算，不是只給一份名單 */}
+                  {r.rng60 != null && (
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      60日振幅 <b style={{ color: '#fbbf24' }}>{r.rng60}%</b>
+                      <span style={{ color: 'var(--text-muted)' }}>（{r.lo60}→{r.hi60}）</span>
+                      {r.offHigh60 != null && <> · 距高 <b style={{ color: '#22c55e' }}>{r.offHigh60}%</b></>}
+                      {r.offLow60 != null && <> · 距低 <b style={{ color: '#f03e3e' }}>+{r.offLow60}%</b></>}
+                    </div>
+                  )}
                 </div>
                 <span style={{ fontSize: 11, fontWeight: 700, color: (SIG[r.signal] || SIG.NEUTRAL).c, whiteSpace: 'nowrap', marginLeft: 6 }}>{(SIG[r.signal] || SIG.NEUTRAL).t}</span>
               </div>
