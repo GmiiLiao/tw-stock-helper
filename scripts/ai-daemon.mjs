@@ -1709,6 +1709,37 @@ async function publishUserSummaries() {
 // 進階技能 v3（第4批）：交易日誌自動覆盤
 // ════════════════════════════════════════════════════════════
 // 每位 premium 用戶的交易紀錄(users/{uid}/data/trades) → 統計勝率/盈虧 → LLM 檢討。
+// 交易帳本重放（daemon 版）——逐 code 按時間重放，加權平均成本含買進手續費。
+// ⚠鏡像警告：這是 src/lib/portfolio-calc.ts `buildLedger` 的精簡 mjs 副本，
+//   兩邊口徑必須一致（wm-source-aggregation「mirror 漂移」風險）。
+//   不一致的後果很具體：2026-08-01 前 AI 覆盤讀存死的 realizedPnL，
+//   同一頁上方寫「總損益 -712,785」、下方重算寫 -533,480，使用者兩邊都不敢信。
+function replayLedger(records) {
+  const sorted = [...records].sort((a, b) => String(a.date).localeCompare(String(b.date)) || (a.createdAt || 0) - (b.createdAt || 0));
+  const st = {}, closed = [], byStock = {};
+  let buyCount = 0, oversoldCount = 0;
+  for (const t of sorted) {
+    if (t.type === 'dividend') continue;
+    (st[t.code] ??= { lots: 0, cost: 0 });
+    if (t.type === 'buy') { st[t.code].lots += t.quantity; st[t.code].cost += Math.abs(t.totalAmount); buyCount++; continue; }
+    const s = st[t.code];
+    const matched = Math.min(t.quantity, s.lots);
+    if (t.quantity - matched > 1e-6) oversoldCount++;
+    const shares = Math.round(s.lots * 1000);
+    const avgCost = shares > 0 ? s.cost / shares : 0;
+    const matchedCost = avgCost * Math.round(matched * 1000);
+    const pnl = Math.round((t.quantity > 0 ? t.totalAmount * (matched / t.quantity) : 0) - matchedCost);
+    s.lots = +(s.lots - matched).toFixed(6);
+    s.cost = s.lots > 0 ? s.cost - matchedCost : 0;
+    if (matched > 0) {
+      closed.push({ code: t.code, name: t.name, pnl });
+      (byStock[t.code] ??= { name: t.name, pnl: 0, n: 0 });
+      byStock[t.code].pnl += pnl; byStock[t.code].n++;
+    }
+  }
+  return { closed, byStock, buyCount, oversoldCount };
+}
+
 async function publishTradeReviews() {
   const premium = await getPremiumUsers();
   for (const u of premium) {
@@ -1716,16 +1747,15 @@ async function publishTradeReviews() {
     try {
       const td = await db.collection('users').doc(uid).collection('data').doc('trades').get();
       const trades = td.exists ? (td.data().trades || td.data().tradeRecords || []) : [];
-      const sells = trades.filter(t => t.type === 'sell' && t.realizedPnL != null);
+      // 2026-08-01：改用帳本重放，不再讀存死的 realizedPnL（那是記錄當下用
+      // 手動持倉成本算的，與交易紀錄脫鉤時會給出錯誤的覆盤結論）。
+      const { closed: sells, byStock, buyCount, oversoldCount } = replayLedger(trades);
       if (sells.length < 3) continue; // 太少不覆盤
-      const wins = sells.filter(t => t.realizedPnL > 0), losses = sells.filter(t => t.realizedPnL < 0);
+      const wins = sells.filter(t => t.pnl > 0), losses = sells.filter(t => t.pnl < 0);
       const winRate = (wins.length / sells.length * 100).toFixed(0);
-      const avgWin = wins.length ? Math.round(wins.reduce((s, t) => s + t.realizedPnL, 0) / wins.length) : 0;
-      const avgLoss = losses.length ? Math.round(losses.reduce((s, t) => s + t.realizedPnL, 0) / losses.length) : 0;
-      const totalRealized = Math.round(sells.reduce((s, t) => s + t.realizedPnL, 0));
-      const buyCount = trades.filter(t => t.type === 'buy').length;
-      const byStock = {};
-      for (const t of sells) { (byStock[t.code] ??= { name: t.name, pnl: 0, n: 0 }); byStock[t.code].pnl += t.realizedPnL; byStock[t.code].n++; }
+      const avgWin = wins.length ? Math.round(wins.reduce((s, t) => s + t.pnl, 0) / wins.length) : 0;
+      const avgLoss = losses.length ? Math.round(losses.reduce((s, t) => s + t.pnl, 0) / losses.length) : 0;
+      const totalRealized = Math.round(sells.reduce((s, t) => s + t.pnl, 0));
       const worst = Object.entries(byStock).sort((a, b) => a[1].pnl - b[1].pnl)[0];
       const best = Object.entries(byStock).sort((a, b) => b[1].pnl - a[1].pnl)[0];
       const prompt = `你是專業交易教練。依下列交易統計，用繁體中文寫一段「交易覆盤檢討」(180-240字)：點出交易習慣優缺點(如勝率、盈虧比、是否凹單/賣太早/過度交易)，給2-3個具體可執行的改進建議。語氣中肯鼓勵。勿杜撰數據，結尾加「※ AI 覆盤，非投資建議」。${STRICT_RULE}
@@ -1734,7 +1764,7 @@ async function publishTradeReviews() {
       if (!out) continue;
       await db.collection('users').doc(uid).collection('data').doc('tradeReview').set({
         generatedAt: Date.now(), model: OLLAMA_MODEL, review: out.trim().slice(0, 900),
-        stats: { winRate: +winRate, wins: wins.length, losses: losses.length, avgWin, avgLoss, totalRealized },
+        stats: { winRate: +winRate, wins: wins.length, losses: losses.length, avgWin, avgLoss, totalRealized, basis: 'ledger-replay', oversoldCount },
       });
       log(`  ✓ 交易覆盤 ${uid}`);
     } catch (e) { log('  ✖ 交易覆盤', uid, e.message); }
