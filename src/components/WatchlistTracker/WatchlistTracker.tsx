@@ -1901,9 +1901,12 @@ function InstitutionalPanel({
           price: s.price || stockInfo.price,
           changePercent: s.changePercent || stockInfo.changePercent
         }) : null;
-        const price = s.price ?? 0;
-        const chg = s.change ?? 0;
-        const chgPct = s.changePercent ?? 0;
+        // 現價 fallback：institutional-trading（T86）只有買賣超張數、沒有價格欄位，
+        // 直接讀 s.price 整欄全是 "--"。補用 allStocks（stock-day-all 官方收盤）——
+        // 本表是「盤後統計」，收盤價正是正確口徑。
+        const price = s.price ?? stockInfo?.price ?? 0;
+        const chg = s.change ?? stockInfo?.change ?? 0;
+        const chgPct = s.changePercent ?? stockInfo?.changePercent ?? 0;
         const priceColor = chg > 0 ? 'var(--color-up)' : chg < 0 ? 'var(--color-down)' : 'var(--text-primary)';
         const netLots = isForeign ? s.foreignNetLots : s.totalNetLots;
         const netColor = netLots > 0 ? '#ef4444' : '#22c55e';

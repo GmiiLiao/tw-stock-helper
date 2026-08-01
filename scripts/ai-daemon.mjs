@@ -714,18 +714,26 @@ async function publishPremarketBrief() {
   for (const r of top) {
     const rating = await getJSON(`/api/rating?code=${r.code}`);
     const st = rating?.stock || r;
-    const buy = st.buyZones?.find(z => z.type === 'standard')?.price ?? st.buyZones?.[0]?.price ?? null;
-    const target = st.sellTargets?.find(t => t.type === 'tp1')?.price ?? null;
+    let buy = st.buyZones?.find(z => z.type === 'standard')?.price ?? st.buyZones?.[0]?.price ?? null;
+    let target = st.sellTargets?.find(t => t.type === 'tp1')?.price ?? null;
+    let stop = st.stopLoss ?? null;
+    // 自洽檢查（2026-08-01）：均線錨定的買/損/目標來自不同均線，資料修復期或
+    // 均線倒掛時可能出現「停損 > 買點」「目標 ≤ 買點」（實例 7/31 快報：兆豐金
+    // 買41.44/損43.77、第一金 買29.09/損30.18）——這種計畫自相矛盾，寧可不給數字
+    // 也不能給一個照做必虧的計畫。違反 損<買<目標 就整組撤下，退回「現價附近觀察」。
+    if (buy != null && ((stop != null && stop >= buy) || (target != null && target <= buy))) {
+      buy = null; target = null; stop = null;
+    }
     const signalLabel = SIGNAL_LABEL[st.signal] || '中性';
     const chg = st.changePercent ?? 0;
     const sw = rating?.swingSignal;
-    const note = buildNote(signalLabel, buy, target, st.stopLoss ?? null, chg, st.price, st.entryPlan)
+    const note = buildNote(signalLabel, buy, target, stop, chg, st.price, st.entryPlan)
       + (sw?.chase ? '；🚫 乖離過大嚴禁追高，等回測均線' : '');
     picks.push({
       code: st.code, name: st.name, signal: st.signal,
       signalLabel, score: st.score,
       price: st.price, changePercent: chg,
-      buy, target, stop: st.stopLoss ?? null, note, entryPlan: st.entryPlan ?? null,
+      buy, target, stop, note, entryPlan: st.entryPlan ?? null,
       swingAction: sw?.actionLabel ?? null, swingScore: sw?.score ?? null,
       swingBias: sw?.biasPct ?? null, chase: sw?.chase ?? false,
     });
@@ -2030,9 +2038,26 @@ async function runNlScreens() {
     const ref = db.collection('users').doc(u.id).collection('data').doc('nlScreen');
     const d = (await ref.get()).data(); if (!d || d.status !== 'pending') continue;
     try {
-      const prompt = `把下列台股選股需求轉成 JSON(只輸出 JSON 物件、無其他文字、無說明)。可用欄位(需求沒提到的就省略不要放)：minScore(0-100技術評分),signal("STRONG_BUY"或"BUY"),minYield(殖利率%),minRS(1-99相對強弱),newHigh(true=創52週新高),foreignBuy(true=外資連買),minRevYoY(月營收年增%)。\n需求：「${d.query}」`;
+      // 2026-08-01 修正：舊版只支援 7 種欄位，需求提到 RSI 等不支援的概念時 LLM 回空物件，
+      // 空條件跑過濾迴圈＝全部通過 → 「找到 1936 檔」。實例：使用者查
+      // 「rsi5日介於60-75且rsi10日超過60」拿到全市場，還以為篩選壞了（確實壞了）。
+      // 修法：①補 RSI5/RSI10 區間欄位（chipArchive 收盤序列，與波段追強同口徑）
+      //       ②LLM 須把無法表達的部分放進 unsupported ③零有效條件＝回錯誤說明，不再默默全過
+      //       ④部分忽略時在結果上標注。「聽不懂」必須說出來，不能假裝聽懂。
+      const prompt = `把下列台股選股需求轉成 JSON(只輸出 JSON 物件、無其他文字、無說明)。可用欄位(需求沒提到的就省略不要放)：minScore(0-100技術評分),signal("STRONG_BUY"或"BUY"),minYield(殖利率%),minRS(1-99相對強弱排名),rsi5Min(5日RSI下限),rsi5Max(5日RSI上限),rsi10Min(10日RSI下限),rsi10Max(10日RSI上限),newHigh(true=創52週新高),foreignBuy(true=外資連買),minRevYoY(月營收年增%),unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,全部可表達就省略)。注意:RS是相對強弱「排名」、RSI是技術「指標」,兩者不同;需求寫 rsi 一律用 rsi 欄位。\n需求：「${d.query}」`;
       const out = await askOllama(prompt, { priority: 10 });
       let f = {}; try { const m = (out || '').match(/\{[\s\S]*\}/); f = m ? JSON.parse(m[0]) : {}; } catch { f = {}; }
+      const SUPPORTED = ['minScore', 'signal', 'minYield', 'minRS', 'newHigh', 'foreignBuy', 'minRevYoY', 'rsi5Min', 'rsi5Max', 'rsi10Min', 'rsi10Max'];
+      const applied = SUPPORTED.filter(k => f[k] != null && f[k] !== false && f[k] !== '');
+      if (!applied.length) {
+        await ref.set({
+          query: d.query, status: 'error',
+          error: `無法把這個需求轉成支援的篩選條件${f.unsupported ? `（無法處理：${String(f.unsupported).slice(0, 60)}）` : ''}。目前支援：技術評分、買進訊號、殖利率、RS 相對強弱、RSI5/RSI10 區間、創52週新高、外資連買、月營收年增。`,
+          answeredAt: Date.now(),
+        });
+        log(`  ⚠ NL選股 ${u.id}「${d.query}」→ 無有效條件，回報不支援（LLM輸出 ${JSON.stringify(f).slice(0, 120)}）`);
+        continue;
+      }
       if (!ratingMap) {
         const r = await getJSON('/api/rating'); ratingMap = r?.ratings || {};
         const all = await getAllMarketCodes(); nameMap = {}; for (const c of all) if (c.name) nameMap[c.code] = c.name; // 含上市+上櫃(TPEx)名稱，修上櫃股名缺失
@@ -2041,7 +2066,26 @@ async function runNlScreens() {
         const div = (await db.collection('dividendStocks').doc('latest').get()).data()?.top || [];
         const inst = (await db.collection('institutionalStreaks').doc('latest').get()).data()?.foreign || [];
         const rev = (await db.collection('revenue').doc('latest').get()).data()?.topYoY || [];
-        enrich = { newHigh: new Set((scn.newHigh52 || []).map(x => x.code)), rs: Object.fromEntries(rs.map(x => [x.code, x.rs])), yield: Object.fromEntries(div.map(x => [x.code, x.yield])), foreign: new Set(inst.map(x => x.code)), rev: Object.fromEntries(rev.map(x => [x.code, x.yoy])) };
+        // RSI5/RSI10 全市場——chipArchive 收盤序列，與波段追強/回測完全同口徑
+        const rsiMap = {};
+        try {
+          const arch = await loadLuArchive();
+          if (arch.length >= 15) {
+            const L = arch.length - 1;
+            for (const code in arch[L].close) {
+              const closes = [];
+              for (let k = 0; k <= L; k++) { const r = arch[k].close[code]; if (r?.[0] > 0) closes.push(r[0]); }
+              if (closes.length >= 15) rsiMap[code] = rsiPair(closes);
+            }
+          }
+        } catch (e) { log('  ⚠ NL選股 RSI 資料載入失敗：', e.message); }
+        enrich = { newHigh: new Set((scn.newHigh52 || []).map(x => x.code)), rs: Object.fromEntries(rs.map(x => [x.code, x.rs])), yield: Object.fromEntries(div.map(x => [x.code, x.yield])), foreign: new Set(inst.map(x => x.code)), rev: Object.fromEntries(rev.map(x => [x.code, x.yoy])), rsi: rsiMap };
+      }
+      // RSI 條件但 RSI 資料載入失敗 → 誠實報錯，不能默默跳過條件
+      const wantsRsi = f.rsi5Min != null || f.rsi5Max != null || f.rsi10Min != null || f.rsi10Max != null;
+      if (wantsRsi && !Object.keys(enrich.rsi || {}).length) {
+        await ref.set({ query: d.query, status: 'error', error: 'RSI 資料暫時無法取得，請稍後再試。', answeredAt: Date.now() });
+        continue;
       }
       const res = [];
       for (const code in ratingMap) {
@@ -2053,10 +2097,16 @@ async function runNlScreens() {
         if (f.newHigh && !enrich.newHigh.has(code)) continue;
         if (f.foreignBuy && !enrich.foreign.has(code)) continue;
         if (f.minRevYoY && !(enrich.rev[code] >= f.minRevYoY)) continue;
-        res.push({ code, name: nameMap[code] || code, score: r.score, signal: r.signal, rs: enrich.rs[code] ?? null, yield: enrich.yield[code] ?? null });
+        const rsi = enrich.rsi?.[code];
+        if (f.rsi5Min != null && !(rsi?.rsi5 >= f.rsi5Min)) continue;
+        if (f.rsi5Max != null && !(rsi?.rsi5 <= f.rsi5Max)) continue;
+        if (f.rsi10Min != null && !(rsi?.rsi10 >= f.rsi10Min)) continue;
+        if (f.rsi10Max != null && !(rsi?.rsi10 <= f.rsi10Max)) continue;
+        res.push({ code, name: nameMap[code] || code, score: r.score, signal: r.signal, rs: enrich.rs[code] ?? null, yield: enrich.yield[code] ?? null, ...(wantsRsi && rsi ? { rsi5: rsi.rsi5, rsi10: rsi.rsi10 } : {}) });
       }
       res.sort((a, b) => b.score - a.score);
-      await ref.set({ query: d.query, status: 'done', filters: f, results: res.slice(0, 30), count: res.length, answeredAt: Date.now() });
+      const note = f.unsupported ? `「${String(f.unsupported).slice(0, 80)}」不在支援範圍，已忽略——結果僅按其餘條件（${applied.join('、')}）篩選。` : null;
+      await ref.set({ query: d.query, status: 'done', filters: f, ...(note ? { note } : {}), results: res.slice(0, 30), count: res.length, answeredAt: Date.now() });
       log(`  ✓ NL選股 ${u.id}「${d.query}」→ ${res.length} 檔（條件 ${JSON.stringify(f)}）`);
     } catch (e) { await ref.set({ query: d.query, status: 'error', error: (e.message || '').slice(0, 80) }, { merge: true }); log('  ✖ NL選股', u.id, e.message); }
   }

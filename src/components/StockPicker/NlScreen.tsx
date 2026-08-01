@@ -11,7 +11,7 @@ import { useAppStore } from '@/lib/store';
 const PREMIUM = ['premium', 'admin', 'superadmin'];
 
 interface Result { code: string; name: string; score: number; signal: string; rs: number | null; yield: number | null }
-interface Doc { query: string; status: string; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string }
+interface Doc { query: string; status: string; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string; note?: string }
 
 const SIG: Record<string, { t: string; c: string }> = {
   STRONG_BUY: { t: '強力買進', c: '#dc2626' }, BUY: { t: '買進', c: '#f97316' },
@@ -62,10 +62,19 @@ export default function NlScreen() {
       </div>
 
       {pending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>🤔 AI 解析需求並篩選全市場中…</div>}
-      {data?.status === 'error' && <div style={{ color: '#ef4444', fontSize: 13 }}>解析失敗，請換個說法再試。</div>}
+      {data?.status === 'error' && (
+        <div style={{ color: '#ef4444', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+          {data.error || '解析失敗，請換個說法再試。'}
+        </div>
+      )}
       {data?.status === 'done' && (
         <div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>「<span style={{ color: '#7dd3fc' }}>{data.query}</span>」→ 找到 <b style={{ color: '#fbbf24' }}>{data.count}</b> 檔{data.results && data.results.length > 30 ? '（顯示前30）' : ''}</div>
+          {data.note && (
+            <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 8, padding: '6px 10px', background: 'rgba(245,158,11,0.08)', borderRadius: 8, whiteSpace: 'pre-wrap' }}>
+              ⚠ {data.note}
+            </div>
+          )}
           {(data.results || []).length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>沒有符合條件的股票，試試放寬條件。</div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px,1fr))', gap: 8 }}>
             {(data.results || []).map(r => (

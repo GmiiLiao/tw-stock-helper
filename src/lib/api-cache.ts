@@ -89,7 +89,7 @@ const primeHolidays = memoize<string[]>('trading-calendar', 6 * 3600_000, async 
 export async function latestDoc(
   collection: string,
   tier: Tier = 'intraday',
-  opts: { docId?: string; request?: Request } = {},
+  opts: { docId?: string; request?: Request; strip?: string[] } = {},
 ): Promise<Response> {
   await primeHolidays().catch(() => null);   // fail-open：載不到就維持只擋週末
   const docId = opts.docId ?? 'latest';
@@ -108,7 +108,13 @@ export async function latestDoc(
       const db = getAdminDb();
       if (!db) throw new Error('admin db unavailable');
       const snap = await db.collection(collection).doc(docId).get();
-      return { ok: true, data: snap.exists ? (snap.data() ?? null) : null };
+      let data = snap.exists ? (snap.data() ?? null) : null;
+      // strip：daemon 內部欄位（如量能存檔 volJson）不對外——剝除在 memoize 內做，
+      // 快取的就是乾淨版本，之後每次命中零成本。
+      if (data && opts.strip?.length) {
+        data = Object.fromEntries(Object.entries(data).filter(([k]) => !opts.strip!.includes(k)));
+      }
+      return { ok: true, data };
     },
   );
 

@@ -9,4 +9,7 @@ export const runtime = 'nodejs';
 //      原本是 N 個併發各讀一次 Firestore，現在同一實例只讀 1 次
 //   ② 失敗負快取 —— Firestore 抖動時不會被重打放大
 //   ③ stale-if-error —— 上游掛掉時供應舊資料而不是空白（31 支裡 30 支都沒有）
-export const GET = (request: Request) => latestDoc('strategyPicks', 'intraday', { request });
+// ⚠ 2026-08-01 補修：latestDoc 轉換時弄丟了原版的欄位剝除——volJson/prevVolJson/
+// prevLock/closesHist 是 daemon 內部量能存檔，整包吐給前端是純頻寬浪費。
+export const GET = (request: Request) =>
+  latestDoc('strategyPicks', 'intraday', { request, strip: ['volJson', 'prevVolJson', 'prevLock', 'closesHist'] });
