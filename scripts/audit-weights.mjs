@@ -67,8 +67,9 @@ async function main() {
   const adj = i => (new Date(win[i + 1].date) - new Date(win[i].date)) / 86400000 <= 4;
 
   // 收集器：每個稽核對象 × (全市場/龍頭)
-  const B = {}; // name -> {all:[], lead:[]}
+  const B = {}; const BO = {}; // name -> {all:[], lead:[]}
   const push = (name, code, ret) => { (B[name] ||= { all: [], lead: [] }); B[name].all.push(ret); if (LEADERS.has(code)) B[name].lead.push(ret); };
+  const pushO = (name, code, retO) => { if (retO == null) return; (BO[name] ||= { all: [] }); BO[name].all.push(retO); };
   const compBuckets = {}; // scoreBucket -> {all:[], lead:[]}
   const pushComp = (score, code, ret) => {
     const b = score < 40 ? '<40' : score < 46 ? '40-45' : score < 52 ? '46-51' : score < 58 ? '52-57' : '≥58';
@@ -79,7 +80,16 @@ async function main() {
   const TIER_WIN_PROD = { S: 59, A: 55, 'B+': 52, B: 50, watchHot: 47, danger: 39, neutral: 45 };
   const TIER_WIN_FIXED = JSON.parse(process.env.FIXED_TIERS || 'null') || TIER_WIN_PROD;
   const TIER_WIN = USE_FIXED ? TIER_WIN_FIXED : TIER_WIN_PROD;
-  const ADD = USE_FIXED ? (JSON.parse(process.env.FIXED_ADDS || 'null') || {}) : { brkStrong: 5, brk: 3, sqz: 4, strong: 2, weak: -6, bag: -4, dist: -3 };
+  // 2026-08-01 修正：原本這裡寫死的是 7/19 修正**前**的舊權重（brkStrong+5/strong+2/weak−6…），
+  // 但生產(model-core.adds)早已是 +2/−2/0 —— 稽核工具與生產脫鉤，Section C 的校準
+  // 一直在測一套不存在的評分。改為直接讀 model-core（單一真相來源）。
+  const MC = JSON.parse(readFileSync(new URL('./data/model-core.json', import.meta.url), 'utf8'));
+  const ADD = USE_FIXED ? (JSON.parse(process.env.FIXED_ADDS || 'null') || {}) : {
+    brkStrong: MC.adds?.brkStrong?.w ?? 0, brk: MC.adds?.brk?.w ?? 0, sqz: MC.adds?.sqz?.w ?? 0,
+    strong: MC.adds?.strongAlone?.w ?? 0, weak: MC.adds?.weak?.w ?? 0,
+    bag: MC.adds?.bag?.w ?? 0, dist: MC.adds?.dist30?.w ?? 0,
+  };
+  console.log('[audit] adds(來自 model-core):', JSON.stringify(ADD));
 
   for (let i = 21; i < win.length - 1; i++) {
     if (!adj(i)) continue;
@@ -90,14 +100,17 @@ async function main() {
       const cl = day.close[code], ncl = next.close[code], pcl = prev.close[code];
       if (!cl || !ncl || !pcl || !(cl[0] > 0) || !(ncl[0] > 0) || !(pcl[0] > 0)) continue;
       const vol = cl[1] || 0; if (vol < MIN_VOL) continue;
-      const ret = ncl[0] / cl[0] - 1; // 原始隔日報酬（勝率語意）
+      const ret = ncl[0] / cl[0] - 1; // 原始隔日報酬（勝率語意·收盤賣口徑）
+      // 開賣口徑（2026-08-01 補）：產品鐵律是「明開賣」（exitModel），
+      // 只用收賣口徑稽核會把「edge 在開盤溢價」的訊號誤判成失效。
+      const retO = ncl[2] > 0 ? ncl[2] / cl[0] - 1 : null;
       const f = day.inst[code][0] || 0, t = day.inst[code][1] || 0;
       const chg = (cl[0] / pcl[0] - 1) * 100;
       if (!INCLUDE_LU && chg > 8.5) continue;   // 可交易宇宙（收盤買得到）
       const hi = cl[3] || 0, lo = cl[4] || 0;
       const pos = hi > lo ? (cl[0] - lo) / (hi - lo) : null;
 
-      push('基準(全部)', code, ret);
+      push('基準(全部)', code, ret); pushO('基準(全部)', code, retO);
 
       // ── A. tier 條件 ──
       const heavy = f >= 500 && f / vol >= 0.10;
@@ -109,8 +122,8 @@ async function main() {
       else if (heavy) tier = 'B+';
       else if (chg >= 7 && weak && t <= 0) tier = 'watchHot';
       else if (f > 0) tier = 'B';
-      push(`tier:${tier}`, code, ret);
-      if (tier === 'A') push('tier:A(chipDaily段)', code, ret);
+      push(`tier:${tier}`, code, ret); pushO(`tier:${tier}`, code, retO);
+      if (tier === 'A') { push('tier:A(chipDaily段)', code, ret); pushO('tier:A(chipDaily段)', code, retO); }
 
       // ── B. composite 加減分成分 ──
       let hi20 = 0; for (let k = i - 20; k < i; k++) { const v = win[k]?.close[code]?.[0]; if (v > hi20) hi20 = v; }
@@ -132,13 +145,13 @@ async function main() {
       for (let k = i - 19; k <= i; k++) { const v = win[k]?.inst[code]; if (v) { cum += (v[0] || 0) + (v[1] || 0); if (cum > peak) peak = cum; } }
       const distPct = peak > 0 ? ((peak - cum) / peak) * 100 : 0;
 
-      if (brkStrong) push('破高×強尾(+5宣稱46.0)', code, ret);
-      else if (brk) push('破高(+3宣稱43.4)', code, ret);
-      if (sqzT) push('軋空觸發(+4宣稱45.1)', code, ret);
-      if (strongAlone) push('強尾盤(+2宣稱44.0)', code, ret);
-      if (weakClose) push('弱尾盤(−6宣稱40.1)', code, ret);
-      if (bag) push('接棒(−4·⚠無隔日證據)', code, ret);
-      if (distPct >= 30) push('倒貨≥30%(−3·⚠無隔日證據)', code, ret);
+      if (brkStrong) { push('破高×強尾(+5宣稱46.0)', code, ret); pushO('破高×強尾(+5宣稱46.0)', code, retO); }
+      else if (brk) { push('破高(+3宣稱43.4)', code, ret); pushO('破高(+3宣稱43.4)', code, retO); }
+      if (sqzT) { push('軋空觸發(+4宣稱45.1)', code, ret); pushO('軋空觸發(+4宣稱45.1)', code, retO); }
+      if (strongAlone) { push('強尾盤(+2宣稱44.0)', code, ret); pushO('強尾盤(+2宣稱44.0)', code, retO); }
+      if (weakClose) { push('弱尾盤(−6宣稱40.1)', code, ret); pushO('弱尾盤(−6宣稱40.1)', code, retO); }
+      if (bag) { push('接棒(−4·⚠無隔日證據)', code, ret); pushO('接棒(−4·⚠無隔日證據)', code, retO); }
+      if (distPct >= 30) { push('倒貨≥30%(−3·⚠無隔日證據)', code, ret); pushO('倒貨≥30%(−3·⚠無隔日證據)', code, retO); }
 
       // ── C. composite 校準 ──
       let sc = TIER_WIN[tier] ?? 45;
@@ -153,8 +166,10 @@ async function main() {
     }
   }
 
+  const TB = MC.tierBase || {};
   const CLAIMS = {
-    'tier:S': 59, 'tier:A(chipDaily段)': 55, 'tier:B+': 52, 'tier:B': 50, 'tier:watchHot': 47, 'tier:danger': 39, 'tier:neutral': 45,
+    'tier:S': TB.S, 'tier:A(chipDaily段)': TB.A, 'tier:B+': TB['B+'], 'tier:B': TB.B,
+    'tier:watchHot': TB.watchHot, 'tier:danger': TB.danger, 'tier:neutral': TB.neutral,
   };
   console.log('\n── A+B. 成分稽核（勝率=原始隔日上漲%·淨均=扣費稅後）──');
   const order = ['基準(全部)', 'tier:S', 'tier:A', 'tier:A(chipDaily段)', 'tier:B+', 'tier:B', 'tier:watchHot', 'tier:danger', 'tier:neutral',
@@ -162,7 +177,8 @@ async function main() {
     '接棒(−4·⚠無隔日證據)', '倒貨≥30%(−3·⚠無隔日證據)'];
   for (const k of order) {
     if (!B[k]) continue;
-    console.log(`  ${k.padEnd(22, '　')} 全市場 ${fmt(stat(B[k].all), CLAIMS[k])}`);
+    const o = BO[k] ? stat(BO[k].all) : null;
+    console.log(`  ${k.padEnd(22, '　')} 全市場 ${fmt(stat(B[k].all), CLAIMS[k])}${o ? `  ｜開賣淨均 ${o.netAvg}%·勝${o.win}%` : ''}`);
     console.log(`  ${''.padEnd(22, '　')} 龍頭65 ${fmt(stat(B[k].lead))}`);
   }
 
