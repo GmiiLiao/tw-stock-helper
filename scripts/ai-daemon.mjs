@@ -4585,25 +4585,28 @@ function instWeight(code, ctx) {
 // 勝率雷達階段(伺服器版，鏡射前端 classifyPhase)。呼叫端連買≥2日時傳累計 f/t/d。
 // 回傳 tier: S/A/B+/B/watch/danger + label + 回測勝率 + danger(轉空)旗標。
 function chipPhaseTier(f, t, d, streak, chgPct, volLots) {
-  // 勝率＝2 年實測隔日上漲機率（2026-07-19 audit-weights.mjs 全面稽核修正：
-  // 舊值 59/55/52/50/47/39 為無回測依據的高估，已全數改為 480 交易日實測值。
-  // 意外發現：舊「散戶追價·過熱47」實測 52.6~54.7%（近1年淨均+1.24%）＝最強
-  // 隔日形態（大漲慣性），標籤與勝率一併修正。danger 44 為隔日語意；外資賣超
-  // 的「倒貨領先」風險屬波段語意，danger 旗標保留供波段判讀。
+  // 2026-08-01 重定錨（audit-weights 乾淨資料重測·480日·42.3萬樣本）：
+  // win 一律改為**明開盤賣出**口徑的毛勝率——產品鐵律是明開賣（exitModel），
+  // 舊值(49/50/47/46)是收盤賣口徑，操作者看到的數字跟實際執行對不上。
+  // 同時附 netWin(扣費稅淨勝)/net(淨均%/筆)/rank(1=最優)：
+  //   A 61/51/+0.17 🥇唯一淨正·日均3檔｜B+ 60/45/+0.02｜S 59/44/-0.02｜
+  //   B 58/44/-0.05｜watch 51/43/-0.09｜danger 54/39/-0.21(淨勝全場最低)
+  // ⚠鏡像：src/lib/tier-meta.ts 持同一張表的 TS 副本，兩邊必須同步改。
+  // danger 旗標保留波段語意（外資賣超=倒貨領先）。
   const heavy = f >= 500 && (volLots > 0 ? (f / volLots >= 0.10) : (f >= 5000)); // 外資大買(佔量≥10%且≥500張)
   const weak = f < 500 || (volLots > 0 ? (f / volLots < 0.02) : (f < 1000));
   if (f < 0) {
-    if (t > 0 && (f + t + d) > 0) return { tier: 'B', label: '投信主導·外資調節', win: 46, danger: false };
-    return { tier: 'danger', label: '外資賣超·危險', win: 44, danger: true };
+    if (t > 0 && (f + t + d) > 0) return { tier: 'B', label: '投信主導·外資調節', win: 58, netWin: 44, net: -0.05, rank: 4, danger: false };
+    return { tier: 'danger', label: '外資賣超·危險', win: 54, netWin: 39, net: -0.21, rank: 7, danger: true };
   }
-  if (heavy && t > 0) return { tier: 'S', label: '投信跟進·強勢加速', win: 49, danger: false };
-  if (f > 0 && t > 0 && d > 0) return { tier: 'A', label: '三方同買·強勢', win: 50, danger: false };
-  if (heavy) return { tier: 'B+', label: '外資大買·主導', win: 47, danger: false };
+  if (heavy && t > 0) return { tier: 'S', label: '外資重倉+投信', win: 59, netWin: 44, net: -0.02, rank: 3, danger: false };
+  if (f > 0 && t > 0 && d > 0) return { tier: 'A', label: '三方同買·唯一淨正', win: 61, netWin: 51, net: 0.17, rank: 1, danger: false };
+  if (heavy) return { tier: 'B+', label: '外資大買·主導', win: 60, netWin: 45, net: 0.02, rank: 2, danger: false };
   // 2026-07-19 二次修正：舊53%為漲停幻覺——該形態81%樣本是漲停鎖死日（買不到），
   // 可交易部分(漲7~8.5%未鎖)實測僅33.7/43.3%·淨-1.03/-0.32%——弱勢群，非行動訊號。
-  if (chgPct >= 7 && weak && t <= 0 && streak < 2) return { tier: 'watch', label: '大漲·未鎖弱勢(鎖死另計)', win: 42, danger: false };
-  if (streak >= 2 || f > 0) return { tier: 'B', label: '外資布局中', win: 46, danger: false };
-  return { tier: 'watch', label: '籌碼中性', win: null, danger: false };
+  if (chgPct >= 7 && weak && t <= 0 && streak < 2) return { tier: 'watch', label: '大漲·未鎖弱勢(鎖死另計)', win: 51, netWin: 43, net: -0.09, rank: 5, danger: false };
+  if (streak >= 2 || f > 0) return { tier: 'B', label: '外資布局中', win: 58, netWin: 44, net: -0.05, rank: 4, danger: false };
+  return { tier: 'watch', label: '籌碼中性', win: null, netWin: null, net: null, rank: 6, danger: false };
 }
 // 主力倒貨偵測：window 內三大法人累計淨額的峰值 vs 現值。倒貨% = (峰值-現值)/峰值。
 function chipDistribution(code, win) { // win 新→舊
@@ -4901,7 +4904,7 @@ async function computeChipPicks() {
     const dist = chipDistribution(code, win);
     items.push({
       code, name, market: q?.market || 'tse', price: q?.price ?? null, chg: +chg.toFixed(2),
-      tier: ph.tier, tierLabel: ph.label, win: ph.win, danger: ph.danger, streak,
+      tier: ph.tier, tierLabel: ph.label, win: ph.win, netWin: ph.netWin ?? null, net: ph.net ?? null, rank: ph.rank ?? null, danger: ph.danger, streak,
       f: f0, t: t0, d: d0, foreignCum: Math.round(fCum), trustCum: Math.round(tCum), dealerCum: Math.round(dCum),
       totalCum: Math.round(fCum + tCum + dCum), distributedPct: dist.distributedPct,
       // 資券借券（t-1 餘額與日增減，張）＋實證訊號 setup

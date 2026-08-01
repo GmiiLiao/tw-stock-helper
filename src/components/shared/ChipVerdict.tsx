@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { METRIC_TIPS } from '@/lib/metric-tips';
+import { TIER_META, tierDisplay } from '@/lib/tier-meta';
 
 export interface Verdict {
   a: string; r: string; tier: string; win: number | null; dist: number;
@@ -44,7 +45,7 @@ export function VerdictBadge({ v, compact = false }: { v?: Verdict | null; compa
   if (!v) return null;
   const s = ACTION_STYLE[v.a] || ACTION_STYLE.續抱;
   return (
-    <span title={`${v.r}｜勝率雷達 ${v.tier}級${v.win ? ` ${v.win}%` : ''}｜倒貨 ${v.dist}%｜外${v.f >= 0 ? '+' : ''}${v.f}/投${v.t >= 0 ? '+' : ''}${v.t}(張)\n\n${METRIC_TIPS.勝率雷達分級}`}
+    <span title={`${v.r}｜${tierDisplay(v.tier)}${TIER_META[v.tier] ? `（${TIER_META[v.tier].hint}）` : ''}｜倒貨 ${v.dist}%｜外${v.f >= 0 ? '+' : ''}${v.f}/投${v.t >= 0 ? '+' : ''}${v.t}(張)\n\n${METRIC_TIPS.勝率雷達分級}`}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 7px' : '2px 9px', borderRadius: 8, fontSize: compact ? 10.5 : 12, fontWeight: 800, background: s.bg, color: s.c, border: `1px solid ${s.c}55`, whiteSpace: 'nowrap' }}>
       {s.icon} {v.a}
     </span>
@@ -60,7 +61,7 @@ export function VerdictStrip({ v }: { v?: Verdict | null }) {
       <span style={{ fontWeight: 900, color: s.c }}>{s.icon} 籌碼判讀：{v.a}</span>
       <span style={{ color: 'var(--text-secondary)' }}>{v.r}</span>
       <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-        {v.tier}級{v.win ? ` ${v.win}%` : ''} · 倒貨{v.dist}% · 外{v.f >= 0 ? '+' : ''}{v.f}/投{v.t >= 0 ? '+' : ''}{v.t}張
+        {tierDisplay(v.tier) || `${v.tier}級`} · 倒貨{v.dist}% · 外{v.f >= 0 ? '+' : ''}{v.f}/投{v.t >= 0 ? '+' : ''}{v.t}張
       </span>
     </div>
   );

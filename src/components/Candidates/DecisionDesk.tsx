@@ -27,7 +27,7 @@ function overnightStance(v?: Verdict | null): { t: string; c: string; note: stri
   const holdStrong = v.a === '續抱' && (v.tier === 'S' || v.tier === 'A') && v.f >= 0;
   const bearish = ['清倉', '優先減碼', '減碼', '觀望'].includes(v.a) || v.dist >= 60;
   if (bearish) return { t: '🟢 避開／偏空', c: '#2f9e44', note: `籌碼轉弱（${v.a}${v.dist >= 60 ? `、倒貨${v.dist}%` : ''}）——隔日沖追多風險高，這波該讓過或找強勢處減碼。` };
-  if (bullishAct || holdStrong) return { t: '🔴 偏多可留意', c: '#f03e3e', note: `籌碼站多方（${v.a}、${v.tier}級${v.win ? ` 勝率${v.win}%` : ''}）——隔日沖偏多，仍守單筆風險≤1%、破前低停損。` };
+  if (bullishAct || holdStrong) return { t: '🔴 偏多可留意', c: '#f03e3e', note: `籌碼站多方（${v.a}、${v.tier}級${v.win ? ` 開賣漲${v.win}%` : ''}）——隔日沖偏多，仍守單筆風險≤1%、破前低停損。` };
   return { t: '⚪ 中性觀望', c: '#eab308', note: `訊號中性（${v.a}）——等籌碼或技術更明確再進，勿盲追。` };
 }
 
@@ -260,6 +260,16 @@ export default function DecisionDesk() {
         <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>候選逐檔比對籌碼判讀＋勝率＋策略傾向＋預算試算 · 盤中 30 秒即時更新{liveAt ? `（${new Date(liveAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}）` : ''} · 非投資建議</span>
       </div>
       <PageHelp id="desk" />
+      {/* 明日作戰四問：使用者核心需求的固定入口（明天買什麼／何時賣／想連抱／何時空手）。
+          全部數字來自 audit-weights 2026-08-01 乾淨資料重測，滑鼠停留看完整版。 */}
+      <div title={METRIC_TIPS.明日作戰四問} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0 10px', padding: '8px 12px', borderRadius: 10, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 12, cursor: 'help', lineHeight: 1.7 }}>
+        <b style={{ color: '#7dd3fc' }}>🎯 明日作戰四問</b>
+        <span>①買什麼：撿尾盤濾網＋🥇A級（唯一費稅後淨正·開賣漲61%）</span>
+        <span>②何時賣：隔日沖一律<b>明開盤賣</b></span>
+        <span>③想連抱：波段起漲榜（空頭日限定·5日+1.10%）</span>
+        <span>④空手：🚫危險級／🐑跟風／🔥過熱</span>
+        <span style={{ color: 'var(--text-muted)' }}>（停留看實測依據）</span>
+      </div>
 
       {codes.length === 0 ? (
         <div style={{ marginTop: 24, padding: '28px 20px', borderRadius: 14, textAlign: 'center', background: 'var(--bg-elevated)', border: '1px dashed var(--border-primary)', lineHeight: 2 }}>
@@ -331,7 +341,7 @@ export default function DecisionDesk() {
                     {/* 策略傾向 + 勝率 */}
                     <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                       <span title="綜合評分＝勝率雷達基底＋實證訊號效應量（詳見說明書）" style={{ fontSize: 12, fontWeight: 900, padding: '1px 8px', borderRadius: 7, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd' }}>🧬{c.comp.score}</span>
-                      {c.v?.win != null && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#7dd3fc' }}>勝率 {c.v.win}%</span>}
+                      {c.v?.win != null && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#7dd3fc' }}>開賣漲 {c.v.win}%</span>}
                       <span style={{ fontSize: 12.5, fontWeight: 900, color: stance.c }}>{stance.t}</span>
                       <AddCandidateButton code={c.code} variant="chip" />
                       <button onClick={() => setOpenCode(open ? null : c.code)} style={{ fontSize: 12, color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '2px 8px', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>

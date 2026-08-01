@@ -1,5 +1,5 @@
 {
- "version": "2026-08-01.28",
+ "version": "2026-08-01.29",
  "auditedAt": "2026-07-19",
  "auditScript": "scripts/audit-weights.mjs",
  "window": {
@@ -10,14 +10,72 @@
  "horizon": "隔日沖（今日收盤買→明日收盤賣）",
  "costPct": 0.4425,
  "tierBase": {
-  "S": 49,
-  "A": 50,
-  "B+": 47,
-  "B": 46,
-  "watch": 42,
-  "watchHot": 42,
-  "danger": 44,
-  "neutral": 42
+  "S": 59,
+  "A": 61,
+  "B+": 60,
+  "B": 58,
+  "watch": 51,
+  "watchHot": 51,
+  "danger": 54,
+  "neutral": 53
+ },
+ "tierMeta": {
+  "A": {
+   "rank": 1,
+   "win": 61,
+   "netWin": 51,
+   "net": 0.17,
+   "perDay": 3,
+   "note": "三方同買·唯一費稅後淨正"
+  },
+  "B+": {
+   "rank": 2,
+   "win": 60,
+   "netWin": 45,
+   "net": 0.02,
+   "perDay": 68,
+   "note": "外資大買·約打平"
+  },
+  "S": {
+   "rank": 3,
+   "win": 59,
+   "netWin": 44,
+   "net": -0.02,
+   "perDay": 18,
+   "note": "外資重倉+投信·約打平"
+  },
+  "B": {
+   "rank": 4,
+   "win": 58,
+   "netWin": 44,
+   "net": -0.05,
+   "perDay": 351,
+   "note": "一般買超·無淨優勢"
+  },
+  "watchHot": {
+   "rank": 5,
+   "win": 51,
+   "netWin": 43,
+   "net": -0.09,
+   "perDay": 3,
+   "note": "大漲未鎖·毛勝最低"
+  },
+  "neutral": {
+   "rank": 6,
+   "win": 53,
+   "netWin": 42,
+   "net": -0.26,
+   "perDay": 2,
+   "note": "中性"
+  },
+  "danger": {
+   "rank": 7,
+   "win": 54,
+   "netWin": 39,
+   "net": -0.21,
+   "perDay": 437,
+   "note": "外資賣超·淨勝全場最低——避開端最可靠"
+  }
  },
  "adds": {
   "brkStrong": {
@@ -138,7 +196,7 @@
   "模型僅隔日沖語意；當沖/波段另需專屬回測，勿混用。",
   "非投資建議。"
  ],
- "generatedAt": "2026-08-01T01:24:07.884Z",
+ "generatedAt": "2026-08-01T03:42:49.289Z",
  "leaders": [
   "2330",
   "2454",

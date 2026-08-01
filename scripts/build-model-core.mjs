@@ -20,14 +20,25 @@ const db = admin.firestore();
 
 // ══ AUDITED：2026-07-19 稽核定版（audit-weights.mjs --fixed 驗證通過）══
 const AUDITED = {
-  version: '2026-08-01.28',
+  version: '2026-08-01.29',
   auditedAt: '2026-07-19',
   auditScript: 'scripts/audit-weights.mjs',
   window: { tradingDays: 480, samples: '~41萬（全市場）', leaders: 65 },
   horizon: '隔日沖（今日收盤買→明日收盤賣）',
   costPct: 0.4425, // 來回手續費+證交稅
   // tier 基底＝各籌碼形態 2 年實測隔日勝率（舊值 59/55/52/50/47/39 為無證據高估，已廢棄）
-  tierBase: { S: 49, A: 50, 'B+': 47, B: 46, watch: 42, watchHot: 42, danger: 44, neutral: 42 }, // watchHot 二次修正：舊53=漲停幻覺（81%樣本為鎖死日），可交易僅34-43%
+  tierBase: { S: 59, A: 61, 'B+': 60, B: 58, watch: 51, watchHot: 51, danger: 54, neutral: 53 },
+  // ↑2026-08-01 重定錨：分數基底＝明開賣毛勝率%（audit-weights 乾淨窗實測·舊值為收盤賣口徑）。
+  //  adds 為經複驗的 pp 調整；分數語意＝「明開盤賣出的上漲機率估計」。
+  tierMeta: {
+    A:        { rank: 1, win: 61, netWin: 51, net: 0.17,  perDay: 3,   note: '三方同買·唯一費稅後淨正' },
+    'B+':     { rank: 2, win: 60, netWin: 45, net: 0.02,  perDay: 68,  note: '外資大買·約打平' },
+    S:        { rank: 3, win: 59, netWin: 44, net: -0.02, perDay: 18,  note: '外資重倉+投信·約打平' },
+    B:        { rank: 4, win: 58, netWin: 44, net: -0.05, perDay: 351, note: '一般買超·無淨優勢' },
+    watchHot: { rank: 5, win: 51, netWin: 43, net: -0.09, perDay: 3,   note: '大漲未鎖·毛勝最低' },
+    neutral:  { rank: 6, win: 53, netWin: 42, net: -0.26, perDay: 2,   note: '中性' },
+    danger:   { rank: 7, win: 54, netWin: 39, net: -0.21, perDay: 437, note: '外資賣超·淨勝全場最低——避開端最可靠' },
+  }, // watchHot 二次修正：舊53=漲停幻覺（81%樣本為鎖死日），可交易僅34-43%
   // 加減分：僅保留前後半窗方向一致者
   adds: {
     brkStrong: { w: 2, name: '🏔破高×強尾', evidence: '2年 45.4-48.2%·淨+0.3~0.6%/筆 vs 基準（兩窗穩定正）' },

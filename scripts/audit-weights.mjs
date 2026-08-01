@@ -43,9 +43,10 @@ const LEADERS = new Set(JSON.parse(readFileSync(join(dirname(fileURLToPath(impor
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
 const stat = a => a.length ? {
   n: a.length,
-  win: +(a.filter(r => r > 0).length / a.length * 100).toFixed(1),
+  win: +(a.filter(r => r > 0).length / a.length * 100).toFixed(1),          // 毛勝率（上漲機率）
+  netWin: +(a.filter(r => r - COST > 0).length / a.length * 100).toFixed(1), // 淨勝率（扣費稅後為正）
   netAvg: +((mean(a) - COST) * 100).toFixed(2),
-} : { n: 0, win: 0, netAvg: 0 };
+} : { n: 0, win: 0, netWin: 0, netAvg: 0 };
 const fmt = (s, claimed) => `n=${String(s.n).padStart(7)} 勝率${String(s.win).padStart(5)}%${claimed != null ? ` (宣稱${claimed})` : ''} 淨均${String(s.netAvg).padStart(6)}%`;
 
 async function main() {
@@ -72,7 +73,8 @@ async function main() {
   const pushO = (name, code, retO) => { if (retO == null) return; (BO[name] ||= { all: [] }); BO[name].all.push(retO); };
   const compBuckets = {}; // scoreBucket -> {all:[], lead:[]}
   const pushComp = (score, code, ret) => {
-    const b = score < 40 ? '<40' : score < 46 ? '40-45' : score < 52 ? '46-51' : score < 58 ? '52-57' : '≥58';
+    // 2026-08-01 錨移：基底改為開賣毛勝率(51-61)＋adds(−7~+4)後分佈約 44~65
+    const b = score < 54 ? '<54' : score < 58 ? '54-57' : score < 61 ? '58-60' : score < 63 ? '61-62' : '≥63';
     (compBuckets[b] ||= { all: [], lead: [] }); compBuckets[b].all.push(ret); if (LEADERS.has(code)) compBuckets[b].lead.push(ret);
   };
 
@@ -178,12 +180,12 @@ async function main() {
   for (const k of order) {
     if (!B[k]) continue;
     const o = BO[k] ? stat(BO[k].all) : null;
-    console.log(`  ${k.padEnd(22, '　')} 全市場 ${fmt(stat(B[k].all), CLAIMS[k])}${o ? `  ｜開賣淨均 ${o.netAvg}%·勝${o.win}%` : ''}`);
+    console.log(`  ${k.padEnd(22, '　')} 全市場 ${fmt(stat(B[k].all), CLAIMS[k])}${o ? `  ｜開賣 毛勝${o.win}%·淨勝${o.netWin}%·淨均${o.netAvg}%` : ''}`);
     console.log(`  ${''.padEnd(22, '　')} 龍頭65 ${fmt(stat(B[k].lead))}`);
   }
 
   console.log('\n── C. 綜合評分校準（分數桶 → 實際隔日上漲%；理想：單調遞增且 分數≈勝率）──');
-  for (const b of ['<40', '40-45', '46-51', '52-57', '≥58']) {
+  for (const b of ['<54', '54-57', '58-60', '61-62', '≥63']) {
     if (!compBuckets[b]) continue;
     console.log(`  🧬${b.padEnd(6)} 全市場 ${fmt(stat(compBuckets[b].all))} ｜ 龍頭 ${fmt(stat(compBuckets[b].lead))}`);
   }

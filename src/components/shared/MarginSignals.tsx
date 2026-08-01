@@ -77,7 +77,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.25)', fontSize: 12 }}>
       <span style={{ fontWeight: 900, color: '#a78bfa' }}>🧬 模型判讀</span>
-      <span title={METRIC_TIPS.勝率雷達分級} style={{ cursor: 'help', fontWeight: 900, color: comp.score >= 52 ? '#f03e3e' : comp.score <= 45 ? '#2f9e44' : '#eab308' }}>
+      <span title={METRIC_TIPS.勝率雷達分級} style={{ cursor: 'help', fontWeight: 900, color: comp.score >= 60 ? '#f03e3e' : comp.score <= 55 ? '#2f9e44' : '#eab308'  /* 2026-08-01 錨移：基準毛勝56% → ≥60強/≤55弱 */ }}>
         評分 {comp.score}{v?.tier ? `（${v.tier}級${v.win ? ` ${v.win}%` : ''}）` : ''}
       </span>
       {charLabel && <span style={{ fontSize: 11, fontWeight: 800, color: charLabel === '炒作型' ? '#f59e0b' : charLabel === '長期核心' ? '#7dd3fc' : 'var(--text-muted)' }}>{charLabel}</span>}
