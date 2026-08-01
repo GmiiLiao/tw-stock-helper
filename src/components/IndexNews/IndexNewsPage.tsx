@@ -353,6 +353,63 @@ const TIER = [
   { n: 1, label: '⭐ 三重確認', color: '#7dd3fc', key: 't1' },
 ];
 
+interface StrengthItem { code: string; name: string; price: number; chg: number; rsi5: number; rsi10: number; spread: number; inst5: number; inst5Ratio: number; vol: number }
+interface StrengthData { found?: boolean; date?: string; total?: number; crowded?: boolean; horizon?: string; caveats?: string[]; instWindow?: string[]; items?: StrengthItem[]; evidence?: Record<string, string> }
+
+// 波段追強（強勢整理）——2026-08-01 上榜。規則與所有數字見 evidence（verify-strength-oot 實測）。
+function StrengthTab() {
+  const navigateTo = useAppStore(s => s.navigateTo);
+  const [d, setD] = useState<StrengthData | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => fetch('/api/ai/strength-picks').then(r => (r.ok ? r.json() : null)).then(j => { if (live && j) setD(j); }).catch(() => {});
+    load();
+    const t = setInterval(load, 180000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  if (!d) return <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: 16 }}>載入波段追強…</div>;
+  const items = d.items || [];
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(192,132,252,0.07)', border: '1px solid rgba(192,132,252,0.35)', fontSize: 12, lineHeight: 1.85, color: 'var(--text-secondary)' }}>
+        <div style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: 13 }}>🚀 波段追強（強勢整理）· <span style={{ color: '#fbbf24' }}>持有 5 個交易日</span></div>
+        <div>挑「10 日趨勢強、5 日剛回冷、法人連 5 日買」的強勢整理股——<b style={{ color: 'var(--text-primary)' }}>不是追過熱</b>（RSI10 必須高於 RSI5）。與 🌊起漲榜互補：起漲抄跌深、追強買強勢回檔，兩者皆 5 日語意。</div>
+        <div>⚠ <b style={{ color: 'var(--text-primary)' }}>絕不可隔日沖</b>：隔日開賣 −0.07%——edge 全在第 5 日。</div>
+      </div>
+      {(d.caveats ?? []).map((c, i) => (
+        <div key={i} style={{ padding: '9px 14px', borderRadius: 12, fontSize: 12, lineHeight: 1.75, fontWeight: 600,
+          background: 'rgba(250,176,5,0.09)', border: '1px solid rgba(250,176,5,0.35)', color: 'var(--text-primary)' }}>{c}</div>
+      ))}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <span>📅 {d.date} · 收盤定版</span>
+        {d.instWindow && <span>🏦 法人視窗 {d.instWindow[d.instWindow.length - 1]}~{d.instWindow[0]}（t-1~t-5·與回測同口徑）</span>}
+        <span>共 {d.total ?? 0} 檔</span>
+      </div>
+      <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(192,132,252,0.4)' }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 6 }}>📐 {d.evidence?.rule}</div>
+        {items.map(it => (
+          <div key={it.code} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
+            <button onClick={() => navigateTo('stock', it.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 12.5, padding: 0 }}>{it.code} {it.name}</button>
+            <span style={{ fontSize: 10.5, color: '#c084fc' }}>法人5日/均量 {(it.inst5Ratio * 100).toFixed(1)}%</span>
+            <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
+            {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: UP, minWidth: 82, textAlign: 'right' }}>法人+{it.inst5.toLocaleString()}</span>
+          </div>
+        ))}
+        {items.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>今日無符合——本榜日均僅 1.6 檔，空榜是常態。</div>}
+      </div>
+      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(240,62,62,0.06)', border: '1px solid rgba(240,62,62,0.25)', fontSize: 11.5, lineHeight: 1.85, color: 'var(--text-secondary)' }}>
+        <div><b style={{ color: 'var(--text-primary)' }}>🔬 主窗</b>：{d.evidence?.main}</div>
+        <div style={{ marginTop: 4 }}><b style={{ color: 'var(--text-primary)' }}>🔬 OOT</b>：{d.evidence?.oot}</div>
+        <div style={{ marginTop: 4 }}><b style={{ color: 'var(--text-primary)' }}>🌐 Regime</b>：{d.evidence?.regime}</div>
+        <div style={{ marginTop: 4 }}><b style={{ color: '#ff8787' }}>⚠ 風險</b>：{d.evidence?.risk}</div>
+        <div style={{ marginTop: 4 }}><b style={{ color: '#ff8787' }}>🛡 否證記錄</b>：{d.evidence?.refuted}</div>
+      </div>
+    </div>
+  );
+}
+
 function SwingTab() {
   const navigateTo = useAppStore(s => s.navigateTo);
   const [d, setD] = useState<SwingData | null>(null);
@@ -421,12 +478,12 @@ function SwingTab() {
 }
 
 export default function IndexNewsPage() {
-  const [tab, setTab] = useState<'index' | 'news' | 'topic' | 'swing'>('index');
+  const [tab, setTab] = useState<'index' | 'news' | 'topic' | 'swing' | 'strength'>('index');
   return (
     <div style={{ padding: '12px 16px', maxWidth: 1100, margin: '0 auto' }}>
       <PageHelp id="indexnews" />
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        {([['index', '📈 指數分析'], ['news', '📰 每日新聞'], ['topic', '🎯 話題選股'], ['swing', '🌊 波段起漲']] as const).map(([k, label]) => {
+        {([['index', '📈 指數分析'], ['news', '📰 每日新聞'], ['topic', '🎯 話題選股'], ['swing', '🌊 波段起漲'], ['strength', '🚀 波段追強']] as const).map(([k, label]) => {
           const on = tab === k;
           return (
             <button key={k} onClick={() => setTab(k)}
@@ -439,7 +496,7 @@ export default function IndexNewsPage() {
           );
         })}
       </div>
-      {tab === 'index' ? <IndexTab /> : tab === 'news' ? <NewsTab /> : tab === 'topic' ? <TopicTab /> : <SwingTab />}
+      {tab === 'index' ? <IndexTab /> : tab === 'news' ? <NewsTab /> : tab === 'topic' ? <TopicTab /> : tab === 'swing' ? <SwingTab /> : <StrengthTab />}
     </div>
   );
 }

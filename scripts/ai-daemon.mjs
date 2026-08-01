@@ -2168,6 +2168,7 @@ async function sectorLoop() {
     try { await computeSectorWind(); } catch (e) { log('✖ sector wind:', e.message); }
     try { await computeTopicPicks(); } catch (e) { log('✖ topic picks:', e.message); }
     try { await computeSwingPicks(); } catch (e) { log('✖ swing picks:', e.message); }
+    try { await computeStrengthPicks(); } catch (e) { log('✖ strength picks:', e.message); }
     try { await computeGlobalMarkets(); } catch (e) { log('✖ global markets:', e.message); }
     try { await computeMarketHealth(); } catch (e) { log('✖ market health:', e.message); }
     const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
@@ -2487,6 +2488,82 @@ async function checkRsiHot() {
 //   ⭐⭐ 強化      ＋(RSI10<25 或 距60日高<0.85)      真起漲21.5~22.0% 淨勝58~63% +1.59~2.19%
 //   ⭐⭐⭐最嚴     ＋空頭日 ∧ 量≥1000張 ∧ 距60日高<0.85 真起漲24.3% 淨勝63.0% +2.58%
 // 硬性 gate：多頭日不推（實測 -0.24%·真起漲14.4% 低於基準）。
+// ── 波段追強（強勢整理）·2026-08-01 上榜 ─────────────────────────
+// 規則：RSI5 75~90 ∧ RSI10>RSI5（10日領先·5日回冷＝強勢整理非追過熱）
+//       ∧ 法人5日買超(t-1..t-5)/20日均量 > 0.05
+// 實證（verify-strength-oot·乾淨資料）：主窗 5日 +0.73%[0.71/0.76]·淨勝47.4%·
+// 10日內漲≥5% 53.2%（vs 基準35%）；OOT 獨立窗 +0.96%[0.15/1.09] 勝基準；
+// 逐年四段全正且全勝基準；多空 regime 皆成立(+0.73/+0.75·不需空頭 gate)。
+// ⚠口徑：隔日開賣 -0.07% ＝絕不可隔日沖；5日持有語意，與 swingPicks 同框不同律。
+// ⚠原 spread<5 版 OOT 兩半換號且輸基準——收斂到 spread<0 才過關（幻覺防護記錄）。
+async function computeStrengthPicks() {
+  try {
+    const arch = await loadLuArchive();
+    if (arch.length < 25) { log('✖ 波段追強：歸檔僅', arch.length, '日'); return; }
+    const L = arch.length - 1;
+    const quo = (await readSnapshotQuotes())?.quotes || {};
+    // 法人 t-1..t-5（嚴格鏡射回測：**不含今日**——收盤後 chipDaily 最新日=今日時要跳過）
+    let instWin = [];
+    try {
+      const w = await loadChipWindow(7);
+      instWin = w.filter(x => x.date < arch[L].date).slice(0, 5);
+      if (instWin.length < 5) instWin = w.slice(w.length > 5 ? 1 : 0, 6);
+    } catch { /* 缺法人＝整榜跳過（inst 是規則核心，不可降級） */ }
+    if (instWin.length < 5) { log('✖ 波段追強：法人視窗不足'); return; }
+
+    const items = [];
+    for (const code in arch[L].close) {
+      if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+      const closes = [], vols = [];
+      for (let k = 0; k <= L; k++) { const r = arch[k].close[code]; if (r?.[0] > 0) { closes.push(r[0]); vols.push(r[1] || 0); } }
+      if (closes.length < 25) continue;
+      const price = closes[closes.length - 1];
+      const pc = closes[closes.length - 2];
+      const chg = pc > 0 ? (price / pc - 1) * 100 : 0;
+      if (chg > 8.5) continue;                                   // 可交易宇宙
+      const { rsi5, rsi10 } = rsiPair(closes);
+      if (!(rsi5 >= 75 && rsi5 < 90 && rsi10 > rsi5)) continue;  // 強勢整理
+      // 20日均量（t-1..t-20，不含今日）
+      const hv = vols.slice(-21, -1);
+      const av20 = hv.length ? hv.reduce((a, b) => a + b, 0) / hv.length : 0;
+      if (!(av20 > 0)) continue;
+      let inst5 = 0;
+      for (const w of instWin) { const it = w.map[code]; if (it) inst5 += (it[0] || 0) + (it[1] || 0); }
+      const inst5Ratio = inst5 / av20;
+      if (!(inst5Ratio > 0.05)) continue;
+      const tVol = vols[vols.length - 1];
+      items.push({
+        code, name: (quo[code]?.name || '').trim() || code,
+        price: +price.toFixed(2), chg: +chg.toFixed(2),
+        rsi5: +rsi5.toFixed(1), rsi10: +rsi10.toFixed(1), spread: +(rsi5 - rsi10).toFixed(1),
+        inst5, inst5Ratio: +inst5Ratio.toFixed(3), vol: tVol,
+      });
+    }
+    items.sort((a, b) => b.inst5Ratio - a.inst5Ratio);
+    const crowded = items.length >= 15;   // 回測日均 1.6 檔，≥15 檔＝母體偏離示警（同 swing 的擁擠揭露）
+    await db.collection('strengthPicks').doc('latest').set({
+      updatedAt: Date.now(), date: arch[L].date, total: items.length, crowded,
+      instWindow: instWin.map(w => w.date),
+      horizon: '持有 5 個交易日（強勢整理·10日內漲≥5% 機率 53.2% vs 基準 35%）',
+      caveats: [
+        '⚠絕不可隔日沖：本訊號隔日開賣 -0.07%／收賣 -0.21%——edge 在第5日，隔日出場沒有期望值。',
+        crowded ? `⚠訊號擁擠：今日 ${items.length} 檔（回測日均 1.6 檔）——母體已偏離回測，勝率下修看待。` : null,
+        items.length === 0 ? 'ℹ今日無符合——本榜日均僅 1.6 檔，空榜是常態不是故障。' : null,
+      ].filter(Boolean),
+      items: items.slice(0, 20),
+      evidence: {
+        rule: 'RSI5 75~90 ∧ RSI10>RSI5（強勢整理）∧ 法人5日買超(t-1~t-5)/20日均量>0.05',
+        main: '主窗 720日：5日淨均 +0.73%[前0.71/後0.76]·淨勝47.4%·10日內漲≥5% 53.2%（基準 -0.20%/43.2%/35.0%）·日均1.6檔',
+        oot: 'OOT 獨立窗（2022-07~2023-07·設計時未見）+0.96%[0.15/1.09]·勝基準；逐年四段全正且全勝基準(+0.99/+0.40/+0.82/+0.90)',
+        regime: '多頭日 +0.73／空頭日 +0.75——兩個 regime 皆成立，無需空頭 gate（與波段起漲不同）',
+        risk: '⚠淨勝率 47.4%＝半數以上單筆是輸的，靠右尾賺錢——分批小部位·破 5 日低停損·單筆風險≤1%。價≥50 元前半窗 -0.05 略弱，高價股倉位再保守。',
+        refuted: '⚠幻覺防護記錄：原「spread<5」寬版 OOT 兩半換號(-0.57/+0.29)且輸基準——收斂到 spread<0 才全關通過。挑股時勿自行放寬條件。',
+      },
+    });
+    log(`✓ 波段追強 ${arch[L].date}：${items.length} 檔${crowded ? '（⚠擁擠）' : ''}${items[0] ? '·首選 ' + items[0].code + ' ' + items[0].name : ''}`);
+  } catch (e) { log('✖ 波段追強:', (e.message || '').slice(0, 80)); }
+}
+
 async function computeSwingPicks() {
   try {
     const arch = await loadLuArchive();

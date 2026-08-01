@@ -68,6 +68,7 @@ const CONTRACTS = [
   { c: 'marketHealth',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'topicPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'swingPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  { c: 'strengthPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'strategyPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'snipeList',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'squeezeSetup',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
