@@ -15,7 +15,7 @@ interface Result {
   rsi5?: number; rsi10?: number;
   rng60?: number; hi60?: number; lo60?: number; offHigh60?: number; offLow60?: number;
 }
-interface Doc { query: string; status: string; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string; note?: string }
+interface Doc { query: string; status: string; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string; note?: string; interpreted?: string }
 
 const SIG: Record<string, { t: string; c: string }> = {
   STRONG_BUY: { t: '強力買進', c: '#dc2626' }, BUY: { t: '買進', c: '#f97316' },
@@ -80,7 +80,14 @@ export default function NlScreen() {
       )}
       {data?.status === 'done' && (
         <div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>「<span style={{ color: '#7dd3fc' }}>{data.query}</span>」→ 找到 <b style={{ color: '#fbbf24' }}>{data.count}</b> 檔{data.results && data.results.length > 30 ? '（顯示前30）' : ''}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>「<span style={{ color: '#7dd3fc' }}>{data.query}</span>」→ 找到 <b style={{ color: '#fbbf24' }}>{data.count}</b> 檔{(data.count ?? 0) > 30 ? '（顯示前30）' : ''}</div>
+          {/* 條件回譯：誤讀擺在使用者眼前，不用他去猜 AI 怎麼理解 */}
+          {data.interpreted && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, padding: '6px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+              🔍 實際套用的條件：<b style={{ color: '#7dd3fc' }}>{data.interpreted}</b>
+              <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>與你的意思不同的話，換句話再問一次。</div>
+            </div>
+          )}
           {data.note && (
             <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 8, padding: '6px 10px', background: 'rgba(245,158,11,0.08)', borderRadius: 8, whiteSpace: 'pre-wrap' }}>
               ⚠ {data.note}

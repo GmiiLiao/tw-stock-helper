@@ -2061,6 +2061,89 @@ async function checkCustomAlerts() {
 // ── 26) 自然語言選股 ──────────────────────────────────────────
 // 前端寫 users/{uid}/data/nlScreen{query,status:pending}；daemon 用 LLM 把需求轉成
 // JSON 篩選條件，套用全市場評分+各技能榜→回寫結果。
+// ════════════════════════════════════════════════════════════
+// NL 選股防幻覺三道閘門（2026-08-01）
+//
+// 為什麼要確定性檢查、不能靠 LLM 自律：實測使用者問
+// 「6/1-7/31期間最高交易價打5折且高於4折的7/31現貨價股票」，
+// qwythos 回 {rng60Min:25, offHigh60Max:-50, offLow60Min:0} —— 沒報錯、
+// 跑出 57 檔，前 30 檔裡只有 9 檔真的符合，正解 23 檔漏掉 14 檔。
+// 錯法拆解：①憑空生出 rng60Min:25（問題裡沒有 25）②漏掉「高於4折」下界
+// ③把自訂日期區間(6/1-7/31)默默換成「近60交易日」④把「交易價(盤中)」
+// 默默換成收盤價。**部分聽懂就硬湊**比完全聽不懂更危險——它長得像答案。
+//
+// 三道閘門都是純程式判斷，LLM 說什麼都不算數：
+//   ①數值溯源：門檻數字必須能在使用者原句找到（含中文數字/折/成/倍換算）
+//   ②概念偵測：句中出現架構表達不了的概念（日期區間、盤中價、量能…）一律拒答
+//   ③語意合法性：欄位值必須落在該欄位定義域（如距高點必為負）
+// 通過後仍把「我怎麼理解你的話」回譯成中文一起顯示，讓使用者能當場抓誤讀。
+// ════════════════════════════════════════════════════════════
+
+// 中文數字 → 值（只處理選股會用到的小數量級）
+function cnToNum(s) {
+  const t = String(s).trim();
+  if (/^\d+(\.\d+)?$/.test(t)) return +t;
+  const D = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (t === '十') return 10;
+  let m = t.match(/^十([零一二兩三四五六七八九])$/); if (m) return 10 + D[m[1]];
+  m = t.match(/^([零一二兩三四五六七八九])十([零一二兩三四五六七八九])?$/); if (m) return D[m[1]] * 10 + (m[2] ? D[m[2]] : 0);
+  if (t.length === 1 && D[t] != null) return D[t];
+  return null;
+}
+
+/** 使用者原句裡「可以當成門檻」的數值集合（供閘門①溯源比對） */
+function queryNumberSet(q) {
+  const set = new Set();
+  const push = v => { if (Number.isFinite(v)) set.add(+Math.abs(v).toFixed(2)); };
+  for (const m of q.matchAll(/\d+(?:\.\d+)?/g)) push(+m[0]);
+  const NUM = '[零一二兩三四五六七八九十]+|\\d+(?:\\.\\d+)?';
+  for (const m of q.matchAll(new RegExp(`(${NUM})\\s*成`, 'g'))) { const v = cnToNum(m[1]); if (v != null) push(v * 10); }
+  for (const m of q.matchAll(new RegExp(`(${NUM})\\s*折`, 'g'))) { const v = cnToNum(m[1]); if (v != null) push(v * 10); }
+  for (const m of q.matchAll(new RegExp(`(${NUM})\\s*倍`, 'g'))) { const v = cnToNum(m[1]); if (v != null) push(v * 100); }
+  if (/一半|對半|半數/.test(q)) push(50);
+  return set;
+}
+
+/** 架構表達不了的概念 —— 命中即拒答，不論 LLM 怎麼說 */
+const NL_UNSUPPORTED = [
+  [/\d{1,2}\s*[/／]\s*\d{1,2}|\d{4}-\d{1,2}-\d{1,2}|期間|區間內|從.{0,8}(到|至)\s*\d/, '自訂日期區間（目前只有固定視窗：近 60 個交易日、近 52 週）'],
+  [/盤中|交易價|成交價|最高價|最低價|開盤價|收盤價以外/, '盤中價（最高／最低／開盤／成交價）—— 歸檔只有每日收盤價'],
+  [/市值|股本|本益比|PER|PBR|淨值比|EPS/, '估值面（市值／本益比／淨值比／EPS）'],
+  [/成交量|成交值|周轉率|週轉率|量比|爆量/, '量能條件（成交量／值／週轉率）'],
+  [/張數|買超\s*\d|賣超\s*\d|持股比[率例]/, '法人買賣超張數／持股比率門檻（只支援「有無外資連買」）'],
+  [/產業|類股|族群|概念股|供應鏈/, '產業／族群分類'],
+  [/融資|融券|券資比|借券/, '信用交易（融資融券／借券）'],
+];
+
+/** 欄位定義域（閘門③）：min/max 允許範圍 */
+const NL_DOMAIN = {
+  minScore: [0, 100], minYield: [0, 30], minRS: [1, 99], minRevYoY: [-100, 10000],
+  rsi5Min: [0, 100], rsi5Max: [0, 100], rsi10Min: [0, 100], rsi10Max: [0, 100],
+  rng60Min: [0, 2000], rng60Max: [0, 2000],
+  offHigh60Min: [-100, 0], offHigh60Max: [-100, 0],   // 距高點必為負或 0
+  offLow60Min: [0, 5000], offLow60Max: [0, 5000],     // 距低點必為正或 0
+};
+
+const NL_LABEL = {
+  minScore: '技術評分 ≥', minYield: '殖利率(%) ≥', minRS: 'RS 相對強弱 ≥', minRevYoY: '月營收年增(%) ≥',
+  rsi5Min: 'RSI5 ≥', rsi5Max: 'RSI5 ≤', rsi10Min: 'RSI10 ≥', rsi10Max: 'RSI10 ≤',
+  rng60Min: '近60日收盤高低差距(%) ≥', rng60Max: '近60日收盤高低差距(%) ≤',
+  offHigh60Min: '距60日收盤高點(%) ≥', offHigh60Max: '距60日收盤高點(%) ≤',
+  offLow60Min: '距60日收盤低點(%) ≥', offLow60Max: '距60日收盤低點(%) ≤',
+};
+
+/** 把 filters 回譯成中文，讓使用者當場檢查我有沒有誤讀 */
+function describeNlFilters(f, applied) {
+  const parts = [];
+  for (const k of applied) {
+    if (k === 'signal') { parts.push(f.signal === 'STRONG_BUY' ? '訊號＝強力買進' : '訊號＝買進(含強力買進)'); continue; }
+    if (k === 'newHigh') { parts.push('創 52 週新高'); continue; }
+    if (k === 'foreignBuy') { parts.push('外資連續買超'); continue; }
+    parts.push(`${NL_LABEL[k] || k} ${f[k]}`);
+  }
+  return parts.join('、');
+}
+
 async function runNlScreens() {
   const premium = await getPremiumUsers();
   let ratingMap = null, nameMap = null, enrich = null;
@@ -2090,15 +2173,45 @@ unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,
       const SUPPORTED = ['minScore', 'signal', 'minYield', 'minRS', 'newHigh', 'foreignBuy', 'minRevYoY',
         'rsi5Min', 'rsi5Max', 'rsi10Min', 'rsi10Max', 'rng60Min', 'rng60Max', 'offHigh60Min', 'offHigh60Max', 'offLow60Min', 'offLow60Max'];
       const applied = SUPPORTED.filter(k => f[k] != null && f[k] !== false && f[k] !== '');
-      if (!applied.length) {
+      const CAPABILITY = '目前支援：技術評分、買進訊號、殖利率、RS 相對強弱、RSI5/RSI10 區間、'
+        + '近60日收盤高低差距%、距60日收盤高/低點%、創52週新高、外資連買、月營收年增。';
+      const reject = async (why, detail) => {
         await ref.set({
           query: d.query, status: 'error',
-          error: `無法把這個需求轉成支援的篩選條件${f.unsupported ? `（無法處理：${String(f.unsupported).slice(0, 60)}）` : ''}。目前支援：技術評分、買進訊號、殖利率、RS 相對強弱、RSI5/RSI10 區間、創52週新高、外資連買、月營收年增。`,
+          error: `${why}\n\n${detail ? detail + '\n\n' : ''}${CAPABILITY}\n（寧可不答，也不用近似條件湊一份看起來合理的名單。）`,
           answeredAt: Date.now(),
         });
-        log(`  ⚠ NL選股 ${u.id}「${d.query}」→ 無有效條件，回報不支援（LLM輸出 ${JSON.stringify(f).slice(0, 120)}）`);
+        log(`  ⚠ NL選股 ${u.id}「${d.query}」→ 拒答：${why}｜LLM輸出 ${JSON.stringify(f).slice(0, 140)}`);
+      };
+
+      // 閘門②：句中出現架構表達不了的概念 → 直接拒答（不看 LLM 說什麼）
+      const blocked = NL_UNSUPPORTED.filter(([re]) => re.test(d.query)).map(([, label]) => label);
+      if (blocked.length) { await reject('這個需求超出目前的篩選能力，沒有作答。', '做不到的部分：\n・' + blocked.join('\n・')); continue; }
+
+      // 閘門①：門檻數值必須能在你的原句找到（含中文數字／折／成／倍換算）
+      const qNums = queryNumberSet(d.query);
+      const fabricated = applied.filter(k => typeof f[k] === 'number' && !qNums.has(+Math.abs(f[k]).toFixed(2)));
+      if (fabricated.length) {
+        await reject('解析結果含有你沒有提到的數字，判定為誤解，沒有作答。',
+          '這些門檻不是你說的：\n・' + fabricated.map(k => `${NL_LABEL[k] || k} ${f[k]}`).join('\n・'));
         continue;
       }
+
+      // 閘門③：欄位值必須落在定義域（如「距高點」必為負）
+      const invalid = applied.filter(k => {
+        const dom = NL_DOMAIN[k]; if (!dom || typeof f[k] !== 'number') return false;
+        return f[k] < dom[0] || f[k] > dom[1];
+      });
+      if (invalid.length) {
+        await reject('解析結果的數值方向不合理，判定為誤解，沒有作答。',
+          '不合理的條件：\n・' + invalid.map(k => `${NL_LABEL[k] || k} ${f[k]}`).join('\n・'));
+        continue;
+      }
+
+      // LLM 自承有無法表達的部分 → 一併拒答（不做「部分符合」的半套名單）
+      if (f.unsupported) { await reject('需求裡有無法表達的條件，沒有作答。', `無法處理：${String(f.unsupported).slice(0, 80)}`); continue; }
+
+      if (!applied.length) { await reject('無法把這個需求轉成任何支援的篩選條件。'); continue; }
       if (!ratingMap) {
         const r = await getJSON('/api/rating'); ratingMap = r?.ratings || {};
         const all = await getAllMarketCodes(); nameMap = {}; for (const c of all) if (c.name) nameMap[c.code] = c.name; // 含上市+上櫃(TPEx)名稱，修上櫃股名缺失
@@ -2182,10 +2295,15 @@ unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,
       // 用了區間條件就依區間排序（照分數排會讓「振幅最大」的問題答非所問）
       res.sort((a, b) => (wantsRange ? (b.rng60 ?? -1) - (a.rng60 ?? -1) : 0) || b.score - a.score);
       const notes = [];
-      if (f.unsupported) notes.push(`「${String(f.unsupported).slice(0, 80)}」不在支援範圍，已忽略——結果僅按其餘條件（${applied.join('、')}）篩選。`);
       if (wantsRange) notes.push('60日高低為「收盤價」極值（歸檔無盤中最高/最低），實際盤中振幅會比此數字大。');
       const note = notes.length ? notes.join('\n') : null;
-      await ref.set({ query: d.query, status: 'done', filters: f, ...(note ? { note } : {}), results: res.slice(0, 30), count: res.length, answeredAt: Date.now() });
+      // interpreted＝把條件回譯成中文一起顯示：誤讀在使用者眼前，不用他去猜
+      await ref.set({
+        query: d.query, status: 'done', filters: f,
+        interpreted: describeNlFilters(f, applied),
+        ...(note ? { note } : {}),
+        results: res.slice(0, 30), count: res.length, answeredAt: Date.now(),
+      });
       log(`  ✓ NL選股 ${u.id}「${d.query}」→ ${res.length} 檔（條件 ${JSON.stringify(f)}）`);
     } catch (e) { await ref.set({ query: d.query, status: 'error', error: (e.message || '').slice(0, 80) }, { merge: true }); log('  ✖ NL選股', u.id, e.message); }
   }
