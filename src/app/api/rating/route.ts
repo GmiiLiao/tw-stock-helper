@@ -29,8 +29,9 @@ export const runtime = 'nodejs';
 // ============================================================
 
 export async function GET(request: NextRequest) {
-  // 扇出上游的端點才限流（CDN 已擋掉重複 GET；這裡防的是繞過快取的濫用）
-  const limited = await rateLimit(request, 'rating', 120);
+  // 限流防濫用。2026-08-01 放寬：個股頁 K 線鏈每檔 3~12 連發、會員頁多檔輪詢，
+  // 原值連續瀏覽數檔就會 429 圖表空白——限流目標是每分鐘數百次的濫用，不是正常瀏覽
+  const limited = await rateLimit(request, 'rating', 240);
   if (limited) return limited;
 
   const code = request.nextUrl.searchParams.get('code')?.trim();

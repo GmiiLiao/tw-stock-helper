@@ -1397,7 +1397,9 @@ async function trackInstitutional() {
 // ── 4) 回測勝率統計 ──────────────────────────────────────────
 // 觸發 app 的 /api/cron/backtest(用真實波段訊號模型對 stockHistory 回測)。
 // 走直接 Cloud Run URL(CDN 有 60s 上限)。
-const CRON_BASE = process.env.CRON_BASE || 'https://ssrtwstockhelper-xedszdcwuq-uc.a.run.app';
+// 2026-08-01 修正：舊預設是 us-central1 的直連 Cloud Run 網址——region 遷移(7/31)
+// 刪除該服務後就是死網址，cron/backtest 從此打空。改走 hosting 網域（region 無關）。
+const CRON_BASE = process.env.CRON_BASE || 'https://tw-stock-helper.web.app';
 async function runBacktest() {
   if (!process.env.CRON_SECRET) { log('  ⚠ 回測：缺 CRON_SECRET，略過'); return; }
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 150000);
@@ -6459,7 +6461,7 @@ async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
-let _calSyncDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
+let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 function execScript(name, args, tag, timeoutMin = 10) {
   import('node:child_process').then(({ execFile }) => {
@@ -6486,22 +6488,24 @@ async function dailyJobsLoop() {
         try { await publishWeeklyReviews(); } catch (e) { log('✖ weekly:', e.message); }
         _weeklyDate = today;
       }
+      // 每日新聞（使用者定案 2026-07-29：要「當日最新」而非早上那一版）：
+      // 07:00 首發，之後 07:00~23:00 每滿 3 小時刷新。
+      // ⚠2026-08-01 修正：原本包在 isTradingDay 裡——**週末與假日整天不更新新聞**，
+      //   7/29 改版後第一個週六（今天）才發作。世界新聞不休市，移出交易日閘門。
+      // ⚠失敗不可佔位（成功才記 _newsDigestDate，失敗下輪重試）。
+      if (mins >= 7 * 60 && mins <= 23 * 60) {
+        try {
+          const cur = (await db.collection('newsDigest').doc('latest').get()).data();
+          const ageH = cur?.updatedAt ? (Date.now() - cur.updatedAt) / 3600000 : 999;
+          if (cur?.date !== today || ageH >= 3) {
+            await buildNewsDigest();
+            _newsDigestDate = today;
+          }
+        } catch (e) { log('✖ 每日新聞:', (e.message || '').slice(0, 80)); }
+      }
       if (isTradingDay(tw)) {
         // 08:00 盤前晨報（事件日曆先更新，晨報才有今日事件）
         // 07:50（開盤前 70 分）盤前晨報：日曆→ADR→新聞風向→晨報
-        // 每日新聞（使用者定案 2026-07-29：要「當日最新」而非早上那一版）：
-        // 07:00 首發，之後 07:00~23:00 之間每滿 3 小時刷新一次，latest 永遠是最新一批。
-        // ⚠失敗不可佔位（舊版把 _newsDigestDate 先設成今日，07:00 遇到 Firestore 斷線就整天不再重試）。
-        if (mins >= 7 * 60 && mins <= 23 * 60) {
-          try {
-            const cur = (await db.collection('newsDigest').doc('latest').get()).data();
-            const ageH = cur?.updatedAt ? (Date.now() - cur.updatedAt) / 3600000 : 999;
-            if (cur?.date !== today || ageH >= 3) {
-              await buildNewsDigest();
-              _newsDigestDate = today;
-            }
-          } catch (e) { log('✖ 每日新聞:', (e.message || '').slice(0, 80)); }
-        }
         if (mins >= 7 * 60 + 50 && _morningDate !== today) {
           try { await buildCatalystCalendar(); await computeAdrPremium(); await forecastSectors(); await publishMorningNote(); } catch (e) { log('✖ morning note:', e.message); }
           _morningDate = today;
@@ -6547,6 +6551,20 @@ async function dailyJobsLoop() {
         if (mins >= 15 * 60 + 20 && _histTopupDate !== today && isTradingDay(tw)) {
           _histTopupDate = today;
           execScript('topup-stock-history.mjs', [], '📈 日線補正', 20);
+        }
+        // 每日 18:05 觸發收盤盤勢分析（/api/cron/daily-close）。
+        // 2026-08-01 事故：這支原由 Cloud Scheduler 觸發，但 job 指向 us-central1
+        // 直連網址（region 遷移後已死）＋query-string secret（安全加固後被拒）——
+        // 「收盤盤勢分析」自 7/29 起停更，使用者看著崩盤日的舊寬度做判斷。
+        // 觸發權收回 daemon（架構鐵律：排程屬 daemon），該 scheduler job 已暫停。
+        if (mins >= 18 * 60 + 5 && _dailyCloseDate !== today && isTradingDay(tw) && process.env.CRON_SECRET) {
+          _dailyCloseDate = today;
+          try {
+            const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 240000);
+            const r = await fetch(`${CRON_BASE}/api/cron/daily-close`, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET }, signal: ctl.signal }).finally(() => clearTimeout(tm));
+            const j = await r.json().catch(() => null);
+            log(`✓ 收盤盤勢分析：${j?.date || r.status}·寬度 ${j?.breadth?.advancePct ?? '?'}%`);
+          } catch (e) { _dailyCloseDate = null; log('✖ 收盤盤勢分析:', (e.message || '').slice(0, 60)); }   // 失敗不佔位·下輪重試
         }
         // 每日 06:40 同步休市日曆（早於 07:00 新聞與 08:45 盤前快報，
         // 確保當天所有 isTradingDay() 判斷都吃到最新的表；颱風假當天才補得上）

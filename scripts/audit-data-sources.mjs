@@ -89,6 +89,7 @@ const CONTRACTS = [
   { c: 'etfInfluence',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'newsDigest',       kind: 'latest',  maxStale: 8 * HOUR,  session: 'always' },
   { c: 'newsDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'daily' },
+  { c: 'marketReports',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily' },   // 收盤盤勢分析（2026-08-01 事故後納管：曾停更2日無人察覺）
 
   // ── 低頻（週/月/季）──
   { c: 'revenue',          kind: 'latest',  maxStale: 40 * DAY,  session: 'always' },
@@ -193,9 +194,12 @@ const taipeiNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 
  * 這正是 wm-freshness 說的「狀態階梯」要分 session，否則監控自己會變成雜訊來源。
  * 收盤後改用「當日內」判定（30 小時），只要資料日對就算健康。
  */
-function effectiveMaxStale(spec, marketOpen) {
-  if (spec.session !== 'intraday') return spec.maxStale;
-  return marketOpen ? spec.maxStale : 30 * HOUR;
+function effectiveMaxStale(spec, marketOpen, tradingToday) {
+  if (spec.session === 'intraday') return marketOpen ? spec.maxStale : 30 * HOUR;
+  // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h，
+  // 不放寬的話每個週末稽核都是假警報，監控又變雜訊來源。
+  if (spec.session === 'daily' && !tradingToday) return Math.max(spec.maxStale, 78 * HOUR);
+  return spec.maxStale;
 }
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -255,7 +259,7 @@ function pickDataDate(d, dateField) {
   return null;
 }
 
-async function auditOne(spec, ltd, marketOpen) {
+async function auditOne(spec, ltd, marketOpen, tradingToday) {
   const out = { collection: spec.c, status: 'OK', notes: [] };
   try {
     let data = null, docId = null;
@@ -288,7 +292,7 @@ async function auditOne(spec, ltd, marketOpen) {
       out.dataDate = pickDataDate(data, spec.dateField);
       if (ts == null) out.notes.push('無時間戳（不符新鮮度契約：缺 fetchedAt）');
       else {
-        const limit = effectiveMaxStale(spec, marketOpen);
+        const limit = effectiveMaxStale(spec, marketOpen, tradingToday);
         if (Date.now() - ts > limit) {
           out.status = 'STALE';
           const fmt = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / MIN)}m`);
@@ -327,7 +331,8 @@ async function main() {
     && ltd === isoOf(t);
   const specs = ONLY ? CONTRACTS.filter(s => s.c === ONLY) : CONTRACTS;
   const results = [];
-  for (const s of specs) results.push(await auditOne(s, ltd, marketOpen));
+  const tradingToday = ltd === isoOf(taipeiNow());
+  for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday));
 
   const external = NO_EXT ? [] : await probeExternal(ltd);
   const fresh = NO_EXT ? [] : await probeFresh(ltd);
