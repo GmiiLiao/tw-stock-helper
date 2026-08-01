@@ -653,8 +653,8 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* AI 交易覆盤 (常駐 daemon LLM) */}
-      <PortfolioTradeReview />
+      {/* AI 交易覆盤 (常駐 daemon LLM)——傳帳本進去比對，過期會自我標示 */}
+      <PortfolioTradeReview ledger={ledger} />
 
       {/* 口徑說明：全部由交易紀錄重算（單位：元／張） */}
       <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
