@@ -68,7 +68,8 @@ const CONTRACTS = [
   { c: 'marketHealth',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'topicPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'swingPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'strengthPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  // allowEmpty：本榜回測日均僅 1.6 檔，零檔是常態（例：大反彈日後 RSI5 全面噴高）——EMPTY 不是故障
+  { c: 'strengthPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', allowEmpty: true },
   { c: 'strategyPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'snipeList',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'squeezeSetup',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
@@ -300,7 +301,7 @@ async function auditOne(spec, ltd, marketOpen) {
       out.status = out.status === 'OK' ? 'THIN' : out.status;
       out.notes.push(`筆數 ${out.records} < 下限 ${spec.minRecords}`);
     }
-    if (out.records === 0) { out.status = 'EMPTY'; out.notes.push('筆數 0'); }
+    if (out.records === 0 && !spec.allowEmpty) { out.status = 'EMPTY'; out.notes.push('筆數 0'); }
 
     // 第三道閘門：dataDate 漂移
     if (out.dataDate && spec.session !== 'always') {
