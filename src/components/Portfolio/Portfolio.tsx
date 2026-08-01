@@ -19,6 +19,7 @@ import PushSetup from './PushSetup';
 import ShadowAccount from './ShadowAccount';
 import CashLedger from './CashLedger';
 import { tradeCost, netRealizedPnL, taxRateLabel, isEtf , fmtQty } from '@/lib/tw-fee';
+import { buildLedger, type Ledger } from '@/lib/portfolio-calc';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { settleDate, isSettled, tradingDaysUntilSettle } from '@/lib/tw-settlement';
 import { useChipVerdicts, VerdictBadge, VerdictStrip } from '@/components/shared/ChipVerdict';
@@ -54,7 +55,7 @@ function ProfitGauge({ pct, range = 30 }: { pct: number; range?: number }) {
 // ─── Add Trade Modal ─────────────────────────────────────────────────────
 
 function AddTradeModal({ onClose }: { onClose: () => void }) {
-  const { addTradeRecord, allStocks, holdings } = useAppStore(useShallow((s) => ({ addTradeRecord: s.addTradeRecord, allStocks: s.allStocks, holdings: s.holdings })));
+  const { addTradeRecord, allStocks, holdings, tradeRecords } = useAppStore(useShallow((s) => ({ addTradeRecord: s.addTradeRecord, allStocks: s.allStocks, holdings: s.holdings, tradeRecords: s.tradeRecords })));
   const [broker] = useBrokerSettings();
   const [form, setForm] = useState({
     type: 'buy' as 'buy' | 'sell' | 'dividend',
@@ -77,14 +78,21 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
       .slice(0, 8);
   }, [searchQuery, allStocks]);
 
-  // Calculate avg cost for sell — only use holdings (not trade records, which would double-count)
+  // 賣出成本基準：**交易紀錄帳本優先**（加權平均、含買進手續費），手動持倉只當備援。
+  // 2026-08-01 教訓：舊版只看手動持倉的 buyPrice，與交易紀錄脫鉤時
+  // 存出 costBasis 4985 vs 帳上 4585（大立光）、226 vs 26（華邦電）這種鬼數字。
+  const ledger = useMemo(() => buildLedger(tradeRecords), [tradeRecords]);
+  const basisFromLedger = form.type === 'sell' && form.code
+    ? (ledger.byCode[form.code]?.openLots ?? 0) > 0.0005 : false;
   const avgCostBasis = useMemo(() => {
     if (!form.code || form.type !== 'sell') return 0;
+    const led = ledger.byCode[form.code];
+    if (led && led.openLots > 0.0005) return led.avgCost;
     const stockHoldings = holdings.filter(h => h.code === form.code);
     let totalShares = 0, totalCost = 0;
     stockHoldings.forEach(h => { totalShares += h.quantity * 1000; totalCost += h.buyPrice * h.quantity * 1000; });
     return totalShares > 0 ? totalCost / totalShares : 0;
-  }, [form.code, form.type, holdings]);
+  }, [form.code, form.type, holdings, ledger]);
 
   const price = parseFloat(form.price) || 0;
   const qtyRaw = parseFloat(form.quantity) || 0;
@@ -94,9 +102,9 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
     ? { gross: price * qty * 1000, fee: 0, tax: 0, net: price * qty * 1000 }
     : tradeCost(form.type, price, qty, broker, taxOpts);
   const fee = cost.fee, tax = cost.tax, grossAmount = cost.gross, totalAmount = cost.net;
-  // 已實現淨損益（含買賣雙邊成本，非只扣賣出）
+  // 已實現淨損益（含買賣雙邊成本）。帳本基準已含買進費 → buyFee 傳 0 避免重複扣。
   const realized = form.type === 'sell' && avgCostBasis > 0
-    ? netRealizedPnL(price, avgCostBasis, qty, broker, taxOpts)
+    ? netRealizedPnL(price, avgCostBasis, qty, broker, basisFromLedger ? { ...taxOpts, buyFee: 0 } : taxOpts)
     : undefined;
   const realizedPnL = realized?.pnl;
 
@@ -286,7 +294,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
                     實際獲利（扣雙邊費稅）：{realized.pnl >= 0 ? '+' : ''}{realized.pnl.toLocaleString()} 元
                     <span style={{ fontWeight: 700 }}>（{realized.roi >= 0 ? '+' : ''}{realized.roi}%）</span>
                     <div style={{ fontSize: '11px', marginTop: 4, opacity: 0.85, fontWeight: 400 }}>
-                      成本均價 {avgCostBasis.toFixed(2)}｜買進手續費 −{realized.buyFee.toLocaleString()}｜賣出手續費 −{realized.sellFee.toLocaleString()}｜證交稅 −{realized.tax.toLocaleString()}
+                      成本均價 {avgCostBasis.toFixed(2)}{basisFromLedger ? '（依交易紀錄加權·含買進費）' : '（依手動持倉·另估買進費）'}｜賣出手續費 −{realized.sellFee.toLocaleString()}｜證交稅 −{realized.tax.toLocaleString()}{!basisFromLedger ? `｜買進手續費 −${realized.buyFee.toLocaleString()}` : ''}
                     </div>
                   </div>
                 )}
@@ -311,12 +319,102 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── Edit Trade Modal ────────────────────────────────────────────────────
+// 修錯價/錯量的入口（實例：華邦電買價記成 26，帳本重算後才浮出）。
+// 儲存時依新值重算費/稅/淨額；存死的 realizedPnL 由 store 清除，顯示一律走帳本。
+
+function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () => void }) {
+  const updateTradeRecord = useAppStore(s => s.updateTradeRecord);
+  const [broker] = useBrokerSettings();
+  const [form, setForm] = useState({
+    price: String(trade.price),
+    quantity: String(trade.quantity),
+    date: trade.date,
+    note: trade.note || '',
+    dayTrade: !!trade.dayTrade,
+  });
+  const price = parseFloat(form.price) || 0;
+  const qty = parseFloat(form.quantity) || 0;
+  const cost = trade.type === 'dividend'
+    ? { gross: Math.round(price * qty * 1000), fee: 0, tax: 0, net: Math.round(price * qty * 1000) }
+    : tradeCost(trade.type, price, qty, broker, { dayTrade: form.dayTrade, code: trade.code });
+  const save = () => {
+    if (price <= 0 || qty <= 0 || !form.date) { alert('請輸入正確的價格、張數與日期！'); return; }
+    updateTradeRecord(trade.id, {
+      price, quantity: qty, date: form.date, note: form.note || undefined,
+      dayTrade: form.dayTrade || undefined,
+      fee: cost.fee, tax: cost.tax, totalAmount: cost.net,
+    });
+    onClose();
+  };
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <div className={styles.modalHeader}>
+          <h3>✏️ 修改交易 — {trade.code} {trade.name}（{trade.type === 'buy' ? '買入' : trade.type === 'sell' ? '賣出' : '股利'}）</h3>
+          <button className={styles.modalClose} onClick={onClose}>×</button>
+        </div>
+        <div className={styles.modalBody}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className={styles.formGroup}>
+              <label>{trade.type === 'dividend' ? '每股股利' : '成交價（每股）'}</label>
+              <input className="input" type="number" step="0.01" value={form.price}
+                onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
+            </div>
+            <div className={styles.formGroup}>
+              <label>張數（0.35 = 350 股）</label>
+              <input className="input" type="number" min="0.001" step="0.001" value={form.quantity}
+                onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+            </div>
+          </div>
+          <div className={styles.formGroup}>
+            <label>交易日期</label>
+            <input className="input" type="date" value={form.date}
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+          </div>
+          {trade.type !== 'dividend' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.dayTrade} onChange={e => setForm(f => ({ ...f, dayTrade: e.target.checked }))} />
+              現股當沖（證交稅減半 0.15%）
+            </label>
+          )}
+          <div className={styles.formGroup}>
+            <label>備注</label>
+            <input className="input" type="text" value={form.note}
+              onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
+          </div>
+          {price > 0 && qty > 0 && (
+            <div className={styles.costPreview}>
+              重算後：{fmtQty(qty)} × {price.toLocaleString()} 元
+              {trade.type !== 'dividend' && <>｜手續費 {cost.fee.toLocaleString()}{cost.tax > 0 ? `｜稅 ${cost.tax.toLocaleString()}` : ''}</>}
+              ｜{trade.type === 'buy' ? '實際支出' : trade.type === 'sell' ? '實際收入' : '入帳'} <strong>{Math.abs(cost.net).toLocaleString()} 元</strong>
+              <div style={{ fontSize: 11, marginTop: 4, opacity: 0.8 }}>儲存後，此筆與相關賣出的已實現損益會依交易紀錄整體重算。</div>
+            </div>
+          )}
+        </div>
+        <div className={styles.modalFooter}>
+          <button className="btn btn-ghost" onClick={onClose}>取消</button>
+          <button className="btn btn-buy" onClick={save}>儲存修改</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Trade History Panel ─────────────────────────────────────────────────
 
-function TradeHistoryPanel() {
+function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
   const { tradeRecords, removeTradeRecord, navigateTo } = useAppStore(useShallow((s) => ({ tradeRecords: s.tradeRecords, removeTradeRecord: s.removeTradeRecord, navigateTo: s.navigateTo })));
   const [filter, setFilter] = useState<'all' | 'buy' | 'sell' | 'dividend'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTrade, setEditingTrade] = useState<TradeRecord | null>(null);
+  // 帳本重算的平倉結果（以交易紀錄為唯一真相；存死的 realizedPnL 只當核對參考）
+  const closedById = useMemo(() => new Map(ledger.closed.map(c => [c.id, c])), [ledger]);
+  const monthRealized = useMemo(() => {
+    const m: Record<string, number> = {};
+    ledger.monthly.forEach(x => { m[x.month] = x.realized; });
+    return m;
+  }, [ledger]);
 
   const filtered = useMemo(() => {
     const records = filter === 'all' ? tradeRecords : tradeRecords.filter(t => t.type === filter);
@@ -348,7 +446,8 @@ function TradeHistoryPanel() {
       }}>
         <div style={{ display: 'flex', gap: '6px' }}>
           {(['all', 'buy', 'sell', 'dividend'] as const).map(f => {
-            const labels = { all: '全部', buy: '🟢 買入', sell: '🔴 賣出', dividend: '💰 股利' };
+            {/* 台股語意：買進=紅、賣出=綠（與新增視窗、列表徽章一致；先前這裡顛倒） */}
+            const labels = { all: '全部', buy: '🔴 買入', sell: '🟢 賣出', dividend: '💰 股利' };
             return (
               <button
                 key={f}
@@ -387,9 +486,14 @@ function TradeHistoryPanel() {
             <div style={{
               fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)',
               padding: '8px 0', borderBottom: '1px solid var(--border-primary)',
-              letterSpacing: '0.05em',
+              letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6,
             }}>
-              📅 {month.replace('-', ' 年 ')} 月 · {records.length} 筆
+              <span>📅 {month.replace('-', ' 年 ')} 月 · {records.length} 筆</span>
+              {monthRealized[month] != null && monthRealized[month] !== 0 && (
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: monthRealized[month] >= 0 ? '#f03e3e' : '#2f9e44' }}>
+                  本月已實現 {monthRealized[month] >= 0 ? '+' : ''}{Math.round(monthRealized[month]).toLocaleString()} 元
+                </span>
+              )}
             </div>
             {records.map(t => {
               const cfg = typeConfig[t.type];
@@ -436,14 +540,19 @@ function TradeHistoryPanel() {
                         手續費 {t.fee.toLocaleString()}{t.tax > 0 ? ` + 稅 ${t.tax.toLocaleString()}` : ''}{t.dayTrade ? ' · 當沖' : ''}
                       </span>
                     )}
-                    {t.realizedPnL !== undefined && (
-                      <span style={{
-                        fontSize: '13px', fontWeight: 600,
-                        color: t.realizedPnL >= 0 ? '#f03e3e' : '#2f9e44',
-                      }}>
-                        實際獲利 {t.realizedPnL >= 0 ? '+' : ''}{t.realizedPnL.toLocaleString()}
-                      </span>
-                    )}
+                    {(() => {
+                      // 損益一律顯示帳本重算值；與紀錄當下存的值不符 → ⚠ 提醒核對
+                      const c = closedById.get(t.id);
+                      if (!c) return null;
+                      return (
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}
+                          title={`依交易紀錄重算：賣價 ${c.sellPrice} − 成本均價 ${c.avgCost.toFixed(2)}（含買進費）× ${fmtQty(c.lots)}${c.mismatch ? `\n⚠ 紀錄當下存的是 ${c.storedPnL?.toLocaleString()}（用了過期的手動持倉成本）——以重算為準` : ''}`}>
+                          實際獲利 {c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}（{c.roi >= 0 ? '+' : ''}{c.roi}%）
+                          {c.mismatch && <span style={{ color: '#f59e0b', marginLeft: 4 }}>⚠核對</span>}
+                          {c.oversoldLots > 0 && <span style={{ color: '#f59e0b', marginLeft: 4 }}>⚠超賣{fmtQty(c.oversoldLots)}</span>}
+                        </span>
+                      );
+                    })()}
                     {/* 交割狀態（T+2） */}
                     {t.type !== 'dividend' && (() => {
                       const settled = isSettled(t.date);
@@ -458,6 +567,15 @@ function TradeHistoryPanel() {
 
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      onClick={() => setEditingTrade(t)}
+                      title="修改此筆交易（修錯價/錯量）"
+                      style={{
+                        padding: '4px 8px', borderRadius: '6px', fontSize: '12px',
+                        background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+                        border: '1px solid var(--border-primary)', cursor: 'pointer',
+                      }}
+                    >✏️</button>
                     <button
                       onClick={() => {
                         if (confirm(`確定要刪除 ${t.date} ${typeConfig[t.type].label} ${t.code} 的紀錄嗎？`))
@@ -478,19 +596,20 @@ function TradeHistoryPanel() {
       )}
 
       {showAddModal && <AddTradeModal onClose={() => setShowAddModal(false)} />}
+      {editingTrade && <EditTradeModal trade={editingTrade} onClose={() => setEditingTrade(null)} />}
     </div>
   );
 }
 
 // ─── Analytics Panel ─────────────────────────────────────────────────────
 
-function AnalyticsPanel() {
-  const { tradeRecords, holdings, allStocks } = useAppStore(useShallow((s) => ({ tradeRecords: s.tradeRecords, holdings: s.holdings, allStocks: s.allStocks })));
+function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
+  const { tradeRecords, allStocks } = useAppStore(useShallow((s) => ({ tradeRecords: s.tradeRecords, allStocks: s.allStocks })));
   const [misPrices, setMisPrices] = useState<Record<string, number>>({});
 
-  // Fetch MIS real-time prices for held stocks
+  // 現價來源：帳本推算的現存部位（與總覽/交易紀錄同一把尺）
   useEffect(() => {
-    const codes = [...new Set(holdings.map(h => h.code))];
+    const codes = ledger.openPositions.map(p => p.code);
     if (codes.length === 0) return;
     fetch(`/api/twse/mis-quote?codes=${codes.join(',')}`, { cache: 'no-store' })
       .then(r => r.json())
@@ -502,62 +621,25 @@ function AnalyticsPanel() {
         }
       })
       .catch(err => console.error('[AnalyticsPanel] MIS fetch error:', err));
-  }, [holdings]);
+  }, [ledger]);
 
-  const stats = useMemo(() => {
-    const sells = tradeRecords.filter(t => t.type === 'sell' && t.realizedPnL !== undefined);
-    const buys = tradeRecords.filter(t => t.type === 'buy');
-    const dividends = tradeRecords.filter(t => t.type === 'dividend');
-
-    const totalRealized = sells.reduce((s, t) => s + (t.realizedPnL ?? 0), 0);
-    const totalDividend = dividends.reduce((s, t) => s + t.totalAmount, 0);
-    const wins = sells.filter(t => (t.realizedPnL ?? 0) > 0);
-    const losses = sells.filter(t => (t.realizedPnL ?? 0) < 0);
-    const winRate = sells.length > 0 ? (wins.length / sells.length) * 100 : 0;
-    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (t.realizedPnL ?? 0), 0) / wins.length : 0;
-    const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + (t.realizedPnL ?? 0), 0) / losses.length : 0;
-    const totalFees = tradeRecords.reduce((s, t) => s + t.fee + t.tax, 0);
-    const totalTrades = tradeRecords.length;
-    const totalBuyAmount = buys.reduce((s, t) => s + t.totalAmount, 0);
-    const totalSellAmount = sells.reduce((s, t) => s + t.totalAmount, 0);
-
-    return {
-      totalRealized, totalDividend, winRate, avgWin, avgLoss,
-      totalFees, totalTrades, totalBuyAmount, totalSellAmount,
-      winCount: wins.length, lossCount: losses.length, sellCount: sells.length,
-    };
-  }, [tradeRecords]);
-
-  // Monthly PnL chart data
-  const monthlyData = useMemo(() => {
-    const months: Record<string, { month: string; pnl: number; dividend: number }> = {};
-    tradeRecords.forEach(t => {
-      const m = t.date.slice(0, 7);
-      if (!months[m]) months[m] = { month: m, pnl: 0, dividend: 0 };
-      if (t.type === 'sell' && t.realizedPnL !== undefined) months[m].pnl += t.realizedPnL;
-      if (t.type === 'dividend') months[m].dividend += t.totalAmount;
-    });
-    return Object.values(months).sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
-  }, [tradeRecords]);
-
-  // Per-stock PnL ranking
-  const stockRanking = useMemo(() => {
-    const byCode: Record<string, { code: string; name: string; pnl: number; trades: number }> = {};
-    tradeRecords.filter(t => t.type === 'sell' && t.realizedPnL !== undefined).forEach(t => {
-      if (!byCode[t.code]) byCode[t.code] = { code: t.code, name: t.name, pnl: 0, trades: 0 };
-      byCode[t.code].pnl += t.realizedPnL ?? 0;
-      byCode[t.code].trades += 1;
-    });
-    return Object.values(byCode).sort((a, b) => b.pnl - a.pnl);
-  }, [tradeRecords]);
-
-  // Unrealized PnL from holdings — use MIS real-time prices
+  // 未實現：帳本現存部位 ×（現價 − 每股含費成本）
   const unrealizedPnL = useMemo(() => {
-    return holdings.reduce((sum, h) => {
-      const currentPrice = misPrices[h.code] ?? allStocks.find(s => s.code === h.code)?.price ?? h.buyPrice;
-      return sum + (currentPrice - h.buyPrice) * h.quantity * 1000;
+    return ledger.openPositions.reduce((sum, p) => {
+      const px = misPrices[p.code] ?? allStocks.find(s => s.code === p.code)?.price ?? p.avgCost;
+      return sum + (px - p.avgCost) * p.lots * 1000;
     }, 0);
-  }, [holdings, misPrices, allStocks]);
+  }, [ledger, misPrices, allStocks]);
+
+  const monthlyData = useMemo(() => ledger.monthly.slice(-12).map(m => ({ month: m.month, pnl: m.realized, dividend: m.dividend })), [ledger]);
+
+  // 個股彙總（已實現＋股利＋現存部位）
+  const stockRanking = useMemo(() =>
+    Object.values(ledger.byCode)
+      .filter(l => l.closed.length > 0 || l.dividend > 0)
+      .map(l => ({ code: l.code, name: l.name, pnl: Math.round(l.realized), dividend: Math.round(l.dividend), trades: l.closed.length, openLots: l.openLots }))
+      .sort((a, b) => (b.pnl + b.dividend) - (a.pnl + a.dividend)),
+  [ledger]);
 
   if (tradeRecords.length === 0) {
     return (
@@ -574,18 +656,30 @@ function AnalyticsPanel() {
       {/* AI 交易覆盤 (常駐 daemon LLM) */}
       <PortfolioTradeReview />
 
+      {/* 口徑說明：全部由交易紀錄重算（單位：元／張） */}
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+        📐 本頁全部數字由「交易紀錄」按時間重放重算（加權平均成本·含買進手續費），金額單位＝元、數量單位＝張。
+        與紀錄當下存的值不符的筆數會列在下方「資料核對」。
+      </div>
+
       {/* Summary Stats */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px',
       }}>
         {[
-          { label: '已實現損益', value: stats.totalRealized, isMoney: true, color: stats.totalRealized >= 0 ? '#f03e3e' : '#2f9e44' },
-          { label: '未實現損益', value: unrealizedPnL, isMoney: true, color: unrealizedPnL >= 0 ? '#f03e3e' : '#2f9e44' },
-          { label: '累計股利', value: stats.totalDividend, isMoney: true, color: '#f59e0b' },
-          { label: '總手續費+稅', value: stats.totalFees, isMoney: true, color: '#94a3b8' },
-          { label: '勝率', value: stats.winRate, isPct: true, color: stats.winRate >= 50 ? '#f03e3e' : '#2f9e44',
-            sub: `${stats.winCount} 勝 / ${stats.lossCount} 負 / ${stats.sellCount} 筆` },
-          { label: '總交易筆數', value: stats.totalTrades, color: 'var(--text-primary)' },
+          { label: '已實現損益（重算）', value: ledger.totalRealized, isMoney: true, color: ledger.totalRealized >= 0 ? '#f03e3e' : '#2f9e44',
+            sub: `${ledger.closedCount} 筆平倉` },
+          { label: '未實現損益（推算持倉）', value: unrealizedPnL, isMoney: true, color: unrealizedPnL >= 0 ? '#f03e3e' : '#2f9e44',
+            sub: ledger.openPositions.length ? `${ledger.openPositions.length} 檔在倉` : '目前空手' },
+          { label: '累計股利', value: ledger.totalDividend, isMoney: true, color: '#f59e0b' },
+          { label: '手續費累計', value: -ledger.totalFee, isMoney: true, color: '#94a3b8', sub: '買賣雙邊' },
+          { label: '證交稅累計', value: -ledger.totalTax, isMoney: true, color: '#94a3b8', sub: '賣出時課徵' },
+          { label: '勝率', value: ledger.winRate, isPct: true, color: ledger.winRate >= 50 ? '#f03e3e' : '#2f9e44',
+            sub: `${ledger.winCount} 勝 / ${ledger.lossCount} 負 / ${ledger.closedCount} 筆` },
+          { label: '每筆平倉期望值', value: ledger.expectancy, isMoney: true, color: ledger.expectancy >= 0 ? '#f03e3e' : '#2f9e44',
+            sub: '已實現 ÷ 平倉筆數' },
+          { label: '總交易筆數', value: tradeRecords.length, color: 'var(--text-primary)',
+            sub: `買 ${tradeRecords.filter(t => t.type === 'buy').length} / 賣 ${tradeRecords.filter(t => t.type === 'sell').length} / 股利 ${tradeRecords.filter(t => t.type === 'dividend').length}` },
         ].map((card, i) => (
           <div key={i} style={{
             padding: '16px', borderRadius: '12px',
@@ -606,33 +700,113 @@ function AnalyticsPanel() {
       </div>
 
       {/* Profit Gauge */}
-      {stats.sellCount > 0 && (
+      {ledger.closedCount > 0 && (
         <div style={{
           padding: '16px', borderRadius: '12px',
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 平均獲利 vs 平均虧損</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 平均獲利 vs 平均虧損（每筆平倉）</div>
           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '13px', color: '#f03e3e', marginBottom: '4px' }}>平均獲利</div>
               <div style={{ fontSize: '18px', fontWeight: 700, color: '#f03e3e', fontFamily: "'JetBrains Mono', monospace" }}>
-                +{stats.avgWin.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
+                +{ledger.avgWin.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
               </div>
             </div>
             <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '13px', color: '#2f9e44', marginBottom: '4px' }}>平均虧損</div>
               <div style={{ fontSize: '18px', fontWeight: 700, color: '#2f9e44', fontFamily: "'JetBrains Mono', monospace" }}>
-                {stats.avgLoss.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
+                {ledger.avgLoss.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
               </div>
             </div>
             <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>盈虧比</div>
               <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>
-                {stats.avgLoss !== 0 ? Math.abs(stats.avgWin / stats.avgLoss).toFixed(2) : '∞'}
+                {ledger.avgLoss !== 0 ? Math.abs(ledger.avgWin / ledger.avgLoss).toFixed(2) : '∞'}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 資料核對：帳本重算 vs 紀錄當下存的值 */}
+      {(ledger.mismatchCount > 0 || ledger.warnings.length > 0) && (
+        <div style={{
+          padding: '16px', borderRadius: '12px',
+          background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)',
+        }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#f59e0b', marginBottom: '8px' }}>
+            🔎 資料核對（{ledger.mismatchCount} 筆損益不一致{ledger.warnings.length ? `、${ledger.warnings.length} 項帳務警示` : ''}）
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: 10 }}>
+            下列賣出「紀錄當下存的損益」與「依交易紀錄重算」不符——多半是當時手動持倉的成本價與交易紀錄脫鉤。
+            全站顯示一律以重算為準；若是交易紀錄本身記錯價，請到「交易紀錄」分頁用 ✏️ 修正該筆。
+          </div>
+          {ledger.closed.filter(c => c.mismatch).map(c => (
+            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid rgba(245,158,11,0.15)', fontSize: 12, flexWrap: 'wrap' }}>
+              <span>{c.date} 賣出 <strong>{c.code} {c.name}</strong> {fmtQty(c.lots)} @ {c.sellPrice}</span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                存檔 {c.storedPnL != null ? (c.storedPnL >= 0 ? '+' : '') + Math.round(c.storedPnL).toLocaleString() : '—'}
+                <span style={{ margin: '0 6px', color: 'var(--text-muted)' }}>→</span>
+                重算 <strong style={{ color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>{c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}</strong>
+                <span style={{ color: 'var(--text-muted)' }}>（成本均價 {c.avgCost.toFixed(2)}）</span>
+              </span>
+            </div>
+          ))}
+          {ledger.warnings.map((w, i) => (
+            <div key={i} style={{ fontSize: 12, color: '#f59e0b', padding: '6px 0' }}>⚠ {w}</div>
+          ))}
+        </div>
+      )}
+
+      {/* 平倉明細（逐筆：日期/標的/張數/賣價/成本/損益/持有天數） */}
+      {ledger.closed.length > 0 && (
+        <div style={{
+          padding: '16px', borderRadius: '12px',
+          background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
+        }}>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>🧾 平倉明細（新→舊·損益含買賣雙邊費稅）</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 560 }}>
+              <thead>
+                <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 4px' }}>日期</th>
+                  <th style={{ textAlign: 'left', padding: '6px 4px' }}>標的</th>
+                  <th style={{ padding: '6px 4px' }}>張數</th>
+                  <th style={{ padding: '6px 4px' }}>賣價</th>
+                  <th style={{ padding: '6px 4px' }}>成本均價</th>
+                  <th style={{ padding: '6px 4px' }}>損益(元)</th>
+                  <th style={{ padding: '6px 4px' }}>報酬率</th>
+                  <th style={{ padding: '6px 4px' }}>持有</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.closed.map(c => (
+                  <tr key={c.id} style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
+                    <td style={{ textAlign: 'left', padding: '6px 4px', whiteSpace: 'nowrap' }}>{c.date}</td>
+                    <td style={{ textAlign: 'left', padding: '6px 4px', whiteSpace: 'nowrap' }}>
+                      <strong>{c.code}</strong> <span style={{ color: 'var(--text-muted)' }}>{c.name}</span>
+                      {c.dayTrade ? <span style={{ color: '#f59e0b' }}> 沖</span> : ''}
+                      {(c.mismatch || c.oversoldLots > 0) && <span style={{ color: '#f59e0b' }}> ⚠</span>}
+                    </td>
+                    <td style={{ padding: '6px 4px', whiteSpace: 'nowrap' }}>{fmtQty(c.lots)}</td>
+                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.sellPrice.toLocaleString()}</td>
+                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.avgCost > 0 ? c.avgCost.toFixed(2) : '—'}</td>
+                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
+                      {c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}
+                    </td>
+                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace", color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
+                      {c.avgCost > 0 ? `${c.roi >= 0 ? '+' : ''}${c.roi}%` : '—'}
+                    </td>
+                    <td style={{ padding: '6px 4px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                      {c.holdingDays != null ? `${c.holdingDays} 天` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -683,7 +857,7 @@ function AnalyticsPanel() {
           padding: '16px', borderRadius: '12px',
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>🏆 個股損益排行</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>🏆 個股損益排行（已實現＋股利；不含在倉未實現）</div>
           {stockRanking.map((s, i) => (
             <div key={s.code} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -699,16 +873,19 @@ function AnalyticsPanel() {
                 <div>
                   <span style={{ fontWeight: 600, fontSize: '13px' }}>{s.code}</span>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '6px' }}>{s.name}</span>
+                  {s.openLots > 0.0005 && <span style={{ fontSize: '11px', color: '#3d8ef8', marginLeft: '6px' }}>在倉 {fmtQty(s.openLots)}</span>}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{
                   fontSize: '14px', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
-                  color: s.pnl >= 0 ? '#f03e3e' : '#2f9e44',
+                  color: (s.pnl + s.dividend) >= 0 ? '#f03e3e' : '#2f9e44',
                 }}>
-                  {s.pnl >= 0 ? '+' : ''}{s.pnl.toLocaleString('zh-TW', { maximumFractionDigits: 0 })}
+                  {(s.pnl + s.dividend) >= 0 ? '+' : ''}{(s.pnl + s.dividend).toLocaleString('zh-TW', { maximumFractionDigits: 0 })}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.trades} 筆交易</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {s.trades} 筆平倉{s.dividend > 0 ? `｜股利 +${s.dividend.toLocaleString()}` : ''}
+                </div>
               </div>
             </div>
           ))}
@@ -718,12 +895,103 @@ function AnalyticsPanel() {
   );
 }
 
+// ─── Overview ↔ Ledger 橋接（三分頁連動的樞紐） ──────────────────────────
+// 總覽永遠顯示交易紀錄彙總（空手也看得到已實現/股利/費稅），
+// 並對帳「手動持倉 vs 交易紀錄推算持倉」——不一致給差異表＋一鍵重建。
+
+function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t: 'trades' | 'analytics') => void }) {
+  const { holdings, replaceHoldings, tradeRecords } = useAppStore(useShallow((s) => ({ holdings: s.holdings, replaceHoldings: s.replaceHoldings, tradeRecords: s.tradeRecords })));
+
+  // 對帳：手動持倉張數 vs 帳本推算張數（逐 code）
+  const diffs = useMemo(() => {
+    const manual: Record<string, { lots: number; name: string }> = {};
+    holdings.forEach(h => {
+      (manual[h.code] ||= { lots: 0, name: h.name }).lots += h.quantity;
+    });
+    const codes = new Set([...Object.keys(manual), ...ledger.openPositions.map(p => p.code)]);
+    const rows: Array<{ code: string; name: string; manualLots: number; ledgerLots: number }> = [];
+    for (const code of codes) {
+      const m = manual[code]?.lots ?? 0;
+      const l = ledger.openPositions.find(p => p.code === code)?.lots ?? 0;
+      if (Math.abs(m - l) > 0.0005) rows.push({ code, name: manual[code]?.name || ledger.byCode[code]?.name || code, manualLots: m, ledgerLots: l });
+    }
+    return rows.sort((a, b) => a.code.localeCompare(b.code));
+  }, [holdings, ledger]);
+
+  const rebuild = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const items = ledger.openPositions.map(p => ({
+      code: p.code, name: p.name,
+      buyPrice: +p.avgCost.toFixed(2),       // 每股含買進費的加權成本
+      quantity: p.lots,
+      buyDate: p.lastBuyDate || today,
+      note: '依交易紀錄重建',
+    }));
+    const summary = items.length
+      ? items.map(i => `${i.code} ${i.name} ${fmtQty(i.quantity)} @ ${i.buyPrice}`).join('\n')
+      : '（交易紀錄推算為空手——手動持倉將被清空）';
+    if (confirm(`以交易紀錄推算結果覆蓋手動持倉？\n\n${summary}\n\n（成本價＝加權平均·含買進手續費；原手動持倉會被取代）`)) {
+      replaceHoldings(items);
+    }
+  };
+
+  if (tradeRecords.length === 0) return null;
+  return (
+    <>
+      {/* 交易紀錄彙總：空手也看得到的總覽 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
+        {[
+          { label: '已實現損益', v: ledger.totalRealized, c: ledger.totalRealized >= 0 ? 'var(--color-up)' : 'var(--color-down)', sub: `${ledger.closedCount} 筆平倉` },
+          { label: '累計股利', v: ledger.totalDividend, c: '#f59e0b', sub: '現金股利' },
+          { label: '費稅合計', v: -(ledger.totalFee + ledger.totalTax), c: '#94a3b8', sub: `手續費 ${Math.round(ledger.totalFee).toLocaleString()}｜稅 ${Math.round(ledger.totalTax).toLocaleString()}` },
+          { label: '平倉勝率', v: null, c: ledger.winRate >= 50 ? 'var(--color-up)' : 'var(--color-down)', txt: `${ledger.winRate}%`, sub: `${ledger.winCount} 勝 / ${ledger.lossCount} 負` },
+        ].map((k, i) => (
+          <div key={i} onClick={() => onGoTab('analytics')} title="點擊查看損益分析"
+            style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', cursor: 'pointer' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{k.label}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: k.c, fontFamily: "'JetBrains Mono', monospace" }}>
+              {k.txt ?? `${(k.v as number) >= 0 ? '+' : ''}${Math.round(k.v as number).toLocaleString()}`}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 對帳卡：手動持倉 vs 交易紀錄推算 */}
+      {diffs.length > 0 && (
+        <div style={{ padding: '14px 16px', borderRadius: 12, marginBottom: 16, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b' }}>⚖️ 持倉對帳：手動持倉與交易紀錄不一致（{diffs.length} 檔）</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => onGoTab('trades')}>檢查交易紀錄</button>
+              <button className="btn btn-buy" style={{ fontSize: 12, padding: '4px 10px' }} onClick={rebuild}>依交易紀錄重建持倉</button>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            持倉頁顯示的是「手動持倉」；損益分析以「交易紀錄」為準。兩邊不一致時（漏記/重複記/超賣），下表列出差異。
+          </div>
+          {diffs.map(d => (
+            <div key={d.code} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
+              <span><strong>{d.code}</strong> {d.name}</span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                手動 {fmtQty(d.manualLots)} <span style={{ color: 'var(--text-muted)' }}>vs</span> 交易推算 <strong>{fmtQty(d.ledgerLots)}</strong>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Main Portfolio Component ────────────────────────────────────────────
 
 export default function Portfolio() {
   const { holdings, allStocks, tradeRecords, removeHolding, updateHolding, navigateTo } = useAppStore(useShallow((s) => ({ holdings: s.holdings, allStocks: s.allStocks, tradeRecords: s.tradeRecords, removeHolding: s.removeHolding, updateHolding: s.updateHolding, navigateTo: s.navigateTo })));
   const [broker] = useBrokerSettings();
   const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'analytics'>('overview');
+  // 三分頁共用同一份帳本（交易紀錄＝唯一真相），確保口徑連動一致
+  const ledger = useMemo(() => buildLedger(tradeRecords), [tradeRecords]);
 
   const [editingHolding, setEditingHolding] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({
@@ -875,17 +1143,46 @@ export default function Portfolio() {
 
       {/* Tab Content */}
       {activeTab === 'trades' ? (
-        <TradeHistoryPanel />
+        <TradeHistoryPanel ledger={ledger} />
       ) : activeTab === 'analytics' ? (
-        <AnalyticsPanel />
+        <AnalyticsPanel ledger={ledger} />
       ) : holdings.length === 0 ? (
-        <div className={styles.emptyState}>
-          <div className={styles.emptyIcon}>💼</div>
-          <div className={styles.emptyText}>尚未記錄任何持倉</div>
-          <div className={styles.emptySub}>搜尋股票後點擊「記錄持倉」按鈕加入</div>
-        </div>
+        <>
+          {/* 空手也要有總覽：交易彙總＋對帳卡（先前只剩一張空狀態，什麼都看不到） */}
+          <OverviewLedgerBridge ledger={ledger} onGoTab={setActiveTab} />
+
+          {/* 最近平倉：空手時總覽的主內容 */}
+          {ledger.closed.length > 0 && (
+            <div style={{ padding: '16px', borderRadius: 12, marginBottom: 16, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
+              <div className={styles.cardTitle} style={{ marginBottom: 8 }}>🧾 最近平倉（目前空手）</div>
+              {ledger.closed.slice(0, 8).map(c => (
+                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 13, flexWrap: 'wrap' }}>
+                  <span>
+                    <span style={{ color: 'var(--text-muted)', marginRight: 8 }}>{c.date}</span>
+                    <strong style={{ cursor: 'pointer' }} onClick={() => navigateTo('stock', c.code)}>{c.code} {c.name}</strong>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{fmtQty(c.lots)} @ {c.sellPrice}</span>
+                  </span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: c.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                    {c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}（{c.roi >= 0 ? '+' : ''}{c.roi}%）
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, cursor: 'pointer' }} onClick={() => setActiveTab('analytics')}>
+                完整平倉明細與統計 → 損益分析分頁
+              </div>
+            </div>
+          )}
+
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>💼</div>
+            <div className={styles.emptyText}>目前沒有在倉部位</div>
+            <div className={styles.emptySub}>搜尋股票後點擊「記錄持倉」、或在交易紀錄新增買入即自動建倉</div>
+          </div>
+        </>
       ) : (
         <>
+          {/* 交易彙總＋持倉對帳（三分頁連動樞紐） */}
+          <OverviewLedgerBridge ledger={ledger} onGoTab={setActiveTab} />
           {/* 崩盤防禦清單（大跌日自動生成，48h 內顯示） */}
           <DefenseBanner />
 

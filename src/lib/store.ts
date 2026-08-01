@@ -189,10 +189,12 @@ interface AppState {
   addHolding: (holding: Omit<HoldingItem, 'id'>) => void;
   removeHolding: (id: string) => void;
   updateHolding: (id: string, updates: Partial<HoldingItem>) => void;
+  replaceHoldings: (items: Array<Omit<HoldingItem, 'id'>>) => void;
 
   // Trade Records
   addTradeRecord: (record: Omit<TradeRecord, 'id' | 'createdAt'>) => void;
   removeTradeRecord: (id: string) => void;
+  updateTradeRecord: (id: string, updates: Partial<Omit<TradeRecord, 'id' | 'createdAt'>>) => void;
 
   // Alerts
   addAlert: (alert: Omit<AlertItem, 'id' | 'triggered' | 'createdAt'>) => void;
@@ -496,6 +498,32 @@ export const useAppStore = create<AppState>()(
         const updated = state.holdings.map(h => h.id === id ? { ...h, ...updates } : h);
         if (state.user) syncHoldings(state.user.uid, updated);
         return { holdings: updated };
+      }),
+
+      // 依交易紀錄推算結果整批重建持倉（帳本引擎對帳後的一鍵修復入口）。
+      // 覆蓋整份手動持倉——呼叫端必須先讓使用者看過差異並確認。
+      replaceHoldings: (items) => set((state) => {
+        logActivity('replace_holdings', { count: items.length });
+        const now = Date.now();
+        const holdings: HoldingItem[] = items.map((h, i) => ({ ...h, id: `h-${now}-${i}` }));
+        if (state.user) syncHoldings(state.user.uid, holdings);
+        return { holdings };
+      }),
+
+      // 修改既有交易（修錯價/錯量用）。不動手動持倉的 FIFO 帳——
+      // 改完若與持倉不一致，總覽的對帳卡會顯示差異並提供重建。
+      // 存死的 realizedPnL/costBasis 一併清掉：損益顯示一律以帳本重算為準。
+      updateTradeRecord: (id, updates) => set((state) => {
+        const idx = state.tradeRecords.findIndex(t => t.id === id);
+        if (idx === -1) return {};
+        logActivity('update_trade', { id, code: state.tradeRecords[idx].code });
+        const next = { ...state.tradeRecords[idx], ...updates };
+        delete next.realizedPnL;
+        delete next.costBasis;
+        const updatedTrades = [...state.tradeRecords];
+        updatedTrades[idx] = next;
+        if (state.user) syncTrades(state.user.uid, updatedTrades);
+        return { tradeRecords: updatedTrades };
       }),
 
       addTradeRecord: (record) => set((state) => {
