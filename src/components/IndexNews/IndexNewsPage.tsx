@@ -353,7 +353,7 @@ const TIER = [
   { n: 1, label: '⭐ 三重確認', color: '#7dd3fc', key: 't1' },
 ];
 
-interface StrengthItem { code: string; name: string; price: number; chg: number; rsi5: number; rsi10: number; spread: number; inst5: number; inst5Ratio: number; vol: number; vol20: number | null; lowVol: boolean }
+interface StrengthItem { code: string; name: string; price: number; chg: number; rsi5: number; rsi10: number; spread: number; inst5: number; inst5Ratio: number; vol: number; vol20: number | null; lowVol: boolean; kdState: 'gold' | 'dead' | 'above' | 'below' | null; kdDead: boolean }
 interface StrengthData { found?: boolean; date?: string; total?: number; crowded?: boolean; horizon?: string; caveats?: string[]; instWindow?: string[]; items?: StrengthItem[]; evidence?: Record<string, string> }
 
 // 波段追強（強勢整理）——2026-08-01 上榜。規則與所有數字見 evidence（verify-strength-oot 實測）。
@@ -392,6 +392,7 @@ function StrengthTab() {
             <button onClick={() => navigateTo('stock', it.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 12.5, padding: 0 }}>{it.code} {it.name}</button>
             <span style={{ fontSize: 10.5, color: '#c084fc' }}>法人5日/均量 {(it.inst5Ratio * 100).toFixed(1)}%</span>
             {it.lowVol && <span title="20日波動<1.5%。實測此子集兩窗都較差（主窗 5日均-1.649%·中位-1.172%·淨勝37.8%；OOT 中位-0.735%·淨勝43.3%）。未設為 gate 是因為排除後對剩餘部位改善僅+0.31/+0.14pp 且 OOT 前半≈0，未達本站門檻——故只標記，請自行下修勝率。" style={{ fontSize: 10.5, color: '#2f9e44' }}>😴低波動{it.vol20}%</span>}
+            {it.kdDead && <span title="KD 死亡交叉。追強母體上實測兩窗一致較差：主窗 5日中位-2.168%(基準-0.443%)·淨勝39.5%(46.7%)·不破今低-8.0pp；OOT 中位-0.605%(-0.173%)·淨勝44.0%(48.9%)·不破底-7.2pp。未設 gate 是因為「未死叉」側對剩餘部位的均值改善在 OOT 為 0 且前半轉負——只標記，請自行下修。" style={{ fontSize: 10.5, color: '#f87171' }}>⚔KD死叉</span>}
             <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
             {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
             <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>

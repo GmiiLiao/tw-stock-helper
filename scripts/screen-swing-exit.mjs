@@ -124,11 +124,14 @@ const med = a => { if (!a.length) return null; const b = [...a].sort((x, y) => x
 
 const GROUPS = [
   ['宇宙基準', () => true],
-  ['KD 金叉', s => s.kGold],
-  ['KD 金叉 ∧ MA5>MA10', s => s.kGold && s.m5AboveM10],
-  ['KD金叉∧MA5>MA10∧vol≥1.5%', s => s.kGold && s.m5AboveM10 && s.vol20 >= 1.5],
-  ['KD 死叉（對照）', s => s.kDead],
-];
+  ['RSI5>80', s => s.rsi5 > 80],
+  ['RSI10>80', s => s.rsi10 > 80],
+  ['RSI5>80 ∧ RSI10>80', s => s.rsi5 > 80 && s.rsi10 > 80],
+  ['RSI10>80 ∧ MA5>MA10', s => s.rsi10 > 80 && s.m5AboveM10],
+  ['RSI10>80 ∧ MA5>MA10 ∧ vol≥1.5%', s => s.rsi10 > 80 && s.m5AboveM10 && s.vol20 >= 1.5],
+  ['RSI5>80 ∧ MA5>MA10 ∧ vol≥1.5%', s => s.rsi5 > 80 && s.m5AboveM10 && s.vol20 >= 1.5],
+  ['RSI10>80 ∧ KD未死叉 ∧ MA5>MA10', s => s.rsi10 > 80 && !s.kDead && s.m5AboveM10],
+]
 const STOPS = [['破今低', 'L'], ['停損-5%', '5'], ['停損-8%', '8'], ['不停損', 'N']];
 for (const T of [3, 5, 8]) {
   console.log(`\n${'═'.repeat(170)}\n══ 目標 +${T}%｜四種停損並列（未觸發者抱到第5日收盤·扣費稅 0.4425%）\n${'═'.repeat(170)}`);
