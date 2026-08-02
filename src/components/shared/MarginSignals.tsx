@@ -2,7 +2,7 @@
 
 // ── 資券借券＋模型判讀條（個股分析頁/共用·與工作台/推選榜同源）──────
 // 資料：/api/ai/margin-snap?code=（daemon marginSnap/latest，t-1 EOD）
-//   row: [融資餘,融資增減,融券餘,融券增減,借券餘,借券增減,前20日高,昨量張,t-5收盤,KD的K值]
+//   row: [融資餘,融資增減,融券餘,融券增減,借券餘,借券增減,前20日高,昨量張,t-5收盤,KD的K值,是否跌破5日線]
 // ＋chip-verdict（tier/勝率/倒貨/外資）＋market-index（跟風）＋chip-character（性格）
 // → 共用 computeComposite：個股頁的 🧬評分/徽章 與全站完全同源（使用者回饋：
 //   個股資料缺量比等——一併補 量比/收位/5日漲幅 顯示）。
@@ -52,7 +52,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   if (miss) return null; // 無資券資料（如 ETF）不佔版面
   if (!row) return null;
 
-  const [mg, mgC, sh, shC, ln, lnC, hi20, yv, c5, k9] = row;   // k9＝KD(9) K值（daemon marginSnap index 9）
+  const [mg, mgC, sh, shC, ln, lnC, hi20, yv, c5, k9, bm5] = row;   // k9＝KD(9) K值（daemon marginSnap index 9）
   const chg = changePercent ?? 0;
   const sqzSetup = mgC != null && shC != null && (yv || 0) >= 300 && (shC || 0) >= (yv || 0) * 0.005;
   const pos = high != null && low != null && high > low && price != null ? (price - low) / (high - low) : null;
@@ -63,7 +63,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   const comp = computeComposite({
     baseWin: v?.win, tier: v?.tier, price, chg,
     high, low, hi20, sqzSetup, c5, mktChg: idxChg,
-    mgChg: mgC, foreignToday: v?.f, distributedPct: v?.dist, charLabel, k9,
+    mgChg: mgC, foreignToday: v?.f, distributedPct: v?.dist, charLabel, k9, belowMA5: bm5 as boolean | null,
   });
   const strongClose = pos != null && pos >= 0.8;
   const srRatio = mg && mg > 0 && sh != null ? sh / mg * 100 : null;

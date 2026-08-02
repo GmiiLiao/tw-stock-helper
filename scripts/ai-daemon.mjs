@@ -5199,7 +5199,7 @@ async function computeChipPicks() {
   const quo = (await readSnapshotQuotes())?.quotes || {};
 
   // 資券借券（t-1 vs t-2）＋前 20 日高＋昨量：實證訊號 setup 與綜合評分素材
-  let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {};
+  let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {}, bm5Map = {};
   try {
     const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(22).get()).docs.map(d => d.data());
     // 資券/借券取「最近一個有該欄位的日子」：當日歸檔 15:10 先建（僅收盤價）、
@@ -5237,6 +5237,13 @@ async function computeChipPicks() {
         K = (K * 2) / 3 + rsv / 3; D = (D * 2) / 3 + K / 3; ok = true;
       }
       if (ok) kdMap[c] = +K.toFixed(1);
+      // 跌破 5 日線（收盤口徑，與回測一致）——K 80~90 配跌破 MA5 為實證避開訊號
+      const cl5 = [];
+      for (const m of old2new) { const r = m?.[c]; if (r?.[0] > 0) cl5.push(r[0]); }
+      if (cl5.length >= 5) {
+        const last5 = cl5.slice(-5);
+        bm5Map[c] = cl5[cl5.length - 1] < last5.reduce((a, b) => a + b, 0) / 5;
+      }
     }
     // marginSnap/latest：全市場資券借券快照（個股頁訊號條用）
     const bySnap = {};
@@ -5247,7 +5254,7 @@ async function computeChipPicks() {
       bySnap[c] = [a?.[0] ?? null, a && b ? (a[0] || 0) - (b[0] || 0) : null,
         a?.[1] ?? null, a && b ? (a[1] || 0) - (b[1] || 0) : null,
         la ?? null, la != null && lb != null ? la - lb : null,
-        hi20[c] || null, yVol[c] || null, c5map[c]?.[0] ?? null, kdMap[c] ?? null];
+        hi20[c] || null, yVol[c] || null, c5map[c]?.[0] ?? null, kdMap[c] ?? null, bm5Map[c] ?? null];
     }
     await db.collection('marginSnap').doc('latest').set({
       dataDate, byCodeJson: JSON.stringify(bySnap), n: Object.keys(bySnap).length, at: Date.now(),
@@ -5283,7 +5290,7 @@ async function computeChipPicks() {
       sh: mgY[code] ? [mgY[code][1] || 0, mgY2[code] ? (mgY[code][1] || 0) - (mgY2[code][1] || 0) : 0] : null,
       ln: lnY[code] != null ? [lnY[code], lnY2[code] != null ? lnY[code] - lnY2[code] : 0] : null,
       sqz: !!(mgY[code] && mgY2[code] && (yVol[code] || 0) >= 300 && ((mgY[code][1] || 0) - (mgY2[code][1] || 0)) >= (yVol[code] || 0) * 0.005),
-      hi20: hi20[code] || null, c5: c5map[code]?.[0] ?? null, char: charBy[code]?.label || null, k9: kdMap[code] ?? null,
+      hi20: hi20[code] || null, c5: c5map[code]?.[0] ?? null, char: charBy[code]?.label || null, k9: kdMap[code] ?? null, bm5: bm5Map[code] ?? null,
     });
   }
 

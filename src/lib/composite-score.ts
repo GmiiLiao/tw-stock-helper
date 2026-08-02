@@ -24,6 +24,7 @@ export interface CompositeInput {
   foreignToday?: number | null; // 今日(或 t-1)外資淨買（散戶接棒判定）
   distributedPct?: number | null;
   k9?: number | null;           // KD(9) 的 K 值——僅 >90 極度超買計為避開訊號（見下方檢定紀錄）
+  belowMA5?: boolean | null;    // 收盤跌破 5 日線（收盤口徑）——配 K 80~90 為避開訊號
 }
 
 // ── KD（隨機指標）2026-08-02 三輪檢定結論 ─────────────────────────────
@@ -89,8 +90,16 @@ export function computeComposite(i: CompositeInput): { score: number; badges: Si
   if ((i.k9 ?? 0) > 90) {
     sc -= 2;
     badges.push({ t: `📉K${Math.round(i.k9 as number)}超買`, c: '#2f9e44', tip: 'KD 極度超買(K>90)：明開賣主窗 -0.265%·勝34.5%／OOT -0.244%·勝29.7%（基準約 -0.13%·勝40%），兩窗×兩regime四格全負，控制漲幅/RSI/位階後仍較差＝非「剛大漲過」的代理。⚠僅作扣分不作賣訊（OOT 兩個小樣本格未過）' });
-  } else if ((i.k9 ?? 0) >= 80) {
-    badges.push({ t: `KD${Math.round(i.k9 as number)}`, c: '#94a3b8', tip: 'KD 高檔(80~90)：實測未達顯著（K>80 整段兩半窗方向不一致）——不計分，僅供位階參考' });
+  } else if ((i.k9 ?? 0) > 80) {
+    // KDMA 策略二的實測修正版（2026-08-02·見檔尾檢定紀錄）：
+    // 原文說「高檔鈍化只要沒跌破 5 日線就抱牢」——實測抱牢組確實優於跌破組，
+    // 但**兩組絕對值都是負的**，所以真正可用的是「跌破」這一側，不是「抱牢」。
+    if (i.belowMA5) {
+      sc -= 2;
+      badges.push({ t: `📉K${Math.round(i.k9 as number)}破5MA`, c: '#2f9e44', tip: 'KD 高檔(80~90)＋跌破5日線：明開賣主窗 -0.263%·勝37.7%／OOT -0.248%·勝33.4%（基準約-0.13%·勝40%），四格全負、分層控制20/22、與K>90重疊僅2%＝獨立訊號。⚠原文「沒跌破5MA就抱牢」的抱牢側實測仍為負(-0.152%)，只是虧較少，不可當買訊' });
+    } else {
+      badges.push({ t: `KD${Math.round(i.k9 as number)}`, c: '#94a3b8', tip: 'KD 高檔(80~90)但未跌破5日線：實測 -0.152%／-0.153%，雖優於跌破組(-0.266%/-0.260%)但仍為負——不計分，僅供位階參考（K>80 整段兩半窗方向不一致）' });
+    }
   }
   if ((i.distributedPct ?? 0) >= 30) sc -= 1;
   return { score: Math.max(5, Math.min(95, Math.round(sc))), badges, pos };

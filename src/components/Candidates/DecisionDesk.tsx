@@ -246,7 +246,7 @@ export default function DecisionDesk() {
     const comp = computeComposite({
       baseWin: v?.win, tier: v?.tier, price, chg: chgNow,
       high: hi || undefined, low: lo || undefined, hi20: row?.[6], sqzSetup, c5: row?.[8], mktChg: idxChg, charLabel: chars[code]?.label,
-      mgChg: row?.[1], foreignToday: v?.f, distributedPct: v?.dist, k9: row?.[9],
+      mgChg: row?.[1], foreignToday: v?.f, distributedPct: v?.dist, k9: row?.[9], belowMA5: row?.[10] as unknown as boolean | null,   // marginSnap[10]＝跌破5日線布林
     });
     return { code, name: s?.name, market: s?.market, price, chg: chgNow, vol: lq?.volume ?? s?.volume, v, char: chars[code], lots, cost: cost + buyFee, sellPrice, net, weakClose, pos, row, comp };
   }), [codes, allStocks, verdicts, chars, budget, profitTarget, tradeDuration, margins, liveQ, idxChg]);
