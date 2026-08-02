@@ -6780,7 +6780,7 @@ const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPrem
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
-let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
+let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 function execScript(name, args, tag, timeoutMin = 10) {
@@ -6871,6 +6871,14 @@ async function dailyJobsLoop() {
         if (mins >= 15 * 60 + 20 && _histTopupDate !== today && isTradingDay(tw)) {
           _histTopupDate = today;
           execScript('topup-stock-history.mjs', [], '📈 日線補正', 20);
+        }
+        // 每日 15:25 抓當日市場委託失衡（MI_5MINS）。
+        // 2026-08-02 起：三年歷史已回補（orderFlowArchive），這一步是「不讓它斷」——
+        // bookDepth 的教訓就是回補/建立完沒接每日更新，半年後打開只有 9 天。
+        // 冪等（腳本內建已存跳過），只跑當日一天故 --days 1。
+        if (mins >= 15 * 60 + 25 && _orderFlowDate !== today && isTradingDay(tw)) {
+          _orderFlowDate = today;
+          execScript('backfill-orderflow.mjs', ['--days', '1'], '📋 委託失衡', 5);
         }
         // 每日 18:05 觸發收盤盤勢分析（/api/cron/daily-close）。
         // 2026-08-01 事故：這支原由 Cloud Scheduler 觸發，但 job 指向 us-central1

@@ -140,7 +140,7 @@ const main = async () => {
       const el = (Date.now() - t0) / 1000;
       const rate = ok / el;
       const left = dates.length - n - 1;
-      console.log(`  ${i} ✓ 已存 ${ok} 日｜失衡 ${dg.imbalance?.toFixed(4)}｜尾盤 ${dg.tailImbalance?.toFixed(4)}｜剩約 ${Math.round(left / Math.max(rate, 0.01) / 60)} 分`);
+      console.log(`  ${i} ✓ 已存 ${ok} 日｜失衡 ${dg.imbalance?.toFixed(4)}｜尾盤變化 ${dg.tailImbShift}｜剩約 ${Math.round(left / Math.max(rate, 0.01) / 60)} 分`);
     }
     await sleep(PACE);
   }
