@@ -52,7 +52,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   if (miss) return null; // 無資券資料（如 ETF）不佔版面
   if (!row) return null;
 
-  const [mg, mgC, sh, shC, ln, lnC, hi20, yv, c5, k9, bm5] = row;   // k9＝KD(9) K值（daemon marginSnap index 9）
+  const [mg, mgC, sh, shC, ln, lnC, hi20, yv, c5, k9, bm5, vol20] = row;   // k9＝KD(9) K值（daemon marginSnap index 9）、vol20＝20日波動%（index 11）
   const chg = changePercent ?? 0;
   const sqzSetup = mgC != null && shC != null && (yv || 0) >= 300 && (shC || 0) >= (yv || 0) * 0.005;
   const pos = high != null && low != null && high > low && price != null ? (price - low) / (high - low) : null;
@@ -63,7 +63,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   const comp = computeComposite({
     baseWin: v?.win, tier: v?.tier, price, chg,
     high, low, hi20, sqzSetup, c5, mktChg: idxChg,
-    mgChg: mgC, foreignToday: v?.f, distributedPct: v?.dist, charLabel, k9, belowMA5: bm5 as boolean | null,
+    mgChg: mgC, foreignToday: v?.f, distributedPct: v?.dist, charLabel, k9, belowMA5: bm5 as boolean | null, vol20,
   });
   const strongClose = pos != null && pos >= 0.8;
   const srRatio = mg && mg > 0 && sh != null ? sh / mg * 100 : null;

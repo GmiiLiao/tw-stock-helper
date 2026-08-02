@@ -91,11 +91,58 @@ async function deriveAdHocClosures(officialClosed) {
   return out;
 }
 
+// ── 獨立驗證：這一天到底有沒有開盤？（2026-08-02 新增）─────────────────
+// 為什麼需要：舊版把「chipArchive 有空洞」直接當成臨時休市，但空洞也可能只是
+//   **當天歸檔失敗**。而且這個錯誤會自我強化——一旦被判為休市，isTradingDay()
+//   之後就回 false、不再嘗試補抓，空洞就永久化，日曆永遠是錯的。
+// 實案（2026-08-02 查獲）：2026-03-10／03-13／03-25／05-20 被判為颱風假，
+//   實際上四天都有 3,241 列委託統計與 860~1,169 萬股成交量——**都有開盤**。
+//   只有 07-10 是真休市（委託統計 0 列）。四個假日曆條目污染了所有回測母體。
+// 判準：MI_5MINS（每5秒委託成交統計）是**不依賴自家歸檔**的第三方事實。
+//   0 列＝真休市；3,241 列＝有開盤（空洞是我方歸檔失敗，不可判為休市）。
+async function verifyClosure(iso) {
+  const ymd8 = iso.replace(/-/g, '');
+  const url = `https://www.twse.com.tw/rwd/zh/afterTrading/MI_5MINS?date=${ymd8}&response=json`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+      const r = await fetch(url, { signal: ctl.signal });
+      clearTimeout(t);
+      if (r.status === 307 || r.status === 429 || r.status >= 500) { await new Promise(z => setTimeout(z, 3000 * (attempt + 1))); continue; }
+      const j = await r.json();
+      const rows = Array.isArray(j.data) ? j.data.length : 0;
+      // 回音驗證：標題民國日期須等於請求日，否則視為無法判定（保守：不推翻）
+      const m = (j.title || '').match(/(\d{2,3})年(\d{1,2})月(\d{1,2})日/);
+      if (m) {
+        const got = `${+m[1] + 1911}${String(+m[2]).padStart(2, '0')}${String(+m[3]).padStart(2, '0')}`;
+        if (got !== ymd8) return { closed: null, why: `日期回音不符(${got})` };
+      }
+      return { closed: rows === 0, rows };
+    } catch { await new Promise(z => setTimeout(z, 3000 * (attempt + 1))); }
+  }
+  return { closed: null, why: '查詢失敗' };
+}
+
 async function main() {
   const { closed, tradingMarks, raw } = await fetchOfficialHolidays();
   console.log(`[cal] 官方日程表 ${raw} 筆 → 休市 ${closed.length}、交易日標記 ${tradingMarks.length}（${tradingMarks.join(', ')}）`);
 
-  const derived = await deriveAdHocClosures(closed);
+  let derived = await deriveAdHocClosures(closed);
+  // 每個「由空洞反推的休市」都必須通過第三方驗證，才准列入日曆
+  if (derived.length) {
+    console.log(`[cal] 由空洞反推 ${derived.length} 筆，逐一以 MI_5MINS 獨立驗證…`);
+    const verified = [], rejected = [], unknown = [];
+    for (const d of derived) {
+      const v = await verifyClosure(d);
+      if (v.closed === true) verified.push(d);
+      else if (v.closed === false) rejected.push(`${d}(委託統計${v.rows}列＝有開盤)`);
+      else unknown.push(`${d}(${v.why})`);
+      await new Promise(z => setTimeout(z, 1200));
+    }
+    if (rejected.length) console.log(`[cal] ⚠ 推翻 ${rejected.length} 筆誤判——這些日子有開盤，是我方歸檔失敗不是休市：\n      ${rejected.join('\n      ')}`);
+    if (unknown.length) console.log(`[cal] ⚠ ${unknown.length} 筆無法驗證，保守起見**不列入**休市：${unknown.join('、')}`);
+    derived = verified;
+  }
   // 官方日程表只涵蓋當年度。落在該年度內的 derived ＝真正的臨時休市（颱風假）；
   // 落在往年的 derived ＝該年度的一般國定假日（官方表已不提供，只能由歷史資料反推）。
   const coverYear = closed.length ? closed[0].slice(0, 4) : String(YEAR);
