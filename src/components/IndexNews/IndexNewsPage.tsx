@@ -344,7 +344,7 @@ function TopicTab() {
 }
 
 // ── 🌊 波段起漲分頁（5日持有語意·與隔日沖口徑分離）────────────────
-interface SwingItem { code: string; name: string; price: number; chg: number | null; rsi5: number; rsi10: number; volX: number | null; instT1: number; vol: number; posture60: number | null; deepPull: boolean; bigVol: boolean; vol20: number | null; tier: number }
+interface SwingItem { code: string; name: string; price: number; chg: number | null; rsi5: number; rsi10: number; volX: number | null; instT1: number; vol: number; posture60: number | null; deepPull: boolean; bigVol: boolean; vol20: number | null; kdState: 'gold' | 'dead' | 'above' | 'below' | null; breakRisk: 'low' | 'mid' | 'high' | null; tier: number }
 interface SwingData { found: boolean; date?: string; mode?: string; breadth?: number | null; bearDay?: boolean | null; instDate?: string | null; instSameDay?: boolean; total?: number; crowded?: boolean; caveats?: string[]; horizon?: string; gate?: string; counts?: { t1: number; t2: number; t3: number }; items?: SwingItem[]; evidence?: Record<string, string> }
 
 const TIER = [
@@ -460,6 +460,7 @@ function SwingTab() {
                 {it.deepPull && <span style={{ fontSize: 10.5, color: '#c084fc' }}>深回檔 {(it.posture60! * 100).toFixed(0)}%</span>}
                 {it.bigVol && <span style={{ fontSize: 10.5, color: '#7dd3fc' }}>量{it.vol.toLocaleString()}張</span>}
                 {it.vol20 != null && <span title="20日日報酬標準差。本榜已套用 vol20≥1.5% 波動 gate——低波動股實測真起漲僅8.6%(基準18.9%)、5日均-1.268%，是純負貢獻，一律不上榜。" style={{ fontSize: 10.5, color: it.vol20 >= 3 ? '#fb923c' : '#94a3b8' }}>波動{it.vol20}%</span>}
+                {it.breakRisk && <span title={'KD 交叉→5日內破今日最低的機率（實證·主窗/OOT）：金叉 57.4%/50.3%、無交叉≈基準 71.9%/65.6%、死叉 80.8%/75.3%。⚠這是破底風險不是漲幅——拆解檢定顯示 KD 交叉對「5日內漲≥5%」貢獻為零，推漲幅的是波動。用途：預估「破前低無條件停損」多久會觸發。'} style={{ fontSize: 10.5, color: it.breakRisk === 'low' ? '#22c55e' : it.breakRisk === 'high' ? '#f87171' : '#94a3b8' }}>破底風險{it.breakRisk === 'low' ? '低·KD金叉' : it.breakRisk === 'high' ? '高·KD死叉' : '中'}</span>}
                 <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
                 {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>
