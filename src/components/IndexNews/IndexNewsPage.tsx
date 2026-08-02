@@ -344,7 +344,7 @@ function TopicTab() {
 }
 
 // ── 🌊 波段起漲分頁（5日持有語意·與隔日沖口徑分離）────────────────
-interface SwingItem { code: string; name: string; price: number; chg: number | null; rsi5: number; rsi10: number; volX: number | null; instT1: number; vol: number; posture60: number | null; deepPull: boolean; bigVol: boolean; tier: number }
+interface SwingItem { code: string; name: string; price: number; chg: number | null; rsi5: number; rsi10: number; volX: number | null; instT1: number; vol: number; posture60: number | null; deepPull: boolean; bigVol: boolean; vol20: number | null; tier: number }
 interface SwingData { found: boolean; date?: string; mode?: string; breadth?: number | null; bearDay?: boolean | null; instDate?: string | null; instSameDay?: boolean; total?: number; crowded?: boolean; caveats?: string[]; horizon?: string; gate?: string; counts?: { t1: number; t2: number; t3: number }; items?: SwingItem[]; evidence?: Record<string, string> }
 
 const TIER = [
@@ -353,7 +353,7 @@ const TIER = [
   { n: 1, label: '⭐ 三重確認', color: '#7dd3fc', key: 't1' },
 ];
 
-interface StrengthItem { code: string; name: string; price: number; chg: number; rsi5: number; rsi10: number; spread: number; inst5: number; inst5Ratio: number; vol: number }
+interface StrengthItem { code: string; name: string; price: number; chg: number; rsi5: number; rsi10: number; spread: number; inst5: number; inst5Ratio: number; vol: number; vol20: number | null; lowVol: boolean }
 interface StrengthData { found?: boolean; date?: string; total?: number; crowded?: boolean; horizon?: string; caveats?: string[]; instWindow?: string[]; items?: StrengthItem[]; evidence?: Record<string, string> }
 
 // 波段追強（強勢整理）——2026-08-01 上榜。規則與所有數字見 evidence（verify-strength-oot 實測）。
@@ -391,6 +391,7 @@ function StrengthTab() {
           <div key={it.code} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
             <button onClick={() => navigateTo('stock', it.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 12.5, padding: 0 }}>{it.code} {it.name}</button>
             <span style={{ fontSize: 10.5, color: '#c084fc' }}>法人5日/均量 {(it.inst5Ratio * 100).toFixed(1)}%</span>
+            {it.lowVol && <span title="20日波動<1.5%。實測此子集兩窗都較差（主窗 5日均-1.649%·中位-1.172%·淨勝37.8%；OOT 中位-0.735%·淨勝43.3%）。未設為 gate 是因為排除後對剩餘部位改善僅+0.31/+0.14pp 且 OOT 前半≈0，未達本站門檻——故只標記，請自行下修勝率。" style={{ fontSize: 10.5, color: '#2f9e44' }}>😴低波動{it.vol20}%</span>}
             <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
             {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
             <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>
@@ -458,6 +459,7 @@ function SwingTab() {
                 <button onClick={() => navigateTo('stock', it.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 12.5, padding: 0 }}>{it.code} {it.name}</button>
                 {it.deepPull && <span style={{ fontSize: 10.5, color: '#c084fc' }}>深回檔 {(it.posture60! * 100).toFixed(0)}%</span>}
                 {it.bigVol && <span style={{ fontSize: 10.5, color: '#7dd3fc' }}>量{it.vol.toLocaleString()}張</span>}
+                {it.vol20 != null && <span title="20日日報酬標準差。本榜已套用 vol20≥1.5% 波動 gate——低波動股實測真起漲僅8.6%(基準18.9%)、5日均-1.268%，是純負貢獻，一律不上榜。" style={{ fontSize: 10.5, color: it.vol20 >= 3 ? '#fb923c' : '#94a3b8' }}>波動{it.vol20}%</span>}
                 <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
                 {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>

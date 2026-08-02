@@ -191,6 +191,9 @@ const SWING_SKILL = `【波段起漲選股（本站實證·持有5個交易日·
 ⚠口徑聲明：本訊號隔日開賣 -0.06%／隔日收賣 -0.44%／持有5日 +1.10%——edge 全在第5日，**不可用隔日沖的方式操作，也不併入隔日沖綜合評分**。
 訊號＝三層漸嚴（940日80萬樣本·真起漲定義＝今日之後5日不再破底 且 期間曾漲≥5%；全市場基準真起漲14.9%／5日淨勝44.2%／淨均-0.08%）：
 ⭐三重確認：RSI5<20（跌深粗篩）∧ 法人t-1買超（外資+投信>0）∧ 量比>1.5（今日量÷昨日量）→ 真起漲18.6%·淨勝55.8%·5日淨均+1.10%·日均5.9檔
+【波動 gate·2026-08-02 新增】＋vol20≥1.5%（20日日報酬標準差）→ 主窗 真起漲18.9→21.5%·5日均1.035→1.615%·淨勝55.7→59.1%；OOT 真起漲17.0→24.0%·5日均0.919→1.447%·淨勝56.9→60.1%。主窗兩半[2.295/0.278]、OOT兩半[1.99/1.05]、主窗逐年三段與OOT兩年全部改善，留存79.9%/66.8%。被排除的低波動組是**純負貢獻**：主窗 真起漲僅8.6%·5日均-1.268%·淨勝42.2%／OOT 真起漲3.1%。
+⚠此 gate 只收 1.5%，不用更嚴門檻：≥2.5%/≥3% 的主窗數字漂亮（5日均+4.5%/+6.4%）但那是 2025-04 崩跌反彈的 artifact——⭐訊號有20%集中在2025-04-08與04-09兩天，把那兩檔的主窗後半拆開來看是負的(-0.194/-0.49)、2026年也是負的。這是「均值被單一行情灌爆」的典型，不可信。
+⚠口徑隔離再強調：同一個 vol20，隔日沖那側是「<1.5%扣2分」的避開訊號（明開賣Δ-0.199%），波段這側是「≥1.5%才進場」的 gate——**數字相同、機制不同**，前者是低波動股跳空幅度小扣不掉費稅，後者是低波動股根本彈不動（真起漲8.6% vs 21.5%）。不要互相推論。
 ⭐⭐強化：＋(RSI10<25 或 距60日高<0.85) → 真起漲21.5~22.0%·淨勝58.2~62.7%·淨均+1.59~+2.19%
 ⭐⭐⭐最嚴：＋空頭日 ∧ 量≥1000張 ∧ 距60日高<0.85 → 真起漲24.3%·淨勝63.0%·淨均+2.58%·日均僅2.2檔
 條件貢獻排序（重要）：法人買超 > RSI10<25 > 空頭日/量能/深回檔 > RSI5<20 本身。RSI5<20 單獨的真起漲僅15.9%（基準14.9%）＝只是圈候選池，真正的訊息量在「有沒有人在承接」。
@@ -2826,11 +2829,28 @@ async function computeStrengthPicks() {
       const inst5Ratio = inst5 / av20;
       if (!(inst5Ratio > 0.05)) continue;
       const tVol = vols[vols.length - 1];
+      // 20日波動（僅標記不設 gate）：追強母體(RSI5 75~90 強勢股)與⭐起漲(跌深股)
+      // 完全相反，各測各的。實測低波動追強股在兩窗都較差——主窗 5日均-1.649%·
+      // 中位-1.172%·淨勝37.8%（基準 +0.876%/-0.443%/46.7%）、OOT 中位-0.735%·
+      // 淨勝43.3%（基準 -0.173%/48.9%）。**但沒到設 gate 的標準**：排除後對剩餘
+      // 部位的改善僅 +0.31pp(主窗)/+0.14pp(OOT)，且 OOT 前半 Δ 為 -0.025≈零。
+      // 故只標記讓人自行下修，不擋——這條日均僅 1.6 檔，硬擋容易變空榜。
+      let vol20 = null;
+      const vSer = closes.slice(-21);
+      if (vSer.length >= 21) {
+        const rt = [];
+        for (let k = 1; k < vSer.length; k++) if (vSer[k - 1] > 0) rt.push((vSer[k] - vSer[k - 1]) / vSer[k - 1] * 100);
+        if (rt.length >= 20) {
+          const mu = rt.reduce((a, b) => a + b, 0) / rt.length;
+          vol20 = +Math.sqrt(rt.reduce((a, b) => a + (b - mu) ** 2, 0) / rt.length).toFixed(2);
+        }
+      }
       items.push({
         code, name: (quo[code]?.name || '').trim() || code,
         price: +price.toFixed(2), chg: +chg.toFixed(2),
         rsi5: +rsi5.toFixed(1), rsi10: +rsi10.toFixed(1), spread: +(rsi5 - rsi10).toFixed(1),
         inst5, inst5Ratio: +inst5Ratio.toFixed(3), vol: tVol,
+        vol20, lowVol: vol20 != null && vol20 < 1.5,
       });
     }
     items.sort((a, b) => b.inst5Ratio - a.inst5Ratio);
@@ -2843,6 +2863,7 @@ async function computeStrengthPicks() {
         '⚠絕不可隔日沖：本訊號隔日開賣 -0.07%／收賣 -0.21%——edge 在第5日，隔日出場沒有期望值。',
         crowded ? `⚠訊號擁擠：今日 ${items.length} 檔（回測日均 1.6 檔）——母體已偏離回測，勝率下修看待。` : null,
         items.length === 0 ? 'ℹ今日無符合——本榜日均僅 1.6 檔，空榜是常態不是故障。' : null,
+        items.some(x => x.lowVol) ? `⚠低波動標記：本榜 ${items.filter(x => x.lowVol).length} 檔的20日波動<1.5%。實測此子集在兩窗都較差（主窗 5日均-1.649%·中位-1.172%·淨勝37.8% vs 基準+0.876%/-0.443%/46.7%；OOT 中位-0.735%·淨勝43.3% vs -0.173%/48.9%）。未設為 gate 的原因：排除後對剩餘部位改善僅+0.31pp(主窗)/+0.14pp(OOT)，且OOT前半Δ≈0，未達本站設 gate 的標準——故只標記，請自行下修。` : null,
       ].filter(Boolean),
       items: items.slice(0, 20),
       evidence: {
@@ -2897,6 +2918,23 @@ async function computeSwingPicks() {
       const iv = instLatest[code];
       const instT1 = iv ? (iv[0] || 0) + (iv[1] || 0) : null;
       if (!(instT1 > 0) || !(volX > 1.5)) continue;                 // ⭐三重確認
+      // 波動 gate（2026-08-02 加·screen-swing-vol.mjs）：vol20＝20日日報酬標準差%。
+      // ⭐內低波動股是純負貢獻——主窗 真起漲8.6%(基18.9%)·5日均-1.268%·淨勝42.2%，
+      // OOT 真起漲3.1%(基17.0%)。排除後主窗兩半 [2.295/0.278]、OOT [1.99/1.05] 皆改善，
+      // 主窗逐年三段與 OOT 兩年也全改善，留存 79.9%/66.8%（不是砍到見骨的濾網）。
+      // ⚠門檻只收 1.5%：≥2.5%/≥3% 的漂亮數字是 2025-04 崩跌反彈造成的
+      //   （2025-04-08+04-09 佔全部訊號 20%），那兩檔的主窗後半是負的。
+      const vSer = series.slice(-21);
+      let vol20 = null;
+      if (vSer.length >= 21) {
+        const rt = [];
+        for (let k = 1; k < vSer.length; k++) if (vSer[k - 1] > 0) rt.push((vSer[k] - vSer[k - 1]) / vSer[k - 1] * 100);
+        if (rt.length >= 20) {
+          const mu = rt.reduce((a, b) => a + b, 0) / rt.length;
+          vol20 = +Math.sqrt(rt.reduce((a, b) => a + (b - mu) ** 2, 0) / rt.length).toFixed(2);
+        }
+      }
+      if (!(vol20 >= 1.5)) continue;                                // 波動 gate
       // 60日位階（不含今日·與 bt-core posture60 同口徑）
       const base = liveDay ? closes.slice(-60) : closes.slice(-61, -1);
       const hi60 = Math.max(...base);
@@ -2905,7 +2943,7 @@ async function computeSwingPicks() {
       const bigVol = tVol >= 1000;
       const tier = (bearDay && bigVol && deepPull) ? 3 : (rsi10 < 25 || deepPull) ? 2 : 1;
       items.push({ code, name: (q?.name || '').trim() || code, price: +price.toFixed(2), chg: q?.changePercent ?? null,
-        rsi5, rsi10, volX, instT1, vol: tVol, posture60, deepPull, bigVol, tier });
+        rsi5, rsi10, volX, instT1, vol: tVol, posture60, deepPull, bigVol, vol20, tier });
     }
     items.sort((a, b) => b.tier - a.tier || b.instT1 - a.instT1);
     // 訊號擁擠度：回測日均 5.9 檔（⭐全體）。崩盤日 RSI5<20 遍地、法人又普遍站買方，
@@ -2915,18 +2953,20 @@ async function computeSwingPicks() {
     await db.collection('swingPicks').doc('latest').set({
       updatedAt: Date.now(), date: isoDate(tw), mode: liveDay ? 'live' : 'close',
       breadth, bearDay, instDate, instSameDay, total, crowded,
-      horizon: '持有 5 個交易日（非隔日沖：本訊號隔日開賣 -0.06%／收賣 -0.44%，edge 全在第5日）',
+      horizon: '持有 5 個交易日（非隔日沖：本訊號隔日開賣 -0.06%／收賣 -0.44%，edge 全在第5日）·已套用 vol20≥1.5% 波動 gate',
       gate: bearDay === false ? '⚠今日為多頭日（上漲家數比 ' + breadth + '%）——實測多頭日此訊號 5日 -0.24%·真起漲僅14.4% 低於基準，本日不建議進場'
         : bearDay === true ? '✅今日為空頭日（上漲家數比 ' + breadth + '%）——此訊號的有效市況' : '大盤寬度資料不足',
       // 兩個「今天和回測不一樣」的誠實揭露，缺一就會讓人把榜單當成回測績效在看
       caveats: [
         crowded ? `⚠訊號擁擠：今日符合 ${total} 檔（回測日均僅 5.9 檔）。全市場同時跌深＋法人普遍站買方時，兩道濾網一起失去鑑別力——此時的榜單不等於回測母體，勝率請下修看待，寧可只取最前面幾檔或整天不做。` : null,
         instSameDay ? `⚠法人口徑：今日採用的是「當日」法人買賣超（${instDate}，收盤後已公布），回測用的是 t-1。方向一致但非同一變數，實測差異 +1.11%(t-1) vs +0.83%(當日)。` : null,
+        'ℹ已套用波動 gate：20日波動<1.5%的低波動股一律不上榜（該子集主窗真起漲僅8.6%·5日均-1.268%、OOT真起漲3.1%，是純負貢獻）。此 gate 使本榜較 2026-08-02 前少約 20~33% 檔數。',
       ].filter(Boolean),
       counts: { t1: items.filter(x => x.tier === 1).length, t2: items.filter(x => x.tier === 2).length, t3: items.filter(x => x.tier === 3).length },
       items: items.slice(0, 30),
       evidence: {
         t1: '⭐三重確認（RSI5<20×法人t-1買超×量比>1.5）：真起漲18.6%·5日淨勝55.8%·淨均+1.10%（基準14.9%/44.2%/-0.08%）·日均5.9檔',
+        volGate: '波動 gate（2026-08-02 加）vol20≥1.5%：⭐內排除低波動後 主窗 真起漲18.9→21.5%·5日均1.035→1.615%·淨勝55.7→59.1%，OOT 真起漲17.0→24.0%·5日均0.919→1.447%·淨勝56.9→60.1%；主窗兩半[2.295/0.278]、OOT兩半[1.99/1.05]、主窗逐年三段與OOT兩年全改善；留存79.9%/66.8%。被排除的低波動組本身：主窗 真起漲僅8.6%·5日均-1.268%·淨勝42.2%／OOT 真起漲3.1% ——是純負貢獻。⚠不採更嚴門檻：≥2.5%/≥3% 的主窗數字(5日均+4.5%/+6.4%)是2025-04崩跌反彈artifact（04-08與04-09兩天佔全部訊號20%），那兩檔主窗後半為負(-0.194/-0.49)、2026年也是負的。',
         t2: '⭐⭐強化（＋RSI10<25 或 距60日高<0.85）：真起漲21.5~22.0%·淨勝58.2~62.7%·淨均+1.59~+2.19%',
         t3: '⭐⭐⭐最嚴（＋空頭日∧量≥1000張∧距60日高<0.85）：真起漲24.3%·淨勝63.0%·淨均+2.58%·日均僅2.2檔',
         oot: 'out-of-time 驗證通過：第三獨立窗（2022-07~2023-07·訊號設計時未見）5日+1.04%·淨勝61.5%（主窗+1.11%/55.0%）；逐年四段全正（+1.02/+0.31/+1.79/+0.46%）；流動性分層越大越強（量≥3000張+2.22%）＝非小型股假象',
