@@ -1019,6 +1019,21 @@ let _prioCache = null, _prioAt = 0;
 const _lastLive = {};
 let _rotIdx = 0; // 全市場輪掃游標（優先集外代碼循環掃描）
 
+// ── 尾盤五檔累積窗（委買賣失衡的歷史原料）─────────────────────────────
+// 2026-08-02 修正三個會讓「半年後有資料可回測」這件事落空的問題：
+//   ①母體漂移：舊版直接歸檔 bookDepth/latest，而那份**只有優先集**
+//     （自選/持股/瀏覽中，約 150 檔）——等於今天看了哪幾檔就存哪幾檔，
+//     母體隨使用者行為變動，做不了全市場統計。
+//   ②時點不對：舊版只檢查「今日 ≥13:00」，實測 07-31 存到的是 **16:29**
+//     的快照——收盤後三小時的委託簿已非尾盤語意。
+//   ③缺漏無感：9 個交易日缺 2 天（07-25、07-29）也沒有任何告警。
+// 修法：13:20~13:35 這段把**全市場輪掃也一併擷取五檔**（MIS 回應本來就帶
+//   bid/ask，存下來零額外請求），逐筆記錄擷取時間；13:36 才歸檔，
+//   且只收時間戳落在窗內的條目。輪掃一輪 480 檔、約 2 分鐘，15 分鐘可跑
+//   約 7 輪 → 全市場（~1,900 檔）可完整覆蓋一輪以上。
+const DEPTH_WIN_FROM = 13 * 60 + 20, DEPTH_WIN_TO = 13 * 60 + 35;
+let _depthWin = { date: '', data: {} };   // code → { bid, ask, at }
+
 // 加權指數 t00 落地：Firebase Cloud Function 在美國機房、MIS 封鎖美國 IP →
 // 線上 /api/twse/market-index 直抓 MIS 一律失敗(weighted=0/「--」)。daemon 在台灣
 // 抓得到，寫入 marketIndex/latest 供 API 讀。每分一次。
@@ -1178,10 +1193,16 @@ async function marketSnapshotLoop() {
         const prio = await buildPriorityCodes(codes);
         await heartbeat({ note: `market-priority(${prio.length})` }).catch(() => {});
         const now = Date.now();
-        const depthOut = {}; // 五檔委買委賣（僅優先集：自選/持股/瀏覽中，供決策工作台當下參考，不歸檔）
+        const depthOut = {}; // 五檔委買委賣（僅優先集：自選/持股/瀏覽中，供決策工作台當下參考）
+        // 尾盤累積窗：13:20~13:35 期間，**所有**掃到的代碼都收五檔（含全市場輪掃）
+        const inDepthWin = marketNow && mins >= DEPTH_WIN_FROM && mins < DEPTH_WIN_TO;
+        if (inDepthWin && _depthWin.date !== isoDate(tw)) _depthWin = { date: isoDate(tw), data: {} };
         const applyMis = (mis, captureDepth) => {
           for (const k in mis) {
             const { hasLive, bid, ask, ...q } = mis[k];
+            if (hasLive && inDepthWin && (bid?.length || ask?.length)) {
+              _depthWin.data[k] = { bid, ask, at: Date.now() };   // 逐筆記時間戳，歸檔時據以過濾
+            }
             if (hasLive) {
               quotes[k] = { ...q, market: byCode[k]?.market || quotes[k]?.market || null, live: true, liveAt: Date.now() };
               _lastLive[k] = quotes[k];                 // remember the last REAL price
@@ -6955,17 +6976,52 @@ async function dailyJobsLoop() {
             }
           } catch (e) { log('✖ 撿尾盤對答案:', e.message); }
         }
-        // 13:40 尾盤五檔快照歸檔（委買賣失衡的歷史原料；bookDepth/latest 須為今日 13:00 後快照才存）
-        if (mins >= 13 * 60 + 40 && _depthArchDate !== today) {
+        // 13:36 尾盤五檔歸檔（委買賣失衡的歷史原料）——2026-08-02 重寫，見 _depthWin 宣告處
+        // 資料來源改為 13:20~13:35 的**全市場累積窗**（非優先集 latest），
+        // 且逐筆時間戳必須落在窗內；母體固定＝當日全市場，不再隨使用者行為漂移。
+        if (mins >= 13 * 60 + 36 && _depthArchDate !== today) {
           _depthArchDate = today;
           try {
-            const bd = (await db.collection('bookDepth').doc('latest').get()).data();
-            const at = bd?.at ? new Date(new Date(bd.at).toLocaleString('en-US', { timeZone: 'Asia/Taipei' })) : null;
-            const fresh = at && isoDate(at) === today && (at.getHours() * 60 + at.getMinutes()) >= 13 * 60;
-            if (fresh && bd.byCodeJson) {
-              await db.collection('bookDepthArchive').doc(today).set({ date: today, byCodeJson: bd.byCodeJson, n: bd.n || 0, srcAt: bd.at, archivedAt: Date.now() });
-              log(`✓ 尾盤五檔歸檔 ${today}（${bd.n} 檔）`);
-            } else log('⚠ 尾盤五檔歸檔跳過：快照非今日尾盤');
+            const winOK = _depthWin.date === today;
+            const lo = new Date(tw); lo.setHours(13, 20, 0, 0);
+            const hi = new Date(tw); hi.setHours(13, 35, 0, 0);
+            const out = {};
+            let stale = 0;
+            if (winOK) for (const c in _depthWin.data) {
+              const e = _depthWin.data[c];
+              const at = new Date(new Date(e.at).toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+              if (at >= lo && at <= hi) out[c] = { bid: e.bid, ask: e.ask };
+              else stale++;
+            }
+            const n = Object.keys(out).length;
+            // Firestore 單文件 1MiB 上限：全市場約 320KB，仍加保險（超標就只存彙總失衡值）
+            let json = JSON.stringify(out), mode = 'raw';
+            if (json.length > 900_000) {
+              const slim = {};
+              for (const c in out) {
+                const b = (out[c].bid || []).reduce((s, x) => s + (x[1] || 0), 0);
+                const a = (out[c].ask || []).reduce((s, x) => s + (x[1] || 0), 0);
+                slim[c] = [b, a];                                  // [委買總張, 委賣總張]
+              }
+              json = JSON.stringify(slim); mode = 'slim';
+              log(`  ⚠ 尾盤五檔超過 900KB，改存彙總失衡（${n} 檔）`);
+            }
+            if (n >= 300) {
+              await db.collection('bookDepthArchive').doc(today).set({
+                date: today, byCodeJson: json, n, mode,
+                winFrom: '13:20', winTo: '13:35', staleDropped: stale, archivedAt: Date.now(),
+              });
+              log(`✓ 尾盤五檔歸檔 ${today}（${n} 檔·${mode}·窗外丟棄 ${stale}）`);
+            } else {
+              // 沒歸檔就要留下痕跡——舊版靜默跳過，9 天缺 2 天都沒人知道
+              await db.collection('bookDepthArchive').doc(today).set({
+                date: today, n, skipped: true,
+                reason: winOK ? `窗內樣本僅 ${n} 檔（<300）` : '13:20~13:35 未累積到資料（daemon 當時未運行？）',
+                archivedAt: Date.now(),
+              });
+              log(`⚠ 尾盤五檔歸檔跳過 ${today}：${winOK ? `窗內僅 ${n} 檔` : '累積窗無資料'}`);
+            }
+            _depthWin = { date: '', data: {} };   // 釋放記憶體
           } catch (e) { log('✖ 尾盤五檔歸檔:', e.message); }
         }
         if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) { await runDailyJobs(); _dailyJobsDate = today; }

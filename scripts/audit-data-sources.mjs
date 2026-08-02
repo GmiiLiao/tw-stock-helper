@@ -53,6 +53,9 @@ const CONTRACTS = [
   // ── 每日收盤後（節奏以日計）──
   { c: 'chipArchive',      kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'closeJson' },
   { c: 'chipDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'codesJson' },
+  // 尾盤五檔歸檔（委買賣失衡原料·2026-08-02 接上稽核）：舊版 9 個交易日缺 2 天
+  // 且沒有任何告警——這種「靜默不累積」的資料要靠三道閘門才抓得到。
+  { c: 'bookDepthArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 300,  countField: 'byCodeJson' },
   { c: 'stockHistory',     kind: 'perCode', maxStale: 30 * HOUR, session: 'daily', minRecords: 900,  dateField: 'lastDate' },
   { c: 'scanner',          kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'rsRanking',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
