@@ -37,12 +37,19 @@ const num = s => +String(s ?? '').replace(/,/g, '') || 0;
 const ymd = d => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-async function fetchDay(ymd8) {
+// 2026-08-02 首輪回補實測：TWSE 偶發回 **HTTP 307**（同一日期稍後重打即 200）
+// ——是節流性質的暫時性錯誤，不是該日無資料。首版沒有重試，這些日子會變成缺洞
+// 且因為只每 25 筆記錄一次日誌，真實缺漏數還看不出來。改為指數退避重試 3 次。
+async function fetchDay(ymd8, attempt = 0) {
   const url = `https://www.twse.com.tw/rwd/zh/afterTrading/MI_5MINS?date=${ymd8}&response=json`;
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
   try {
     const r = await fetch(url, { signal: ctl.signal });
     clearTimeout(t);
+    if ((r.status === 307 || r.status === 429 || r.status >= 500) && attempt < 3) {
+      await sleep(3000 * (attempt + 1));            // 3s → 6s → 9s
+      return fetchDay(ymd8, attempt + 1);
+    }
     if (!r.ok) return { err: `HTTP ${r.status}` };
     const j = await r.json();
     if (j.stat !== 'OK' || !Array.isArray(j.data) || !j.data.length) return { err: j.stat || 'no data' };
@@ -53,7 +60,11 @@ async function fetchDay(ymd8) {
       if (got !== ymd8) return { err: `日期回音不符 請求${ymd8}≠回應${got}` };
     }
     return { rows: j.data };
-  } catch (e) { clearTimeout(t); return { err: e.name === 'AbortError' ? 'timeout' : e.message }; }
+  } catch (e) {
+    clearTimeout(t);
+    if (attempt < 3) { await sleep(3000 * (attempt + 1)); return fetchDay(ymd8, attempt + 1); }
+    return { err: e.name === 'AbortError' ? 'timeout' : e.message };
+  }
 }
 
 // ⚠資料語意（2026-08-02 試跑實測，與欄位名稱不符，務必看清楚）：
