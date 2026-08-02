@@ -9,7 +9,7 @@ admin.initializeApp();
 const db = admin.firestore();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwythos-9b:q8_0';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma4:latest';   // 2026-08-02 由 qwythos-9b 換回
 const today = (() => { const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; })();
 
 const NEWS_CATS = [

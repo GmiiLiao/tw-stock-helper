@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 
 const APP_BASE = process.env.APP_BASE || 'http://localhost:3000';
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwythos-9b:q8_0';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma4:latest';   // 2026-08-02 由 qwythos-9b 換回
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'stocks');
 

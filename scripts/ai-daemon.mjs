@@ -34,7 +34,14 @@ if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJEC
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 const APP_BASE = process.env.APP_BASE || 'https://tw-stock-helper.web.app';
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwythos-9b:q8_0';
+// 2026-08-02 換回 gemma4（qwythos 為 2026-06-25 起的試用，說明書載明「若仍幻覺則換回」）。
+// 換模型前的實測（同一組提示、同一台機器）：
+//   · NL選股 JSON 解析 5 題：gemma4 5/5 正確、21.2s；qwythos 3/5，且錯得危險——
+//     「rsi10日超過60」寫成 rsi10Min:61（憑空改數字）、「回檔超過三成」把上界
+//     寫成下界 offHigh60Min:-30（語意完全相反）。
+//   · 長文分析：gemma4 21.2s／qwythos 26.3s，兩者皆無編造數字、無 think 外洩。
+// gemma4 慣用 Markdown，已在 cleanLLM 一併正規化。
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma4:latest';
 const HEARTBEAT_MS = parseInt(process.env.HEARTBEAT_MS || '60000', 10);
 const ANALYZE_MS = parseInt(process.env.ANALYZE_MS || '1800000', 10);
 // News refresh: every 15–30 min (clamped); writes to the local second brain.
@@ -90,7 +97,11 @@ async function getJSON(path) {
   try { const r = await fetch(`${APP_BASE}${path}`); return r.ok ? r.json() : null; } catch { return null; }
 }
 
-// 清掉推理模型(qwythos)外洩的思考過程與贅詞，只留最終繁中內容。
+// 清掉各模型的輸出雜訊，只留最終繁中內容。
+//   · think 區塊：推理模型（qwythos）會外洩思考過程
+//   · Markdown：gemma4 慣用 **粗體**／### 標題／跳脫底線（STRONG\_BUY），
+//     但前端一律純文字渲染（white-space: pre-wrap），符號會原樣顯示給使用者。
+//     2026-08-02 換模型時實測到，故一併正規化——換模型不該讓畫面長出星號。
 function cleanLLM(s) {
   if (!s) return s;
   let t = s;
@@ -98,8 +109,21 @@ function cleanLLM(s) {
   t = t.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
   t = t.replace(/<think>[\s\S]*$/gi, '');               // 未閉合 think 到結尾
   t = t.replace(/<\/?think(ing)?>/gi, '');
-  // 去掉開頭殘留的標點/分號/空白與常見英文前言
-  t = t.replace(/^\s*(here'?s|sure|okay|ok|let me|好的|以下是|這是)[^。\n]*[:：]?\s*/i, '');
+  // Markdown → 純文字（保留內容，只脫掉標記）
+  t = t.replace(/```[a-z]*\n?([\s\S]*?)```/gi, '$1');   // 圍欄程式碼區塊
+  t = t.replace(/^#{1,6}\s*/gm, '');                    // 標題井號
+  t = t.replace(/\*\*([^*]+)\*\*/g, '$1');              // 粗體
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2');      // 斜體（避開 **）
+  t = t.replace(/\\([_*[\]()~`>#+\-=|{}.!])/g, '$1');   // 跳脫字元 STRONG\_BUY → STRONG_BUY
+  t = t.replace(/^\s*[-*]\s+/gm, '・');                  // 條列符號統一
+  // 去掉開頭的客套前言。
+  // ⚠2026-08-02 修正既有 bug：舊版是 `(好的|以下是|…)[^。\n]*[:：]?\s*` ——
+  //   `[^。\n]*` 會一路吃到**第一個句號為止**，冒號又是可選的，於是
+  //   「好的，以下是分析：現價 176，評分 93。」整句被清成空字串。
+  //   呼叫端看到空字串就 `if (!out) continue`，該筆分析靜默消失、毫無錯誤訊息。
+  //   改為：必須以冒號收尾、且前言長度上限 30 字（只脫掉「好的，以下是分析：」
+  //   這種真前言）。寧可多留幾個字，也不要整段答案不見。
+  t = t.replace(/^\s*(here'?s|sure|okay|ok|let me|好的|以下是|這是)[^。\n]{0,30}?[:：]\s*/i, '');
   t = t.replace(/^[\s；;。，,、·\-—*]+/, '');
   return t.trim();
 }
