@@ -56,6 +56,8 @@ const CONTRACTS = [
   // 尾盤五檔歸檔（委買賣失衡原料·2026-08-02 接上稽核）：舊版 9 個交易日缺 2 天
   // 且沒有任何告警——這種「靜默不累積」的資料要靠三道閘門才抓得到。
   { c: 'bookDepthArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 300,  countField: 'byCodeJson' },
+  // 市場委託失衡（MI_5MINS 每5秒委託成交統計·2026-08-02 回補3年並接上每日更新）
+  { c: 'orderFlowArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1,    countField: 'curveJson' },
   { c: 'stockHistory',     kind: 'perCode', maxStale: 30 * HOUR, session: 'daily', minRecords: 900,  dateField: 'lastDate' },
   { c: 'scanner',          kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'rsRanking',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
