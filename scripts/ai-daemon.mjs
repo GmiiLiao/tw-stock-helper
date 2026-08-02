@@ -5199,7 +5199,7 @@ async function computeChipPicks() {
   const quo = (await readSnapshotQuotes())?.quotes || {};
 
   // 資券借券（t-1 vs t-2）＋前 20 日高＋昨量：實證訊號 setup 與綜合評分素材
-  let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {};
+  let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {};
   try {
     const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(22).get()).docs.map(d => d.data());
     // 資券/借券取「最近一個有該欄位的日子」：當日歸檔 15:10 先建（僅收盤價）、
@@ -5217,6 +5217,27 @@ async function computeChipPicks() {
       let h = 0; for (let k = 0; k < Math.min(20, maps.length); k++) { const v = maps[k]?.[c]?.[0]; if (v > h) h = v; }
       hi20[c] = h; yVol[c] = maps[0]?.[c]?.[1] || 0;
     }
+    // KD(9) 全市場——K>90 極度超買為實證避開訊號（screen-kd 三輪檢定，見 composite-score.ts）。
+    // 口徑與 src/lib/twse-api.ts calculateKD 一致：RSV=(C−L9)/(H9−L9)×100，
+    // K=⅔前K+⅓RSV、D=⅔前D+⅓K。chipArchive 列格式 [c,v,o,h,l] 有真實盤中高低。
+    // 只有 22 天視窗夠不夠？夠——初始 K=50 的權重經 22 步 ⅔ 衰減後僅 (2/3)^22≈0.03%。
+    const old2new = [...maps].reverse();
+    for (const c of codes) {
+      let K = 50, D = 50; const hs = [], ls = []; let ok = false;
+      for (const m of old2new) {
+        const r = m?.[c];
+        if (!r || r.length < 5) continue;
+        const [cl, , , hi, lo] = r;
+        if (!(cl > 0 && hi > 0 && lo > 0 && hi >= lo)) continue;
+        hs.push(hi); ls.push(lo);
+        if (hs.length > 9) { hs.shift(); ls.shift(); }
+        if (hs.length < 9) continue;
+        const hn = Math.max(...hs), ln = Math.min(...ls);
+        const rsv = hn === ln ? 50 : ((cl - ln) / (hn - ln)) * 100;
+        K = (K * 2) / 3 + rsv / 3; D = (D * 2) / 3 + K / 3; ok = true;
+      }
+      if (ok) kdMap[c] = +K.toFixed(1);
+    }
     // marginSnap/latest：全市場資券借券快照（個股頁訊號條用）
     const bySnap = {};
     for (const c of codes) {
@@ -5226,7 +5247,7 @@ async function computeChipPicks() {
       bySnap[c] = [a?.[0] ?? null, a && b ? (a[0] || 0) - (b[0] || 0) : null,
         a?.[1] ?? null, a && b ? (a[1] || 0) - (b[1] || 0) : null,
         la ?? null, la != null && lb != null ? la - lb : null,
-        hi20[c] || null, yVol[c] || null, c5map[c]?.[0] ?? null];
+        hi20[c] || null, yVol[c] || null, c5map[c]?.[0] ?? null, kdMap[c] ?? null];
     }
     await db.collection('marginSnap').doc('latest').set({
       dataDate, byCodeJson: JSON.stringify(bySnap), n: Object.keys(bySnap).length, at: Date.now(),
@@ -5262,7 +5283,7 @@ async function computeChipPicks() {
       sh: mgY[code] ? [mgY[code][1] || 0, mgY2[code] ? (mgY[code][1] || 0) - (mgY2[code][1] || 0) : 0] : null,
       ln: lnY[code] != null ? [lnY[code], lnY2[code] != null ? lnY[code] - lnY2[code] : 0] : null,
       sqz: !!(mgY[code] && mgY2[code] && (yVol[code] || 0) >= 300 && ((mgY[code][1] || 0) - (mgY2[code][1] || 0)) >= (yVol[code] || 0) * 0.005),
-      hi20: hi20[code] || null, c5: c5map[code]?.[0] ?? null, char: charBy[code]?.label || null,
+      hi20: hi20[code] || null, c5: c5map[code]?.[0] ?? null, char: charBy[code]?.label || null, k9: kdMap[code] ?? null,
     });
   }
 

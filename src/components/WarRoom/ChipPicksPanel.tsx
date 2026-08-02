@@ -17,7 +17,7 @@ interface Pick {
   code: string; name: string; market: string; price: number | null; chg: number;
   tier: 'S' | 'A' | 'B+' | 'B' | 'watch' | 'danger'; tierLabel: string; win: number | null; danger: boolean; streak: number;
   f: number; t: number; d: number; foreignCum: number; trustCum: number; dealerCum: number; totalCum: number; distributedPct: number;
-  mg?: [number, number] | null; sh?: [number, number] | null; ln?: [number, number] | null; sqz?: boolean; hi20?: number | null; c5?: number | null; char?: string | null;
+  mg?: [number, number] | null; sh?: [number, number] | null; ln?: [number, number] | null; sqz?: boolean; hi20?: number | null; c5?: number | null; char?: string | null; k9?: number | null;
 }
 interface AccumItem {
   code: string; name: string; market: string; price: number;
@@ -81,7 +81,7 @@ function compositeOf(p: Pick, live?: { high?: number; low?: number }): { score: 
   return computeComposite({
     baseWin: p.win, tier: p.tier, price: p.price, chg: p.chg,
     high: live?.high, low: live?.low, hi20: p.hi20, sqzSetup: p.sqz, c5: p.c5, charLabel: p.char,
-    mgChg: p.mg?.[1], foreignToday: p.f, distributedPct: p.distributedPct,
+    mgChg: p.mg?.[1], foreignToday: p.f, distributedPct: p.distributedPct, k9: p.k9,
   });
 }
 
