@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import styles from './Navbar.module.css';
 import AiNewsTicker, { NavbarIndexWidget } from '@/components/AiNewsTicker/AiNewsTicker';
+import ModeSwitcher from '@/components/shared/ModeSwitcher';
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '市場總覽', icon: '📊' },
@@ -164,6 +165,11 @@ export default function Navbar() {
           <div className={styles.brandSub}>TW Stock Pro</div>
         </div>
       </div>
+
+      {/* ── 操作模式切換器（全站狀態·2026-08-03 模式化）──
+           放在指數 widget 之前＝視線第一站。使用者必須隨時知道自己在哪個口徑，
+           否則會把波段訊號拿去隔日沖（實測 -0.06%）。 */}
+      <div style={{ marginRight: 8, flexShrink: 0 }}><ModeSwitcher compact /></div>
 
       {/* ── 台股指數 Widget ── */}
       <NavbarIndexWidget />

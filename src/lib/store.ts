@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { DEFAULT_MODE, isModeKey, type ModeKey } from './trading-mode';
 import type { StockInfo } from '@/lib/twse-api';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
@@ -129,6 +130,11 @@ interface AppState {
   recommendTab: string;   // AI 推薦選股的策略子分頁(all/intraday/momentum…)
   trackerGroupId: string; // 即時追蹤的群組分頁
 
+  // 操作模式（2026-08-03 模式化）：全站狀態。選定後評分/榜單/警報/問AI 全部跟著切。
+  // 口徑隔離鐵律——每個模式的權重各自回測、絕不互借，詳見 @/lib/trading-mode。
+  // 持久化到 localStorage（立即生效）＋同步到 users/{uid}.tradingMode（跨裝置與 daemon 共用）。
+  tradingMode: ModeKey;
+
   // Auth
   user: { uid: string; email: string | null; displayName: string | null; level: string } | null;
   authLoading: boolean;
@@ -167,6 +173,7 @@ interface AppState {
   setAllStocks: (stocks: StockInfo[]) => void;
   setLastFetchTime: (time: number) => void;
   setUser: (user: AppState['user']) => void;
+  setTradingMode: (m: ModeKey) => void;
   setAuthLoading: (loading: boolean) => void;
   setShowAuthModal: (show: boolean) => void;
 
@@ -337,6 +344,29 @@ export const useAppStore = create<AppState>()(
       setTrackerGroupId: (id) => set({ trackerGroupId: id }),
       setAllStocks: (stocks) => set({ allStocks: stocks }),
       setLastFetchTime: (time) => set({ lastFetchTime: time }),
+      tradingMode: DEFAULT_MODE,
+      // 切模式時同步寫回 users/{uid}.tradingMode——daemon 的問AI 技能注入讀的是那裡，
+      // 只存 localStorage 的話「網頁顯示波段、AI 卻用隔日沖口徑回答」就會發生。
+      setTradingMode: (m) => {
+        if (!isModeKey(m)) return;
+        set({ tradingMode: m });
+        // ID token 一律跟 Firebase Auth 的 currentUser 拿（store 裡的 user 是
+        // 序列化過的純物件，沒有 getIdToken()）。後端只信 verifyIdToken 的 uid。
+        if (get().user?.uid) {
+          void (async () => {
+            try {
+              const { auth } = await import('./firebase');
+              const token = await auth.currentUser?.getIdToken();
+              if (!token) return;
+              await fetch('/api/user/trading-mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ mode: m }),
+              });
+            } catch { /* 離線或 token 拿不到時只保留本地，下次切換再同步 */ }
+          })();
+        }
+      },
       setUser: (user) => set({ user }),
       setAuthLoading: (loading) => set({ authLoading: loading }),
       setShowAuthModal: (show) => set({ showAuthModal: show }),
@@ -725,6 +755,7 @@ export const useAppStore = create<AppState>()(
     {
       name: 'tw-stock-app-storage',
       partialize: (state) => ({
+        tradingMode: state.tradingMode,
         watchlist: state.watchlist,
         watchlistGroups: state.watchlistGroups,
         holdings: state.holdings,

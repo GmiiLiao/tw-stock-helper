@@ -12,6 +12,8 @@
 //   ⚠弱尾盤   今日收位≤0.2 且 |漲跌|>1%（隔日均 -0.5%/筆——迴避）
 
 import { useEffect, useState } from 'react';
+import { useAppStore } from '@/lib/store';
+import { MODES, canShowScore } from '@/lib/trading-mode';
 import { METRIC_TIPS } from '@/lib/metric-tips';
 import { computeComposite } from '@/lib/composite-score';
 
@@ -74,6 +76,12 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   // 徽章＝共用 computeComposite 產生（含破高/軋空/強尾/弱尾/接棒/過熱/跟風·全站同語意）
   const badges: React.ReactNode[] = comp.badges.map(b => badge(b.t, b.c, b.tip));
 
+  // ── 模式感知（2026-08-03 模式化）────────────────────────────────
+  // 評分是**隔日沖口徑**的產物。在波段/當沖模式顯示它會讓人以為那個數字
+  // 適用於自己的持有期——那正是本站最貴的一類誤用。無評分模型的模式一律不顯示。
+  const _mode = useAppStore(s => s.tradingMode);
+  const _M = MODES[_mode], _canScore = canShowScore(_mode);
+
   // ── 波段技巧：勿買在高點（2026-08-03）──────────────────────────────
   // ⚠**只顯示不計分**。這是波段口徑（持有5日）的實證，隔日沖綜合評分不含它——
   //   本站鐵律「5日持有語意與隔日沖口徑隔離」，混進去會讓兩個口徑互相污染。
@@ -96,7 +104,15 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.25)', fontSize: 12 }}>
-      <span style={{ fontWeight: 900, color: '#a78bfa' }}>🧬 模型判讀</span>
+      <span style={{ fontWeight: 900, color: '#a78bfa' }} title={`目前口徑：${_M.icon}${_M.label}（${_M.horizon}·${_M.exit.replace(/\*\*/g, '').split('——')[0]}）。本站每個數字都綁在一個口徑上，換模式就換一套實證。`}>
+        🧬 模型判讀 <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.85 }}>{_M.icon}{_M.label}</span>
+      </span>
+      {!_canScore && (
+        <span title={`${_M.label}模式尚無經本站關卡驗證的評分模型，因此不顯示分數——顯示了就是憑空捏造。下方徽章仍為各自獨立驗證過的訊號。`}
+          style={{ fontSize: 10.5, fontWeight: 800, color: '#fbbf24' }}>
+          本模式無評分模型
+        </span>
+      )}
       {hotBuy && (
         <span
           title={`【波段技巧·只提醒不計分】RSI5 ${liveRsi!.r5}／RSI10 ${liveRsi!.r10}（>85 為高檔）。
@@ -116,9 +132,11 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
           🌡勿買高點 RSI{liveRsi!.r5}{liveRsi!.r10 > 85 ? `/${liveRsi!.r10}` : ''}
         </span>
       )}
-      <span title={METRIC_TIPS.勝率雷達分級} style={{ cursor: 'help', fontWeight: 900, color: comp.score >= 60 ? '#f03e3e' : comp.score <= 55 ? '#2f9e44' : '#eab308'  /* 2026-08-01 錨移：基準毛勝56% → ≥60強/≤55弱 */ }}>
-        評分 {comp.score}{v?.tier ? `（${v.tier}級${v.win ? ` ${v.win}%` : ''}）` : ''}
-      </span>
+      {_canScore && (
+        <span title={METRIC_TIPS.勝率雷達分級} style={{ cursor: 'help', fontWeight: 900, color: comp.score >= 60 ? '#f03e3e' : comp.score <= 55 ? '#2f9e44' : '#eab308'  /* 2026-08-01 錨移：基準毛勝56% → ≥60強/≤55弱 */ }}>
+          評分 {comp.score}{v?.tier ? `（${v.tier}級${v.win ? ` ${v.win}%` : ''}）` : ''}
+        </span>
+      )}
       {charLabel && <span style={{ fontSize: 11, fontWeight: 800, color: charLabel === '炒作型' ? '#f59e0b' : charLabel === '長期核心' ? '#7dd3fc' : 'var(--text-muted)' }}>{charLabel}</span>}
       {volX != null && <span title={METRIC_TIPS.量比 ?? '今量/昨量'} style={{ cursor: 'help' }}>量比 <b>{volX.toFixed(1)}</b></span>}
       {pos != null && <span title="收盤位置＝(現價−日低)/(日高−日低)。⚠貼高單獨非優勢（強尾−2），須配20日高突破" style={{ cursor: 'help' }}>收位 <b>{Math.round(pos * 100)}%</b></span>}

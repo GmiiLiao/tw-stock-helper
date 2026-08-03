@@ -7227,6 +7227,7 @@ const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPrem
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
+let _intradayDate = '';   // 個股5分K歸檔每日一次
 let _asiaAt = 0, _asiaCatchupDate = '';   // 日韓早盤節流與補跑守衛（見 computeAsiaPremarket）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
@@ -7344,6 +7345,32 @@ async function dailyJobsLoop() {
         // 2026-08-02 起：三年歷史已回補（orderFlowArchive），這一步是「不讓它斷」——
         // bookDepth 的教訓就是回補/建立完沒接每日更新，半年後打開只有 9 天。
         // 冪等（腳本內建已存跳過），只跑當日一天故 --days 1。
+        // 15:40 個股 5分K 歸檔（當沖模式的驗證原料·Yahoo 只保留60日故必須逐日存）
+        // ⚠此資料的**成交量少計且逐日逐檔亂跳**（見 archive-intraday.mjs 檔頭），
+        //   只可用於價格路徑與同日量形狀；三關法第一關請用 snap0930Archive。
+        if (mins >= 15 * 60 + 40 && _intradayDate !== today && isTradingDay(tw)) {
+          _intradayDate = today;
+          // 用 execScript（它已處理中文路徑的百分號編碼——2026-07-24 那次靜默失敗的修法）
+          execScript('archive-intraday.mjs', [], '🕐 盤中5分K歸檔', 40);
+          // 20 分後彙總各模式的資料閘門進度（前端讀這一個 doc，不要自己數文件數）
+          setTimeout(async () => {
+            try {
+              const ia = (await db.collection('intradayArchive').get()).docs.map(x => x.id).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));
+              const s0 = (await db.collection('snap0930Archive').get()).docs.map(x => x.id).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));
+              await db.collection('system').doc('modeStatus').set({
+                updatedAt: Date.now(),
+                daytrade: {
+                  intradayDays: ia.length, snap0930Days: s0.length,
+                  need: 480,
+                  // 第一關要用 snap0930（自家 MIS·口徑可靠）；第三關才用 intraday（Yahoo·量不可靠）
+                  gate1Ready: s0.length >= 480, gate3Ready: ia.length >= 480,
+                  note: 'Yahoo 5分K 的成交量少計且逐日逐檔亂跳，第一關(前30分量)必須用 snap0930Archive，第三關(拉回品質)才用 intradayArchive 的價格路徑。兩者都要到 480 日才符合本站主窗＋OOT 標準。',
+                },
+              }, { merge: true });
+              log(`✓ 模式資料閘門：當沖 intraday ${ia.length}日／snap0930 ${s0.length}日（需 480）`);
+            } catch (e) { log('✖ 模式閘門彙總:', (e.message || '').slice(0, 80)); }
+          }, 20 * 60000);
+        }
         if (mins >= 15 * 60 + 25 && _orderFlowDate !== today && isTradingDay(tw)) {
           _orderFlowDate = today;
           execScript('backfill-orderflow.mjs', ['--days', '1'], '📋 委託失衡', 5);
