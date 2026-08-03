@@ -22,7 +22,7 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -1697,7 +1697,7 @@ async function computeGlobalMarkets() {
 // ⚠**樣本僅 54 日**（Yahoo 5分K 60天上限），遠低於本站 480日主窗＋OOT 標準。
 //   故一律標示為**初步**，並逐日歸檔 asiaPremarketArchive 供日後正式重測。
 //
-// 唯一不變式：daemon 每日固定 ~44 次請求（11 檔 × 4 輪），與線上人數無關。
+// 唯一不變式：daemon 每日固定 ~50 次請求（12 檔 × 4~5 輪·每檔 1 次日線），與線上人數無關。
 const ASIA_IDX = [
   ['^N225', '日經225', 'JP'], ['^KS11', 'KOSPI', 'KR'], ['^KQ11', 'KOSDAQ', 'KR'],
 ];
@@ -1717,41 +1717,40 @@ const ASIA_BELL = [
 //   回的是「整個視窗之前」的收盤，不是前一交易日——實測 KOSPI 會算出 +13.24% 跳空、
 //   發那科 -17%，全是假的。必須自行把 5 分 K 依 UTC 日分組、取前一交易日最後一根收盤。
 //   （日韓 09:00 開盤＝00:00 UTC，所以 UTC 日 == 當地交易日，分組不會錯位。）
+// ⚠**兩個踩過的坑，改動前務必看**（2026-08-03）：
+//   ① 不可用 `meta.chartPreviousClose`——Yahoo 在 range=Nd 下回的是「整個視窗之前」
+//      的收盤而非前一交易日，實測算出 KOSPI 跳空 +13.24%、發那科 -17% 這種假數字。
+//   ② 不可用 5 分 K 自行推導前收——流動性較低的個股會**缺整日**的 5m 資料。
+//      實測村田製作所缺 07-31，前收被抓成 07-30 的 6416，算出 +12.47%（日線實為 -2.68%）。
+//   ⇒ 一律以**日線**推導：前收＝倒數第2根收盤、今開＝最後一根開盤、現價＝meta。
+//      已用日線逐檔對帳：日經 -2.31%、三星 -7.24%、發那科 -17.93%、村田 -2.71%，全數相符。
 async function _asiaQuote(sym) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
   try {
-    const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=5d`,
+    const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10d`,
       { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.ok ? r.json() : null).finally(() => clearTimeout(tm));
     const r = j?.chart?.result?.[0]; const m = r?.meta;
     if (!m) return null;
     const ts = r.timestamp || [], q = r.indicators?.quote?.[0] || {};
-    const byDay = {};
+    const rows = [];
     for (let i = 0; i < ts.length; i++) {
-      const c = q.close?.[i]; if (!(c > 0)) continue;
-      const dt = new Date(ts[i] * 1000);
-      const d = dt.toISOString().slice(0, 10);
-      const hm = dt.getUTCHours() * 60 + dt.getUTCMinutes();
-      const b = (byDay[d] ||= { open: null, first: null, last: null });
-      if (b.first == null && q.open?.[i] > 0) b.first = q.open[i];        // 當日第一根（fallback）
-      if (b.open == null && hm < 10 && q.open?.[i] > 0) b.open = q.open[i]; // 09:00 當地＝00:00 UTC
-      b.last = c;
+      if (!(q.close?.[i] > 0)) continue;
+      rows.push({ d: new Date(ts[i] * 1000).toISOString().slice(0, 10), o: q.open?.[i], c: q.close[i] });
     }
-    const days = Object.keys(byDay).sort();
-    if (days.length < 2) return null;                                     // 需要前一交易日才能算漲跌
-    const cur = byDay[days[days.length - 1]], prev = byDay[days[days.length - 2]].last;
+    if (rows.length < 2) return null;
+    const cur = rows[rows.length - 1], prev = rows[rows.length - 2].c;
     if (!(prev > 0)) return null;
-    const open = cur.open ?? cur.first;                                   // 缺開盤根時退回當日第一根
-    const px = m.regularMarketPrice > 0 ? m.regularMarketPrice : cur.last;
+    const px = m.regularMarketPrice > 0 ? m.regularMarketPrice : cur.c;
     if (!(px > 0)) return null;
     return {
-      price: +px.toFixed(2), prev: +prev.toFixed(2), prevDate: days[days.length - 2],
-      gap: open > 0 ? +((open / prev - 1) * 100).toFixed(2) : null,       // 開盤跳空
-      drift: open > 0 ? +((px / open - 1) * 100).toFixed(2) : null,       // 開盤後走勢（新資訊）
-      total: +((px / prev - 1) * 100).toFixed(2),                         // 合計（預測力最強）
+      price: +px.toFixed(2), prev: +prev.toFixed(2), prevDate: rows[rows.length - 2].d,
+      gap: cur.o > 0 ? +((cur.o / prev - 1) * 100).toFixed(2) : null,   // 開盤跳空
+      drift: cur.o > 0 ? +((px / cur.o - 1) * 100).toFixed(2) : null,   // 開盤後走勢（新資訊）
+      total: +((px / prev - 1) * 100).toFixed(2),                       // 合計（預測力最強）
     };
   } catch { clearTimeout(tm); return null; }
 }
-async function computeAsiaPremarket() {
+async function computeAsiaPremarket({ lateCatchup = false } = {}) {
   const tw = taipei(); const today = isoDate(tw);
   const idx = [], bells = [];
   for (const [sym, name, mkt] of ASIA_IDX) {
@@ -1793,6 +1792,10 @@ async function computeAsiaPremarket() {
 
   const doc = {
     date: today, updatedAt: Date.now(), twOpenIn: Math.max(0, 9 * 60 - (tw.getHours() * 60 + tw.getMinutes())),
+    // ⚠補跑標記：08:00–09:05 盤前窗口沒跑到（daemon 或機器當時沒開）才會為 true。
+    //   補跑的快照**不是盤前觀測值**——台股已開盤，日韓走勢已含台股反饋，
+    //   拿它當領先指標會是前視偏誤。回測時必須排除 lateCatchup 的樣本。
+    lateCatchup,
     indices: idx, bellwethers: bells, sectors, score, bias, biasNote, sox, soxNote,
     horizon: '對應台股「開盤→收盤」（08:30 看到訊號、09:00 買、13:30 賣，可執行）；開盤跳空不可交易故不列為目標',
     evidence: '相關係數 vs 台股開→收：日經合計 0.642｜日韓平均合計 0.592｜費半隔夜 0.470（n=54 交易日·2026-05-11~07-31）。三分位單調：最弱1/3 -1.298%·上漲17%／中間 +0.252%·上漲61%／最強1/3 +0.950%·上漲72%。',
@@ -1801,18 +1804,31 @@ async function computeAsiaPremarket() {
       '⚠日韓與台股高度同步的部分多半來自共同因子（美股隔夜、全球風險偏好），不等於因果。真正的增量只在費半強的日子（實測 +1.117pp vs +0.026pp）。',
       '⚠產業風向是「人判讀用」的對照表，未經個股層級回測——龍頭漲不等於台股同族群會漲。',
       'ℹ已逐日歸檔 asiaPremarketArchive，累積足夠樣本後會用本站標準重測並更新此處數字。',
-    ],
+      lateCatchup ? '⚠**本筆為補跑**：盤前窗口（08:00–09:05）未取得資料，此快照在台股開盤後才產生——台股已反應，不具領先意義，僅作歸檔完整性用途，請勿當今日盤前判斷。' : null,
+    ].filter(Boolean),
   };
-  await db.collection('asiaPremarket').doc('latest').set(doc);
-  // 逐日歸檔（未來正式回測的原料·教訓來自 bookDepth：原料要在建立當下就接上稽核）
+  // ⚠寫入順序：**歸檔先、latest 後**。補跑守衛是用 `latest.date === today` 判斷
+  //   「今天已經有了」，若順序相反，一次「latest 寫成功但歸檔失敗」就會讓守衛
+  //   永久認定今天已完成、再也不補跑（2026-08-03 實際發生過：FieldValue 未 import
+  //   導致歸檔炸掉，latest 卻已寫入，補跑從此跳過）。latest 當 commit marker。
   await db.collection('asiaPremarketArchive').doc(today).set({
-    date: today, snapshots: admin.firestore.FieldValue.arrayUnion({
-      at: Date.now(), hm: `${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`,
+    date: today, snapshots: FieldValue.arrayUnion({
+      at: Date.now(), hm: `${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`, lateCatchup,
       score, idxJson: JSON.stringify(idx.map(x => [x.sym, x.gap, x.drift, x.total])),
       bellJson: JSON.stringify(bells.map(x => [x.sym, x.total])),
     }),
   }, { merge: true });
-  log(`✓ 日韓早盤：日經 ${nk?.total ?? 'n/a'}%·KOSPI ${ks?.total ?? 'n/a'}% → 綜合 ${score}%（${bias}）｜最強族群 ${sectors[0]?.sector} ${sectors[0]?.chg}%`);
+  await db.collection('asiaPremarket').doc('latest').set(doc);
+  log(`✓ 日韓早盤${lateCatchup ? '(補跑)' : ''}：日經 ${nk?.total ?? 'n/a'}%·KOSPI ${ks?.total ?? 'n/a'}% → 綜合 ${score}%（${bias}）｜最強族群 ${sectors[0]?.sector} ${sectors[0]?.chg}%`);
+}
+
+// 單次執行入口：`node scripts/ai-daemon.mjs --run-asia`
+// 本 daemon 原本無法單獨測試任何一個 job——只能等排程時間到，或改窗口再重啟，
+// 兩者都會讓「上線前驗證」變成猜謎（2026-08-03 就在此卡了 20 分鐘）。
+// 放在 computeAsiaPremarket 定義之後、任何常駐迴圈啟動之前，跑完即退出。
+if (process.argv.includes('--run-asia')) {
+  await computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') });
+  process.exit(0);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -7040,7 +7056,7 @@ const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPrem
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
-let _asiaAt = 0;   // 日韓早盤上次執行時間（節流用·見 computeAsiaPremarket）
+let _asiaAt = 0, _asiaCatchupDate = '';   // 日韓早盤節流與補跑守衛（見 computeAsiaPremarket）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
@@ -7091,6 +7107,19 @@ async function dailyJobsLoop() {
         if (mins >= 8 * 60 && mins <= 9 * 60 + 5 && Date.now() - _asiaAt >= 14 * 60000) {
           _asiaAt = Date.now();
           try { await computeAsiaPremarket(); } catch (e) { log('✖ 日韓早盤:', (e.message || '').slice(0, 80)); }
+        }
+        // 補跑：盤前窗口沒跑到（daemon 重啟／機器沒開）就整天沒資料且**靜默漏掉**，
+        // 這正是 bookDepth 壞了半年沒人發現的同一種失敗模式。日韓交易到 14:00 台北，
+        // 故 09:06–13:55 之間若今日無資料就補一筆，並標記 lateCatchup（非盤前觀測值）。
+        if (mins > 9 * 60 + 5 && mins < 13 * 60 + 55 && _asiaCatchupDate !== today && Date.now() - _asiaAt >= 14 * 60000) {
+          try {
+            const cur = (await db.collection('asiaPremarket').doc('latest').get()).data();
+            if (cur?.date !== today) {
+              _asiaAt = Date.now();
+              await computeAsiaPremarket({ lateCatchup: true });
+            }
+            _asiaCatchupDate = today;   // 成功確認過就不再重試（無論有無實際補跑）
+          } catch (e) { log('✖ 日韓早盤補跑:', (e.message || '').slice(0, 80)); }
         }
         // 08:00 盤前晨報（事件日曆先更新，晨報才有今日事件）
         // 07:50（開盤前 70 分）盤前晨報：日曆→ADR→新聞風向→晨報
