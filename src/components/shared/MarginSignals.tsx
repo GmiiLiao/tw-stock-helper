@@ -52,7 +52,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   if (miss) return null; // 無資券資料（如 ETF）不佔版面
   if (!row) return null;
 
-  const [mg, mgC, sh, shC, ln, lnC, hi20, yv, c5, k9, bm5, vol20] = row;   // k9＝KD(9) K值（daemon marginSnap index 9）、vol20＝20日波動%（index 11）
+  const [mg, mgC, sh, shC, ln, lnC, hi20, yv, c5, k9, bm5, vol20, rsiSt] = row;   // k9＝KD(9) K值（daemon marginSnap index 9）、vol20＝20日波動%（index 11）、rsiSt＝RSI狀態向量（index 12）
   const chg = changePercent ?? 0;
   const sqzSetup = mgC != null && shC != null && (yv || 0) >= 300 && (shC || 0) >= (yv || 0) * 0.005;
   const pos = high != null && low != null && high > low && price != null ? (price - low) / (high - low) : null;
@@ -74,9 +74,48 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   // 徽章＝共用 computeComposite 產生（含破高/軋空/強尾/弱尾/接棒/過熱/跟風·全站同語意）
   const badges: React.ReactNode[] = comp.badges.map(b => badge(b.t, b.c, b.tip));
 
+  // ── 波段技巧：勿買在高點（2026-08-03）──────────────────────────────
+  // ⚠**只顯示不計分**。這是波段口徑（持有5日）的實證，隔日沖綜合評分不含它——
+  //   本站鐵律「5日持有語意與隔日沖口徑隔離」，混進去會讓兩個口徑互相污染。
+  // 實證（screen-rsi85-exit.mjs·可交易宇宙 chg≤8.5%·扣費稅 0.4425%·買後5日）：
+  //   基準 主窗 -0.125%/中位-0.693%、OOT +0.448%/-0.051%
+  //   RSI5>85 主窗 -0.356%/-1.236%（Δ-0.231/-0.543）、OOT +0.194%/-0.443%（Δ-0.254/-0.392）
+  //   雙高>85 主窗 -0.268%/-1.160%（Δ-0.143/-0.467）、OOT +0.164%/-0.641%（Δ-0.284/-0.590）
+  //   三組在兩窗、均數與中位數**全部**較差 ⇒ 支持「勿買在高點」。
+  // ⚠但對**已經持有的人**結論相反：續抱10日均 +1.0~+2.8%、真頂點率僅 1.1~1.35x
+  //   ——高檔不是賣訊。同一個訊號對買方與持有者意義相反，這正是此技巧的重點。
+  const liveRsi = (() => {
+    const st = rsiSt as unknown as number[] | null | undefined;
+    if (!Array.isArray(st) || st.length < 7 || !(price != null && price > 0) || !(st[6] > 0)) return null;
+    const ch = price - st[6], g = Math.max(ch, 0), l = Math.max(-ch, 0);
+    const u5 = (st[2] * 4 + g) / 5, d5 = (st[3] * 4 + l) / 5;
+    const u10 = (st[4] * 9 + g) / 10, d10 = (st[5] * 9 + l) / 10;
+    return { r5: +(u5 / (u5 + d5) * 100).toFixed(1), r10: +(u10 / (u10 + d10) * 100).toFixed(1) };
+  })();
+  const hotBuy = liveRsi && liveRsi.r5 > 85;
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.25)', fontSize: 12 }}>
       <span style={{ fontWeight: 900, color: '#a78bfa' }}>🧬 模型判讀</span>
+      {hotBuy && (
+        <span
+          title={`【波段技巧·只提醒不計分】RSI5 ${liveRsi!.r5}／RSI10 ${liveRsi!.r10}（>85 為高檔）。
+
+買方實測（可交易宇宙·扣費稅·買後5日）：
+· 基準 主窗 -0.125%／中位 -0.693%；OOT +0.448%／-0.051%
+· RSI5>85 主窗 -0.356%／-1.236%；OOT +0.194%／-0.443%
+· 雙高>85 主窗 -0.268%／-1.160%；OOT +0.164%／-0.641%
+三組在兩窗、均數與中位數全部較差 → 現在買進的期望值低於隨機挑一檔。
+
+⚠對「已經持有」的人結論相反：續抱10日均 +1.0~+2.8%、真頂點率僅 1.1~1.35x 基準——高檔不是賣訊。
+同一個訊號對買方與持有者意義相反，這是本技巧的重點。
+
+此為波段口徑（持有5日），不併入隔日沖綜合評分。非投資建議。`}
+          style={{ cursor: 'help', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: '#fb923c1f', color: '#fb923c', border: '1px solid #fb923c55', whiteSpace: 'nowrap' }}
+        >
+          🌡勿買高點 RSI{liveRsi!.r5}{liveRsi!.r10 > 85 ? `/${liveRsi!.r10}` : ''}
+        </span>
+      )}
       <span title={METRIC_TIPS.勝率雷達分級} style={{ cursor: 'help', fontWeight: 900, color: comp.score >= 60 ? '#f03e3e' : comp.score <= 55 ? '#2f9e44' : '#eab308'  /* 2026-08-01 錨移：基準毛勝56% → ≥60強/≤55弱 */ }}>
         評分 {comp.score}{v?.tier ? `（${v.tier}級${v.win ? ` ${v.win}%` : ''}）` : ''}
       </span>

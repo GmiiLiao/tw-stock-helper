@@ -118,6 +118,25 @@ for (const [wn, w] of Object.entries(W)) {
     console.log(`    ${lab.padEnd(12)} ${String(r3(a)).padStart(8)} → ${String(r3(b)).padStart(8)}  Δ${String(r3(b - a)).padStart(7)}`);
   }
 }
+// ── ⑤ 買方口徑：「勿買在高點」成不成立？──────────────────────────
+// ⚠與①~④的持有者口徑**完全不同的問題**：
+//   持有者已經買了、不必再付進場成本，右尾對他有利 → 抱著平均是賺的；
+//   買方要付費稅 0.4425%、且在延伸價位進場 → 損益結構完全不同。
+//   故此段改用**可交易宇宙**（排除 chg>8.5% 漲停買不到）＋**扣費稅**。
+console.log('══ ⑤ 買方口徑：可交易宇宙(chg≤8.5%)＋扣費稅 0.4425%——「勿買在高點」成不成立\n');
+console.log(`  ${'組別'.padEnd(30)} ${'窗'.padEnd(4)} ${'買後1日'.padStart(16)} ${'買後5日'.padStart(16)} ${'買後10日'.padStart(16)}  ｜ vs 基準(5日均/中位)   n`);
+for (const [nm, f] of G) for (const [wn, w] of Object.entries(W)) {
+  const uni = w.filter(s2 => s2.tradable);
+  const g = uni.filter(f);
+  if (g.length < 200) { console.log(`  ${nm.padEnd(30)} ${wn.padEnd(4)} 樣本不足 ${g.length}`); continue; }
+  const net = (arr, n) => arr.map(x => x[`h${n}`] - COST);
+  const cells = [1, 5, 10].map(n => `${String(r3(avg(net(g, n)))).padStart(7)}/${String(med(net(g, n))).padStart(7)}`);
+  const bM = avg(net(uni, 5)), bMd = med(net(uni, 5));
+  const dM = r3(avg(net(g, 5)) - bM), dMd = r3(med(net(g, 5)) - bMd);
+  console.log(`  ${nm.padEnd(30)} ${wn.padEnd(4)} ${cells.join(' ')}  ｜ Δ${String(dM).padStart(7)}/${String(dMd).padStart(7)} ${dM < 0 && dMd < 0 ? '✓較差' : '✗未較差'}   ${g.length.toLocaleString()}`);
+}
+console.log('  （每格＝均數/中位數 %·已扣費稅）\n');
+
 console.log('\n判準（是否支持「出貨下車」）：真頂點率須顯著高於基準（≥1.3x）∧ 續抱報酬須為負且中位數同號 ∧ 兩窗一致。');
 console.log('若「抱越久越好」則文案不可寫成賣訊，只能寫成風險揭露。非投資建議。');
 process.exit(0);
