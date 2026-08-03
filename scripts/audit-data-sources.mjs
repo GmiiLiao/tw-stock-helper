@@ -57,6 +57,9 @@ const CONTRACTS = [
   // 且沒有任何告警——這種「靜默不累積」的資料要靠三道閘門才抓得到。
   { c: 'bookDepthArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 300,  countField: 'byCodeJson' },
   // 市場委託失衡（MI_5MINS 每5秒委託成交統計·2026-08-02 回補3年並接上每日更新）
+  // 日韓早盤（2026-08-03 建立）：台股開盤前的領先窗口原料。
+  // 只在交易日 08:00–09:05 產生，故 maxStale 放寬到 30h；minRecords 用 snapshots 陣列長度。
+  { c: 'asiaPremarketArchive', kind: 'dated', maxStale: 30 * HOUR, session: 'daily', minRecords: 1, countField: 'snapshots' },
   { c: 'orderFlowArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1,    countField: 'curveJson' },
   { c: 'stockHistory',     kind: 'perCode', maxStale: 30 * HOUR, session: 'daily', minRecords: 900,  dateField: 'lastDate' },
   { c: 'scanner',          kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },

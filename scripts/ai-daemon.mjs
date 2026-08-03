@@ -1681,6 +1681,140 @@ async function computeGlobalMarkets() {
   log(`✓ 國際盤：費半 ${sox?.changePct ?? 'n/a'}% → ${expectation}`);
 }
 
+// ── 日韓早盤風向（台股開盤前的領先窗口）──────────────────────────
+// 時區事實：日本與韓國都是 UTC+9，兩地 09:00 開盤 ＝ **台北 08:00**。
+//   台股 08:30 試撮、09:00 開盤 ⇒ 開盤前有 30~60 分鐘的日韓實盤資訊。
+//
+// 預測力實測（screen-asia-premarket.mjs·2026-08-03·n=54 交易日）：
+//   與台股「開盤→收盤」（唯一可交易口徑）的相關係數
+//     日經合計(08:30價/前收) 0.642 ｜日韓平均合計 0.592 ｜費半隔夜(對照) 0.470
+//   三分位（日韓平均合計 → 台股開→收）：
+//     最弱1/3(≤-0.79%) 均 -1.298%·上漲 17%
+//     中間1/3           均 +0.252%·上漲 61%
+//     最強1/3(≥+1.12%) 均 +0.950%·上漲 72%
+//   增量（控制費半隔夜）：費半強的一半 差 +1.117pp(同向✓)／費半弱的一半 +0.026pp≈0
+//     ⇒ 日韓早盤的加值集中在「美股漲了但亞洲買不買單」的日子。
+// ⚠**樣本僅 54 日**（Yahoo 5分K 60天上限），遠低於本站 480日主窗＋OOT 標準。
+//   故一律標示為**初步**，並逐日歸檔 asiaPremarketArchive 供日後正式重測。
+//
+// 唯一不變式：daemon 每日固定 ~44 次請求（11 檔 × 4 輪），與線上人數無關。
+const ASIA_IDX = [
+  ['^N225', '日經225', 'JP'], ['^KS11', 'KOSPI', 'KR'], ['^KQ11', 'KOSDAQ', 'KR'],
+];
+// 產業風向：日韓龍頭 → 台股對應族群（供人判讀，非自動選股）
+const ASIA_BELL = [
+  ['005930.KS', '三星電子', '記憶體', '南亞科2408·華邦電2344·旺宏2337'],
+  ['000660.KS', 'SK海力士', '記憶體', '南亞科2408·華邦電2344·旺宏2337'],
+  ['8035.T', '東京威力科創', '半導體設備', '家登3680·弘塑3131·辛耘3583'],
+  ['6857.T', '愛德萬測試', '半導體設備', '家登3680·弘塑3131·辛耘3583'],
+  ['034220.KS', 'LG Display', '面板', '友達2409·群創3481'],
+  ['6981.T', '村田製作所', '被動元件', '國巨2327·華新科2492'],
+  ['6954.T', '發那科', '工業自動化', '上銀2049·亞德客-KY1590'],
+  ['7203.T', '豐田', '車用電子', '和大1536·為升2231'],
+  ['6758.T', 'Sony', '影像感測', '原相3227·同欣電6271'],
+];
+// ⚠**不可用 meta.chartPreviousClose**（2026-08-03 實測踩到）：Yahoo 在 range=Nd 下
+//   回的是「整個視窗之前」的收盤，不是前一交易日——實測 KOSPI 會算出 +13.24% 跳空、
+//   發那科 -17%，全是假的。必須自行把 5 分 K 依 UTC 日分組、取前一交易日最後一根收盤。
+//   （日韓 09:00 開盤＝00:00 UTC，所以 UTC 日 == 當地交易日，分組不會錯位。）
+async function _asiaQuote(sym) {
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=5d`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.ok ? r.json() : null).finally(() => clearTimeout(tm));
+    const r = j?.chart?.result?.[0]; const m = r?.meta;
+    if (!m) return null;
+    const ts = r.timestamp || [], q = r.indicators?.quote?.[0] || {};
+    const byDay = {};
+    for (let i = 0; i < ts.length; i++) {
+      const c = q.close?.[i]; if (!(c > 0)) continue;
+      const dt = new Date(ts[i] * 1000);
+      const d = dt.toISOString().slice(0, 10);
+      const hm = dt.getUTCHours() * 60 + dt.getUTCMinutes();
+      const b = (byDay[d] ||= { open: null, first: null, last: null });
+      if (b.first == null && q.open?.[i] > 0) b.first = q.open[i];        // 當日第一根（fallback）
+      if (b.open == null && hm < 10 && q.open?.[i] > 0) b.open = q.open[i]; // 09:00 當地＝00:00 UTC
+      b.last = c;
+    }
+    const days = Object.keys(byDay).sort();
+    if (days.length < 2) return null;                                     // 需要前一交易日才能算漲跌
+    const cur = byDay[days[days.length - 1]], prev = byDay[days[days.length - 2]].last;
+    if (!(prev > 0)) return null;
+    const open = cur.open ?? cur.first;                                   // 缺開盤根時退回當日第一根
+    const px = m.regularMarketPrice > 0 ? m.regularMarketPrice : cur.last;
+    if (!(px > 0)) return null;
+    return {
+      price: +px.toFixed(2), prev: +prev.toFixed(2), prevDate: days[days.length - 2],
+      gap: open > 0 ? +((open / prev - 1) * 100).toFixed(2) : null,       // 開盤跳空
+      drift: open > 0 ? +((px / open - 1) * 100).toFixed(2) : null,       // 開盤後走勢（新資訊）
+      total: +((px / prev - 1) * 100).toFixed(2),                         // 合計（預測力最強）
+    };
+  } catch { clearTimeout(tm); return null; }
+}
+async function computeAsiaPremarket() {
+  const tw = taipei(); const today = isoDate(tw);
+  const idx = [], bells = [];
+  for (const [sym, name, mkt] of ASIA_IDX) {
+    const q = await _asiaQuote(sym);
+    if (q) idx.push({ sym, name, mkt, ...q });
+    await sleep(250);
+  }
+  if (!idx.length) { log('✖ 日韓早盤：指數全數抓取失敗'); return; }
+  for (const [sym, name, sector, twPeers] of ASIA_BELL) {
+    const q = await _asiaQuote(sym);
+    if (q) bells.push({ sym, name, sector, twPeers, ...q });
+    await sleep(250);
+  }
+  // 綜合分數＝日經與 KOSPI 的「合計」平均（實測相關 0.592，優於費半 0.470）
+  const nk = idx.find(x => x.sym === '^N225'), ks = idx.find(x => x.sym === '^KS11');
+  const parts = [nk?.total, ks?.total].filter(v => v != null);
+  const score = parts.length ? +(parts.reduce((a, b) => a + b, 0) / parts.length).toFixed(2) : null;
+  // 分界取自三分位實測（最弱1/3 上界 -0.79%、最強1/3 下界 +1.12%）
+  const bias = score == null ? null : score >= 1.12 ? 'bull' : score <= -0.79 ? 'bear' : 'neutral';
+  const biasNote = bias === 'bull' ? '偏多——實測此區間台股開→收 均 +0.950%·上漲 72%（n=18）'
+    : bias === 'bear' ? '偏空——實測此區間台股開→收 均 -1.298%·上漲 17%（n=18）'
+    : bias === 'neutral' ? '中性——實測此區間台股開→收 均 +0.252%·上漲 61%（n=18）' : null;
+  // 產業風向：同族群龍頭取平均
+  const bySec = {};
+  for (const b of bells) {
+    const g = (bySec[b.sector] ||= { sector: b.sector, twPeers: b.twPeers, names: [], vals: [] });
+    g.names.push(b.name); g.vals.push(b.total);
+  }
+  const sectors = Object.values(bySec).map(g => ({
+    sector: g.sector, twPeers: g.twPeers, leaders: g.names.join('·'),
+    chg: +(g.vals.reduce((a, b) => a + b, 0) / g.vals.length).toFixed(2),
+  })).sort((a, b) => b.chg - a.chg);
+  // 費半隔夜（增量檢定顯示：日韓的加值集中在費半強的日子）
+  let sox = null;
+  try { sox = (await db.collection('globalMarkets').doc('latest').get()).data()?.markets?.find(x => x.sym === '^SOX')?.changePct ?? null; } catch { /* 可缺 */ }
+  const soxNote = sox == null ? null
+    : sox > 0 ? `費半隔夜 +${sox}%（強）——**此時日韓早盤的增量最大**（實測差 +1.117pp·同向），日韓若不跟漲要提高警覺`
+      : `費半隔夜 ${sox}%（弱）——實測此時日韓早盤幾乎無增量（差 +0.026pp≈0），今日主要看美股臉色`;
+
+  const doc = {
+    date: today, updatedAt: Date.now(), twOpenIn: Math.max(0, 9 * 60 - (tw.getHours() * 60 + tw.getMinutes())),
+    indices: idx, bellwethers: bells, sectors, score, bias, biasNote, sox, soxNote,
+    horizon: '對應台股「開盤→收盤」（08:30 看到訊號、09:00 買、13:30 賣，可執行）；開盤跳空不可交易故不列為目標',
+    evidence: '相關係數 vs 台股開→收：日經合計 0.642｜日韓平均合計 0.592｜費半隔夜 0.470（n=54 交易日·2026-05-11~07-31）。三分位單調：最弱1/3 -1.298%·上漲17%／中間 +0.252%·上漲61%／最強1/3 +0.950%·上漲72%。',
+    caveats: [
+      '⚠樣本僅 54 個交易日（Yahoo 5分K 60天上限），**遠低於本站 480日主窗＋第三獨立窗的標準**——本卡結論一律視為初步，不可當作已驗證權重使用。',
+      '⚠日韓與台股高度同步的部分多半來自共同因子（美股隔夜、全球風險偏好），不等於因果。真正的增量只在費半強的日子（實測 +1.117pp vs +0.026pp）。',
+      '⚠產業風向是「人判讀用」的對照表，未經個股層級回測——龍頭漲不等於台股同族群會漲。',
+      'ℹ已逐日歸檔 asiaPremarketArchive，累積足夠樣本後會用本站標準重測並更新此處數字。',
+    ],
+  };
+  await db.collection('asiaPremarket').doc('latest').set(doc);
+  // 逐日歸檔（未來正式回測的原料·教訓來自 bookDepth：原料要在建立當下就接上稽核）
+  await db.collection('asiaPremarketArchive').doc(today).set({
+    date: today, snapshots: admin.firestore.FieldValue.arrayUnion({
+      at: Date.now(), hm: `${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`,
+      score, idxJson: JSON.stringify(idx.map(x => [x.sym, x.gap, x.drift, x.total])),
+      bellJson: JSON.stringify(bells.map(x => [x.sym, x.total])),
+    }),
+  }, { merge: true });
+  log(`✓ 日韓早盤：日經 ${nk?.total ?? 'n/a'}%·KOSPI ${ks?.total ?? 'n/a'}% → 綜合 ${score}%（${bias}）｜最強族群 ${sectors[0]?.sector} ${sectors[0]?.chg}%`);
+}
+
 // ════════════════════════════════════════════════════════════
 // 進階技能 v3（第2批）：月營收追蹤、融資融券軋空候選
 // ════════════════════════════════════════════════════════════
@@ -6906,6 +7040,7 @@ const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPrem
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
 }
+let _asiaAt = 0;   // 日韓早盤上次執行時間（節流用·見 computeAsiaPremarket）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
@@ -6950,6 +7085,13 @@ async function dailyJobsLoop() {
         } catch (e) { log('✖ 每日新聞:', (e.message || '').slice(0, 80)); }
       }
       if (isTradingDay(tw)) {
+        // 08:00–09:05 日韓早盤風向（日韓 09:00 開盤＝台北 08:00，台股開盤前的領先窗口）
+        // 每 15 分一輪＝4~5 輪 × 12 檔 ≈ 每日 50 次上游請求，**與線上人數無關**（唯一不變式）。
+        // 09:05 那輪落在台股開盤後 5 分，用來把「開盤當下的日韓狀態」歸檔給日後回測對齊。
+        if (mins >= 8 * 60 && mins <= 9 * 60 + 5 && Date.now() - _asiaAt >= 14 * 60000) {
+          _asiaAt = Date.now();
+          try { await computeAsiaPremarket(); } catch (e) { log('✖ 日韓早盤:', (e.message || '').slice(0, 80)); }
+        }
         // 08:00 盤前晨報（事件日曆先更新，晨報才有今日事件）
         // 07:50（開盤前 70 分）盤前晨報：日曆→ADR→新聞風向→晨報
         if (mins >= 7 * 60 + 50 && _morningDate !== today) {

@@ -4,6 +4,7 @@ import { useAppStore } from '@/lib/store';
 import type { StockInfo } from '@/lib/twse-api';
 import { formatVolume, formatChangeSign, formatChangePercentSign, getChangeColor, isLimitUp, isLimitDown, marketBadge } from '@/lib/twse-api';
 import PremarketBrief from './PremarketBrief';
+import AsiaPremarket from './AsiaPremarket';
 import MarketInsights from './MarketInsights';
 import TradingRules from '@/components/TradingRules/TradingRules';
 import RiskBadge from '@/components/shared/RiskBadge';
@@ -280,6 +281,7 @@ export default function Dashboard() {
     <div className={styles.dashboard}>
       <PageHelp id="dashboard" />
       {/* Premium pre-market AI strategy brief */}
+      <AsiaPremarket />
       <PremarketBrief />
 
       {/* 風向總覽：題材風向 × 籌碼風向 × 量價背離 整合 */}
