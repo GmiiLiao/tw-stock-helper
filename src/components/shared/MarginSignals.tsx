@@ -24,6 +24,12 @@ const chgTag = (n: number | null | undefined) => n == null ? '' : n > 0 ? `(+${M
 const chgColor = (n: number | null | undefined) => n == null || n === 0 ? 'var(--text-muted)' : n > 0 ? '#f03e3e' : '#2f9e44';
 
 export default function MarginSignals({ code, price, changePercent, high, low, volume }: Props) {
+  // ── 模式感知（2026-08-03 模式化）────────────────────────────────
+  // 評分是**隔日沖口徑**的產物。在波段/當沖模式顯示它會讓人以為那個數字
+  // 適用於自己的持有期——那正是本站最貴的一類誤用。無評分模型的模式一律不顯示。
+  // ⚠必須放在所有提前 return 之前——hook 不可條件呼叫（react-hooks/rules-of-hooks）。
+  const _mode = useAppStore(s => s.tradingMode);
+  const _M = MODES[_mode], _canScore = canShowScore(_mode);
   const [row, setRow] = useState<(number | null)[] | null>(null);
   const [dataDate, setDataDate] = useState('');
   const [miss, setMiss] = useState(false);
@@ -75,12 +81,6 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   );
   // 徽章＝共用 computeComposite 產生（含破高/軋空/強尾/弱尾/接棒/過熱/跟風·全站同語意）
   const badges: React.ReactNode[] = comp.badges.map(b => badge(b.t, b.c, b.tip));
-
-  // ── 模式感知（2026-08-03 模式化）────────────────────────────────
-  // 評分是**隔日沖口徑**的產物。在波段/當沖模式顯示它會讓人以為那個數字
-  // 適用於自己的持有期——那正是本站最貴的一類誤用。無評分模型的模式一律不顯示。
-  const _mode = useAppStore(s => s.tradingMode);
-  const _M = MODES[_mode], _canScore = canShowScore(_mode);
 
   // ── 波段技巧：勿買在高點（2026-08-03）──────────────────────────────
   // ⚠**只顯示不計分**。這是波段口徑（持有5日）的實證，隔日沖綜合評分不含它——
