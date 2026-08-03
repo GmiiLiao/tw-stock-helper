@@ -62,6 +62,11 @@ try {
   process.exit(1);
 }
 const db = getFirestore(app);
+// 單次執行模式：`node scripts/ai-daemon.mjs --run <job>`。
+// 本 daemon 原本無法單獨測試任何一個 job——只能等排程時間到、或改窗口再重啟，
+// 於是「上線前驗證」變成猜謎（2026-08-03 為此卡了兩次，第一次還差點讓錯誤數字過夜）。
+// ONESHOT 時所有常駐迴圈都不啟動，只跑指定 job 然後退出。
+const ONESHOT = process.argv.includes('--run') ? (process.argv[process.argv.indexOf('--run') + 1] || '') : null;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 常駐穩定性：Node 預設遇到未捕捉的 rejection/exception 會直接退出→被 launchd
@@ -1319,10 +1324,28 @@ const _chipHoldAlerted = new Set(); let _chipHoldDay = ''; // 籌碼出貨警示
 const _reentryWatch = {};
 // 移動停利高水位：記每檔持有期間最高價，獲利後自高點回落即鎖利。
 const _hwm = {};
+// 持股 RSI 高檔警報的即時計算：marginSnap[12] 存的是 t-1 收盤的 Wilder 狀態，
+// 用今日即時價再推一步 → 盤中 RSI。（只用收盤 RSI 的話，盤中飆上 85 要等隔天。）
+function _liveRsi(st, price) {
+  if (!Array.isArray(st) || st.length < 7 || !(price > 0) || !(st[6] > 0)) return null;
+  const ch = price - st[6], g = Math.max(ch, 0), l = Math.max(-ch, 0);
+  const u5 = (st[2] * 4 + g) / 5, d5 = (st[3] * 4 + l) / 5;
+  const u10 = (st[4] * 9 + g) / 10, d10 = (st[5] * 9 + l) / 10;
+  return {
+    rsi5: u5 + d5 > 0 ? +(u5 / (u5 + d5) * 100).toFixed(1) : 50,
+    rsi10: u10 + d10 > 0 ? +(u10 / (u10 + d10) * 100).toFixed(1) : 50,
+  };
+}
 async function checkAlerts() {
   const snap = await readSnapshotQuotes(); if (!snap) return;
   const q = snap.quotes;
   const today = isoDate(taipei());
+  // marginSnap 每輪讀一次（不是每個使用者讀一次）——唯一不變式：與線上人數脫鉤。
+  let msRow = {};
+  try {
+    const ms = (await db.collection('marginSnap').doc('latest').get()).data();
+    if (ms?.byCodeJson) msRow = JSON.parse(ms.byCodeJson);
+  } catch { /* 缺 marginSnap 就跳過 RSI 警報，其餘警報照常 */ }
   if (_alertDay !== today) { _alerted.clear(); _alertDay = today; }
   const premium = await getPremiumUsers();
   for (const u of premium) {
@@ -1353,7 +1376,35 @@ async function checkAlerts() {
         else if (price >= take && price > avg) { type = 'take'; thr = take; msg = `🎯 ${code} ${g.name} 觸及停利目標 ${take}（現價 ${price}，+${pnlPct.toFixed(1)}%）— 可考慮分批獲利`; _reentryWatch[wkey] = { takePrice: take, at: Date.now() }; }
         else if (trailActive && price <= trailStop && price > avg) { type = 'trailing'; thr = trailStop; msg = `📈 ${code} ${g.name} 移動停利觸發 ${trailStop}（自高點 ${hw.toFixed(2)} 回落 8%，仍獲利 +${pnlPct.toFixed(1)}%）— 建議鎖利出場`; }
         else if (_reentryWatch[wkey] && price <= _reentryWatch[wkey].takePrice * 0.95) { type = 'reentry'; thr = +(_reentryWatch[wkey].takePrice * 0.95).toFixed(2); msg = `🔄 ${code} ${g.name} 停利後回檔至 ${price}（較停利價 -5%）— 可留意回測支撐再進場`; delete _reentryWatch[wkey]; }
+        // ── 持股 RSI 高檔警報（2026-08-03 使用者要求）─────────────────
+        // ⚠**語意已按實證校正，與使用者原始假設相反**（screen-rsi85-exit.mjs·出場口徑）：
+        //   使用者原要求「RSI5 與 RSI10 同時>85 → 示警要出貨下車」。實測兩窗一致否證：
+        //   加上 RSI10>85 之後 續抱10日均 0.847→1.635%(主窗)／1.969→2.753%(OOT)【上升】，
+        //   真頂點率(10日) 25.5→23.0%／20.8→19.4%【反而下降】。
+        //   ⇒ 雙高不是見頂，是**趨勢延續＋波動雙向放大**：5日曾跌≥5% 42.2→51.9/25.0→36.9%，
+        //     但 10日曾漲≥5% 也同步 55.1→66.6/48.0→59.6%，上下行各升約 10~12pp。
+        //   真正比較像頂的反而是「RSI5>85 但 RSI10≤85」（單腳過熱、中期沒跟上）：
+        //     真頂點率 1.16~1.35x（三組最高）、續抱報酬最低。
+        //   與 2026-07-27 rsiTopExit（95/90 門檻）結論一致：抱1日最差、抱10日最佳，
+        //   故一律不寫「出貨下車」，改為移動停利與分批，並揭露賣早的機率。
+        const rr = _liveRsi(msRow[code]?.[12], price);
+        if (rr && rr.rsi5 > 85 && pnlPct > 0) {
+          const dual = rr.rsi10 > 85;
+          const rtype = dual ? 'rsiDual85' : 'rsiHot85';
+          const rkey = `${uid}:${code}:${rtype}`;
+          if (!_alerted.has(rkey)) {
+            _alerted.add(rkey);
+            const m = dual
+              ? `🔥 ${code} ${g.name} RSI5/RSI10 雙高（${rr.rsi5}/${rr.rsi10}）現價 ${price}（+${pnlPct.toFixed(1)}%）— **波動雙向放大，不是賣訊**：實測5日內曾跌≥5% 51.9%(基準30.5%)，但10日內曾漲≥5% 也有66.6%(基準49.3%)，續抱10日均 +1.6%~+2.8% 高於單腳過熱。建議移動停利／分批，勿隔日全出`
+              : `⚠️ ${code} ${g.name} RSI5 ${rr.rsi5} 高檔（RSI10 ${rr.rsi10} 未跟上）現價 ${price}（+${pnlPct.toFixed(1)}%）— 三組中**最像頂**的一組：真頂點率 1.16~1.35x 基準、續抱報酬最低。但仍僅略高於基準，建議移動停利而非一次出清`;
+            newAlerts.push({ code, name: g.name, type: rtype, price, threshold: 85, pnlPct: +pnlPct.toFixed(2), rsi5: rr.rsi5, rsi10: rr.rsi10, message: m, at: Date.now() });
+          }
+        }
+
+        // ⚠RSI 警報必須在此之前——下面這行的 `continue`（同類型當日已提醒過）會結束
+        //   整個迭代，若順序顛倒，只要當天已發過停損/停利警報就再也收不到 RSI 警報。
         if (type) { const key = `${uid}:${code}:${type}`; if (_alerted.has(key)) continue; _alerted.add(key); newAlerts.push({ code, name: g.name, type, price, threshold: thr, pnlPct: +pnlPct.toFixed(2), message: msg, at: Date.now() }); }
+
       }
       if (newAlerts.length) {
         const ref = db.collection('users').doc(uid).collection('data').doc('alerts');
@@ -1820,15 +1871,6 @@ async function computeAsiaPremarket({ lateCatchup = false } = {}) {
   }, { merge: true });
   await db.collection('asiaPremarket').doc('latest').set(doc);
   log(`✓ 日韓早盤${lateCatchup ? '(補跑)' : ''}：日經 ${nk?.total ?? 'n/a'}%·KOSPI ${ks?.total ?? 'n/a'}% → 綜合 ${score}%（${bias}）｜最強族群 ${sectors[0]?.sector} ${sectors[0]?.chg}%`);
-}
-
-// 單次執行入口：`node scripts/ai-daemon.mjs --run-asia`
-// 本 daemon 原本無法單獨測試任何一個 job——只能等排程時間到，或改窗口再重啟，
-// 兩者都會讓「上線前驗證」變成猜謎（2026-08-03 就在此卡了 20 分鐘）。
-// 放在 computeAsiaPremarket 定義之後、任何常駐迴圈啟動之前，跑完即退出。
-if (process.argv.includes('--run-asia')) {
-  await computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') });
-  process.exit(0);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -2579,7 +2621,7 @@ async function analyzeLoop() {
     await sleep(ANALYZE_MS);
   }
 }
-analyzeLoop();
+if (!ONESHOT) analyzeLoop();
 
 // Manual test: FORCE_PREMARKET=1 publishes the brief immediately at startup.
 if (process.env.FORCE_PREMARKET === '1') {
@@ -2606,9 +2648,9 @@ async function premarketLoop() {
     await sleep(60000);
   }
 }
-premarketLoop();
-newsLoop();
-marketSnapshotLoop();
+if (!ONESHOT) premarketLoop();
+if (!ONESHOT) newsLoop();
+if (!ONESHOT) marketSnapshotLoop();
 
 // 停損停利提醒：盤中每 60s 檢查觸價。
 async function alertLoop() {
@@ -2626,7 +2668,7 @@ async function alertLoop() {
     await sleep(60000);
   }
 }
-alertLoop();
+if (!ONESHOT) alertLoop();
 
 // 產業輪動：盤中每 3 分鐘更新一次；盤後也更新一次。
 async function sectorLoop() {
@@ -2646,7 +2688,7 @@ async function sectorLoop() {
     await sleep(open ? 180000 : 1800000);
   }
 }
-sectorLoop();
+if (!ONESHOT) sectorLoop();
 
 // ════════════════════════════════════════════════════════════
 // P1 · financial-services 方法論移植：同業比較 / 事件日曆 / 盤前晨報
@@ -3778,7 +3820,7 @@ async function tgLinkLoop() {
     await sleep(2000); // getUpdates timeout=25 為長輪詢，此間隔僅防快速空轉
   }
 }
-tgLinkLoop();
+if (!ONESHOT) tgLinkLoop();
 
 // ── 34) 停損紀律追蹤（處分效應對策：警報響過不能就算了）─────────
 // 持股跌破停損後開始逐日追蹤：每天升級提醒「已觸發 N 天未處理，
@@ -5484,7 +5526,7 @@ async function computeChipPicks() {
   const quo = (await readSnapshotQuotes())?.quotes || {};
 
   // 資券借券（t-1 vs t-2）＋前 20 日高＋昨量：實證訊號 setup 與綜合評分素材
-  let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {}, bm5Map = {}, vol20Map = {};
+  let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {}, bm5Map = {}, vol20Map = {}, rsiMap = {};
   try {
     const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(22).get()).docs.map(d => d.data());
     // 資券/借券取「最近一個有該欄位的日子」：當日歸檔 15:10 先建（僅收盤價）、
@@ -5529,6 +5571,24 @@ async function computeChipPicks() {
         const last5 = cl5.slice(-5);
         bm5Map[c] = cl5[cl5.length - 1] < last5.reduce((a, b) => a + b, 0) / 5;
       }
+      // RSI5/RSI10（Wilder）＋ 狀態向量，供持股警報用「即時價」再推一步得到盤中 RSI。
+      // 存 [rsi5, rsi10, u5, d5, u10, d10, 最後收盤]——只有前兩個給人看，後五個是
+      // 讓 checkAlerts 能算出**含今日盤中價**的 RSI（只存收盤 RSI 的話，盤中飆到
+      // 85 以上要等隔天才提醒，警報就失去意義）。
+      if (cl5.length >= 11) {
+        let u5 = 0, d5 = 0, u10 = 0, d10 = 0;
+        for (let k = 1; k < cl5.length; k++) {
+          const ch = cl5[k] - cl5[k - 1], g = Math.max(ch, 0), l = Math.max(-ch, 0);
+          if (k <= 5) { u5 += g / 5; d5 += l / 5; } else { u5 = (u5 * 4 + g) / 5; d5 = (d5 * 4 + l) / 5; }
+          if (k <= 10) { u10 += g / 10; d10 += l / 10; } else { u10 = (u10 * 9 + g) / 10; d10 = (d10 * 9 + l) / 10; }
+        }
+        const r6 = v => +v.toFixed(6);
+        rsiMap[c] = [
+          u5 + d5 > 0 ? +(u5 / (u5 + d5) * 100).toFixed(1) : 50,
+          u10 + d10 > 0 ? +(u10 / (u10 + d10) * 100).toFixed(1) : 50,
+          r6(u5), r6(d5), r6(u10), r6(d10), cl5[cl5.length - 1],
+        ];
+      }
       // 20 日已實現波動（日報酬標準差 %）——<1.5% 為實證避開訊號。
       // 檢定：十分位兩窗皆 9/9 單調、24 個控制分層全同向（見 composite-score.ts 檔尾）。
       // 22 天視窗剛好夠：需 21 根收盤算 20 個日報酬。不足 21 根者留 null（不扣分）。
@@ -5551,7 +5611,7 @@ async function computeChipPicks() {
         a?.[1] ?? null, a && b ? (a[1] || 0) - (b[1] || 0) : null,
         la ?? null, la != null && lb != null ? la - lb : null,
         hi20[c] || null, yVol[c] || null, c5map[c]?.[0] ?? null, kdMap[c] ?? null, bm5Map[c] ?? null,
-        vol20Map[c] ?? null];
+        vol20Map[c] ?? null, rsiMap[c] ?? null];
     }
     await db.collection('marginSnap').doc('latest').set({
       dataDate, byCodeJson: JSON.stringify(bySnap), n: Object.keys(bySnap).length, at: Date.now(),
@@ -7366,7 +7426,7 @@ async function dailyJobsLoop() {
     await sleep(300000); // 每 5 分鐘檢查
   }
 }
-dailyJobsLoop();
+if (!ONESHOT) dailyJobsLoop();
 
 // 再平衡設定監看：使用者在 UI 更新現金部位後，45 秒內重算配置漂移
 // (否則要等每日排程，看起來像「輸入沒成功」)。
@@ -7393,7 +7453,7 @@ async function rebalanceSettingsLoop() {
     await sleep(active ? 240000 : 720000);
   }
 }
-rebalanceSettingsLoop();
+if (!ONESHOT) rebalanceSettingsLoop();
 
 // 互動佇列（問AI／NL選股／自訂回測）：監聽驅動，不再定時輪詢。
 //
@@ -7443,4 +7503,26 @@ async function questionLoop() {
     }
   }
 }
-questionLoop();
+if (!ONESHOT) questionLoop();
+
+// ── 單次執行 runner（檔尾：此時所有 function 與 module 級宣告都已就緒）─────
+// 用法：node scripts/ai-daemon.mjs --run <job> [--late]
+//   asia        日韓早盤風向（--late 標記為補跑）
+//   chipPicks   籌碼推選（含 marginSnap 的 KD/vol20/RSI 欄位）
+//   alerts      持股警報（含 RSI 高檔警報）
+//   swingPicks  波段起漲榜
+//   asiaBoth    先 chipPicks 再 alerts（RSI 警報需要 marginSnap 先更新）
+if (ONESHOT) {
+  const JOBS = {
+    asia: () => computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') }),
+    chipPicks: () => computeChipPicks(),
+    alerts: () => checkAlerts(),
+    swingPicks: () => computeSwingPicks(),
+    strengthPicks: () => computeStrengthPicks(),
+    globalMarkets: () => computeGlobalMarkets(),
+  };
+  const fn = JOBS[ONESHOT];
+  if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }
+  try { await fn(); log(`✓ 單次執行完成：${ONESHOT}`); process.exit(0); }
+  catch (e) { log(`✖ 單次執行失敗 ${ONESHOT}:`, e.stack || e.message); process.exit(1); }
+}

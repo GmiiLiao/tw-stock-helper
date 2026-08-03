@@ -9,7 +9,7 @@ import { useAppStore } from '@/lib/store';
 
 interface Alert {
   code: string; name: string;
-  type: 'stop' | 'take' | 'reentry' | 'trailing' | 'custom' | 'catalyst' | 'thesis' | 'discipline' | 'buyzone' | 'exdiv' | 'anomaly' | 'daytrade' | 'etfprem' | 'dca' | 'adr' | 'defense' | 'exit' | 'forecast' | 'earlybird' | 'opensell' | 'chipclear' | 'chipsell' | 'chipweak' | 'finwarn' | 'rebound' | 'washout';
+  type: 'stop' | 'take' | 'reentry' | 'trailing' | 'custom' | 'catalyst' | 'thesis' | 'discipline' | 'buyzone' | 'exdiv' | 'anomaly' | 'daytrade' | 'etfprem' | 'dca' | 'adr' | 'defense' | 'exit' | 'forecast' | 'earlybird' | 'opensell' | 'chipclear' | 'chipsell' | 'chipweak' | 'finwarn' | 'rebound' | 'washout' | 'rsiHot85' | 'rsiDual85';
   price: number; threshold: number; pnlPct: number;
   message: string; at: number;
 }
@@ -40,6 +40,11 @@ const STYLE: Record<Alert['type'], { color: string; icon: string }> = {
   chipweak: { color: '#e8590c', icon: '⚠️' },
   rebound: { color: '#22c55e', icon: '📤' },
   washout: { color: '#f59e0b', icon: '🌀' },
+  // RSI 高檔警報（2026-08-03）。⚠雙高**不是賣訊**——實測續抱10日均反而更高、
+  //   真頂點率更低，是波動雙向放大；單腳過熱(RSI10未跟上)才是三組中最像頂的。
+  //   故雙高用橘色（警戒）而非紅色（賣出），避免顏色本身暗示錯誤動作。
+  rsiHot85: { color: '#eab308', icon: '⚠️' },
+  rsiDual85: { color: '#fb923c', icon: '🔥' },
   finwarn: { color: '#a78bfa', icon: '📉' },
 };
 
