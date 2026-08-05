@@ -22,7 +22,13 @@
 //   的版本，用來量化「等確認」的代價——第一版量到是 -1.0pp。
 //
 // 口徑：^TWII 日線（指數不可直接買賣，測的是大盤方向，不扣費稅）。
-// 用法：node scripts/screen-index-rsi2day.mjs
+// 2026-08-05 參數化：同一類假說已測三版，改成同一條程式路徑跑所有版本，
+//   避免三份實作漂移（第三版加了 RSI10 條件，若另寫一支就會有兩套 RSI 計算）。
+//
+// 用法：
+//   node scripts/screen-index-rsi2day.mjs                        # 預設 v2：>80 / <30，連2日
+//   node scripts/screen-index-rsi2day.mjs --hi5 90 --hi10 85 --lo5 20 --lo10 40
+//   node scripts/screen-index-rsi2day.mjs --hi5 90 --hi10 85 --lo5 20 --lo10 30 --days 1   # 重現 v1
 // ─────────────────────────────────────────────────────────────────────────
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,6 +38,14 @@ const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 const r2 = x => (x == null ? null : +x.toFixed(2));
 const wr = a => (a.length ? +(a.filter(v => v > 0).length / a.length * 100).toFixed(1) : null);
 const pad = (x, n) => String(x).padEnd(n), padL = (x, n) => String(x).padStart(n);
+
+const arg = (k, d) => {
+  const i = process.argv.indexOf(`--${k}`);
+  return i >= 0 && process.argv[i + 1] != null ? Number(process.argv[i + 1]) : d;
+};
+const P = { hi5: arg('hi5', 80), hi10: arg('hi10', null), lo5: arg('lo5', 30), lo10: arg('lo10', null), days: arg('days', 2) };
+const hiTxt = `RSI5>${P.hi5}${P.hi10 != null ? ` ∧ RSI10>${P.hi10}` : ''}`;
+const loTxt = `RSI5<${P.lo5}${P.lo10 != null ? ` ∧ RSI10<${P.lo10}` : ''}`;
 
 async function loadTwii() {
   if (fs.existsSync(CACHE)) {
@@ -69,7 +83,7 @@ function rsi(cl, p) {
 const main = async () => {
   const bars = await loadTwii();
   const C = bars.map(b => b.c);
-  const R5 = rsi(C, 5);
+  const R5 = rsi(C, 5), R10 = rsi(C, 10);
   const fwd = (i, n) => (i + n < C.length ? (C[i + n] - C[i]) / C[i] * 100 : null);
   const maxDD = (i, n) => { let m = 0; for (let k = 1; k <= n && i + k < C.length; k++) m = Math.min(m, (C[i + k] - C[i]) / C[i] * 100); return m; };
   const maxRU = (i, n) => { let m = 0; for (let k = 1; k <= n && i + k < C.length; k++) m = Math.max(m, (C[i + k] - C[i]) / C[i] * 100); return m; };
@@ -77,40 +91,46 @@ const main = async () => {
 
   console.log('═'.repeat(104));
   console.log(`加權指數 ^TWII：${bars.length} 根（${bars[0].d} → ${bars[bars.length - 1].d}）`);
-  console.log(`  今日收盤 ${r2(C[C.length - 1])}｜RSI5 ${r2(R5[R5.length - 1])}｜昨日 RSI5 ${r2(R5[R5.length - 2])}`);
+  console.log(`  今日收盤 ${r2(C[C.length - 1])}｜RSI5 ${r2(R5[R5.length - 1])} RSI10 ${r2(R10[R10.length - 1])}`
+    + `｜昨日 RSI5 ${r2(R5[R5.length - 2])} RSI10 ${r2(R10[R10.length - 2])}`);
+  console.log(`  受測參數：超買 ${hiTxt}／超賣 ${loTxt}／持續 ${P.days} 日`);
   console.log('═'.repeat(104));
 
   // i = 進場日索引（T+1）。條件用 i-1(=T) 與 i-2(=T-1)
-  const hi1 = i => R5[i - 1] != null && R5[i - 1] > 80;
-  const hi2 = i => hi1(i) && R5[i - 2] != null && R5[i - 2] > 80;
-  const lo1 = i => R5[i - 1] != null && R5[i - 1] < 30;
-  const lo2 = i => lo1(i) && R5[i - 2] != null && R5[i - 2] < 30;
+  // 第 k 天前（k=1 即 T 日）是否滿足超買/超賣（RSI10 條件可選）
+  const hiAt = (i, k) => R5[i - k] != null && R5[i - k] > P.hi5 && (P.hi10 == null || (R10[i - k] != null && R10[i - k] > P.hi10));
+  const loAt = (i, k) => R5[i - k] != null && R5[i - k] < P.lo5 && (P.lo10 == null || (R10[i - k] != null && R10[i - k] < P.lo10));
+  const hi1 = i => hiAt(i, 1);
+  const lo1 = i => loAt(i, 1);
+  const hiN = i => { for (let k = 1; k <= P.days; k++) if (!hiAt(i, k)) return false; return true; };
+  const loN = i => { for (let k = 1; k <= P.days; k++) if (!loAt(i, k)) return false; return true; };
+  const hi2 = hiN, lo2 = loN;
 
   const CASES = [
     {
-      title: 'Ⓐ 下跌假說：連 2 日 RSI5>80 ＋ 隔日轉跌',
+      title: `Ⓐ 下跌假說：連 ${P.days} 日 ${hiTxt} ＋ 隔日轉跌`,
       dir: -1,
       sets: [
         ['基準（全部交易日）', i => true],
-        ['ⓐ 單日 RSI5>80', hi1],
-        ['ⓐ+ⓑ 連2日 RSI5>80', hi2],
+        [`ⓐ 單日 ${hiTxt}`, hi1],
+        [`ⓐ+ⓑ 連${P.days}日 ${hiTxt}`, hi2],
         ['ⓒ 只有隔日轉跌', i => chg(i) < 0],
-        ['單日>80 ∧ 隔日跌（拿掉連2日）', i => hi1(i) && chg(i) < 0],
-        ['★連2日>80 ∧ 隔日跌（完整假說）', i => hi2(i) && chg(i) < 0],
-        ['連2日>80 ∧ 隔日續漲（被排除那批）', i => hi2(i) && chg(i) >= 0],
+        [`單日極端 ∧ 隔日跌（拿掉連${P.days}日）`, i => hi1(i) && chg(i) < 0],
+        [`★連${P.days}日 ∧ 隔日跌（完整假說）`, i => hi2(i) && chg(i) < 0],
+        [`連${P.days}日 ∧ 隔日續漲（被排除那批）`, i => hi2(i) && chg(i) >= 0],
       ],
     },
     {
-      title: 'Ⓑ 上漲假說：連 2 日 RSI5<30 ＋ 隔日轉漲',
+      title: `Ⓑ 上漲假說：連 ${P.days} 日 ${loTxt} ＋ 隔日轉漲`,
       dir: 1,
       sets: [
         ['基準（全部交易日）', i => true],
-        ['ⓐ 單日 RSI5<30', lo1],
-        ['ⓐ+ⓑ 連2日 RSI5<30', lo2],
+        [`ⓐ 單日 ${loTxt}`, lo1],
+        [`ⓐ+ⓑ 連${P.days}日 ${loTxt}`, lo2],
         ['ⓒ 只有隔日轉漲', i => chg(i) > 0],
-        ['單日<30 ∧ 隔日漲（拿掉連2日）', i => lo1(i) && chg(i) > 0],
-        ['★連2日<30 ∧ 隔日漲（完整假說）', i => lo2(i) && chg(i) > 0],
-        ['連2日<30 ∧ 隔日續跌（被排除那批）', i => lo2(i) && chg(i) <= 0],
+        [`單日極端 ∧ 隔日漲（拿掉連${P.days}日）`, i => lo1(i) && chg(i) > 0],
+        [`★連${P.days}日 ∧ 隔日漲（完整假說）`, i => lo2(i) && chg(i) > 0],
+        [`連${P.days}日 ∧ 隔日續跌（被排除那批）`, i => lo2(i) && chg(i) <= 0],
       ],
     },
   ];
