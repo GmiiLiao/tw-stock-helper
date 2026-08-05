@@ -4387,6 +4387,13 @@ async function computeRecommendAdj() {
 
   await db.collection('recommendAdj').doc('latest').set({
     updatedAt: Date.now(), date: D.date, weight: ADJ_W, n: Object.keys(out).length,
+    // 空頭日旗標（2026-08-05）：65 組濾網全測後，唯一逼近「絕對正報酬」的子集
+    //   是「空頭日的前 5 名」——主窗 +0.233%[兩半 -0.013/0.411]·淨勝 52.4%、
+    //   OOT +0.165%[0.077/0.210]·淨勝 54.3%（基準 -0.134%/-0.185%）。
+    //   ⚠主窗前半窗 -0.013% 未達本站「四半窗全正」門檻 ⇒ **提示不計分**，
+    //   與站上其他未過關項目（⚠弱尾等）同一處理原則。
+    mktChg: mktChg == null ? null : +mktChg.toFixed(2),
+    bearDay: mktChg != null ? mktChg < 0 : null,
     map: JSON.stringify(out),
     note: '已驗證訊號修正量（composite-score 中通過兩半窗＋OOT＋regime 者）。排序鍵＝五大因子 + a×weight。實證見 screen-recommend-rank.mjs：Ⓒ 於主窗/OOT×前20/前50 四種配置全勝；⚠超額穩定但絕對淨報酬僅主窗為正、OOT 約打平。',
   });

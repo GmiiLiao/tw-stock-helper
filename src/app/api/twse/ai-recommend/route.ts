@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     ]);
     // memoize 失敗會回 null（負快取）——降級成「只用五大因子」而不是整頁壞掉。
     // Ⓐ 本身兩窗超額也都是正的，降級後仍可用，只是少了避開型訊號。
-    const ADJ = adj ?? { map: {} as Record<string, { a: number; w: string[] }>, weight: 3, date: null };
+    const ADJ = adj ?? { map: {} as Record<string, { a: number; w: string[] }>, weight: 3, date: null, bearDay: null, mktChg: null };
     const dataDate = rawData[0]?.Date ?? 'unknown';
 
     const stocks = rawData.filter(isRegularStock).map(d => parseStock(d));
@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
       totalAnalyzed: stocks.length,
       excludedLimitUp: scored.length - buyable.length,   // 因漲停買不到而剔除的檔數（誠實揭露）
       adjDate: ADJ.date, adjWeight: ADJ.weight, adjCount: Object.keys(ADJ.map).length,
+      bearDay: ADJ.bearDay, mktChg: ADJ.mktChg,
       generatedAt: new Date().toISOString(),
       dataDate,
       instDate: iw.date || null, // 法人加權資料日（t-1）

@@ -13,9 +13,9 @@ import { memoize } from '@/lib/singleflight';
 // 這批訊號多是 −2 的「避開型」，擅長刪掉爛的、不擅長把好的排到前面。
 
 export interface AdjEntry { a: number; w: string[] }
-export interface AdjData { map: Record<string, AdjEntry>; weight: number; date: string | null }
+export interface AdjData { map: Record<string, AdjEntry>; weight: number; date: string | null; bearDay: boolean | null; mktChg: number | null }
 
-const EMPTY: AdjData = { map: {}, weight: 3, date: null };
+const EMPTY: AdjData = { map: {}, weight: 3, date: null, bearDay: null, mktChg: null };
 
 export const getRecommendAdj = memoize('recommendAdj', 300_000, async (): Promise<AdjData> => {
   try {
@@ -24,7 +24,8 @@ export const getRecommendAdj = memoize('recommendAdj', 300_000, async (): Promis
     const snap = await db.collection('recommendAdj').doc('latest').get();
     const d = snap.data();
     if (!d?.map) return EMPTY;
-    return { map: JSON.parse(d.map), weight: d.weight ?? 3, date: d.date ?? null };
+    return { map: JSON.parse(d.map), weight: d.weight ?? 3, date: d.date ?? null,
+             bearDay: d.bearDay ?? null, mktChg: d.mktChg ?? null };
   } catch {
     // 讀不到就退回「只用五大因子」——Ⓐ 本身兩窗也都是正超額，
     // 降級後仍可用，不會因為缺這一份資料就整頁壞掉。

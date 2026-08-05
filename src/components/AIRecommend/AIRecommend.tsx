@@ -102,6 +102,9 @@ interface AIResponse {
     defensive: ScoredStock[];
   };
   totalAnalyzed: number;
+  bearDay?: boolean | null;
+  mktChg?: number | null;
+  excludedLimitUp?: number;
   generatedAt: string;
 }
 
@@ -788,6 +791,28 @@ export default function AIRecommend() {
             均報為未扣費稅的價差；來回成本 {scoreboard.cost ?? 0.4425}%（手續費×2＋證交稅）需自行扣除。
             歷史績效不代表未來；本記分板是**誠實揭露**，不是推薦保證。非投資建議。
           </div>
+        </div>
+      )}
+
+      {/* ── 空頭日提示（2026-08-05）──────────────────────────────
+          65 組濾網全測（排序鍵/名次/避開訊號/破高強尾/波動/漲幅/regime 交叉）
+          之後，**沒有任何一組**達到本站的「四個半窗絕對報酬全正」門檻。
+          唯一逼近的是「空頭日的前 5 名」，主窗前半窗 -0.013% 差一步。
+          ⇒ 依站上既有原則（未過關者提示不計分），只在空頭日顯示這條提示，
+             **不改變榜單內容、不加分、不宣稱認證**。 */}
+      {data?.bearDay && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: 'rgba(47,158,68,0.08)', border: '1px solid rgba(47,158,68,0.3)', fontSize: 12, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+          🟢 <b style={{ color: 'var(--text-primary)' }}>今日為空頭日</b>
+          {data.mktChg != null && <span style={{ color: 'var(--text-muted)' }}>（可交易宇宙中位數 {data.mktChg}%）</span>}
+          ——實測本榜<b>在空頭日的前 5 名</b>是所有濾網組合中最接近穩定正報酬的子集：
+          主窗淨均 <b style={{ color: 'var(--color-up)' }}>+0.233%</b>·淨勝 52.4%、
+          第三獨立窗 <b style={{ color: 'var(--color-up)' }}>+0.165%</b>·淨勝 54.3%
+          （同期基準 -0.134% / -0.185%）。
+          <br />
+          <span style={{ color: '#fbbf24' }}>⚠ 但它沒有通過本站門檻</span>：主窗前半窗為 -0.013%，
+          四個半窗未能全正，因此<b>只提示、不加分、不列為認證訊號</b>。
+          已測 65 組濾網（名次/避開訊號/破高×強尾/波動/漲幅/多空日交叉），
+          <b>沒有任何一組達標</b>——這張榜有穩定的「比隨便買好」，但沒有經證實的「穩定賺」。
         </div>
       )}
 

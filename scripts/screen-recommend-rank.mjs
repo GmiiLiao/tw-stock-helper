@@ -27,7 +27,7 @@ const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 const wr = a => (a.length ? +(a.filter(v => v > 0).length / a.length * 100).toFixed(1) : null);
 
 /** 自建樣本：bt-core 的 buildSamples 沒吐 vol20/K9/mktChg，這裡一次補齊 */
-function build(days) {
+export function build(days) {
   const out = [];
   const H = {};                       // code → closes/vols/highs/lows
   for (let i = 0; i < days.length; i++) {
@@ -102,7 +102,7 @@ function build(days) {
 }
 
 // ── Ⓐ 修正後五大因子（與 scoring-server.ts 同步）──
-function fiveFixed(s) {
+export function fiveFixed(s) {
   const { chg, value: val, pos, c: p } = s;
   const m = chg > 8.5 ? 0 : chg >= 3 ? 16 : chg > 0 ? 10 : chg === 0 ? 8 : chg > -2 ? 8 : 6;
   let v = val > 5e9 ? 20 : val > 1e9 ? 17 : val > 5e8 ? 14 : val > 1e8 ? 10 : val > 5e7 ? 6 : 2;
@@ -116,7 +116,7 @@ function fiveFixed(s) {
 
 // ── Ⓑ 已驗證訊號疊加（composite-score.ts 中可由單日+歷史重建者）──
 //   每一項都附本站兩半窗＋OOT 的檢定出處；未通過檢定的一律不放進來。
-function validated(s) {
+export function validated(s) {
   let a = 0;
   const strongTail = s.pos >= 0.8 && Math.abs(s.chg) > 1;
   if (s.brk20 && s.pos >= 0.7) a += 2;                                   // 🏔破高×強尾（+2·兩窗穩定正）
@@ -187,4 +187,6 @@ const main = async () => {
   }
   process.exit(0);
 };
-main().catch(e => { console.error(e); process.exit(1); });
+// 只有直接執行才跑；被 import（screen-recommend-gate.mjs 共用 build/fiveFixed/
+// validated）時不得自動執行，否則會多跑一整輪回測並蓋掉呼叫端的輸出。
+if (import.meta.url === `file://${process.argv[1]}`) main().catch(e => { console.error(e); process.exit(1); });
