@@ -64,16 +64,17 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
   const navigateTo = useAppStore(s => s.navigateTo);
   const [d, setD] = useState<FullData | null>(null);
   const [tab, setTab] = useState<'constituents' | 'edge' | 'premium'>('edge');
+  const [loaded, setLoaded] = useState(false);   // 分辨「還在抓」與「今天真的沒有」
 
   useEffect(() => {
     if (code) return;
     let live = true;
-    fetch('/api/ai/etf-influence').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setD(x); }).catch(() => {});
+    fetch('/api/ai/etf-influence').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setD(x); }).catch(() => {}).finally(() => { if (live) setLoaded(true); });
     return () => { live = false; };
   }, [code]);
 
   if (code) return <StockEtf code={code} />;
-  if (!d?.constituents?.length) return slot ? slotBox('🏦 第四法人（ETF）', '市值型 ETF 被動買賣盤與成分股權重——尚未取得資料。') : null;
+  if (!d?.constituents?.length) return slot ? slotBox('🏦 第四法人（ETF）', loaded ? '市值型 ETF 被動買賣盤與成分股權重——尚未取得資料。' : '市值型 ETF 被動買賣盤 · 載入中…') : null;
 
   const jump = (c: string) => navigateTo('stock', c);
   const chip = (label: string, key: typeof tab) => (

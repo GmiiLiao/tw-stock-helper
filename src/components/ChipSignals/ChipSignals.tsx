@@ -76,17 +76,18 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
   const allStocks = useAppStore(s => s.allStocks);
   const [data, setData] = useState<MarketData | null>(null);
   const [open, setOpen] = useState<string | null>('tripleAlign');
+  const [loaded, setLoaded] = useState(false);   // 分辨「還在抓」與「今天真的沒有」
 
   useEffect(() => {
     if (code) return;
     let live = true;
-    fetch('/api/ai/chip-signals').then(r => (r.ok ? r.json() : null)).then(d => { if (live && d) setData(d); }).catch(() => {});
+    fetch('/api/ai/chip-signals').then(r => (r.ok ? r.json() : null)).then(d => { if (live && d) setData(d); }).catch(() => {}).finally(() => { if (live) setLoaded(true); });
     const t = setInterval(() => fetch('/api/ai/chip-signals').then(r => (r.ok ? r.json() : null)).then(d => { if (live && d) setData(d); }).catch(() => {}), 600000);
     return () => { live = false; clearInterval(t); };
   }, [code]);
 
   if (code) return <StockTags code={code} />;
-  if (!data?.rules) return slot ? slotBox('🎯 籌碼訊號', '三大法人四準則。T86 約 15:00 出、融資約 21:30 出——尚未取得今日資料。') : null;
+  if (!data?.rules) return slot ? slotBox('🎯 籌碼訊號', loaded ? '三大法人四準則。T86 約 15:00 出、融資約 21:30 出——尚未取得今日資料。' : '三大法人四準則 · 載入中…') : null;
 
   // 個股方塊（熱力圖式）：底色依當日漲跌紅/綠，角標市/櫃，附該榜專屬指標
   const tile = (it: Item, rk: string) => {
