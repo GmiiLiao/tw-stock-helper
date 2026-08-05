@@ -15,6 +15,7 @@ import { auth } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
+import HitRate from '@/components/shared/HitRate';
 
 const PREMIUM_LEVELS = ['premium', 'admin', 'superadmin'];
 const TRIAL_DAYS = 14; // 與選股策略一致
@@ -257,6 +258,8 @@ export default function WarRoom() {
               開關篩選策略 · 命中≥2策略＝⭐共識(金框優先){staleMs > 150000 ? ' · ⏸ 非盤中(最後一次結果)' : ''}
             </span>
           </div>
+          {/* 命中率：追蹤「命中≥2 策略」的⭐共識股，也就是面板金框優先的那一組 */}
+          <HitRate list="radar" label="雷達⭐共識" />
           {/* 策略開關列 */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             {STRAT_ORDER.map(k => {

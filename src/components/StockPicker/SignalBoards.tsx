@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { MODES } from '@/lib/trading-mode';
+import HitRate from '@/components/shared/HitRate';
 
 // ── 📋 訊號榜單：所有選股清單的唯一入口（2026-08-03 頁面整理）────────
 //
@@ -89,6 +90,7 @@ export default function SignalBoards() {
     <div style={grid}>
       <div style={card}>
         <div style={title}>⚡ 隔日沖候選 <span style={sub}>今收買→明開賣</span></div>
+        <HitRate list="overnight" label="隔日沖候選" horizons={[5]} />
         {trade?.overnight?.length
           ? trade.overnight.slice(0, 8).map(x => (
             <Row key={x.code} code={x.code} name={x.name}
@@ -128,6 +130,7 @@ export default function SignalBoards() {
     <div style={grid}>
       <div style={card}>
         <div style={title}>🌊 波段起漲 <span style={sub}>持有 5 個交易日·空頭日限定</span></div>
+        <HitRate list="swing" label="波段起漲" horizons={[5, 10]} />
         {swing?.gate && <div style={{ fontSize: '0.74rem', color: swing.gate.startsWith('✅') ? up : '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>{swing.gate}</div>}
         {swing?.items?.length
           ? swing.items.slice(0, 10).map(x => (
@@ -145,6 +148,7 @@ export default function SignalBoards() {
       </div>
       <div style={card}>
         <div style={title}>🚀 波段追強 <span style={sub}>強勢整理·持有 5 個交易日</span></div>
+        <HitRate list="strength" label="波段追強" horizons={[5, 10]} />
         {strength?.items?.length
           ? strength.items.slice(0, 10).map(x => (
             <Row key={x.code} code={x.code} name={x.name}

@@ -37,23 +37,34 @@ export async function GET(request: NextRequest) {
     const rank = (a: { score: number; instW: number; finW: number }, b: { score: number; instW: number; finW: number }) =>
       (b.score + (b.instW + b.finW) * 1.5) - (a.score + (a.instW + a.finW) * 1.5);
 
+
+    // ── 可交易宇宙 gate（2026-08-05）──────────────────────────────
+    // 推薦當日漲幅 >8.5% 者剔除：**收盤價已在漲停或貼近漲停，買不到**。
+    // 實證（backfill-picks-scoreboard.mjs）：舊版 TOP20 的 5 日樣本有
+    // 121/327（37%）屬於這一類，是記分板落後同期基準的最大單一來源——
+    // 剔除後 5 日超額由 -2.12pp 收斂到 -0.40pp。
+    // 這條 gate 與撿尾盤定版濾網、bt-core buildSamples 的 tradable 同口徑。
+    const tradable = (r: { changePercent: number }) => r.changePercent <= 8.5;
+
     // Top 20 overall
     const recommendations = scored
-      .filter(r => r.score >= 50)
+      .filter(r => r.score >= 50 && tradable(r))
       .sort(rank)
       .slice(0, 20);
 
-    // Strategy buckets
+    // Strategy buckets（同樣套 gate——買不到的標的不該出現在任何一張推薦榜）
+    const buyable = scored.filter(tradable);
     const strategies = {
-      daily:     scored.filter(s => s.strategy === 'momentum').sort(rank).slice(0, 20),
-      growth:    scored.filter(s => s.strategy === 'growth').sort(rank).slice(0, 20),
-      defensive: scored.filter(s => s.strategy === 'defensive').sort(rank).slice(0, 20),
+      daily:     buyable.filter(s => s.strategy === 'momentum').sort(rank).slice(0, 20),
+      growth:    buyable.filter(s => s.strategy === 'growth').sort(rank).slice(0, 20),
+      defensive: buyable.filter(s => s.strategy === 'defensive').sort(rank).slice(0, 20),
     };
 
     return NextResponse.json({
       recommendations,
       strategies,
       totalAnalyzed: stocks.length,
+      excludedLimitUp: scored.length - buyable.length,   // 因漲停買不到而剔除的檔數（誠實揭露）
       generatedAt: new Date().toISOString(),
       dataDate,
       instDate: iw.date || null, // 法人加權資料日（t-1）

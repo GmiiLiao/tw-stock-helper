@@ -4114,7 +4114,12 @@ async function computeRotation() {
 //
 // 現在：5 榜全記、每個窗口都附同期基準與超額、標記漲停不可買、給扣費稅淨值。
 // **超額（vs 基準）才是選股能力**，絕對報酬主要由市況決定。
-const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive'];
+// 2026-08-05（使用者：「戰情頁裡所有預測推薦選股也要出示推薦命中率」）：
+//   選股頁 5 榜 ＋ 戰情頁 3 榜（雷達共識/籌碼推選/盤中爆量）＋ 波段 2 榜。
+//   ⚠漲停預測不在此列——它**已有**自己的對答案機制（limitUpForecast.scoreboard，
+//     口徑是「隔日有沒有漲停」而不是報酬率），重複追蹤會出現兩個互相矛盾的數字。
+const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
+                    'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight'];
 const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
 
 /** chipArchive 一日：{ code: [收盤, 量(張), 開, 高, 低] }。⚠[2] 是開盤價不是漲跌% */
@@ -4165,7 +4170,11 @@ async function trackPicks() {
     return c > 0 && p > 0 ? +((c - p) / p * 100).toFixed(2) : null;
   };
   const pack = list => (list || []).slice(0, 20)
-    .map(r => ({ code: r.code, name: r.name || r.code, score: r.score, price: q[r.code]?.price ?? 0, chg: chgOf(r.code) }))
+    // ⚠各榜的欄位不一致：chipPicks.graded 用 win/netWin 沒有 score、volSurge 也沒有。
+    //   Firestore 不接受 undefined，一個 undefined 會讓**整批寫入失敗**（今天踩到）。
+    //   ?? null 是必要的，不是防禦性冗餘。
+    .map(r => ({ code: r.code, name: r.name || r.code, score: r.score ?? r.net ?? null,
+                 price: q[r.code]?.price ?? r.price ?? 0, chg: chgOf(r.code) ?? null }))
     .filter(p => p.price > 0);
 
   const rows = {
@@ -4179,6 +4188,31 @@ async function trackPicks() {
     const ip = (await db.collection('intradayPicks').doc('latest').get()).data();
     if (ip?.picks) rows.intraday = pack(JSON.parse(ip.picks));
   } catch { /* 盤中榜可能當日未產生，不影響其他榜 */ }
+
+  // ── 戰情頁三榜 ＋ 波段兩榜（每一榜各自 try，一榜缺不影響其他榜）──
+  const grab = async (coll, pick) => {
+    try {
+      const d = (await db.collection(coll).doc('latest').get()).data();
+      return d ? (pick(d) || []) : [];
+    } catch { return []; }
+  };
+  // 雷達：取「命中≥2 策略」的共識股——面板上金框優先的就是這一組
+  rows.radar = pack(await grab('intradayRadar', d => {
+    const seen = {};
+    for (const k in (d.groups || {})) for (const it of (d.groups[k] || [])) {
+      const g = (seen[it.code] ||= { ...it, _n: 0 });
+      g._n++;
+    }
+    return Object.values(seen).filter(x => x._n >= 2).sort((a, b) => (b.score || 0) - (a.score || 0));
+  }));
+  rows.chipPicks = pack(await grab('chipPicks', d => d.graded));       // 分級排行（實證綜合評分）
+  rows.volSurge  = pack(await grab('volSurge', d => (d.items || []).filter(x => x.dir === 'up')));
+  rows.swing     = pack(await grab('swingPicks', d => d.items));
+  rows.strength  = pack(await grab('strengthPicks', d => d.items));
+  // ⚠選股頁「⚡隔日沖候選」吃的是 tradeSignals.overnight，**不是** chipPicks。
+  //   一開始我把命中率掛成 chipPicks——那會用甲榜的成績去背書乙榜，
+  //   跟「標籤動了內容沒動」是同一種說謊。榜單鍵一定要對著實際資料源。
+  rows.overnight = pack(await grab('tradeSignals', d => d.overnight));
   await db.collection('picksHistory').doc(date).set({ date, ...rows }, { merge: true });
 
   // ── 到期評估：第 5/10/20 個交易日以當日收盤凍結，同時凍結同期基準 ──
@@ -7766,6 +7800,7 @@ if (ONESHOT) {
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
     globalMarkets: () => computeGlobalMarkets(),
+    trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }

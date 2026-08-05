@@ -12,6 +12,7 @@ import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { computeComposite, type SignalBadge } from '@/lib/composite-score';
 import { METRIC_TIPS } from '@/lib/metric-tips';
+import HitRate from '@/components/shared/HitRate';
 
 interface Pick {
   code: string; name: string; market: string; price: number | null; chg: number;
@@ -332,6 +333,9 @@ export default function ChipPicksPanel() {
       </div>
 
       {/* 榜別切換 */}
+      {/* 命中率：追蹤 graded（分級排行推選），也就是本頁的主榜 */}
+      <HitRate list="chipPicks" label="籌碼推選(分級榜)" />
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {VIEWS.map(v => {
           const on = view === v.key;

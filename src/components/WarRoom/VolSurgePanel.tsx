@@ -10,6 +10,7 @@ import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shar
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { useAppStore } from '@/lib/store';
+import HitRate from '@/components/shared/HitRate';
 
 interface Surge {
   code: string; name: string; market: string; price: number; chg: number;
@@ -51,6 +52,8 @@ export default function VolSurgePanel() {
           量能異常·<b style={{ color: '#c4b5fd' }}>非三大法人</b>（官方法人 15:00 後公布）{!isTwTradingHours() ? ' · ⏸ 非盤中(最後結果)' : data?.updatedAt ? ` · ${new Date(data.updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : ''}
         </span>
       </div>
+      {/* 命中率：只追蹤 dir==='up' 的爆量（向上才是進場候選） */}
+      <HitRate list="volSurge" label="盤中爆量(向上)" />
       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
         單位時間量能暴增（上市≥500張級／上櫃依比例）。即時行情只有累計量、看不到單筆與交易人身分——這是<b>量能異常</b>、不是法人買賣；方向僅以當下漲跌描述。大量來源含隔日沖大戶/主力/中實戶。作官方資料校正前的參考。
       </div>

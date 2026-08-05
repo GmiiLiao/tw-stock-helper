@@ -22,7 +22,8 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS ||=
 const db = getFirestore(initializeApp({ credential: applicationDefault(), projectId: 'tw-stock-helper' }));
 
 const WRITE = process.argv.includes('--write');
-const LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive'];
+const LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
+               'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight'];
 const COST = 0.4425;
 const HOLD = [5, 10, 20];
 

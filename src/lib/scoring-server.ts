@@ -521,15 +521,25 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
     risks.push(`🟡 注意股票：${info?.reason || '交易異常，已列入注意'}`);
   }
 
-  // Factor 1: Momentum (20)
+  // ── Factor 1: 動能（20）── 2026-08-05 依 bt-core 四窗檢定重訂 ────────
+  // 檢定（screen-five-factors.mjs·主窗480日 42.3萬筆＋第三獨立窗240日 22.0萬筆）：
+  //   chg>7   主窗開賣Δ[-0.117/0.17]、OOT[-0.029/-0.021] → **兩窗皆不穩，❌**
+  //   chg 4~7 主窗[0.082/0.229✓]、OOT[0.083/0.081✓]，但主窗 regime **⚠反向**
+  //           （多+0.121/空-0.198）→ 只算「弱訊號」，不給滿分
+  //   chg 2~4 / 0~2 / -2~0 全部 ❌
+  // ⇒ 原本「漲越多分越高」的階梯**沒有實證支撐**，而且 chg>8.5 根本買不到
+  //   （收盤價已在漲停，見下方可交易性判定）。改為：
+  //   · 甜蜜區 3~7% 給最高（與撿尾盤定版濾網的實測甜蜜區一致）
+  //   · >8.5% 直接 0 分並標記不可買——買不到的東西給高分等於推薦幻想部位
+  //     （實測 TOP20 有 37% 的推薦當日漲停，是記分板落後基準的主因之一）
   let momentumScore = 0;
-  if (chg > 7)       { momentumScore = 20; reasons.push(`🔴 今日大漲 ${chg.toFixed(2)}%，強勢突破`); }
-  else if (chg > 4)  { momentumScore = 17; reasons.push(`🔴 今日漲幅 ${chg.toFixed(2)}%，量能充沛`); }
-  else if (chg > 2)  { momentumScore = 14; reasons.push(`📈 今日上漲 ${chg.toFixed(2)}%，走勢偏強`); }
+  if (chg > 8.5)     { momentumScore = 0;  risks.push(`🚫 今日 +${chg.toFixed(2)}%（漲停或接近），收盤價買不到——不列入推薦`); }
+  else if (chg >= 3) { momentumScore = 16; reasons.push(`🔴 今日漲 ${chg.toFixed(2)}%，落在實測甜蜜區 3~7%`); }
+  else if (chg > 7)  { momentumScore = 10; reasons.push(`📈 今日漲 ${chg.toFixed(2)}%，動能強但已偏追高`); }
   else if (chg > 0)  { momentumScore = 10; reasons.push(`📊 今日小漲 ${chg.toFixed(2)}%，溫和向上`); }
-  else if (chg === 0){ momentumScore = 6; }
-  else if (chg > -2) { momentumScore = 4;  risks.push(`⚠️ 今日小跌 ${Math.abs(chg).toFixed(2)}%`); }
-  else               { momentumScore = 0;  risks.push(`🟢 今日下跌 ${Math.abs(chg).toFixed(2)}%，注意支撐`); }
+  else if (chg === 0){ momentumScore = 8; }
+  else if (chg > -2) { momentumScore = 8;  risks.push(`⚠️ 今日小跌 ${Math.abs(chg).toFixed(2)}%`); }
+  else               { momentumScore = 6;  risks.push(`🟢 今日下跌 ${Math.abs(chg).toFixed(2)}%，注意支撐`); }
 
   // Factor 2: Volume (20)
   let volumeScore = 0;
@@ -545,19 +555,27 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
     reasons.push('✅ 量增價漲，多頭確認訊號');
   }
 
-  // Factor 3: Intraday Position (20)
+  // ── Factor 3: 收盤位置（20）── ⚠**四個半窗確認的反向因子** ─────────
+  // 這是整組因子裡**唯一在主窗與第三獨立窗都通過、且 regime 同向**的一項——
+  // 但方向是**負的**，而原本卻給它滿分 20：
+  //   pos≥0.85  主窗開賣Δ[-0.221/-0.117✓] regime[多-0.230/空-0.213同向]
+  //             OOT 開賣Δ[-0.107/-0.109✓] regime[多-0.049/空-0.046同向]
+  //             淨勝 32.9%(主) / 33.8%(OOT) ——**五格裡最低**
+  //   pos<0.30（原本只給 3 分）淨勝 39.8% / 37.9% ——**五格裡最高**
+  // 也就是說原本的階梯是**整個顛倒**的。這與本站 2026-07-19 撿尾盤稽核的結論
+  // 一致：「單純貼日內高≠優勢，必須配 20 日新高突破才成立」。
+  // 本評分器拿不到 20 日歷史（只有單日 STOCK_DAY_ALL），無法做那個組合條件，
+  // ⇒ 只能把單獨的「貼日高」降為中性偏低，並如實寫成風險而不是優點。
   let trendScore = 0;
   const cp = s.closePosition;
-  if (cp >= 0.85)      { trendScore = 20; reasons.push('💪 收在日高附近，上影線短，買盤強勁'); }
-  else if (cp >= 0.70) { trendScore = 16; reasons.push('📈 收在日線上半段，多方佔優'); }
-  else if (cp >= 0.50) { trendScore = 12; }
-  else if (cp >= 0.30) { trendScore = 7;  risks.push('⚠️ 收在日線下半段，賣壓較重'); }
-  else                 { trendScore = 3;  risks.push('🟢 收在日低附近，今日賣壓明顯'); }
+  if (cp >= 0.85)      { trendScore = 8;  risks.push('⚠️ 收在日高附近——四窗實測此組隔日最差（淨勝 33%，五組最低）；除非同時突破 20 日新高，否則不是優勢'); }
+  else if (cp >= 0.70) { trendScore = 12; }
+  else if (cp >= 0.50) { trendScore = 14; }
+  else if (cp >= 0.30) { trendScore = 15; }
+  else                 { trendScore = 16; reasons.push('📉 收在日線下半段——四窗實測此組隔日相對最佳（淨勝 39.8%）'); }
 
-  if (s.open > s.prevClose * 1.005 && chg > 1) {
-    trendScore = Math.min(trendScore + 2, 20);
-    reasons.push('⬆️ 今日高開，開盤即強');
-  }
+  // 高開加分：未通過檢定，保留但降為 1 分且不寫成「優點」
+  if (s.open > s.prevClose * 1.005 && chg > 1) trendScore = Math.min(trendScore + 1, 20);
 
   // Factor 4: Stability (20)
   let stabilityScore = 0;
@@ -573,13 +591,18 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   }
 
   // Factor 5: Value/Pattern (20)
+  // ── Factor 5: 價值形態（20）── 2026-08-05 修正雙重計分 ──────────────
+  // 原本「接近漲停 7~9.9」給全因子組最高的 18 分——但它 ①與 Factor 1 重複
+  // 計同一個變數（今日漲幅），②四窗檢定全部 ❌（主窗開賣Δ[-0.117/0.17]、
+  // OOT[-0.029/-0.021]），③這個區間離漲停只差一步，隔天常常買不到好價。
+  // ⇒ 拿掉漲停/近漲停的加分，改為只保留「溫和漲」與「跌停避開」兩個方向。
   let valueScore = 12;
   const isLimitUp   = chg >= 9.9;
   const isNearLimit = chg >= 7 && chg < 9.9;
   const isLimitDown = chg <= -9.9;
 
-  if (isLimitUp)        { valueScore = 15; reasons.push('🔴 觸及漲停板，籌碼高度鎖定'); }
-  else if (isNearLimit) { valueScore = 18; reasons.push('🔴 接近漲停，動能強勁'); }
+  if (isLimitUp)        { valueScore = 4;  risks.push('🚫 觸及漲停，收盤價買不到——不列入推薦'); }
+  else if (isNearLimit) { valueScore = 8;  risks.push('⚠️ 接近漲停，追高風險高且四窗檢定無優勢'); }
   else if (isLimitDown) { valueScore = 0;  risks.push('🟢 觸及跌停，短期避開'); }
   else if (chg > 0 && chg < 5) { valueScore = 15; reasons.push('⚖️ 漲幅溫和，非追高風險操作'); }
 
