@@ -4133,7 +4133,7 @@ async function computeRotation() {
 const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                     'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
                     'panicDip', 'overheatExit',
-                    'voteDip', 'overheatV2'];      // 反轉訊號（凍結·前瞻驗證·15 榜）
+                    'voteDip', 'overheatV2', 'overheatV3'];   // 反轉訊號（凍結·前瞻驗證·16 榜）
 const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
 // 推薦口徑版本。**改動評分/濾網/排序鍵時務必 +1**，否則新舊成績會被平均在一起。
 const CALIB = 'v2';           // v2 = 2026-08-05 四窗修正＋漲停 gate＋已驗證訊號×3
@@ -4236,6 +4236,7 @@ async function trackPicks() {
   // voteDip=投票制抄底(半窗80%/OOT61%)；overheatV2=爆量出貨(避開訊號·超額應為負)
   rows.voteDip = pack(await grab('reversalSignals', d => d.up2));
   rows.overheatV2 = pack(await grab('reversalSignals', d => d.down2));
+  rows.overheatV3 = pack(await grab('reversalSignals', d => d.down3));   // 低價過熱(避開訊號·OOT 65%)
   // ── 口徑版本章（2026-08-05）────────────────────────────────────
   // 今天同時改了三件會影響「推薦是什麼」的事：五大因子依四窗檢定修正、
   // 加可交易宇宙 gate（漲停剔除）、排序鍵加上已驗證訊號×3。
@@ -4540,7 +4541,9 @@ async function computeReversalSignals() {
     cands.push({ code, name: qn[code]?.name || code, price: c, chg: +chg.toFixed(2),
       r5: s5.v, r10: s10.v, p5, p10,
       ret5: c5 > 0 ? (c - c5) / c5 * 100 : null,
-      pos: h > l ? (c - l) / (h - l) : 0.5, fSell,
+      pos: h > l ? (c - l) / (h - l) : 0.5,
+      upSh: h > l ? (h - Math.max(row[2], c)) / (h - l) : 0,    // 上影線比例（row[2]=開盤）
+      amp: pc > 0 ? (h - l) / pc * 100 : 0, fSell,
       lnLv: P.ln?.[code] != null && av20 > 0 ? P.ln[code] / av20 : null,
       ma20rel: ma20 > 0 ? (c / ma20 - 1) * 100 : null,
       p20: hi20 > 0 ? c / hi20 : null, p60: hi60 > 0 ? c / hi60 : null,
@@ -4556,7 +4559,7 @@ async function computeReversalSignals() {
       down.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
     }
   }
-  const up2 = [], down2 = [];
+  const up2 = [], down2 = [], down3 = [];
   for (const s of cands) {
     // 🗳️ voteDip：凍結委員會 10 人投票 ≥7（市場級條件對所有股票同時計票——委員會如此凍結）
     let votes = 0;
@@ -4575,13 +4578,21 @@ async function computeReversalSignals() {
     if (s.pos > 0.9 && s.volX != null && s.volX > 5 && s.p20 != null && s.p20 >= 1 && s.tot1 != null && s.tot1 < 0) {
       down2.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
     }
+    // 🎈 overheatV3（2026-08-05 第八輪凍結）：低價股過熱＋長上影＋放量
+    //    ＝ RSI5連2日>80 ∧ 長上影(>50%振幅·振幅3%↑) ∧ 股價<20 ∧ 量比>3
+    //    平常日 73.5%[74.7/72.5]·觸發115天·**OOT 65%(n=80)——八輪全系列最佳樣本外**。
+    //    「股價<20」是第七輪補上的維度：低價股過熱=散戶行情=均值回歸最強。
+    if (s.r5 > 80 && s.p5 > 80 && s.upSh > 0.5 && s.amp >= 3 && s.price < 20
+      && s.volX != null && s.volX > 3) {
+      down3.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
+    }
   }
   await db.collection('reversalSignals').doc('latest').set({
     updatedAt: Date.now(), date: D.date, calib: REV_CALIB,
-    breadth: bLo, mktChg, twiiDD20, up, down, up2, down2,
+    breadth: bLo, mktChg, twiiDD20, up, down, up2, down2, down3,
     note: 'panicDip=恐慌抄底(5條件·多年一遇·空榜是常態)；overheatExit=過熱出貨(避開訊號·記分板超額應為負·非放空)。v1 凍結於 2026-08-05；樣本內數字不可對外宣稱，成績以 picksScoreboard 前瞻累積為準。',
   });
-  log(`✓ 反轉訊號：🩹恐慌抄底 ${up.length}·🗳️投票抄底 ${up2.length}·🚪過熱出貨 ${down.length}·📉爆量出貨 ${down2.length}（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）`);
+  log(`✓ 反轉訊號：🩹恐慌抄底 ${up.length}·🗳️投票抄底 ${up2.length}·🚪過熱出貨 ${down.length}·📉爆量出貨 ${down2.length}·🎈低價過熱 ${down3.length}（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）`);
 }
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────
