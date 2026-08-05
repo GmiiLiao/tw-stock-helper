@@ -4288,6 +4288,111 @@ async function trackPicks() {
   log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
 }
 
+
+// ── 37b) 推薦榜「已驗證訊號」修正量（2026-08-05）──────────────────
+// 為什麼要有這個 job：ai-recommend 只拿得到**單日** STOCK_DAY_ALL，算不出
+//   20 日高／5 日漲幅／20 日波動／KD／5 日均線。這些正是本站唯一一批
+//   通過「兩半窗＋第三獨立窗＋regime」的隔日沖訊號（composite-score.ts）。
+//   依三層架構鐵律（daemon→Firestore→web），由這裡算好寫進 Firestore。
+//
+// **對決結果決定了設計**（screen-recommend-rank.mjs·主窗480日＋OOT240日·
+//   每日取前 20 名·明開賣扣費稅）：
+//     Ⓐ 修正後五大因子單獨   主窗Δ+0.236[0.058/0.375✓]  OOT Δ+0.159[0.194/0.138✓]
+//     Ⓑ 已驗證訊號單獨       主窗Δ+0.053 ❌兩半窗不同號   OOT Δ+0.140
+//     Ⓒ Ⓐ＋Ⓑ×3            主窗Δ+0.249[0.068/0.391✓]  OOT Δ+0.184[0.173/0.190✓] ← 四種配置全勝
+//     Ⓓ Ⓐ＋Ⓑ×6            主窗Δ+0.233 ❌
+//   ⇒ **Ⓑ 單獨比 Ⓐ 還差**——這些訊號多是 −2 的「避開型」，擅長刪掉爛的、
+//     不擅長把好的排到前面。所以是**疊加**不是取代，權重 ×3 不是 ×6。
+//   ⚠誠實邊界：Ⓒ 相對基準的超額兩窗四半窗全正，但**絕對淨報酬只有主窗為正
+//     (+0.115%)，OOT 約打平 (-0.001%)**。它是「比隨便買好」，不是「穩定賺」。
+const ADJ_W = 3;
+
+async function computeRecommendAdj() {
+  const tw = taipei(); if (!isTradingDay(tw)) return;
+  // 近 30 個交易日足夠算 20 日高／20 日波動／KD(9)／MA5
+  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(30).get();
+  const days = snap.docs.map(d => d.data()).filter(v => v.closeJson)
+    .map(v => ({ date: v.date, close: JSON.parse(v.closeJson) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (days.length < 22) { log('  ✖ 推薦修正量：歸檔不足 22 日，略過'); return; }
+  const D = days[days.length - 1], P = days[days.length - 2];
+
+  // 當日大盤漲跌%＝可交易宇宙中位數（跟風懲罰的第二關代理，收盤即知＝PIT 安全）
+  const gs = [];
+  for (const c in D.close) {
+    if (!/^\d{4}$/.test(c) || c.startsWith('00')) continue;
+    const a = D.close[c]?.[0], b = P.close?.[c]?.[0];
+    if (a > 0 && b > 0) gs.push((a - b) / b * 100);
+  }
+  gs.sort((a, b) => a - b);
+  const mktChg = gs.length ? gs[gs.length >> 1] : null;
+
+  const out = {};
+  for (const code in D.close) {
+    if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+    const row = D.close[code]; if (!row || row.length < 5) continue;
+    const [c, v, , h, l] = row;
+    const pc = P.close?.[code]?.[0];
+    if (!(c > 0) || !(pc > 0) || !(h > l)) continue;
+    const chg = (c - pc) / pc * 100;
+    if (chg > 8.5) continue;                                   // 可交易宇宙外，不必算
+
+    // 歷史序列（不含今日）
+    const cl = [], hh = [], ll = [];
+    for (let k = 0; k < days.length - 1; k++) {
+      const r = days[k].close?.[code];
+      if (!r || !(r[0] > 0)) continue;
+      cl.push(r[0]); hh.push(r[3] > 0 ? r[3] : r[0]); ll.push(r[4] > 0 ? r[4] : r[0]);
+    }
+    if (cl.length < 20) continue;
+
+    const pos = (c - l) / (h - l);
+    let hi20 = 0; for (let k = 1; k <= Math.min(20, cl.length); k++) hi20 = Math.max(hi20, cl[cl.length - k]);
+    const c5 = cl[cl.length - 5];
+    const ret5 = c5 > 0 ? (c - c5) / c5 * 100 : null;
+    const rets = [];
+    for (let k = 1; k < Math.min(21, cl.length); k++) {
+      const a = cl[cl.length - k], b = cl[cl.length - k - 1];
+      if (a > 0 && b > 0) rets.push((a - b) / b * 100);
+    }
+    const mean = rets.reduce((s2, x) => s2 + x, 0) / (rets.length || 1);
+    const vol20 = rets.length >= 15 ? Math.sqrt(rets.reduce((s2, x) => s2 + (x - mean) ** 2, 0) / rets.length) : null;
+    // KD(9) 的 K（與回測腳本同法：RSV 三分之一平滑）
+    let k9 = null;
+    if (cl.length >= 9) {
+      let K = 50;
+      const seq = [...cl, c], sh = [...hh, h], sl = [...ll, l];
+      for (let t = Math.max(8, seq.length - 30); t < seq.length; t++) {
+        const hi = Math.max(...sh.slice(t - 8, t + 1)), lo = Math.min(...sl.slice(t - 8, t + 1));
+        K = K * 2 / 3 + (hi > lo ? (seq[t] - lo) / (hi - lo) * 100 : 50) / 3;
+      }
+      k9 = K;
+    }
+    const ma5 = (cl.slice(-4).reduce((s2, x) => s2 + x, 0) + c) / 5;
+    const belowMA5 = c < ma5;
+
+    // ── 與 screen-recommend-rank.mjs 的 validated() 逐條對齊 ──
+    let adj = 0; const why = [];
+    const brk20 = hi20 > 0 && c > hi20;
+    const strongTail = pos >= 0.8 && Math.abs(chg) > 1;
+    if (brk20 && pos >= 0.7) { adj += 2; why.push('🏔破高×強尾 +2'); }
+    else if (strongTail) { adj -= 2; why.push('💪強尾單獨 −2'); }
+    if (mktChg != null && mktChg >= 1 && chg >= 3 && chg - mktChg < 1) { adj -= 2; why.push('🐑跟風 −2'); }
+    if (ret5 != null && ret5 >= 20) { adj -= 2; why.push(`🔥5日+${ret5.toFixed(0)}% 過熱 −2`); }
+    if (k9 != null && k9 > 90) { adj -= 2; why.push(`📉K${Math.round(k9)}極度超買 −2`); }
+    else if (k9 != null && k9 > 80 && belowMA5) { adj -= 2; why.push(`📉K${Math.round(k9)}×破5MA −2`); }
+    if (vol20 != null && vol20 < 1.5) { adj -= 2; why.push(`😴低波動${vol20.toFixed(1)}% −2`); }
+    if (adj !== 0) out[code] = { a: adj, w: why };
+  }
+
+  await db.collection('recommendAdj').doc('latest').set({
+    updatedAt: Date.now(), date: D.date, weight: ADJ_W, n: Object.keys(out).length,
+    map: JSON.stringify(out),
+    note: '已驗證訊號修正量（composite-score 中通過兩半窗＋OOT＋regime 者）。排序鍵＝五大因子 + a×weight。實證見 screen-recommend-rank.mjs：Ⓒ 於主窗/OOT×前20/前50 四種配置全勝；⚠超額穩定但絕對淨報酬僅主窗為正、OOT 約打平。',
+  });
+  log(`✓ 推薦修正量：${D.date} ${Object.keys(out).length} 檔有修正（權重 ×${ADJ_W}）`);
+}
+
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────
 const _exdivAlerted = new Set();
 async function adviseExDiv() {
@@ -7369,7 +7474,7 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
   }
@@ -7814,6 +7919,7 @@ if (ONESHOT) {
     globalMarkets: () => computeGlobalMarkets(),
     trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
     tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
+    recommendAdj: () => computeRecommendAdj(),   // 推薦榜已驗證訊號修正量
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }

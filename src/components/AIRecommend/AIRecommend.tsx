@@ -695,7 +695,7 @@ export default function AIRecommend() {
         <div>
           <h1 className={styles.pageTitle}>🤖 AI 智能選股推薦</h1>
           <p className={styles.pageSubtitle}>
-            基於五大因子量化評分，從 {data?.totalAnalyzed?.toLocaleString() || '--'} 支股票中精選潛力標的
+            五大因子（已依四窗實證修正）＋已驗證訊號疊加，從 {data?.totalAnalyzed?.toLocaleString() || '--'} 支可交易股票中排序（漲停股已排除——收盤價買不到）
           </p>
         </div>
         {data && (
@@ -800,7 +800,20 @@ export default function AIRecommend() {
         <div className={styles.aiBannerText}>
           <div className={styles.aiBannerTitle}>AI 評分說明</div>
           <div className={styles.aiBannerDesc}>
-            採用 <strong>五大因子</strong> 量化評估：動能（今日漲幅）× 量能（成交值）× 趨勢（收盤位置）× 穩定性（股價層級）× 價值評估（漲停分析）。
+            排序鍵 ＝ <strong>五大因子</strong>（動能／量能／收盤位置／股價層級／形態）
+            ＋ 法人與財報加權 ＋ <strong>已驗證訊號 ×3</strong>。
+            <br />
+            <span style={{ color: '#fbbf24' }}>⚠ 2026-08-05 依 bt-core 四窗檢定修正</span>：
+            原本「收在日高」給滿分 20，但主窗＋第三獨立窗都顯示該組隔日<b>最差</b>（淨勝 33%，五組最低），
+            已降為 8 分並改寫成風險；「接近漲停」的最高分也移除（與動能重複計分且檢定不過）。
+            另加入本站唯一一批通過兩半窗＋OOT＋regime 的訊號作為疊加項
+            （🏔破高×強尾 +2／💪強尾單獨 −2／🐑跟風 −2／🔥5日過熱 −2／📉KD超買 −2／😴低波動 −2）。
+            <br />
+            <span style={{ color: '#7dd3fc' }}>實測（每日取前 20 名·明開賣扣費稅）</span>：
+            修正後排序相對「同期可交易宇宙等權」的超額，主窗 <b>+0.249pp</b>[兩半窗 0.068/0.391]、
+            第三獨立窗 <b>+0.184pp</b>[0.173/0.190]——四個半窗全正。
+            <b>但絕對淨報酬只有主窗為正（+0.115%），OOT 約打平（-0.001%）</b>：
+            它是「比隨便買好」，不是「穩定賺」。分數是排序與避開的工具，不是進場保證。
             總分 <strong>100分制</strong>，A+ 為最高等級（85分以上）。
           </div>
         </div>

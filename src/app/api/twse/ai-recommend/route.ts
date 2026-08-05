@@ -3,6 +3,7 @@ import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/scoring-server';
 import { getInstWeights } from '@/lib/inst-weight-server';
 import { getFinWeights } from '@/lib/fin-server';
+import { getRecommendAdj } from '@/lib/recommend-adj-server';
 
 export const runtime = 'nodejs'; // firebase-admin（法人加權）需 Node runtime
 
@@ -19,12 +20,16 @@ export async function GET(request: NextRequest) {
   try {
     // 評分只用最近一個完整交易日的官方收盤資料（closeOnly）——
     // 盤中即時漲跌/未完成量能會讓五大因子失真，推薦分數與盤前不一致。
-    const [rawData, riskData, iw, fw] = await Promise.all([
+    const [rawData, riskData, iw, fw, adj] = await Promise.all([
       getStockDayAllDataInternal({ closeOnly: true }),
       fetchRiskStocks(),
       getInstWeights(), // 四大法人加權（回測驗證·保守，t-1 PIT 安全）
       getFinWeights(),  // 財報體質加權（2事件回測：重罰低分輕獎高分）
+      getRecommendAdj(),// 已驗證訊號修正量（daemon 算·見 recommend-adj-server 檔頭）
     ]);
+    // memoize 失敗會回 null（負快取）——降級成「只用五大因子」而不是整頁壞掉。
+    // Ⓐ 本身兩窗超額也都是正的，降級後仍可用，只是少了避開型訊號。
+    const ADJ = adj ?? { map: {} as Record<string, { a: number; w: string[] }>, weight: 3, date: null };
     const dataDate = rawData[0]?.Date ?? 'unknown';
 
     const stocks = rawData.filter(isRegularStock).map(d => parseStock(d));
@@ -32,10 +37,19 @@ export async function GET(request: NextRequest) {
     const scored = stocks.map(s => {
       const r = scoreStock(s, mode, riskData);
       const f = fw.map[r.code];
-      return { ...r, instW: iw.map[r.code] ?? 0, finW: f?.w ?? 0, finScore: f?.s ?? null, pe: f?.pe ?? null };
+      const a = ADJ.map[r.code];
+      return { ...r, instW: iw.map[r.code] ?? 0, finW: f?.w ?? 0, finScore: f?.s ?? null, pe: f?.pe ?? null,
+        // 已驗證訊號修正量與其理由（透明呈現：使用者看得到為什麼被加/扣）
+        adj: a?.a ?? 0, adjWhy: a?.w ?? [] };
     });
-    const rank = (a: { score: number; instW: number; finW: number }, b: { score: number; instW: number; finW: number }) =>
-      (b.score + (b.instW + b.finW) * 1.5) - (a.score + (a.instW + a.finW) * 1.5);
+    // ── 排序鍵（2026-08-05 依對決結果定版）────────────────────────
+    // 五大因子(修正後) + 法人/財報加權 + **已驗證訊號 × 3**。
+    // ×3 是實測選出來的：×6 在主窗反而較差（Δ+0.233 vs ×3 的 +0.249）。
+    // 對決全表見 recommend-adj-server.ts 檔頭與 model-core。
+    const W = ADJ.weight ?? 3;
+    const key = (x: { score: number; instW: number; finW: number; adj: number }) =>
+      x.score + (x.instW + x.finW) * 1.5 + x.adj * W;
+    const rank = (a: Parameters<typeof key>[0], b: Parameters<typeof key>[0]) => key(b) - key(a);
 
 
     // ── 可交易宇宙 gate（2026-08-05）──────────────────────────────
@@ -65,6 +79,7 @@ export async function GET(request: NextRequest) {
       strategies,
       totalAnalyzed: stocks.length,
       excludedLimitUp: scored.length - buyable.length,   // 因漲停買不到而剔除的檔數（誠實揭露）
+      adjDate: ADJ.date, adjWeight: ADJ.weight, adjCount: Object.keys(ADJ.map).length,
       generatedAt: new Date().toISOString(),
       dataDate,
       instDate: iw.date || null, // 法人加權資料日（t-1）
