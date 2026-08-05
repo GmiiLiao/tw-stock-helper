@@ -49,20 +49,31 @@ const ColHead = ({ icon, name, when }: { icon: string; name: string; when: strin
   </div>
 );
 
-/**
- * 晨報正文清理。daemon 產的 markdown 開頭是「# 日期 盤前晨報」，接著就是
- * 「## 今日風向推測」——而這兩樣本卡已經分別放在欄標題與全寬區顯示了。
- * 不清掉的話同一份風向會在同一張卡裡出現兩次（三卡合一才浮現的重複，
- * 各自獨立時看不出來）。有 forecast 才砍風向段：沒有時它就是唯一的來源。
- */
+// ── 晨報正文去重（2026-08-05，三卡合一之後才發現）─────────────────
+// daemon 的晨報 markdown 其實是「把本頁好幾張卡用文字再講一次」：
+//   ## 今日風向推測 → 本卡全寬區已顯示（且是同一份 forecast 物件）
+//   ## 隔夜國際盤   → 本卡第①欄已顯示
+//   ## ADR 溢價     → 市場總覽「🌉 ADR 溢價」卡
+//   ## 昨日大盤體質 → 市場總覽「❤️ 大盤健康度」卡
+//   ## 今日事件     → 市場總覽「📅 事件日曆」卡
+// 三張卡各自獨立、上下相隔幾個螢幕時，這種重複看不出來；**併成一張卡、
+// 三欄並排之後，同一組數字就明擺著出現兩次**。合併是重複的顯影劑。
+//
+// 只砍「本分頁上真的有對應卡片」的段落。像「外資連買焦點」對應的
+// 🏦法人連續買超 是收在📚進階指標裡（預設收合），砍掉就真的看不到了 → 保留。
+//
+// 比對用的是 daemon 目前的標題字串。若哪天 daemon 改了標題，這裡會**比對不到
+// 而原樣顯示**——失敗方向是「重複出現」而不是「資訊消失」，這是刻意的。
+const DUP_SECTIONS = ['風向推測', '隔夜國際盤', 'ADR 溢價', '昨日大盤體質', '今日事件'];
+
 function cleanNote(md: string, hasForecast: boolean): string {
-  const lines = md.split('\n');
+  const kill = hasForecast ? DUP_SECTIONS : DUP_SECTIONS.filter(k => k !== '風向推測');
   const out: string[] = [];
   let skipping = false;
-  for (const raw of lines) {
+  for (const raw of md.split('\n')) {
     const l = raw.trimEnd();
-    if (/^#\s/.test(l)) continue;                                  // 大標＝欄標題已有
-    if (/^##\s/.test(l)) skipping = hasForecast && l.includes('風向推測');
+    if (/^#\s/.test(l)) continue;                       // 大標＝欄標題已經有日期了
+    if (/^##\s/.test(l)) skipping = kill.some(k => l.includes(k));
     if (skipping) continue;
     out.push(l.replace(/^#+\s*/, '').replace(/^-\s/, '· '));
   }
@@ -244,25 +255,37 @@ export default function PremarketHub() {
           ) : <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>盤前 08:00 起每 15 分更新，尚無今日資料。</div>}
         </div>
 
-        {/* ③ 盤前晨報 */}
+        {/* ③ 盤前晨報（去重後只剩本頁沒有的段落，見 cleanNote） */}
         <div style={colBox}>
           <ColHead icon="📝" name="盤前晨報" when={note ? `${note.date} · 開盤前 70 分上報` : 'daemon 開盤前 70 分生成'} />
-          {note?.content ? (
-            <>
-              <div style={{
-                fontSize: 11.5, lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
-                maxHeight: noteOpen ? 'none' : 108, overflow: 'hidden',
-                // 收合時底部漸隱，明示「還有內容」而不是「就這樣」
-                maskImage: noteOpen ? undefined : 'linear-gradient(180deg,#000 60%,transparent)',
-                WebkitMaskImage: noteOpen ? undefined : 'linear-gradient(180deg,#000 60%,transparent)',
-              }}>
-                {cleanNote(note.content, !!fc)}
+          {(() => {
+            if (!note?.content) return <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>尚無今日晨報。</div>;
+            const body = cleanNote(note.content, !!fc);
+            if (!body) return (
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                今日晨報的每一段都已呈現在左側兩欄與下方卡片（風向推測／國際盤／ADR 溢價／大盤健康度／事件日曆），沒有額外內容。
               </div>
-              <button onClick={() => setNoteOpen(o => !o)} style={{ background: 'none', border: 'none', color: '#7dd3fc', fontSize: 10.5, cursor: 'pointer', padding: '6px 0 0', textAlign: 'left' }}>
-                {noteOpen ? '▾ 收合晨報' : '▸ 展開晨報全文'}
-              </button>
-            </>
-          ) : <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>尚無今日晨報。</div>}
+            );
+            // 只有長到會被截掉才給收合鈕——短內容配一顆按不出變化的按鈕最惱人
+            const long = body.length > 190;
+            const open = noteOpen || !long;
+            return (
+              <>
+                <div style={{
+                  fontSize: 11.5, lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
+                  maxHeight: open ? 'none' : 108, overflow: 'hidden',
+                  // 收合時底部漸隱，明示「下面還有」而不是「就這樣」
+                  maskImage: open ? undefined : 'linear-gradient(180deg,#000 60%,transparent)',
+                  WebkitMaskImage: open ? undefined : 'linear-gradient(180deg,#000 60%,transparent)',
+                }}>{body}</div>
+                {long && (
+                  <button onClick={() => setNoteOpen(o => !o)} style={{ background: 'none', border: 'none', color: '#7dd3fc', fontSize: 10.5, cursor: 'pointer', padding: '6px 0 0', textAlign: 'left' }}>
+                    {noteOpen ? '▾ 收合晨報' : '▸ 展開晨報全文'}
+                  </button>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>
