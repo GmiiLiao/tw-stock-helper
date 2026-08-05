@@ -343,151 +343,19 @@ function TopicTab() {
   );
 }
 
-// ── 🌊 波段起漲分頁（5日持有語意·與隔日沖口徑分離）────────────────
-interface SwingItem { code: string; name: string; price: number; chg: number | null; rsi5: number; rsi10: number; volX: number | null; instT1: number; vol: number; posture60: number | null; deepPull: boolean; bigVol: boolean; vol20: number | null; kdState: 'gold' | 'dead' | 'above' | 'below' | null; breakRisk: 'low' | 'mid' | 'high' | null; tier: number }
-interface SwingData { found: boolean; date?: string; mode?: string; breadth?: number | null; bearDay?: boolean | null; instDate?: string | null; instSameDay?: boolean; total?: number; crowded?: boolean; caveats?: string[]; horizon?: string; gate?: string; counts?: { t1: number; t2: number; t3: number }; items?: SwingItem[]; evidence?: Record<string, string> }
 
-const TIER = [
-  { n: 3, label: '⭐⭐⭐ 最嚴', color: '#f03e3e', key: 't3' },
-  { n: 2, label: '⭐⭐ 強化', color: '#fbbf24', key: 't2' },
-  { n: 1, label: '⭐ 三重確認', color: '#7dd3fc', key: 't1' },
-];
 
-interface StrengthItem { code: string; name: string; price: number; chg: number; rsi5: number; rsi10: number; spread: number; inst5: number; inst5Ratio: number; vol: number; vol20: number | null; lowVol: boolean; kdState: 'gold' | 'dead' | 'above' | 'below' | null; kdDead: boolean }
-interface StrengthData { found?: boolean; date?: string; total?: number; crowded?: boolean; horizon?: string; caveats?: string[]; instWindow?: string[]; items?: StrengthItem[]; evidence?: Record<string, string> }
-
-// 波段追強（強勢整理）——2026-08-01 上榜。規則與所有數字見 evidence（verify-strength-oot 實測）。
-function StrengthTab() {
-  const navigateTo = useAppStore(s => s.navigateTo);
-  const [d, setD] = useState<StrengthData | null>(null);
-  useEffect(() => {
-    let live = true;
-    const load = () => fetch('/api/ai/strength-picks').then(r => (r.ok ? r.json() : null)).then(j => { if (live && j) setD(j); }).catch(() => {});
-    load();
-    const t = setInterval(load, 180000);
-    return () => { live = false; clearInterval(t); };
-  }, []);
-  if (!d) return <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: 16 }}>載入波段追強…</div>;
-  const items = d.items || [];
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(192,132,252,0.07)', border: '1px solid rgba(192,132,252,0.35)', fontSize: 12, lineHeight: 1.85, color: 'var(--text-secondary)' }}>
-        <div style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: 13 }}>🚀 波段追強（強勢整理）· <span style={{ color: '#fbbf24' }}>持有 5 個交易日</span></div>
-        <div>挑「10 日趨勢強、5 日剛回冷、法人連 5 日買」的強勢整理股——<b style={{ color: 'var(--text-primary)' }}>不是追過熱</b>（RSI10 必須高於 RSI5）。與 🌊起漲榜互補：起漲抄跌深、追強買強勢回檔，兩者皆 5 日語意。</div>
-        <div>⚠ <b style={{ color: 'var(--text-primary)' }}>絕不可隔日沖</b>：隔日開賣 −0.07%——edge 全在第 5 日。</div>
-      </div>
-      {(d.caveats ?? []).map((c, i) => (
-        <div key={i} style={{ padding: '9px 14px', borderRadius: 12, fontSize: 12, lineHeight: 1.75, fontWeight: 600,
-          background: 'rgba(250,176,5,0.09)', border: '1px solid rgba(250,176,5,0.35)', color: 'var(--text-primary)' }}>{c}</div>
-      ))}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--text-muted)' }}>
-        <span>📅 {d.date} · 收盤定版</span>
-        {d.instWindow && <span>🏦 法人視窗 {d.instWindow[d.instWindow.length - 1]}~{d.instWindow[0]}（t-1~t-5·與回測同口徑）</span>}
-        <span>共 {d.total ?? 0} 檔</span>
-      </div>
-      <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(192,132,252,0.4)' }}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 6 }}>📐 {d.evidence?.rule}</div>
-        {items.map(it => (
-          <div key={it.code} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
-            <button onClick={() => navigateTo('stock', it.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 12.5, padding: 0 }}>{it.code} {it.name}</button>
-            <span style={{ fontSize: 10.5, color: '#c084fc' }}>法人5日/均量 {(it.inst5Ratio * 100).toFixed(1)}%</span>
-            {it.lowVol && <span title="20日波動<1.5%。實測此子集兩窗都較差（主窗 5日均-1.649%·中位-1.172%·淨勝37.8%；OOT 中位-0.735%·淨勝43.3%）。未設為 gate 是因為排除後對剩餘部位改善僅+0.31/+0.14pp 且 OOT 前半≈0，未達本站門檻——故只標記，請自行下修勝率。" style={{ fontSize: 10.5, color: '#2f9e44' }}>😴低波動{it.vol20}%</span>}
-            {it.kdDead && <span title="KD 死亡交叉。追強母體上實測兩窗一致較差：主窗 5日中位-2.168%(基準-0.443%)·淨勝39.5%(46.7%)·不破今低-8.0pp；OOT 中位-0.605%(-0.173%)·淨勝44.0%(48.9%)·不破底-7.2pp。未設 gate 是因為「未死叉」側對剩餘部位的均值改善在 OOT 為 0 且前半轉負——只標記，請自行下修。" style={{ fontSize: 10.5, color: '#f87171' }}>⚔KD死叉</span>}
-            <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
-            {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
-            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>
-            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: UP, minWidth: 82, textAlign: 'right' }}>法人+{it.inst5.toLocaleString()}</span>
-          </div>
-        ))}
-        {items.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>今日無符合——本榜日均僅 1.6 檔，空榜是常態。</div>}
-      </div>
-      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(240,62,62,0.06)', border: '1px solid rgba(240,62,62,0.25)', fontSize: 11.5, lineHeight: 1.85, color: 'var(--text-secondary)' }}>
-        <div><b style={{ color: 'var(--text-primary)' }}>🔬 主窗</b>：{d.evidence?.main}</div>
-        <div style={{ marginTop: 4 }}><b style={{ color: 'var(--text-primary)' }}>🔬 OOT</b>：{d.evidence?.oot}</div>
-        <div style={{ marginTop: 4 }}><b style={{ color: 'var(--text-primary)' }}>🌐 Regime</b>：{d.evidence?.regime}</div>
-        <div style={{ marginTop: 4 }}><b style={{ color: '#ff8787' }}>⚠ 風險</b>：{d.evidence?.risk}</div>
-        <div style={{ marginTop: 4 }}><b style={{ color: '#ff8787' }}>🛡 否證記錄</b>：{d.evidence?.refuted}</div>
-      </div>
-    </div>
-  );
-}
-
-function SwingTab() {
-  const navigateTo = useAppStore(s => s.navigateTo);
-  const [d, setD] = useState<SwingData | null>(null);
-  useEffect(() => {
-    let live = true;
-    const load = () => fetch('/api/ai/swing-picks').then(r => (r.ok ? r.json() : null)).then(j => { if (live && j) setD(j); }).catch(() => {});
-    load();
-    const t = setInterval(load, 180000);
-    return () => { live = false; clearInterval(t); };
-  }, []);
-  if (!d) return <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: 16 }}>載入波段起漲…</div>;
-  if (!d.found) return <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: 16 }}>尚無資料（常駐服務數分鐘內產生）。</div>;
-  const items = d.items || [];
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 12, lineHeight: 1.85, color: 'var(--text-secondary)' }}>
-        <div style={{ fontWeight: 900, color: 'var(--text-primary)', fontSize: 13 }}>🌊 波段起漲選股 · <span style={{ color: '#fbbf24' }}>持有 5 個交易日</span></div>
-        <div>⚠ <b style={{ color: 'var(--text-primary)' }}>這不是隔日沖訊號</b>：本訊號隔日開盤賣 −0.06%／隔日收盤賣 −0.44%／持有5日 +1.10%——edge 全在第5日，用隔日沖方式操作會賺不到。也因此<b>不併入隔日沖綜合評分</b>。</div>
-        <div>{d.horizon}</div>
-      </div>
-      <div style={{ padding: '9px 14px', borderRadius: 12, fontSize: 12.5, fontWeight: 700, lineHeight: 1.7,
-        background: d.bearDay === false ? 'rgba(47,158,68,0.10)' : 'rgba(240,62,62,0.08)',
-        border: `1px solid ${d.bearDay === false ? 'rgba(47,158,68,0.4)' : 'rgba(240,62,62,0.3)'}`,
-        color: d.bearDay === false ? '#69db7c' : 'var(--text-primary)' }}>
-        {d.gate}
-      </div>
-      {(d.caveats ?? []).map((c, i) => (
-        <div key={i} style={{ padding: '9px 14px', borderRadius: 12, fontSize: 12, lineHeight: 1.75, fontWeight: 600,
-          background: 'rgba(250,176,5,0.09)', border: '1px solid rgba(250,176,5,0.35)', color: 'var(--text-primary)' }}>
-          {c}
-        </div>
-      ))}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--text-muted)' }}>
-        <span>📅 {d.date} · {d.mode === 'live' ? '盤中即時' : '收盤定版'}</span>
-        {d.instDate && <span>🏦 法人資料 {d.instDate}{d.instSameDay ? '（含今日T86 → 明日買進）' : '（前一交易日 → 今日收盤可買）'}</span>}
-        <span>共 ⭐⭐⭐{d.counts?.t3 ?? 0} / ⭐⭐{d.counts?.t2 ?? 0} / ⭐{d.counts?.t1 ?? 0} 檔{d.crowded ? '（僅顯示前 30）' : ''}</span>
-      </div>
-      {TIER.map(t => {
-        const list = items.filter(x => x.tier === t.n);
-        return (
-          <div key={t.n} style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: `1px solid ${t.color}55` }}>
-            <div style={{ fontWeight: 900, fontSize: 13.5, color: t.color }}>{t.label} <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>{list.length} 檔</span></div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, margin: '2px 0 6px' }}>📐 {d.evidence?.[t.key]}</div>
-            {list.map(it => (
-              <div key={it.code} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
-                <button onClick={() => navigateTo('stock', it.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 12.5, padding: 0 }}>{it.code} {it.name}</button>
-                {it.deepPull && <span style={{ fontSize: 10.5, color: '#c084fc' }}>深回檔 {(it.posture60! * 100).toFixed(0)}%</span>}
-                {it.bigVol && <span style={{ fontSize: 10.5, color: '#7dd3fc' }}>量{it.vol.toLocaleString()}張</span>}
-                {it.vol20 != null && <span title="20日日報酬標準差。本榜已套用 vol20≥1.5% 波動 gate——低波動股實測真起漲僅8.6%(基準18.9%)、5日均-1.268%，是純負貢獻，一律不上榜。" style={{ fontSize: 10.5, color: it.vol20 >= 3 ? '#fb923c' : '#94a3b8' }}>波動{it.vol20}%</span>}
-                {it.breakRisk && <span title={'KD 交叉→5日內破今日最低的機率（實證·主窗/OOT）：金叉 57.4%/50.3%、無交叉≈基準 71.9%/65.6%、死叉 80.8%/75.3%。⚠這是破底風險不是漲幅——拆解檢定顯示 KD 交叉對「5日內漲≥5%」貢獻為零，推漲幅的是波動。用途：預估「破前低無條件停損」多久會觸發。'} style={{ fontSize: 10.5, color: it.breakRisk === 'low' ? '#22c55e' : it.breakRisk === 'high' ? '#f87171' : '#94a3b8' }}>破底風險{it.breakRisk === 'low' ? '低·KD金叉' : it.breakRisk === 'high' ? '高·KD死叉' : '中'}</span>}
-                <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
-                {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: '#fbbf24', minWidth: 92, textAlign: 'right' }}>RSI {it.rsi5}/{it.rsi10}</span>
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-muted)', minWidth: 64, textAlign: 'right' }}>量比{it.volX}</span>
-                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: UP, minWidth: 78, textAlign: 'right' }}>法人+{it.instT1.toLocaleString()}</span>
-              </div>
-            ))}
-            {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>目前無符合。</div>}
-          </div>
-        );
-      })}
-      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(240,62,62,0.06)', border: '1px solid rgba(240,62,62,0.25)', fontSize: 11.5, lineHeight: 1.85, color: 'var(--text-secondary)' }}>
-        <div><b style={{ color: 'var(--text-primary)' }}>🔬 驗證強度</b>：{d.evidence?.oot}</div>
-        <div style={{ marginTop: 4 }}><b style={{ color: '#ff8787' }}>⚠ 風險</b>：{d.evidence?.risk}</div>
-      </div>
-    </div>
-  );
-}
 
 export default function IndexNewsPage() {
-  const [tab, setTab] = useState<'index' | 'news' | 'topic' | 'swing' | 'strength'>('index');
+  // 2026-08-03 頁面整理：🌊波段起漲 與 🚀波段追強 已移至「選股 → 📋 訊號榜單」
+  //   （波段模式）。它們是**選股清單**，放在「指數·新聞」使用者得先想「這在哪一頁」。
+  //   本頁回歸純粹定位：只看指數、新聞與由新聞衍生的話題選股。
+  const [tab, setTab] = useState<'index' | 'news' | 'topic'>('index');
   return (
     <div style={{ padding: '12px 16px', maxWidth: 1100, margin: '0 auto' }}>
       <PageHelp id="indexnews" />
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        {([['index', '📈 指數分析'], ['news', '📰 每日新聞'], ['topic', '🎯 話題選股'], ['swing', '🌊 波段起漲'], ['strength', '🚀 波段追強']] as const).map(([k, label]) => {
+        {([['index', '📈 指數分析'], ['news', '📰 每日新聞'], ['topic', '🎯 話題選股']] as const).map(([k, label]) => {
           const on = tab === k;
           return (
             <button key={k} onClick={() => setTab(k)}
@@ -500,7 +368,7 @@ export default function IndexNewsPage() {
           );
         })}
       </div>
-      {tab === 'index' ? <IndexTab /> : tab === 'news' ? <NewsTab /> : tab === 'topic' ? <TopicTab /> : tab === 'swing' ? <SwingTab /> : <StrengthTab />}
+      {tab === 'index' ? <IndexTab /> : tab === 'news' ? <NewsTab /> : <TopicTab />}
     </div>
   );
 }

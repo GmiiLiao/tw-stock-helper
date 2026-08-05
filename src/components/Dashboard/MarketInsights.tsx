@@ -43,19 +43,13 @@ const col = (v: number) => (v > 0 ? up : v < 0 ? down : 'var(--color-flat)');
 export default function MarketInsights() {
   const [inst, setInst] = useState<{ foreign: Streak[]; trust: Streak[]; latestDate?: string } | null>(null);
   const [bt, setBt] = useState<Backtest | null>(null);
-  const [rs, setRs] = useState<RSItem[]>([]);
-  const [trade, setTrade] = useState<{ dayTrade: TradeItem[]; overnight: TradeItem[] } | null>(null);
   const [taifex, setTaifex] = useState<Taifex | null>(null);
   const [post, setPost] = useState<DailyPost | null>(null);
-  const [scanner, setScanner] = useState<Scanner | null>(null);
   const [gm, setGm] = useState<GlobalMarkets | null>(null);
-  const [rev, setRev] = useState<{ month?: string; topYoY: RevItem[] } | null>(null);
-  const [margin, setMargin] = useState<{ squeeze: MarginItem[] } | null>(null);
   const [major, setMajor] = useState<{ date?: string; top: MajorHolder[] } | null>(null);
   const [div, setDiv] = useState<DivItem[]>([]);
   const [lend, setLend] = useState<LendItem[]>([]);
   const [health, setHealth] = useState<MarketHealth | null>(null);
-  const [divStocks, setDivStocks] = useState<DivStock[]>([]);
   const [mtf, setMtf] = useState<MTItem[]>([]);
   const [rising, setRising] = useState<RisingItem[]>([]);
   const [note, setNote] = useState<{ date: string; content: string; forecast?: { bullish: { sector: string; reason: string }[]; bearish: { sector: string; reason: string }[]; model: string } | null } | null>(null);
@@ -82,19 +76,13 @@ export default function MarketInsights() {
     const load = () => {
       get('/api/ai/institutional-streaks', (d: any) => d && setInst({ foreign: d.foreign || [], trust: d.trust || [], latestDate: d.latestDate }));
       get('/api/ai/backtest', (d: any) => setBt(d));
-      get('/api/ai/rs-ranking', (d: any) => setRs(d?.top || []));
-      get('/api/ai/trade-signals', (d: any) => d && setTrade({ dayTrade: d.dayTrade || [], overnight: d.overnight || [] }));
       get('/api/ai/taifex', (d: any) => setTaifex(d));
       get('/api/ai/daily-post', (d: any) => setPost(d));
-      get('/api/ai/scanner', (d: any) => setScanner(d));
       get('/api/ai/global-markets', (d: any) => setGm(d));
-      get('/api/ai/revenue', (d: any) => d && setRev({ month: d.month, topYoY: d.topYoY || [] }));
-      get('/api/ai/margin-short', (d: any) => d && setMargin({ squeeze: d.squeeze || [] }));
       get('/api/ai/major-holders', (d: any) => { if (d) { setMajor({ date: d.date, top: d.top || [] }); setRising(d.rising || []); } });
       get('/api/ai/dividend-calendar', (d: any) => d && setDiv(d.upcoming || []));
       get('/api/ai/lending', (d: any) => d && setLend(d.top || []));
       get('/api/ai/market-health', (d: any) => setHealth(d));
-      get('/api/ai/dividend-stocks', (d: any) => d && setDivStocks(d.top || []));
       get('/api/ai/multi-timeframe', (d: any) => d && setMtf(d.resonant || []));
       get('/api/ai/morning-note', (d: any) => d?.content && setNote({ date: d.date, content: d.content, forecast: d.forecast || null }));
       get('/api/ai/catalyst-calendar', (d: any) => d && setCal(d.events || []));
@@ -107,13 +95,25 @@ export default function MarketInsights() {
     return () => { live = false; clearInterval(id); };
   }, []);
 
-  const hasAny = inst || bt || rs.length || trade || taifex || post || scanner || gm || rev || margin || major || div.length || lend.length || health || divStocks.length || mtf.length || rising.length;
+  const hasAny = inst || bt || taifex || post || gm || major || div.length || lend.length || health || mtf.length || rising.length;
+  // ── 固定分節（2026-08-03 頁面整理）─────────────────────────────
+  // 整理前這裡是 21 張卡以 grid auto-fit 排成一片，其中 17 張「有資料才顯示」——
+  // 缺一張，後面整排位置就跳，使用者永遠記不住「往下滑幾下是我要的」。
+  // 現在固定成三段（盤前 → 大盤體質 → 參考資料），段落標題永遠在，
+  // 段內沒資料就顯示原因而不是整段消失。
+  const Section = ({ icon, name, hint }: { icon: string; name: string; hint: string }) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '22px 0 10px', flexWrap: 'wrap' }}>
+      <span style={{ fontWeight: 900, fontSize: '1rem' }}>{icon} {name}</span>
+      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{hint}</span>
+      <div style={{ flex: 1, height: 1, background: 'rgba(148,163,184,0.18)', marginLeft: 4, minWidth: 20 }} />
+    </div>
+  );
   const rocMMDD = (d: string) => (d && d.length >= 7 ? `${d.slice(3, 5)}/${d.slice(5, 7)}` : d);
   if (!hasAny) return null;
-  const scanCats: Array<[string, ScanItem[]]> = scanner ? [['🔺 創新高', scanner.newHigh52], ['💥 爆量突破', scanner.volBreakout], ['📶 均線多頭', scanner.maBull], ['🚀 飆股', scanner.strong]] : [];
 
   return (
     <div style={{ marginBottom: 20 }}>
+      <Section icon="🌅" name="盤前" hint="開盤前該看的：晨報風向 · 隔夜美股 · ADR 溢價（日韓早盤在本頁最上方）" />
       {/* 盤前晨報（daemon 開盤前 70 分生成，按日期保存於第二大腦） */}
       {note?.content && (
         <div style={{ ...card, marginBottom: 16, borderColor: 'rgba(56,189,248,0.35)' }}>
@@ -187,6 +187,7 @@ export default function MarketInsights() {
         </div>
       )}
 
+      <Section icon="📊" name="大盤體質與行事曆" hint="健康度 · 多時間框架 · 事件日曆 · 風險警示（選股清單已移至「選股 → 📋 訊號榜單」）" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
         {/* 催化劑事件日曆（未來 35 天） */}
         {cal.length > 0 && (
@@ -282,80 +283,10 @@ export default function MarketInsights() {
           </div>
         )}
 
-        {/* 高股息存股 */}
-        {divStocks.length > 0 && (
-          <div style={card}>
-            <div style={title}>🏦 高股息存股 <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>殖利率≥4%·低估值</span></div>
-            {divStocks.slice(0, 8).map(x => (
-              <div key={x.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', padding: '4px 0' }}>
-                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.code} {x.name}</span>
-                <span style={{ whiteSpace: 'nowrap', marginLeft: 6 }}>
-                  <b style={{ color: up }}>{x.yield}%</b>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 6 }}>PER {x.pe}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
 
 
-        {/* 相對強弱 RS 選股 */}
-        {rs.length > 0 && (
-          <div style={card}>
-            <div style={title}>💪 相對強弱 RS 選股 <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>近60日</span></div>
-            {rs.slice(0, 8).map(x => (
-              <div key={x.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', padding: '4px 0' }}>
-                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
-                <span style={{ display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap', marginLeft: 6 }}>
-                  <b style={{ color: up }}>RS {x.rs}</b>
-                  <span style={{ color: col(x.ret60), fontFamily: "'JetBrains Mono', monospace" }}>{sign(x.ret60)}{x.ret60}%</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
 
-        {/* 當沖 / 隔日沖訊號 */}
-        {trade && (trade.dayTrade.length > 0 || trade.overnight.length > 0) && (
-          <div style={card}>
-            <div style={title}>⚡ 當沖 / 隔日沖候選</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              {([['當沖(振幅)', trade.dayTrade], ['隔日沖(動能)', trade.overnight]] as const).map(([lbl, list]) => (
-                <div key={lbl}>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 6 }}>{lbl}</div>
-                  {list.slice(0, 6).map(x => (
-                    <div key={x.code} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '3px 0' }}>
-                      <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
-                      <span style={{ color: col(x.changePct), whiteSpace: 'nowrap', marginLeft: 6 }}>{lbl[0] === '當' ? `${x.amplitude}%` : `${sign(x.changePct)}${x.changePct}%`}</span>
-                    </div>
-                  ))}
-                  {list.length === 0 && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>—</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* 技術選股掃描器 */}
-        {scanner && scanCats.some(([, l]) => l.length > 0) && (
-          <div style={card}>
-            <div style={title}>🔍 技術選股掃描</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {scanCats.map(([lbl, list]) => (
-                <div key={lbl}>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 5 }}>{lbl} ({list.length})</div>
-                  {list.slice(0, 4).map(x => (
-                    <div key={x.code} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', padding: '2px 0' }}>
-                      <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
-                      <span style={{ color: col(x.changePct), whiteSpace: 'nowrap', marginLeft: 6 }}>{x.volX ? `${x.volX}x` : `${sign(x.changePct)}${x.changePct}%`}</span>
-                    </div>
-                  ))}
-                  {list.length === 0 && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>—</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 進階指標（月營收/籌碼/回測…）— 預設收合，降低資訊過載 */}
@@ -368,34 +299,7 @@ export default function MarketInsights() {
 
       {advOpen && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 16 }}>
-        {/* 月營收 YoY */}
-        {rev && rev.topYoY.length > 0 && (
-          <div style={card}>
-            <div style={title}>📈 月營收成長 <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{rev.month} · 年增率</span></div>
-            {rev.topYoY.slice(0, 8).map(x => (
-              <div key={x.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', padding: '4px 0' }}>
-                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
-                <span style={{ display: 'flex', gap: 8, whiteSpace: 'nowrap', marginLeft: 6 }}>
-                  <b style={{ color: up }}>YoY {sign(x.yoy)}{x.yoy}%</b>
-                  <span style={{ color: col(x.mom), fontSize: '0.72rem' }}>MoM {sign(x.mom)}{x.mom}%</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
 
-        {/* 融資軋空候選 */}
-        {margin && margin.squeeze.length > 0 && (
-          <div style={card}>
-            <div style={title}>🩳 軋空候選 <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>高券資比</span></div>
-            {margin.squeeze.slice(0, 8).map(x => (
-              <div key={x.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', padding: '4px 0' }}>
-                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
-                <b style={{ color: '#f59e0b', whiteSpace: 'nowrap', marginLeft: 6 }}>券資比 {x.shortRatio}%</b>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* 除權息行事曆 */}
         {div.length > 0 && (

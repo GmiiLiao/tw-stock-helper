@@ -64,6 +64,8 @@ const PREMIUM = ['premium', 'admin', 'superadmin'];
 const TRIAL_DAYS = 14; // 新註冊會員免費體驗天數（依 Firebase Auth 註冊時間，不可竄改）
 
 export default function StrategyPicks() {
+  // 本分頁是**隔日沖口徑**（撿尾盤定版濾網·明開賣）。使用者在別的模式進來時
+  //   必須明說，否則會拿隔日沖的清單去做 5 日波段（實測 -0.06%）。
   const navigateTo = useAppStore(st => st.navigateTo);
   const user = useAppStore(st => st.user);
   const isPremium = !!user && PREMIUM.includes(user.level);
