@@ -4,7 +4,7 @@ import { sanitizeOhlcSeries } from '@/lib/ohlc-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
 export const runtime = 'nodejs';
 
-// 指數日/週/月 K（指數·新聞頁）：白名單符號避免任意轉發。
+// 指數日/週/月 K（市場總覽「📈 指數分析」分頁）：白名單符號避免任意轉發。
 // 加權/國際指數＝Yahoo chart；櫃買指數＝TPEx 官方（Yahoo ^TWOII 為壞資料——
 // 數值與日期皆錯，棄用）：daemon 每日把官方當月 OHLC 併入 indexHistory/otc 累積，
 // 此處讀累積＋官方當月即時合併，週/月K由日K聚合。回傳 OHLCV（舊→新）。

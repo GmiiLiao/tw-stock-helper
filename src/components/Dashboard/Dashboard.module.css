@@ -351,3 +351,48 @@
     font-size: 0.8rem;
   }
 }
+
+/* ── 市場總覽分頁（2026-08-05 併入指數/新聞）───────────────────── */
+.dashTabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dashTab {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.dashTab:hover { border-color: rgba(125, 211, 252, .45); }
+.dashTabOn {
+  border-color: rgba(125, 211, 252, .6);
+  background: rgba(125, 211, 252, .14);
+  color: var(--text-primary);
+}
+.dashTabTop { font-size: .88rem; font-weight: 900; }
+.dashTabHint { font-size: .68rem; color: var(--text-muted); font-weight: 400; }
+
+/* ── 市場結構三欄：風向總覽 × 籌碼訊號 × 第四法人 ──────────────────
+   auto-fit 讓寬螢幕三欄、中等兩欄、手機單欄；align-items:start 避免
+   最高的那一欄把另外兩欄一起拉長留白。三個子元件都有 slot 佔位，
+   缺資料時不會讓後面的欄往前遞補（位置固定＝使用習慣能固定）。 */
+.structGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .structGrid { grid-template-columns: 1fr; gap: 0; }
+  .dashTab { padding: 7px 12px; flex: 1 1 auto; }
+  .dashTabHint { display: none; }
+}

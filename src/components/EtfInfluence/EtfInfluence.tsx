@@ -48,7 +48,19 @@ function StockEtf({ code }: { code: string }) {
   );
 }
 
-export default function EtfInfluence({ code, compact = false }: { code?: string; compact?: boolean }) {
+
+// ── slot 佔位（2026-08-05）─────────────────────────────────────
+// 市場總覽把本卡與另外兩張並排成欄。若這裡 return null，grid 會把後面的欄
+// 往前遞補——版面位置每天都不一樣，使用者就記不住「我要的在第幾欄」。
+// slot=true 時改為輸出同尺寸的佔位卡：**空的是內容，不是版面**。
+const slotBox = (title: string, why: string) => (
+  <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px dashed rgba(148,163,184,0.28)' }}>
+    <div style={{ fontWeight: 900, fontSize: '1rem', marginBottom: 4 }}>{title}</div>
+    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 }}>{why}</div>
+  </div>
+);
+
+export default function EtfInfluence({ code, compact = false, slot = false }: { code?: string; compact?: boolean; slot?: boolean }) {
   const navigateTo = useAppStore(s => s.navigateTo);
   const [d, setD] = useState<FullData | null>(null);
   const [tab, setTab] = useState<'constituents' | 'edge' | 'premium'>('edge');
@@ -61,7 +73,7 @@ export default function EtfInfluence({ code, compact = false }: { code?: string;
   }, [code]);
 
   if (code) return <StockEtf code={code} />;
-  if (!d?.constituents?.length) return null;
+  if (!d?.constituents?.length) return slot ? slotBox('🏦 第四法人（ETF）', '市值型 ETF 被動買賣盤與成分股權重——尚未取得資料。') : null;
 
   const jump = (c: string) => navigateTo('stock', c);
   const chip = (label: string, key: typeof tab) => (

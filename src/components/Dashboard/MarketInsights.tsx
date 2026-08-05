@@ -1,8 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db as fsdb } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 
 // ── 第二大腦衍生洞察（常駐 daemon 計算 → Firestore → GET 端點）──
@@ -45,23 +43,14 @@ export default function MarketInsights() {
   const [bt, setBt] = useState<Backtest | null>(null);
   const [taifex, setTaifex] = useState<Taifex | null>(null);
   const [post, setPost] = useState<DailyPost | null>(null);
-  const [gm, setGm] = useState<GlobalMarkets | null>(null);
+  const [postOpen, setPostOpen] = useState(false);   // 盤後散文預設收合
   const [major, setMajor] = useState<{ date?: string; top: MajorHolder[] } | null>(null);
   const [div, setDiv] = useState<DivItem[]>([]);
   const [lend, setLend] = useState<LendItem[]>([]);
   const [health, setHealth] = useState<MarketHealth | null>(null);
   const [mtf, setMtf] = useState<MTItem[]>([]);
   const [rising, setRising] = useState<RisingItem[]>([]);
-  const [note, setNote] = useState<{ date: string; content: string; forecast?: { bullish: { sector: string; reason: string }[]; bearish: { sector: string; reason: string }[]; model: string } | null } | null>(null);
-  const [noteOpen, setNoteOpen] = useState(true);
   const [advOpen, setAdvOpen] = useState(false); // 進階指標區塊(月營收/籌碼/回測…)預設收合，降低資訊過載
-  const [fcHits, setFcHits] = useState<{ code: string; name: string; industry: string; side: string }[]>([]);
-  const user = useAppStore(s => s.user);
-  useEffect(() => {
-    if (!user?.uid || !fsdb || typeof (fsdb as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(fsdb, 'users', user.uid, 'data', 'forecastHits'), snap => setFcHits(snap.exists() ? (snap.data().hits || []) : []), () => {});
-    return () => unsub();
-  }, [user?.uid]);
   const [cal, setCal] = useState<CalEvent[]>([]);
   const [dt, setDt] = useState<{ date: string; high: { code: string; name: string; ratio: number }[] } | null>(null);
   const [adr, setAdr] = useState<{ code: string; name: string; premium: number; implied: number; twPrice: number }[]>([]);
@@ -78,13 +67,11 @@ export default function MarketInsights() {
       get('/api/ai/backtest', (d: any) => setBt(d));
       get('/api/ai/taifex', (d: any) => setTaifex(d));
       get('/api/ai/daily-post', (d: any) => setPost(d));
-      get('/api/ai/global-markets', (d: any) => setGm(d));
       get('/api/ai/major-holders', (d: any) => { if (d) { setMajor({ date: d.date, top: d.top || [] }); setRising(d.rising || []); } });
       get('/api/ai/dividend-calendar', (d: any) => d && setDiv(d.upcoming || []));
       get('/api/ai/lending', (d: any) => d && setLend(d.top || []));
       get('/api/ai/market-health', (d: any) => setHealth(d));
       get('/api/ai/multi-timeframe', (d: any) => d && setMtf(d.resonant || []));
-      get('/api/ai/morning-note', (d: any) => d?.content && setNote({ date: d.date, content: d.content, forecast: d.forecast || null }));
       get('/api/ai/catalyst-calendar', (d: any) => d && setCal(d.events || []));
       get('/api/ai/daytrade-ratio', (d: any) => d && setDt({ date: d.date, high: d.high || [] }));
       get('/api/ai/adr-premium', (d: any) => d?.items && setAdr(d.items));
@@ -95,7 +82,7 @@ export default function MarketInsights() {
     return () => { live = false; clearInterval(id); };
   }, []);
 
-  const hasAny = inst || bt || taifex || post || gm || major || div.length || lend.length || health || mtf.length || rising.length;
+  const hasAny = inst || bt || taifex || post || major || div.length || lend.length || health || mtf.length || rising.length || cal.length || adr.length;
   // ── 固定分節（2026-08-03 頁面整理）─────────────────────────────
   // 整理前這裡是 21 張卡以 grid auto-fit 排成一片，其中 17 張「有資料才顯示」——
   // 缺一張，後面整排位置就跳，使用者永遠記不住「往下滑幾下是我要的」。
@@ -113,79 +100,7 @@ export default function MarketInsights() {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      <Section icon="🌅" name="盤前" hint="開盤前該看的：晨報風向 · 隔夜美股 · ADR 溢價（日韓早盤在本頁最上方）" />
-      {/* 盤前晨報（daemon 開盤前 70 分生成，按日期保存於第二大腦） */}
-      {note?.content && (
-        <div style={{ ...card, marginBottom: 16, borderColor: 'rgba(56,189,248,0.35)' }}>
-          <div style={title}>🌅 盤前晨報
-            <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{note.date} · 開盤前70分上報</span>
-            <button onClick={() => setNoteOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{noteOpen ? '收合' : '展開'}</button>
-          </div>
 
-          {/* 今日風向推測 — 大字醒目、收合也顯示 */}
-          {note.forecast && (note.forecast.bullish.length > 0 || note.forecast.bearish.length > 0) && (
-            <div style={{ margin: '2px 0 10px', padding: '12px 16px', borderRadius: 10, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>📰 今日風向推測（依國際盤＋新聞，AI 推測非事實）</div>
-              {note.forecast.bullish.length > 0 && (
-                <div style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--color-up)', lineHeight: 1.7 }}>
-                  🔴 看漲：{note.forecast.bullish.map(x => x.sector).join('、')}
-                  <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>{note.forecast.bullish.map(x => x.reason).join('；')}</span>
-                </div>
-              )}
-              {note.forecast.bearish.length > 0 && (
-                <div style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--color-down)', lineHeight: 1.7 }}>
-                  🟢 看跌：{note.forecast.bearish.map(x => x.sector).join('、')}
-                  <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>{note.forecast.bearish.map(x => x.reason).join('；')}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 我的持股與風向的關聯 — 最高優先醒目提示 */}
-          {fcHits.length > 0 && (
-            <div style={{ margin: '0 0 10px', padding: '12px 16px', borderRadius: 10, background: fcHits.some(h => h.side === 'bear') ? 'rgba(47,158,68,0.12)' : 'rgba(240,62,62,0.10)', border: `2px solid ${fcHits.some(h => h.side === 'bear') ? 'var(--color-down)' : 'var(--color-up)'}` }}>
-              {fcHits.filter(h => h.side === 'bear').length > 0 && (
-                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--color-down)', lineHeight: 1.7 }}>
-                  🚨 你的持股 {fcHits.filter(h => h.side === 'bear').map(h => `${h.code} ${h.name}（${h.industry}）`).join('、')} 屬今日看跌族群 — 開盤請留意
-                </div>
-              )}
-              {fcHits.filter(h => h.side === 'bull').length > 0 && (
-                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-up)', lineHeight: 1.7 }}>
-                  ✨ 你的持股 {fcHits.filter(h => h.side === 'bull').map(h => `${h.code} ${h.name}（${h.industry}）`).join('、')} 屬今日看漲族群
-                </div>
-              )}
-            </div>
-          )}
-
-          {noteOpen && <div style={{ fontSize: '0.86rem', lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{note.content.replace(/^#+ /gm, '').replace(/^- /gm, '· ')}</div>}
-        </div>
-      )}
-
-      {/* 國際盤連動 (隔夜美股/費半/匯率) */}
-      {gm && gm.markets.length > 0 && (
-        <div style={{ ...card, marginBottom: 16 }}>
-          <div style={title}>🌏 國際盤連動
-            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 700, color: gm.expectation.includes('多') ? up : gm.expectation.includes('空') ? down : 'var(--text-muted)' }}>開盤預期：{gm.expectation}</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {gm.markets.map(m => (
-              <div key={m.sym} style={{ flex: '1 1 110px', textAlign: 'center', padding: '8px 4px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{m.name}</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{m.price.toLocaleString()}</div>
-                <div style={{ fontSize: '0.74rem', fontWeight: 700, color: col(m.changePct) }}>{sign(m.changePct)}{m.changePct}%</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* AI 盤後總結貼文 (全寬) */}
-      {post?.post && (
-        <div style={{ ...card, marginBottom: 16 }}>
-          <div style={title}>📝 AI 盤後總結 <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{post.date}</span></div>
-          <div style={{ fontSize: '0.86rem', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{post.post}</div>
-        </div>
-      )}
 
       <Section icon="📊" name="大盤體質與行事曆" hint="健康度 · 多時間框架 · 事件日曆 · 風險警示（選股清單已移至「選股 → 📋 訊號榜單」）" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
@@ -288,6 +203,28 @@ export default function MarketInsights() {
 
 
       </div>
+
+      {/* ── 📝 盤後回顧（2026-08-05）───────────────────────────────
+          原本這張卡夾在「盤前」段落裡——它是**盤後**總結，位置本身就在誤導。
+          盤前三卡搬進 PremarketHub 後，它獨立成段並預設收合：
+          長散文攤開會把下面的進階指標推出畫面，而收盤後才需要讀它。 */}
+      {post?.post && (
+        <>
+          <Section icon="📝" name="盤後回顧" hint="AI 盤後總結 · 收盤後生成" />
+          <div style={{ ...card, cursor: 'pointer' }} onClick={() => setPostOpen(o => !o)}>
+            <div style={title}>📝 AI 盤後總結
+              <span style={{ fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{post.date}</span>
+              <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{postOpen ? '收合' : '展開'}</span>
+            </div>
+            <div style={{
+              fontSize: '0.86rem', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
+              maxHeight: postOpen ? 'none' : 46, overflow: 'hidden',
+              maskImage: postOpen ? undefined : 'linear-gradient(180deg,#000 40%,transparent)',
+              WebkitMaskImage: postOpen ? undefined : 'linear-gradient(180deg,#000 40%,transparent)',
+            }}>{post.post}</div>
+          </div>
+        </>
+      )}
 
       {/* 進階指標（月營收/籌碼/回測…）— 預設收合，降低資訊過載 */}
       <div onClick={() => setAdvOpen(o => !o)} style={{ ...card, marginTop: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px' }}>

@@ -59,7 +59,19 @@ function StockTags({ code }: { code: string }) {
 interface Item { code: string; name: string; foreign: number; trust?: number; dealer?: number; total?: number; streak?: number; close?: number; marginUp?: number }
 interface MarketData { dataDate?: string; marginDate?: string; counts?: Record<string, number>; rules?: Record<string, Item[]> }
 
-export default function ChipSignals({ code, compact = false }: { code?: string; compact?: boolean }) {
+
+// ── slot 佔位（2026-08-05）─────────────────────────────────────
+// 市場總覽把本卡與另外兩張並排成欄。若這裡 return null，grid 會把後面的欄
+// 往前遞補——版面位置每天都不一樣，使用者就記不住「我要的在第幾欄」。
+// slot=true 時改為輸出同尺寸的佔位卡：**空的是內容，不是版面**。
+const slotBox = (title: string, why: string) => (
+  <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px dashed rgba(148,163,184,0.28)' }}>
+    <div style={{ fontWeight: 900, fontSize: '1rem', marginBottom: 4 }}>{title}</div>
+    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 }}>{why}</div>
+  </div>
+);
+
+export default function ChipSignals({ code, compact = false, slot = false }: { code?: string; compact?: boolean; slot?: boolean }) {
   const navigateTo = useAppStore(s => s.navigateTo);
   const allStocks = useAppStore(s => s.allStocks);
   const [data, setData] = useState<MarketData | null>(null);
@@ -74,7 +86,7 @@ export default function ChipSignals({ code, compact = false }: { code?: string; 
   }, [code]);
 
   if (code) return <StockTags code={code} />;
-  if (!data?.rules) return null;
+  if (!data?.rules) return slot ? slotBox('🎯 籌碼訊號', '三大法人四準則。T86 約 15:00 出、融資約 21:30 出——尚未取得今日資料。') : null;
 
   // 個股方塊（熱力圖式）：底色依當日漲跌紅/綠，角標市/櫃，附該榜專屬指標
   const tile = (it: Item, rk: string) => {

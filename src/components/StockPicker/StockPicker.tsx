@@ -6,11 +6,12 @@ import Screener from '@/components/Screener/Screener';
 import NlScreen from './NlScreen';
 import StrategyPicks from './StrategyPicks';
 import SignalBoards from './SignalBoards';
+import TopicPicks from './TopicPicks';
 import { MODES } from '@/lib/trading-mode';
 import styles from './StockPicker.module.css';
 import PageHelp from '@/components/Help/PageHelp';
 
-type PickerTab = 'recommend' | 'boards' | 'strategy' | 'screen';
+type PickerTab = 'recommend' | 'boards' | 'topic' | 'strategy' | 'screen';
 
 // 📋 訊號榜單（2026-08-03 新增）：整理前選股清單散在市場總覽(6張)、指數新聞(2張)、
 //   本頁、盤中戰情、即時追蹤共五處，使用者得先想「這張在哪一頁」。全部收攏到這裡
@@ -23,6 +24,10 @@ const tabs = (modeLabel: string, modeHorizon: string): { id: PickerTab; label: s
   //   **純隔日沖口徑**（明開賣）。把 hint 改成跟著模式跑會變成說謊：
   //   在波段模式顯示「實測驗證·波段」，但裡面給的是隔日沖的策略。
   //   內容沒有多口徑版本之前，標籤就得誠實地釘死在它真正的口徑上。
+  // 🎯話題選股（2026-08-05 由「指數·新聞」搬來）：hint 同樣釘死在它真正的口徑上。
+  //   它**不掛任何模式**——三張清單的窗口各不相同（5日/隔日/避開），
+  //   掛上某個模式等於宣稱它有那個模式的實證。
+  { id: 'topic',     label: '話題選股',   icon: '🎯', hint: '新聞話題 × 5日線 · 不分模式' },
   { id: 'strategy',  label: '選股策略',   icon: '📐', hint: '實測驗證 · 隔日沖口徑' },
   { id: 'screen',    label: '進階篩選',   icon: '🔍', hint: '自訂條件 · 比較分析' },
 ];
@@ -67,6 +72,7 @@ export default function StockPicker() {
         {/* Keep both mounted-on-demand; each manages its own data fetching. */}
         {tab === 'recommend' && <AIRecommend />}
         {tab === 'boards' && <SignalBoards />}
+        {tab === 'topic' && <TopicPicks />}
         {tab === 'strategy' && (
           <>
             {/* 跨模式口徑警告：本分頁內容是隔日沖的撿尾盤定版濾網，在別的模式

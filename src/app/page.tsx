@@ -30,7 +30,6 @@ const WatchlistTracker  = dynamic(() => import('@/components/WatchlistTracker/Wa
 const WarRoom           = dynamic(() => import('@/components/WarRoom/WarRoom'));
 // AdminPanel 只有管理員用得到，卻是所有使用者都在下載的 31KB。
 const AdminPanel        = dynamic(() => import('@/components/Admin/AdminPanel'));
-const IndexNewsPage     = dynamic(() => import('@/components/IndexNews/IndexNewsPage'));
 // HelpManual 連帶 help-content.ts（34KB 純靜態說明文字）
 const HelpManual        = dynamic(() => import('@/components/Help/HelpManual'));
 
@@ -79,7 +78,7 @@ export default function App() {
       <div className={styles.mainArea}>
         <Header />
         <main className={styles.content} id="main-content">
-          {currentPage === 'dashboard' && <Dashboard />}
+          {(currentPage === 'dashboard' || currentPage === 'indexnews') && <Dashboard />}
           {currentPage === 'stock'     && <StockDetail />}
           {currentPage === 'picker'    && <StockPicker />}
           {currentPage === 'portfolio' && <Portfolio />}
@@ -87,7 +86,6 @@ export default function App() {
           {currentPage === 'tracker'   && <WatchlistTracker />}
           {currentPage === 'war'       && <WarRoom />}
           {currentPage === 'admin'     && <AdminPanel />}
-          {currentPage === 'indexnews' && <IndexNewsPage />}
           {currentPage === 'help'      && <HelpManual />}
           {currentPage === 'privacy'   && <PrivacyPage />}
         </main>

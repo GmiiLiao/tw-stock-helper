@@ -4,8 +4,10 @@ import { useAppStore } from '@/lib/store';
 import type { StockInfo } from '@/lib/twse-api';
 import { formatVolume, formatChangeSign, formatChangePercentSign, getChangeColor, isLimitUp, isLimitDown, marketBadge } from '@/lib/twse-api';
 import PremarketBrief from './PremarketBrief';
-import AsiaPremarket from './AsiaPremarket';
+import PremarketHub from './PremarketHub';
 import MarketInsights from './MarketInsights';
+import IndexAnalysis from '@/components/IndexNews/IndexAnalysis';
+import DailyNews from '@/components/IndexNews/DailyNews';
 import TradingRules from '@/components/TradingRules/TradingRules';
 import RiskBadge from '@/components/shared/RiskBadge';
 import WindHub from '@/components/WindHub/WindHub';
@@ -260,8 +262,24 @@ function MarketHeatmap({ stocks }: { stocks: StockInfo[] }) {
   );
 }
 
+// ── 市場總覽分頁（2026-08-05 併入指數與新聞）────────────────────
+// 使用者：「將指數、新聞，搬到市場總覽裡，該是分頁的請做好分頁」。
+// 併回來的理由：指數與新聞都是**大盤背景**，而人要看大盤時本來就在這一頁。
+//   讓它們獨立成「指數·新聞」一頁，等於要使用者記住「看指數要換頁」——
+//   跟選股清單散在五處是同一類問題：東西沒錯，位置需要記憶。
+// 話題選股不留在這裡：它是**選股清單**，已搬到「選股 → 🎯 話題選股」。
+const DASH_TABS = [
+  { id: 'market', icon: '📊', label: '大盤總覽', hint: '風向 · 籌碼 · 漲跌停 · 排行' },
+  { id: 'index',  icon: '📈', label: '指數分析', hint: '日週月K · 自動判讀' },
+  { id: 'news',   icon: '📰', label: '每日新聞', hint: '每日 07:00 四類聚合' },
+] as const;
+type DashTab = typeof DASH_TABS[number]['id'];
+
 export default function Dashboard() {
   const allStocks = useAppStore((s) => s.allStocks);
+  // 分頁存 store：進個股頁再返回時回到原本分頁，而不是被重設回大盤
+  const tab = (useAppStore(s => s.dashTab) || 'market') as DashTab;
+  const setTab = useAppStore(s => s.setDashTab);
 
   const validStocks = allStocks.filter(s => s.price > 0 && s.volume > 0);
   const upStocks = validStocks.filter(s => s.change > 0);
@@ -280,19 +298,38 @@ export default function Dashboard() {
   return (
     <div className={styles.dashboard}>
       <PageHelp id="dashboard" />
-      {/* Premium pre-market AI strategy brief */}
-      <AsiaPremarket />
+
+      <div className={styles.dashTabs} role="tablist" aria-label="市場總覽分頁">
+        {DASH_TABS.map(t => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id}
+            className={`${styles.dashTab} ${tab === t.id ? styles.dashTabOn : ''}`}
+            onClick={() => setTab(t.id)}>
+            <span className={styles.dashTabTop}>{t.icon} {t.label}</span>
+            <span className={styles.dashTabHint}>{t.hint}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === 'index' && <IndexAnalysis />}
+      {tab === 'news' && <DailyNews />}
+
+      {tab === 'market' && (<>
+      {/* 🌅 盤前總覽：隔夜國際盤 × 今晨日韓 × 盤前晨報 三合一（見 PremarketHub 檔頭） */}
+      <PremarketHub />
       <PremarketBrief />
 
-      {/* 風向總覽：題材風向 × 籌碼風向 × 量價背離 整合 */}
       <WashoutBanner />
-      <WindHub compact />
 
-      {/* 三大法人籌碼訊號：四準則判讀 */}
-      <ChipSignals compact />
-
-      {/* 第四法人：ETF 被動買賣盤影響 */}
-      <EtfInfluence compact />
+      {/* ── 三張市場結構卡並排成欄（2026-08-05）─────────────────────
+          使用者：「風向總覽、籌碼訊號與第四法人都應該用欄位的方式」。
+          原本三張各佔一整列，桌機上要捲三個螢幕才看得完，而它們回答的是
+          同一層問題（今天的資金往哪走），本該並排對照。
+          三者都用 slot 佔位，沒資料時不會讓後面的欄往前遞補。 */}
+      <div className={styles.structGrid}>
+        <WindHub compact />
+        <ChipSignals compact slot />
+        <EtfInfluence compact slot />
+      </div>
 
       {/* Market Stats Row */}
       <div className={styles.statsGrid}>
@@ -355,6 +392,7 @@ export default function Dashboard() {
 
       {/* 新手必讀：交易規則與稅務 */}
       <TradingRules />
+      </>)}
     </div>
   );
 }

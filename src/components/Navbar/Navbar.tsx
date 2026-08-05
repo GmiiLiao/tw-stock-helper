@@ -7,8 +7,9 @@ import AiNewsTicker, { NavbarIndexWidget } from '@/components/AiNewsTicker/AiNew
 import ModeSwitcher from '@/components/shared/ModeSwitcher';
 
 const NAV_ITEMS = [
+  // 2026-08-05：「指數·新聞」不再是獨立入口——指數與新聞已成為市場總覽的分頁
+  //   （指數＝大盤背景，人看大盤時本來就在這一頁）；話題選股搬到「選股」。
   { id: 'dashboard', label: '市場總覽', icon: '📊' },
-  { id: 'indexnews', label: '指數·新聞', icon: '📰' },
   { id: 'picker',    label: '選股',     icon: '🎯', badge: 'AI' },
   { id: 'war',       label: '盤中戰情',   icon: '⚡', badge: 'LIVE', premium: true }, // 高級會員限定，非會員完全隱藏（決策工作台為其分頁）
   { id: 'tracker',   label: '即時追蹤',   icon: '📡' },

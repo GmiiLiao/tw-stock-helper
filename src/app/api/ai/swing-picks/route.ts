@@ -3,7 +3,7 @@ import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
-// 波段起漲選股（指數·新聞頁「🌊 波段起漲」分頁）。讀 swingPicks/latest。
+// 波段起漲選股（選股頁「📋 訊號榜單」·波段模式）。讀 swingPicks/latest。
 // ⚠持有 5 個交易日語意，與隔日沖綜合評分口徑分離（本訊號隔日≈0、edge 全在第5日）。
 // 三層分級＋空頭日 gate，實證見 payload.evidence。非投資建議。
 export async function GET() {
