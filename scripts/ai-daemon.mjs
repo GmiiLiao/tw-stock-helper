@@ -4133,7 +4133,7 @@ async function computeRotation() {
 const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                     'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
                     'panicDip', 'overheatExit',
-                    'voteDip', 'overheatV2', 'overheatV3'];   // 反轉訊號（凍結·前瞻驗證·16 榜）
+                    'voteDip', 'overheatV2', 'overheatV3', 'wExit'];   // 反轉訊號（凍結·前瞻驗證·17 榜）
 const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
 // 推薦口徑版本。**改動評分/濾網/排序鍵時務必 +1**，否則新舊成績會被平均在一起。
 const CALIB = 'v2';           // v2 = 2026-08-05 四窗修正＋漲停 gate＋已驗證訊號×3
@@ -4237,6 +4237,7 @@ async function trackPicks() {
   rows.voteDip = pack(await grab('reversalSignals', d => d.up2));
   rows.overheatV2 = pack(await grab('reversalSignals', d => d.down2));
   rows.overheatV3 = pack(await grab('reversalSignals', d => d.down3));   // 低價過熱(避開訊號·OOT 65%)
+  rows.wExit = pack(await grab('reversalSignals', d => d.down4));         // 加權出貨(T3語意·收盤口徑會低估)
   // ── 口徑版本章（2026-08-05）────────────────────────────────────
   // 今天同時改了三件會影響「推薦是什麼」的事：五大因子依四窗檢定修正、
   // 加可交易宇宙 gate（漲停剔除）、排序鍵加上已驗證訊號×3。
@@ -4476,6 +4477,7 @@ async function computeReversalSignals() {
   const days = snap.docs.map(d => ({ date: d.data().date,
     close: d.data().closeJson ? JSON.parse(d.data().closeJson) : null,
     inst: d.data().instJson ? JSON.parse(d.data().instJson) : null,
+    mg: d.data().marginJson ? JSON.parse(d.data().marginJson) : null,
     ln: d.data().lendingJson ? JSON.parse(d.data().lendingJson) : null }))
     .filter(d => d.close).sort((a, b) => a.date.localeCompare(b.date));
   if (days.length < 30) { log('  ✖ 反轉訊號：歸檔不足 30 日'); return; }
@@ -4538,7 +4540,15 @@ async function computeReversalSignals() {
     const ma20 = cl.length >= 20 ? cl.slice(-20).reduce((a2, x) => a2 + x, 0) / 20 : null;
     let fSell = 0; for (let k = 2; k <= 11; k++) { const f = days[N - k]?.inst?.[code]?.[0]; if (f < 0) fSell++; else break; }
     const it1 = P.inst?.[code];
-    cands.push({ code, name: qn[code]?.name || code, price: c, chg: +chg.toFixed(2),
+    let upN = 0; for (let k = cl.length - 1; k > 0 && cl[k] > cl[k - 1]; k--) upN++;   // 連漲天數
+    const b1r = days[N - 2]?.close?.[code], b2r = days[N - 3]?.close?.[code];
+    const w3 = !!(b1r && b2r && c > row[2] && b1r[0] > b1r[2] && b2r[0] > b2r[2]
+      && c > b1r[0] && b1r[0] > b2r[0] && Math.abs(c - row[2]) / pc * 100 >= 1);      // 三白兵
+    const mgP = P.mg?.[code];
+    const sr = mgP && (mgP[0] || 0) > 0 ? (mgP[1] || 0) / mgP[0] : null;              // 券資比(t-1)
+    cands.push({ code, name: qn[code]?.name || code, price: c, chg: +chg.toFixed(2), upN, w3, sr,
+      fMag: it1 != null && av20 > 0 ? (it1[0] || 0) / av20 : null,                    // 外資買賣力道/均量(t-1)
+      tSell: it1 != null && (it1[1] || 0) < 0,                                        // 投信昨賣超
       r5: s5.v, r10: s10.v, p5, p10,
       ret5: c5 > 0 ? (c - c5) / c5 * 100 : null,
       pos: h > l ? (c - l) / (h - l) : 0.5,
@@ -4559,7 +4569,7 @@ async function computeReversalSignals() {
       down.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
     }
   }
-  const up2 = [], down2 = [], down3 = [];
+  const up2 = [], down2 = [], down3 = [], down4 = [];
   for (const s of cands) {
     // 🗳️ voteDip：凍結委員會 10 人投票 ≥7（市場級條件對所有股票同時計票——委員會如此凍結）
     let votes = 0;
@@ -4586,13 +4596,38 @@ async function computeReversalSignals() {
       && s.volX != null && s.volX > 3) {
       down3.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
     }
+    // ⚖️ wExit（2026-08-05 第九輪凍結·wexit-v1·邏輯迴歸加權出貨）
+    //    17 條件權重只在主窗前半窗學（精確值同步存 scripts/data/overheat-weighted-v1.json），
+    //    切分值＝half0 覆蓋率 0.5 pct 分位。目標＝T3「5日內恐觸-3%低點」：
+    //    後半窗(未見) 76.4%·n=785｜OOT 77.2%·n=561·149天（基準41.8%＝超額+35.4pp）——九輪最強樣本外。
+    //    加權勝等權投票 OOT +7.1pp＝權重有真增量。⚠記分板用收盤報酬計超額（該口徑 OOT 僅59.3%），
+    //    會低估本榜的 T3 語意；改任何權重＝wexit calib +1。
+    const z = 0.405847355295998
+      + (s.r5 > 80 && s.p5 > 80 ? 0.023078428045801 : 0)
+      + (s.r5 > 85 && s.p5 > 85 ? 0.034809141945533 : 0)
+      + (s.upSh > 0.5 && s.amp >= 3 ? 0.292751781068495 : 0)
+      + (s.price < 20 ? -0.231706167381413 : 0)
+      + (s.price < 50 ? -0.145116100160978 : 0)
+      + (s.volX != null && s.volX > 5 ? 0.176332778937549 : 0)
+      + (s.volX != null && s.volX > 3 ? 0.221879878624839 : 0)
+      + (s.w3 ? 0.221703534687933 : 0)
+      + (s.p20 != null && s.p20 >= 1 ? -0.011415177900330 : 0)
+      + (s.pos > 0.9 ? -0.042114952784194 : 0)
+      + (s.fSell >= 3 ? -0.125146387404233 : 0)
+      + (s.fMag != null && s.fMag < -0.03 ? 0.091476091596072 : 0)
+      + (s.lnLv != null && s.lnLv > 1 ? -0.550226688197395 : 0)
+      + (s.sr != null && s.sr > 0.2 ? 0.274508021011354 : 0)
+      + (s.upN >= 3 ? -0.168197391490819 : 0)
+      + (s.ret5 != null && s.ret5 > 15 ? 0.615191644652741 : 0)
+      + (s.tSell ? -0.259666171095008 : 0);
+    if (z >= 1.334394970169651) down4.push({ code: s.code, name: s.name, price: s.price, chg: s.chg, score: +z.toFixed(3) });
   }
   await db.collection('reversalSignals').doc('latest').set({
     updatedAt: Date.now(), date: D.date, calib: REV_CALIB,
-    breadth: bLo, mktChg, twiiDD20, up, down, up2, down2, down3,
+    breadth: bLo, mktChg, twiiDD20, up, down, up2, down2, down3, down4,
     note: 'panicDip=恐慌抄底(5條件·多年一遇·空榜是常態)；overheatExit=過熱出貨(避開訊號·記分板超額應為負·非放空)。v1 凍結於 2026-08-05；樣本內數字不可對外宣稱，成績以 picksScoreboard 前瞻累積為準。',
   });
-  log(`✓ 反轉訊號：🩹恐慌抄底 ${up.length}·🗳️投票抄底 ${up2.length}·🚪過熱出貨 ${down.length}·📉爆量出貨 ${down2.length}·🎈低價過熱 ${down3.length}（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）`);
+  log(`✓ 反轉訊號：🩹恐慌抄底 ${up.length}·🗳️投票抄底 ${up2.length}·🚪過熱出貨 ${down.length}·📉爆量出貨 ${down2.length}·🎈低價過熱 ${down3.length}·⚖️加權出貨 ${down4.length}（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）`);
 }
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────

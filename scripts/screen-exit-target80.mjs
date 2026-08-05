@@ -34,7 +34,7 @@ function rsiStep(st, d, p) {
   st.v = st.l === 0 ? 100 : 100 - 100 / (1 + st.g / st.l);
 }
 
-function build(days) {
+export function build(days) {
   const S = [], H = {};
   for (let i = 0; i < days.length; i++) {
     const D = days[i], P = days[i - 1];
@@ -120,7 +120,7 @@ function build(days) {
   return S;
 }
 
-const POOL = [
+export const POOL = [
   ['RSI5連2日>80', 'rsi', s => s.r5 > 80 && s.p5 > 80],
   ['RSI5連2日>85', 'rsi', s => s.r5 > 85 && s.p5 > 85],
   ['長上影', 'kup', s => s.upSh > 0.5 && s.amp >= 3],
@@ -139,15 +139,15 @@ const POOL = [
   ['5日漲>15%', 'ret5', s => s.ret5 != null && s.ret5 > 15],
   ['投信昨賣超', 'tru', s => s.tSell],
 ];
-const TGT = {
+export const TGT = {
   T1: { key: 'f5', hit: v => v < 0, name: '5日後收盤下跌(原目標·淨)' },
   T2: { key: 'minC', hit: v => v <= -2, name: '5日內最低收盤≤-2%(毛)' },
   T3: { key: 'minL', hit: v => v <= -3, name: '5日內曾觸-3%低點(毛)' },
   T4: { key: 'f5', hit: v => v <= -3 + COST, name: '5日後收盤≤-3%(毛)' },
 };
-const isOrdinary = s => s.mkt != null && Math.abs(s.mkt) < 2 && s.bLo <= 30 && s.bHi <= 30;
+export const isOrdinary = s => s.mkt != null && Math.abs(s.mkt) < 2 && s.bLo <= 30 && s.bHi <= 30;
 
-function evalT(S, masks, ids, tgt) {
+export function evalT(S, masks, ids, tgt) {
   let n = 0, w = 0, n0 = 0, w0 = 0, n1 = 0, w1 = 0;
   const daySet = new Set();
   for (let k = 0; k < S.length; k++) {
@@ -233,4 +233,4 @@ const main = async () => {
   console.log(`\n${'═'.repeat(118)}\n判讀：換目標後命中率若變高但超額沒變大，只是題目變簡單，不是訊號變準。非投資建議。\n${'═'.repeat(118)}`);
   process.exit(0);
 };
-main().catch(e => { console.error(e); process.exit(1); });
+if (import.meta.url === `file://${process.argv[1]}`) main().catch(e => { console.error(e); process.exit(1); });
