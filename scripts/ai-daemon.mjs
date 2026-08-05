@@ -3911,7 +3911,10 @@ async function tgSendAlerts(uid, newAlerts) {
     const chatId = await tgChatIdOf(uid); if (!chatId) return;
     for (const a of newAlerts.slice(0, 5)) {
       const link = /^\d{4,6}$/.test(String(a.code || '')) ? `\nhttps://tw-stock-helper.web.app/?code=${a.code}` : '';
-      await tgApi('sendMessage', { chat_id: chatId, text: `${a.message}${link}`, disable_web_page_preview: true });
+      const body = { chat_id: chatId, text: `${a.message}${link}`, disable_web_page_preview: true };
+      // 反轉訊號要求點擊確認：附 inline 按鈕，callback 由 tgLinkLoop 回寫 ack
+      if (a.requireAck && a.id) body.reply_markup = { inline_keyboard: [[{ text: '✅ 我已收到', callback_data: `ack:${uid}:${a.id}` }]] };
+      await tgApi('sendMessage', body);
     }
   } catch { /* tg 失敗不影響主流程 */ }
 }
@@ -3927,6 +3930,22 @@ async function tgLinkLoop() {
       const r = await tgApi('getUpdates', { offset: _tgOffset, timeout: 25 });
       for (const u of (r?.result || [])) {
         _tgOffset = u.update_id + 1;
+        const cq = u.callback_query;
+        if (cq?.data) {
+          const am = cq.data.match(/^ack:([A-Za-z0-9]{10,64}):([a-z0-9]{6,20})$/);
+          if (am) {
+            try {
+              const aref = db.collection('users').doc(am[1]).collection('data').doc('alerts');
+              const arr = (await aref.get()).data()?.alerts || [];
+              const next = arr.map(a => a.id === am[2] ? { ...a, ack: Date.now(), ackVia: 'telegram' } : a);
+              await aref.set({ updatedAt: Date.now(), alerts: next });
+              await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: '✅ 已確認收到' });
+              await tgApi('editMessageReplyMarkup', { chat_id: cq.message?.chat?.id, message_id: cq.message?.message_id, reply_markup: { inline_keyboard: [] } });
+              log(`  ✅ TG 確認收到 ${am[1].slice(0, 6)} ${am[2]}`);
+            } catch { await tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: '確認失敗，請在網站上點擊' }); }
+          }
+          continue;
+        }
         const msg = u.message; if (!msg?.text) continue;
         const m = msg.text.match(/^\/start[ =]+([A-Za-z0-9]{10,64})$/); // uid 格式白名單，防路徑注入
         if (m) {
@@ -4628,6 +4647,74 @@ async function computeReversalSignals() {
     note: 'panicDip=恐慌抄底(5條件·多年一遇·空榜是常態)；overheatExit=過熱出貨(避開訊號·記分板超額應為負·非放空)。v1 凍結於 2026-08-05；樣本內數字不可對外宣稱，成績以 picksScoreboard 前瞻累積為準。',
   });
   log(`✓ 反轉訊號：🩹恐慌抄底 ${up.length}·🗳️投票抄底 ${up2.length}·🚪過熱出貨 ${down.length}·📉爆量出貨 ${down2.length}·🎈低價過熱 ${down3.length}·⚖️加權出貨 ${down4.length}（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）`);
+  await pushReversalAlerts(D.date, { up, up2, down, down2, down3, down4, bLo, mktChg }).catch(e => log('  ✖ 反轉推播', e.message));
+}
+
+// ── 反轉訊號直接推播＋點擊確認（2026-08-05 使用者要求）────────────
+// 上漲訊號（恐慌/投票抄底）＝市場級事件·推給全部會員；
+// 下跌訊號（四條出貨規則）＝只推「該用戶持股/自選有中」的個股（人性化：與我有關才提醒）。
+// 每則 requireAck：Web 顯示「✅ 收到」按鈕、Telegram 附 inline 按鈕；
+// 隔日訊號日若前一則仍未確認，再提醒一次（只補一次，不無限轟炸）。
+async function pushReversalAlerts(date, sig) {
+  const upAll = [
+    ...sig.up.map(x => ({ ...x, rule: '🩹恐慌抄底' })),
+    ...sig.up2.map(x => ({ ...x, rule: '🗳️投票抄底' })),
+  ];
+  const dnAll = []; const seenDn = new Set();
+  for (const [arr, rule] of [[sig.down, '🚪過熱出貨'], [sig.down2, '📉爆量出貨'], [sig.down3, '🎈低價過熱'], [sig.down4, '⚖️加權出貨']]) {
+    for (const x of arr) if (!seenDn.has(x.code)) { seenDn.add(x.code); dnAll.push({ ...x, rule }); }
+  }
+  if (!upAll.length && !dnAll.length) return;
+  const premium = await getPremiumUsers();
+  let idSeq = 0; const mkId = () => `r${Date.now().toString(36)}${(idSeq++).toString(36)}`;
+  for (const u of premium) {
+    const uid = u.id;
+    try {
+      const aref = db.collection('users').doc(uid).collection('data').doc('alerts');
+      const prev = (await aref.get()).data()?.alerts || [];
+      const haveKey = new Set(prev.map(a => a.key).filter(Boolean));
+      const newAlerts = [];
+      // 上漲＝市場級：所有會員都收
+      if (upAll.length) {
+        const key = `rev:${date}:up`;
+        if (!haveKey.has(key)) {
+          const rules = [...new Set(upAll.map(x => x.rule))].join('＋');
+          const ex = upAll.slice(0, 3).map(x => `${x.code} ${x.name}`).join('、');
+          newAlerts.push({ code: upAll[0].code, name: upAll[0].name, type: 'reversalUp',
+            price: upAll[0].price ?? 0, threshold: 0, pnlPct: 0, key, id: mkId(), requireAck: true,
+            message: `📈 反轉訊號日（${date}）：${rules} 觸發 ${upAll.length} 檔（大盤中位 ${sig.mktChg}%·超賣廣度 ${sig.bLo}）例 ${ex}。請點「✅ 收到」確認。非投資建議`, at: Date.now() });
+        }
+      }
+      // 下跌＝個人化：只推持股/自選有中的
+      if (dnAll.length) {
+        const [wl, hd] = await Promise.all([
+          db.collection('users').doc(uid).collection('data').doc('watchlist').get(),
+          db.collection('users').doc(uid).collection('data').doc('holdings').get(),
+        ]);
+        const mine = new Set();
+        for (const w of (wl.exists ? (wl.data().watchlist || []) : [])) if (w?.code) mine.add(w.code);
+        for (const h of (hd.exists ? (hd.data().holdings || []) : [])) if (h?.code) mine.add(h.code);
+        for (const x of dnAll.filter(x => mine.has(x.code)).slice(0, 3)) {
+          const key = `rev:${date}:dn:${x.code}`;
+          if (haveKey.has(key)) continue;
+          newAlerts.push({ code: x.code, name: x.name, type: 'reversalDown',
+            price: x.price ?? 0, threshold: 0, pnlPct: 0, key, id: mkId(), requireAck: true,
+            message: `📉 出貨訊號（${date}）：你持股/自選的 ${x.code} ${x.name} 觸發【${x.rule}】——重放統計 5 日內約 2/3~3/4 會出現 -3% 低點（前瞻驗證中·非放空訊號）。請點「✅ 收到」確認。非投資建議`, at: Date.now() });
+        }
+      }
+      // 未確認補提醒（48h 內·只補一次）
+      const unacked = prev.filter(a => a.requireAck && !a.ack && !a.reminded
+        && String(a.type).startsWith('reversal') && Date.now() - a.at < 48 * 3600e3 && Date.now() - a.at > 12 * 3600e3);
+      const merged = prev.map(a => unacked.includes(a) ? { ...a, reminded: true } : a);
+      const reminders = unacked.slice(0, 2).map(a => ({ ...a, id: a.id, at: Date.now(),
+        message: `⏰ 尚未確認收到：${a.message.slice(0, 60)}…（請點「✅ 收到」）` }));
+      if (newAlerts.length || reminders.length) {
+        await aref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...merged].slice(0, 40) });
+        pushAlerts(uid, [...newAlerts, ...reminders]).catch(() => {});
+        log(`  🔔 反轉推播 ${uid.slice(0, 6)}: 新 ${newAlerts.length}·補提醒 ${reminders.length}`);
+      }
+    } catch (e) { log('  ✖ 反轉推播', uid.slice(0, 6), e.message); }
+  }
 }
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────

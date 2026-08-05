@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 
@@ -9,9 +9,11 @@ import { useAppStore } from '@/lib/store';
 
 interface Alert {
   code: string; name: string;
-  type: 'stop' | 'take' | 'reentry' | 'trailing' | 'custom' | 'catalyst' | 'thesis' | 'discipline' | 'buyzone' | 'exdiv' | 'anomaly' | 'daytrade' | 'etfprem' | 'dca' | 'adr' | 'defense' | 'exit' | 'forecast' | 'earlybird' | 'opensell' | 'chipclear' | 'chipsell' | 'chipweak' | 'finwarn' | 'rebound' | 'washout' | 'rsiHot85' | 'rsiDual85';
+  type: 'stop' | 'take' | 'reentry' | 'trailing' | 'custom' | 'catalyst' | 'thesis' | 'discipline' | 'buyzone' | 'exdiv' | 'anomaly' | 'daytrade' | 'etfprem' | 'dca' | 'adr' | 'defense' | 'exit' | 'forecast' | 'earlybird' | 'opensell' | 'chipclear' | 'chipsell' | 'chipweak' | 'finwarn' | 'rebound' | 'washout' | 'rsiHot85' | 'rsiDual85' | 'reversalUp' | 'reversalDown';
   price: number; threshold: number; pnlPct: number;
   message: string; at: number;
+  // 反轉訊號要求點擊確認（daemon pushReversalAlerts 寫入；TG 端也可確認）
+  id?: string; key?: string; requireAck?: boolean; ack?: number; ackVia?: string; reminded?: boolean;
 }
 
 const STYLE: Record<Alert['type'], { color: string; icon: string }> = {
@@ -46,12 +48,26 @@ const STYLE: Record<Alert['type'], { color: string; icon: string }> = {
   rsiHot85: { color: '#eab308', icon: '⚠️' },
   rsiDual85: { color: '#fb923c', icon: '🔥' },
   finwarn: { color: '#a78bfa', icon: '📉' },
+  reversalUp: { color: '#f03e3e', icon: '📈' },     // 反轉上漲＝紅（台股語意）
+  reversalDown: { color: '#2f9e44', icon: '📉' },   // 出貨訊號＝壞訊＝綠
 };
 
 export default function PortfolioAlerts() {
   const user = useAppStore(st => st.user);
   const navigateTo = useAppStore(st => st.navigateTo);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [acking, setAcking] = useState<string | null>(null);
+
+  // 點擊「✅ 收到」：回寫 ack 時間戳（整份 alerts 重寫＝與 daemon 同一寫法）
+  const ackAlert = async (id: string) => {
+    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    setAcking(id);
+    try {
+      const next = alerts.map(a => a.id === id ? { ...a, ack: Date.now(), ackVia: 'web' } : a);
+      await setDoc(doc(db, 'users', user.uid, 'data', 'alerts'), { updatedAt: Date.now(), alerts: next });
+    } catch { /* onSnapshot 會回捲畫面，失敗不需額外處理 */ }
+    setAcking(null);
+  };
 
   useEffect(() => {
     if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
@@ -84,6 +100,15 @@ export default function PortfolioAlerts() {
             }}>
             <span style={{ fontSize: 18 }}>{st.icon}</span>
             <span style={{ flex: 1, fontSize: '0.86rem', color: 'var(--text-primary)', fontWeight: 600 }}>{a.message}</span>
+            {a.requireAck && a.id && (a.ack
+              ? <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>已確認 ✓</span>
+              : <button
+                  onClick={e => { e.stopPropagation(); if (a.id) ackAlert(a.id); }}
+                  disabled={acking === a.id}
+                  style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${color}`, background: color,
+                    color: '#fff', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {acking === a.id ? '…' : '✅ 收到'}
+                </button>)}
             {clickable && <span style={{ fontSize: '0.72rem', color, fontWeight: 700, whiteSpace: 'nowrap' }}>開啟 ›</span>}
             <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               {new Date(a.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
