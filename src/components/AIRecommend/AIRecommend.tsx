@@ -113,6 +113,15 @@ const STRATEGY_TABS = [
   { id: 'defensive', label: '🛡️ 穩健防禦', desc: '低波動優質股' },
 ];
 
+// 記分板列：與上方 5 個分頁一一對應（2026-08-05 起 5 榜全記，先前只記前 2 個）
+const SCORE_ROWS: [string, string][] = [
+  ['top20', '🤖 AI 精選 TOP20'],
+  ['intraday', '⚡ 盤中潛力'],
+  ['daily', '🚀 動能強勢'],
+  ['growth', '📈 成長潛力'],
+  ['defensive', '🛡️ 穩健防禦'],
+];
+
 const GRADE_COLORS: Record<string, string> = {
   'A+': '#c92a2a',
   'A': '#e67700',
@@ -655,7 +664,18 @@ export default function AIRecommend() {
   }, [activeTab]);
 
   // 推薦成績記分板（AI 榜單可信度）
-  const [scoreboard, setScoreboard] = useState<{ records: number; agg: Record<string, Record<string, { n: number; winRate: number; avgRet: number }>> } | null>(null);
+  // 2026-08-05 擴充：加入同期基準與超額。**絕對勝率單獨看是沒有意義的**——
+  //   同一個 -5.44% 在多頭市場是災難、在崩盤市場可能是勝利。超額才是選股能力。
+  const [scoreboard, setScoreboard] = useState<{
+    records: number; from?: string; cost?: number;
+    agg: Record<string, Record<string, {
+      n: number; winRate: number; avgRet: number; medRet?: number; netRet?: number;
+      base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
+      excess?: number | null; excessTradable?: number | null;
+      skipped?: number; tradableN?: number; tradableAvg?: number | null;
+      entryDays?: number;
+    }>>;
+  } | null>(null);
   useEffect(() => {
     fetch('/api/ai/picks-scoreboard').then(r => (r.ok ? r.json() : null)).then(d => d?.agg && setScoreboard(d)).catch(() => {});
   }, []);
@@ -688,23 +708,85 @@ export default function AIRecommend() {
         )}
       </div>
 
-      {/* 推薦成績記分板：各榜單 5/10/20 日勝率（可信度校準） */}
-      {scoreboard && (Object.keys(scoreboard.agg.top20 || {}).length > 0 || Object.keys(scoreboard.agg.intraday || {}).length > 0) && (
+      {/* ── 🏅 推薦成績記分板（2026-08-05 加入同期基準）───────────────
+          使用者問「勝率怎麼這麼差？是選股能力太差嗎？」——舊版只給絕對報酬，
+          答不出這個問題。現在每個窗口都並列**同期可交易宇宙等權基準**：
+          追蹤期間全市場等權 5 日就是 -3.72%，所以 -5.84% 的真正意義是
+          「比隨便買差 2.12pp」，而不是「跌了 5.84%」。
+          超額用大字、絕對報酬用小字——這是刻意的排序。 */}
+      {scoreboard && Object.keys(scoreboard.agg || {}).length > 0 && (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-          <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 8 }}>🏅 AI 推薦成績（滾動追蹤 {scoreboard.records} 個交易日）
-            <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>每檔推薦於 5/10/20 日後以收盤結算</span>
+          <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 4 }}>🏅 AI 推薦成績（滾動追蹤 {scoreboard.records} 個交易日）
+            <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
+              每檔推薦於 5/10/20 個交易日後以官方收盤結算{scoreboard.from ? ` · 自 ${scoreboard.from}` : ''}
+            </span>
           </div>
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12.5 }}>
-            {([['top20', '🤖 TOP20'], ['intraday', '⚡ 盤中潛力']] as const).map(([k, label]) => (
-              <div key={k}>
-                <b>{label}</b>：
-                {(['d5', 'd10', 'd20'] as const).map(h => {
-                  const s = scoreboard.agg[k]?.[h];
-                  return s ? <span key={h} style={{ marginLeft: 8 }}>{h.slice(1)}日 勝率 <b style={{ color: s.winRate >= 55 ? 'var(--color-up)' : s.winRate >= 45 ? '#f59e0b' : 'var(--color-down)' }}>{s.winRate}%</b>（均 {s.avgRet >= 0 ? '+' : ''}{s.avgRet}%，n={s.n}）</span> : null;
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 8 }}>
+            <b style={{ color: '#7dd3fc' }}>先看超額，不要只看勝率。</b>
+            超額＝推薦均報 −「同期可交易宇宙等權」基準。<b>絕對報酬主要由市況決定</b>——
+            空頭段裡任何只做多的清單都會是負的；超額才是「選得準不準」。
+            基準口徑與本站回測平台一致：4 碼普通股、量 ≥300 張、<b>剔除進場日漲停</b>（收盤價買不到）。
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
+              <thead>
+                <tr style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>榜單</th>
+                  {[5, 10, 20].map(h => <th key={h} style={{ textAlign: 'right', padding: '4px 10px' }}>{h} 日超額</th>)}
+                  <th style={{ textAlign: 'left', padding: '4px 10px' }}>絕對報酬（勝率／均報／同期基準）</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SCORE_ROWS.map(([k, label]) => {
+                  const g = scoreboard.agg[k];
+                  return (
+                    <tr key={k} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                      <td style={{ padding: '5px 8px', fontWeight: 800, whiteSpace: 'nowrap' }}>{label}</td>
+                      {[5, 10, 20].map(h => {
+                        const r = g?.[`d${h}`];
+                        if (!r || r.excess == null) return <td key={h} style={{ textAlign: 'right', padding: '5px 10px', color: 'var(--text-muted)' }}>—</td>;
+                        const thin = (r.entryDays ?? 0) < 5;   // 進場日太少＝還不是估計值
+                        return (
+                          <td key={h} style={{ textAlign: 'right', padding: '5px 10px', fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>
+                            <b style={{ fontSize: 13, color: r.excess > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                              {r.excess > 0 ? '+' : ''}{r.excess}pp
+                            </b>
+                            {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 10, color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
+                          </td>
+                        );
+                      })}
+                      <td style={{ padding: '5px 10px', color: 'var(--text-muted)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                        {[5, 10, 20].map(h => {
+                          const r = g?.[`d${h}`];
+                          if (!r) return null;
+                          return <span key={h} style={{ marginRight: 10 }}>
+                            {h}日 {r.winRate}%／{r.avgRet >= 0 ? '+' : ''}{r.avgRet}%
+                            {r.base ? <span style={{ opacity: 0.7 }}>（基準 {r.base.winRate}%／{r.base.avgRet >= 0 ? '+' : ''}{r.base.avgRet}%）</span> : null}
+                          </span>;
+                        })}
+                        {!g && <span>尚未累積（本榜自 2026-08-05 起記錄，5 個交易日後出現第一筆）</span>}
+                      </td>
+                    </tr>
+                  );
                 })}
-                {!scoreboard.agg[k] || !Object.keys(scoreboard.agg[k]).length ? <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>累積中（5 個交易日後出現）</span> : null}
+              </tbody>
+            </table>
+          </div>
+          {(() => {
+            const t = scoreboard.agg.top20?.d5;
+            if (!t || !t.skipped) return null;
+            return (
+              <div style={{ fontSize: 11, color: '#fbbf24', lineHeight: 1.7, marginTop: 8 }}>
+                ⚠ <b>可交易性</b>：TOP20 的 5 日樣本中有 <b>{t.skipped}/{t.n}（{Math.round(t.skipped / t.n * 100)}%）</b>
+                在推薦當日就漲停——<b>收盤價買不到</b>。五大因子把「今日漲幅」與「漲停分析」算成加分，
+                所以榜首天生偏向當天最強、也最買不到的那幾檔。
+                剔除這些之後的超額是 <b>{t.excessTradable != null && t.excessTradable > 0 ? '+' : ''}{t.excessTradable}pp</b>。
               </div>
-            ))}
+            );
+          })()}
+          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.7 }}>
+            均報為未扣費稅的價差；來回成本 {scoreboard.cost ?? 0.4425}%（手續費×2＋證交稅）需自行扣除。
+            歷史績效不代表未來；本記分板是**誠實揭露**，不是推薦保證。非投資建議。
           </div>
         </div>
       )}

@@ -4100,38 +4100,146 @@ async function computeRotation() {
 // ════════════════════════════════════════════════════════════
 
 // ── 37) AI 推薦成績追蹤（元技能：讓各榜單的可信度可衡量）────────
-// 每交易日收盤後記錄 TOP20 與盤中潛力榜；5/10/20 個交易日到期時凍結報酬，
-// 彙總成勝率記分板。全程式計算。
+// 2026-08-05 大改（使用者問「勝率怎麼這麼差？是選股能力太差嗎？」）。
+//
+// 舊版有三個讓數字**無法判讀**的缺口，全站只有這裡犯：
+//   ① 沒有同期基準 —— 「5日 -5.44%」到底好不好？實測那段期間可交易宇宙
+//      等權是 -3.72%，所以答案是「比隨便買還差 2.1pp」。少了基準，同一個
+//      -5.44% 在多頭市場是災難、在崩盤市場可能是勝利，看的人無從分辨。
+//      這正是 bt-core 存在的理由，記分板卻繞過了它。
+//   ② 沒有可交易性檢查 —— 實測 TOP20 有 37% 的推薦當日就漲停，收盤價根本
+//      買不到。把買不到的標的計入成績，量的是幻想部位。
+//   ③ 沒扣費稅 —— 純價差不是實拿。
+// 另外 UI 有 5 個分頁，這裡卻只記 2 個榜，另外 3 個從來沒有歷史。
+//
+// 現在：5 榜全記、每個窗口都附同期基準與超額、標記漲停不可買、給扣費稅淨值。
+// **超額（vs 基準）才是選股能力**，絕對報酬主要由市況決定。
+const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive'];
+const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
+
+/** chipArchive 一日：{ code: [收盤, 量(張), 開, 高, 低] }。⚠[2] 是開盤價不是漲跌% */
+async function _closeMap(date) {
+  try {
+    const d = (await db.collection('chipArchive').doc(date).get()).data();
+    return d?.closeJson ? JSON.parse(d.closeJson) : null;
+  } catch { return null; }
+}
+
+/** 可交易宇宙同期等權報酬：4碼普通股·量≥300張·進場日非漲停（與 bt-core 同口徑） */
+function _baseline(entryMap, prevMap, exitMap) {
+  const rets = [];
+  for (const c in entryMap) {
+    if (!/^\d{4}$/.test(c) || c.startsWith('00')) continue;
+    const e = entryMap[c]?.[0], v = entryMap[c]?.[1] || 0, x = exitMap[c]?.[0];
+    if (!(e > 0) || !(x > 0) || v < 300) continue;
+    const pc = prevMap?.[c]?.[0];
+    if (pc > 0 && (e - pc) / pc * 100 > 8.5) continue;      // 進場日漲停＝買不到
+    rets.push((x - e) / e * 100);
+  }
+  return rets;
+}
+
+const _agg = (rets) => {
+  if (!rets.length) return null;
+  const s = [...rets].sort((a, b) => a - b);
+  return {
+    n: rets.length,
+    winRate: Math.round(rets.filter(v => v > 0).length / rets.length * 100),
+    avgRet: +(rets.reduce((a, v) => a + v, 0) / rets.length).toFixed(2),
+    medRet: +s[s.length >> 1].toFixed(2),
+  };
+};
+
 async function trackPicks() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
   const date = isoDate(tw);
   const snap = await readSnapshotQuotes(); const q = snap?.quotes || {};
   const rec = await getJSON('/api/twse/ai-recommend');
-  const top20 = (rec?.recommendations || []).slice(0, 20).map(r => ({ code: r.code, name: r.name || r.code, score: r.score, price: q[r.code]?.price ?? 0 })).filter(p => p.price > 0);
-  let intraday = [];
-  try { const ip = (await db.collection('intradayPicks').doc('latest').get()).data(); if (ip?.picks) intraday = JSON.parse(ip.picks).slice(0, 20).map(r => ({ code: r.code, name: r.name || r.code, score: r.score, price: q[r.code]?.price ?? 0 })).filter(p => p.price > 0); } catch { /* skip */ }
-  await db.collection('picksHistory').doc(date).set({ date, top20, intraday }, { merge: true });
 
-  // 到期評估：第 5/10/20 個交易日以當日收盤凍結報酬
+  // 進場日漲跌%：用歸檔的今收與昨收算（snapshot 的 changePercent 盤中會變）
+  const todayMap = await _closeMap(date);
+  const prevDate = (await db.collection('chipArchive').where('date', '<', date).orderBy('date', 'desc').limit(1).get()).docs[0]?.id || null;
+  const prevMap = prevDate ? await _closeMap(prevDate) : null;
+  const chgOf = code => {
+    const c = todayMap?.[code]?.[0] ?? q[code]?.price, p = prevMap?.[code]?.[0];
+    return c > 0 && p > 0 ? +((c - p) / p * 100).toFixed(2) : null;
+  };
+  const pack = list => (list || []).slice(0, 20)
+    .map(r => ({ code: r.code, name: r.name || r.code, score: r.score, price: q[r.code]?.price ?? 0, chg: chgOf(r.code) }))
+    .filter(p => p.price > 0);
+
+  const rows = {
+    top20: pack(rec?.recommendations),
+    daily: pack(rec?.strategies?.daily),
+    growth: pack(rec?.strategies?.growth),
+    defensive: pack(rec?.strategies?.defensive),
+    intraday: [],
+  };
+  try {
+    const ip = (await db.collection('intradayPicks').doc('latest').get()).data();
+    if (ip?.picks) rows.intraday = pack(JSON.parse(ip.picks));
+  } catch { /* 盤中榜可能當日未產生，不影響其他榜 */ }
+  await db.collection('picksHistory').doc(date).set({ date, ...rows }, { merge: true });
+
+  // ── 到期評估：第 5/10/20 個交易日以當日收盤凍結，同時凍結同期基準 ──
   const hist = await db.collection('picksHistory').get();
   const docs = hist.docs.map(d => d.data()).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
   const idx = Object.fromEntries(docs.map((d, i) => [d.date, i]));
   for (const d of docs) {
     const age = idx[date] - idx[d.date];
     for (const h of [5, 10, 20]) {
-      if (age !== h || d[`eval${h}`]) continue;
-      const ev = list => (list || []).map(p => (p.price > 0 && q[p.code]?.price > 0 ? +(((q[p.code].price - p.price) / p.price) * 100).toFixed(2) : null)).filter(v => v != null);
-      d[`eval${h}`] = { top20: ev(d.top20), intraday: ev(d.intraday) };
-      await db.collection('picksHistory').doc(d.date).set({ [`eval${h}`]: d[`eval${h}`] }, { merge: true });
+      if (age !== h || d[`eval${h}`]?.base) continue;      // 已評過（含基準）就跳過
+      const entryMap = await _closeMap(d.date);
+      const ePrevDate = docs[idx[d.date] - 1]?.date || null;
+      const ePrevMap = ePrevDate ? await _closeMap(ePrevDate) : null;
+      const out = {};
+      for (const k of PICK_LISTS) {
+        // all＝全部推薦；tradable＝剔除進場日漲停（收盤價買不到的不算數）
+        const all = [], tradable = [];
+        for (const p of (d[k] || [])) {
+          const x = q[p.code]?.price;
+          if (!(p.price > 0) || !(x > 0)) continue;
+          const r = +(((x - p.price) / p.price) * 100).toFixed(2);
+          all.push(r);
+          if (!(p.chg > 8.5)) tradable.push(r);
+        }
+        if (all.length) out[k] = { all, tradable };
+      }
+      // 同期基準：同一進場日、同一持有期、可交易宇宙等權
+      if (entryMap && todayMap) out.base = _baseline(entryMap, ePrevMap, todayMap);
+      d[`eval${h}`] = out;
+      await db.collection('picksHistory').doc(d.date).set({ [`eval${h}`]: out }, { merge: true });
     }
   }
-  const agg = { top20: {}, intraday: {} };
-  for (const h of [5, 10, 20]) for (const k of ['top20', 'intraday']) {
-    const rets = docs.flatMap(d => d[`eval${h}`]?.[k] || []);
-    if (rets.length) agg[k][`d${h}`] = { n: rets.length, winRate: Math.round(rets.filter(v => v > 0).length / rets.length * 100), avgRet: +(rets.reduce((s, v) => s + v, 0) / rets.length).toFixed(2) };
+
+  // ── 彙總：每榜每窗 = 推薦 / 可交易推薦 / 同期基準 / 超額 ──
+  const agg = {};
+  for (const h of [5, 10, 20]) {
+    const baseRets = docs.flatMap(d => d[`eval${h}`]?.base || []);
+    const base = _agg(baseRets);
+    for (const k of PICK_LISTS) {
+      const all = docs.flatMap(d => d[`eval${h}`]?.[k]?.all || []);
+      const trad = docs.flatMap(d => d[`eval${h}`]?.[k]?.tradable || []);
+      const a = _agg(all); if (!a) continue;
+      const t = _agg(trad);
+      (agg[k] ||= {})[`d${h}`] = {
+        ...a,
+        netRet: +(a.avgRet - PICK_COST).toFixed(2),             // 扣來回費稅
+        tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
+        skipped: all.length - (t?.n ?? 0),                      // 進場日漲停·買不到
+        base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
+        // 超額＝選股能力。絕對報酬主要由市況決定，這一項才是「選得準不準」
+        excess: base ? +(a.avgRet - base.avgRet).toFixed(2) : null,
+        excessTradable: base && t ? +(t.avgRet - base.avgRet).toFixed(2) : null,
+        entryDays: docs.filter(d => d[`eval${h}`]?.[k]?.all?.length).length,
+      };
+    }
   }
-  await db.collection('picksScoreboard').doc('latest').set({ updatedAt: Date.now(), from: docs[0]?.date || date, records: docs.length, agg });
-  log(`✓ 推薦成績：${date} 已記錄（歷史 ${docs.length} 日）`);
+  await db.collection('picksScoreboard').doc('latest').set({
+    updatedAt: Date.now(), from: docs[0]?.date || date, records: docs.length, cost: PICK_COST, agg,
+    note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。netRet 已扣 0.4425% 來回費稅。',
+  });
+  log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
 }
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────
