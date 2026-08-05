@@ -671,6 +671,11 @@ export default function AIRecommend() {
   //   同一個 -5.44% 在多頭市場是災難、在崩盤市場可能是勝利。超額才是選股能力。
   const [scoreboard, setScoreboard] = useState<{
     records: number; from?: string; cost?: number;
+    calib?: string; calibFrom?: string; recordsV2?: number;
+    aggV2?: Record<string, Record<string, {
+      n: number; winRate: number; avgRet: number; excess?: number | null; entryDays?: number;
+      base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
+    }>>;
     agg: Record<string, Record<string, {
       n: number; winRate: number; avgRet: number; medRet?: number; netRet?: number;
       base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
@@ -719,10 +724,31 @@ export default function AIRecommend() {
           超額用大字、絕對報酬用小字——這是刻意的排序。 */}
       {scoreboard && Object.keys(scoreboard.agg || {}).length > 0 && (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-          <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 4 }}>🏅 AI 推薦成績（滾動追蹤 {scoreboard.records} 個交易日）
+          <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 4 }}>🏅 AI 推薦成績
             <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
-              每檔推薦於 5/10/20 個交易日後以官方收盤結算{scoreboard.from ? ` · 自 ${scoreboard.from}` : ''}
+              每檔推薦於 5/10/20 個交易日後以官方收盤結算
             </span>
+          </div>
+
+          {/* ── 口徑分界（2026-08-05）─────────────────────────────────
+              今天同時改了三件會改變「推薦是什麼」的事：五大因子依四窗檢定修正、
+              加可交易宇宙 gate、排序鍵加上已驗證訊號×3。
+              ⇒ 今天之後的推薦與 08-04 以前**不是同一個系統**。
+              把兩者平均在一起，使用者會把已汰換評分器的 -2.12pp
+              讀成「現行推薦很爛」。所以分開顯示，而且**現行口徑放前面**。 */}
+          <div style={{ padding: '8px 12px', borderRadius: 9, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 11.5, lineHeight: 1.8, marginBottom: 10 }}>
+            <b style={{ color: 'var(--text-primary)' }}>🆕 現行口徑（{scoreboard.calib ?? 'v2'}）成績：累積中</b>
+            {scoreboard.calibFrom && <span style={{ color: 'var(--text-muted)' }}>——自 {scoreboard.calibFrom} 起共 {scoreboard.recordsV2 ?? 0} 個交易日，第 5 個交易日後出現第一筆。</span>}
+            <br />
+            <span style={{ color: 'var(--text-muted)' }}>
+              2026-08-05 同時改了三件事：五大因子依 bt-core 四窗檢定修正（「收在日高」由滿分改為扣分）、
+              加入可交易宇宙 gate（漲停股剔除，舊版佔 TOP20 的 37%）、排序鍵加上已驗證訊號 ×3。
+              <b style={{ color: '#fbbf24' }}>下面那張表量的是改版前的舊系統</b>，照實保留但不代表現在這張榜。
+            </span>
+          </div>
+
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>
+            📜 舊口徑歷史成績（{scoreboard.from} ~ 2026-08-04 · {scoreboard.records} 個交易日 · <span style={{ color: '#fbbf24' }}>系統已汰換</span>）
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 8 }}>
             <b style={{ color: '#7dd3fc' }}>先看超額，不要只看勝率。</b>

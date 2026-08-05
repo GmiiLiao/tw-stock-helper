@@ -24,7 +24,8 @@ interface Cell {
   excess?: number | null; excessTradable?: number | null;
   skipped?: number; entryDays?: number;
 }
-interface Board { records: number; from?: string; agg: Record<string, Record<string, Cell>> }
+interface Board { records: number; from?: string; calib?: string; calibFrom?: string; recordsV2?: number;
+  agg: Record<string, Record<string, Cell>>; aggV2?: Record<string, Record<string, Cell>> }
 
 let cache: Board | null = null;
 let inflight: Promise<Board | null> | null = null;
@@ -50,7 +51,12 @@ export default function HitRate({ list, label, horizons = [5, 10] }: {
   const [b, setB] = useState<Board | null>(cache);
   useEffect(() => { let live = true; load().then(d => { if (live) setB(d); }); return () => { live = false; }; }, []);
 
-  const g = b?.agg?.[list];
+  // 口徑優先序（2026-08-05）：先用**現行口徑**的成績；沒有才退回全歷史。
+  // 退回時必須標明——用舊系統的成績替現行系統背書，就是這輪一直在清的問題。
+  const gV2 = b?.aggV2?.[list];
+  const gAll = b?.agg?.[list];
+  const g = (gV2 && Object.keys(gV2).length) ? gV2 : gAll;
+  const isLegacy = !(gV2 && Object.keys(gV2).length) && !!gAll && Object.keys(gAll).length > 0;
   const box: React.CSSProperties = {
     display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap',
     padding: '6px 10px', borderRadius: 8, marginBottom: 8,
@@ -92,8 +98,13 @@ export default function HitRate({ list, label, horizons = [5, 10] }: {
           </span>
         );
       })}
+      {isLegacy && (
+        <span style={{ fontSize: 10.5, color: '#fbbf24' }} title="2026-08-05 改了評分/濾網/排序鍵，此處顯示的是改版前的成績">
+          ⚠舊口徑（{b.calibFrom ? `${b.calibFrom} 前` : '改版前'}）
+        </span>
+      )}
       <span style={{ color: 'var(--text-muted)', fontSize: 10.5, marginLeft: 'auto' }}>
-        超額＝減去同期可交易宇宙等權；追蹤 {b.records} 日。非投資建議。
+        超額＝減去同期可交易宇宙等權；追蹤 {isLegacy ? b.records : (b.recordsV2 ?? b.records)} 日。非投資建議。
       </span>
     </div>
   );

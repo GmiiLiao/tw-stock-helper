@@ -135,6 +135,8 @@ const main = async () => {
   if (WRITE) {
     await db.collection('picksScoreboard').doc('latest').set({
       updatedAt: Date.now(), from: hist[0]?.date, records: hist.length, cost: COST, agg: A,
+      // ⚠回填只重算 agg（全歷史）。calib/aggV2 由 daemon 的 trackPicks 維護——
+      //   這裡不要覆蓋，否則會把「現行口徑」的分流洗掉。
       note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。netRet 已扣 0.4425% 來回費稅。',
     });
     console.log('\n✓ picksScoreboard/latest 已更新');

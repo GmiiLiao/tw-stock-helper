@@ -4133,6 +4133,8 @@ async function computeRotation() {
 const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                     'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight'];
 const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
+// 推薦口徑版本。**改動評分/濾網/排序鍵時務必 +1**，否則新舊成績會被平均在一起。
+const CALIB = 'v2';           // v2 = 2026-08-05 四窗修正＋漲停 gate＋已驗證訊號×3
 
 /** chipArchive 一日：{ code: [收盤, 量(張), 開, 高, 低] }。⚠[2] 是開盤價不是漲跌% */
 async function _closeMap(date) {
@@ -4225,7 +4227,13 @@ async function trackPicks() {
   //   一開始我把命中率掛成 chipPicks——那會用甲榜的成績去背書乙榜，
   //   跟「標籤動了內容沒動」是同一種說謊。榜單鍵一定要對著實際資料源。
   rows.overnight = pack(await grab('tradeSignals', d => d.overnight));
-  await db.collection('picksHistory').doc(date).set({ date, ...rows }, { merge: true });
+  // ── 口徑版本章（2026-08-05）────────────────────────────────────
+  // 今天同時改了三件會影響「推薦是什麼」的事：五大因子依四窗檢定修正、
+  // 加可交易宇宙 gate（漲停剔除）、排序鍵加上已驗證訊號×3。
+  // ⇒ 今天之後記錄的推薦，與 2026-08-04 以前**不是同一個系統**。
+  //   若混在同一個平均裡，使用者看到的 -2.12pp 會被讀成「現行推薦很爛」，
+  //   但那其實是**已汰換評分器**的成績。標記版本，彙總時分開算。
+  await db.collection('picksHistory').doc(date).set({ date, calib: CALIB, ...rows }, { merge: true });
 
   // ── 到期評估：第 5/10/20 個交易日以當日收盤凍結，同時凍結同期基準 ──
   const hist = await db.collection('picksHistory').get();
@@ -4281,8 +4289,33 @@ async function trackPicks() {
       };
     }
   }
+  // 只用現行口徑（v2）再算一份——這才是「現在這張榜」的成績。
+  // 舊口徑那份仍然保留並照實顯示，但要標明它量的是已汰換的系統。
+  const v2 = docs.filter(d => d.calib === CALIB);
+  const aggV2 = {};
+  for (const h of [5, 10, 20]) {
+    const baseRets = v2.flatMap(d => d[`eval${h}`]?.base || []);
+    const base = _agg(baseRets);
+    for (const k of PICK_LISTS) {
+      const all = v2.flatMap(d => d[`eval${h}`]?.[k]?.all || []);
+      const trad = v2.flatMap(d => d[`eval${h}`]?.[k]?.tradable || []);
+      const a = _agg(all); if (!a) continue;
+      const t = _agg(trad);
+      (aggV2[k] ||= {})[`d${h}`] = {
+        ...a, netRet: +(a.avgRet - PICK_COST).toFixed(2),
+        tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
+        skipped: all.length - (t?.n ?? 0),
+        base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
+        excess: base ? +(a.avgRet - base.avgRet).toFixed(2) : null,
+        excessTradable: base && t ? +(t.avgRet - base.avgRet).toFixed(2) : null,
+        entryDays: v2.filter(d => d[`eval${h}`]?.[k]?.all?.length).length,
+      };
+    }
+  }
+
   await db.collection('picksScoreboard').doc('latest').set({
     updatedAt: Date.now(), from: docs[0]?.date || date, records: docs.length, cost: PICK_COST, agg,
+    calib: CALIB, calibFrom: v2[0]?.date || date, recordsV2: v2.length, aggV2,
     note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。netRet 已扣 0.4425% 來回費稅。',
   });
   log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
