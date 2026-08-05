@@ -23,7 +23,8 @@ const db = getFirestore(initializeApp({ credential: applicationDefault(), projec
 
 const WRITE = process.argv.includes('--write');
 const LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
-               'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight'];
+               'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
+               'panicDip', 'overheatExit'];
 const COST = 0.4425;
 const HOLD = [5, 10, 20];
 
