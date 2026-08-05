@@ -1676,9 +1676,21 @@ async function computeTradeSignals() {
   // 當沖：日內振幅大 + 量能足(可操作的日內區間)。
   const dayTrade = enrich.filter(x => x.amplitude >= 3).sort((a, b) => (b.amplitude * Math.log(b.value)) - (a.amplitude * Math.log(a.value))).slice(0, 15);
   // 隔日沖：收紅 + 收盤接近當日高點(動能延續，適合留倉隔日)。
-  const overnight = enrich.filter(x => x.changePct > 1.5 && x.closePos >= 0.8).sort((a, b) => (b.changePct * b.closePos) - (a.changePct * a.closePos)).slice(0, 15);
+  // ── 隔日沖候選：可交易宇宙 gate（2026-08-05 上線驗證時抓到）──────
+  // 舊版沒有 gate，實際榜上第一頁全是 +10/+9.98/+9.97% 的漲停股——
+  // **隔日沖的定義就是「今日收盤買」，漲停買不到，整張榜等於不可執行**。
+  // 這與 ai-recommend 剛加的 gate 是同一條規則，但當時只補了 web 那一邊，
+  // 漏了 daemon 這邊；是在瀏覽器看實際榜單才發現的。
+  //   ⇒ 教訓：同一條口徑規則若有兩個產生點，補一邊等於沒補。
+  // 排序改用 closePos（收盤強度）為主、漲幅為輔——上限 8.5% 之後，
+  // 再用漲幅乘權會把排序推向 8.4% 那一格，那正是四窗檢定❌的區間。
+  const overnight = enrich
+    .filter(x => x.changePct > 1.5 && x.changePct <= 8.5 && x.closePos >= 0.8)
+    .sort((a, b) => (b.closePos - a.closePos) || (b.changePct - a.changePct))
+    .slice(0, 15);
   await db.collection('tradeSignals').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), dayTrade, overnight });
-  log(`✓ 當沖/隔日沖：當沖 ${dayTrade.length} 檔、隔日沖 ${overnight.length} 檔`);
+  const luDropped = enrich.filter(x => x.changePct > 8.5 && x.closePos >= 0.8).length;
+  log(`✓ 當沖/隔日沖：當沖 ${dayTrade.length} 檔、隔日沖 ${overnight.length} 檔（因漲停買不到剔除 ${luDropped} 檔）`);
 }
 
 // ── 6) 相對強弱 RS 選股 ──────────────────────────────────────
@@ -7801,6 +7813,7 @@ if (ONESHOT) {
     strengthPicks: () => computeStrengthPicks(),
     globalMarkets: () => computeGlobalMarkets(),
     trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
+    tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }
