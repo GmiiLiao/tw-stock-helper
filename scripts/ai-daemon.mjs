@@ -4132,7 +4132,8 @@ async function computeRotation() {
 //     口徑是「隔日有沒有漲停」而不是報酬率），重複追蹤會出現兩個互相矛盾的數字。
 const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                     'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
-                    'panicDip', 'overheatExit'];   // 反轉訊號 v1（凍結·前瞻驗證）
+                    'panicDip', 'overheatExit',
+                    'voteDip', 'overheatV2'];      // 反轉訊號（凍結·前瞻驗證·15 榜）
 const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
 // 推薦口徑版本。**改動評分/濾網/排序鍵時務必 +1**，否則新舊成績會被平均在一起。
 const CALIB = 'v2';           // v2 = 2026-08-05 四窗修正＋漲停 gate＋已驗證訊號×3
@@ -4232,6 +4233,9 @@ async function trackPicks() {
   // overheatExit 是**避開訊號**——它的超額為負才代表訊號有效，讀記分板時要反著看。
   rows.panicDip = pack(await grab('reversalSignals', d => d.up));
   rows.overheatExit = pack(await grab('reversalSignals', d => d.down));
+  // voteDip=投票制抄底(半窗80%/OOT61%)；overheatV2=爆量出貨(避開訊號·超額應為負)
+  rows.voteDip = pack(await grab('reversalSignals', d => d.up2));
+  rows.overheatV2 = pack(await grab('reversalSignals', d => d.down2));
   // ── 口徑版本章（2026-08-05）────────────────────────────────────
   // 今天同時改了三件會影響「推薦是什麼」的事：五大因子依四窗檢定修正、
   // 加可交易宇宙 gate（漲停剔除）、排序鍵加上已驗證訊號×3。
@@ -4453,12 +4457,21 @@ async function computeRecommendAdj() {
 //      主窗 81.1%[77.4/84.9]·OOT 70.6%——籌碼兩條件提供純價量拿不到的增量
 //      （純價量最高 ~68%）。⚠是「持有者該出/空手別追」，不是放空；
 //      記分板上它的超額應為**負**才代表訊號有效。
+//   🗳️ voteDip（投票制抄底·2026-08-05 晚間凍結）＝ 10 人委員會投票 ≥7 票。
+//      委員（凍結名單）：廣度>30檔／5日跌>15%／RSI10連2日<20／大盤跌>2%／
+//      RSI10連2日<25／RSI5連2日<15／5日跌>10%／大盤跌>1%／低於MA20>10%／60日位階<0.7。
+//      **巢狀驗證通過**：只用前半窗選委員=與全窗版 10/10 相同（無選擇偏誤）；
+//      沒看過的後半窗 80.0%(n=630)、OOT 61.4%(n=70·47觸發日·基準44.7%=+16.7pp)。
+//      誠實數字＝全窗86.4%/半窗80%/OOT61%——**不是90%**，90% 經三輪窮舉證明
+//      在「觸發分散＋OOT維持」下結構性不可得。
+//   📉 overheatV2（爆量出貨·v2 候選）＝ 收位>0.9 ∧ 量比>5 ∧ 破20日高 ∧ 三法人合計昨賣超(t-1)。
+//      73.3%[68.9/76.7]·n=206·觸發145天·OOT 58.3%——命中低於 v1 但觸發分散得多。
 // ⚠規則已凍結；改任何門檻都必須把 REV_CALIB +1 並在記分板分流（同 CALIB 教訓）。
 const REV_CALIB = 'v1';
 
 async function computeReversalSignals() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
-  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(52).get();
+  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(80).get();   // 80：60日位階需 60+ 根
   const days = snap.docs.map(d => ({ date: d.data().date,
     close: d.data().closeJson ? JSON.parse(d.data().closeJson) : null,
     inst: d.data().instJson ? JSON.parse(d.data().instJson) : null,
@@ -4514,13 +4527,25 @@ async function computeReversalSignals() {
     if (!(v >= 300) || chg > 8.5) continue;                    // 可交易宇宙（漲停買不到）
     if (s10.v < 20 && p10 < 20) bLo++;                          // 超賣廣度（規則凍結口徑：RSI10連2日<20）
     const c5 = cl[cl.length - 5];
-    let av20 = 0; for (let k = 1; k <= 20; k++) av20 += vl[vl.length - k] || 0; av20 /= 20;
+    let av20 = 0, hi20 = 0, hi60 = 0;
+    for (let k = 1; k <= Math.min(60, cl.length - 1); k++) {
+      const x = cl[cl.length - 1 - k];                                  // 不含今日的前 k 日
+      if (k <= 20) { av20 += vl[vl.length - 1 - k] || 0; if (x > hi20) hi20 = x; }
+      if (x > hi60) hi60 = x;
+    }
+    av20 /= 20;
+    const ma20 = cl.length >= 20 ? cl.slice(-20).reduce((a2, x) => a2 + x, 0) / 20 : null;
     let fSell = 0; for (let k = 2; k <= 11; k++) { const f = days[N - k]?.inst?.[code]?.[0]; if (f < 0) fSell++; else break; }
+    const it1 = P.inst?.[code];
     cands.push({ code, name: qn[code]?.name || code, price: c, chg: +chg.toFixed(2),
       r5: s5.v, r10: s10.v, p5, p10,
       ret5: c5 > 0 ? (c - c5) / c5 * 100 : null,
       pos: h > l ? (c - l) / (h - l) : 0.5, fSell,
-      lnLv: P.ln?.[code] != null && av20 > 0 ? P.ln[code] / av20 : null });
+      lnLv: P.ln?.[code] != null && av20 > 0 ? P.ln[code] / av20 : null,
+      ma20rel: ma20 > 0 ? (c / ma20 - 1) * 100 : null,
+      p20: hi20 > 0 ? c / hi20 : null, p60: hi60 > 0 ? c / hi60 : null,
+      volX: av20 > 0 ? v / av20 : null,
+      tot1: it1 ? (it1[0] || 0) + (it1[1] || 0) + (it1[2] || 0) : null });
   }
   for (const s of cands) {
     if (s.r10 < 25 && s.p10 < 25 && s.ret5 != null && s.ret5 < -15
@@ -4531,12 +4556,32 @@ async function computeReversalSignals() {
       down.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
     }
   }
+  const up2 = [], down2 = [];
+  for (const s of cands) {
+    // 🗳️ voteDip：凍結委員會 10 人投票 ≥7（市場級條件對所有股票同時計票——委員會如此凍結）
+    let votes = 0;
+    if (bLo > 30) votes++;
+    if (s.ret5 != null && s.ret5 < -15) votes++;
+    if (s.r10 < 20 && s.p10 < 20) votes++;
+    if (mktChg != null && mktChg < -2) votes++;
+    if (s.r10 < 25 && s.p10 < 25) votes++;
+    if (s.r5 < 15 && s.p5 < 15) votes++;
+    if (s.ret5 != null && s.ret5 < -10) votes++;
+    if (mktChg != null && mktChg < -1) votes++;
+    if (s.ma20rel != null && s.ma20rel < -10) votes++;
+    if (s.p60 != null && s.p60 < 0.7) votes++;
+    if (votes >= 7) up2.push({ code: s.code, name: s.name, price: s.price, chg: s.chg, votes });
+    // 📉 overheatV2：爆量創高收最高·法人在對面出
+    if (s.pos > 0.9 && s.volX != null && s.volX > 5 && s.p20 != null && s.p20 >= 1 && s.tot1 != null && s.tot1 < 0) {
+      down2.push({ code: s.code, name: s.name, price: s.price, chg: s.chg });
+    }
+  }
   await db.collection('reversalSignals').doc('latest').set({
     updatedAt: Date.now(), date: D.date, calib: REV_CALIB,
-    breadth: bLo, mktChg, twiiDD20, up, down,
+    breadth: bLo, mktChg, twiiDD20, up, down, up2, down2,
     note: 'panicDip=恐慌抄底(5條件·多年一遇·空榜是常態)；overheatExit=過熱出貨(避開訊號·記分板超額應為負·非放空)。v1 凍結於 2026-08-05；樣本內數字不可對外宣稱，成績以 picksScoreboard 前瞻累積為準。',
   });
-  log(`✓ 反轉訊號 v1：🩹恐慌抄底 ${up.length} 檔（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）·🚪過熱出貨 ${down.length} 檔`);
+  log(`✓ 反轉訊號：🩹恐慌抄底 ${up.length}·🗳️投票抄底 ${up2.length}·🚪過熱出貨 ${down.length}·📉爆量出貨 ${down2.length}（廣度${bLo}·大盤${mktChg}%·距20日高${twiiDD20}%）`);
 }
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────

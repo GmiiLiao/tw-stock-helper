@@ -34,7 +34,7 @@ function step(st, d, p) {
   st.v = st.l === 0 ? 100 : 100 - 100 / (1 + st.g / st.l);
 }
 
-function build(days) {
+export function build(days) {
   const S = [], H = {};
   for (let i = 0; i < days.length; i++) {
     const D = days[i], P = days[i - 1], P2 = days[i - 2];
@@ -118,7 +118,7 @@ function build(days) {
   return S;
 }
 
-const P_UP = [
+export const P_UP = [
   ['RSI10連2日<20', 'rsi10', s => s.r10 < 20 && s.p10 < 20],
   ['RSI10連2日<25', 'rsi10', s => s.r10 < 25 && s.p10 < 25],
   ['RSI5連2日<15', 'rsi5', s => s.r5 < 15 && s.p5 < 15],
@@ -157,7 +157,7 @@ const P_UP = [
   ['量縮價穩(|漲跌|<1×量比<0.6)', 'pv', s => Math.abs(s.chg) < 1 && s.volX != null && s.volX < 0.6],
   ['振幅>7%', 'amp', s => s.amp > 7],
 ];
-const P_DN = [
+export const P_DN = [
   ['RSI10連2日>75', 'rsi10', s => s.r10 > 75 && s.p10 > 75],
   ['RSI5連2日>80', 'rsi5', s => s.r5 > 80 && s.p5 > 80],
   ['RSI5連2日>85', 'rsi5', s => s.r5 > 85 && s.p5 > 85],
@@ -192,7 +192,7 @@ const P_DN = [
   ['振幅>7%', 'amp', s => s.amp > 7],
 ];
 
-function packSide(S, pool) {
+export function packSide(S, pool) {
   const N = S.length;
   const sign = new Int8Array(N), half = new Uint8Array(N), ret = new Float32Array(N), di = new Int32Array(N);
   for (let k = 0; k < N; k++) {
@@ -203,7 +203,7 @@ function packSide(S, pool) {
   const masks = pool.map(([, , fn]) => { const m = new Uint8Array(N); for (let k = 0; k < N; k++) m[k] = fn(S[k]) ? 1 : 0; return m; });
   return { N, sign, half, ret, di, masks };
 }
-function evalIds(pk, ids, dir) {
+export function evalIds(pk, ids, dir) {
   const { N, sign, half, ret, di, masks } = pk;
   const a = masks[ids[0]], b = ids[1] != null ? masks[ids[1]] : null,
     c = ids[2] != null ? masks[ids[2]] : null, d = ids[3] != null ? masks[ids[3]] : null;
@@ -221,7 +221,7 @@ function evalIds(pk, ids, dir) {
     h0: n0 ? +(w0 / n0 * 100).toFixed(1) : null, h1: n1 ? +(w1 / n1 * 100).toFixed(1) : null, ret: sum / n };
 }
 /** N-of-M 投票：滿足 pool 子集中 ≥need 個 */
-function evalVote(pk, ids, need, dir) {
+export function evalVote(pk, ids, need, dir) {
   const { N, sign, half, ret, di, masks } = pk;
   let n = 0, w = 0, sum = 0, n0 = 0, w0 = 0, n1 = 0, w1 = 0;
   const daySet = new Set();
@@ -339,4 +339,4 @@ const main = async () => {
   console.log(`\n${'═'.repeat(122)}\n觸發日數是關鍵欄位：n 大而天數少＝事件集中＝假解析度。非投資建議。\n${'═'.repeat(122)}`);
   process.exit(0);
 };
-main().catch(e => { console.error(e); process.exit(1); });
+if (import.meta.url === `file://${process.argv[1]}`) main().catch(e => { console.error(e); process.exit(1); });
