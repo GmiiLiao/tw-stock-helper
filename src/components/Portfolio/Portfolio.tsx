@@ -843,7 +843,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
                   background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
                   borderRadius: '8px', fontSize: '12px',
                 }}
-                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v: any, name: any) => [
                   `${Number(v) >= 0 ? '+' : ''}${Number(v).toLocaleString()} 元`,
                   name === 'pnl' ? '已實現損益' : '股利收入'
@@ -1373,7 +1373,7 @@ export default function Portfolio() {
                         return [`${(v as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元（${pct}%）`, name];
                       }}
                       contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                     />
                     <Legend
                       formatter={(value) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{value}</span>}

@@ -376,8 +376,6 @@ export default function StockDetail() {
 
         {/* 報價總覽：改為券商式三欄格子（2026-08-06 依使用者提供的版面）——
             大數字、漲跌用顏色講完、含漲跌停價與日內位階條，不必逐行讀。 */}
-        <QuoteGrid stock={stock} allTimeHigh={allTimeHigh} />
-
         <div className={styles.stockStats}>
           {rsiPair && (
             <div className={styles.statItem} title="犀利媽法 RSI(5)/RSI(10)：雙90+連續=高檔準備出貨·勿接刀；雙<10=極端超跌">
@@ -410,6 +408,11 @@ export default function StockDetail() {
           </button>
         </div>
       </div>
+
+      {/* ⚠必須放在 stockHeader **之外**：stockHeader 是橫向 flex，
+          放進去會被壓成一個窄欄（手機實測只剩 180px → 格子只能排 1 欄、位階條被壓扁）。
+          搬出來拿到整行寬度後，手機 2 欄、桌機一次排完。 */}
+      <QuoteGrid stock={stock} allTimeHigh={allTimeHigh} />
 
       {/* 三條判讀併排（買進訊號／籌碼判讀／模型判讀）
           ——原本各佔一列，桌機上吃掉約 130px 高度，把下方 K 線圖擠到要捲動才看得全。

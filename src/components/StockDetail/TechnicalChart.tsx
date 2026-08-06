@@ -345,7 +345,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <Tooltip
               cursor={{ fill: 'rgba(148,163,184,0.12)' }}
               contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
               labelFormatter={(l) => String(l)}
               formatter={(v) => [`${Math.round((v as number) / 1000).toLocaleString()} 張`, '成交量']}
             />
@@ -391,7 +391,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Line type="monotone" dataKey="macdSignal" dot={false} stroke="#f59e0b" strokeWidth={1.5} name="訊號線" connectNulls />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </ComposedChart>
@@ -430,7 +430,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Line type="monotone" dataKey="rsi10" dot={false} stroke="#fb923c" strokeWidth={1.5} name="RSI10" connectNulls />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </ComposedChart>
@@ -467,7 +467,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               {showJ && <Line type="monotone" dataKey="j" dot={false} stroke="#e879f9" strokeWidth={1.2} name="J值" connectNulls />}
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </LineChart>
