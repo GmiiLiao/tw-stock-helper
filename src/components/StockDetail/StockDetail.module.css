@@ -131,6 +131,24 @@
   gap: 12px;
 }
 
+/* 三條判讀併排容器：用 flex-basis 自適應，不猜斷點——
+   寬螢幕排三欄、中等寬度自動落成兩欄、窄螢幕堆疊成原本的樣子。
+   min-width: 0 是必要的：沒有它，長字串會把 flex item 撐破而不換行。 */
+.verdictColumns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.verdictColumns > * {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+/* 買進訊號內容最短、模型判讀最長 → 依內容量分配寬度 */
+.verdictColumns > .signalBadgeRow { flex-grow: 0.6; flex-basis: 220px; }
+.verdictColumns > *:last-child { flex-grow: 1.5; }
+
 .signalBadge {
   display: flex;
   align-items: center;

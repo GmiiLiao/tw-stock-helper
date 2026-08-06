@@ -413,21 +413,17 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {/* Signal Badge */}
-      {signal && (
-        <div className={styles.signalBadgeRow}>
-          <SignalBadge signal={signal} />
-          {loading && <span className={styles.loadingText}>⏳ 載入歷史資料...</span>}
-        </div>
-      )}
-
-      {/* 籌碼判讀（買前必看·回測背書規則：倒貨領先/雙賣調節/可加碼等） */}
-      {verdicts[stock.code] && (
-        <div style={{ margin: '6px 0 10px' }}><VerdictStrip v={verdicts[stock.code]} /></div>
-      )}
-
-      {/* 資券借券＋實證訊號條（t-1 EOD × 即時價觸發判定） */}
-      <div style={{ margin: '0 0 10px' }}>
+      {/* 三條判讀併排（買進訊號／籌碼判讀／模型判讀）
+          ——原本各佔一列，桌機上吃掉約 130px 高度，把下方 K 線圖擠到要捲動才看得全。
+          改為自適應欄位：寬螢幕三欄、中等兩欄、窄螢幕仍自動堆疊（各條內部本來就會換行）。 */}
+      <div className={styles.verdictColumns}>
+        {signal && (
+          <div className={styles.signalBadgeRow}>
+            <SignalBadge signal={signal} />
+            {loading && <span className={styles.loadingText}>⏳ 載入中…</span>}
+          </div>
+        )}
+        {verdicts[stock.code] && <VerdictStrip v={verdicts[stock.code]} />}
         <MarginSignals code={stock.code} price={stock.price} changePercent={stock.changePercent} high={stock.high} low={stock.low} volume={stock.volume} />
       </div>
 
