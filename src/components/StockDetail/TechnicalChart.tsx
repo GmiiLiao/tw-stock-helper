@@ -279,7 +279,16 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
 
       {/* Volume */}
       <div className={styles.subChart}>
-        <div className={styles.chartTitle}>成交量</div>
+        <div className={styles.chartTitle}>
+          成交量
+          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: 'var(--text-muted)' }}>
+            <span style={{ color: '#f03e3e' }}>▌</span>收紅　<span style={{ color: '#2f9e44' }}>▌</span>收綠
+            {(() => {
+              const last = chartData[chartData.length - 1];
+              return last?.volume != null ? `　最新 ${Math.round((last.volume as number) / 1000).toLocaleString()} 張` : '';
+            })()}
+          </span>
+        </div>
         <ResponsiveContainer width="100%" height={80}>
           <BarChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
             <XAxis dataKey="date" hide />
@@ -294,6 +303,14 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 return <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.5} />;
               }}
             />
+            {/* ⚠原本這張圖沒有 Tooltip——滑上去完全沒反應，看不到當日張數。
+                單位換算：資料是「股」，台股習慣看「張」＝股/1000。 */}
+            <Tooltip
+              cursor={{ fill: 'rgba(148,163,184,0.12)' }}
+              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+              labelFormatter={(l) => String(l)}
+              formatter={(v) => [`${Math.round((v as number) / 1000).toLocaleString()} 張`, '成交量']}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -301,7 +318,20 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       {/* MACD */}
       {showMACD && (
         <div className={styles.subChart}>
-          <div className={styles.chartTitle}>MACD (12, 26, 9)</div>
+          <div className={styles.chartTitle}>
+            MACD (12, 26, 9)
+            {(() => {
+              const last = chartData[chartData.length - 1];
+              const f = (x: unknown) => (typeof x === 'number' ? x.toFixed(2) : '—');
+              return (
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
+                  <span style={{ color: '#3d8ef8' }}>— DIF {f(last?.macd)}</span>
+                  <span style={{ color: '#f59e0b', marginLeft: 8 }}>— 訊號線 {f(last?.macdSignal)}</span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>▌柱 {f(last?.macdHist)}（紅=正·綠=負）</span>
+                </span>
+              );
+            })()}
+          </div>
           <ResponsiveContainer width="100%" height={100}>
             <ComposedChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
@@ -311,7 +341,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Bar
                 dataKey="macdHist"
                 isAnimationActive={false}
-                name="柱狀"
+                name="柱 (DIF−訊號)"
                 shape={(p: { x?: number; y?: number; width?: number; height?: number; payload?: ChartData }) => {
                   const { x = 0, y = 0, width = 0, height = 0, payload } = p;
                   const hist = payload?.macdHist ?? 0;
@@ -319,11 +349,11 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                   return <rect x={x} y={y} width={Math.max(width, 1)} height={Math.max(Math.abs(height), 1)} fill={color} fillOpacity={0.6} />;
                 }}
               />
-              <Line type="monotone" dataKey="macd" dot={false} stroke="#3d8ef8" strokeWidth={1.5} name="MACD" connectNulls />
-              <Line type="monotone" dataKey="macdSignal" dot={false} stroke="#f59e0b" strokeWidth={1.5} name="Signal" connectNulls />
+              <Line type="monotone" dataKey="macd" dot={false} stroke="#3d8ef8" strokeWidth={1.5} name="DIF" connectNulls />
+              <Line type="monotone" dataKey="macdSignal" dot={false} stroke="#f59e0b" strokeWidth={1.5} name="訊號線" connectNulls />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                formatter={(v) => [(v as number)?.toFixed(4) ?? '--']}
+                formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -371,7 +401,19 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       {/* KD */}
       {showKD && (
         <div className={styles.subChart}>
-          <div className={styles.chartTitle}>KD (9, 3, 3)</div>
+          <div className={styles.chartTitle}>
+            KD (9, 3, 3)
+            {(() => {
+              const last = chartData[chartData.length - 1];
+              const f = (x: unknown) => (typeof x === 'number' ? x.toFixed(1) : '—');
+              return (
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
+                  <span style={{ color: '#22c55e' }}>— K {f(last?.k)}</span>
+                  <span style={{ color: '#f97316', marginLeft: 8 }}>— D {f(last?.d)}</span>
+                </span>
+              );
+            })()}
+          </div>
           <ResponsiveContainer width="100%" height={80}>
             <LineChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
@@ -382,7 +424,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Line type="monotone" dataKey="d" dot={false} stroke="#f97316" strokeWidth={1.5} name="D值" connectNulls />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
-                formatter={(v) => [(v as number)?.toFixed(2) ?? '--']}
+                formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </LineChart>
           </ResponsiveContainer>
