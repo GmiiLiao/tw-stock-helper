@@ -1830,10 +1830,12 @@ async function computeGlobalMarkets() {
   const out = [];
   for (const [sym, name] of syms) {
     try {
-      const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.json());
-      const m = j?.chart?.result?.[0]?.meta; if (!m || !(m.regularMarketPrice > 0)) continue;
-      const price = m.regularMarketPrice, prev = m.chartPreviousClose || m.previousClose || price;
-      out.push({ sym, name, price: +price.toFixed(2), changePct: prev > 0 ? +(((price - prev) / prev) * 100).toFixed(2) : 0 });
+      // ⚠2026-08-06 修正：原本用 meta.chartPreviousClose（range=5d）——實測 6 檔錯 5 檔，
+      //   費半顯示 **+14.95%（實際 -1.40%）**、原油 -10.58%（實際 -0.08%），因為它回的是
+      //   「整個視窗之前」的收盤而非前一交易日。這個錯誤還會傳染到「電子偏多/偏空」判定
+      //   與晨報的隔夜國際盤段。改用 _yahooQuote（日線×小時線交叉驗證·以報價所屬交易日為基準）。
+      const q = await _yahooQuote(sym); if (!q) continue;
+      out.push({ sym, name, price: q.price, changePct: q.total, prevDate: q.prevDate, quoteAt: q.quoteAt ?? null });
     } catch { /* skip */ }
     await sleep(200);
   }
@@ -1887,36 +1889,81 @@ const ASIA_BELL = [
 //      實測村田製作所缺 07-31，前收被抓成 07-30 的 6416，算出 +12.47%（日線實為 -2.68%）。
 //   ⇒ 一律以**日線**推導：前收＝倒數第2根收盤、今開＝最後一根開盤、現價＝meta。
 //      已用日線逐檔對帳：日經 -2.31%、三星 -7.24%、發那科 -17.93%、村田 -2.71%，全數相符。
-async function _asiaQuote(sym) {
+// ⚠**第三個坑（2026-08-06 使用者發現「日韓明明在跌卻顯示漲」）**：
+//   Yahoo 的**日線會整根漏掉某一交易日**——當天 ^N225 與 ^KS11 的 08/05 日 K 是 null
+//   （08/05 是全亞洲大漲日），我們靜默跳過 null 後就拿 08/04 當前收，
+//   算出日經 +1.92%／KOSPI -0.34%，實際是 **-1.70%／-4.75%**——**方向相反**。
+//   而同一時間**小時線有 08/05**（66287.96／6637.73）。
+//   ⇒ 修法不是換來源，是**兩個來源交叉驗證**：日線與小時線各自推「前一交易日收盤」，
+//     **取日期較晚者**。兩種來源的失敗模式都是「漏掉整日」，漏日的一方日期必然偏早，
+//     取較晚者可同時修好日線漏日（本次）與 5分K/小時線漏日（村田 07-31 那次）。
+//   ⇒ 兩邊都取不到 → 回 null（fail-closed），寧可空著也不出一個可能反向的數字。
+async function _asiaSeries(sym, interval, range) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 12000);
   try {
-    const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=10d`,
+    const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`,
       { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.ok ? r.json() : null).finally(() => clearTimeout(tm));
-    const r = j?.chart?.result?.[0]; const m = r?.meta;
-    if (!m) return null;
+    const r = j?.chart?.result?.[0]; if (!r?.meta) return null;
     const ts = r.timestamp || [], q = r.indicators?.quote?.[0] || {};
-    const rows = [];
+    // 依 UTC 日分組（日韓 09:00 開盤＝00:00 UTC·收盤仍在同一 UTC 日，不會錯位）
+    const byDay = new Map();
     for (let i = 0; i < ts.length; i++) {
       if (!(q.close?.[i] > 0)) continue;
-      rows.push({ d: new Date(ts[i] * 1000).toISOString().slice(0, 10), o: q.open?.[i], c: q.close[i] });
+      const d = new Date(ts[i] * 1000).toISOString().slice(0, 10);
+      const cur = byDay.get(d);
+      if (cur) { cur.c = q.close[i]; if (!(cur.o > 0) && q.open?.[i] > 0) cur.o = q.open[i]; }
+      else byDay.set(d, { o: q.open?.[i] > 0 ? q.open[i] : null, c: q.close[i] });
     }
-    if (rows.length < 2) return null;
-    const cur = rows[rows.length - 1], prev = rows[rows.length - 2].c;
-    if (!(prev > 0)) return null;
-    const px = m.regularMarketPrice > 0 ? m.regularMarketPrice : cur.c;
-    if (!(px > 0)) return null;
-    return {
-      price: +px.toFixed(2), prev: +prev.toFixed(2), prevDate: rows[rows.length - 2].d,
-      // ⚠Yahoo 免費報價對日韓約延遲 20 分：regularMarketTime 是**這筆報價的實際時間**，
-      //   不是抓取時間。不揭露的話使用者會以為 08:30 看到的是 08:30 的盤況。
-      quoteAt: m.regularMarketTime > 0 ? m.regularMarketTime * 1000 : null,
-      state: m.marketState || null,
-      gap: cur.o > 0 ? +((cur.o / prev - 1) * 100).toFixed(2) : null,   // 開盤跳空
-      drift: cur.o > 0 ? +((px / cur.o - 1) * 100).toFixed(2) : null,   // 開盤後走勢（新資訊）
-      total: +((px / prev - 1) * 100).toFixed(2),                       // 合計（預測力最強）
-    };
+    return { meta: r.meta, days: [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])) };
   } catch { clearTimeout(tm); return null; }
 }
+// 供日韓與美股共用。**基準日不可用「今天」**：美股一場交易在 UTC 上屬於前一天
+// （台北 09:30 時，最後一場美股是 UTC 前一日），用「今天」會把當場收盤誤當前收 → 0%。
+// 正解＝以 regularMarketTime 換算出「這筆報價所屬的交易日」，前收＝該日之前最後一日。
+async function _yahooQuote(sym) {
+  const [sD, sI] = await Promise.all([_asiaSeries(sym, '1d', '10d'), _asiaSeries(sym, '1h', '5d')]);
+  const meta = sD?.meta || sI?.meta; if (!meta) return null;
+  const px = meta.regularMarketPrice > 0 ? meta.regularMarketPrice : null;
+  if (!(px > 0)) return null;
+  const lastDay = ser => (ser?.days?.length ? ser.days[ser.days.length - 1][0] : null);
+  const curDay = meta.regularMarketTime > 0
+    ? new Date(meta.regularMarketTime * 1000).toISOString().slice(0, 10)
+    : (lastDay(sD) || lastDay(sI));
+  if (!curDay) return null;
+  // 各來源的「最後一個早於報價交易日的日子」＝該來源認定的前一交易日
+  const prevOf = ser => {
+    if (!ser?.days?.length) return null;
+    for (let i = ser.days.length - 1; i >= 0; i--) {
+      const [d, v] = ser.days[i];
+      if (d < curDay && v.c > 0) return { d, c: v.c };
+    }
+    return null;
+  };
+  const pD = prevOf(sD), pI = prevOf(sI);
+  // 取日期較晚者（見上方註解：漏日的一方必然偏早）
+  const prevRow = !pD ? pI : !pI ? pD : (pI.d > pD.d ? pI : pD);
+  if (!prevRow) return null;
+  const disagree = pD && pI && pD.d !== pI.d ? `日線前收=${pD.d}／小時線前收=${pI.d}，採用較晚者 ${prevRow.d}` : null;
+  if (disagree) log(`  ⚠ ${sym} 前收來源不一致：${disagree}（日線漏日）`);
+  const prev = prevRow.c;
+  // 今開：日線當場 bar 優先，缺則用小時線當場第一根
+  const todayD = sD?.days?.find(([d]) => d === curDay)?.[1];
+  const todayI = sI?.days?.find(([d]) => d === curDay)?.[1];
+  const open = todayD?.o > 0 ? todayD.o : (todayI?.o > 0 ? todayI.o : null);
+  return {
+    price: +px.toFixed(2), prev: +prev.toFixed(2), prevDate: prevRow.d, curDay,
+    // ⚠Yahoo 免費報價對日韓約延遲 20 分：regularMarketTime 是**這筆報價的實際時間**，
+    //   不是抓取時間。不揭露的話使用者會以為 08:30 看到的是 08:30 的盤況。
+    quoteAt: meta.regularMarketTime > 0 ? meta.regularMarketTime * 1000 : null,
+    prevSrc: prevRow === pI ? 'hourly' : 'daily', prevWarn: disagree,
+    gap: open > 0 ? +((open / prev - 1) * 100).toFixed(2) : null,   // 開盤跳空
+    drift: open > 0 ? +((px / open - 1) * 100).toFixed(2) : null,   // 開盤後走勢（新資訊）
+    total: +((px / prev - 1) * 100).toFixed(2),                     // 合計（預測力最強）
+  };
+}
+
+const _asiaQuote = _yahooQuote;
+
 async function computeAsiaPremarket({ lateCatchup = false, slot = null } = {}) {
   const tw = taipei(); const today = isoDate(tw);
   const minsNow = tw.getHours() * 60 + tw.getMinutes();
