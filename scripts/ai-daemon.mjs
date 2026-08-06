@@ -2401,29 +2401,38 @@ async function computeUserRisk() {
   for (const u of premium) {
     try {
       const hd = await db.collection('users').doc(u.id).collection('data').doc('holdings').get();
-      const holdings = hd.exists ? (hd.data().holdings || []) : []; if (holdings.length < 2) continue;
+      // ⚠原本是 `< 2 就跳過`（相關係數需要配對）——但 computeStressTest 也寫同一份
+      //   portfolioRisk 文件，導致**只持有 1 檔的會員**只拿到 stress 那一半欄位，
+      //   前端 avgCorrelation.toFixed() 直接炸 → 投資組合整頁全白（2026-08-06 事故）。
+      //   改為 1 檔也照算：集中度/族群本來就算得出來，相關係數則明確寫 null。
+      const holdings = hd.exists ? (hd.data().holdings || []) : []; if (!holdings.length) continue;
       const codes = [...new Set(holdings.map(h => h.code))];
       const docs = await db.getAll(...codes.map(c => db.collection('stockHistory').doc(c))).catch(() => []);
       const rets = {};
       for (const d of docs) { if (!d.exists) continue; const bars = d.data().bars || []; if (bars.length < 61) continue; const c = bars.slice(-61).map(b => b.c); const r = []; for (let i = 1; i < c.length; i++) if (c[i - 1] > 0) r.push((c[i] - c[i - 1]) / c[i - 1]); rets[d.id] = r; }
       const cc = Object.keys(rets); let sum = 0, np = 0, maxPair = { corr: -1 };
       for (let i = 0; i < cc.length; i++) for (let j = i + 1; j < cc.length; j++) { const co = _pearson(rets[cc[i]], rets[cc[j]]); if (co != null) { sum += co; np++; if (co > maxPair.corr) maxPair = { corr: co, a: cc[i], b: cc[j] }; } }
-      const avgCorr = np ? sum / np : 0;
+      const avgCorr = np ? sum / np : null;   // 無配對（單一持股）→ null，不可假裝成 0
       const sectorVal = {}; let tot = 0;
       for (const h of holdings) { const ind = industryOf(h.code, h.name); const v = h.buyPrice * h.quantity * 1000; sectorVal[ind] = (sectorVal[ind] || 0) + v; tot += v; }
       const hhi = tot > 0 ? Object.values(sectorVal).reduce((s, v) => s + (v / tot) ** 2, 0) : 0;
       const topSec = Object.entries(sectorVal).sort((a, b) => b[1] - a[1])[0];
+      // ⚠**必須 merge**：computeStressTest 寫同一份文件的 β/壓力測試欄位，
+      //   舊版無 merge 的 set() 會把它們整個抹掉（誰後跑誰贏），文件形狀因此在
+      //   兩種不相容的 schema 之間跳動——這正是前端崩潰的另一半原因。
       await db.collection('users').doc(u.id).collection('data').doc('portfolioRisk').set({
         updatedAt: Date.now(), holdings: codes.length,
-        avgCorrelation: +avgCorr.toFixed(2),
-        diversification: avgCorr < 0.3 ? '良好（持股連動低）' : avgCorr < 0.6 ? '中等' : '偏低（持股高度連動，分散效果差）',
+        avgCorrelation: avgCorr == null ? null : +avgCorr.toFixed(2),
+        diversification: avgCorr == null ? '單一持股，無相關性可比'
+          : avgCorr < 0.3 ? '良好（持股連動低）' : avgCorr < 0.6 ? '中等' : '偏低（持股高度連動，分散效果差）',
         concentrationHHI: +hhi.toFixed(2),
         concentration: hhi > 0.5 ? '過度集中' : hhi > 0.3 ? '略集中' : '分散',
         topSector: topSec ? { name: topSec[0], pct: +(topSec[1] / tot * 100).toFixed(0) } : null,
         highestPair: maxPair.a ? { a: maxPair.a, b: maxPair.b, corr: +maxPair.corr.toFixed(2) } : null,
-        rebalanceHint: hhi > 0.4 || avgCorr > 0.6 ? `建議降低${topSec ? topSec[0] : '主要族群'}比重、加入低相關標的以分散風險` : '分散度尚可，維持紀律',
-      });
-      log(`  ✓ 投組風險 ${u.id}（平均相關 ${avgCorr.toFixed(2)}、集中HHI ${hhi.toFixed(2)}）`);
+        rebalanceHint: hhi > 0.4 || (avgCorr != null && avgCorr > 0.6)
+          ? `建議降低${topSec ? topSec[0] : '主要族群'}比重、加入低相關標的以分散風險` : '分散度尚可，維持紀律',
+      }, { merge: true });
+      log(`  ✓ 投組風險 ${u.id}（平均相關 ${avgCorr == null ? 'n/a(單一持股)' : avgCorr.toFixed(2)}、集中HHI ${hhi.toFixed(2)}）`);
     } catch (e) { log('  ✖ 投組風險', u.id, e.message); }
   }
 }
@@ -8349,7 +8358,9 @@ if (ONESHOT) {
     trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
     tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
     recommendAdj: () => computeRecommendAdj(),   // 推薦榜已驗證訊號修正量
-    reversalSignals: () => computeReversalSignals(),   // 反轉訊號 v1（凍結·前瞻驗證）
+    reversalSignals: () => computeReversalSignals(),
+    userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
+    stressTest: () => computeStressTest(),      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }

@@ -29,6 +29,7 @@ import DividendTaxCalc from './DividendTaxCalc';
 import RiskBadge from '@/components/shared/RiskBadge';
 import styles from './Portfolio.module.css';
 import PageHelp from '@/components/Help/PageHelp';
+import CardBoundary from '@/components/shared/CardBoundary';
 import { useShallow } from 'zustand/react/shallow';
 
 const COLORS = ['#3d8ef8', '#22c55e', '#f59e0b', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
@@ -1191,46 +1192,46 @@ export default function Portfolio() {
           {/* 交易彙總＋持倉對帳（三分頁連動樞紐） */}
           <OverviewLedgerBridge ledger={ledger} onGoTab={setActiveTab} />
           {/* 崩盤防禦清單（大跌日自動生成，48h 內顯示） */}
-          <DefenseBanner />
+          <CardBoundary name="崩盤防禦清單"><DefenseBanner /></CardBoundary>
 
           {/* 警報推播設定（Web Push） */}
-          <PushSetup />
+          <CardBoundary name="警報推播設定"><PushSetup /></CardBoundary>
 
           {/* 個人化每日摘要 (常駐 daemon LLM) */}
-          <PortfolioSummary />
+          <CardBoundary name="每日摘要"><PortfolioSummary /></CardBoundary>
 
           {/* 投組相關性/分散度 (常駐 daemon) */}
-          <PortfolioRisk />
+          <CardBoundary name="投組相關性/分散度"><PortfolioRisk /></CardBoundary>
 
           {/* 汰弱留強輪動建議（持股評分 vs 全市場） */}
-          <RotationAdvice />
+          <CardBoundary name="汰弱留強輪動"><RotationAdvice /></CardBoundary>
 
           {/* 投資論點追蹤 (P2：AI 依數據預填草稿，每日檢核) */}
-          <ThesisCards />
+          <CardBoundary name="投資論點追蹤"><ThesisCards /></CardBoundary>
 
           {/* 資金總覽（現金流水帳：入金/出金/股利，買賣自動帶入） */}
-          <CashLedger />
+          <CardBoundary name="資金總覽"><CashLedger /></CardBoundary>
 
           {/* 配置漂移再平衡 (P2：個股≤25%/產業≤40%/現金≥10%) */}
-          <RebalancePanel />
+          <CardBoundary name="配置漂移再平衡"><RebalancePanel /></CardBoundary>
 
           {/* 影子帳戶：從交易紀錄學實際規則、抓破戒（Vibe-Trading 概念） */}
-          <ShadowAccount />
+          <CardBoundary name="影子帳戶"><ShadowAccount /></CardBoundary>
 
           {/* 週末復盤週報（每週六） */}
-          <WeeklyReport />
+          <CardBoundary name="週報"><WeeklyReport /></CardBoundary>
 
           {/* 月度投資報告 (P3：daemon 每月純模板) */}
-          <MonthlyReport />
+          <CardBoundary name="月報"><MonthlyReport /></CardBoundary>
 
           {/* 股利稅負試算 (P3：已婚合併申報，純前端法定公式) */}
-          <DividendTaxCalc />
+          <CardBoundary name="股利稅負試算"><DividendTaxCalc /></CardBoundary>
 
           {/* 自動停損/停利提醒 (常駐 daemon 觸價寫入) */}
-          <PortfolioAlerts />
+          <CardBoundary name="停損停利提醒"><PortfolioAlerts /></CardBoundary>
 
           {/* 自訂條件警報 */}
-          <PortfolioAlertRules />
+          <CardBoundary name="自訂條件警報"><PortfolioAlertRules /></CardBoundary>
 
           {/* Summary Cards */}
           <div className={styles.summaryGrid}>

@@ -7,9 +7,16 @@ import { useAppStore } from '@/lib/store';
 
 // ── 投組相關性 / 分散度 / 集中度：訂閱 users/{uid}/data/portfolioRisk（daemon 計算）──
 
+// ⚠**這份文件有兩個獨立寫入者，欄位不保證同時存在**（2026-08-06 白畫面事故）：
+//   daemon 的 computeUserRisk（相關係數/分散度/HHI）與 computeStressTest（β/壓力測試）
+//   都寫 users/{uid}/data/portfolioRisk。computeUserRisk 需要配對才算得出相關係數，
+//   所以有 `holdings.length < 2 就跳過` 的守門——**只持有 1 檔的會員**只會拿到
+//   stressTest 那一半欄位。舊版把 avgCorrelation 宣告成必填並直接 .toFixed(2)，
+//   於是 undefined.toFixed → TypeError → 整棵 React 樹卸載 → **投資組合整頁全白**。
+//   ⇒ 全部欄位一律 optional 並逐欄防護：有什麼畫什麼，缺的就不畫。
 interface Risk {
-  holdings: number; avgCorrelation: number; diversification: string;
-  concentrationHHI: number; concentration: string;
+  holdings?: number; avgCorrelation?: number | null; diversification?: string;
+  concentrationHHI?: number | null; concentration?: string;
   topSector?: { name: string; pct: number } | null;
   highestPair?: { a: string; b: string; corr: number } | null;
   rebalanceHint?: string;
@@ -31,8 +38,13 @@ export default function PortfolioRisk() {
 
   if (!d) return null;
   const nameOf = (c: string) => allStocks.find(s => s.code === c)?.name || c;
-  const corrColor = d.avgCorrelation < 0.3 ? '#f03e3e' : d.avgCorrelation < 0.6 ? '#f59e0b' : '#2f9e44';
-  const hhiColor = d.concentrationHHI > 0.5 ? '#2f9e44' : d.concentrationHHI > 0.3 ? '#f59e0b' : '#f03e3e';
+  const corr = typeof d.avgCorrelation === 'number' ? d.avgCorrelation : null;
+  const hhi = typeof d.concentrationHHI === 'number' ? d.concentrationHHI : null;
+  const corrColor = corr == null ? 'var(--text-muted)' : corr < 0.3 ? '#f03e3e' : corr < 0.6 ? '#f59e0b' : '#2f9e44';
+  const hhiColor = hhi == null ? 'var(--text-muted)' : hhi > 0.5 ? '#2f9e44' : hhi > 0.3 ? '#f59e0b' : '#f03e3e';
+  // 一格都畫不出來就整張不顯示（例：只持有 1 檔時相關係數尚未產生、β 也還沒算）
+  const hasAny = corr != null || hhi != null || d.topSector || d.betaPortfolio != null || d.stress;
+  if (!hasAny) return null;
 
   const cell = (label: string, value: string, sub: string, color: string) => (
     <div style={{ flex: 1, minWidth: 120, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
@@ -46,8 +58,8 @@ export default function PortfolioRisk() {
     <div style={{ marginBottom: 16, padding: '16px 18px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 12 }}>🧬 投組相關性 / 分散度分析</div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        {cell('平均相關係數', d.avgCorrelation.toFixed(2), d.diversification, corrColor)}
-        {cell('集中度 HHI', d.concentrationHHI.toFixed(2), d.concentration, hhiColor)}
+        {corr != null ? cell('平均相關係數', corr.toFixed(2), d.diversification ?? '', corrColor) : null}
+        {hhi != null ? cell('集中度 HHI', hhi.toFixed(2), d.concentration ?? '', hhiColor) : null}
         {d.topSector ? cell('最大族群', `${d.topSector.pct}%`, d.topSector.name, d.topSector.pct >= 50 ? '#ef4444' : 'var(--text-primary)') : null}
         {d.betaPortfolio != null ? cell('投組 β', d.betaPortfolio.toFixed(2), d.betaPortfolio > 1.2 ? '波動大於大盤' : d.betaPortfolio < 0.8 ? '波動小於大盤' : '與大盤相當', d.betaPortfolio > 1.2 ? '#2f9e44' : d.betaPortfolio < 0.8 ? '#f03e3e' : '#f59e0b') : null}
       </div>
