@@ -8,6 +8,8 @@ import {
   calculateMACD,
   calculateRSI,
   calculateKD,
+  calculateBBands,
+  calculateSAR,
   type CandleData,
   type StockInfo,
 } from '@/lib/twse-api';
@@ -47,6 +49,12 @@ interface ChartData {
   rsi?: number | null;
   k?: number | null;
   d?: number | null;
+  j?: number | null;          // J = 3K − 2D（券商「KD,J」的第三條）
+  bbMid?: number | null;
+  bbUp?: number | null;
+  bbLow?: number | null;
+  sar?: number | null;
+  sarUp?: boolean;            // true=多頭段（SAR 在價格下方）
 }
 
 interface Props {
@@ -97,6 +105,8 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
     const rsi5 = calculateRSI(closes, 5);
     const rsi10 = calculateRSI(closes, 10);
     const { k, d } = calculateKD(highs, lows, closes);
+    const bb = calculateBBands(closes, 20, 2);
+    const ps = calculateSAR(highs, lows);
 
     return candles.map((c, i) => ({
       date: format(new Date(c.time * 1000), 'MM/dd'),
@@ -116,6 +126,12 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       rsi10: rsi10[i] ?? null,
       k: k[i] ?? null,
       d: d[i] ?? null,
+      j: k[i] != null && d[i] != null ? 3 * (k[i] as number) - 2 * (d[i] as number) : null,
+      bbMid: bb.mid[i] ?? null,
+      bbUp: bb.upper[i] ?? null,
+      bbLow: bb.lower[i] ?? null,
+      sar: ps.sar[i] ?? null,
+      sarUp: ps.rising[i],
     }));
   }, [candles]);
 
@@ -123,14 +139,20 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
     { id: 'MA5', label: 'MA5', color: '#f59e0b' },
     { id: 'MA20', label: 'MA20', color: '#3d8ef8' },
     { id: 'MA60', label: 'MA60', color: '#a78bfa' },
+    { id: 'BBAND', label: 'BBAND 布林', color: '#38bdf8' },
+    { id: 'SAR', label: 'SAR 轉向', color: '#fb7185' },
     { id: 'MACD', label: 'MACD', color: '#3d8ef8' },
     { id: 'RSI', label: 'RSI', color: '#a78bfa' },
     { id: 'KD', label: 'KD', color: '#22c55e' },
+    { id: 'J', label: 'J 值', color: '#e879f9' },
   ];
 
   const showMACD = activeIndicators.includes('MACD');
   const showRSI = activeIndicators.includes('RSI');
   const showKD = activeIndicators.includes('KD');
+  const showJ = activeIndicators.includes('J');
+  const showBB = activeIndicators.includes('BBAND');
+  const showSAR = activeIndicators.includes('SAR');
 
   const formatTooltip = (value: number, name: string) => {
     if (!value) return ['--', name];
@@ -267,6 +289,21 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             {activeIndicators.includes('MA5') && (
               <Line type="monotone" dataKey="ma5" dot={false} stroke="#f59e0b" strokeWidth={1.5} name="MA5" connectNulls />
             )}
+            {/* 布林通道：上下軌用虛線、中軌實線；只在主圖，與 MA 同一個 Y 軸 */}
+            {showBB && <>
+              <Line type="monotone" dataKey="bbUp" dot={false} stroke="#38bdf8" strokeWidth={1} strokeDasharray="4 3" name="布林上軌" connectNulls />
+              <Line type="monotone" dataKey="bbMid" dot={false} stroke="#38bdf8" strokeWidth={1} strokeOpacity={0.55} name="布林中軌(MA20)" connectNulls />
+              <Line type="monotone" dataKey="bbLow" dot={false} stroke="#38bdf8" strokeWidth={1} strokeDasharray="4 3" name="布林下軌" connectNulls />
+            </>}
+            {/* SAR：逐點小圓，多頭段(價格上方為空)綠、空頭段紅——顏色即方向 */}
+            {showSAR && (
+              <Line type="monotone" dataKey="sar" stroke="none" name="SAR" connectNulls={false} isAnimationActive={false}
+                dot={(p: { cx?: number; cy?: number; payload?: ChartData; index?: number }) => {
+                  const { cx, cy, payload, index } = p;
+                  if (cx == null || cy == null || payload?.sar == null) return <g key={`sar-${index}`} />;
+                  return <circle key={`sar-${index}`} cx={cx} cy={cy} r={1.6} fill={payload.sarUp ? '#f03e3e' : '#2f9e44'} />;
+                }} />
+            )}
             {activeIndicators.includes('MA20') && (
               <Line type="monotone" dataKey="ma20" dot={false} stroke="#3d8ef8" strokeWidth={1.5} name="MA20" connectNulls />
             )}
@@ -281,7 +318,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       <div className={styles.subChart}>
         <div className={styles.chartTitle}>
           成交量
-          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: 'var(--text-muted)' }}>
+          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
             <span style={{ color: '#f03e3e' }}>▌</span>收紅　<span style={{ color: '#2f9e44' }}>▌</span>收綠
             {(() => {
               const last = chartData[chartData.length - 1];
@@ -327,7 +364,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
                   <span style={{ color: '#3d8ef8' }}>— DIF {f(last?.macd)}</span>
                   <span style={{ color: '#f59e0b', marginLeft: 8 }}>— 訊號線 {f(last?.macdSignal)}</span>
-                  <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>▌柱 {f(last?.macdHist)}（紅=正·綠=負）</span>
+                  <span style={{ color: '#cbd5f5', marginLeft: 8 }}>▌柱 {f(last?.macdHist)}（紅=正·綠=負）</span>
                 </span>
               );
             })()}
@@ -410,6 +447,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
                   <span style={{ color: '#22c55e' }}>— K {f(last?.k)}</span>
                   <span style={{ color: '#f97316', marginLeft: 8 }}>— D {f(last?.d)}</span>
+                  {showJ && <span style={{ color: '#e879f9', marginLeft: 8 }}>— J {f(last?.j)}</span>}
                 </span>
               );
             })()}
@@ -417,11 +455,13 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
           <ResponsiveContainer width="100%" height={80}>
             <LineChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
-              <YAxis domain={[0, 100]} tick={{ fill: '#8b9bb8', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+              {/* 開了 J 就不能鎖 0~100——J=3K−2D 會衝出區間，鎖死會被截斷成一條直線 */}
+              <YAxis domain={showJ ? ['auto', 'auto'] : [0, 100]} tick={{ fill: '#8b9bb8', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
               <ReferenceLine y={80} stroke="rgba(239,68,68,0.2)" strokeDasharray="4 4" />
               <ReferenceLine y={20} stroke="rgba(34,197,94,0.2)" strokeDasharray="4 4" />
               <Line type="monotone" dataKey="k" dot={false} stroke="#22c55e" strokeWidth={1.5} name="K值" connectNulls />
               <Line type="monotone" dataKey="d" dot={false} stroke="#f97316" strokeWidth={1.5} name="D值" connectNulls />
+              {showJ && <Line type="monotone" dataKey="j" dot={false} stroke="#e879f9" strokeWidth={1.2} name="J值" connectNulls />}
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}

@@ -95,19 +95,19 @@ export default function ViewAsPanel() {
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8 }}>
+        <div style={{ fontSize: 11.5, color: '#cbd5f5', marginTop: 8 }}>
           用途：確認高級功能對非會員確實隱藏、且對會員確實開放。
         </div>
       </div>
 
       <div style={box}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>② 會員模擬（載入該會員的實際資料·唯讀）</div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8 }}>
+        <div style={{ fontSize: 11.5, color: '#cbd5f5', marginBottom: 8 }}>
           ⚠️ 持股 <b>0 或 1 檔</b>的帳號是最容易出事的邊界情境（已標紅），排查白畫面類問題請優先選它們。
         </div>
         <div style={{ maxHeight: 340, overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ color: 'var(--text-muted)', textAlign: 'left' }}>
+            <thead><tr style={{ color: '#cbd5f5', textAlign: 'left' }}>
               <th style={{ padding: '4px 6px' }}>會員</th><th>等級</th><th>持股</th><th>交易</th><th>最後登入</th><th></th>
             </tr></thead>
             <tbody>
@@ -115,13 +115,13 @@ export default function ViewAsPanel() {
                 const edge = m.holdings <= 1;
                 return (
                   <tr key={m.uid} style={{ borderTop: '1px solid rgba(148,163,184,0.1)' }}>
-                    <td style={{ padding: '5px 6px', color: 'var(--text-secondary)' }}>{m.email ?? m.uid.slice(0, 10)}</td>
+                    <td style={{ padding: '5px 6px', color: '#dbe4f5' }}>{m.email ?? m.uid.slice(0, 10)}</td>
                     <td>{m.level}</td>
                     <td style={{ fontWeight: 800, color: edge ? '#ef4444' : 'var(--text-primary)' }}>
                       {m.holdings}{edge ? ' ⚠' : ''}
                     </td>
-                    <td style={{ color: 'var(--text-muted)' }}>{m.trades}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>
+                    <td style={{ color: '#cbd5f5' }}>{m.trades}</td>
+                    <td style={{ color: '#cbd5f5' }}>
                       {m.lastLogin ? new Date(m.lastLogin).toLocaleDateString('zh-TW') : '—'}
                     </td>
                     <td style={{ textAlign: 'right' }}>
@@ -144,7 +144,7 @@ export default function ViewAsPanel() {
       {diag && (
         <div style={box}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>🩺 {diag.email} 的資料健檢</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, color: '#cbd5f5', marginBottom: 8 }}>
             「缺欄位」代表 daemon 只寫了一半——前端若沒防護就會在這裡崩潰（2026-08-06 白畫面事故的成因）。
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -152,7 +152,7 @@ export default function ViewAsPanel() {
               <span key={r.doc} style={{
                 padding: '3px 9px', borderRadius: 999, fontSize: 11.5, fontWeight: 700,
                 background: !r.exists ? 'var(--bg-tertiary)' : r.missing.length ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.13)',
-                color: !r.exists ? 'var(--text-muted)' : r.missing.length ? '#ef4444' : '#22c55e',
+                color: !r.exists ? '#cbd5f5' : r.missing.length ? '#ef4444' : '#22c55e',
                 border: `1px solid ${!r.exists ? 'var(--border-primary)' : r.missing.length ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.35)'}`,
               }}>
                 {r.doc}{!r.exists ? '（無）' : r.missing.length ? `（缺 ${r.missing.join('/')}）` : ` ✓${r.keys}`}

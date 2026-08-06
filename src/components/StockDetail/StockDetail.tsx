@@ -39,6 +39,7 @@ import { useChipVerdicts, VerdictStrip } from '@/components/shared/ChipVerdict';
 import MarginSignals from '@/components/shared/MarginSignals';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import PageHelp from '@/components/Help/PageHelp';
+import QuoteGrid from './QuoteGrid';
 import { useShallow } from 'zustand/react/shallow';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -373,14 +374,11 @@ export default function StockDetail() {
           </div>
         </div>
 
+        {/* 報價總覽：改為券商式三欄格子（2026-08-06 依使用者提供的版面）——
+            大數字、漲跌用顏色講完、含漲跌停價與日內位階條，不必逐行讀。 */}
+        <QuoteGrid stock={stock} allTimeHigh={allTimeHigh} />
+
         <div className={styles.stockStats}>
-          <div className={styles.statItem}><span className={styles.statKey}>昨收</span><span className={styles.statVal}>{(stock.price - stock.change).toFixed(2)}</span></div>
-          <div className={styles.statItem}><span className={styles.statKey}>開盤</span><span className={styles.statVal}>{stock.open.toFixed(2)}</span></div>
-          <div className={styles.statItem}><span className={styles.statKey}>最高</span><span className={styles.statVal} style={{ color: 'var(--color-up)' }}>{stock.high.toFixed(2)}</span></div>
-          <div className={styles.statItem}><span className={styles.statKey}>最低</span><span className={styles.statVal} style={{ color: 'var(--color-down)' }}>{stock.low.toFixed(2)}</span></div>
-          <div className={styles.statItem}><span className={styles.statKey}>歷史高</span><span className={styles.statVal} style={{ color: '#fbbf24' }}>{allTimeHigh ? allTimeHigh.high.toFixed(2) : '—'}{allTimeHigh?.date ? <span style={{ fontSize: '0.7em', color: 'var(--text-muted)', marginLeft: 3 }}>({allTimeHigh.date})</span> : null}</span></div>
-          <div className={styles.statItem}><span className={styles.statKey}>成交量</span><span className={styles.statVal}>{formatVolume(stock.volume)}</span></div>
-          <div className={styles.statItem}><span className={styles.statKey}>成交值</span><span className={styles.statVal}>{formatValue(stock.value)}</span></div>
           {rsiPair && (
             <div className={styles.statItem} title="犀利媽法 RSI(5)/RSI(10)：雙90+連續=高檔準備出貨·勿接刀；雙<10=極端超跌">
               <span className={styles.statKey}>RSI 5/10</span>

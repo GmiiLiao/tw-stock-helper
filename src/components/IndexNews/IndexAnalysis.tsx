@@ -202,28 +202,28 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
   const t = tip != null ? bars[tip] : null;
   const ti = tip ?? bars.length - 1;
   const paneLabel = (y0: number, txt: string) => (
-    <text x={PADL} y={y0 + 11} fontSize="10" fontWeight={700} fill="var(--text-muted)">{txt}</text>
+    <text x={PADL} y={y0 + 11} fontSize="10" fontWeight={700} fill="#cbd5f5">{txt}</text>
   );
   return (
     <div style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5f5', marginBottom: 2, flexWrap: 'wrap' }}>
         <span style={{ color: '#f6c945' }}>— MA5 {m5[bars.length - 1] != null ? fmtN(m5[bars.length - 1]!) : '—'}</span>
         <span style={{ color: '#3d8ef8' }}>— MA20 {m20[bars.length - 1] != null ? fmtN(m20[bars.length - 1]!) : '—'}</span>
         <span style={{ color: '#c084fc' }}>— MA60 {m60[bars.length - 1] != null ? fmtN(m60[bars.length - 1]!) : '—'}</span>
-        {t && <span style={{ color: 'var(--text-secondary)' }}>{fmtD(t.t, iv)} 開{fmtN(t.o)} 高{fmtN(t.h)} 低{fmtN(t.l)} 收<b style={{ color: t.c >= t.o ? UP : DOWN }}>{fmtN(t.c)}</b>{hasVol ? ` 量${fmtV(t.v)}` : ''}</span>}
+        {t && <span style={{ color: '#dbe4f5' }}>{fmtD(t.t, iv)} 開{fmtN(t.o)} 高{fmtN(t.h)} 低{fmtN(t.l)} 收<b style={{ color: t.c >= t.o ? UP : DOWN }}>{fmtN(t.c)}</b>{hasVol ? ` 量${fmtV(t.v)}` : ''}</span>}
       </div>
-      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, flexWrap: 'wrap', fontFamily: 'JetBrains Mono, monospace' }}>
-        {r5[ti] != null && <span>RSI5 <b style={{ color: 'var(--text-secondary)' }}>{r5[ti]!.toFixed(1)}</b></span>}
-        {r10[ti] != null && <span>RSI10 <b style={{ color: 'var(--text-secondary)' }}>{r10[ti]!.toFixed(1)}</b></span>}
-        {kd.K[ti] != null && <span>K <b style={{ color: 'var(--text-secondary)' }}>{kd.K[ti]!.toFixed(1)}</b> D <b style={{ color: 'var(--text-secondary)' }}>{kd.D[ti]!.toFixed(1)}</b></span>}
-        {macd.dif[ti] != null && <span>DIF <b style={{ color: 'var(--text-secondary)' }}>{macd.dif[ti]!.toFixed(1)}</b> 柱 <b style={{ color: (macd.osc[ti] ?? 0) >= 0 ? UP : DOWN }}>{(macd.osc[ti] ?? 0).toFixed(1)}</b></span>}
+      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5f5', marginBottom: 2, flexWrap: 'wrap', fontFamily: 'JetBrains Mono, monospace' }}>
+        {r5[ti] != null && <span>RSI5 <b style={{ color: '#dbe4f5' }}>{r5[ti]!.toFixed(1)}</b></span>}
+        {r10[ti] != null && <span>RSI10 <b style={{ color: '#dbe4f5' }}>{r10[ti]!.toFixed(1)}</b></span>}
+        {kd.K[ti] != null && <span>K <b style={{ color: '#dbe4f5' }}>{kd.K[ti]!.toFixed(1)}</b> D <b style={{ color: '#dbe4f5' }}>{kd.D[ti]!.toFixed(1)}</b></span>}
+        {macd.dif[ti] != null && <span>DIF <b style={{ color: '#dbe4f5' }}>{macd.dif[ti]!.toFixed(1)}</b> 柱 <b style={{ color: (macd.osc[ti] ?? 0) >= 0 ? UP : DOWN }}>{(macd.osc[ti] ?? 0).toFixed(1)}</b></span>}
       </div>
       <svg viewBox={`0 0 ${W} ${totalH}`} style={{ width: '100%', height: 'auto', display: 'block' }}
         onMouseLeave={() => setTip(null)}
         onMouseMove={e => { const r = (e.target as SVGElement).closest('svg')!.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left) / r.width * W / bw - PADL / bw); setTip(i >= 0 && i < bars.length ? i : null); }}>
         {/* 主圖：K棒＋均線 */}
         {[0.25, 0.5, 0.75].map(f => <line key={f} x1={PADL} x2={W - PADR} y1={8 + (H - 16) * f} y2={8 + (H - 16) * f} stroke="rgba(148,163,184,0.12)" />)}
-        {[hi, lo + (hi - lo) / 2, lo].map((p, i) => <text key={i} x={W - PADR + 6} y={y(p) + 4} fontSize="11" fill="var(--text-muted)">{fmtN(p)}</text>)}
+        {[hi, lo + (hi - lo) / 2, lo].map((p, i) => <text key={i} x={W - PADR + 6} y={y(p) + 4} fontSize="11" fill="#cbd5f5">{fmtN(p)}</text>)}
         {bars.map((b, i) => {
           const up = b.c >= b.o, col = up ? UP : DOWN;
           const bodyT = y(Math.max(b.o, b.c)), bodyB = y(Math.min(b.o, b.c));
@@ -249,7 +249,7 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         {paneLabel(rsiY0, 'RSI（— 5 — 10·Wilder）')}
         {[20, 50, 80].map(v => <g key={'rg' + v}>
           <line x1={PADL} x2={W - PADR} y1={pctY(rsiY0)(v)} y2={pctY(rsiY0)(v)} stroke="rgba(148,163,184,0.14)" strokeDasharray={v === 50 ? '2 3' : undefined} />
-          <text x={W - PADR + 6} y={pctY(rsiY0)(v) + 3.5} fontSize="10" fill="var(--text-muted)">{v}</text>
+          <text x={W - PADR + 6} y={pctY(rsiY0)(v) + 3.5} fontSize="10" fill="#cbd5f5">{v}</text>
         </g>)}
         <polyline points={line(r5, pctY(rsiY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(r10, pctY(rsiY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
@@ -267,13 +267,13 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         {paneLabel(kdY0, 'KD（9·⅔平滑）— K — D')}
         {[20, 80].map(v => <g key={'kg' + v}>
           <line x1={PADL} x2={W - PADR} y1={pctY(kdY0)(v)} y2={pctY(kdY0)(v)} stroke="rgba(148,163,184,0.14)" />
-          <text x={W - PADR + 6} y={pctY(kdY0)(v) + 3.5} fontSize="10" fill="var(--text-muted)">{v}</text>
+          <text x={W - PADR + 6} y={pctY(kdY0)(v) + 3.5} fontSize="10" fill="#cbd5f5">{v}</text>
         </g>)}
         <polyline points={line(kd.K, pctY(kdY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(kd.D, pctY(kdY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
         {/* 十字線與日期軸 */}
         {tip != null && <line x1={x(tip)} x2={x(tip)} y1={0} y2={totalH - 14} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />}
-        {bars.map((b, i) => (i % Math.ceil(bars.length / 8) === 0) && <text key={'d' + b.t} x={x(i)} y={totalH - 2} fontSize="10" fill="var(--text-muted)" textAnchor="middle">{fmtD(b.t, iv)}</text>)}
+        {bars.map((b, i) => (i % Math.ceil(bars.length / 8) === 0) && <text key={'d' + b.t} x={x(i)} y={totalH - 2} fontSize="10" fill="#cbd5f5" textAnchor="middle">{fmtD(b.t, iv)}</text>)}
       </svg>
     </div>
   );
@@ -304,7 +304,7 @@ export default function IndexAnalysis() {
   const chg = last && prev ? (last.c - prev.c) / prev.c * 100 : 0;
   const hist = useMemo(() => [...all.slice(-20)].reverse(), [all]);
 
-  const chip = (on: boolean) => ({ padding: '5px 12px', borderRadius: 14, fontSize: 12.5, fontWeight: 800 as const, cursor: 'pointer', border: `1px solid ${on ? 'rgba(125,211,252,0.6)' : 'var(--border-primary)'}`, background: on ? 'rgba(125,211,252,0.14)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-muted)' });
+  const chip = (on: boolean) => ({ padding: '5px 12px', borderRadius: 14, fontSize: 12.5, fontWeight: 800 as const, cursor: 'pointer', border: `1px solid ${on ? 'rgba(125,211,252,0.6)' : 'var(--border-primary)'}`, background: on ? 'rgba(125,211,252,0.14)' : 'transparent', color: on ? 'var(--text-primary)' : '#cbd5f5' });
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -319,26 +319,26 @@ export default function IndexAnalysis() {
           <span style={{ marginLeft: 'auto', fontSize: 14, fontWeight: 900 }}>
             {name} <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{fmtN(last.c)}</span>{' '}
             <span style={{ color: chg >= 0 ? UP : DOWN }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{fmtD(last.t, iv)}</span>
+            <span style={{ fontSize: 11, color: '#cbd5f5', marginLeft: 6 }}>{fmtD(last.t, iv)}</span>
           </span>
         )}
       </div>
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-        {loading ? <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: 24 }}>載入 {name} K 線…</div>
-          : bars.length ? <CandleSvg bars={bars} iv={iv} /> : <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: 24 }}>無資料</div>}
-        {note && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>ℹ {note}</div>}
+        {loading ? <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>
+          : bars.length ? <CandleSvg bars={bars} iv={iv} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>無資料</div>}
+        {note && <div style={{ fontSize: 11, color: '#cbd5f5', marginTop: 4 }}>ℹ {note}</div>}
       </div>
 
       {read.lines.length > 0 && (
         <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 12.5, lineHeight: 1.9 }}>
           <div style={{ fontWeight: 900, marginBottom: 4 }}>🧭 自動判讀（規則計算·非 AI 生成）：{read.headline}</div>
-          {read.lines.map((l, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {l}</div>)}
+          {read.lines.map((l, i) => <div key={i} style={{ color: '#dbe4f5' }}>· {l}</div>)}
           {read.ind.length > 0 && <>
             <div style={{ fontWeight: 900, margin: '8px 0 2px' }}>📐 指標讀數（描述性·非買賣訊號）</div>
-            {read.ind.map((l, i) => <div key={'i' + i} style={{ color: 'var(--text-secondary)' }}>· {l}</div>)}
+            {read.ind.map((l, i) => <div key={'i' + i} style={{ color: '#dbe4f5' }}>· {l}</div>)}
           </>}
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>判讀為技術面描述，非預測、非投資建議。MACD/KD 交叉類為確認型指標，本站回測無預測增量。</div>
+          <div style={{ marginTop: 6, fontSize: 11, color: '#cbd5f5' }}>判讀為技術面描述，非預測、非投資建議。MACD/KD 交叉類為確認型指標，本站回測無預測增量。</div>
         </div>
       )}
 
@@ -346,7 +346,7 @@ export default function IndexAnalysis() {
         <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 6 }}>📋 歷史資料（近 20 根{INTERVALS.find(i => i.id === iv)?.label}）</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>
-            <thead><tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
+            <thead><tr style={{ color: '#cbd5f5', textAlign: 'right' }}>
               <th style={{ textAlign: 'left', padding: '4px 6px' }}>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌%</th><th>成交量</th><th>RSI5</th><th>K</th>
             </tr></thead>
             <tbody>
@@ -356,13 +356,13 @@ export default function IndexAnalysis() {
                 const r5all = readCache(all, gi);
                 return (
                   <tr key={b.t} style={{ textAlign: 'right', borderTop: '1px solid rgba(148,163,184,0.08)' }}>
-                    <td style={{ textAlign: 'left', padding: '4px 6px', color: 'var(--text-secondary)' }}>{fmtD(b.t, iv)}</td>
+                    <td style={{ textAlign: 'left', padding: '4px 6px', color: '#dbe4f5' }}>{fmtD(b.t, iv)}</td>
                     <td>{fmtN(b.o)}</td><td>{fmtN(b.h)}</td><td>{fmtN(b.l)}</td>
                     <td style={{ fontWeight: 700, color: b.c >= b.o ? UP : DOWN }}>{fmtN(b.c)}</td>
-                    <td style={{ color: ch == null ? 'var(--text-muted)' : ch >= 0 ? UP : DOWN }}>{ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{b.v > 0 ? fmtV(b.v) : '—'}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{r5all.r5 ?? '—'}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{r5all.k ?? '—'}</td>
+                    <td style={{ color: ch == null ? '#cbd5f5' : ch >= 0 ? UP : DOWN }}>{ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}</td>
+                    <td style={{ color: '#cbd5f5' }}>{b.v > 0 ? fmtV(b.v) : '—'}</td>
+                    <td style={{ color: '#cbd5f5' }}>{r5all.r5 ?? '—'}</td>
+                    <td style={{ color: '#cbd5f5' }}>{r5all.k ?? '—'}</td>
                   </tr>
                 );
               })}

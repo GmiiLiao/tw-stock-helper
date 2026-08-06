@@ -31,13 +31,13 @@ export default class CardBoundary extends Component<
       <div style={{
         marginBottom: 16, padding: '12px 14px', borderRadius: 12,
         background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)',
-        fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.7,
+        fontSize: 12.5, color: '#dbe4f5', lineHeight: 1.7,
       }}>
         <div style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: 2 }}>
           ⚠️ 「{this.props.name}」暫時無法顯示
         </div>
         本區塊的資料格式異常，已略過以免影響其他功能；頁面其餘部分正常可用。
-        <span style={{ color: 'var(--text-muted)' }}>（{this.state.err.message.slice(0, 80)}）</span>
+        <span style={{ color: '#cbd5f5' }}>（{this.state.err.message.slice(0, 80)}）</span>
       </div>
     );
   }

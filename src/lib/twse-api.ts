@@ -469,3 +469,60 @@ export function detectSignal(
   if (netScore >= 10) return { type: 'WATCH', strength, reasons };
   return { type: 'NEUTRAL', strength, reasons };
 }
+
+// ── 布林通道 BBAND（2026-08-06 補·對齊券商「主圖」指標）────────────
+// 中軌＝N 日 SMA，上/下軌＝中軌 ± k×母體標準差（券商慣例 N=20、k=2）。
+// ⚠標準差用**母體**(÷N)而非樣本(÷N-1)——這是台股各家看盤軟體的一致做法，
+//   用樣本會與券商畫出來的線對不上，使用者會以為我們算錯。
+export function calculateBBands(
+  closes: number[], period = 20, mult = 2,
+): { mid: (number | null)[]; upper: (number | null)[]; lower: (number | null)[] } {
+  const mid: (number | null)[] = [], upper: (number | null)[] = [], lower: (number | null)[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) { mid.push(null); upper.push(null); lower.push(null); continue; }
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += closes[j];
+    const m = sum / period;
+    let sq = 0;
+    for (let j = i - period + 1; j <= i; j++) sq += (closes[j] - m) ** 2;
+    const sd = Math.sqrt(sq / period);
+    mid.push(m); upper.push(m + mult * sd); lower.push(m - mult * sd);
+  }
+  return { mid, upper, lower };
+}
+
+// ── SAR 拋物線轉向（Wilder 原始定義·AF 0.02 起、每次創新極值 +0.02、上限 0.2）──
+// 回傳 { sar, rising }：rising=true 代表目前是多頭段（SAR 在價格下方）。
+// ⚠翻轉當根的 SAR 取「前一段的極值(EP)」，且要用前兩根的高/低夾住——
+//   少了這道夾擠，翻轉點會落在 K 棒裡面，看起來像畫錯。
+export function calculateSAR(
+  highs: number[], lows: number[], step = 0.02, max = 0.2,
+): { sar: (number | null)[]; rising: boolean[] } {
+  const n = highs.length;
+  const sar: (number | null)[] = new Array(n).fill(null);
+  const rising: boolean[] = new Array(n).fill(true);
+  if (n < 3) return { sar, rising };
+
+  let up = highs[1] >= highs[0];         // 初始方向：第二根較高視為多頭
+  let af = step;
+  let ep = up ? highs[1] : lows[1];      // 極值
+  let cur = up ? lows[0] : highs[0];     // 起始 SAR
+  sar[1] = cur; rising[1] = up;
+
+  for (let i = 2; i < n; i++) {
+    let next = cur + af * (ep - cur);
+    if (up) {
+      next = Math.min(next, lows[i - 1], lows[i - 2]);   // 不可高於前兩根低點
+      if (lows[i] < next) {                              // 跌破 → 轉空
+        up = false; next = ep; ep = lows[i]; af = step;
+      } else if (highs[i] > ep) { ep = highs[i]; af = Math.min(af + step, max); }
+    } else {
+      next = Math.max(next, highs[i - 1], highs[i - 2]); // 不可低於前兩根高點
+      if (highs[i] > next) {                             // 突破 → 轉多
+        up = true; next = ep; ep = highs[i]; af = step;
+      } else if (lows[i] < ep) { ep = lows[i]; af = Math.min(af + step, max); }
+    }
+    cur = next; sar[i] = cur; rising[i] = up;
+  }
+  return { sar, rising };
+}
