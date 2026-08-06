@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -26,15 +27,16 @@ interface Risk {
 
 export default function PortfolioRisk() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const allStocks = useAppStore(st => st.allStocks);
   const [d, setD] = useState<Risk | null>(null);
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const ref = doc(db, 'users', user.uid, 'data', 'portfolioRisk');
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const ref = doc(db, 'users', dataUid, 'data', 'portfolioRisk');
     const unsub = onSnapshot(ref, snap => setD(snap.exists() ? (snap.data() as Risk) : null), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   if (!d) return null;
   const nameOf = (c: string) => allStocks.find(s => s.code === c)?.name || c;

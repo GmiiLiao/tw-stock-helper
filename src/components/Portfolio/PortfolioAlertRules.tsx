@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -19,6 +20,7 @@ const typeLabel = (t: string) => TYPES.find(x => x.v === t)?.t || t;
 
 export default function PortfolioAlertRules() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const allStocks = useAppStore(st => st.allStocks);
   const [rules, setRules] = useState<Rule[]>([]);
   const [open, setOpen] = useState(false);
@@ -28,11 +30,11 @@ export default function PortfolioAlertRules() {
   const [value, setValue] = useState('');
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const ref = doc(db, 'users', user.uid, 'data', 'alertRules');
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const ref = doc(db, 'users', dataUid, 'data', 'alertRules');
     const unsub = onSnapshot(ref, snap => setRules(snap.exists() ? (snap.data().rules || []) : []), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   const matches = useMemo(() => {
     if (!search || search.length < 1) return [];
@@ -40,14 +42,15 @@ export default function PortfolioAlertRules() {
   }, [search, allStocks]);
 
   const save = async (next: Rule[]) => {
+    if (!dataUid || !canWriteUserData()) return;   // 🎭模擬中禁止寫入（畫面上的是別人的資料）
     if (!user?.uid) return;
-    await setDoc(doc(db, 'users', user.uid, 'data', 'alertRules'), { rules: next, updatedAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, 'users', dataUid, 'data', 'alertRules'), { rules: next, updatedAt: Date.now() }, { merge: true });
   };
   const add = async () => {
     const v = parseFloat(value);
-    if (!picked || isNaN(v) || v <= 0 || !user?.uid) return;
+    if (!picked || isNaN(v) || v <= 0 || !dataUid || !canWriteUserData()) return;   // 🎭模擬中禁止寫入
     const rule: Rule = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, code: picked.code, name: picked.name, type, value: v };
-    await setDoc(doc(db, 'users', user.uid, 'data', 'alertRules'), { rules: arrayUnion(rule), updatedAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, 'users', dataUid, 'data', 'alertRules'), { rules: arrayUnion(rule), updatedAt: Date.now() }, { merge: true });
     setPicked(null); setSearch(''); setValue(''); setOpen(false);
   };
   const remove = (id: string) => save(rules.filter(r => r.id !== id));

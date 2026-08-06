@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -18,22 +19,24 @@ const CONV: Record<string, { t: string; c: string }> = {
 
 export default function ThesisCards() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const navigateTo = useAppStore(st => st.navigateTo);
   const [theses, setTheses] = useState<Record<string, Thesis>>({});
   const [editCode, setEditCode] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const ref = doc(db, 'users', user.uid, 'data', 'theses');
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const ref = doc(db, 'users', dataUid, 'data', 'theses');
     const unsub = onSnapshot(ref, snap => setTheses(snap.exists() ? (snap.data().theses || {}) : {}), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   const save = async (code: string, patch: Partial<Thesis>) => {
+    if (!dataUid || !canWriteUserData()) return;   // 🎭模擬中禁止寫入（畫面上的是別人的資料）
     if (!user?.uid) return;
     const next = { ...theses, [code]: { ...theses[code], ...patch, status: 'edited', updatedAt: Date.now() } };
-    await setDoc(doc(db, 'users', user.uid, 'data', 'theses'), { theses: next, updatedAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, 'users', dataUid, 'data', 'theses'), { theses: next, updatedAt: Date.now() }, { merge: true });
   };
 
   const codes = Object.keys(theses);

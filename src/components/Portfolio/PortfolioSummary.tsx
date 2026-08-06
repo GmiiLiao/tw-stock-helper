@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -11,14 +12,15 @@ interface Summary { date?: string; summary: string; generatedAt: number; model?:
 
 export default function PortfolioSummary() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const [data, setData] = useState<Summary | null>(null);
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const ref = doc(db, 'users', user.uid, 'data', 'dailySummary');
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const ref = doc(db, 'users', dataUid, 'data', 'dailySummary');
     const unsub = onSnapshot(ref, snap => { setData(snap.exists() ? (snap.data() as Summary) : null); }, () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   if (!data?.summary) return null;
 

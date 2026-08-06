@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useIsPremium } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -9,7 +10,7 @@ import { useAppStore } from '@/lib/store';
 //    pre-market brief: 10 picks + entry/exit + market strategy, plus the
 //    member's own holdings strategy (from portfolioAnalysis). ──
 
-const PREMIUM_LEVELS = ['premium', 'admin', 'superadmin'];
+// 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
 const SIGNAL_COLOR: Record<string, string> = { STRONG_BUY: '#c92a2a', BUY: '#e67700', WATCH: '#1971c2', NEUTRAL: '#868e96' };
 
 interface Pick { code: string; name: string; signal: string; signalLabel: string; score: number; price: number; changePercent: number; buy: number | null; target: number | null; stop: number | null; note: string; swingAction?: string | null; swingScore?: number | null; swingBias?: number | null; chase?: boolean }
@@ -18,7 +19,7 @@ interface HoldingA { code: string; name: string; action: string; sellTrigger: st
 
 export default function PremarketBrief() {
   const user = useAppStore(s => s.user);
-  const isPremium = !!user && PREMIUM_LEVELS.includes(user.level);
+  const isPremium = useIsPremium();   // 受身分模擬影響（見 lib/view-as）
   const [brief, setBrief] = useState<Brief | null>(null);
   const [holdings, setHoldings] = useState<Record<string, HoldingA>>({});
   const [open, setOpen] = useState(true);

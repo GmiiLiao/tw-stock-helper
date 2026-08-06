@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store';
 import styles from './Navbar.module.css';
 import AiNewsTicker, { NavbarIndexWidget } from '@/components/AiNewsTicker/AiNewsTicker';
 import ModeSwitcher from '@/components/shared/ModeSwitcher';
+import { useIsPremium } from '@/lib/view-as';
 
 const NAV_ITEMS = [
   // 2026-08-05：「指數·新聞」不再是獨立入口——指數與新聞已成為市場總覽的分頁
@@ -16,7 +17,7 @@ const NAV_ITEMS = [
   { id: 'portfolio', label: '投資組合',   icon: '💼' },
   { id: 'backtest',  label: '策略回測',   icon: '🧪' },
 ];
-const PREMIUM_LEVELS = ['premium', 'admin', 'superadmin'];
+// 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
 const TRIAL_DAYS = 14; // 與選股策略一致：新註冊 14 天免費體驗(依 Firebase Auth 註冊時間)
 
 import { auth } from '@/lib/firebase';
@@ -58,7 +59,9 @@ export default function Navbar() {
   const isAdmin = user && (user.level === 'superadmin' || user.level === 'admin' || (adminEmail && user.email === adminEmail));
 
   // 高級會員限定項目（盤中戰情）：非會員且非體驗期 → 導覽完全隱藏
-  const isPremiumUser = !!user && PREMIUM_LEVELS.includes(user.level);
+  // ⚠會員限定項目走**有效等級**（受身分模擬影響）；上面的 isAdmin 刻意用真實等級——
+  //   否則模擬成一般會員時管理後台入口會消失，就回不去了。
+  const isPremiumUser = useIsPremium();
   const trialActive = (() => {
     if (isPremiumUser || !user?.uid) return false;
     const ct = (auth as { currentUser?: { metadata?: { creationTime?: string } } })?.currentUser?.metadata?.creationTime;

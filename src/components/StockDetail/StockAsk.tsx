@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useIsPremium } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -8,13 +9,13 @@ import { useAppStore } from '@/lib/store';
 // ── RAG 問 AI：寫問題到 users/{uid}/data/questions，常駐 daemon 用第二大腦資料
 //    + 本地 LLM 回答後回寫，這裡即時訂閱顯示。 ──
 
-const PREMIUM = ['premium', 'admin', 'superadmin'];
+// 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
 
 interface QA { id: string; code: string; question: string; answer?: string; status: string; at: number }
 
 export default function StockAsk({ code, name }: { code: string; name: string }) {
   const user = useAppStore(s => s.user);
-  const isPremium = !!user && PREMIUM.includes(user.level);
+  const isPremium = useIsPremium();   // 受身分模擬影響（見 lib/view-as）
   const [items, setItems] = useState<QA[]>([]);
   const [q, setQ] = useState('');
   const [sending, setSending] = useState(false);

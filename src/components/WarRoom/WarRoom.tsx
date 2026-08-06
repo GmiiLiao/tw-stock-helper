@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useIsPremium } from '@/lib/view-as';
 import { MarketPatternHint } from '@/components/MarketPattern/MarketPatternBanner';
 import PortfolioAlerts from '@/components/Portfolio/PortfolioAlerts';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
@@ -17,7 +18,7 @@ import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
 
-const PREMIUM_LEVELS = ['premium', 'admin', 'superadmin'];
+// 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
 const TRIAL_DAYS = 14; // 與選股策略一致
 
 // ── ⚡ 盤中戰情：獨立盤中看盤頁（與撿尾盤分離）──────────────────
@@ -163,7 +164,7 @@ export default function WarRoom() {
   const staleMs = radar ? Date.now() - radar.updatedAt : 0;
 
   // 高級會員限定（含 14 天新會員體驗）：導覽已隱藏，此為直連守門
-  const isPremiumUser = !!user && PREMIUM_LEVELS.includes(user.level);
+  const isPremiumUser = useIsPremium();   // 受身分模擬影響（見 lib/view-as）
   const trialActive = (() => {
     if (isPremiumUser || !user?.uid) return false;
     const ct = (auth as { currentUser?: { metadata?: { creationTime?: string } } })?.currentUser?.metadata?.creationTime;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, setDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -16,6 +17,7 @@ const b64ToU8 = (s: string) => {
 
 export default function PushSetup() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const [state, setState] = useState<'unsupported' | 'off' | 'on' | 'denied' | 'working'>('off');
   // Telegram 綁定（daemon tgLinkLoop 處理 /start <uid>；點連結→按 Start 即綁定）
   const [tg, setTg] = useState<{ botUsername: string | null; linked: boolean } | null>(null);
@@ -26,7 +28,7 @@ export default function PushSetup() {
     load();
     const t = setInterval(load, 15000); // 綁定後 15 秒內顯示 ✓
     return () => { live = false; clearInterval(t); };
-  }, [user?.uid]);
+  }, [dataUid]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) { setState('unsupported'); return; }
@@ -39,6 +41,9 @@ export default function PushSetup() {
 
   const enable = async () => {
     if (!user?.uid) return;
+    if (!dataUid || !canWriteUserData()) {   // 🎭模擬中禁止寫入（會把訂閱寫進對方帳號）
+      alert('身分模擬中為唯讀，無法啟用推播。'); return;
+    }
     setState('working');
     try {
       const perm = await Notification.requestPermission();
@@ -46,7 +51,7 @@ export default function PushSetup() {
       const reg = await navigator.serviceWorker.register('/push-sw.js');
       const key = process.env.NEXT_PUBLIC_VAPID_KEY || '';
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
-      await setDoc(doc(db, 'users', user.uid, 'data', 'pushSubs'), { subs: arrayUnion(JSON.stringify(sub.toJSON())), updatedAt: Date.now() }, { merge: true });
+      await setDoc(doc(db, 'users', dataUid, 'data', 'pushSubs'), { subs: arrayUnion(JSON.stringify(sub.toJSON())), updatedAt: Date.now() }, { merge: true });
       setState('on');
     } catch { setState('off'); alert('啟用失敗：iOS 請先「分享→加入主畫面」後再從主畫面開啟本站啟用。'); }
   };

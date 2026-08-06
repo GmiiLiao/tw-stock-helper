@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
+import { useIsPremium } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -8,7 +10,7 @@ import { useAppStore } from '@/lib/store';
 // ── Member-exclusive (premium+) AI holdings analysis, powered by the
 //    resident local-AI daemon. Shows daemon status + per-holding advice. ──
 
-const PREMIUM_LEVELS = ['premium', 'admin', 'superadmin'];
+// 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
 
 interface HoldingAnalysis {
   code: string; name: string;
@@ -42,7 +44,8 @@ function StatusBadge({ s }: { s: DaemonStatus | null }) {
 
 export default function PortfolioAI({ codes }: { codes: Array<{ code: string; name: string }> }) {
   const user = useAppStore(st => st.user);
-  const isPremium = !!user && PREMIUM_LEVELS.includes(user.level);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
+  const isPremium = useIsPremium();   // 受身分模擬影響（見 lib/view-as）
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [data, setData] = useState<AnalysisDoc | null>(null);
 
@@ -57,11 +60,11 @@ export default function PortfolioAI({ codes }: { codes: Array<{ code: string; na
 
   // live subscribe to own portfolio analysis
   useEffect(() => {
-    if (!isPremium || !user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const ref = doc(db, 'users', user.uid, 'data', 'portfolioAnalysis');
+    if (!isPremium || !dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const ref = doc(db, 'users', dataUid, 'data', 'portfolioAnalysis');
     const unsub = onSnapshot(ref, snap => { setData(snap.exists() ? (snap.data() as AnalysisDoc) : null); }, () => {});
     return () => unsub();
-  }, [isPremium, user?.uid]);
+  }, [isPremium, dataUid]);
 
   return (
     <div style={{ marginTop: 20, background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', padding: '16px 18px' }}>

@@ -30,6 +30,8 @@ const WatchlistTracker  = dynamic(() => import('@/components/WatchlistTracker/Wa
 const WarRoom           = dynamic(() => import('@/components/WarRoom/WarRoom'));
 // AdminPanel 只有管理員用得到，卻是所有使用者都在下載的 31KB。
 const AdminPanel        = dynamic(() => import('@/components/Admin/AdminPanel'));
+// 模擬中橫幅：必須在所有頁面之上且永遠可見（忘了自己在模擬比功能壞掉更危險）
+const ViewAsBanner      = dynamic(() => import('@/components/Admin/ViewAsBanner'), { ssr: false });
 // HelpManual 連帶 help-content.ts（34KB 純靜態說明文字）
 const HelpManual        = dynamic(() => import('@/components/Help/HelpManual'));
 
@@ -74,6 +76,7 @@ export default function App() {
       {/* Global authentication modal */}
       <AuthModal />
 
+      <ViewAsBanner />
       <Navbar />
       <div className={styles.mainArea}>
         <Header />

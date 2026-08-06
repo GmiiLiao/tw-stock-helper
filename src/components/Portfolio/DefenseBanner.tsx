@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -11,14 +12,15 @@ interface Report { at: number; date: string; median: number; downRatio: number; 
 
 export default function DefenseBanner() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const [rep, setRep] = useState<Report | null>(null);
   const [open, setOpen] = useState(true);
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'defenseReport'), snap => setRep(snap.exists() ? (snap.data() as Report) : null), () => {});
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', dataUid, 'data', 'defenseReport'), snap => setRep(snap.exists() ? (snap.data() as Report) : null), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   if (!rep || Date.now() - rep.at > 48 * 3600000) return null;
   return (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -11,14 +12,15 @@ interface Report { weekOf: string; content: string; generatedAt: number }
 
 export default function WeeklyReport() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const [rep, setRep] = useState<Report | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'weeklyReport'), snap => setRep(snap.exists() ? (snap.data() as Report) : null), () => {});
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', dataUid, 'data', 'weeklyReport'), snap => setRep(snap.exists() ? (snap.data() as Report) : null), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   if (!rep?.content) return null;
   return (

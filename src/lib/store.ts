@@ -73,7 +73,16 @@ export interface AppNotification {
   severity: 'info' | 'warning' | 'critical';
 }
 
+// ── 🎭 身分模擬的唯讀閘門（2026-08-06）────────────────────────────
+// 管理員模擬會員身分時，畫面上的資料是**別人的**。若同步照常運作，
+// 任何一次「加自選 / 記錄持倉」都會寫進該會員的 Firestore ——
+// 所以在模擬期間把所有寫入集中封在這一道，而不是逐一在 30 個呼叫點加判斷
+// （漏一個就是事故）。
+let _syncReadOnly = false;
+export const setSyncReadOnly = (v: boolean) => { _syncReadOnly = v; };
+
 const syncWatchlist = async (uid: string, watchlist: any[], watchlistGroups: any[]) => {
+  if (_syncReadOnly) return;
   try {
     const data = JSON.parse(JSON.stringify({ watchlist, watchlistGroups }));
     await setDoc(doc(db, 'users', uid, 'data', 'watchlist'), data);
@@ -83,6 +92,7 @@ const syncWatchlist = async (uid: string, watchlist: any[], watchlistGroups: any
 };
 
 const syncHoldings = async (uid: string, holdings: any[]) => {
+  if (_syncReadOnly) return;
   try {
     const data = JSON.parse(JSON.stringify({ holdings }));
     await setDoc(doc(db, 'users', uid, 'data', 'holdings'), data);
@@ -92,6 +102,7 @@ const syncHoldings = async (uid: string, holdings: any[]) => {
 };
 
 const syncTrades = async (uid: string, tradeRecords: any[]) => {
+  if (_syncReadOnly) return;
   try {
     const data = JSON.parse(JSON.stringify({ tradeRecords }));
     await setDoc(doc(db, 'users', uid, 'data', 'trades'), data);
@@ -101,6 +112,7 @@ const syncTrades = async (uid: string, tradeRecords: any[]) => {
 };
 
 const syncAlerts = async (uid: string, alerts: any[]) => {
+  if (_syncReadOnly) return;
   try {
     const data = JSON.parse(JSON.stringify({ alerts }));
     await setDoc(doc(db, 'users', uid, 'data', 'alerts'), data);
@@ -110,6 +122,7 @@ const syncAlerts = async (uid: string, alerts: any[]) => {
 };
 
 const syncNotifications = async (uid: string, notifications: any[]) => {
+  if (_syncReadOnly) return;
   try {
     const data = JSON.parse(JSON.stringify({ notifications }));
     await setDoc(doc(db, 'users', uid, 'data', 'notifications'), data);
@@ -138,6 +151,8 @@ interface AppState {
 
   // Auth
   user: { uid: string; email: string | null; displayName: string | null; level: string } | null;
+  // 🎭 身分模擬（僅 superadmin·唯讀·不持久化——重新整理即自動結束）
+  viewAs: { level: string | null; uid: string | null; email: string | null; at: number } | null;
   authLoading: boolean;
   showAuthModal: boolean;
 
@@ -175,6 +190,8 @@ interface AppState {
   setAllStocks: (stocks: StockInfo[]) => void;
   setLastFetchTime: (time: number) => void;
   setUser: (user: AppState['user']) => void;
+  enterViewAs: (v: { level?: string | null; uid?: string | null; email?: string | null; data?: Partial<Pick<AppState, 'watchlist' | 'watchlistGroups' | 'holdings' | 'tradeRecords' | 'alerts' | 'notifications'>> }) => void;
+  exitViewAs: () => void;
   setTradingMode: (m: ModeKey) => void;
   setAuthLoading: (loading: boolean) => void;
   setShowAuthModal: (show: boolean) => void;
@@ -370,6 +387,18 @@ export const useAppStore = create<AppState>()(
             } catch { /* 離線或 token 拿不到時只保留本地，下次切換再同步 */ }
           })();
         }
+      },
+      viewAs: null,
+      enterViewAs: ({ level = null, uid = null, email = null, data }) => {
+        setSyncReadOnly(true);                       // 先鎖寫入，再換資料——順序不可顛倒
+        set({ viewAs: { level, uid, email, at: Date.now() }, ...(data ?? {}) });
+      },
+      // 結束模擬一律走「整頁重載」而不是還原快照：重載會重跑 firebase-sync，
+      // 把管理員自己的資料從 Firestore 重新讀回來，不會有還原不完全的風險。
+      exitViewAs: () => {
+        setSyncReadOnly(false);
+        set({ viewAs: null });
+        if (typeof window !== 'undefined') window.location.reload();
       },
       setUser: (user) => set({ user }),
       setAuthLoading: (loading) => set({ authLoading: loading }),
@@ -758,7 +787,9 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'tw-stock-app-storage',
-      partialize: (state) => ({
+      // ⚠模擬期間**不得持久化任何屬於他人的資料**：否則重新整理後 viewAs 已清空、
+      //   localStorage 卻留著會員的持倉，會被當成管理員自己的並同步回其帳號。
+      partialize: (state) => (state.viewAs ? { tradingMode: state.tradingMode } : {
         tradingMode: state.tradingMode,
         watchlist: state.watchlist,
         watchlistGroups: state.watchlistGroups,
@@ -775,7 +806,7 @@ export const useAppStore = create<AppState>()(
         compareTradeDuration: state.compareTradeDuration,
         compareLotType: state.compareLotType,
         compareSelectedGroupId: state.compareSelectedGroupId,
-      }),
+      }) as never,
     }
   )
 );

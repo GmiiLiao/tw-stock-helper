@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -18,16 +19,17 @@ interface Shadow {
 
 export default function ShadowAccount() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const [s, setS] = useState<Shadow | null>(null);
   const [open, setOpen] = useState(true);
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'shadowAccount'), snap => {
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', dataUid, 'data', 'shadowAccount'), snap => {
       setS(snap.exists() ? (snap.data() as Shadow) : null);
     }, () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   if (!s?.learned) return null;
   const L = s.learned;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -24,6 +25,7 @@ const wan = (v: number) => `${(v / 10000).toLocaleString('zh-TW', { maximumFract
 
 export default function CashLedger() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const tradeRecords = useAppStore(st => st.tradeRecords);
   const holdings = useAppStore(st => st.holdings);
   const allStocks = useAppStore(st => st.allStocks);
@@ -36,28 +38,30 @@ export default function CashLedger() {
   const [form, setForm] = useState({ type: 'deposit' as Entry['type'], amount: '', date: new Date().toISOString().slice(0, 10) });
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'cashLedger'), snap => {
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', dataUid, 'data', 'cashLedger'), snap => {
       const data = snap.exists() ? snap.data() : null;
       setEntries(data?.entries || []);
       const bb = typeof data?.bankBalance === 'number' ? data.bankBalance : null;
       setBankBalance(bb); setBankInput(bb != null ? String(bb) : '');
     }, () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   const save = async (next: Entry[], bank?: number | null) => {
+    if (!dataUid || !canWriteUserData()) return;   // 🎭模擬中禁止寫入（畫面上的是別人的資料）
     if (!user?.uid) return;
     const payload: { entries: Entry[]; updatedAt: number; bankBalance?: number | null } = { entries: next, updatedAt: Date.now() };
     if (bank !== undefined) payload.bankBalance = bank;
     else if (bankBalance != null) payload.bankBalance = bankBalance;
-    await setDoc(doc(db, 'users', user.uid, 'data', 'cashLedger'), payload, { merge: true });
+    await setDoc(doc(db, 'users', dataUid, 'data', 'cashLedger'), payload, { merge: true });
   };
   const saveBank = async () => {
+    if (!dataUid || !canWriteUserData()) return;   // 🎭模擬中禁止寫入
     const v = bankInput.trim() === '' ? null : parseFloat(bankInput);
     if (v != null && isNaN(v)) return;
     setBankBalance(v);
-    await setDoc(doc(db, 'users', user!.uid, 'data', 'cashLedger'), { bankBalance: v, bankAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, 'users', dataUid, 'data', 'cashLedger'), { bankBalance: v, bankAt: Date.now() }, { merge: true });
   };
   const add = async () => {
     const v = parseFloat(form.amount);

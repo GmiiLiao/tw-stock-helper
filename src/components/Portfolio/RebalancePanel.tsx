@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -15,22 +16,24 @@ interface Rebal { updatedAt: number; totalStock: number; cash: number | null; ca
 
 export default function RebalancePanel() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const [data, setData] = useState<Rebal | null>(null);
   const [cashInput, setCashInput] = useState('');
   const [saveMsg, setSaveMsg] = useState('');
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'rebalance'), snap => setData(snap.exists() ? (snap.data() as Rebal) : null), () => {});
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', dataUid, 'data', 'rebalance'), snap => setData(snap.exists() ? (snap.data() as Rebal) : null), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   const saveCash = async () => {
+    if (!dataUid || !canWriteUserData()) return;   // 🎭模擬中禁止寫入（畫面上的是別人的資料）
     const v = parseFloat(cashInput);
     if (!user?.uid) return;
     if (isNaN(v) || v < 0) { setSaveMsg('請輸入有效金額(元)'); return; }
     try {
-      await setDoc(doc(db, 'users', user.uid, 'data', 'rebalanceSettings'), { cash: v, updatedAt: Date.now() }, { merge: true });
+      await setDoc(doc(db, 'users', dataUid, 'data', 'rebalanceSettings'), { cash: v, updatedAt: Date.now() }, { merge: true });
       setCashInput('');
       setSaveMsg(`✓ 已儲存現金 ${(v / 10000).toFixed(1)} 萬，約 1 分鐘內重新計算`);
       setTimeout(() => setSaveMsg(''), 90000);

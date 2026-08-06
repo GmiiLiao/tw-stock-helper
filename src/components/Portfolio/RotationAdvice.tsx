@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -13,14 +14,15 @@ interface Doc { updatedAt: number; topAvg: number; items: Item[]; alternatives: 
 
 export default function RotationAdvice() {
   const user = useAppStore(st => st.user);
+  const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const navigateTo = useAppStore(st => st.navigateTo);
   const [data, setData] = useState<Doc | null>(null);
 
   useEffect(() => {
-    if (!user?.uid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const unsub = onSnapshot(doc(db, 'users', user.uid, 'data', 'rotation'), snap => setData(snap.exists() ? (snap.data() as Doc) : null), () => {});
+    if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(doc(db, 'users', dataUid, 'data', 'rotation'), snap => setData(snap.exists() ? (snap.data() as Doc) : null), () => {});
     return () => unsub();
-  }, [user?.uid]);
+  }, [dataUid]);
 
   if (!data?.items?.length) return null;
   const weak = data.items.filter(i => i.weak);

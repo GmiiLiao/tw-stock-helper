@@ -7,6 +7,7 @@ import { collection, onSnapshot, doc, setDoc, query, orderBy, limit } from 'fire
 import styles from './AdminPanel.module.css';
 
 import OpsPanel from './OpsPanel';
+import ViewAsPanel from './ViewAsPanel';
 import { useShallow } from 'zustand/react/shallow';
 
 interface UserDoc {
@@ -56,7 +57,7 @@ export default function AdminPanel() {
   const isAdmin = user && (user.level === 'superadmin' || user.level === 'admin' || (adminEmail && user.email === adminEmail));
 
   // Tabs state
-  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'logs' | 'ops'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'logs' | 'ops' | 'viewas'>('users');
 
   // Real-time data states
   const [users, setUsers] = useState<UserDoc[]>([]);
@@ -476,6 +477,12 @@ export default function AdminPanel() {
             >
               📝 使用記錄
             </button>
+            <button
+              className={`${styles.tabBtn} ${activeTab === 'viewas' ? styles.tabBtnActive : ''}`}
+              onClick={() => setActiveTab('viewas')}
+            >
+              🎭 身分模擬
+            </button>
           </div>
 
           {/* ── TAB 1: User Management ── */}
@@ -540,6 +547,10 @@ export default function AdminPanel() {
                 )}
               </div>
             </div>
+          )}
+
+          {activeTab === 'viewas' && (
+            <div className={styles.tabContent}><ViewAsPanel /></div>
           )}
 
           {/* ── TAB 2: Usage Analytics ── */}
