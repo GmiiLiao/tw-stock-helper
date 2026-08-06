@@ -387,7 +387,7 @@ export default function DecisionDesk() {
                     {/* 事件檢查＋處置＋族群強弱 */}
                     {(eventsBy[c.code]?.length || riskBy[c.code] || indBy[c.code]) && (
                       <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 11.5 }}>
-                        {riskBy[c.code] && <span style={{ fontWeight: 800, padding: '1px 8px', borderRadius: 8, background: 'rgba(240,62,62,0.12)', color: '#f87171', border: '1px solid rgba(240,62,62,0.4)' }}>🚨 {riskBy[c.code]}{riskBy[c.code] === '處置中' ? '（分盤撮合·流動性差）' : ''}</span>}
+                        {riskBy[c.code] && <span style={{ fontWeight: 800, padding: '1px 8px', borderRadius: 8, background: 'rgba(240,62,62,0.12)', color: '#f87171', border: '1px solid rgba(240,62,62,0.4)' }}>🚨 {riskBy[c.code]}{riskBy[c.code] === '處置中' ? '（約2分鐘分盤撮合·流動性差）' : ''}</span>}
                         {(eventsBy[c.code] || []).map(e => (
                           <span key={e.date + e.title} style={{ fontWeight: 700, padding: '1px 8px', borderRadius: 8, background: 'rgba(245,159,0,0.10)', color: '#f59f00', border: '1px solid rgba(245,159,0,0.4)' }}>📅 {e.date.slice(5)} {e.title}</span>
                         ))}

@@ -15,7 +15,7 @@ export default function RiskBadge({ code, size = 'sm' }: { code: string; size?: 
   if (isDisp) {
     const until = shortRiskDate(dispEnd.get(code));
     return (
-      <span title={until ? `處置股票，處置至 ${until}（交易受限、約每5分鐘撮合、預收款券）` : '處置股票，交易受限'}
+      <span title={until ? `處置股票，處置至 ${until}（交易受限、約每 2 分鐘撮合、預收全額款券·2026-08-10 新制）` : '處置股票，交易受限'}
         style={{ fontSize: fs, fontWeight: 700, color: '#ef4444', background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.35)', padding: pad, borderRadius: 4, whiteSpace: 'nowrap' }}>
         🔴 處置{until ? `至${until}` : ''}
       </span>

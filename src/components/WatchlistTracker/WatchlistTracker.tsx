@@ -1177,7 +1177,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
         borderTop: '1px solid var(--border-primary)', lineHeight: '1.6',
       }}>
         <div><strong>📌 注意股票</strong>：交易量、價格波動等異常，證交所提醒投資人注意交易風險。</div>
-        <div><strong>🚫 處置股票</strong>：已被限制交易（如分盤交易、預收款券），買賣受到限制，風險極高。</div>
+        <div><strong>🚫 處置股票</strong>：已被限制交易（約每 2 分鐘分盤撮合、預收全額款券），買賣受限、流動性差。2026-08-10 新制：處置期由 10 個營業日縮短為 5 個（合併當沖過高者 7 個）。</div>
         <div style={{ marginTop: '4px', opacity: 0.7 }}>資料來源：證交所、櫃買中心 OpenAPI</div>
       </div>
     </div>
