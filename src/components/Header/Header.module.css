@@ -9,7 +9,7 @@
   padding-left: 20px;
   padding-right: 20px;
   position: sticky;
-  top: 0;
+  top: var(--viewas-offset, 0px);   /* 🎭同上：模擬橫幅高度 */
   z-index: 40;
   backdrop-filter: blur(10px);
 }

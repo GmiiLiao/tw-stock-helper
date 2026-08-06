@@ -9,7 +9,9 @@
   padding: 0;
   position: fixed;
   left: 0;
-  top: 0;
+  /* 🎭身分模擬橫幅會佔住畫面最上緣；side bar 是 fixed，不吃 body 的 padding，
+     所以改吃這顆變數（平時為 0，完全不影響原版面）。 */
+  top: var(--viewas-offset, 0px);
   bottom: 0;
   z-index: 50;
   /* 雙保險：平常帳號區釘底（中段 navItems 內捲）；若固定區塊(品牌/指數/新聞/帳號)
