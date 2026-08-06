@@ -14,7 +14,17 @@ service cloud.firestore {
 
     // 用戶基本資料與個人化同步數據 (Watchlist, Holdings, Alerts)
     match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin();
+
+      // ⚠**等級提權防線（2026-08-06 補）**：原本是 `allow read, write`，
+      //   等於任何登入者都能對自己的 user doc 寫 `level: 'superadmin'` 自我提權。
+      //   現在：建檔只能給 registered；更新時 level 必須與現值相同（＝不准自己改）。
+      //   改等級只有兩條合法路徑——管理員後台（isAdmin）與 daemon（Admin SDK 繞過規則）。
+      allow create: if isAdmin() ||
+        (isOwner(userId) && request.resource.data.get('level', 'registered') == 'registered');
+      allow update: if isAdmin() ||
+        (isOwner(userId) && request.resource.data.get('level', null) == resource.data.get('level', null));
+      allow delete: if isAdmin();
 
       match /data/{document} {
         allow read, write: if isOwner(userId) || isAdmin();
