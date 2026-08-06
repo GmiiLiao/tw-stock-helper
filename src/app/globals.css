@@ -33,8 +33,12 @@
   /* Text Colors */
   /* 文字色階：muted 原 #8b9bb8 對深背景對比不足(閱讀吃力)，整體調亮並維持層次 */
   --text-primary: #eef2f8;
-  --text-secondary: #b3c0d4;
-  --text-muted: #8b9bb8;
+  /* 2026-08-06 使用者指示「字的顏色不要用黑、灰色」：
+     原本 secondary #b3c0d4 / muted #8b9bb8 在深色底上讀起來偏灰，
+     全站有數百處吃這兩顆變數——改變數一次到位，比逐處改可靠也好維護。
+     仍保留三階層次（primary > secondary > muted），只是整體往亮處推。 */
+  --text-secondary: #d3ddf0;
+  --text-muted: #b8c6e4;
   --text-accent: #3d8ef8;
 
   /* Border Colors */

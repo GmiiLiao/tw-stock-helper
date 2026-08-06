@@ -233,14 +233,14 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fill: '#8b9bb8', fontSize: 11 }}
+              tick={{ fill: '#b8c6e4', fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v, i) => chartData.length > 60 && i % Math.floor(chartData.length / 8) !== 0 ? '' : v}
             />
             <YAxis
               domain={yDomain as [number, number]}
-              tick={{ fill: '#8b9bb8', fontSize: 11 }}
+              tick={{ fill: '#b8c6e4', fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               orientation="right"
@@ -329,7 +329,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <ResponsiveContainer width="100%" height={80}>
           <BarChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
             <XAxis dataKey="date" hide />
-            <YAxis tick={{ fill: '#8b9bb8', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
+            <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
             <Bar
               dataKey="volume"
               isAnimationActive={false}
@@ -345,6 +345,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <Tooltip
               cursor={{ fill: 'rgba(148,163,184,0.12)' }}
               contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
               labelFormatter={(l) => String(l)}
               formatter={(v) => [`${Math.round((v as number) / 1000).toLocaleString()} 張`, '成交量']}
             />
@@ -373,7 +374,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <ComposedChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
               <XAxis dataKey="date" hide />
-              <YAxis tick={{ fill: '#8b9bb8', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => v.toFixed(2)} />
+              <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => v.toFixed(2)} />
               <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
               <Bar
                 dataKey="macdHist"
@@ -390,6 +391,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Line type="monotone" dataKey="macdSignal" dot={false} stroke="#f59e0b" strokeWidth={1.5} name="訊號線" connectNulls />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </ComposedChart>
@@ -420,7 +422,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
           <ResponsiveContainer width="100%" height={80}>
             <ComposedChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
-              <YAxis domain={[0, 100]} tick={{ fill: '#8b9bb8', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+              <YAxis domain={[0, 100]} tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
               <ReferenceLine y={90} stroke="rgba(239,68,68,0.35)" strokeDasharray="4 4" />
               <ReferenceLine y={50} stroke="rgba(255,255,255,0.08)" />
               <ReferenceLine y={10} stroke="rgba(251,191,36,0.35)" strokeDasharray="4 4" />
@@ -428,6 +430,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Line type="monotone" dataKey="rsi10" dot={false} stroke="#fb923c" strokeWidth={1.5} name="RSI10" connectNulls />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </ComposedChart>
@@ -456,7 +459,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <LineChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
               {/* 開了 J 就不能鎖 0~100——J=3K−2D 會衝出區間，鎖死會被截斷成一條直線 */}
-              <YAxis domain={showJ ? ['auto', 'auto'] : [0, 100]} tick={{ fill: '#8b9bb8', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+              <YAxis domain={showJ ? ['auto', 'auto'] : [0, 100]} tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
               <ReferenceLine y={80} stroke="rgba(239,68,68,0.2)" strokeDasharray="4 4" />
               <ReferenceLine y={20} stroke="rgba(34,197,94,0.2)" strokeDasharray="4 4" />
               <Line type="monotone" dataKey="k" dot={false} stroke="#22c55e" strokeWidth={1.5} name="K值" connectNulls />
@@ -464,6 +467,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               {showJ && <Line type="monotone" dataKey="j" dot={false} stroke="#e879f9" strokeWidth={1.2} name="J值" connectNulls />}
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }} itemStyle={{ color: '#e2e8f7' }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
             </LineChart>

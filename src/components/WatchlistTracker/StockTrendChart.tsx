@@ -436,7 +436,7 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
                 {/* 量軸（隱藏）：domain 放大 4 倍→量棒只佔圖表下方約 1/4，不干擾價格線 */}
                 <YAxis yAxisId="vol" hide domain={[0, (dMax: number) => (dMax || 1) * 4]} />
                 <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11, color: '#e2e8f0' }}
-                  labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+                  labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 4 }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any, nm: any) => (nm === 'close' ? [parseFloat(String(value)).toFixed(2), '成交價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
                 {refPrev !== null && refPrev > 0 && (
