@@ -26,11 +26,16 @@ const sign = (v: number | null | undefined) => (v == null ? '--' : `${v >= 0 ? '
 
 interface Idx { sym: string; name: string; mkt: string; price: number; gap: number | null; drift: number | null; total: number }
 interface Sector { sector: string; twPeers: string; leaders: string; chg: number }
+interface Mkt { name: string; chg: number; dir: 'up' | 'down' | 'flat' | null; detail: string }
 interface Asia {
   found?: boolean; date?: string; updatedAt?: number; twOpenIn?: number;
   indices?: Idx[]; sectors?: Sector[];
   score?: number | null; bias?: 'bull' | 'bear' | 'neutral' | null; biasNote?: string | null;
   soxNote?: string | null; horizon?: string; evidence?: string; caveats?: string[];
+  // 日韓分別方向＋報價新鮮度（2026-08-06）：綜合分數會把一漲一跌抵消成「中性」，
+  // 分歧本身是資訊；Yahoo 對日韓延遲約 20 分，必須揭露而不是假裝即時。
+  jp?: Mkt | null; kr?: Mkt | null; split?: string | null;
+  slot?: string | null; phase?: string; delayMin?: number | null; delayNote?: string | null;
 }
 interface GMarket { sym: string; name: string; price: number; changePct: number }
 interface Forecast { bullish: { sector: string; reason: string }[]; bearish: { sector: string; reason: string }[]; model: string }
@@ -137,8 +142,10 @@ export default function PremarketHub() {
           {asia?.twOpenIn != null && asia.twOpenIn > 0 ? `　·　距台股開盤 ${asia.twOpenIn} 分` : ''}
         </span>
         {b && (
-          <span style={{ marginLeft: 'auto', fontWeight: 900, fontSize: 13, color: b.c }}>
-            日韓綜合 {sign(asia?.score)} → {b.t}
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 13, fontWeight: 900 }}>
+            {asia?.jp && <span style={{ color: col(asia.jp.chg) }}>🇯🇵日本 {sign(asia.jp.chg)}</span>}
+            {asia?.kr && <span style={{ color: col(asia.kr.chg) }}>🇰🇷韓國 {sign(asia.kr.chg)}</span>}
+            <span style={{ color: b.c }}>綜合 {sign(asia?.score)} → {b.t}</span>
           </span>
         )}
       </div>
@@ -213,6 +220,25 @@ export default function PremarketHub() {
               {stale > 180 && (
                 <div style={{ fontSize: 10.5, color: '#fbbf24', marginBottom: 5, lineHeight: 1.6 }}>
                   ⚠資料為 {asia!.date}（已逾 {Math.round(stale / 60)} 小時未更新）——非今日盤前即時值，僅供回看。
+                </div>
+              )}
+              {(asia!.jp || asia!.kr) && (
+                <div style={{ display: 'grid', gap: 3, marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid rgba(148,163,184,0.14)' }}>
+                  {[asia!.jp, asia!.kr].filter(Boolean).map(m => (
+                    <div key={m!.name} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 12, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 900 }}>{m!.name === '日本' ? '🇯🇵 日本' : '🇰🇷 韓國'}</span>
+                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 900, color: col(m!.chg) }}>
+                        {m!.dir === 'up' ? '▲' : m!.dir === 'down' ? '▼' : '—'} {sign(m!.chg)}
+                      </span>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>{m!.detail}</span>
+                    </div>
+                  ))}
+                  {asia!.split && <div style={{ fontSize: 10.5, color: '#fbbf24', lineHeight: 1.6 }}>{asia!.split}</div>}
+                  {asia!.delayNote && (
+                    <div style={{ fontSize: 10, color: (asia!.delayMin ?? 0) > 45 ? '#fbbf24' : 'var(--text-muted)', lineHeight: 1.6 }}>
+                      {asia!.delayNote}{asia!.slot ? `　·　${asia!.slot} 那一輪` : ''}
+                    </div>
+                  )}
                 </div>
               )}
               <div style={{ display: 'grid', gap: 3 }}>
