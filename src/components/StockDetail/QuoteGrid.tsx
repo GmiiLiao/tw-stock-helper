@@ -1,6 +1,7 @@
 'use client';
 
 import type { StockInfo } from '@/lib/twse-api';
+import styles from './QuoteGrid.module.css';
 
 // ── 📋 報價總覽格子（2026-08-06 依使用者提供的券商版面重做）──────────
 //
@@ -36,12 +37,16 @@ function limitPrices(prevClose: number): { up: number; down: number } {
   };
 }
 
-const nf = (v: number, d = 2) => v.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
-const money = (v: number) => v >= 1e8 ? `${(v / 1e8).toFixed(2)} 億` : v >= 1e4 ? `${(v / 1e4).toFixed(1)} 萬` : String(Math.round(v));
+// ⚠**不加千分位**：手機一列要塞三組「標籤＋數值」，逗號多佔一格就會把數字截掉。
+// 券商同樣是 4624.10 / 2151 這種無逗號寫法，讀起來也不會有障礙。
+const nf = (v: number, d = 2) => v.toFixed(d);
+const ni = (v: number) => String(Math.round(v));
+const money = (v: number) => v >= 1e8 ? `${(v / 1e8).toFixed(2)}億` : v >= 1e4 ? `${(v / 1e4).toFixed(1)}萬` : String(Math.round(v));
 
-export default function QuoteGrid({ stock, allTimeHigh }: {
+export default function QuoteGrid({ stock, allTimeHigh, rsi }: {
   stock: StockInfo;
   allTimeHigh?: { high: number; date?: string } | null;
+  rsi?: { r5: number; r10: number } | null;
 }) {
   const prev = stock.price - stock.change;
   const lim = prev > 0 ? limitPrices(prev) : null;
@@ -52,44 +57,58 @@ export default function QuoteGrid({ stock, allTimeHigh }: {
   const lots = Math.round(stock.volume / 1000);
   const toUp = lim && lim.up > 0 ? (lim.up - stock.price) / stock.price * 100 : null;
   const toDown = lim && lim.down > 0 ? (stock.price - lim.down) / stock.price * 100 : null;
+  const toATH = allTimeHigh?.high ? (stock.price / allTimeHigh.high - 1) * 100 : null;
+  const perTx = stock.transactions && lots ? lots / stock.transactions : null;
   const vs = (v: number) => (v > prev ? UP : v < prev ? DOWN : FLAT);
 
-  // 標籤與數值**同一行**（左標籤、右數值）——上下堆疊會讓高度加倍，
-  // 手機上就得一直捲。輔助說明改成滑鼠提示(title)，不佔版面。
-  const Cell = ({ k, v, c, sub, tail }: { k: string; v: string; c?: string; sub?: string; tail?: string }) => (
-    <div title={sub} style={{
-      display: 'flex', alignItems: 'baseline', gap: 4, padding: '4px 7px',
-      background: 'var(--bg-tertiary)', borderRadius: 6, minWidth: 0,
-    }}>
-      <span style={{ fontSize: 12.5, color: LABEL, whiteSpace: 'nowrap', flexShrink: 0 }}>{k}</span>
-      {/* 數值 flexShrink:0＝**永遠不被截字**（數字截一半等於沒有）；
-          空間不夠時讓右側附註先被裁掉，它只是輔助資訊。 */}
-      <span style={{
-        marginLeft: 'auto', fontSize: 15.5, fontWeight: 800, color: c ?? FLAT,
-        fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap', flexShrink: 0,
-      }}>{v}</span>
-      {tail && <span style={{ fontSize: 10.5, color: LABEL, whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden' }}>{tail}</span>}
-    </div>
+  // ⚠回傳 **Fragment（兩個獨立網格項）** 而不是一個格子：
+  //   標籤與數值必須各自落在自己的網格欄，才會像券商那樣「所有標籤對齊、所有數值對齊」。
+  //   包成一個 div 的話每格自成一國，數值靠右推 → 標籤與數字中間出現大空隙，很難讀。
+  const Cell = ({ k, v, c, sub, tail, chip }: {
+    k: string; v: string; c?: string; sub?: string; tail?: string; chip?: 'hot' | 'cold' | 'warn';
+  }) => (
+    <>
+      <span className={styles.key} style={{ color: LABEL }} title={sub}>{k}</span>
+      <span className={styles.val} style={{ color: c ?? FLAT }} title={sub}>
+        <span className={chip === 'hot' ? styles.chipHot : chip === 'cold' ? styles.chipCold : chip === 'warn' ? styles.chipWarn : ''}>{v}</span>
+        {tail && <span className={styles.tail} style={{ color: LABEL }}>{tail}</span>}
+      </span>
+    </>
   );
 
   return (
     <div style={{ margin: '8px 0 10px' }}>
-      {/* minmax 132px：手機(≈350px 可用寬)排 2 欄、平板 3~4 欄、桌機一次排完 12 格，
-          不用猜斷點。gap 縮到 4，格子高度從 3 行壓成 1 行。 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 4 }}>
+      <div className={styles.grid}>
+        {/* 排列＝券商版面（橫向讀，每列三組）。內盤/外盤/單量/買量/賣量本站無資料源，
+            換成我們算得準且同樣實用的欄位：收位、距漲跌停、歷史高、距高、RSI。 */}
+        {/* 第 1 列 */}
         <Cell k="均價" v={avg != null ? nf(avg) : '—'} c={avg != null ? vs(avg) : FLAT} sub="均價＝成交值÷成交量" />
-        <Cell k="振幅" v={amp != null ? `${amp.toFixed(2)}%` : '—'} c={amp != null && amp >= 5 ? '#fbbf24' : FLAT} sub="振幅＝(最高−最低)÷昨收" />
+        <Cell k="振幅" v={amp != null ? `${amp.toFixed(2)}%` : '—'} c={amp != null && amp >= 5 ? '#fbbf24' : FLAT}
+          chip={amp != null && amp >= 5 ? 'warn' : undefined} sub="振幅＝(最高−最低)÷昨收；≥5% 標黃" />
+        <Cell k="均單" v={perTx != null ? perTx.toFixed(2) : '—'} c="#7dd3fc" tail="張" sub="每筆平均成交張數（越小＝散戶單越多）" />
+        {/* 第 2 列 */}
         <Cell k="開盤" v={nf(stock.open)} c={vs(stock.open)} tail={gap != null ? `${gap >= 0 ? '+' : ''}${gap.toFixed(1)}%` : undefined} sub="開盤價（右為對昨收的跳空幅度）" />
         <Cell k="昨收" v={nf(prev)} />
+        <Cell k="總量" v={ni(lots)} c="#7dd3fc" tail="張" />
+        {/* 第 3 列 */}
         <Cell k="最高" v={nf(stock.high)} c={vs(stock.high)} />
         <Cell k="最低" v={nf(stock.low)} c={vs(stock.low)} />
-        <Cell k="漲停" v={lim ? nf(lim.up) : '—'} c={UP} tail={toUp != null ? `距${toUp.toFixed(1)}%` : undefined} sub="昨收×1.1，取合法跳動單位" />
-        <Cell k="跌停" v={lim ? nf(lim.down) : '—'} c={DOWN} tail={toDown != null ? `距${toDown.toFixed(1)}%` : undefined} sub="昨收×0.9，取合法跳動單位" />
-        <Cell k="總量" v={lots.toLocaleString()} c="#7dd3fc" tail="張" />
+        <Cell k="漲停" v={lim ? nf(lim.up) : '—'} chip="hot" sub="昨收×1.1，取合法跳動單位" />
+        {/* 第 4 列 */}
+        <Cell k="收位" v={`${(pos * 100).toFixed(0)}%`} c={pos >= 0.8 ? UP : pos <= 0.2 ? DOWN : FLAT} sub="日內位階＝(收−最低)÷(最高−最低)" />
+        <Cell k="筆數" v={stock.transactions ? ni(stock.transactions) : '—'} c="#7dd3fc" />
+        <Cell k="跌停" v={lim ? nf(lim.down) : '—'} chip="cold" sub="昨收×0.9，取合法跳動單位" />
+        {/* 第 5 列 */}
+        <Cell k="距漲停" v={toUp != null ? `${toUp.toFixed(1)}%` : '—'} c={UP} sub="現價到漲停還有多少空間" />
+        <Cell k="距跌停" v={toDown != null ? `${toDown.toFixed(1)}%` : '—'} c={DOWN} sub="現價到跌停還有多少空間" />
         <Cell k="金額" v={money(stock.value)} c="#7dd3fc" sub="成交金額" />
-        <Cell k="筆數" v={stock.transactions ? stock.transactions.toLocaleString() : '—'} c="#7dd3fc"
-          tail={stock.transactions && lots ? `均${(lots / stock.transactions).toFixed(2)}張` : undefined} sub="成交筆數（右為每筆平均張數）" />
+        {/* 第 6 列 */}
         <Cell k="歷史高" v={allTimeHigh ? nf(allTimeHigh.high) : '—'} c="#fbbf24" tail={allTimeHigh?.date} />
+        <Cell k="距高" v={toATH != null ? `${toATH.toFixed(1)}%` : '—'} c={toATH != null && toATH > -5 ? '#fbbf24' : FLAT} sub="現價距歷史最高價（負值＝仍在高點之下）" />
+        <Cell k="RSI" v={rsi ? `${rsi.r5.toFixed(0)}/${rsi.r10.toFixed(0)}` : '—'}
+          c={rsi && rsi.r5 >= 90 && rsi.r10 >= 90 ? UP : rsi && rsi.r5 < 12 ? '#fbbf24' : FLAT}
+          chip={rsi && rsi.r5 >= 90 && rsi.r10 >= 90 ? 'hot' : undefined}
+          sub="RSI(5)/RSI(10)：雙90+＝高檔勿接刀；雙<10＝極端超跌" />
       </div>
 
       {/* 當日價格位置條：收盤落在「最低—最高」的哪裡。

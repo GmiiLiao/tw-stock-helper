@@ -1,0 +1,75 @@
+/* ── 報價格子版型（2026-08-06 依使用者提供的券商 App 版面）──────────
+   券商那張之所以好讀，關鍵不是「幾欄」，而是：
+     ① 標籤與數值**緊鄰**（不是把數值推到格子最右邊，那會讓兩者中間出現大空隙）
+     ② **所有標籤對齊同一直線、所有數值也對齊同一直線**——眼睛橫掃一列就讀完三組
+   所以這裡不是「3 個格子」，而是 `auto 1fr` 重複 3 次＝**6 個網格欄**
+   （標籤欄, 數值欄, 標籤欄, 數值欄, 標籤欄, 數值欄）。
+   之前每格獨立、數值 margin-left:auto，就是「很難看懂」的原因。 */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, auto minmax(0, 1fr));   /* 手機：3 組 → 6 列資料 */
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 7px;
+  padding: 2px 2px;
+}
+
+/* 桌機：6 組並排 → 3 列就排完 18 格 */
+@media (min-width: 1100px) {
+  .grid { grid-template-columns: repeat(6, auto minmax(0, 1fr)); column-gap: 10px; row-gap: 8px; }
+}
+
+.key {
+  text-align: right;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.val {
+  font-size: 15.5px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 需要強調的數值給實心色塊——券商就是這樣讓漲跌停一眼跳出來 */
+.chipHot {
+  background: #f03e3e;
+  color: #fff !important;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.chipCold {
+  background: #2f9e44;
+  color: #fff !important;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.chipWarn {
+  background: rgba(251, 191, 36, 0.22);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  padding: 0 5px;
+  border-radius: 4px;
+}
+
+/* 附註（張／日期）貼在數值後面，小一號 */
+.tail {
+  font-size: 10.5px;
+  margin-left: 3px;
+  font-weight: 600;
+}
+
+@media (max-width: 820px) {
+  /* 手機一列三組：字級與間距都要壓，否則數值會被截（實測 375px 下的臨界值） */
+  .key { font-size: 11.5px; }
+  .val { font-size: 13.5px; }
+  .grid { column-gap: 5px; row-gap: 9px; }
+  .chipHot, .chipCold { padding: 1px 4px; }
+  /* 手機一列三組沒空間放附註（跳空%、日期、單位）——直接隱藏，
+     避免出現「4525.00…」這種省略號。數值本身永遠完整。
+     附註仍留在 title 提示裡，長按/滑鼠移上去看得到。 */
+  .tail { display: none; }
+}

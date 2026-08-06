@@ -24,7 +24,9 @@
   display: flex;
   align-items: center;
   gap: 20px;
-  padding: 18px 20px;
+  /* 右側留白給絕對定位的操作按鈕（見 .headerActions） */
+  padding: 14px 200px 14px 20px;
+  position: relative;
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
@@ -117,11 +119,23 @@
   font-weight: 600;
 }
 
+/* 2026-08-06 使用者要求「按鈕移到右上方」：原本靠 margin-left:auto 排在同一行，
+   但 stockHeader 會換行，手機上按鈕就掉到價格下方多佔一整列。
+   改成絕對定位釘在卡片右上角——不論換不換行都在同一個位置，也不吃垂直空間。 */
 .headerActions {
+  position: absolute;
+  top: 10px;
+  right: 12px;
   display: flex;
-  gap: 8px;
-  margin-left: auto;
+  gap: 6px;
   flex-shrink: 0;
+  z-index: 2;
+}
+@media (max-width: 820px) {
+  /* 手機上三顆按鈕接近整行寬，絕對定位會壓到股號 → 用 padding-top 幫它騰出一整列，
+     按鈕仍釘在右上，但不再與內容重疊。 */
+  .headerActions { top: 8px; right: 8px; left: 8px; gap: 4px; justify-content: flex-end; }
+  .headerActions :global(.btn) { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
 }
 
 /* Signal Badge Row */
@@ -395,4 +409,9 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+/* 手機：按鈕獨佔頂端一列（padding-top 騰位），右側就不必留白 */
+@media (max-width: 820px) {
+  .stockHeader { padding: 42px 14px 12px 14px; gap: 12px; }
 }
