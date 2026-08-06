@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { shouldPollNow } from '@/lib/market-clock';
 import { fmtQty } from '@/lib/tw-fee';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -291,6 +292,21 @@ export default function StockDetail() {
   useEffect(() => { setTrendData(null); }, [selectedStock]);
 
   // ── Holding helpers ───────────────────────────────────────────
+  // 五檔委託簿（買量/賣量·委買賣力道）——daemon 優先集掃描寫入，非優先集個股會是 null
+  const [book, setBook] = useState<{ bid: [number, number][]; ask: [number, number][] } | null>(null);
+  useEffect(() => {
+    if (!selectedStock) { setBook(null); return; }
+    let live = true;
+    const load = () => fetch(`/api/twse/depth?code=${selectedStock}`)
+      .then(r => (r.ok ? r.json() : null))
+      // ⚠回傳是 { found, at, row: { bid, ask } }——資料在 row 底下，不是頂層
+      .then(j => { const r = j?.row; if (live) setBook(r?.bid?.length || r?.ask?.length ? { bid: r.bid ?? [], ask: r.ask ?? [] } : null); })
+      .catch(() => {});
+    load();
+    const id = setInterval(() => { if (shouldPollNow()) load(); }, 30000);   // 休市/背景分頁不發請求
+    return () => { live = false; clearInterval(id); };
+  }, [selectedStock]);
+
   const handleAddHolding = () => {
     if (!stock || !holdingForm.buyPrice || !holdingForm.quantity) return;
     addHolding({
@@ -399,7 +415,7 @@ export default function StockDetail() {
       {/* ⚠必須放在 stockHeader **之外**：stockHeader 是橫向 flex，
           放進去會被壓成一個窄欄（手機實測只剩 180px → 格子只能排 1 欄、位階條被壓扁）。
           搬出來拿到整行寬度後，手機 2 欄、桌機一次排完。 */}
-      <QuoteGrid stock={stock} allTimeHigh={allTimeHigh} rsi={rsiPair} />
+      <QuoteGrid stock={stock} allTimeHigh={allTimeHigh} rsi={rsiPair} book={book} />
 
       {/* 三條判讀併排（買進訊號／籌碼判讀／模型判讀）
           ——原本各佔一列，桌機上吃掉約 130px 高度，把下方 K 線圖擠到要捲動才看得全。

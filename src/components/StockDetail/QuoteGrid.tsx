@@ -43,10 +43,12 @@ const nf = (v: number, d = 2) => v.toFixed(d);
 const ni = (v: number) => String(Math.round(v));
 const money = (v: number) => v >= 1e8 ? `${(v / 1e8).toFixed(2)}億` : v >= 1e4 ? `${(v / 1e4).toFixed(1)}萬` : String(Math.round(v));
 
-export default function QuoteGrid({ stock, allTimeHigh, rsi }: {
+export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
   stock: StockInfo;
   allTimeHigh?: { high: number; date?: string } | null;
   rsi?: { r5: number; r10: number } | null;
+  /** 五檔委託簿（daemon 優先集掃描寫入 bookDepth/latest）。非優先集個股會是 null。 */
+  book?: { bid: [number, number][]; ask: [number, number][] } | null;
 }) {
   const prev = stock.price - stock.change;
   const lim = prev > 0 ? limitPrices(prev) : null;
@@ -59,6 +61,12 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi }: {
   const toDown = lim && lim.down > 0 ? (stock.price - lim.down) / stock.price * 100 : null;
   const toATH = allTimeHigh?.high ? (stock.price / allTimeHigh.high - 1) * 100 : null;
   const perTx = stock.transactions && lots ? lots / stock.transactions : null;
+  // 五檔委託簿：最佳一檔的買/賣量（＝券商的「買量/賣量」），以及五檔加總的委買賣力道。
+  // ⚠這是**委託簿(掛單)**，不是券商的「內盤/外盤」——後者要逐筆成交分類，見檔頭說明。
+  const bid1 = book?.bid?.[0], ask1 = book?.ask?.[0];
+  const bidSum = book?.bid?.reduce((a, [, v]) => a + v, 0) ?? 0;
+  const askSum = book?.ask?.reduce((a, [, v]) => a + v, 0) ?? 0;
+  const bidPct = bidSum + askSum > 0 ? bidSum / (bidSum + askSum) * 100 : null;
   const vs = (v: number) => (v > prev ? UP : v < prev ? DOWN : FLAT);
 
   // ⚠回傳 **Fragment（兩個獨立網格項）** 而不是一個格子：
@@ -99,8 +107,8 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi }: {
         <Cell k="筆數" v={stock.transactions ? ni(stock.transactions) : '—'} c="#7dd3fc" />
         <Cell k="跌停" v={lim ? nf(lim.down) : '—'} chip="cold" sub="昨收×0.9，取合法跳動單位" />
         {/* 第 5 列 */}
-        <Cell k="距漲停" v={toUp != null ? `${toUp.toFixed(1)}%` : '—'} c={UP} sub="現價到漲停還有多少空間" />
-        <Cell k="距跌停" v={toDown != null ? `${toDown.toFixed(1)}%` : '—'} c={DOWN} sub="現價到跌停還有多少空間" />
+        <Cell k="買量" v={bid1 ? String(bid1[1]) : '—'} c={UP} sub={bid1 ? `最佳買價 ${nf(bid1[0])}（五檔委買合計 ${bidSum} 張）` : '此檔不在即時五檔掃描範圍'} />
+        <Cell k="賣量" v={ask1 ? String(ask1[1]) : '—'} c={DOWN} sub={ask1 ? `最佳賣價 ${nf(ask1[0])}（五檔委賣合計 ${askSum} 張）` : '此檔不在即時五檔掃描範圍'} />
         <Cell k="金額" v={money(stock.value)} c="#7dd3fc" sub="成交金額" />
         {/* 第 6 列 */}
         <Cell k="歷史高" v={allTimeHigh ? nf(allTimeHigh.high) : '—'} c="#fbbf24" tail={allTimeHigh?.date} />
@@ -111,12 +119,24 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi }: {
           sub="RSI(5)/RSI(10)：雙90+＝高檔勿接刀；雙<10＝極端超跌" />
       </div>
 
-      {/* 當日價格位置條：收盤落在「最低—最高」的哪裡。
-          （券商那條是內外盤比，需要即時委託簿；本站沒有該資料源，改用同樣一眼可讀、
-            而且我們算得準的日內位階，並標明口徑，不冒充成內外盤。） */}
-      {stock.high > stock.low && (
+      {/* 底部力道條：**有五檔就畫委買/委賣**（真實掛單資料，與券商那條同樣一眼可讀）；
+          沒有五檔（非優先集個股）才退回日內位階。
+          ⚠標籤寫「委買/委賣」而不是「內盤/外盤」——後者是成交分類，我們沒有逐筆資料，
+            名稱寫錯會讓人用錯口徑做判斷。 */}
+      {bidPct != null ? (
+        <div style={{ marginTop: 4 }} title={`五檔委買合計 ${bidSum} 張 vs 委賣合計 ${askSum} 張。這是掛單力道，不是成交的內外盤。`}>
+          <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', display: 'flex' }}>
+            <div style={{ width: `${bidPct}%`, background: UP, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff' }}>委買 {bidPct.toFixed(0)}%</span>
+            </div>
+            <div style={{ width: `${100 - bidPct}%`, background: DOWN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff' }}>委賣 {(100 - bidPct).toFixed(0)}%</span>
+            </div>
+          </div>
+        </div>
+      ) : stock.high > stock.low ? (
         <div style={{ marginTop: 4 }}
-          title="日內位階＝(收−最低)÷(最高−最低)。⚠內盤/外盤、買量/賣量需即時五檔委託簿，本站無此資料源，故不顯示（不以推估值充數）。">
+          title="日內位階＝(收−最低)÷(最高−最低)。此檔不在即時五檔掃描範圍，故以日內位階替代。">
           <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', background: `linear-gradient(90deg, ${DOWN}55, #64748b33 50%, ${UP}55)` }}>
             <div style={{ position: 'absolute', left: `calc(${(pos * 100).toFixed(1)}% - 2px)`, top: 0, bottom: 0, width: 4, background: '#fff', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -127,7 +147,7 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi }: {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
