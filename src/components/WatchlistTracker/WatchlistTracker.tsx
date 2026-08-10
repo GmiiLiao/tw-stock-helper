@@ -525,8 +525,11 @@ function StockRow({
         </div>
       </div>
 
-      {/* Price / Change / Pct */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontVariantNumeric: 'tabular-nums' }}>
+      {/* Price / Change / Pct
+          ⚠ 用 class 而不是 nth-child 定位（2026-08-11）：拖曳把手是條件渲染的 DOM 子節點，
+            有它沒它會讓所有 nth-child 位移一格——舊的 `.stockRow > div:nth-child(3)`
+            在有把手時隱藏到的其實是**價格區**，不是成交量。 */}
+      <div className={styles.rowQuote} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontVariantNumeric: 'tabular-nums' }}>
         {quote ? (
           <>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
@@ -577,7 +580,7 @@ function StockRow({
       </div>
 
       {/* Volume */}
-      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <div className={styles.rowVolume} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         <div style={{ fontSize: '14px', fontWeight: 600, color: '#94a3b8' }}>{volStr}</div>
         {quote?.source === 'mis_realtime' && (
           <div style={{ fontSize: '11px', color: '#22c55e', fontWeight: 700, marginTop: '2px' }}>● 即時</div>
@@ -653,6 +656,14 @@ function GroupPanel({
 
   return (
     <div className={styles.groupPanel}>
+      {/* ⚠ 目前分組標示（2026-08-11 使用者回報「自定義分組無法分辨是哪一組」）：
+          分頁列是橫向捲動的，群組一多就會被捲出畫面，只靠分頁的高亮無法回答
+          「我現在看的是哪一組」。這一行永遠釘在清單最上方，是唯一可靠的答案。 */}
+      <div className={styles.activeGroupBar}>
+        <span className={styles.activeGroupDot} style={{ background: group.color || '#6366f1' }} />
+        <span className={styles.activeGroupName}>{group.name}</span>
+        <span className={styles.activeGroupCount}>{group.stocks.length} 檔</span>
+      </div>
       {/* Column headers */}
       <div className={`${styles.tableHeader} ${styles.hasHeaderOffset}`}>
         <span>代號 / 名稱</span>
@@ -2359,7 +2370,7 @@ export default function WatchlistTracker() {
       {/* ── Header ── */}
       <div className={styles.trackerHeader}>
         <div className={styles.trackerTitleRow}>
-          <h1 className={styles.trackerTitle}>📡 即時追蹤</h1>
+          <h1 className={styles.trackerTitle} style={{ whiteSpace: 'nowrap' }}>📡 即時追蹤</h1>
           <div className={styles.trackerMeta}>
             {lastRefresh && (
               <span className={styles.refreshTime}>
