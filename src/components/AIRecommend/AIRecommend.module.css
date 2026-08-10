@@ -199,10 +199,19 @@
   border-color: rgba(201,42,42,0.3);
 }
 
+/* ⚠ flex-wrap 與 .stockInfo 的 flex-basis 不可拿掉（2026-08-10 手機實測）：
+   這一列有四個 flex-shrink:0 的固定寬區塊（#排名 36 ＋ 價格 100 ＋ 評分環 54 ＋ 信心度）
+   加上 4 個 12px gap 與 32px padding，在 335px 的卡片裡已經吃光全部空間，
+   於是唯一有彈性的 .stockInfo 被算成**寬度 0**——股名只好一個字一行，
+   「大銀微系統」變成 11px 寬、84px 高的直排。
+   給它 160px 的 flex-basis 當地板，並讓整列可以換行：擠不下時是右側區塊掉到
+   第二行，而不是把股票名稱壓成一條線。 */
 .cardTop {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 8px;
   padding: 14px 16px;
   cursor: pointer;
   user-select: none;
@@ -215,7 +224,7 @@
   flex-shrink: 0;
 }
 
-.stockInfo { flex: 1; min-width: 0; }
+.stockInfo { flex: 1 1 160px; min-width: 0; }
 
 .stockMeta {
   display: flex;

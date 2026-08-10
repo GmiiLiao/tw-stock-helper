@@ -886,10 +886,17 @@
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
+/* ⚠ flex-wrap 不可拿掉（2026-08-10 手機實測）：
+   這一列裝三塊（標題／三大法人條／即時日週月）。原本沒有 wrap，
+   375px 時三塊互相擠壓，中間那塊被壓到只剩一個字寬，
+   「三大法人(當日)」就變成 三/大/法/人 直排——字被切開最嚴重的一處。
+   允許換行後，擠不下的整塊會掉到第二行，而不是被壓扁。 */
 .chartHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   padding-bottom: 8px;
 }
@@ -897,7 +904,9 @@
 .chartTitleArea {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
 }
 
 .chartTitleText {
@@ -917,6 +926,13 @@
 .periodTabs {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;      /* 這四顆按鈕是操作元件，寧可讓別的東西換行也不能被壓扁 */
+}
+
+/* 手機：三大法人條獨佔一行，才不會跟標題、期間鈕搶那 375px */
+@media (max-width: 640px) {
+  .chartHeader { justify-content: flex-start; }
+  .chartTitleText, .chartPeriodChange { font-size: 12.5px; }
 }
 
 .periodTab {

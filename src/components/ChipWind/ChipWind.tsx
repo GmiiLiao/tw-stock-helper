@@ -104,7 +104,11 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
         <span style={{ fontSize: 13, fontWeight: 800 }}>市場法人總淨額（{cur.label}）</span>{info('market')}
       </div>
       {explainBox('market')}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 10 }}>
+      {/* ⚠ 原本寫死 repeat(4,1fr)：手機 335px 塞四欄，每欄只剩 78px，
+          但「+369,828」這種數字最少要 ~95px → 軌道撐開、整頁橫向溢出。
+          改 auto-fit：手機自然變 2×2，桌機仍是一排四欄。
+          min(150px,100%) 而不是 150px，是為了容器比 150 還窄時仍能收斂。 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: 8, marginBottom: 10 }}>
         {([['外資', mn.foreign, 'foreign'], ['投信', mn.trust, 'trust'], ['自營', mn.dealer, 'dealer'], ['合計', mn.total, 'market']] as const).map(([lb, v, ex]) => (
           <div key={lb} style={{ padding: '8px 6px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', textAlign: 'center' }}>
             <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{lb}{lb !== '合計' ? info(ex) : ''}</div>

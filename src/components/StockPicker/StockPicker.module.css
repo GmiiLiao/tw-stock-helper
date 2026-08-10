@@ -70,12 +70,18 @@
     padding: 10px 12px 0;
     gap: 6px;
   }
+  /* ⚠ 不可改回 flex:1（2026-08-10 手機實測）：
+     四個分頁硬塞成一排時，335px 扣掉 gap 與 padding 後每個只剩 ~78px，
+     再扣掉圖示，文字欄只有 21px ——「AI 推薦選股」被壓成一字一行的直排。
+     改成 2×2（每個佔一半寬），標籤就有 ~160px，一行放得下。 */
   .tab {
-    flex: 1;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
     padding: 8px 10px;
     align-items: center;
+    justify-content: center;
     flex-direction: row;
   }
   .tabHint { display: none; }
-  .tabLabel { font-size: 0.85rem; }
+  .tabLabel { font-size: 0.85rem; white-space: nowrap; }
 }

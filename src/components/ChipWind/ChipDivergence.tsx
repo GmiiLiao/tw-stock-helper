@@ -49,11 +49,18 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
         )}
         <div style={{ display: 'grid', gap: 2 }}>
           {items.slice(0, compact ? 6 : 12).map((it, i) => (
-            <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
-              <span style={{ color: 'var(--text-muted)', width: 16, fontSize: 11 }}>{i + 1}</span>
-              <b style={{ color: '#7dd3fc', minWidth: 96 }}>{it.code} {it.name}</b>
-              <span style={{ fontSize: 11.5 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
-              <span style={{ fontSize: 11.5 }}>價 <b style={{ color: it.pricePct >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.pricePct)}%</b></span>
+            // ⚠ 手機實測（2026-08-10）：這一列原本是 flex 且不換行，空間不夠時
+            //   flex 會去**壓縮每個 span**，於是「法人 +53,181 張」被壓成三行、
+            //   「張」單獨掉到下一行，「價 -2%」也散開——數值和單位被拆開最難讀。
+            //   規則：要斷就在**整段的邊界**斷，絕不在一個數值中間斷。
+            //   做法＝允許整列 wrap（let 兩個指標整段換到第二行）
+            //        ＋兩個指標 nowrap 且 flexShrink:0（自己絕不被壓）
+            //        ＋股名 flex:1 minWidth:0（真的擠不下時由它讓位）
+            <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
+              <span style={{ color: 'var(--text-muted)', width: 16, fontSize: 11, flexShrink: 0 }}>{i + 1}</span>
+              <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
+              <span style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
+              <span style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: it.pricePct >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.pricePct)}%</b></span>
             </div>
           ))}
           {!items.length && <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 8px' }}>今日無明顯{side === 'acc' ? '吸貨' : '出貨'}背離</div>}
