@@ -105,8 +105,15 @@
   align-items: start;
 }
 
-.leftPanel { display: flex; flex-direction: column; gap: 16px; }
-.rightPanel { position: sticky; top: calc(var(--header-height) + 20px); }
+/* ⚠ min-width: 0 不可刪（2026-08-10 實機量測）：
+   這兩塊是 grid 子項，預設 `min-width: auto` ＝「不縮到 min-content 以下」。
+   手機 375px 時 leftPanel 被撐成 415px，連帶讓 <main> 橫向捲動 60px
+   ——使用者看到的是整頁往左偏、標題被切掉。
+   加上之後 leftPanel 回到 335px，策略分頁鈕從 203px 變 163.5px 正常兩欄。
+   註：外層頁面的 documentElement.scrollWidth 仍是 375，所以「檢查 body 有沒有
+   橫向捲軸」驗不出這個問題——要量的是 main.scrollWidth。 */
+.leftPanel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.rightPanel { position: sticky; top: calc(var(--header-height) + 20px); min-width: 0; }
 
 /* Strategy Tabs */
 .strategyTabs {

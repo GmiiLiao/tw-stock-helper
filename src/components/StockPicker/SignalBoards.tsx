@@ -29,7 +29,7 @@ const card: React.CSSProperties = {
 };
 const title: React.CSSProperties = { fontWeight: 700, fontSize: '0.95rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
 const sub: React.CSSProperties = { fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' };
-const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14 };
+const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 14 };
 
 interface DivStock { code: string; name: string; yield: number; pe: number; pb: number }
 interface RsItem { code: string; name: string; rs: number; ret60: number }

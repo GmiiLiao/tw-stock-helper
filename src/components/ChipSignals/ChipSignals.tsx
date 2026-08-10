@@ -110,13 +110,16 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
           <span style={{ position: 'absolute', top: 3, right: 5, fontSize: 9, fontWeight: 800, color: otc ? '#f59e0b' : '#3d8ef8' }}>{otc ? '櫃' : '市'}</span>
         )}
         <div style={{ fontSize: 12.5, fontWeight: 800, lineHeight: 1.3 }}>{it.code}</div>
-        <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
+        <div style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
         {price != null && chg != null ? (
           <div style={{ fontSize: 11.5, fontWeight: 700, color: cc, fontFamily: 'JetBrains Mono, monospace' }}>
             {price} {chg >= 0 ? '+' : ''}{chg.toFixed(1)}%
           </div>
         ) : null}
-        <div style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={metric}>{metric}</div>
+        {/* ⚠ 數字不可省略（與 QuoteGrid 同一條規矩）：原本 nowrap+ellipsis 在 120px 的格子裡
+            把「外+26,955 投+840 自+24,837」截成「外+26,955 投+840 自+2…」——
+            三個法人只讀得到兩個，這行字反而會誤導。改為允許換行、字級也拉大一級。 */}
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, wordBreak: 'break-word' }} title={metric}>{metric}</div>
       </div>
     );
   };
@@ -137,7 +140,11 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12 }}>{isOpen ? '▾' : '▸'}</span>
                 <span style={{ fontWeight: 800, color: m.color }}>{m.icon} {m.label}</span>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{items.length} 檔</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.desc}</span>
+                {/* ⚠ 原本是 maxWidth:55% ＋ nowrap ＋ ellipsis：手機上 177px 的格子塞 258px 的字，
+                    「外資連買≥3日且股價創20日新高，籌碼追蹤最佳入場」被截成「外資連買≥3日且股價創20…」——
+                    規則說明被截掉後半句，等於這行字沒有用。
+                    中文本來就能任意換行，讓它換行即可；同時 minWidth:0 讓它在 flex 裡真的縮得下去。 */}
+                <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-muted)', maxWidth: '100%', minWidth: 0, lineHeight: 1.5 }}>{m.desc}</span>
               </div>
               {isOpen && (
                 items.length ? (

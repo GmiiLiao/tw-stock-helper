@@ -86,7 +86,7 @@ export default function SignalAnalysis({ code, name, price }: { code: string; na
       </div>
 
       {/* 進場 / 停損 / 停利 (波動率風控) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%),1fr))', gap: 14 }}>
         <div style={card}>
           <div style={h}>🟢 進場買點</div>
           {(st.buyZones ?? []).map(z => (

@@ -665,7 +665,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
 
       {/* Summary Stats */}
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px',
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(200px, 100%), 1fr))', gap: '12px',
       }}>
         {[
           { label: '已實現損益（重算）', value: ledger.totalRealized, isMoney: true, color: ledger.totalRealized >= 0 ? '#f03e3e' : '#2f9e44',

@@ -69,7 +69,7 @@ export default function PremarketBrief() {
 
           {/* 10 picks */}
           <div style={{ fontWeight: 700, marginBottom: 6 }}>🎯 今日精選 10 檔（進出場建議）</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 8, marginBottom: 12 }}>
             {brief.picks.map(p => {
               const c = SIGNAL_COLOR[p.signal] || '#868e96';
               const up = p.changePercent >= 0;

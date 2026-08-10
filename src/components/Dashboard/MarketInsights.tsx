@@ -103,7 +103,7 @@ export default function MarketInsights() {
 
 
       <Section icon="📊" name="大盤體質與行事曆" hint="健康度 · 多時間框架 · 事件日曆 · 風險警示（選股清單已移至「選股 → 📋 訊號榜單」）" />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 16 }}>
         {/* 催化劑事件日曆（未來 35 天） */}
         {cal.length > 0 && (
           <div style={card}>
@@ -113,7 +113,12 @@ export default function MarketInsights() {
                 <div key={`${e.date}-${e.type}-${e.code || i}`} onClick={() => e.code && navigateTo('stock', e.code)}
                   style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 13, cursor: e.code ? 'pointer' : 'default' }}>
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: '#7dd3fc', flexShrink: 0 }}>{e.date.slice(5)}</span>
-                  <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+                  {/* ⚠ 這裡不能用 nowrap+ellipsis：事件標題是**整句話**不是短標籤，
+                      手機 248px 的空間塞 306px 的字，
+                      「鉅祥 停券起日（除息）— 融券需提前回補，留意軋空」被截成
+                      「…融券需提前回」——最重要的動作提示剛好被切掉。
+                      短標籤（代號＋名稱）維持截字沒問題，整句一律換行。 */}
+                  <span style={{ color: 'var(--text-secondary)', minWidth: 0, lineHeight: 1.5 }}>{e.title}</span>
                   {e.impact === 'H' && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#f59e0b', flexShrink: 0 }}>高</span>}
                 </div>
               ))}
@@ -235,7 +240,7 @@ export default function MarketInsights() {
       </div>
 
       {advOpen && (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 16, marginTop: 16 }}>
 
 
         {/* 除權息行事曆 */}

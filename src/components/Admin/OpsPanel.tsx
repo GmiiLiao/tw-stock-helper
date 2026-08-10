@@ -156,7 +156,7 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
       </div>
 
       {/* 動作與頁面熱度 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px, 100%),1fr))', gap: 12 }}>
         <div style={card}>
           <div style={h}>🔥 動作熱度 Top10</div>
           {actions.map(([a, n]) => <div key={a} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span>{a}</span><b>{n.toLocaleString()}</b></div>)}

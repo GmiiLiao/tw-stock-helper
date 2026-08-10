@@ -2476,7 +2476,7 @@ export default function WatchlistTracker() {
       {/* ── Main Content（依頂層分頁切換） ── */}
       {mainTab === 'rapid' ? (
         // 急漲跌：左右 2 欄，全寬方便對照
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '14px' }}>
           <RapidRisePanel stocks={rapidRisers} loading={loading} onViewStock={handleViewStock} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
           <RapidFallPanel stocks={rapidFallers} loading={loading} onViewStock={handleViewStock} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
         </div>

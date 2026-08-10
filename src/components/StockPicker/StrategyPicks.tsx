@@ -206,7 +206,7 @@ export default function StrategyPicks() {
             {list.length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{key === 'volBreak' ? '今日無符合（或昨量資料累積中，次一交易日起完整）' : key === 'secondBar' ? '今日無符合（或收盤價歷史累積中，需 3 個交易日後完整）' : '今日無符合條件的股票'}</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(215px,1fr))', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(215px, 100%),1fr))', gap: 8 }}>
                 {[...list].sort((a, b) => ((consensus[b.code]?.count ?? 1) - (consensus[a.code]?.count ?? 1)) || ((b.score ?? 0) - (a.score ?? 0))).slice(0, 24).map(p => {
                   const cc = consensus[p.code]?.count ?? 1;
                   return (
