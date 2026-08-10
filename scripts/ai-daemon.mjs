@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -2082,6 +2083,43 @@ async function computeRevenue() {
   const topYoY = [...items].sort((a, b) => b.yoy - a.yoy).slice(0, 20);
   const topMoM = [...items].sort((a, b) => b.mom - a.mom).slice(0, 20);
   await db.collection('revenue').doc('latest').set({ updatedAt: Date.now(), month, topYoY, topMoM });
+
+  // ── 逐檔逐月歸檔（2026-08-10 補）────────────────────────────────
+  // 先前這裡抓了全市場 1,800+ 檔，算完兩張 20 名排行榜就把原始資料丟掉，
+  // `revenue/latest` 每月被覆蓋 → 三年月營收歷史等於零。
+  // rows 已經在手上，歸檔不需要再打一次上游。
+  // ⚠ `資料年月` 是**民國**（如 "11506"），doc id 要轉西元且用「資料所屬月」，
+  //   不是公布月，才與 revenueArchive 的回補結果對得起來。
+  const m = String(month);
+  if (/^\d{5,6}$/.test(m)) {
+    const yr = parseInt(m.slice(0, m.length - 2), 10) + 1911;
+    const mo = m.slice(-2);
+    const id = `${yr}-${mo}`;
+    const arch = rows.filter(x => /^\d{4}$/.test(x['公司代號'] || '')).map(x => ({
+      c: x['公司代號'], n: x['公司名稱'],
+      rev: Math.round(_f(x['營業收入-當月營收'])),
+      prev: Math.round(_f(x['營業收入-上月營收'])),
+      last: Math.round(_f(x['營業收入-去年當月營收'])),
+      mom: +_f(x['營業收入-上月比較增減(%)']).toFixed(2),
+      yoy: +_f(x['營業收入-去年同月增減(%)']).toFixed(2),
+      cum: Math.round(_f(x['累計營業收入-當月累計營收'])),
+    })).filter(x => x.rev > 0);
+    // ⚠**防退化覆蓋**（2026-08-10 當場踩到）：這裡的來源是 openapi t187ap05，
+    //   實測 2026-06 只涵蓋 1,347 檔，而 MOPS 彙總表（scripts/backfill-mops-revenue.mjs）
+    //   同月有 1,847 檔——openapi 少了 500 檔，而且還落後一個月。
+    //   第一版沒有這道閘門，daemon 跑完直接把回補好的厚資料蓋成薄的。
+    //   規則：**只准補上或加厚，不准變薄**。
+    const prevN = (await db.collection('revenueArchive').doc(id).get()).data()?.n ?? 0;
+    if (arch.length < 800) {
+      log(`⚠ 月營收歸檔 ${id} 僅 ${arch.length} 檔（<800），不寫入避免污染歷史`);
+    } else if (arch.length < prevN) {
+      log(`⚠ 月營收歸檔 ${id} 略過：本次 ${arch.length} 檔 < 既有 ${prevN} 檔（openapi 涵蓋較窄，不覆蓋）`);
+    } else {
+      const j = JSON.stringify(arch);
+      await db.collection('revenueArchive').doc(id).set({ month: id, n: arch.length, rowsJson: j, bytes: j.length, at: Date.now() });
+      log(`✓ 月營收歸檔 ${id}：${arch.length} 檔 ${(j.length / 1024).toFixed(0)}KB`);
+    }
+  }
   log(`✓ 月營收(${month})：YoY 最強 ${topYoY[0]?.name}(+${topYoY[0]?.yoy}%)`);
 }
 
@@ -2469,6 +2507,15 @@ async function computeMultiTimeframe() {
 }
 
 // ── 24) 籌碼集中度週變化（千張大戶占比 週 vs 週）────────────
+// ── 月營收歸檔「加厚」（2026-08-10）──────────────────────────────────
+// computeRevenue 走 openapi t187ap05，實測只涵蓋 ~1,350 檔且落後一個月。
+// MOPS 彙總表（靜態 HTML）同月有 ~1,847 檔，所以每天回頭把最近 2 個月補厚。
+// 兩邊都有防退化閘門（只准加厚不准變薄），重複跑是冪等的。
+async function thickenRevenueArchive() {
+  try { await backfillMopsRevenue(2, (m) => log(`  ${m}`)); }
+  catch (e) { log(`⚠ 月營收加厚失敗：${e.message}`); }
+}
+
 async function computeMajorHoldersChange() {
   let rows = [];
   try { const r = await fetch('https://openapi.tdcc.com.tw/v1/opendata/1-5', { headers: { 'User-Agent': 'Mozilla/5.0' } }); if (r.ok) rows = await r.json(); } catch { /* skip */ }
@@ -2491,6 +2538,37 @@ async function computeMajorHoldersChange() {
   }
   const top = Object.entries(curMap).map(([code, ratio]) => ({ code, ratio })).sort((a, b) => b.ratio - a.ratio).slice(0, 30);
   await db.collection('majorHolders').doc('latest').set({ updatedAt: Date.now(), date, top, weekDate: date, weekRatios: curMap, lastWeekDate, rising }, { merge: false });
+
+  // ── 週歸檔（2026-08-10 補）──────────────────────────────────────
+  // 上面那行是 `{ merge: false }` **整份覆蓋**，歷史深度只有「本週＋上週」兩點。
+  // 集保是每週一次的資料，一年只有 52 個觀測點，覆蓋掉等於永久失去。
+  // ⚠ 而且**補不回來**：openapi 1-5 忽略 date 參數恆回最新週；官網歷史下拉只留
+  //   51 週且是逐檔查詢（2,000 檔 × 51 週）。這條序列的起點就是第一次歸檔那天，
+  //   斷一週就永遠缺一週——不要讓它斷。
+  // rows 已在手上（2.3MB），歸檔不再打上游。存全部 15 個分級而非只存千張比例，
+  // 否則日後想改用別的分級口徑就沒有原料。
+  try {
+    const dist = {};
+    for (const x of rows) {
+      const c = String(x['證券代號'] || '').trim().replace(/^0+/, '');
+      if (!/^\d{4}$/.test(c)) continue;
+      const lv = parseInt(String(x['持股分級'] || ''), 10);
+      if (!(lv >= 1 && lv <= 15)) continue;          // 16/17 是合計列，計入會重複
+      const e = dist[c] || (dist[c] = { r: new Array(15).fill(0), p: 0 });
+      e.r[lv - 1] = +_f(x['占集保庫存數比例%']).toFixed(2);
+      e.p += Math.round(_f(x['人數']));
+    }
+    const nCodes = Object.keys(dist).length;
+    const isoWeek = /^\d{8}$/.test(date) ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}` : null;
+    if (isoWeek && nCodes >= 800) {
+      const j = JSON.stringify(dist);
+      await db.collection('tdccArchive').doc(isoWeek).set({ date: isoWeek, n: nCodes, distJson: j, bytes: j.length, at: Date.now() });
+      log(`✓ 集保週歸檔 ${isoWeek}：${nCodes} 檔 × 15 分級 ${(j.length / 1024).toFixed(0)}KB`);
+    } else {
+      log(`⚠ 集保週歸檔略過：日期 "${date}"、解析 ${nCodes} 檔`);
+    }
+  } catch (e) { log(`⚠ 集保週歸檔失敗：${e.message}`); }
+
   log(`✓ 集保大戶+週變化：本週 ${date}、上週 ${lastWeekDate || '尚無'}、增持榜 ${rising.length} 檔`);
 }
 
@@ -7939,14 +8017,14 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
   }
 }
 // 官方盤後資料公布時間不同，光靠 15:10 一次會抓到前一日：T86 三大法人約 16:00、
 // 期交所/集保/除權息/借券/月營收約 16:30 前、融資融券約 21:30 才出。故加兩個補抓時段。
-const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];
+const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];
 const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }

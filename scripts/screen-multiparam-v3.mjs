@@ -2,6 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 // 第三輪全參數搜尋：補齊缺席參數族 ＋ N-of-M 投票制  —— 2026-08-05
 //
+import { pathToFileURL } from 'node:url';
 // 使用者問「還有哪些參數沒加上？價量？量比？」——盤點結果：
 //   已有：量比(4切法)、收位、RSI、廣度、大盤、連跌、5日幅、MA乖離、20日位階、
 //         法人t-1、資券、借券、當沖、長紅黑/上影/跳空
@@ -339,4 +340,4 @@ const main = async () => {
   console.log(`\n${'═'.repeat(122)}\n觸發日數是關鍵欄位：n 大而天數少＝事件集中＝假解析度。非投資建議。\n${'═'.repeat(122)}`);
   process.exit(0);
 };
-if (import.meta.url === `file://${process.argv[1]}`) main().catch(e => { console.error(e); process.exit(1); });
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(e => { console.error(e); process.exit(1); });

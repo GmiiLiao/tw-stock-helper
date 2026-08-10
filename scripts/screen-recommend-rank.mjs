@@ -2,6 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 // 推薦榜排序鍵的三方對決 —— 2026-08-05
 //
+import { pathToFileURL } from 'node:url';
 // 上一輪把五大因子的反向項修掉，排序恢復單調——但那只證明「不再顛倒」，
 // 沒有證明「有 edge」。本站另有一套**每一項都經過兩半窗＋第三獨立窗檢定**
 // 的隔日沖訊號（composite-score.ts 的加減分）。問題是：
@@ -189,4 +190,4 @@ const main = async () => {
 };
 // 只有直接執行才跑；被 import（screen-recommend-gate.mjs 共用 build/fiveFixed/
 // validated）時不得自動執行，否則會多跑一整輪回測並蓋掉呼叫端的輸出。
-if (import.meta.url === `file://${process.argv[1]}`) main().catch(e => { console.error(e); process.exit(1); });
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(e => { console.error(e); process.exit(1); });

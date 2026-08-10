@@ -32,8 +32,20 @@ const db = admin.firestore();
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'backup');
 const FULL = process.argv.includes('--full');
 
-const DATED = ['chipArchive', 'chipDaily', 'newsDaily', 'morningNote', 'marketReports', 'premarketBrief', 'picksHistory', 'limitUpForecast', 'marketWind', 'sectorWind'];
-const CONTENT_DIFF = ['finReports', 'stockHistory', 'stockPeBand', 'stockAI', 'userPerf'];
+// ⚠ 這張表就是「本地第二大腦的涵蓋範圍」——**沒列進來的集合等於沒有備份**。
+//   2026-08-10 四源稽核發現：8 個逐日/逐期歸檔集合一直不在表上，
+//   其中 orderFlowArchive 已累積 735 天、intradayArchive 64 天，全部只存在雲端。
+//   新增任何 `xxxArchive` 集合時**必須同步加進 DATED**，否則備份是假的。
+const DATED = [
+  'chipArchive', 'chipDaily', 'newsDaily', 'morningNote', 'marketReports', 'premarketBrief',
+  'picksHistory', 'limitUpForecast', 'marketWind', 'sectorWind',
+  // ↓ 2026-08-10 補：先前完全未備份的歷史序列
+  'tdccArchive',            // 集保股權分散（每週；官方只留 51 週，斷了就永遠補不回）
+  'revenueArchive',         // MOPS 月營收逐檔（每月）
+  'orderFlowArchive', 'intradayArchive', 'bookDepthArchive',
+  'snap0930Archive', 'volSurgeArchive', 'asiaPremarketArchive',
+];
+const CONTENT_DIFF = ['finReports', 'stockHistory', 'stockPeBand', 'stockAI', 'userPerf', 'indexHistory'];
 const SKIP = new Set(['activity_logs', 'users', ...DATED, ...CONTENT_DIFF]);
 
 const ensure = (dir) => fs.mkdirSync(dir, { recursive: true });

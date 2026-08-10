@@ -2,6 +2,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 // 第八輪：出場訊號的 80% —— 換「目標定義」這支最後的合法槓桿  —— 2026-08-05
 //
+import { pathToFileURL } from 'node:url';
 // 七輪結論：「5日後收盤方向」目標下，下跌側平常日誠實前緣 71.2%/OOT 61.1%。
 // 剩下唯一沒動過的合法變因是**目標本身**：
 //   下跌側是**出場/避開訊號**。持有者真正的問題不是「5天後收盤會不會比較低」，
@@ -233,4 +234,4 @@ const main = async () => {
   console.log(`\n${'═'.repeat(118)}\n判讀：換目標後命中率若變高但超額沒變大，只是題目變簡單，不是訊號變準。非投資建議。\n${'═'.repeat(118)}`);
   process.exit(0);
 };
-if (import.meta.url === `file://${process.argv[1]}`) main().catch(e => { console.error(e); process.exit(1); });
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(e => { console.error(e); process.exit(1); });

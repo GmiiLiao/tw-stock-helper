@@ -400,6 +400,41 @@ async function auditArchiveFields(db, tpeNow) {
   return out;
 }
 
+// ── 非每日歸檔的新鮮度（2026-08-10 補）──────────────────────────────
+// chipArchive 那組閘門全都假設「每個交易日一份」。集保是**每週**、月營收是**每月**，
+// 套日頻門檻只會天天誤報，所以先前它們根本沒被納入稽核 —— 於是
+// majorHolders 每週覆蓋、revenue 每月覆蓋這兩件事，稽核從頭到尾都是綠燈。
+// 這裡用「最新一份的資料日離今天多久」這一道，週期資料才有對應的保護。
+const PERIODIC_ARCHIVES = [
+  { c: 'tdccArchive',    label: '集保股權分散(週)', maxDays: 12, minN: 800,
+    note: '官方只保留 51 週且無批次歷史端點 → 斷一週就永久缺一週' },
+  { c: 'revenueArchive', label: 'MOPS月營收(月)',   maxDays: 70, minN: 1700,
+    note: '每月 10 日前公布上月；<1700 檔代表只有 openapi 薄版，需 MOPS 彙總表加厚' },
+];
+
+async function auditPeriodic(db) {
+  const out = [];
+  for (const spec of PERIODIC_ARCHIVES) {
+    // ⚠ 不要用 `.orderBy('__name__','desc')` —— Firestore 對 document id 的降冪排序
+    //   需要單獨建索引，會直接丟 FAILED_PRECONDITION。這兩個集合是週/月頻，
+    //   總量只有幾十份，`select('n')` 全取回來在本地排序反而更省事也不需索引。
+    let docs = [];
+    try {
+      const snap = await db.collection(spec.c).select('n').get();
+      docs = snap.docs.slice().sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, 1);
+    } catch (e) { out.push({ name: spec.label, status: 'ERROR', note: e.message }); continue; }
+    if (!docs.length) { out.push({ name: spec.label, status: 'MISSING', note: '完全沒有歸檔' }); continue; }
+    const d = docs[0];
+    // doc id 是 YYYY-MM-DD（週）或 YYYY-MM（月）；月份補成當月 1 日再比。
+    const idDate = d.id.length === 7 ? `${d.id}-01` : d.id;
+    const ageDays = Math.floor((Date.now() - new Date(`${idDate}T00:00:00+08:00`).getTime()) / 86400000);
+    const n = d.data()?.n ?? 0;
+    const status = ageDays > spec.maxDays ? 'STALE' : (n < spec.minN ? 'THIN' : 'OK');
+    out.push({ name: spec.label, status, latest: d.id, ageDays, n, note: status === 'OK' ? '' : spec.note });
+  }
+  return out;
+}
+
 async function main() {
   const ltd = await lastTradingDay();
   const t = taipeiNow();
@@ -443,6 +478,8 @@ async function main() {
   {
     const tpeNow = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
     const af = await auditArchiveFields(db, tpeNow);
+    const pa = await auditPeriodic(db);
+    for (const r of pa) console.log(`[週期歸檔] ${r.status.padEnd(8)} ${r.name}｜最新 ${r.latest ?? '—'}｜${r.ageDays ?? '?'} 天前｜${r.n ?? 0} 筆 ${r.note || ''}`);
     console.log('\n── chipArchive 欄位級（一份文件＝五個資料源，逐欄驗）──');
     for (const e of af) {
       const icon = e.status === 'OK' ? '✅' : e.status === 'SKIP' ? '⏭' : '❌';
