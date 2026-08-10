@@ -136,10 +136,14 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
           const isOpen = open === rk;
           return (
             <div key={rk} style={{ borderRadius: 8, background: isOpen ? m.bg : 'transparent' }}>
-              <div onClick={() => setOpen(o => (o === rk ? null : rk))} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', cursor: 'pointer', fontSize: 13 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12 }}>{isOpen ? '▾' : '▸'}</span>
-                <span style={{ fontWeight: 800, color: m.color }}>{m.icon} {m.label}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{items.length} 檔</span>
+              {/* ⚠ 這一列必須可 wrap（2026-08-10 手機實測）：
+                  規則說明改成可換行後，它會去搶同一列的空間，於是 nowrap 的
+                  flex 把「41 檔」壓成 22px 寬 → 變成「41/檔」直排。
+                  ⇒ 整列 wrap，前三個短標籤 nowrap+不可壓，說明整段換到第二行。 */}
+              <div onClick={() => setOpen(o => (o === rk ? null : rk))} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '6px 8px', cursor: 'pointer', fontSize: 13 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12, flexShrink: 0 }}>{isOpen ? '▾' : '▸'}</span>
+                <span style={{ fontWeight: 800, color: m.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{m.icon} {m.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>{items.length} 檔</span>
                 {/* ⚠ 原本是 maxWidth:55% ＋ nowrap ＋ ellipsis：手機上 177px 的格子塞 258px 的字，
                     「外資連買≥3日且股價創20日新高，籌碼追蹤最佳入場」被截成「外資連買≥3日且股價創20…」——
                     規則說明被截掉後半句，等於這行字沒有用。

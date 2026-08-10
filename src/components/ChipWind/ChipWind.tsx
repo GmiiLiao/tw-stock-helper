@@ -147,13 +147,19 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
       {explainBox(listMeta.ex)}
       <div style={{ display: 'grid', gap: 2 }}>
         {list.slice(0, compact ? 8 : 12).map((it, i) => (
-          <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
-            <span style={{ color: 'var(--text-muted)', width: 18, fontSize: 11 }}>{i + 1}</span>
-            <b style={{ color: '#7dd3fc', minWidth: 104 }}>{it.code} {it.name}</b>
-            <b style={{ color: col(it.net), minWidth: 78, textAlign: 'right' }}>{fmt(it.net)}</b>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>張</span>
-            {listTab !== 'foreignBuy' && listTab !== 'foreignSell' && <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>外{fmt(it.f)}/投{fmt(it.t)}/自{fmt(it.d)}</span>}
-            {(listTab === 'foreignBuy') && it.streak >= 2 && <span style={{ fontSize: 11, color: '#e8590c', fontWeight: 700 }}>連買{it.streak}日</span>}
+          // ⚠ 與 ChipDivergence 同一顆病（2026-08-10 手機實測）：
+          //   原本 minWidth 104 + 78 兩個硬地板，加上序號/單位/明細，需要 ~370px，
+          //   但手機只有 ~319px。flex 不換行時就去壓縮最後那段，
+          //   於是「外+53,049/投+1,800/自+55,156」被拆成三行糊在一起。
+          //   規則同前：要斷就在整段邊界斷，絕不在數值中間斷。
+          //   ⇒ 整列可 wrap；數值與明細 nowrap 且不被壓；股名 flex:1 讓位。
+          <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
+            <span style={{ color: 'var(--text-muted)', width: 18, fontSize: 11, flexShrink: 0 }}>{i + 1}</span>
+            <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
+            <b style={{ color: col(it.net), textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmt(it.net)}</b>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>張</span>
+            {listTab !== 'foreignBuy' && listTab !== 'foreignSell' && <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>外{fmt(it.f)}/投{fmt(it.t)}/自{fmt(it.d)}</span>}
+            {(listTab === 'foreignBuy') && it.streak >= 2 && <span style={{ fontSize: 11, color: '#e8590c', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>連買{it.streak}日</span>}
           </div>
         ))}
         {!list.length && <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 8px' }}>此時間框無資料</div>}

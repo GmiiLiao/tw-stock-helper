@@ -309,13 +309,28 @@ body {
 }
 
 /* ===== Tabs ===== */
+/* ⚠ overflow-x + max-width 不可拿掉（2026-08-10 手機實測）：
+   個股分析頁有 11 個分頁（即時走勢／問AI／K線圖表／訊號分析／同業比較／
+   財務體檢／持倉／公司資訊…），每個 .tab 都是 white-space: nowrap，
+   加起來 884px。手機容器只有 335px 又沒有捲動殼 →
+   **整個 <main> 橫向溢出 529px**，整頁被推開、左邊的內容全被切掉。
+   （這也是為什麼使用者在個股頁的每一張截圖左緣都缺一塊。）
+   分頁列本來就該像券商 App 一樣可以左右滑，不該去撐開整頁。 */
 .tabs {
   display: flex;
   gap: 2px;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   padding: 3px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  -webkit-overflow-scrolling: touch;
 }
+.tabs::-webkit-scrollbar { height: 3px; }
+.tabs::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 2px; }
+.tabs::-webkit-scrollbar-track { background: transparent; }
 
 .tab {
   flex: 1;

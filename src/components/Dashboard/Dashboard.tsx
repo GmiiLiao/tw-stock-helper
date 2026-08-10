@@ -117,7 +117,12 @@ function TopMoversTable({ title, stocks, type }: { title: string; stocks: StockI
         <h2 className={styles.sectionTitle}>{title}</h2>
       </div>
       <div className={styles.moversTable}>
+        {/* ⚠ 第一格是排名欄的佔位，**不可刪**（2026-08-10 實測）：
+            資料列有 6 格（排名／代號／名稱／現價／漲跌幅／成交量），表頭原本只有 5 格，
+            於是每個標題都往左偏一欄——「代號」壓在排名欄上、「成交量」被擠出格線外，
+            手機上直接被壓成 20px 的直排。表頭與資料列的格數必須一致。 */}
         <div className={styles.moversHeader}>
+          <span aria-hidden="true" />
           <span>代號</span>
           <span>名稱</span>
           <span>現價</span>

@@ -126,11 +126,14 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
       {bidPct != null ? (
         <div style={{ marginTop: 4 }} title={`五檔委買合計 ${bidSum} 張 vs 委賣合計 ${askSum} 張。這是掛單力道，不是成交的內外盤。`}>
           <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', display: 'flex' }}>
-            <div style={{ width: `${bidPct}%`, background: UP, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff' }}>委買 {bidPct.toFixed(0)}%</span>
+            {/* ⚠ 標籤要看得下才印（2026-08-10）：一面倒時另一段寬度是 0%，
+                但文字照樣被塞進 0 寬的盒子 →「委賣 0%」被壓成一字一行糊在條上。
+                低於 18% 就不印文字，數字改由整條的 title 提示提供。 */}
+            <div style={{ width: `${bidPct}%`, background: UP, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {bidPct >= 18 && <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>委買 {bidPct.toFixed(0)}%</span>}
             </div>
-            <div style={{ width: `${100 - bidPct}%`, background: DOWN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff' }}>委賣 {(100 - bidPct).toFixed(0)}%</span>
+            <div style={{ width: `${100 - bidPct}%`, background: DOWN, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {100 - bidPct >= 18 && <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>委賣 {(100 - bidPct).toFixed(0)}%</span>}
             </div>
           </div>
         </div>

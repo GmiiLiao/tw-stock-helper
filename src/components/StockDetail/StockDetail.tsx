@@ -433,7 +433,9 @@ export default function StockDetail() {
 
       {/* Tabs */}
       <div className={styles.tabsRow}>
-        <div className="tabs" style={{ width: 'fit-content' }}>
+        {/* ⚠ maxWidth 不可省：只寫 width:'fit-content' 時它會長成內容寬（884px），
+            捲動殼就形同虛設，整頁還是會被撐開。 */}
+        <div className="tabs" style={{ width: 'fit-content', maxWidth: '100%' }}>
           {TABS.map(t => (
             <button
               key={t.id}

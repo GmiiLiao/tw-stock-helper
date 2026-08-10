@@ -334,7 +334,8 @@
   .mainGrid { gap: 12px; }
   .moversHeader,
   .moversRow {
-    grid-template-columns: 20px 48px 1fr 60px 60px;
+    grid-template-columns: 20px 48px 1fr 58px 58px 60px;
+    gap: 6px;
     font-size: 0.82rem;
   }
   /* 手機熱力圖 3 欄，磚內文字才有可讀空間（原 5 欄擠壓） */
@@ -345,10 +346,18 @@
 
 @media (max-width: 480px) {
   .statsGrid { grid-template-columns: 1fr; gap: 6px; }
+  /* ⚠ 這裡必須是 **6 欄**（2026-08-10 手機實測）：
+     每一列有 6 格 —— 排名／代號／名稱／現價／漲跌幅／成交量。
+     原本只宣告 4 欄，多出來的兩格掉進 grid 的**隱式欄**，
+     而寬度早被前 4 欄用光 → 成交量只分到 20px，「成交量」被壓成直排。
+     （同一時間表頭少了排名那一格，所以桌機版的標題其實整排偏移一欄，
+       「代號」壓在排名欄上——已在 Dashboard.tsx 補上佔位格。）
+     欄數、表頭格數、資料列格數三者必須一致；改這裡前先數一次格子。 */
   .moversHeader,
   .moversRow {
-    grid-template-columns: 20px 48px 1fr 56px;
-    font-size: 0.8rem;
+    grid-template-columns: 18px 44px 1fr 48px 52px 50px;
+    gap: 4px;
+    font-size: 0.78rem;
   }
 }
 
