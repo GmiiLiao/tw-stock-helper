@@ -108,18 +108,23 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
             <div key={q.code} style={{ display: 'contents' }}>
               <div onClick={() => setOpenCode(open ? null : q.code)}
                 style={{ position: 'relative', cursor: 'pointer', padding: '5px 7px', borderRadius: 7,
-                  background: tileBg(q.changePercent), border: open ? '1px solid #7dd3fc' : '1px solid transparent', minWidth: 0,
+                  // ⚠ overflow:hidden 不可省（2026-08-11 實機截圖）：
+                  //   下面兩行是 white-space:nowrap，磚塊只有 72~110px，
+                  //   「6,301 張·0.4x」與「漲停87」會直接印到**隔壁磚塊**上，
+                  //   看起來像兩層字疊在一起。minWidth:0 只讓格子縮得下去，
+                  //   擋不住已經溢出的內容——要靠 overflow 裁掉。
+                  background: tileBg(q.changePercent), border: open ? '1px solid #7dd3fc' : '1px solid transparent', minWidth: 0, overflow: 'hidden',
                   ...(candidateSet.has(q.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.8)' } : {}) }}>
                 <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 8.5, fontWeight: 800, color: otc ? '#fcd34d' : '#93c5fd', opacity: 0.9 }}>{otc ? '櫃' : '市'}</span>
                 <span style={{ position: 'absolute', top: 2, left: 3 }}><AddCandidateButton code={q.code} variant="icon" /></span>
                 <div style={{ fontSize: 11.5, fontWeight: 800, lineHeight: 1.25 }}>{q.code}</div>
                 <div style={{ fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{q.name}</div>
-                <div style={{ fontSize: 10.5, fontWeight: 800, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {q.price} <span>{q.changePercent >= 0 ? '+' : ''}{q.changePercent.toFixed(1)}%</span>
                 </div>
                 <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.75)', whiteSpace: 'nowrap', display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <span>{Math.round(q.volume / 1000).toLocaleString()} 張{q.volX != null ? `·${q.volX}x` : ''}</span>
-                  {(() => { const st = strengthOf(q.changePercent); return <span style={{ marginLeft: 'auto', fontWeight: 800, color: st.c === '#94a3b8' ? 'rgba(255,255,255,0.6)' : '#fff', background: `${st.c}66`, borderRadius: 4, padding: '0 3px' }}>{st.t}{scoreOf(q)}</span>; })()}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{Math.round(q.volume / 1000).toLocaleString()} 張{q.volX != null ? `·${q.volX}x` : ''}</span>
+                  {(() => { const st = strengthOf(q.changePercent); return <span style={{ marginLeft: 'auto', flexShrink: 0, fontWeight: 800, color: st.c === '#94a3b8' ? 'rgba(255,255,255,0.6)' : '#fff', background: `${st.c}66`, borderRadius: 4, padding: '0 3px' }}>{st.t}{scoreOf(q)}</span>; })()}
                 </div>
               </div>
               {open && (
@@ -162,7 +167,10 @@ export default function RiseFallPanel() {
     on(); window.addEventListener('resize', on);
     return () => window.removeEventListener('resize', on);
   }, []);
-  const effCols = vw <= 480 ? Math.min(cols, 2) : vw <= 820 ? Math.min(cols, 3) : cols;
+  // 手機：上下排（2026-08-11 使用者改定案，取代先前的「一律並排」）。
+  // 疊成上下之後每一區都拿得到整個寬度，所以欄數可以比並排時多。
+  const stacked = vw <= 820;
+  const effCols = stacked ? Math.min(cols, 3) : cols;
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [onlyCand, setOnlyCand] = useState(false);
   const compareCodes = useAppStore(s => s.compareCodes);
@@ -212,13 +220,17 @@ export default function RiseFallPanel() {
           <span>· 點方塊看即時K線</span>
         </span>
       </div>
-      {/* 左右兩欄固定 1:1 撐滿（使用者定案：漲左跌右並排，不因寬度換行變上下排） */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12, alignItems: 'flex-start' }}>
+      {/* 版面規則（2026-08-11 更新）：
+          桌機＝漲左跌右並排；**手機＝上漲整區在上、下跌整區在下**。
+          先前的定案是「一律並排、不換上下排」，但實機驗證下來，
+          手機每欄只剩 ~150px，磚塊被壓到 72px、字互相疊在一起，
+          使用者因此改為手機採上下排。並排的桌機行為不變。 */}
+      <div style={{ display: 'grid', gridTemplateColumns: stacked ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: stacked ? 14 : 12, alignItems: 'flex-start' }}>
         <Column title="上漲" icon="▲" color="#f03e3e" items={risers} sort={sortUp} setSort={setSortUp} cols={effCols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
         <Column title="下跌" icon="▼" color="#2f9e44" items={fallers} sort={sortDn} setSort={setSortDn} cols={effCols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-        底色深淺＝漲跌幅強度（紅漲綠跌）；左右欄各自獨立排序；每 30 秒更新。非投資建議。
+        底色深淺＝漲跌幅強度（紅漲綠跌）；漲跌兩區各自獨立排序（手機為上下排、桌機為左右並排）；每 30 秒更新。非投資建議。
       </div>
     </div>
   );
