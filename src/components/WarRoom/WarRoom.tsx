@@ -252,7 +252,7 @@ export default function WarRoom() {
       {mainTab === 'desk' ? <DecisionDesk /> : mainTab === 'risefall' ? <RiseFallPanel /> : mainTab === 'volsurge' ? <VolSurgePanel /> : mainTab === 'limitup' ? <LimitUpPanel /> : mainTab === 'chip' ? <ChipPicksPanel /> : (
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* ── 主榜：盤中雷達（多策略開關篩選） ── */}
-        <div style={{ flex: '1 1 640px', minWidth: 320, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.06)', border: '1px solid rgba(61,142,248,0.25)' }}>
+        <div style={{ flex: '1 1 640px', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.06)', border: '1px solid rgba(61,142,248,0.25)' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <span style={{ fontSize: 14.5, fontWeight: 900, color: '#7dd3fc' }}>📡 盤中雷達</span>
             <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
@@ -372,7 +372,7 @@ export default function WarRoom() {
         </div>
 
         {/* ── 右側備選區 ── */}
-        <div style={{ flex: '0 1 300px', minWidth: 260, padding: '10px 12px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
+        <div style={{ flex: '0 1 300px', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 800, fontSize: 13.5 }}>👁 備選區</span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>掉榜自動保留 · 點選過📌釘住整日</span>

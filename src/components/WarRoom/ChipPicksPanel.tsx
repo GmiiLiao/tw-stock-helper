@@ -324,7 +324,7 @@ export default function ChipPicksPanel() {
   };
 
   return (
-    <div style={{ flex: '1 1 100%', minWidth: 320, padding: '10px 12px', borderRadius: 12, background: 'rgba(232,89,12,0.05)', border: '1px solid rgba(232,89,12,0.22)' }}>
+    <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(232,89,12,0.05)', border: '1px solid rgba(232,89,12,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 14.5, fontWeight: 900, color: '#f6a06a' }}>🧬 籌碼推選</span>
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
@@ -350,13 +350,16 @@ export default function ChipPicksPanel() {
           );
         })}
       </div>
-      {/* 分級排行的排序切換：綜合評分（實證加權）vs 級別 */}
+      {/* 分級排行的排序切換：綜合評分（實證加權）vs 級別
+          ⚠ 這一列少了 flexWrap（2026-08-11 手機回報）：同檔其他篩選列都有，只有這裡漏掉。
+            「🧬 綜合評分(實證加權)」單顆就要 ~150px，加上「🏆 級別」與標籤超過手機寬度，
+            不換行就會被壓縮成多行殘字。 */}
       {view === 'graded' && (
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-          <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>排序</span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+          <span style={{ fontSize: 10.5, color: 'var(--text-muted)', flexShrink: 0 }}>排序</span>
           {([['comp', '🧬 綜合評分(實證加權)'], ['tier', '🏆 級別']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setGradedSort(k)}
-              style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+              style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
                 border: `1px solid ${gradedSort === k ? 'rgba(167,139,250,0.6)' : 'var(--border-primary)'}`,
                 background: gradedSort === k ? 'rgba(167,139,250,0.14)' : 'transparent',
                 color: gradedSort === k ? 'var(--text-primary)' : 'var(--text-muted)' }}>

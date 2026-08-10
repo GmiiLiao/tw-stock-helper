@@ -84,10 +84,14 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
         <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
           {stat}
         </span>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+        {/* ⚠ 這排鈕要能橫向捲（2026-08-11 手機回報）：
+            左右兩欄各只有 ~150px，五顆排序鈕塞不下，原本會被壓縮成
+            「價/量/(成/交/值)」一字一行的直條，把磚塊區也一起擠變形。
+            改為整排 nowrap + 自身可捲：塞不下就左右滑，不去壓縮任何一顆。 */}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, flexWrap: 'nowrap', overflowX: 'auto', maxWidth: '100%', scrollbarWidth: 'none' }}>
           {SORTS.map(s => (
             <button key={s.key} onClick={() => setSort(s.key)}
-              style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, cursor: 'pointer',
+              style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
                 border: `1px solid ${sort === s.key ? `${color}88` : 'var(--border-primary)'}`,
                 background: sort === s.key ? `${color}22` : 'transparent',
                 color: sort === s.key ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -147,6 +151,18 @@ export default function RiseFallPanel() {
   const [sortUp, setSortUp] = useState<SortKey>('chg');
   const [sortDn, setSortDn] = useState<SortKey>('chg');
   const [cols, setCols] = useState(4);
+  // ⚠ 手機必須降欄數（2026-08-11）：版面定案是「漲左跌右並排、不換成上下排」，
+  //   所以每欄在 375px 只有 ~150px。維持使用者設定的 4 欄時每塊僅 ~34px，
+  //   代號/名稱/漲跌幅會互相疊在一起（實機截圖可見字重疊）。
+  //   一塊磚要放得下 4 位代號 + 漲跌幅，至少需要 ~66px ⇒ 窄螢幕上限 2 欄。
+  //   只在渲染時 clamp，不動使用者存下來的偏好（桌機仍照他選的欄數）。
+  const [vw, setVw] = useState(1200);
+  useEffect(() => {
+    const on = () => setVw(window.innerWidth);
+    on(); window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  const effCols = vw <= 480 ? Math.min(cols, 2) : vw <= 820 ? Math.min(cols, 3) : cols;
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [onlyCand, setOnlyCand] = useState(false);
   const compareCodes = useAppStore(s => s.compareCodes);
@@ -179,7 +195,7 @@ export default function RiseFallPanel() {
   const flat = pool.length - risers.length - fallers.length;
 
   return (
-    <div style={{ flex: '1 1 100%', minWidth: 320, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.05)', border: '1px solid rgba(61,142,248,0.22)' }}>
+    <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.05)', border: '1px solid rgba(61,142,248,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 14.5, fontWeight: 900, color: '#7dd3fc' }}>📈 即時漲跌</span>
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
@@ -198,8 +214,8 @@ export default function RiseFallPanel() {
       </div>
       {/* 左右兩欄固定 1:1 撐滿（使用者定案：漲左跌右並排，不因寬度換行變上下排） */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12, alignItems: 'flex-start' }}>
-        <Column title="上漲" icon="▲" color="#f03e3e" items={risers} sort={sortUp} setSort={setSortUp} cols={cols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
-        <Column title="下跌" icon="▼" color="#2f9e44" items={fallers} sort={sortDn} setSort={setSortDn} cols={cols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
+        <Column title="上漲" icon="▲" color="#f03e3e" items={risers} sort={sortUp} setSort={setSortUp} cols={effCols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
+        <Column title="下跌" icon="▼" color="#2f9e44" items={fallers} sort={sortDn} setSort={setSortDn} cols={effCols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
         底色深淺＝漲跌幅強度（紅漲綠跌）；左右欄各自獨立排序；每 30 秒更新。非投資建議。

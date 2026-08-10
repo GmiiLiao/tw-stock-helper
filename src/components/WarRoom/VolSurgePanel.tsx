@@ -45,7 +45,7 @@ export default function VolSurgePanel() {
   });
 
   return (
-    <div style={{ flex: '1 1 100%', minWidth: 320, padding: '10px 12px', borderRadius: 12, background: 'rgba(168,139,250,0.05)', border: '1px solid rgba(168,139,250,0.22)' }}>
+    <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(168,139,250,0.05)', border: '1px solid rgba(168,139,250,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
         <span style={{ fontSize: 14.5, fontWeight: 900, color: '#c4b5fd' }}>⚡ 盤中爆量</span>
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
