@@ -5563,10 +5563,17 @@ async function archiveChipDaily() {
   // 造成 02-26 起近五個月上櫃法人整段缺失——回測中上櫃股 tier 全空）。
   // 既有檔若只有上市（無上櫃碼）也補上櫃合併。
   const hasOtcInst = (() => { try { const m = cur.instJson ? JSON.parse(cur.instJson) : null; return m ? Object.keys(m).some(c => m[c] && ['6274', '8069', '3260', '5347', '3105'].includes(c)) : false; } catch { return false; } })();
-  if (!cur.instJson || !hasOtcInst) {
+  // 上市樣本（權值股，必定在 T86 名單內）——與 hasOtcInst 對稱，用來判斷上市那半有沒有進來
+  const hasTseInst = (() => { try { const m = cur.instJson ? JSON.parse(cur.instJson) : null; return m ? ['2330', '2317', '2454', '2882'].some(c => m[c]) : false; } catch { return false; } })();
+  if (!cur.instJson || !hasOtcInst || !hasTseInst) {
     const inst = {};
     try { const m = cur.instJson ? JSON.parse(cur.instJson) : {}; Object.assign(inst, m); } catch { /* fresh */ }
-    if (!cur.instJson) {
+    // ⚠**守門要看「上市有沒有」，不能看「instJson 存不存在」**（2026-08-10 修）：
+    //   舊版是 `if (!cur.instJson)`——只要某一輪先把上櫃寫進去（TPEx 較早出或 T86 該次失敗），
+    //   之後每一輪都看到 instJson 已存在而**永遠跳過 T86**，上市法人就此補不回來。
+    //   實測：2026-07-21 起連續 14 天的法人資料只有上櫃（779 檔）、完全沒有 2330 等上市股。
+    //   ⇒ 改為與 hasOtcInst 對稱的 hasTseInst 判定：缺哪一邊就補哪一邊。
+    if (!hasTseInst) {
       const t86 = await J(`https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${ymd}&selectType=ALL`);
       if (t86?.stat === 'OK' && String(t86?.date || '') !== ymd) log(`  ⚠ 歸檔 T86 回音 ${t86?.date} ≠ ${ymd}，不併入`);
       else if (t86?.stat === 'OK') {
@@ -5624,9 +5631,56 @@ async function archiveChipDaily() {
     for (const r of (mtb?.data || [])) { const c = (r[0] || '').trim(); if (/^\d{4}$/.test(c)) margin[c] = [Math.round(_f(r[6])), Math.round(_f(r[12]))]; }
     if (Object.keys(margin).length > 100) patch.marginJson = JSON.stringify(margin);
   }
+  // ── 借券餘額 + 當沖張數（2026-08-10 補上每日歸檔）────────────────
+  // ⚠**這兩項原本只有回補腳本寫過，從來沒接進每日流程**，所以自 2026-07-17
+  //   最後一次手動回補後就斷了 21 個交易日。後果不是「少一點資料」而是
+  //   **overheatV1 規則（條件含 借券/均量>1）自 7/18 起永遠不可能觸發**——
+  //   daemon log 天天顯示「過熱出貨 0」看起來很正常，其實是資料沒了。
+  //   ⚠這是 bookDepth 那次教訓的原封重演：**回補完沒接每日更新，等於沒有這個資料源**。
+  //   兩者都做回音驗證（自報日期 ≠ 目標日就不寫），寧可留空也不寫錯日的資料。
+  if (!cur.lendingJson) {
+    const dSlash = `${tw.getFullYear()}/${String(tw.getMonth() + 1).padStart(2, '0')}/${String(tw.getDate()).padStart(2, '0')}`;
+    const lend = {};
+    const twL = await J(`https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date=${ymd}&response=json`);
+    if (twL?.stat === 'OK' && String(twL?.date || '') === ymd && Array.isArray(twL.data)) {
+      for (const r of twL.data) { const c = String(r[0] || '').trim(); if (/^\d{4}$/.test(c)) lend[c] = Math.round(_f(r[12]) / 1000); }
+    }
+    await sleep(1200);
+    const tpL = await J(`https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=${dSlash}&response=json`);
+    if (Array.isArray(tpL?.tables?.[0]?.data)) {
+      for (const r of tpL.tables[0].data) { const c = String(r[0] || '').trim(); if (/^\d{4}$/.test(c)) lend[c] = Math.round(_f(r[12]) / 1000); }
+    }
+    if (Object.keys(lend).length > 100) patch.lendingJson = JSON.stringify(lend);
+    await sleep(1200);
+  }
+  if (!cur.dayTradeJson) {
+    const dt = await J(`https://www.twse.com.tw/exchangeReport/TWTB4U?response=json&date=${ymd}&selectType=All`);
+    if (dt?.stat === 'OK' && String(dt?.date || '') === ymd) {
+      // ⚠**不能只用「證券代號」找表**：這支 API 回兩張都含證券代號的表——
+      //   一張是「暫停現股賣出後現款買進當沖註記」(3欄)、一張才是當沖成交量(6欄)，
+      //   而且兩者順序在不同呼叫間會變。只找證券代號會隨機抓到註記表 → 解析出 0 筆 → 靜默不寫。
+      //   ⇒ 必須同時要求「證券代號」**與**「當日沖銷…成交股數」兩個欄位。
+      const tbl = (dt.tables || []).find(x => (x.fields || []).includes('證券代號')
+        && (x.fields || []).some(f => /當日沖銷.*成交股數/.test(String(f).replace(/\s/g, ''))));
+      if (tbl?.data?.length) {
+        const iCode = tbl.fields.indexOf('證券代號');
+        const iVol = tbl.fields.findIndex(f => /當日沖銷.*成交股數/.test(String(f).replace(/\s/g, '')));
+        const by = {};
+        for (const row of tbl.data) {
+          const c = String(row[iCode] || '').trim(); if (!/^\d{4}$/.test(c)) continue;
+          const lots = Math.round(parseFloat(String(row[iVol] || '0').replace(/,/g, '')) / 1000);
+          if (lots > 0) by[c] = lots;
+        }
+        if (Object.keys(by).length > 100) patch.dayTradeJson = JSON.stringify(by);
+      }
+    }
+    await sleep(1200);
+  }
+
   patch.complete = !!((cur.instJson || patch.instJson) && cur.closeJson);
   await ref.set(patch, { merge: true });
-  log(`✓ 籌碼歸檔 ${iso}：法人${(cur.instJson || patch.instJson) ? '✓' : '—'} 資券${(cur.marginJson || patch.marginJson) ? '✓' : '—'}（收盤另依資料日歸檔）`);
+  log(`✓ 籌碼歸檔 ${iso}：法人${(cur.instJson || patch.instJson) ? '✓' : '—'} 資券${(cur.marginJson || patch.marginJson) ? '✓' : '—'}`
+    + ` 借券${(cur.lendingJson || patch.lendingJson) ? '✓' : '—'} 當沖${(cur.dayTradeJson || patch.dayTradeJson) ? '✓' : '—'}（收盤另依資料日歸檔）`);
 }
 
 // ── 53) 早盤起漲提醒 earlyBird（高級會員限定）───────────────────
@@ -8360,7 +8414,8 @@ if (ONESHOT) {
     recommendAdj: () => computeRecommendAdj(),   // 推薦榜已驗證訊號修正量
     reversalSignals: () => computeReversalSignals(),
     userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
-    stressTest: () => computeStressTest(),      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
+    stressTest: () => computeStressTest(),
+    chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }

@@ -358,6 +358,48 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
   return out;
 }
 
+
+// ── chipArchive 的**欄位級**稽核（2026-08-10 新增）────────────────
+// ⚠**一份文件裝了五個資料源**（收盤/法人/資券/借券/當沖），舊契約只驗 closeJson 的筆數，
+//   於是 lendingJson 與 dayTradeJson 整整缺 21 個交易日、instJson 缺了整個上市市場 14 天，
+//   稽核全程顯示 ✅——**資料源在契約表裡不等於它受保護，受保護的只有你真的去數的那個欄位**。
+// 每個欄位另帶 publishHour（收盤後才出）與 sample（必須存在的代表股，用來抓「只有半個市場」）。
+const ARCHIVE_FIELDS = [
+  { f: 'closeJson',    label: '收盤',  min: 1500, publishHour: 14.5 },
+  { f: 'instJson',     label: '法人',  min: 1500, publishHour: 15.5, sample: ['2330', '6274'] },  // 上市+上櫃各一
+  { f: 'marginJson',   label: '資券',  min: 1500, publishHour: 21.5, sample: ['2330', '6274'] },
+  { f: 'lendingJson',  label: '借券',  min: 1000, publishHour: 21.5 },
+  { f: 'dayTradeJson', label: '當沖',  min:  500, publishHour: 16 },
+];
+
+async function auditArchiveFields(db, tpeNow) {
+  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(6).get();
+  const docs = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+  const out = [];
+  for (const spec of ARCHIVE_FIELDS) {
+    // 未到公布時刻就跳過「今天」，改看最近一個應該已完成的日子
+    const hour = tpeNow.getHours() + tpeNow.getMinutes() / 60;
+    const cand = docs.filter((x, i) => !(i === 0 && x.id === isoDate(tpeNow) && hour < spec.publishHour));
+    const t = cand[0];
+    if (!t) { out.push({ name: spec.label, status: 'SKIP', note: '尚無可驗日' }); continue; }
+    let m = {};
+    try { m = JSON.parse(t.data[spec.f] || '{}'); } catch { /* 壞 JSON 視為空 */ }
+    const n = Object.keys(m).length;
+    const missSample = (spec.sample || []).filter(c => !m[c]);
+    // 連續缺漏天數（只看應已完成的日子）——抓「回補完沒接每日更新」那類慢性腐爛
+    let streak = 0;
+    for (const x of cand) { let k = 0; try { k = Object.keys(JSON.parse(x.data[spec.f] || '{}')).length; } catch { k = 0; } if (k >= spec.min) break; streak++; }
+    const status = n === 0 ? 'MISSING' : n < spec.min ? 'THIN' : missSample.length ? 'HALF_MARKET' : 'OK';
+    out.push({
+      name: spec.label, status, records: n, date: t.id,
+      note: status === 'HALF_MARKET' ? `缺代表股 ${missSample.join('/')}（可能只有半個市場）`
+          : status === 'THIN' ? `僅 ${n} < 門檻 ${spec.min}`
+          : status === 'MISSING' ? `欄位不存在或為空${streak > 1 ? `·已連續 ${streak} 日` : ''}` : '',
+    });
+  }
+  return out;
+}
+
 async function main() {
   const ltd = await lastTradingDay();
   const t = taipeiNow();
@@ -397,6 +439,16 @@ async function main() {
     const age = r.ageMin != null ? `${r.ageMin < 90 ? r.ageMin + 'm' : Math.round(r.ageMin / 60) + 'h'}` : '—';
     const rec = r.records != null ? String(r.records) : '—';
     console.log(`${icon} ${r.collection.padEnd(22)} ${r.status.padEnd(11)} age=${age.padEnd(6)} n=${rec.padEnd(6)} date=${(r.dataDate || '—').padEnd(11)} ${r.notes.join('；')}`);
+  }
+  {
+    const tpeNow = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
+    const af = await auditArchiveFields(db, tpeNow);
+    console.log('\n── chipArchive 欄位級（一份文件＝五個資料源，逐欄驗）──');
+    for (const e of af) {
+      const icon = e.status === 'OK' ? '✅' : e.status === 'SKIP' ? '⏭' : '❌';
+      console.log(`${icon} ${e.name.padEnd(6)} ${String(e.status).padEnd(12)} n=${String(e.records ?? '—').padEnd(6)} date=${(e.date || '—').padEnd(11)} ${e.note}`);
+      if (!['OK', 'SKIP'].includes(e.status)) bad.push({ status: e.status, collection: `chipArchive.${e.name}` });
+    }
   }
   if (fresh.length) {
     console.log('\n── 生產路徑（可指定日期＋回音驗證）──');
