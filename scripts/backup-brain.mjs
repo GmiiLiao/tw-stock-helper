@@ -65,8 +65,17 @@ async function backupDated(colId) {
   const snap = await db.collection(colId).get();
   for (const d of snap.docs) {
     const file = path.join(dir, `${d.id.replace(/[^\w.-]/g, '_')}.json`);
-    const isRecent = d.id >= recentCut; // 日期型 id 字典序即可；非日期 id 永遠視為 recent
-    if (!FULL && !isRecent && fs.existsSync(file)) { stat.skipped++; continue; }
+    // ⚠ 這裡原本有一行「檔案已存在且非近 7 天 → 跳過」。**已移除，不要加回來。**
+    //
+    // 2026-08-10 實測：雲端 chipArchive/2026-03-02 是 close 1,944／lending 1,841 的完整資料，
+    // 本地那份卻停在 close 1,079／lending 0 —— 差了整整五個月的修復成果。
+    // 本專案的歷史資料經常在雲端事後被回補修正（上櫃法人補寫、借券/當沖補寫、
+    // 日期位移修正…），那一行讓**每一次修復都傳不到第二大腦**，
+    // 而且本地與雲端的「份數」還是一致的，所以份數比對永遠是綠燈 —— 靜默腐爛。
+    //
+    // 關鍵是：`db.collection(colId).get()` 上面已經把整包抓回記憶體了，
+    // 跳過只省下一次本地字串比對，**沒有省任何頻寬或 Firestore 讀取**。
+    // writeIfChanged 內容相同時本來就不寫（計入 unchanged），代價為零。
     writeIfChanged(file, d.data());
   }
   console.log(`[backup] ${colId}: ${snap.size} docs`);

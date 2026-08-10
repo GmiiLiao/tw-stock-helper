@@ -33,7 +33,8 @@ const H_TWSE = { headers: { ...UA, Referer: 'https://www.twse.com.tw/' } };
 const H_TPEX = { headers: { ...UA, Referer: 'https://www.tpex.org.tw/' } };
 
 const START = process.env.BF_START || '2023-07-17'; // 3 年前
-const END = process.env.BF_END || '2026-02-25';     // 既有歸檔前一日（不覆蓋）
+const END = process.env.BF_END || '2026-02-25';
+const REPAIR = process.env.BF_REPAIR === '1';   // 修補模式：允許覆寫 daemon 寫壞的日子（僅加厚）
 const THROTTLE_MS = 1600;                            // 每個請求間隔
 const isNum4 = (c) => /^\d{4}$/.test(String(c || '').trim()); // 只留 4 位數普通股/ETF
 
@@ -150,8 +151,20 @@ async function main() {
   for (const iso of days) {
     const ref = db.collection('chipArchive').doc(iso);
     const snap = await ref.get();
-    if (snap.exists && snap.data()?.source === 'backfill_3y') { skipped++; continue; }
-    if (snap.exists && !snap.data()?.source) { skipped++; continue; } // 既有 daemon 寫入不覆蓋
+    // ── 修補模式 BF_REPAIR=1（2026-08-10 加）────────────────────────
+    // 原本這兩行的契約是「daemon 寫過的日子一律不碰」。立意良善，但代價是
+    // **daemon 自己寫壞的日子永遠修不好**——實測 2026-02-26…2026-07-31 這段
+    // daemon 只寫進約 1,080 檔（全市場 1,950），收盤/法人整整五個月只有半個市場，
+    // 而這兩行讓每一次回補都禮貌地跳過它們。
+    // 修補模式改用「只准加厚不准變薄」判定：既有欄位已經夠厚才跳過。
+    const cur = snap.exists ? snap.data() : null;
+    const curN = (f) => { try { return Object.keys(JSON.parse(cur?.[f] || '{}')).length; } catch { return 0; } };
+    if (REPAIR) {
+      if (cur && curN('closeJson') >= 1500 && curN('instJson') >= 1500) { skipped++; continue; }
+    } else {
+      if (snap.exists && snap.data()?.source === 'backfill_3y') { skipped++; continue; }
+      if (snap.exists && !snap.data()?.source) { skipped++; continue; } // 既有 daemon 寫入不覆蓋
+    }
 
     const day = await fetchDay(iso);
     if (day === null) { holidays++; continue; }
@@ -165,13 +178,15 @@ async function main() {
       console.log(`[backfill] ⚠ ${iso} 資料不足(inst=${instN} close=${closeN})，略過`);
       continue;
     }
-    await ref.set({
-      date: iso,
-      instJson: JSON.stringify(day.inst),
-      closeJson: JSON.stringify(day.close),
-      source: 'backfill_3y',
-      at: Date.now(),
-    });
+    // ⚠**一律 merge**：這份 doc 還住著 marginJson / lendingJson / dayTradeJson。
+    //   原本是不帶 merge 的 set()，在只有「全新空白日」的原始用途下沒事，
+    //   但修補既有日時會把那三個欄位整個抹掉——修一個洞挖三個洞。
+    // 並且逐欄位比對筆數：只有比既有更厚才寫，避免上游當天半殘反而把好資料蓋薄。
+    const patch = { date: iso, at: Date.now(), source: REPAIR ? 'repair_2026' : 'backfill_3y' };
+    if (instN >= curN('instJson')) patch.instJson = JSON.stringify(day.inst);
+    if (closeN >= curN('closeJson')) patch.closeJson = JSON.stringify(day.close);
+    if (!patch.instJson && !patch.closeJson) { skipped++; continue; }
+    await ref.set(patch, { merge: true });
     done++;
     if (done % 20 === 0) console.log(`[backfill] 進度 ${done} 落地 / ${skipped} 跳過 / ${holidays} 假日 / ${failed} 不足 …最新 ${iso}(inst=${instN} close=${closeN})`);
   }
