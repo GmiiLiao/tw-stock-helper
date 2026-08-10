@@ -445,7 +445,10 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px',
       }}>
-        <div style={{ display: 'flex', gap: '6px' }}>
+        {/* ⚠ 內層也要 wrap（2026-08-11 手機回報）：外層 flexWrap 只讓「篩選列」與
+            「＋新增交易」互相換行，管不到這裡面。四顆鈕合計 ~358px > 手機 335px，
+            不換行就會被壓縮，「🔴 買入(24)」被切成「入(24)」。 */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           {(['all', 'buy', 'sell', 'dividend'] as const).map(f => {
             {/* 台股語意：買進=紅、賣出=綠（與新增視窗、列表徽章一致；先前這裡顛倒） */}
             const labels = { all: '全部', buy: '🔴 買入', sell: '🟢 賣出', dividend: '💰 股利' };
@@ -458,6 +461,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                   background: filter === f ? 'var(--accent-purple, #7c3aed)' : 'var(--bg-tertiary)',
                   color: filter === f ? '#fff' : 'var(--text-secondary)',
                   border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                  whiteSpace: 'nowrap', flexShrink: 0,
                 }}
               >{labels[f]} {f === 'all' ? `(${tradeRecords.length})` : `(${tradeRecords.filter(t => t.type === f).length})`}</button>
             );
@@ -499,12 +503,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
             {records.map(t => {
               const cfg = typeConfig[t.type];
               return (
-                <div key={t.id} style={{
-                  display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto',
-                  padding: '14px 12px', alignItems: 'center',
-                  borderBottom: '1px solid var(--border-primary)',
-                  transition: 'background 0.12s',
-                }}>
+                <div key={t.id} className={styles.txRow}>
                   {/* Stock + Type */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -687,15 +686,20 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
             background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
           }}>
             <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.04em' }}>{card.label}</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: card.color, fontFamily: "'JetBrains Mono', monospace" }}>
+            {/* ⚠ 單位「元」必須貼在數字後面（2026-08-11 手機回報）：
+                原本它是**獨立的 <div>**，所以永遠自己佔一行，而且被排在說明文字之下——
+                畫面讀起來是「+12,817 / 已實現÷平倉筆數 / 元」，
+                單位跟它要修飾的數字隔了一行，看起來像多出來的贅字。
+                同一行 + nowrap，數字與單位就不會被拆開。 */}
+            <div style={{ fontSize: '20px', fontWeight: 700, color: card.color, fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
               {card.isMoney
                 ? `${(card.value as number) >= 0 ? '+' : ''}${(card.value as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })}`
                 : card.isPct
                 ? `${(card.value as number).toFixed(1)}%`
                 : card.value.toLocaleString()}
+              {card.isMoney && <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginLeft: 4 }}>元</span>}
             </div>
-            {card.sub && <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>{card.sub}</div>}
-            {card.isMoney && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>元</div>}
+            {card.sub && <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.5 }}>{card.sub}</div>}
           </div>
         ))}
       </div>
@@ -707,22 +711,27 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 平均獲利 vs 平均虧損（每筆平倉）</div>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <div style={{ flex: 1 }}>
+          {/* ⚠ 這三欄必須可換行（2026-08-11 手機回報）：
+              原本 flex 不換行、每欄 flex:1，手機上每欄只剩 ~89px，
+              但「+276,766 元」要 ~110px → 欄位撐開、「盈虧比」被擠出卡片外被切掉，
+              而且「元」被推到下一行。
+              改成 flex-basis 120px 可換行：窄螢幕自然變成兩行三欄，數值不再被拆。 */}
+          <div style={{ display: 'flex', gap: '12px', rowGap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: '1 1 120px', minWidth: 0 }}>
               <div style={{ fontSize: '13px', color: '#f03e3e', marginBottom: '4px' }}>平均獲利</div>
-              <div style={{ fontSize: '18px', fontWeight: 700, color: '#f03e3e', fontFamily: "'JetBrains Mono', monospace" }}>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#f03e3e', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                 +{ledger.avgWin.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
               </div>
             </div>
-            <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)' }} />
-            <div style={{ flex: 1 }}>
+            <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)', flexShrink: 0 }} />
+            <div style={{ flex: '1 1 120px', minWidth: 0 }}>
               <div style={{ fontSize: '13px', color: '#2f9e44', marginBottom: '4px' }}>平均虧損</div>
-              <div style={{ fontSize: '18px', fontWeight: 700, color: '#2f9e44', fontFamily: "'JetBrains Mono', monospace" }}>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#2f9e44', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                 {ledger.avgLoss.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
               </div>
             </div>
-            <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)' }} />
-            <div style={{ flex: 1 }}>
+            <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)', flexShrink: 0 }} />
+            <div style={{ flex: '1 1 120px', minWidth: 0 }}>
               <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>盈虧比</div>
               <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>
                 {ledger.avgLoss !== 0 ? Math.abs(ledger.avgWin / ledger.avgLoss).toFixed(2) : '∞'}

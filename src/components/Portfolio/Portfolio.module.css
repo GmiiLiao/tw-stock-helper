@@ -296,3 +296,35 @@
   justify-content: flex-end;
 }
 
+
+/* ── 交易紀錄列（2026-08-11 手機回報：文字被拆成三行）──────────────
+   桌機是 4 欄：股票資訊 ／ 價量 ／ 金額損益 ／ 動作(✏️🗑)。
+   問題出在這組欄寬**在所有寬度都一樣**：手機 311px 扣掉動作欄 ~74px，
+   三個 1fr 每欄只剩 79px，但「支出 4,391,249 元」需要 ~130px
+   → 被拆成「支出 / 4,391,249 / 元」三行，而且兩顆 icon 佔掉整整一欄，
+     把真正要讀的金額擠到沒有空間。
+   手機改成直式：第一行「股票 ｜ 動作」，第二行價量，第三行金額佔滿整寬。
+   動作鈕同時縮小並移到右上角——它是低頻操作，不該跟金額搶版位。 */
+.txRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  padding: 14px 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-primary);
+  transition: background 0.12s;
+}
+
+@media (max-width: 700px) {
+  .txRow {
+    grid-template-columns: 1fr auto;
+    row-gap: 6px;
+    column-gap: 8px;
+    align-items: start;
+    padding: 12px 10px;
+  }
+  .txRow > :nth-child(2) { grid-row: 2; grid-column: 1; }
+  .txRow > :nth-child(3) { grid-row: 3; grid-column: 1 / -1; }
+  .txRow > :nth-child(4) { grid-row: 1; grid-column: 2; }
+  /* icon 只是輔助操作，縮到剛好可點（44px 觸控區由 padding 撐出） */
+  .txRow > :nth-child(4) button { padding: 5px 7px; font-size: 13px; line-height: 1; }
+}
