@@ -138,11 +138,15 @@ const EXTERNAL_PROBES = [
 // 已改用的「可指定日期＋會回音」端點 —— 這些才是生產路徑，openapi 只留著當對照組，
 // 證明「換掉是對的」而不是憑感覺。topLevel=true 代表日期在回應的最上層而非資料列。
 const FRESH_PROBES = [
-  { name: '融資融券(rwd)', url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${d}&selectType=ALL&response=json`, from: 'field' },
+  // publishHour：**當日資料的公布時刻（台北時）**。在這之前查不到「今天」是正常現象，
+  //   不是資料源壞掉。舊版一律拿最近交易日比對，於是每天 21:30 前都會誤報一次 MISMATCH——
+  //   **每天都叫一次狼的警報，最後會被無視，比沒有警報更危險**（2026-08-10 實例：
+  //   19:13 稽核 n=0 判 MISMATCH，但同一支 API 查前一交易日回 1,291 筆完全正常）。
+  { name: '融資融券(rwd)', url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${d}&selectType=ALL&response=json`, from: 'field', publishHour: 21.5 },
   // forward：「當日可借券」公布的是**下一個交易時段**的額度，傍晚就滾動 ——
   //          資料日 >= 最近交易日即為健康，用 === 會每晚誤報。
   { name: '借券(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${d}&response=json`,                  from: 'title', mode: 'forward' },
-  { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field' },
+  { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field', publishHour: 15 },
   { name: '指數(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`,        from: 'field' },
   { name: '殖利率(rwd)',   url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${d}&response=json`,               from: 'field' },
 ];
@@ -155,19 +159,40 @@ function ymdFromTitle(t) {
 async function probeFresh(ltd) {
   const want = ltd.replace(/-/g, '');
   const out = [];
+  const tpeNow = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000);
   for (const p of FRESH_PROBES) {
     try {
-      const r = await fetch(p.url(want), { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(20000) });
+      // ⚠**查詢日期也要跟著退**，不能只退期待值：這支 API 是「指定日期查詢」，
+      //   拿今天去查一個還沒公布的日子必然回空，期待值再怎麼算都對不起來。
+      const beforePub = p.publishHour != null && ltd === isoDate(tpeNow)
+        && (tpeNow.getHours() + tpeNow.getMinutes() / 60) < p.publishHour;
+      const askDate = (beforePub ? prevTradingDay(ltd) : ltd).replace(/-/g, '');
+      const r = await fetch(p.url(askDate), { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(20000) });
       const t = await r.text();
       if (t.trim().startsWith('<')) { out.push({ name: p.name, status: 'ERROR', note: '回傳 HTML' }); continue; }
       const j = JSON.parse(t);
       const n = (j.data || []).length || (j.tables || []).reduce((s2, x) => s2 + (x.data || []).length, 0);
       const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : normDate(j.date);
-      const ok = p.mode === 'forward' ? (feedDate != null && feedDate >= ltd) : feedDate === ltd;
-      out.push({ name: p.name, records: n, feedDate, status: ok ? 'OK' : 'MISMATCH', note: ok ? (p.mode === 'forward' && feedDate > ltd ? `前瞻至 ${feedDate}（正常）` : '') : `自報 ${feedDate} ${p.mode === 'forward' ? '早於' : '≠'} ${ltd}` });
+      // 期待值＝實際查詢的那一天（見上方 askDate）
+      const beforePublish = beforePub;
+      const expect = beforePublish ? prevTradingDay(ltd) : ltd;
+      const ok = p.mode === 'forward' ? (feedDate != null && feedDate >= expect) : feedDate === expect;
+      const pending = beforePublish ? `（今日 ${p.publishHour}:00 後才公布，現以 ${expect} 為準）` : '';
+      out.push({ name: p.name, records: n, feedDate, status: ok ? 'OK' : 'MISMATCH',
+        note: ok ? (pending || (p.mode === 'forward' && feedDate > expect ? `前瞻至 ${feedDate}（正常）` : ''))
+                 : `自報 ${feedDate} ${p.mode === 'forward' ? '早於' : '≠'} ${expect}${pending}` });
     } catch (e) { out.push({ name: p.name, status: 'ERROR', note: (e.message || '').slice(0, 40) }); }
   }
   return out;
+}
+
+// 前一交易日（只扣週末；臨時休市由呼叫端的 ltd 已處理過，這裡僅供「未公布」時退一格）
+const isoDate = d => d.toISOString().slice(0, 10);
+
+function prevTradingDay(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
 }
 
 function normDate(v) {

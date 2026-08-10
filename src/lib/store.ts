@@ -787,6 +787,16 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'tw-stock-app-storage',
+      // ⚠**必須 skipHydration**（2026-08-06 修·React error #418 整站白畫面的根因）：
+      //   預設行為是在**模組載入時同步**把 localStorage 套進 store，於是
+      //   伺服器端渲染用的是預設值、瀏覽器第一次渲染用的是已存狀態 → 兩邊 HTML 不一致
+      //   → React 判定 hydration 失敗並中止整棵樹 → 使用者看到
+      //     「Application error: a client-side exception has occurred」。
+      //   ⇒ 改為**掛載後才手動 rehydrate**（見 app/page.tsx 的 useAppStore.persist.rehydrate()），
+      //     讓 SSR 與 client 的第一次渲染都用預設值，之後再換上本機狀態。
+      //   代價：載入瞬間可能閃一下預設自選清單——遠比整站崩潰可接受。
+      //   ⚠這也解釋了「常常出現」：**用過 app 的人（有自選/改過模式）必中，新訪客不會**。
+      skipHydration: true,
       // ⚠模擬期間**不得持久化任何屬於他人的資料**：否則重新整理後 viewAs 已清空、
       //   localStorage 卻留著會員的持倉，會被當成管理員自己的並同步回其帳號。
       partialize: (state) => (state.viewAs ? { tradingMode: state.tradingMode } : {

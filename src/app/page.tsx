@@ -44,6 +44,10 @@ export default function App() {
   // 休市日曆：market-clock 的 holidays 表預設是空的（fail-open 只擋週末），
   // 不在這裡填上的話，國定假日與颱風假都會被當成交易日照常輪詢。
   // 一天只變一次，CDN daily tier 擋掉幾乎所有回源。
+  // persist 改為 skipHydration（見 lib/store.ts 註解）→ 必須在掛載後手動補回，
+  // 否則本機狀態(自選/模式/指標)永遠不會載入。放在最前面的 effect，越早越好。
+  useEffect(() => { void useAppStore.persist.rehydrate(); }, []);
+
   useEffect(() => {
     let alive = true;
     fetch('/api/market-clock')
