@@ -2481,15 +2481,21 @@ export default function WatchlistTracker() {
                 </button>
               ))}
             </div>
-            <button className={styles.addGroupBtn} onClick={() => setShowAddGroup(true)}>
-              <IconPlus /> 新增群組
+            {/* 手機只留 icon（2026-08-11 使用者：「讓左邊的分組文字能多露出來，方便挑選」）。
+                ⚠ 文字用 CSS 隱藏而不是刪掉——桌機仍要有字，
+                  且**一定要保留 title/aria-label**，否則手機上就變成兩顆沒有名字的按鈕，
+                  螢幕閱讀器與長按提示都拿不到任何資訊。 */}
+            <button className={styles.addGroupBtn} onClick={() => setShowAddGroup(true)}
+              title="新增群組" aria-label="新增群組">
+              <IconPlus /><span className={styles.btnLabel}>新增群組</span>
             </button>
             <button
               className={styles.addGroupBtn}
               style={{ marginLeft: '6px', borderColor: 'rgba(255,255,255,0.08)', color: '#94a3b8' }}
               onClick={() => setShowManageGroups(true)}
+              title="管理分組" aria-label="管理分組"
             >
-              ⚙️ 管理分組
+              ⚙️<span className={styles.btnLabel}>管理分組</span>
             </button>
           </div>
         )}

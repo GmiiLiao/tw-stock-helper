@@ -44,7 +44,9 @@ export default function Header() {
   // 但非受控本身沒有壞處，改回 controlled 只是徒增 IME 迴歸風險，故保留。
   // state 僅供搜尋邏輯使用。
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  // 打字路徑已完全改走 queryRef + scheduleSearch（見下方註解），
+  // 原本的 searchQuery state 在改版後**沒有任何讀取點**，留著只會讓下一個人
+  // 以為打字還會經過它 —— 直接移除，清空改為清 ref 與 debouncedQuery。
   const [searchResults, setSearchResults] = useState<StockInfo[]>([]);
   const [allStocksLocal, setAllStocksLocal] = useState<StockInfo[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -197,10 +199,25 @@ export default function Header() {
   // 原本每一個按鍵都對 ~1,700 檔做 toLowerCase().includes() 全掃。
   // 150ms debounce：連續輸入時只在停頓後掃一次。
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedQuery(searchQuery), 150);
-    return () => clearTimeout(id);
-  }, [searchQuery]);
+  // ⚠ 打字期間**完全不要 setState**（2026-08-11 第二次回報：注音輸入法打 3456 變 6543）。
+  //   前一版是 onChange → setSearchQuery（重渲染）→ useEffect debounce → setDebouncedQuery（再重渲染），
+  //   等於每敲一鍵 Header 整棵樹重渲染兩次。輸入框雖已是非受控（React 不回寫 value），
+  //   但 Android 輸入法在**合成（composition）期間**遇到宿主重渲染會失去同步，
+  //   把已提交的字元重新排序 —— 症狀就是完全反序。
+  //   （上一輪把三個受控框改成非受控解掉了受控回寫那條路徑，但沒解掉這條。）
+  //   ⇒ 現在 onChange 只寫 ref 並排一個計時器，**不觸發任何 render**；
+  //     停頓 150ms 後才 setDebouncedQuery 一次。合成期間直接跳過，
+  //     compositionend 才送出，避免把半成品拿去搜尋。
+  const queryRef = useRef('');
+  const composingRef = useRef(false);
+  const debTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleSearch = (v: string) => {
+    queryRef.current = v;
+    if (composingRef.current) return;          // 合成中不搜尋、也不重渲染
+    if (debTimer.current) clearTimeout(debTimer.current);
+    debTimer.current = setTimeout(() => setDebouncedQuery(queryRef.current), 150);
+  };
+  useEffect(() => () => { if (debTimer.current) clearTimeout(debTimer.current); }, []);
 
   useEffect(() => {
     if (debouncedQuery.length < 1) {
@@ -239,7 +256,8 @@ export default function Header() {
 
   const handleSelectStock = (stock: StockInfo) => {
     navigateTo('stock', stock.code);
-    setSearchQuery('');
+    queryRef.current = '';
+    setDebouncedQuery('');
     if (searchInputRef.current) searchInputRef.current.value = '';   // 非受控：手動清空
     setShowDropdown(false);
   };
@@ -426,7 +444,11 @@ export default function Header() {
             type="text"
             placeholder="搜尋股票代號或名稱..."
             defaultValue=""
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => scheduleSearch(e.target.value)}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={(e) => { composingRef.current = false; scheduleSearch((e.target as HTMLInputElement).value); }}
+            inputMode="search"
+            enterKeyHint="search"
             className={styles.searchInput}
             autoComplete="off"
           />

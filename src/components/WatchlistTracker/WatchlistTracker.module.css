@@ -1209,3 +1209,14 @@
   background: rgba(240, 62, 62, 0.14);
   box-shadow: inset 0 -2px 0 0 #f03e3e;
 }
+
+
+/* 群組列的兩顆操作鈕：手機只留 icon，把寬度讓給左邊的分組名稱
+   （2026-08-11 使用者回報分組文字被擠到看不清、不好挑）。
+   文字用 display:none 隱藏而非移除——桌機維持原樣，
+   按鈕本體已帶 title/aria-label，隱藏文字不會讓它變成無名按鈕。 */
+.btnLabel { margin-left: 2px; }
+@media (max-width: 640px) {
+  .btnLabel { display: none; }
+  .addGroupBtn { padding: 7px 10px; gap: 0; }
+}
