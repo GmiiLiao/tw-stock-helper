@@ -6136,16 +6136,30 @@ async function archiveChipDaily() {
   //   daemon log 天天顯示「過熱出貨 0」看起來很正常，其實是資料沒了。
   //   ⚠這是 bookDepth 那次教訓的原封重演：**回補完沒接每日更新，等於沒有這個資料源**。
   //   兩者都做回音驗證（自報日期 ≠ 目標日就不寫），寧可留空也不寫錯日的資料。
-  if (!cur.lendingJson) {
+  // ⚠ 與資券/法人同型的潛伏 bug（2026-08-11 預防性修）：只寫 `!cur.lendingJson` 的話，
+  //   只要上市那半先成功、上櫃那次失敗（網路抖動/TPEx 晚出），
+  //   lendingJson 就會以「只有上市」的狀態定案，**當天永遠不再補上櫃**。
+  //   目前實測 12/12 天上櫃樣本齊全＝還沒引爆，但條件本身是錯的。
+  const hasOtcLend = (() => {
+    try { const m = cur.lendingJson ? JSON.parse(cur.lendingJson) : null;
+      return m ? ['6274', '8069', '5483'].some(c => m[c] !== undefined) : false; } catch { return false; }
+  })();
+  if (!cur.lendingJson || !hasOtcLend) {
     const dSlash = `${tw.getFullYear()}/${String(tw.getMonth() + 1).padStart(2, '0')}/${String(tw.getDate()).padStart(2, '0')}`;
-    const lend = {};
+    const lend = (() => { try { return cur.lendingJson ? JSON.parse(cur.lendingJson) : {}; } catch { return {}; } })();
     const twL = await J(`https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date=${ymd}&response=json`);
     if (twL?.stat === 'OK' && String(twL?.date || '') === ymd && Array.isArray(twL.data)) {
       for (const r of twL.data) { const c = String(r[0] || '').trim(); if (/^\d{4}$/.test(c)) lend[c] = Math.round(_f(r[12]) / 1000); }
     }
     await sleep(1200);
     const tpL = await J(`https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=${dSlash}&response=json`);
-    if (Array.isArray(tpL?.tables?.[0]?.data)) {
+    // ⚠ 上櫃這半**原本沒有回音驗證**，但上方註解卻寫著「兩者都做回音驗證」——
+    //   註解與程式碼不符比沒有註解更危險：下一個人（包括我自己）會相信它。
+    //   實測這支對未來日期會誠實回 0 筆，所以尚未造成錯日資料，
+    //   但 BWIBBU 那支就是「忽略 date 參數照回最新一份」——同一家機構不同端點行為並不一致，
+    //   不能假設。補上與上市同口徑的驗證。
+    if (tpL && String(tpL.date || '') !== ymd) log(`  ⚠ 歸檔上櫃借券回音 ${tpL?.date} ≠ ${ymd}，不併入`);
+    else if (Array.isArray(tpL?.tables?.[0]?.data)) {
       for (const r of tpL.tables[0].data) { const c = String(r[0] || '').trim(); if (/^\d{4}$/.test(c)) lend[c] = Math.round(_f(r[12]) / 1000); }
     }
     if (Object.keys(lend).length > 100) patch.lendingJson = JSON.stringify(lend);
@@ -6169,6 +6183,12 @@ async function archiveChipDaily() {
           const lots = Math.round(parseFloat(String(row[iVol] || '0').replace(/,/g, '')) / 1000);
           if (lots > 0) by[c] = lots;
         }
+        // ⚠ **dayTradeJson 只有上市，沒有上櫃**（2026-08-11 確認：962 檔·上櫃樣本 0/3）。
+        //   這是已知的設計限制（bt-core 的 dtRatio 欄位註解已載明「僅上市」），不是漏抓。
+        //   ⇒ **不要**看到只有 900 多檔就順手加上櫃：dtRatio 是回測用過的變數，
+        //     擴充母體等於換一個變數，必須重跑兩窗＋OOT 才能用。
+        //   在這裡留字，是因為法人/資券/借券都補了上櫃，只有這欄沒有——
+        //   沒有說明的話，下一個人（包括我自己）會以為這是遺漏而「順手修好」。
         if (Object.keys(by).length > 100) patch.dayTradeJson = JSON.stringify(by);
       }
     }
