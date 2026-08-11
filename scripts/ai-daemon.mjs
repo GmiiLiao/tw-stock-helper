@@ -2239,7 +2239,9 @@ async function computeRevenue() {
   await db.collection('revenue').doc('latest').set({
     updatedAt: Date.now(), month: outMonth, dataMonth: toId(outMonth), source: src, topYoY, topMoM,
     baseFloor: BASE_FLOOR,
-    caveat: `已排除去年同月（或上月）營收 < ${(BASE_FLOOR / 1000).toLocaleString()} 萬元者——基期趨近於零會讓 YoY 噴出無意義的天文數字。`
+    // ⚠ 單位換算：TWSE 月營收的單位是**千元**，千元→萬元是 ÷10（不是 ÷1000）。
+    //   第一版寫成 /1000 → 顯示「< 10 萬元」，實際門檻是 1,000 萬元，差 100 倍。
+    caveat: `已排除去年同月（或上月）營收 < ${(BASE_FLOOR / 10).toLocaleString()} 萬元者——基期趨近於零會讓 YoY 噴出無意義的天文數字。`
       + '仍需留意營建業採**認列時點集中**，單月 YoY 可達數十倍而非實質成長。非投資建議。',
   });
 
