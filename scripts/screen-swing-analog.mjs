@@ -36,7 +36,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ARCHIVE_DIR = path.join(__dirname, '..', 'second-brain', 'backup', 'chipArchive');
+export const ARCHIVE_DIR = path.join(__dirname, '..', 'second-brain', 'backup', 'chipArchive');
 
 const QUICK = process.argv.includes('--quick');
 
@@ -55,7 +55,7 @@ const r2 = x => (x == null || !isFinite(x) ? '—' : x.toFixed(2));
 // ── 1) 載入本地歸檔 ───────────────────────────────────────────────────────
 // 走本地第二大腦而不是 Firestore：988 天 × 1,900 檔如果逐日打 Firestore，
 // 光讀取費用與時間都不合理，而且這是離線研究，不需要即時性。
-function loadArchive() {
+export function loadArchive() {
   const files = fs.readdirSync(ARCHIVE_DIR).filter(f => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
   const dates = [], raw = [];
   for (const f of files) {
@@ -74,7 +74,7 @@ function loadArchive() {
 }
 
 // ── 2) 轉成逐檔矩陣 ───────────────────────────────────────────────────────
-function buildMatrix({ dates, raw }) {
+export function buildMatrix({ dates, raw }) {
   const nD = dates.length;
   const codeSet = new Set();
   for (const day of raw) for (const c in day) if (/^\d{4}$/.test(c) && !c.startsWith('00')) codeSet.add(c);
