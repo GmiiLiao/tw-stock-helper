@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { TradeRecord } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -70,6 +70,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
     dayTrade: false,
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const [showSearch, setShowSearch] = useState(false);
 
   const matchedStocks = useMemo(() => {
@@ -173,10 +174,19 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
           <div className={styles.formGroup}>
             <label>股票代號</label>
             <div style={{ position: 'relative' }}>
+              {/* ⚠ 這個搜尋框**必須是非受控（uncontrolled）**——不要改回 value={...}。
+                     成因（Header.tsx:41 已記錄過同一件事，這次是漏推廣）：
+                     父元件每次重渲染，React 就把 controlled value 回寫進 DOM；
+                     手機 IME 下這個回寫會把**游標打回開頭**，於是後續字元插在最前面：
+                     輸入 3008 變成 8003（Header 那次是 2527 變 7252）。
+                     本元件的父層有即時報價輪詢（useLiveQuotes / setInterval），
+                     重渲染比 Header 當年的時鐘更頻繁，所以更容易中。
+                     ⇒ 顯示用 defaultValue + ref 手動寫入；state 只餵搜尋邏輯。 */}
               <input
                 className="input"
+                ref={codeInputRef}
                 placeholder="輸入代號或名稱搜尋"
-                value={form.code ? `${form.code} ${form.name}` : searchQuery}
+                defaultValue=""
                 onChange={e => {
                   setSearchQuery(e.target.value);
                   setForm(f => ({ ...f, code: '', name: '' }));
@@ -198,6 +208,8 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
                         setForm(f => ({ ...f, code: s.code, name: s.name }));
                         setShowSearch(false);
                         setSearchQuery('');
+                        // 非受控：選取後由我們自己把顯示值寫進 DOM
+                        if (codeInputRef.current) codeInputRef.current.value = `${s.code} ${s.name}`;
                       }}
                       style={{
                         padding: '10px 14px', cursor: 'pointer', fontSize: 'calc(13px * var(--fz))',

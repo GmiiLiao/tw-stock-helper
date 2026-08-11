@@ -387,6 +387,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
 
 function AddStockBar({ groupId, onAdd }: { groupId: string; onAdd: (groupId: string, stock: WatchlistItem) => void }) {
   const [query, setQuery] = useState('');
+  const addInputRef = useRef<HTMLInputElement>(null);
   const allStocks = useAppStore(s => s.allStocks);
 
   const q = query.trim().toLowerCase();
@@ -402,6 +403,7 @@ function AddStockBar({ groupId, onAdd }: { groupId: string; onAdd: (groupId: str
   const handleAdd = (stock: { code: string; name: string }) => {
     onAdd(groupId, { code: stock.code, name: stock.name, addedAt: Date.now() });
     setQuery('');
+    if (addInputRef.current) addInputRef.current.value = '';   // 非受控：自行清空 DOM
   };
 
   return (
@@ -410,14 +412,23 @@ function AddStockBar({ groupId, onAdd }: { groupId: string; onAdd: (groupId: str
         <svg className={styles.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
+        {/* ⚠ 這個搜尋框**必須是非受控（uncontrolled）**——不要改回 value={...}。
+                     成因（Header.tsx:41 已記錄過同一件事，這次是漏推廣）：
+                     父元件每次重渲染，React 就把 controlled value 回寫進 DOM；
+                     手機 IME 下這個回寫會把**游標打回開頭**，於是後續字元插在最前面：
+                     輸入 3008 變成 8003（Header 那次是 2527 變 7252）。
+                     本元件的父層有即時報價輪詢（useLiveQuotes / setInterval），
+                     重渲染比 Header 當年的時鐘更頻繁，所以更容易中。
+                     ⇒ 顯示用 defaultValue + ref 手動寫入；state 只餵搜尋邏輯。 */}
         <input
           className={styles.searchInput}
-          value={query}
+          ref={addInputRef}
+          defaultValue=""
           onChange={e => setQuery(e.target.value)}
           placeholder="輸入股票代號或名稱..."
         />
         {query && (
-          <button className={styles.searchClear} onClick={() => setQuery('')}><IconX /></button>
+          <button className={styles.searchClear} onClick={() => { setQuery(''); if (addInputRef.current) addInputRef.current.value = ''; }}><IconX /></button>
         )}
       </div>
       {filtered.length > 0 && (

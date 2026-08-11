@@ -493,7 +493,9 @@ export default function AdminPanel() {
                 <input
                   type="text"
                   placeholder="搜尋用戶 Email、暱稱或 UID..."
-                  value={searchQuery}
+                  /* 非受控：本面板有輪詢會重渲染，controlled 回寫在手機 IME 下會把游標打回開頭
+                     （見 CLAUDE.md「輸入框反序」）。 */
+                  defaultValue=""
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className={styles.searchBar}
                 />

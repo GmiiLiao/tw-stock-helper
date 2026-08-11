@@ -174,6 +174,14 @@ const poll = async () => {
 - **`fetch()` 不設 timeout** —— 上游 hang 會佔住 worker 到 120 秒。一律 `AbortSignal.timeout(8000)`。
 - **在 server 端 import `@/lib/firebase`（client SDK）** —— 用 `getAdminDb()`。
 - **`{items.map(...)}` 直接渲染全市場清單** —— 1,700 個 tile 會讓低階手機捲不動。先 `.slice()`。
+- **搜尋/輸入框寫成受控（`value={state}`）而父層又會頻繁重渲染** —— 手機 IME 下
+  React 每次回寫 `value` 都會把**游標打回開頭**，後續字元插在最前面：
+  輸入 `3008` 變成 `8003`（2026-08-11 使用者回報）、`2527` 變 `7252`（更早一次）。
+  **這個錯誤已經發生兩次**：第一次只修了 Header，沒推廣到其他輸入框。
+  ⇒ 規則：**任何文字輸入框，只要它所在的元件樹會被輪詢/計時器驅動重渲染，
+    一律用非受控**（`defaultValue` + `ref`），state 只餵搜尋邏輯；
+    需要程式化顯示值（例如選取後填入「3008 大立光」）時用 `ref.current.value = ...`。
+  目前已改為非受控：Header、Portfolio（記錄持倉）、WatchlistTracker（即時追蹤）、AdminPanel。
 - **從 request body 讀 `uid`/`email` 拿來做授權判斷** —— 等於呼叫端自己宣告自己是管理員。
 
 ## 目前狀態
