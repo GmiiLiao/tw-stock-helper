@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { TradeRecord } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -18,7 +18,7 @@ import RotationAdvice from './RotationAdvice';
 import PushSetup from './PushSetup';
 import ShadowAccount from './ShadowAccount';
 import CashLedger from './CashLedger';
-import { tradeCost, netRealizedPnL, taxRateLabel, isEtf , fmtQty } from '@/lib/tw-fee';
+import { tradeCost, netRealizedPnL, taxRateLabel, isEtf , fmtQty, calcFee, calcTax } from '@/lib/tw-fee';
 import { buildLedger, type Ledger } from '@/lib/portfolio-calc';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { settleDate, isSettled, tradingDaysUntilSettle } from '@/lib/tw-settlement';
@@ -617,31 +617,30 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
 
 function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
   const { tradeRecords, allStocks } = useAppStore(useShallow((s) => ({ tradeRecords: s.tradeRecords, allStocks: s.allStocks })));
-  const [misPrices, setMisPrices] = useState<Record<string, number>>({});
+  const [broker] = useBrokerSettings();
+  // 現價來源：與持倉總覽**同一個** hook（原本這裡是自己 fetch 一次就不再更新，
+  // 於是總覽每 5 秒跳動、這一頁停在剛進頁面那一刻的價格——同一個未實現損益兩個數字）。
+  const openCodes = useMemo(() => ledger.openPositions.map(p => p.code), [ledger]);
+  const liveQuotes = useLiveQuotes(openCodes);
 
-  // 現價來源：帳本推算的現存部位（與總覽/交易紀錄同一把尺）
-  useEffect(() => {
-    const codes = ledger.openPositions.map(p => p.code);
-    if (codes.length === 0) return;
-    fetch(`/api/twse/mis-quote?codes=${codes.join(',')}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => {
-        if (data.quotes && Array.isArray(data.quotes)) {
-          const map: Record<string, number> = {};
-          data.quotes.forEach((q: any) => { map[q.code] = q.price; });
-          setMisPrices(map);
-        }
-      })
-      .catch(err => console.error('[AnalyticsPanel] MIS fetch error:', err));
-  }, [ledger]);
-
-  // 未實現：帳本現存部位 ×（現價 − 每股含費成本）
-  const unrealizedPnL = useMemo(() => {
-    return ledger.openPositions.reduce((sum, p) => {
-      const px = misPrices[p.code] ?? allStocks.find(s => s.code === p.code)?.price ?? p.avgCost;
-      return sum + (px - p.avgCost) * p.lots * 1000;
-    }, 0);
-  }, [ledger, misPrices, allStocks]);
+  // 未實現：帳本現存部位，**扣費稅後**（與總覽頭條同口徑）。
+  // 原本這裡是毛額 (px − avgCost)×股數，總覽卻是淨額，
+  // 兩張卡都叫「未實現損益」但差一整筆賣出費稅（合成資料實測差 20,696 元）。
+  const unreal = useMemo(() => {
+    let net = 0, gross = 0, feeTax = 0;
+    for (const p of ledger.openPositions) {
+      const px = liveQuotes[p.code]?.price ?? allStocks.find(s => s.code === p.code)?.price ?? p.avgCost;
+      const shares = p.lots * 1000;
+      // avgCost 已含買進費 ⇒ 這裡只要再扣賣出手續費與證交稅
+      const sellFee = calcFee(px, p.lots, broker);
+      const tax = calcTax(px, p.lots, { code: p.code });
+      gross += (px - p.avgCost) * shares;
+      feeTax += sellFee + tax;
+      net += (px - p.avgCost) * shares - sellFee - tax;
+    }
+    return { net, gross, feeTax };
+  }, [ledger, liveQuotes, allStocks, broker]);
+  const unrealizedPnL = unreal.net;
 
   const monthlyData = useMemo(() => ledger.monthly.slice(-12).map(m => ({ month: m.month, pnl: m.realized, dividend: m.dividend })), [ledger]);
 
@@ -681,8 +680,10 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
         {[
           { label: '已實現損益（重算）', value: ledger.totalRealized, isMoney: true, color: ledger.totalRealized >= 0 ? '#f03e3e' : '#2f9e44',
             sub: `${ledger.closedCount} 筆平倉` },
-          { label: '未實現損益（推算持倉）', value: unrealizedPnL, isMoney: true, color: unrealizedPnL >= 0 ? '#f03e3e' : '#2f9e44',
-            sub: ledger.openPositions.length ? `${ledger.openPositions.length} 檔在倉` : '目前空手' },
+          { label: '未實現損益（推算持倉·扣費稅）', value: unrealizedPnL, isMoney: true, color: unrealizedPnL >= 0 ? '#f03e3e' : '#2f9e44',
+            sub: ledger.openPositions.length
+              ? `${ledger.openPositions.length} 檔在倉｜毛 ${unreal.gross >= 0 ? '+' : ''}${Math.round(unreal.gross).toLocaleString()}·費稅 −${Math.round(unreal.feeTax).toLocaleString()}`
+              : '目前空手' },
           { label: '累計股利', value: ledger.totalDividend, isMoney: true, color: '#f59e0b' },
           { label: '手續費累計', value: -ledger.totalFee, isMoney: true, color: '#94a3b8', sub: '買賣雙邊' },
           { label: '證交稅累計', value: -ledger.totalTax, isMoney: true, color: '#94a3b8', sub: '賣出時課徵' },
@@ -950,9 +951,13 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
 
   const rebuild = () => {
     const today = new Date().toISOString().split('T')[0];
+    // ⚠ 必須寫 avgPrice（成交均價）而**不是** avgCost（含買進費）：
+    //   總覽算「扣費稅後淨利」時會用 buyPrice 再估一次買進手續費，
+    //   若這裡塞含費價，同一筆買進費就被扣兩次
+    //   （實測：3008 一張多扣 3,568、2330 一張多扣 1,427，畫面只是「淨利少一點」）。
     const items = ledger.openPositions.map(p => ({
       code: p.code, name: p.name,
-      buyPrice: +p.avgCost.toFixed(2),       // 每股含買進費的加權成本
+      buyPrice: +p.avgPrice.toFixed(2),      // 每股加權成交均價（不含買進費）
       quantity: p.lots,
       buyDate: p.lastBuyDate || today,
       note: '依交易紀錄重建',
@@ -960,7 +965,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
     const summary = items.length
       ? items.map(i => `${i.code} ${i.name} ${fmtQty(i.quantity)} @ ${i.buyPrice}`).join('\n')
       : '（交易紀錄推算為空手——手動持倉將被清空）';
-    if (confirm(`以交易紀錄推算結果覆蓋手動持倉？\n\n${summary}\n\n（成本價＝加權平均·含買進手續費；原手動持倉會被取代）`)) {
+    if (confirm(`以交易紀錄推算結果覆蓋手動持倉？\n\n${summary}\n\n（成本價＝加權平均成交價，不含手續費；買進費在損益計算時另計，原手動持倉會被取代）`)) {
       replaceHoldings(items);
     }
   };
@@ -1096,17 +1101,20 @@ export default function Portfolio() {
     })).sort((a, b) => b.value - a.value);
   }, [enriched]);
 
-  // 累計獲利 = 未實現(持倉) + 已實現(賣出) + 累計股利
-  const realizedPnL = useMemo(
-    () => tradeRecords.filter(t => t.type === 'sell').reduce((s, t) => s + (t.realizedPnL ?? 0), 0),
-    [tradeRecords],
-  );
-  const totalDividend = useMemo(
-    () => tradeRecords.filter(t => t.type === 'dividend').reduce((s, t) => s + t.totalAmount, 0),
-    [tradeRecords],
-  );
-  // 累計獲利用「扣費稅後」未實現＋已實現(已為淨額)＋股利，全口徑一致
-  const cumulativePnL = totalNetPnL + realizedPnL + totalDividend;
+  // 累計獲利 = 未實現(持倉·扣費稅) + 已實現(帳本重算) + 累計股利
+  //
+  // ⚠ 這裡曾經是 `tradeRecords.filter(sell).reduce(+ (t.realizedPnL ?? 0))`，
+  //   也就是**存死的 realizedPnL** —— 整個 buildLedger 引擎存在的理由就是這個欄位不可信：
+  //   ① 它是用「記錄當下的手動持倉 buyPrice」算的，持倉沒同步就是垃圾
+  //      （portfolio-calc.ts 開頭記了實例：大立光多算 39 萬、華邦電差 80 萬）；
+  //   ② 使用者一旦用編輯交易修正錯價，store 會 `delete next.realizedPnL`，
+  //      於是那筆賣出對累計獲利的貢獻直接變 **0**——
+  //      **越認真訂正資料，頭條數字錯得越多**，而畫面上完全看不出來。
+  //   ③ 同一個「持倉總覽」分頁上方的對帳卡顯示的是 ledger.totalRealized，
+  //      兩個「已實現」在同一畫面互相打架，這正是使用者說的「不精準/不連動」。
+  //   合成資料實測差額：存死 96,000 vs 帳本 380,679（一筆被編輯過就少 28 萬）。
+  //   ⇒ 三個分頁一律吃同一份 ledger，不要再從 tradeRecords 自己加總損益。
+  const cumulativePnL = totalNetPnL + ledger.totalRealized + ledger.totalDividend;
 
   // Pie chart data (by stock position value)
   const pieData = Object.values(

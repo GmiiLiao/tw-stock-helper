@@ -39,6 +39,7 @@ export interface ClosedTrade {
   roi: number;             // pnl / 對應成本 %
   storedPnL: number | null;// 紀錄當下存的值（可能用了過期的手動持倉價）
   mismatch: boolean;       // |pnl − storedPnL| > 1 → 需要人工核對
+  matchedLots: number;     // 真正有成本可對應的張數
   oversoldLots: number;    // 無買進紀錄可對應的張數
   holdingDays: number | null; // 距最近一次買進的日曆天數
   dayTrade?: boolean;
@@ -48,8 +49,14 @@ export interface OpenPosition {
   code: string;
   name: string;
   lots: number;
-  avgCost: number;         // 每股（含買進費）
-  cost: number;            // 總成本
+  avgCost: number;         // 每股（含買進費）——損益口徑
+  // ⚠ avgPrice 與 avgCost 的差別不是小數點問題，用錯會**重複扣一次買進手續費**：
+  //   手動持倉的 buyPrice 定義是「成交均價」，總覽算淨損益時會自己再估一次買進費。
+  //   「依交易紀錄重建持倉」若寫入含費的 avgCost，那筆買進費就被算了兩次
+  //   （實測 3008 一張＝多扣 3,568 元，而畫面上只是「淨利少一點」，看不出異常）。
+  //   ⇒ 寫入手動持倉一律用 avgPrice；做損益比較才用 avgCost。
+  avgPrice: number;        // 每股成交均價（不含買進費）——手動持倉 buyPrice 的口徑
+  cost: number;            // 總成本（含買進費）
   lastBuyDate: string | null;
 }
 
@@ -58,6 +65,7 @@ export interface CodeLedger {
   name: string;
   openLots: number;
   avgCost: number;
+  avgPrice: number;        // 不含買進費（見 OpenPosition.avgPrice）
   openCost: number;
   realized: number;
   dividend: number;
@@ -105,16 +113,18 @@ export function buildLedger(records: TradeRecord[]): Ledger {
   );
 
   const byCode: Record<string, CodeLedger> = {};
-  const state: Record<string, { lots: number; cost: number }> = {};
+  // cost＝含買進費的淨支出（損益口徑）；gross＝純成交額（手動持倉 buyPrice 口徑）。
+  // 兩者必須同步扣減，否則賣掉一部分之後 avgPrice 會漂掉。
+  const state: Record<string, { lots: number; cost: number; gross: number }> = {};
 
   for (const t of sorted) {
     if (!byCode[t.code]) {
       byCode[t.code] = {
-        code: t.code, name: t.name, openLots: 0, avgCost: 0, openCost: 0,
+        code: t.code, name: t.name, openLots: 0, avgCost: 0, avgPrice: 0, openCost: 0,
         realized: 0, dividend: 0, fee: 0, tax: 0, buyAmount: 0, sellAmount: 0,
         closed: [], lastBuyDate: null, warnings: [],
       };
-      state[t.code] = { lots: 0, cost: 0 };
+      state[t.code] = { lots: 0, cost: 0, gross: 0 };
     }
     const led = byCode[t.code];
     const st = state[t.code];
@@ -129,6 +139,7 @@ export function buildLedger(records: TradeRecord[]): Ledger {
     if (t.type === 'buy') {
       st.lots += t.quantity;
       st.cost += Math.abs(t.totalAmount);      // 淨支出＝成交＋買進手續費
+      st.gross += Math.abs(t.totalAmount) - (t.fee || 0);  // 純成交額
       led.buyAmount += Math.abs(t.totalAmount);
       led.lastBuyDate = t.date;
       continue;
@@ -140,13 +151,16 @@ export function buildLedger(records: TradeRecord[]): Ledger {
     const oversoldLots = +(t.quantity - matchedLots).toFixed(6);
     const heldShares = sharesOf(st.lots);
     const avgCost = heldShares > 0 ? st.cost / heldShares : 0;
+    const avgGross = heldShares > 0 ? st.gross / heldShares : 0;
     const matchedCost = avgCost * sharesOf(matchedLots);
+    const matchedGross = avgGross * sharesOf(matchedLots);
     // 超賣部分的收入不能算獲利（沒有成本可扣）——按比例只取可對應部分
     const proceedsMatched = t.quantity > 0 ? proceeds * (matchedLots / t.quantity) : 0;
     const pnl = Math.round(proceedsMatched - matchedCost);
     const roi = matchedCost > 0 ? +((pnl / matchedCost) * 100).toFixed(2) : 0;
     st.lots = +(st.lots - matchedLots).toFixed(6);
     st.cost = st.lots > 0 ? st.cost - matchedCost : 0;
+    st.gross = st.lots > 0 ? st.gross - matchedGross : 0;
 
     const storedPnL = t.realizedPnL ?? null;
     const closed: ClosedTrade = {
@@ -155,7 +169,7 @@ export function buildLedger(records: TradeRecord[]): Ledger {
       avgCost: +avgCost.toFixed(4), proceeds: Math.round(proceedsMatched),
       pnl, roi, storedPnL,
       mismatch: storedPnL != null && Math.abs(pnl - storedPnL) > 1,
-      oversoldLots,
+      matchedLots, oversoldLots,
       holdingDays: led.lastBuyDate ? dayDiff(led.lastBuyDate, t.date) : null,
       dayTrade: t.dayTrade,
     };
@@ -175,16 +189,21 @@ export function buildLedger(records: TradeRecord[]): Ledger {
     led.openLots = st.lots;
     led.openCost = Math.round(st.cost);
     led.avgCost = st.lots > 0 ? +(st.cost / sharesOf(st.lots)).toFixed(4) : 0;
+    led.avgPrice = st.lots > 0 ? +(st.gross / sharesOf(st.lots)).toFixed(4) : 0;
     if (st.lots > 0.0005) {
-      openPositions.push({ code, name: led.name, lots: st.lots, avgCost: led.avgCost, cost: led.openCost, lastBuyDate: led.lastBuyDate });
+      openPositions.push({ code, name: led.name, lots: st.lots, avgCost: led.avgCost, avgPrice: led.avgPrice, cost: led.openCost, lastBuyDate: led.lastBuyDate });
     }
   }
   openPositions.sort((a, b) => b.cost - a.cost);
 
   const allClosed = Object.values(byCode).flatMap(l => l.closed)
     .sort((a, b) => b.date.localeCompare(a.date));
-  const wins = allClosed.filter(c => c.pnl > 0);
-  const losses = allClosed.filter(c => c.pnl < 0);
+  // 全額超賣（沒有任何買進可對應）的那一列 pnl 必然是 0——它既不是勝也不是負，
+  // 但若留在分母裡，勝率會被一筆「根本沒有損益」的紀錄稀釋，期望值也被除大。
+  // 這種列仍要出現在平倉明細（使用者要據此回頭補紀錄），只是不進統計。
+  const stat = allClosed.filter(c => c.matchedLots > 0);
+  const wins = stat.filter(c => c.pnl > 0);
+  const losses = stat.filter(c => c.pnl < 0);
   const totalRealized = Object.values(byCode).reduce((s, l) => s + l.realized, 0);
   const totalDividend = Object.values(byCode).reduce((s, l) => s + l.dividend, 0);
 
@@ -214,11 +233,11 @@ export function buildLedger(records: TradeRecord[]): Ledger {
     totalSellAmount: Object.values(byCode).reduce((s, l) => s + l.sellAmount, 0),
     winCount: wins.length,
     lossCount: losses.length,
-    closedCount: allClosed.length,
-    winRate: allClosed.length ? +(wins.length / allClosed.length * 100).toFixed(1) : 0,
+    closedCount: stat.length,
+    winRate: stat.length ? +(wins.length / stat.length * 100).toFixed(1) : 0,
     avgWin,
     avgLoss,
-    expectancy: allClosed.length ? Math.round(totalRealized / allClosed.length) : 0,
+    expectancy: stat.length ? Math.round(totalRealized / stat.length) : 0,
     monthly: Object.values(monthlyMap).sort((a, b) => a.month.localeCompare(b.month)),
     mismatchCount: allClosed.filter(c => c.mismatch).length,
     warnings: Object.values(byCode).flatMap(l => l.warnings),

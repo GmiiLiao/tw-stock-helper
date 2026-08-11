@@ -2384,7 +2384,10 @@ function replayLedger(records) {
     s.lots = +(s.lots - matched).toFixed(6);
     s.cost = s.lots > 0 ? s.cost - matchedCost : 0;
     if (matched > 0) {
-      closed.push({ code: t.code, name: t.name, pnl });
+      // date 是給「本週/本月」這類期間報表用的：成本基礎必須用**全部**歷史重放
+      // （上個月買、這個月賣，只餵當月紀錄的話那筆會被判成超賣 → 損益算成 0），
+      // 所以一律全量重放，再用這個 date 篩期間。
+      closed.push({ code: t.code, name: t.name, pnl, date: t.date });
       (byStock[t.code] ??= { name: t.name, pnl: 0, n: 0 });
       byStock[t.code].pnl += pnl; byStock[t.code].n++;
     }
@@ -4259,16 +4262,28 @@ async function publishMonthlyReports() {
       const exist = (await db.collection('users').doc(uid).collection('data').doc('monthlyReport').get()).data();
       if (exist?.ym === ym) continue; // 已生成
       const td = (await db.collection('users').doc(uid).collection('data').doc('trades').get()).data();
-      const trades = (td?.trades || td?.tradeRecords || []).filter(t => { const ts = t.at || (t.date ? Date.parse(t.date) : 0); return ts >= monthStart && ts < monthEnd; });
-      const sells = trades.filter(t => t.type === 'sell' && t.realizedPnL != null);
+      const allTrades = td?.trades || td?.tradeRecords || [];
+      const trades = allTrades.filter(t => { const ts = t.at || (t.date ? Date.parse(t.date) : 0); return ts >= monthStart && ts < monthEnd; });
+      // ⚠ 兩件事都必須做對，缺一個數字就是錯的：
+      //   ① 用 replayLedger 重放而非讀 t.realizedPnL——使用者一旦編輯修正過交易，
+      //      store 會 delete 掉那個欄位，`t.realizedPnL != null` 直接把該筆濾掉，
+      //      月報的勝率/已實現就漏算（越訂正資料、報表越失真）。
+      //   ② 重放要餵**全量**歷史再依日期篩，不能只餵當月：
+      //      上月買本月賣的部位在只餵當月時會被判成超賣，損益歸 0。
+      const sells = replayLedger(allTrades).closed
+        .filter(c => { const ts = c.date ? Date.parse(c.date) : 0; return ts >= monthStart && ts < monthEnd; })
+        .map(c => ({ ...c, realizedPnL: c.pnl }));
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const byCode = {};
       for (const h of (hd?.holdings || [])) { const g = (byCode[h.code] ??= { qty: 0, cost: 0, name: h.name }); g.qty += h.quantity; g.cost += h.buyPrice * h.quantity; }
       if (!trades.length && !Object.keys(byCode).length) continue;
       const wins = sells.filter(t => t.realizedPnL > 0);
       const realized = Math.round(sells.reduce((s, t) => s + t.realizedPnL, 0));
+      // ⚠ qty 單位是「張」，市值要 ×1000 股。原本漏了，unrlPct 是比值所以看起來正常，
+      //   但「市值約 X 萬」那一行整整小 1000 倍（250 萬的部位印成「0.3 萬」）。
+      //   週報那支同樣的計算有乘、月報沒乘——同一份資料兩份報表對不起來。
       let mv = 0, cost = 0;
-      for (const c in byCode) { mv += (q[c]?.price ?? 0) * byCode[c].qty; cost += byCode[c].cost; }
+      for (const c in byCode) { mv += (q[c]?.price ?? 0) * byCode[c].qty * 1000; cost += byCode[c].cost * 1000; }
       const unrlPct = cost > 0 ? +((mv - cost) / cost * 100).toFixed(1) : null;
       const lines = [`# ${ym} 月度投資報告`, ''];
       lines.push('## 當月交易', trades.length ? `- 買進 ${trades.filter(t => t.type === 'buy').length} 筆、賣出 ${sells.length} 筆${sells.length ? `，勝率 ${(wins.length / sells.length * 100).toFixed(0)}%（${wins.length}/${sells.length}）` : ''}` : '- 本月無交易', sells.length ? `- 已實現損益 ${realized >= 0 ? '+' : ''}${realized.toLocaleString()} 元` : null, '');
@@ -5338,8 +5353,12 @@ async function publishWeeklyReviews() {
     const uid = u.id;
     try {
       const td = (await db.collection('users').doc(uid).collection('data').doc('trades').get()).data();
-      const trades = (td?.trades || td?.tradeRecords || []).filter(t => { const ts = t.at || t.createdAt || (t.date ? Date.parse(t.date) : 0); return ts >= weekStart; });
-      const sells = trades.filter(t => t.type === 'sell' && t.realizedPnL != null);
+      const allTrades = td?.trades || td?.tradeRecords || [];
+      const trades = allTrades.filter(t => { const ts = t.at || t.createdAt || (t.date ? Date.parse(t.date) : 0); return ts >= weekStart; });
+      // 同月報：全量重放取得成本基礎，再依日期篩本週（理由見 publishMonthlyReports）
+      const sells = replayLedger(allTrades).closed
+        .filter(c => { const ts = c.date ? Date.parse(c.date) : 0; return ts >= weekStart; })
+        .map(c => ({ ...c, realizedPnL: c.pnl }));
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const byCode = {};
       for (const h of (hd?.holdings || [])) { const g = (byCode[h.code] ??= { qty: 0, cost: 0, name: h.name }); g.qty += h.quantity; g.cost += h.buyPrice * h.quantity; }
