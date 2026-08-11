@@ -7,6 +7,7 @@
 // ============================================================
 
 import { gradeFromScore, targetPriceFromGrade, type Grade, type Signal } from './scoring';
+import { fetchRiskStocks as fetchRiskStocksSource } from '@/lib/risk-stocks-source';
 
 export { gradeFromScore, targetPriceFromGrade };
 export type { Grade, Signal };
@@ -701,75 +702,13 @@ export async function fetchRiskStocks(): Promise<RiskStocksData> {
   }
 
   try {
-    const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)' };
-
-    const [twseAttRes, twseDispRes, tpexAttRes, tpexDispRes] = await Promise.allSettled([
-      fetchJSON('https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL', UA),
-      fetchJSON('https://openapi.twse.com.tw/v1/opendata/t187ap10_L', UA),
-      fetchJSON('https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information', UA),
-      fetchJSON('https://www.tpex.org.tw/openapi/v1/tpex_disposal_information', UA),
-    ]);
-
-    const attention: RiskStockInfo[] = [];
-    const disposition: RiskStockInfo[] = [];
-
-    if (twseAttRes.status === 'fulfilled' && Array.isArray(twseAttRes.value)) {
-      for (const item of twseAttRes.value) {
-        const code = (item['證券代號'] || item['Code'] || '').trim();
-        if (code && /^\d{4,5}$/.test(code)) {
-          attention.push({
-            code, name: (item['證券名稱'] || item['Name'] || '').trim(),
-            type: 'attention', source: 'TWSE',
-            reason: (item['注意交易資訊'] || item['Reason'] || '列為注意股票').trim().slice(0, 200),
-          });
-        }
-      }
-    }
-
-    if (twseDispRes.status === 'fulfilled' && Array.isArray(twseDispRes.value)) {
-      for (const item of twseDispRes.value) {
-        const code = (item['公司代號'] || item['證券代號'] || item['Code'] || '').trim();
-        if (code && /^\d{4,5}$/.test(code)) {
-          disposition.push({
-            code, name: (item['公司名稱'] || item['證券名稱'] || '').trim(),
-            type: 'disposition', source: 'TWSE',
-            reason: (item['處置原因'] || item['事由'] || item['處置措施'] || '列為處置股票').trim().slice(0, 200),
-            measures: (item['處置措施'] || item['Measures'] || '').trim(),
-            startDate: item['處置開始日期'] || item['處分期間起日'] || '',
-            endDate: item['處置結束日期'] || item['處分期間迄日'] || '',
-          });
-        }
-      }
-    }
-
-    if (tpexAttRes.status === 'fulfilled' && Array.isArray(tpexAttRes.value)) {
-      for (const item of tpexAttRes.value) {
-        const code = (item['SecuritiesCompanyCode'] || item['證券代號'] || '').trim();
-        if (code && /^\d{4,5}$/.test(code) && !attention.some(a => a.code === code)) {
-          attention.push({
-            code, name: (item['CompanyName'] || item['公司名稱'] || '').trim(),
-            type: 'attention', source: 'TPEx',
-            reason: (item['Reason'] || item['注意事項'] || '列為注意股票').trim().slice(0, 200),
-          });
-        }
-      }
-    }
-
-    if (tpexDispRes.status === 'fulfilled' && Array.isArray(tpexDispRes.value)) {
-      for (const item of tpexDispRes.value) {
-        const code = (item['SecuritiesCompanyCode'] || item['證券代號'] || '').trim();
-        if (code && /^\d{4,5}$/.test(code) && !disposition.some(d => d.code === code)) {
-          disposition.push({
-            code, name: (item['CompanyName'] || item['公司名稱'] || '').trim(),
-            type: 'disposition', source: 'TPEx',
-            reason: (item['Reason'] || item['事由'] || '列為處置股票').trim().slice(0, 200),
-            measures: (item['DisposalMeasures'] || item['處置措施'] || '').trim(),
-            startDate: item['StartDate'] || '',
-            endDate: item['EndDate'] || '',
-          });
-        }
-      }
-    }
+    // ⚠ 抓取與解析已抽到 @/lib/risk-stocks-source（2026-08-11）。
+    //   原本這裡有一份與 api/twse/risk-stocks 幾乎相同的複本，而且**兩處都接錯端點**：
+    //   · TWT48U_ALL 當注意股 → 那是除權息預告表，每檔即將除權息的股票被扣 20 分
+    //   · t187ap10_L 當處置股 → 那是「月營收連續不足達X個月」名單（出表日期停在 2021），
+    //     且為寬表非逐檔清單 ⇒ 解析恆為空，**真正的上市處置股完全沒被偵測、該扣的 40 分沒扣**
+    //   我先修好了 route 那一份，這一份仍然錯——複本正是它會錯第二次的原因，故合併。
+    const { attention, disposition } = await fetchRiskStocksSource();
 
     const attentionCodes = new Set(attention.map(a => a.code));
     const dispositionCodes = new Set(disposition.map(d => d.code));
