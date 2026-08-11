@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -15,7 +15,7 @@ interface Result {
   rsi5?: number; rsi10?: number;
   rng60?: number; hi60?: number; lo60?: number; offHigh60?: number; offLow60?: number;
 }
-interface Doc { query: string; status: string; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string; note?: string; interpreted?: string }
+interface Doc { query: string; status: string; at?: number; results?: Result[]; count?: number; filters?: Record<string, unknown>; error?: string; note?: string; interpreted?: string }
 
 const SIG: Record<string, { t: string; c: string }> = {
   STRONG_BUY: { t: '強力買進', c: '#dc2626' }, BUY: { t: '買進', c: '#f97316' },
@@ -46,15 +46,25 @@ export default function NlScreen() {
     return () => unsub();
   }, [user?.uid]);
 
+  // 這一輪是不是使用者自己按了「選股」（而不是 onSnapshot 把上次的舊結果帶進來）
+  const selfSubmitted = useRef(false);
+
   // ⚠ 必須放在任何 early return **之前**（Hook 規則：每次渲染呼叫順序要一致）。
-  //   有結果或正在查時自動展開——否則使用者送出後看不到任何回應，會以為壞掉。
+  //   送出後要自動展開，否則使用者看不到任何回應會以為壞掉；
+  //   但**不能**因為 Firestore 帶回「上一次的查詢結果」就展開——
+  //   nlScreen 這份文件是常駐的，status 會一直停在 'done'，於是每次進選股頁
+  //   這一區都是打開的，等於「預設收合」從來沒有生效過（2026-08-12 使用者回報）。
+  //   ⇒ 只有兩種情況自動展開：①這一次是自己送出的 ②查詢真的還在跑（5 分鐘內的 pending）。
   useEffect(() => {
     const st = data?.status;
-    if (st === 'pending' || st === 'done' || st === 'error') setOpen(true);
-  }, [data?.status]);
+    if (!st) return;
+    const stillRunning = st === 'pending' && data?.at != null && Date.now() - data.at < 5 * 60_000;
+    if (selfSubmitted.current || stillRunning) setOpen(true);
+  }, [data?.status, data?.at]);
 
   const run = async () => {
     if (!q.trim() || !user?.uid || sending) return;
+    selfSubmitted.current = true;   // 之後的 status 變化才算「我造成的」
     setSending(true);
     try { await setDoc(doc(db, 'users', user.uid, 'data', 'nlScreen'), { query: q.trim().slice(0, 120), status: 'pending', at: Date.now() }); }
     catch { alert('送出失敗'); }
@@ -73,7 +83,7 @@ export default function NlScreen() {
       {/* ⚠ 預設收合（2026-08-11 使用者要求「問 AI 要可以收合查詢內容」）：
           這一區平時只是入口，卻固定佔掉輸入框＋範例鈕＋結果清單的高度，
           把下面真正每天在用的分頁列一路往下推。
-          收起時只留一行標題；有查詢結果時自動展開，免得使用者以為查失敗。 */}
+          收起時只留一行標題（仍顯示「上次：…→ N 檔」摘要），只有這次送出才自動展開。 */}
       <button
         onClick={() => setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: 0,
