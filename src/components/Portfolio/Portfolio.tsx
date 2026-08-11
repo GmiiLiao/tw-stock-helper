@@ -217,7 +217,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* Price / Quantity */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
             <div className={styles.formGroup}>
               <label>{form.type === 'dividend' ? '每股股利' : '成交價（每股）'}</label>
               <input
@@ -275,7 +275,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
           {/* Cost Preview */}
           {price > 0 && qty > 0 && (
             <div className={styles.costPreview} style={{ marginTop: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: 'calc(12px * var(--fz))' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: 'calc(12px * var(--fz))' }}>
                 <div>成交金額：<strong>{grossAmount.toLocaleString()} 元</strong></div>
                 <div>手續費(0.1425%{broker.discount < 1 ? `×${broker.discount}折讓` : ''})：<strong>{fee.toLocaleString()} 元</strong>{fee === broker.minFee && grossAmount > 0 ? <span style={{ color: 'var(--text-muted)' }}> 最低</span> : null}</div>
                 {form.type === 'sell' && <div>交易稅({taxRateLabel({ dayTrade: form.dayTrade, code: form.code })})：<strong>{tax.toLocaleString()} 元</strong></div>}
@@ -356,7 +356,7 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
           <button className={styles.modalClose} onClick={onClose}>×</button>
         </div>
         <div className={styles.modalBody}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
             <div className={styles.formGroup}>
               <label>{trade.type === 'dividend' ? '每股股利' : '成交價（每股）'}</label>
               <input className="input" type="number" step="0.01" value={form.price}
@@ -878,7 +878,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>🏆 個股損益排行（已實現＋股利；不含在倉未實現）</div>
           {stockRanking.map((s, i) => (
             <div key={s.code} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 2, minWidth: 0,
               padding: '10px 8px', borderBottom: i < stockRanking.length - 1 ? '1px solid var(--border-primary)' : 'none',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -957,7 +957,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
   return (
     <>
       {/* 交易紀錄彙總：空手也看得到的總覽 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(160px, 100%), 1fr))', gap: 10, marginBottom: 16 }}>
         {[
           { label: '已實現損益', v: ledger.totalRealized, c: ledger.totalRealized >= 0 ? 'var(--color-up)' : 'var(--color-down)', sub: `${ledger.closedCount} 筆平倉` },
           { label: '累計股利', v: ledger.totalDividend, c: '#f59e0b', sub: '現金股利' },
@@ -989,7 +989,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
             持倉頁顯示的是「手動持倉」；損益分析以「交易紀錄」為準。兩邊不一致時（漏記/重複記/超賣），下表列出差異。
           </div>
           {diffs.map(d => (
-            <div key={d.code} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12px * var(--fz))', padding: '5px 0', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
+            <div key={d.code} style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 8, rowGap: 2, minWidth: 0, fontSize: 'calc(12px * var(--fz))', padding: '5px 0', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
               <span><strong>{d.code}</strong> {d.name}</span>
               <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                 手動 {fmtQty(d.manualLots)} <span style={{ color: 'var(--text-muted)' }}>vs</span> 交易推算 <strong>{fmtQty(d.ledgerLots)}</strong>
@@ -1299,13 +1299,13 @@ export default function Portfolio() {
 
               {/* 整體成本/市值水位 */}
               <div style={{ marginBottom: '18px', paddingBottom: '16px', borderBottom: '1px solid var(--border-primary)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(13px * var(--fz))', marginBottom: '8px' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 10, rowGap: 2, fontSize: 'calc(13px * var(--fz))', marginBottom: '8px', minWidth: 0 }}>
+                  <span style={{ color: 'var(--text-muted)', minWidth: 0 }}>
                     整體 · 成本水位 <strong style={{ color: 'var(--text-secondary)' }}>{Math.round(totalCost).toLocaleString()}</strong>
                     <span style={{ margin: '0 6px' }}>→</span>
                     市值 <strong style={{ color: 'var(--text-secondary)' }}>{Math.round(totalValue).toLocaleString()}</strong>
                   </span>
-                  <strong style={{ color: totalPnL >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontFamily: "'JetBrains Mono', monospace" }}>
+                  <strong style={{ color: totalPnL >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap', flexShrink: 0 }}>
                     {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
                   </strong>
                 </div>
@@ -1315,7 +1315,7 @@ export default function Portfolio() {
               {/* 逐股水位 */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {aggByCode.map(g => (
-                  <div key={g.code} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 92px', gap: '14px', alignItems: 'center' }}>
+                  <div key={g.code} className={styles.gaugeRow}>
                     <div
                       style={{ cursor: 'pointer', minWidth: 0 }}
                       onClick={() => navigateTo('stock', g.code)}
@@ -1324,10 +1324,12 @@ export default function Portfolio() {
                       <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                     </div>
                     <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                        <span>均價 <strong style={{ color: 'var(--text-secondary)' }}>{g.avgCost.toFixed(2)}</strong></span>
-                        <span>現價 <strong style={{ color: g.currentPrice >= g.avgCost ? 'var(--color-up)' : 'var(--color-down)' }}>{g.currentPrice.toFixed(2)}</strong></span>
-                        <span>{g.lots} 張</span>
+                      {/* 要斷就斷在「均價／現價／張數」的邊界，絕不在一個數值中間斷 →
+                          整列可 wrap，每一段自己 nowrap。 */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 10, rowGap: 2, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px', minWidth: 0 }}>
+                        <span style={{ whiteSpace: 'nowrap' }}>均價 <strong style={{ color: 'var(--text-secondary)' }}>{g.avgCost.toFixed(2)}</strong></span>
+                        <span style={{ whiteSpace: 'nowrap' }}>現價 <strong style={{ color: g.currentPrice >= g.avgCost ? 'var(--color-up)' : 'var(--color-down)' }}>{g.currentPrice.toFixed(2)}</strong></span>
+                        <span style={{ whiteSpace: 'nowrap' }}>{g.lots} 張</span>
                       </div>
                       <ProfitGauge pct={g.pnlPct} />
                     </div>

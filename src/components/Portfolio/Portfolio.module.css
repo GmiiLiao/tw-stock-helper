@@ -376,3 +376,33 @@
   .holdingRow > .holdingPnl > span { min-width: 0; }
   .rowActions button { padding: 5px 7px; font-size: calc(13px * var(--fz)); line-height: 1; }
 }
+
+
+/* ── 持倉水位分析的每一列 ────────────────────────────────────────────
+   ⚠ 桌機三欄裡的中間欄一定要 minmax(0, 1fr)，不能只寫 1fr
+   （2026-08-11 使用者第二次回報「投資組合還是有地方超出畫面」）：
+   左右兩欄是寫死的 120px + 92px，加上兩道 14px 間距＝固定吃掉 240px。
+   中間欄若只寫 1fr，它的下限是 min-content ——
+   也就是「均價 4385.00　現價 4355.00　1 張」整條不能斷的寬度（約 190px）。
+   手機卡片內寬只有約 305px，240 + 190 = 430 → 硬生生溢出約 125px，
+   整頁被推寬、出現橫向捲軸（正是截圖那個狀態）。
+
+   手機直接放棄三欄：第一列＝代號＋報酬率，第二列＝均價/現價/張數與水位條。
+   固定 px 欄在窄螢幕上是負債，寧可堆疊。 */
+.gaugeRow {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 92px;
+  gap: 14px;
+  align-items: center;
+}
+@media (max-width: 700px) {
+  .gaugeRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 6px;
+    align-items: start;
+  }
+  .gaugeRow > :nth-child(1) { grid-row: 1; grid-column: 1; }
+  .gaugeRow > :nth-child(3) { grid-row: 1; grid-column: 2; }
+  .gaugeRow > :nth-child(2) { grid-row: 2; grid-column: 1 / -1; }
+}
