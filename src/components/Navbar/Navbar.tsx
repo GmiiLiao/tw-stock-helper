@@ -122,7 +122,7 @@ export default function Navbar() {
   };
   const FontScaleRow = () => (
     <div style={{ padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-      <div style={{ fontSize: 11, color: '#8b9bb8', marginBottom: 6 }}>🔠 字體大小</div>
+      <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#8b9bb8', marginBottom: 6 }}>🔠 字體大小</div>
       <div style={{ display: 'flex', gap: 6 }}>
         {[[1, '標準', 12], [1.3, '大', 14], [1.75, '特大', 17], [2.5, '超大', 20]].map(([v, label, fs]) => (
           <button key={String(v)} onClick={e => { e.stopPropagation(); changeFontScale(v as number); }}

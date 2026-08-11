@@ -31,10 +31,10 @@ export default function PortfolioSummary() {
       border: '1px solid rgba(99,102,241,0.25)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>🧑‍💼 個人化每日摘要</span>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{data.date}</span>
+        <span style={{ fontWeight: 700, fontSize: 'calc(0.92rem * var(--fz))' }}>🧑‍💼 個人化每日摘要</span>
+        <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>{data.date}</span>
       </div>
-      <div style={{ fontSize: '0.86rem', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.summary}</div>
+      <div style={{ fontSize: 'calc(0.86rem * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.summary}</div>
     </div>
   );
 }

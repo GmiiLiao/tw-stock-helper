@@ -62,46 +62,46 @@ export default function NlScreen() {
   const pending = data?.status === 'pending';
   return (
     <div style={{ marginBottom: 18, padding: '16px 18px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>🗣️ 自然語言選股 <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>用白話描述，AI 幫你篩（約 10–40 秒）</span></div>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>🗣️ 自然語言選股 <span style={{ fontWeight: 400, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>用白話描述，AI 幫你篩（約 10–40 秒）</span></div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input className="input" value={q} maxLength={120} placeholder="例：外資連買且月營收年增超過30%"
           onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') run(); }} style={{ flex: 1 }} />
         <button className="btn btn-buy" onClick={run} disabled={sending || !q.trim() || pending}>{pending ? '篩選中…' : '選股'}</button>
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: data ? 12 : 0 }}>
-        {EXAMPLES.map(e => <button key={e} onClick={() => setQ(e)} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 14, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{e}</button>)}
+        {EXAMPLES.map(e => <button key={e} onClick={() => setQ(e)} style={{ fontSize: 'calc(12px * var(--fz))', padding: '3px 10px', borderRadius: 14, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{e}</button>)}
       </div>
 
-      {pending && <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>🤔 AI 解析需求並篩選全市場中…</div>}
+      {pending && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>🤔 AI 解析需求並篩選全市場中…</div>}
       {data?.status === 'error' && (
-        <div style={{ color: '#ef4444', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+        <div style={{ color: '#ef4444', fontSize: 'calc(13px * var(--fz))', whiteSpace: 'pre-wrap' }}>
           {data.error || '解析失敗，請換個說法再試。'}
         </div>
       )}
       {data?.status === 'done' && (
         <div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>「<span style={{ color: '#7dd3fc' }}>{data.query}</span>」→ 找到 <b style={{ color: '#fbbf24' }}>{data.count}</b> 檔{(data.count ?? 0) > 30 ? '（顯示前30）' : ''}</div>
+          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 8 }}>「<span style={{ color: '#7dd3fc' }}>{data.query}</span>」→ 找到 <b style={{ color: '#fbbf24' }}>{data.count}</b> 檔{(data.count ?? 0) > 30 ? '（顯示前30）' : ''}</div>
           {/* 條件回譯：誤讀擺在使用者眼前，不用他去猜 AI 怎麼理解 */}
           {data.interpreted && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, padding: '6px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+            <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 8, padding: '6px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
               🔍 實際套用的條件：<b style={{ color: '#7dd3fc' }}>{data.interpreted}</b>
               <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>與你的意思不同的話，換句話再問一次。</div>
             </div>
           )}
           {data.note && (
-            <div style={{ fontSize: 12, color: '#f59e0b', marginBottom: 8, padding: '6px 10px', background: 'rgba(245,158,11,0.08)', borderRadius: 8, whiteSpace: 'pre-wrap' }}>
+            <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 8, padding: '6px 10px', background: 'rgba(245,158,11,0.08)', borderRadius: 8, whiteSpace: 'pre-wrap' }}>
               ⚠ {data.note}
             </div>
           )}
-          {(data.results || []).length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>沒有符合條件的股票，試試放寬條件。</div>}
+          {(data.results || []).length === 0 && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>沒有符合條件的股票，試試放寬條件。</div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px,1fr))', gap: 8 }}>
             {(data.results || []).map(r => (
               <div key={r.code} onClick={() => navigateTo('stock', r.code)} style={{ cursor: 'pointer', padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-primary)' }}>
                     <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                  <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-secondary)' }}>
                     評分 <b style={{ color: '#fbbf24' }}>{r.score}</b>
                     {r.rs != null && <> · RS <b style={{ color: '#fbbf24' }}>{r.rs}</b></>}
                     {r.yield != null && <> · 殖 <b style={{ color: '#fbbf24' }}>{r.yield}%</b></>}
@@ -109,7 +109,7 @@ export default function NlScreen() {
                   </div>
                   {/* 命中條件的實際數值——讓使用者能自己驗算，不是只給一份名單 */}
                   {r.rng60 != null && (
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-secondary)' }}>
                       60日振幅 <b style={{ color: '#fbbf24' }}>{r.rng60}%</b>
                       <span style={{ color: 'var(--text-muted)' }}>（{r.lo60}→{r.hi60}）</span>
                       {r.offHigh60 != null && <> · 距高 <b style={{ color: '#22c55e' }}>{r.offHigh60}%</b></>}
@@ -117,7 +117,7 @@ export default function NlScreen() {
                     </div>
                   )}
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: (SIG[r.signal] || SIG.NEUTRAL).c, whiteSpace: 'nowrap', marginLeft: 6 }}>{(SIG[r.signal] || SIG.NEUTRAL).t}</span>
+                <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: (SIG[r.signal] || SIG.NEUTRAL).c, whiteSpace: 'nowrap', marginLeft: 6 }}>{(SIG[r.signal] || SIG.NEUTRAL).t}</span>
               </div>
             ))}
           </div>

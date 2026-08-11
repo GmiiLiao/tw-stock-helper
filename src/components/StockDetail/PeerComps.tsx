@@ -47,18 +47,18 @@ export default function PeerComps({ code }: { code: string }) {
   return (
     <div style={{ padding: '4px 0' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        <span style={{ fontWeight: 700, fontSize: '1rem' }}>🏭 {data.industry}</span>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>共 {data.peers.length} 檔{rank ? ` · 本股評分排名第 ${rank}` : ''}{data.month ? ` · 營收月份 ${data.month}` : ''}</span>
+        <span style={{ fontWeight: 700, fontSize: 'calc(1rem * var(--fz))' }}>🏭 {data.industry}</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)' }}>共 {data.peers.length} 檔{rank ? ` · 本股評分排名第 ${rank}` : ''}{data.month ? ` · 營收月份 ${data.month}` : ''}</span>
       </div>
       {verdicts.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: 'var(--bg-tertiary)', fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: 'var(--bg-tertiary)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
           {verdicts.map(v => <div key={v}>• {v}</div>)}
         </div>
       )}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, whiteSpace: 'nowrap' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(13px * var(--fz))', whiteSpace: 'nowrap' }}>
           <thead>
-            <tr style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'right' }}>
+            <tr style={{ color: 'var(--text-muted)', fontSize: 'calc(12px * var(--fz))', textAlign: 'right' }}>
               <th style={{ textAlign: 'left', padding: '6px 8px' }}>個股</th>
               <th style={{ padding: '6px 8px' }}>現價</th>
               <th style={{ padding: '6px 8px' }}>漲跌%</th>
@@ -73,7 +73,7 @@ export default function PeerComps({ code }: { code: string }) {
           </thead>
           <tbody>
             {m && (
-              <tr style={{ color: 'var(--text-muted)', fontSize: 12, borderBottom: '1px solid var(--border-primary)' }}>
+              <tr style={{ color: 'var(--text-muted)', fontSize: 'calc(12px * var(--fz))', borderBottom: '1px solid var(--border-primary)' }}>
                 <td style={{ padding: '6px 8px' }}>產業中位數</td>
                 <td /><td />
                 <td style={{ textAlign: 'right', padding: '6px 8px' }}>{num(m.medPe)}</td>
@@ -106,7 +106,7 @@ export default function PeerComps({ code }: { code: string }) {
           </tbody>
         </table>
       </div>
-      {data.peers.length > 30 && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>依評分排序，顯示前 30／{data.peers.length} 檔。</div>}
+      {data.peers.length > 30 && <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>依評分排序，顯示前 30／{data.peers.length} 檔。</div>}
     </div>
   );
 }

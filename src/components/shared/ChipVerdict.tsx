@@ -57,10 +57,10 @@ export function VerdictStrip({ v }: { v?: Verdict | null }) {
   if (!v) return null;
   const s = ACTION_STYLE[v.a] || ACTION_STYLE.續抱;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: s.bg, border: `1px solid ${s.c}44`, fontSize: 12.5 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: s.bg, border: `1px solid ${s.c}44`, fontSize: 'calc(12.5px * var(--fz))' }}>
       <span style={{ fontWeight: 900, color: s.c }}>{s.icon} 籌碼判讀：{v.a}</span>
       <span style={{ color: 'var(--text-secondary)' }}>{v.r}</span>
-      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
+      <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
         {tierDisplay(v.tier) || `${v.tier}級`} · 倒貨{v.dist}% · 外{v.f >= 0 ? '+' : ''}{v.f}/投{v.t >= 0 ? '+' : ''}{v.t}張
       </span>
     </div>

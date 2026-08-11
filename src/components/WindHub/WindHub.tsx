@@ -49,29 +49,29 @@ export default function WindHub({ compact = false }: { compact?: boolean }) {
   return (
     <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontWeight: 900, fontSize: '1.05rem' }}>🧭 風向總覽</span>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>題材（價格動能）× 籌碼（法人資金）× 量價背離</span>
+        <span style={{ fontWeight: 900, fontSize: 'calc(1.05rem * var(--fz))' }}>🧭 風向總覽</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>題材（價格動能）× 籌碼（法人資金）× 量價背離</span>
       </div>
 
       {/* 綜合判讀：價格 × 籌碼 是否同向 */}
       {s && (
         <div style={{ padding: '9px 13px', borderRadius: 10, background: 'rgba(148,163,184,0.06)', border: `1px solid ${s.color}44`, marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>價格<span style={{ fontSize: 10 }}>(今日)</span></span>
-            <b style={{ fontSize: 12.5 }}>{priceLabel?.split('（')[0]}</b>
+            <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>價格<span style={{ fontSize: 'calc(10px * var(--fz))' }}>(今日)</span></span>
+            <b style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{priceLabel?.split('（')[0]}</b>
             <span style={{ color: 'var(--text-muted)' }}>×</span>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>籌碼<span style={{ fontSize: 10 }}>{chipDate ? `(${chipDate.slice(5)})` : ''}</span></span>
-            <b style={{ fontSize: 12.5, color: (chipTotal ?? 0) >= 0 ? '#f03e3e' : '#2f9e44' }}>法人{(chipTotal ?? 0) >= 0 ? '買超' : '賣超'} {Math.abs(Math.round(chipTotal ?? 0)).toLocaleString()}張</b>
-            <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 900, color: s.color }}>→ {s.label}</span>
+            <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>籌碼<span style={{ fontSize: 'calc(10px * var(--fz))' }}>{chipDate ? `(${chipDate.slice(5)})` : ''}</span></span>
+            <b style={{ fontSize: 'calc(12.5px * var(--fz))', color: (chipTotal ?? 0) >= 0 ? '#f03e3e' : '#2f9e44' }}>法人{(chipTotal ?? 0) >= 0 ? '買超' : '賣超'} {Math.abs(Math.round(chipTotal ?? 0)).toLocaleString()}張</b>
+            <span style={{ marginLeft: 'auto', fontSize: 'calc(13px * var(--fz))', fontWeight: 900, color: s.color }}>→ {s.label}</span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.6 }}>{s.text}</div>
+          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.6 }}>{s.text}</div>
         </div>
       )}
 
       {/* 分頁切換 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         {TABS.map(t => (
-          <span key={t.key} onClick={() => setTab(t.key)} style={{ fontSize: 13, fontWeight: 700, padding: '5px 14px', borderRadius: 20, cursor: 'pointer', color: tab === t.key ? '#fff' : 'var(--text-secondary)', background: tab === t.key ? '#3d8ef8' : 'rgba(148,163,184,0.1)' }}>
+          <span key={t.key} onClick={() => setTab(t.key)} style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 700, padding: '5px 14px', borderRadius: 20, cursor: 'pointer', color: tab === t.key ? '#fff' : 'var(--text-secondary)', background: tab === t.key ? '#3d8ef8' : 'rgba(148,163,184,0.1)' }}>
             {t.icon} {t.label}
           </span>
         ))}

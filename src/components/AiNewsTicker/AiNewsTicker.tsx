@@ -293,7 +293,7 @@ export default function AiNewsTicker() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className={styles.panelTitle}>AI 監控子代理</span>
                 <span style={{
-                  fontSize: '12px', fontWeight: 700, padding: '2px 6px', borderRadius: '999px',
+                  fontSize: 'calc(12px * var(--fz))', fontWeight: 700, padding: '2px 6px', borderRadius: '999px',
                   background: agentActive ? 'rgba(34,197,94,0.15)' : 'rgba(100,116,139,0.15)',
                   color: agentActive ? '#22c55e' : '#8b9bb8',
                 }}>
@@ -321,11 +321,11 @@ export default function AiNewsTicker() {
             <div className={styles.msgList}>
               {messages.length === 0 ? (
                 <div className={styles.msgEmpty}>
-                  <span style={{ fontSize: '24px' }}>🤖</span>
-                  <div style={{ fontSize: '13px', color: '#8b9bb8', marginTop: '8px' }}>
+                  <span style={{ fontSize: 'calc(24px * var(--fz))' }}>🤖</span>
+                  <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#8b9bb8', marginTop: '8px' }}>
                     子代理啟動中，正在監控市場…
                   </div>
-                  <div style={{ fontSize: '13px', color: '#475569', marginTop: '4px' }}>
+                  <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#475569', marginTop: '4px' }}>
                     每 5 分鐘推送最新分析，最多保留 5 條
                   </div>
                 </div>

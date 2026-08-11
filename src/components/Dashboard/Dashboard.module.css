@@ -35,7 +35,7 @@
 }
 
 .statLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   font-weight: 500;
   text-transform: uppercase;
@@ -43,11 +43,11 @@
 }
 
 .statIcon {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
 }
 
 .statValue {
-  font-size: 1.625rem;
+  font-size: calc(1.625rem * var(--fz));
   font-weight: 800;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: -0.02em;
@@ -55,7 +55,7 @@
 }
 
 .statSub {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -92,21 +92,21 @@
 }
 
 .sectionTitle {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
   flex: 1;
 }
 
 .sectionSub {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
 }
 
 .sectionBadge {
   background: var(--accent-blue-glow);
   color: var(--accent-blue);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 12px;
@@ -122,7 +122,7 @@
   padding: 24px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .watchlistItem {
@@ -150,13 +150,13 @@
 
 .watchCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
 }
 
 .watchName {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -172,13 +172,13 @@
 
 .watchPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 700;
 }
 
 .watchChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
 }
 
 .removeBtn {
@@ -186,7 +186,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1.1rem;
+  font-size: calc(1.1rem * var(--fz));
   line-height: 1;
   padding: 2px 4px;
   border-radius: 4px;
@@ -228,14 +228,14 @@
 }
 
 .heatCode {
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--fz));
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-primary);
 }
 
 .heatName {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -244,7 +244,7 @@
 }
 
 .heatChange {
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--fz));
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -259,7 +259,7 @@
   grid-template-columns: 24px 56px 1fr 80px 80px 72px;
   gap: 8px;
   padding: 8px 14px;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -283,7 +283,7 @@
 .moversRow:hover { background: var(--bg-card-hover); }
 
 .rankNum {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   font-weight: 600;
   text-align: center;
@@ -291,13 +291,13 @@
 
 .moversCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
 }
 
 .moversName {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -306,20 +306,20 @@
 
 .moversPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   text-align: right;
 }
 
 .moversChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   text-align: right;
 }
 
 .moversVol {
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--fz));
   color: var(--text-muted);
   text-align: right;
 }
@@ -336,12 +336,12 @@
   .moversRow {
     grid-template-columns: 20px 48px 1fr 58px 58px 60px;
     gap: 6px;
-    font-size: 0.82rem;
+    font-size: calc(0.82rem * var(--fz));
   }
   /* 手機熱力圖 3 欄，磚內文字才有可讀空間（原 5 欄擠壓） */
   .heatmap { grid-template-columns: repeat(3, 1fr); }
-  .heatCode, .heatChange { font-size: 0.9rem; }
-  .heatName { font-size: 0.8rem; }
+  .heatCode, .heatChange { font-size: calc(0.9rem * var(--fz)); }
+  .heatName { font-size: calc(0.8rem * var(--fz)); }
 }
 
 @media (max-width: 480px) {
@@ -357,7 +357,7 @@
   .moversRow {
     grid-template-columns: 18px 44px 1fr 48px 52px 50px;
     gap: 4px;
-    font-size: 0.78rem;
+    font-size: calc(0.78rem * var(--fz));
   }
 }
 

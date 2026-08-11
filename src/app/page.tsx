@@ -48,6 +48,31 @@ export default function App() {
   // 否則本機狀態(自選/模式/指標)永遠不會載入。放在最前面的 effect，越早越好。
   useEffect(() => { void useAppStore.persist.rehydrate(); }, []);
 
+  // ── 返回時還原捲動位置（2026-08-11 使用者要求）────────────────────
+  // navigateBack 會把來源頁離開時的 scrollY 放進 pendingScrollY，這裡負責套用。
+  // ⚠ 為什麼不在 store 裡直接 window.scrollTo：
+  //   那個時間點新頁面還沒渲染，文件高度可能只有幾百 px，
+  //   scrollTo(3000) 會被截成可捲的最大值，等內容長出來就停在錯的地方。
+  // ⇒ 等到「文件高度已經夠」再捲；用 rAF 輪詢最多 ~1 秒，避免資料慢到而放棄。
+  //   （清單頁的資料是非同步載入的，高度不是一次到位。）
+  const pendingScrollY = useAppStore(s => s.pendingScrollY);
+  const clearPendingScroll = useAppStore(s => s.clearPendingScroll);
+  useEffect(() => {
+    if (pendingScrollY == null) return;
+    let raf = 0; const t0 = Date.now();
+    const tryScroll = () => {
+      const reachable = document.documentElement.scrollHeight - window.innerHeight;
+      if (reachable >= pendingScrollY - 2 || Date.now() - t0 > 1000) {
+        window.scrollTo({ top: pendingScrollY, behavior: 'auto' });
+        clearPendingScroll();
+        return;
+      }
+      raf = requestAnimationFrame(tryScroll);
+    };
+    raf = requestAnimationFrame(tryScroll);
+    return () => cancelAnimationFrame(raf);
+  }, [pendingScrollY, clearPendingScroll]);
+
   useEffect(() => {
     let alive = true;
     fetch('/api/market-clock')

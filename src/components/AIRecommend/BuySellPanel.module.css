@@ -13,7 +13,7 @@
 }
 
 .sectionTitle {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -41,7 +41,7 @@
 }
 
 .setupStyle {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   padding: 4px 12px;
   border-radius: 20px;
@@ -69,13 +69,13 @@
 }
 
 .setupItemLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .setupItemValue {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-primary);
@@ -89,14 +89,14 @@
 }
 
 .entryTimingLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
   margin-bottom: 4px;
 }
 
 .entryTimingText {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -118,14 +118,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--border-primary);
 }
 
 .colSubtitle {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   font-weight: 400;
 }
@@ -170,12 +170,12 @@
 }
 
 .zoneLabel {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
 }
 
 .recommendedTag {
-  font-size: 0.6rem;
+  font-size: calc(0.6rem * var(--fz));
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;
@@ -188,12 +188,12 @@
 
 .zonePrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 800;
 }
 
 .zoneRange {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
 }
@@ -202,7 +202,7 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -213,7 +213,7 @@
 }
 
 .zoneRationale {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -236,26 +236,26 @@
 }
 
 .slLabel {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   color: #868e96;
 }
 
 .slPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 800;
   color: #868e96;
 }
 
 .slPercent {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--color-down);
   font-family: 'JetBrains Mono', monospace;
 }
 
 .slRationale {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -268,7 +268,7 @@
 }
 
 .ladderTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -330,7 +330,7 @@
 }
 
 .levelTag {
-  font-size: 0.625rem;
+  font-size: calc(0.625rem * var(--fz));
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
@@ -340,7 +340,7 @@
 
 .levelPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -370,7 +370,7 @@
 }
 
 .patternBadge {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 20px;
@@ -398,7 +398,7 @@
 }
 
 .patternDesc {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -406,7 +406,7 @@
 .patternHint {
   display: flex;
   gap: 6px;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   background: rgba(61,142,248,0.04);
   border-left: 2px solid rgba(61,142,248,0.3);
@@ -417,7 +417,7 @@
 
 /* ─── Disclaimer ───────────────────────────────────── */
 .disclaimer {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(245,158,11,0.05);

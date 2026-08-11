@@ -58,10 +58,10 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
 
   // ⓘ 說明按鈕
   const info = (k: string) => (
-    <button onClick={() => toggle(k)} aria-label="說明" style={{ marginLeft: 6, width: 17, height: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === k ? '#3d8ef8' : 'transparent', color: open === k ? '#fff' : 'var(--text-muted)', fontSize: 11, lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
+    <button onClick={() => toggle(k)} aria-label="說明" style={{ marginLeft: 6, width: 17, height: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === k ? '#3d8ef8' : 'transparent', color: open === k ? '#fff' : 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))', lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
   );
   const explainBox = (k: string) => open === k && EXPLAIN[k] ? (
-    <div style={{ margin: '6px 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', fontSize: 12.5, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+    <div style={{ margin: '6px 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
       <b style={{ color: 'var(--text-primary)' }}>{EXPLAIN[k].title}</b><br />{EXPLAIN[k].text}
     </div>
   ) : null;
@@ -77,7 +77,7 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
   const listMeta = LIST_META.find(l => l.key === listTab)!;
 
   const pill = (active: boolean, color = '#3d8ef8') => ({
-    fontSize: 12.5, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+    fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
     color: active ? '#fff' : 'var(--text-secondary)', background: active ? color : 'rgba(148,163,184,0.1)',
   });
 
@@ -86,8 +86,8 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
   return (
     <div style={bare ? {} : { marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: bare ? 'none' : 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontWeight: 900, fontSize: '1rem' }}>🧭 籌碼風向</span>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>三大法人淨買賣加權 · 資料日 {data.latestDate}（{data.daysAvailable}日庫）</span>
+        <span style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))' }}>🧭 籌碼風向</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>三大法人淨買賣加權 · 資料日 {data.latestDate}（{data.daysAvailable}日庫）</span>
       </div>
 
       {/* 時間框切換 */}
@@ -101,7 +101,7 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
 
       {/* 市場法人總淨額 */}
       <div style={{ marginTop: 6, marginBottom: 4, display: 'flex', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, fontWeight: 800 }}>市場法人總淨額（{cur.label}）</span>{info('market')}
+        <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 800 }}>市場法人總淨額（{cur.label}）</span>{info('market')}
       </div>
       {explainBox('market')}
       {/* ⚠ 原本寫死 repeat(4,1fr)：手機 335px 塞四欄，每欄只剩 78px，
@@ -111,9 +111,9 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: 8, marginBottom: 10 }}>
         {([['外資', mn.foreign, 'foreign'], ['投信', mn.trust, 'trust'], ['自營', mn.dealer, 'dealer'], ['合計', mn.total, 'market']] as const).map(([lb, v, ex]) => (
           <div key={lb} style={{ padding: '8px 6px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', textAlign: 'center' }}>
-            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{lb}{lb !== '合計' ? info(ex) : ''}</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: col(v) }}>{fmt(v)}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>張</div>
+            <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)' }}>{lb}{lb !== '合計' ? info(ex) : ''}</div>
+            <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 800, color: col(v) }}>{fmt(v)}</div>
+            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>張</div>
           </div>
         ))}
       </div>
@@ -121,19 +121,19 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
 
       {/* 產業籌碼傾向 */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: 800 }}>產業籌碼傾向</span>{info('sector')}
+        <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 800 }}>產業籌碼傾向</span>{info('sector')}
       </div>
       {explainBox('sector')}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(240,62,62,0.08)' }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#f03e3e', marginBottom: 3 }}>🔺 法人加碼族群</div>
-          <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>
+          <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: '#f03e3e', marginBottom: 3 }}>🔺 法人加碼族群</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
             {cur.sectorAdd.length ? cur.sectorAdd.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#f03e3e' }}>+{Math.round(s.net).toLocaleString()}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
           </div>
         </div>
         <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(47,158,68,0.08)' }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#2f9e44', marginBottom: 3 }}>🔻 法人減碼族群</div>
-          <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>
+          <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: '#2f9e44', marginBottom: 3 }}>🔻 法人減碼族群</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
             {cur.sectorReduce.length ? cur.sectorReduce.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#2f9e44' }}>{Math.round(s.net).toLocaleString()}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
           </div>
         </div>
@@ -153,19 +153,19 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
           //   於是「外+53,049/投+1,800/自+55,156」被拆成三行糊在一起。
           //   規則同前：要斷就在整段邊界斷，絕不在數值中間斷。
           //   ⇒ 整列可 wrap；數值與明細 nowrap 且不被壓；股名 flex:1 讓位。
-          <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
-            <span style={{ color: 'var(--text-muted)', width: 18, fontSize: 11, flexShrink: 0 }}>{i + 1}</span>
+          <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--fz))', background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
+            <span style={{ color: 'var(--text-muted)', width: 18, fontSize: 'calc(11px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
             <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
             <b style={{ color: col(it.net), textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmt(it.net)}</b>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>張</span>
-            {listTab !== 'foreignBuy' && listTab !== 'foreignSell' && <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>外{fmt(it.f)}/投{fmt(it.t)}/自{fmt(it.d)}</span>}
-            {(listTab === 'foreignBuy') && it.streak >= 2 && <span style={{ fontSize: 11, color: '#e8590c', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>連買{it.streak}日</span>}
+            <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', flexShrink: 0 }}>張</span>
+            {listTab !== 'foreignBuy' && listTab !== 'foreignSell' && <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>外{fmt(it.f)}/投{fmt(it.t)}/自{fmt(it.d)}</span>}
+            {(listTab === 'foreignBuy') && it.streak >= 2 && <span style={{ fontSize: 'calc(11px * var(--fz))', color: '#e8590c', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>連買{it.streak}日</span>}
           </div>
         ))}
-        {!list.length && <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 8px' }}>此時間框無資料</div>}
+        {!list.length && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', padding: '4px 8px' }}>此時間框無資料</div>}
       </div>
 
-      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         單位：張（1張=1000股）。T86 約 15:00 公布，當日框為最近已公布交易日。確定性統計，非投資建議。
       </div>
     </div>

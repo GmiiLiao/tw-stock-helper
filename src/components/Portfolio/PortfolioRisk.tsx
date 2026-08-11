@@ -50,15 +50,15 @@ export default function PortfolioRisk() {
 
   const cell = (label: string, value: string, sub: string, color: string) => (
     <div style={{ flex: 1, minWidth: 120, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-      <div style={{ fontSize: 11, color: '#cbd5f5' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, color, fontFamily: "'JetBrains Mono',monospace" }}>{value}</div>
-      <div style={{ fontSize: 11, color: '#cbd5f5' }}>{sub}</div>
+      <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#cbd5f5' }}>{label}</div>
+      <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color, fontFamily: "'JetBrains Mono',monospace" }}>{value}</div>
+      <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#cbd5f5' }}>{sub}</div>
     </div>
   );
 
   return (
     <div style={{ marginBottom: 16, padding: '16px 18px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-      <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 12 }}>🧬 投組相關性 / 分散度分析</div>
+      <div style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 12 }}>🧬 投組相關性 / 分散度分析</div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         {corr != null ? cell('平均相關係數', corr.toFixed(2), d.diversification ?? '', corrColor) : null}
         {hhi != null ? cell('集中度 HHI', hhi.toFixed(2), d.concentration ?? '', hhiColor) : null}
@@ -66,17 +66,17 @@ export default function PortfolioRisk() {
         {d.betaPortfolio != null ? cell('投組 β', d.betaPortfolio.toFixed(2), d.betaPortfolio > 1.2 ? '波動大於大盤' : d.betaPortfolio < 0.8 ? '波動小於大盤' : '與大盤相當', d.betaPortfolio > 1.2 ? '#2f9e44' : d.betaPortfolio < 0.8 ? '#f03e3e' : '#f59e0b') : null}
       </div>
       {d.stress && (
-        <div style={{ fontSize: 12.5, color: '#dbe4f5', marginBottom: 8, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#dbe4f5', marginBottom: 8, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
           🧪 壓力測試（β 推估）：大盤 −5% → <b style={{ color: '#f59e0b' }}>{d.stress.m5}%</b> · 大盤 −10% → <b style={{ color: '#f97316' }}>{d.stress.m10}%</b> · 大盤 −20% → <b style={{ color: '#ef4444' }}>{d.stress.m20}%</b>
         </div>
       )}
       {d.highestPair && (
-        <div style={{ fontSize: 12, color: '#cbd5f5', marginBottom: 6 }}>
+        <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#cbd5f5', marginBottom: 6 }}>
           最高連動：{nameOf(d.highestPair.a)} ↔ {nameOf(d.highestPair.b)}（相關 {d.highestPair.corr}）{d.highestPair.corr > 0.7 ? '— 走勢高度同步，分散效果有限' : ''}
         </div>
       )}
       {d.rebalanceHint && (
-        <div style={{ fontSize: 13, color: '#dbe4f5', padding: '8px 12px', background: 'rgba(99,102,241,0.08)', borderRadius: 8, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#dbe4f5', padding: '8px 12px', background: 'rgba(99,102,241,0.08)', borderRadius: 8, lineHeight: 1.6 }}>
           💡 {d.rebalanceHint}
         </div>
       )}

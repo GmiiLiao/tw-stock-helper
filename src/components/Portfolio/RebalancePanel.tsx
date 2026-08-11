@@ -48,9 +48,9 @@ export default function RebalancePanel() {
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>⚖️ 配置漂移檢查</span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>個股≤{lim.maxStockPct}%·產業≤{lim.maxIndustryPct}%·現金≥{lim.minCashPct}%</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>⚖️ 配置漂移檢查</span>
+        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>個股≤{lim.maxStockPct}%·產業≤{lim.maxIndustryPct}%·現金≥{lim.minCashPct}%</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
           持股市值 {(data.totalStock / 10000).toFixed(0)} 萬{data.cash != null ? ` · 現金 ${(data.cash / 10000).toFixed(0)} 萬（${data.cashPct}%）` : ''}
         </span>
       </div>
@@ -58,18 +58,18 @@ export default function RebalancePanel() {
       {data.violations.length > 0 ? (
         <div style={{ marginBottom: 10 }}>
           {data.violations.map((v, i) => (
-            <div key={i} style={{ fontSize: 13, lineHeight: 1.7, color: '#f59e0b' }}>
+            <div key={i} style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.7, color: '#f59e0b' }}>
               ⚠ {v.type === 'stock' ? `${v.code} ${v.name} 佔比 ${v.pct}%` : v.type === 'industry' ? `${v.industry} ${v.pct}%` : `現金 ${v.pct}%`} — {v.suggestion}
             </div>
           ))}
         </div>
       ) : (
-        <div style={{ fontSize: 13, color: '#22c55e', marginBottom: 10 }}>✓ 配置均衡，無超限項目</div>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#22c55e', marginBottom: 10 }}>✓ 配置均衡，無超限項目</div>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
         {data.weights.slice(0, 10).map(w => (
-          <div key={w.code} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 46px', gap: 8, alignItems: 'center', fontSize: 12 }}>
+          <div key={w.code} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 46px', gap: 8, alignItems: 'center', fontSize: 'calc(12px * var(--fz))' }}>
             <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.code} {w.name}</span>
             <div style={{ position: 'relative', height: 12, background: 'var(--bg-tertiary)', borderRadius: 6, overflow: 'hidden' }}>
               <div style={{ position: 'absolute', inset: 0, width: `${Math.min(w.pct / Math.max(lim.maxStockPct * 1.4, 1) * 100, 100)}%`, background: w.pct > lim.maxStockPct ? '#ef4444' : '#38bdf8', opacity: 0.85, borderRadius: 6 }} />
@@ -80,15 +80,15 @@ export default function RebalancePanel() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
         產業曝險：{data.industryWeights.slice(0, 5).map(iw => (
           <span key={iw.industry} style={{ padding: '2px 8px', borderRadius: 10, background: 'var(--bg-tertiary)', color: iw.pct > lim.maxIndustryPct ? '#ef4444' : 'var(--text-secondary)' }}>{iw.industry} {iw.pct}%</span>
         ))}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {saveMsg && <span style={{ fontSize: 12, color: saveMsg.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{saveMsg}</span>}
+          {saveMsg && <span style={{ fontSize: 'calc(12px * var(--fz))', color: saveMsg.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{saveMsg}</span>}
           <input className="input" type="number" min="0" inputMode="numeric" placeholder={data.cash != null ? `現金 ${data.cash}` : '輸入現金部位(元)'} value={cashInput}
-            onChange={e => setCashInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveCash(); }} style={{ width: 150, fontSize: 12, padding: '4px 8px' }} />
-          <button className="btn btn-buy" style={{ fontSize: 12, padding: '4px 10px' }} onClick={saveCash} disabled={!cashInput}>更新現金</button>
+            onChange={e => setCashInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveCash(); }} style={{ width: 150, fontSize: 'calc(12px * var(--fz))', padding: '4px 8px' }} />
+          <button className="btn btn-buy" style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 10px' }} onClick={saveCash} disabled={!cashInput}>更新現金</button>
         </span>
       </div>
     </div>

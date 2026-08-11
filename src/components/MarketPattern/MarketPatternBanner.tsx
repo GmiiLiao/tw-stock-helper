@@ -114,37 +114,37 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
     return (
       <div key={p.code} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.06)', border: open ? '1px solid rgba(61,142,248,0.35)' : '1px solid transparent' }}>
         <div onClick={() => setOpenCode(c => c === p.code ? null : p.code)}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13.5, flexWrap: 'wrap', cursor: 'pointer' }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap', cursor: 'pointer' }}>
+          <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
           <span style={{ fontWeight: 800, minWidth: 42 }}>{p.code}</span>
           <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+          <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
           <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
           <span style={{ fontWeight: 800, color: '#f03e3e' }}>+{p.chg}%</span>
           {p.score != null && (
-            <span style={{ fontSize: 11.5, fontWeight: 800, color: p.score >= 80 ? '#f03e3e' : p.score >= 60 ? '#fbbf24' : 'var(--text-muted)' }}>評分 {p.score}</span>
+            <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: p.score >= 80 ? '#f03e3e' : p.score >= 60 ? '#fbbf24' : 'var(--text-muted)' }}>評分 {p.score}</span>
           )}
           {p.char === '炒作型' && (
-            <span title="籌碼性格：炒作型——定版濾網×炒作型 700日實測雙口徑淨正（開賣+0.29/收賣+0.15），榜單排序已+2優先" style={{ fontSize: 10.5, fontWeight: 800, color: '#f59e0b', border: '1px solid #f59e0b55', borderRadius: 4, padding: '0 4px' }}>炒作</span>
+            <span title="籌碼性格：炒作型——定版濾網×炒作型 700日實測雙口徑淨正（開賣+0.29/收賣+0.15），榜單排序已+2優先" style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, color: '#f59e0b', border: '1px solid #f59e0b55', borderRadius: 4, padding: '0 4px' }}>炒作</span>
           )}
           {p.winRate != null && (
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#7dd3fc' }}>勝率 {p.winRate}%</span>
+            <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>勝率 {p.winRate}%</span>
           )}
           {hasInst && (
-            <span style={{ display: 'inline-flex', gap: 8, fontSize: 12 }}>
+            <span style={{ display: 'inline-flex', gap: 8, fontSize: 'calc(12px * var(--fz))' }}>
               <Lots label="外資" v={p.instF} />
               <Lots label="投信" v={p.instT} />
               <Lots label="自營" v={p.instD} />
             </span>
           )}
-          {(p.fStreak ?? 0) >= 1 && <span style={{ fontSize: 11, fontWeight: 700, color: '#f03e3e', background: 'rgba(240,62,62,0.12)', padding: '1px 5px', borderRadius: 5 }}>外資連{p.fStreak}日</span>}
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>量比 {p.volX}x · 收最高</span>
+          {(p.fStreak ?? 0) >= 1 && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: '#f03e3e', background: 'rgba(240,62,62,0.12)', padding: '1px 5px', borderRadius: 5 }}>外資連{p.fStreak}日</span>}
+          <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>量比 {p.volX}x · 收最高</span>
         </div>
         {open && (
           <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
             {/* 隔日沖建議賣價＋隔日漲跌停價 */}
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(245,158,11,0.08)' }}>
-              <span>🎯 建議賣出參考 <b style={{ color: '#fbbf24' }}>{sellRef}</b> <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>(回測均值 +{TAIL_AVG_RET}%；實務開盤 9:00–9:05 即賣)</span></span>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(245,158,11,0.08)' }}>
+              <span>🎯 建議賣出參考 <b style={{ color: '#fbbf24' }}>{sellRef}</b> <span style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>(回測均值 +{TAIL_AVG_RET}%；實務開盤 9:00–9:05 即賣)</span></span>
               <span>隔日漲停 <b style={{ color: '#f03e3e' }}>{limUp}</b></span>
               <span>隔日跌停 <b style={{ color: '#2f9e44' }}>{limDn}</b></span>
             </div>
@@ -158,9 +158,9 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
   return (
     <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(61,142,248,0.06)', border: '1px solid rgba(61,142,248,0.25)' }}>
       <div onClick={toggleCollapse} style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: collapsed ? 0 : 6, cursor: 'pointer' }}>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{collapsed ? '▸' : '▾'}</span>
-        <span style={{ fontSize: 14.5, fontWeight: 900, color: '#7dd3fc' }}>🪣 撿尾盤推薦股</span>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{collapsed ? '▸' : '▾'}</span>
+        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#7dd3fc' }}>🪣 撿尾盤推薦股</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {collapsed
             ? <>共 {tp.buyableTotal} 檔 · 外資買超優先 · {tp.source === 'live' ? '尾盤即時' : '今日收盤'}</>
             : <>
@@ -168,7 +168,7 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
                 <span className="mobile-only">收最高＋破5日高＋漲≥1% · {tp.source === 'live' ? '尾盤即時' : '今日收盤'} · 共 {tp.buyableTotal} 檔 · 點列展開K線</span>
               </>}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#7dd3fc', fontWeight: 700 }}>{collapsed ? '展開 ▾' : '收合 ▸'}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(11.5px * var(--fz))', color: '#7dd3fc', fontWeight: 700 }}>{collapsed ? '展開 ▾' : '收合 ▸'}</span>
       </div>
       {!collapsed && <>
       {/* 畫面變動規則：三階段時間軸，高亮目前階段 */}
@@ -186,7 +186,7 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
             {phases.map((p, i) => (
               <div key={i} style={{
-                flex: '1 1 180px', padding: '5px 9px', borderRadius: 8, fontSize: 11.5, lineHeight: 1.5,
+                flex: '1 1 180px', padding: '5px 9px', borderRadius: 8, fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.5,
                 background: cur === i ? 'rgba(125,211,252,0.12)' : 'rgba(148,163,184,0.05)',
                 border: `1px solid ${cur === i ? 'rgba(125,211,252,0.45)' : 'transparent'}`,
                 color: cur === i ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -208,21 +208,21 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
               <PickMore ctl={ctl} setCtl={setCtl} filteredTotal={filteredTotal} />
             </>
           ) : (
-            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>此價格區間內無符合標的，換個區間看看。</div>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>此價格區間內無符合標的，換個區間看看。</div>
           )}
         </>
       ) : (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>今日無符合條件、尾盤買得到的標的。</div>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>今日無符合條件、尾盤買得到的標的。</div>
       )}
       {tp.locked.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 4 }}>🔒 已鎖漲停（買不到，改用「漲停鎖死」策略排隊）</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#f59e0b', marginBottom: 4 }}>🔒 已鎖漲停（買不到，改用「漲停鎖死」策略排隊）</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
             {tp.locked.map(p => `${p.code} ${p.name}`).join('、')}
           </div>
         </div>
       )}
-      <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>
+      <div style={{ marginTop: 6, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
         ⚠ 尾盤 13:00–13:25 掛單買進、隔日 9:00–10:00 出場；單筆風險≤1%。非投資建議。
       </div>
       </>}
@@ -251,26 +251,26 @@ export function MarketPatternBanner() {
     <div style={{ marginBottom: 12, padding: '14px 16px', borderRadius: 12, border: `2px solid ${borderColor}`, background: 'var(--bg-elevated)', boxShadow: env.level !== 'neutral' || liveWarn ? `0 0 14px ${borderColor}44` : 'none' }}>
       {/* 標題列（可點擊收合/展開盤型紀律） */}
       <div onClick={toggle} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer' }}>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{collapsed ? '▸' : '▾'}</span>
-        <span style={{ fontSize: '1.1rem', fontWeight: 900 }}>⏱️ 今日盤型</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{collapsed ? '▸' : '▾'}</span>
+        <span style={{ fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 900 }}>⏱️ 今日盤型</span>
         {pat ? (
-          <span style={{ fontSize: '1.15rem', fontWeight: 900, color: pat.color }}>{pat.icon} {pat.name}</span>
+          <span style={{ fontSize: 'calc(1.15rem * var(--fz))', fontWeight: 900, color: pat.color }}>{pat.icon} {pat.name}</span>
         ) : (
-          <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>開盤後 09:00 起顯示即時判讀</span>
+          <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', fontWeight: 600 }}>開盤後 09:00 起顯示即時判讀</span>
         )}
         {/* 收合時把環境燈號摘要併到標題列 */}
-        {collapsed && <span style={{ fontSize: 12.5, fontWeight: 800, color: env.level === 'red' ? '#ef4444' : env.level === 'yellow' ? '#fbbf24' : 'var(--text-secondary)' }}>{envText}·近5日{env.fadeCount}天翻黑</span>}
+        {collapsed && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: env.level === 'red' ? '#ef4444' : env.level === 'yellow' ? '#fbbf24' : 'var(--text-secondary)' }}>{envText}·近5日{env.fadeCount}天翻黑</span>}
         {liveValid && !collapsed && (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
             加權 {mp.live!.price.toFixed(0)} · 跳空 {mp.live!.gapPct >= 0 ? '+' : ''}{mp.live!.gapPct}% · 盤中 {mp.live!.intraPct >= 0 ? '+' : ''}{mp.live!.intraPct}% · {closed ? '今日最終' : '盤中即時'}
           </span>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#7dd3fc', fontWeight: 700 }}>{collapsed ? '展開紀律 ▾' : '收合 ▸'}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(11.5px * var(--fz))', color: '#7dd3fc', fontWeight: 700 }}>{collapsed ? '展開紀律 ▾' : '收合 ▸'}</span>
       </div>
       {/* 近5日環境燈號（收合時隱藏） */}
       {!collapsed && <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-        <span style={{ fontSize: 13.5, fontWeight: 800, color: env.level === 'red' ? '#ef4444' : env.level === 'yellow' ? '#fbbf24' : 'var(--text-secondary)' }}>
+        <span style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 800, color: env.level === 'red' ? '#ef4444' : env.level === 'yellow' ? '#fbbf24' : 'var(--text-secondary)' }}>
           {env.level === 'red' ? '🔴 震盪盤紅燈' : env.level === 'yellow' ? '🟡 震盪盤黃燈' : '🟢 環境正常'}：近 5 日 {env.fadeCount} 天盤中翻黑（開高走低／開平殺盤）
         </span>
         <span style={{ display: 'flex', gap: 4 }}>
@@ -278,7 +278,7 @@ export function MarketPatternBanner() {
             const warn = dy.pattern === 'fadeDown' || dy.pattern === 'flatDown';
             return (
               <span key={dy.date} title={`${dy.date} 跳空${dy.gapPct}% 盤中${dy.intraPct}%`}
-                style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, fontWeight: 700, background: warn ? 'rgba(245,158,11,0.18)' : 'rgba(148,163,184,0.10)', color: warn ? '#f59e0b' : 'var(--text-muted)', border: `1px solid ${warn ? 'rgba(245,158,11,0.5)' : 'transparent'}` }}>
+                style={{ fontSize: 'calc(11px * var(--fz))', padding: '2px 6px', borderRadius: 6, fontWeight: 700, background: warn ? 'rgba(245,158,11,0.18)' : 'rgba(148,163,184,0.10)', color: warn ? '#f59e0b' : 'var(--text-muted)', border: `1px solid ${warn ? 'rgba(245,158,11,0.5)' : 'transparent'}` }}>
                 {dy.date.slice(5)} {MP_LABEL[dy.pattern]?.icon ?? '⚪'}
               </span>
             );
@@ -287,7 +287,7 @@ export function MarketPatternBanner() {
       </div>
       {/* 操作說明：明顯配色＋加大字體 */}
       <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(245,158,11,0.06)' }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#7dd3fc', marginBottom: 4 }}>📖 今日出場紀律（隔日沖）</div>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 800, color: '#7dd3fc', marginBottom: 4 }}>📖 今日出場紀律（隔日沖）</div>
         {(MP_OPS[opsKey] ?? MP_OPS.range).map((op, i) => (
           <div key={i} style={{ fontSize: op.strong ? 15.5 : 14, fontWeight: op.strong ? 800 : 600, lineHeight: 1.9, color: op.strong ? '#fbbf24' : 'var(--text-secondary)' }}>
             {op.text}
@@ -312,7 +312,7 @@ export function MarketPatternHint({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div onClick={onNavigate}
-      style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, border: `1px solid ${borderColor}`, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', cursor: onNavigate ? 'pointer' : 'default', fontSize: 13 }}>
+      style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, border: `1px solid ${borderColor}`, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', cursor: onNavigate ? 'pointer' : 'default', fontSize: 'calc(13px * var(--fz))' }}>
       <span style={{ fontWeight: 800 }}>⏱️ 今日盤型</span>
       {pat && <span style={{ fontWeight: 900, color: pat.color }}>{pat.icon} {pat.name}</span>}
       <span style={{ fontWeight: 700, color: env.level === 'red' ? '#ef4444' : '#fbbf24' }}>

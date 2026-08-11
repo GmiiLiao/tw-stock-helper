@@ -134,7 +134,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, padding: '2px 4px 4px', color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 'calc(11px * var(--fz))', padding: '2px 4px 4px', color: 'var(--text-muted)' }}>
         {MA_DEFS.map((d, di) => {
           const v = maFull[di][legendIdx];
           return (
@@ -197,7 +197,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
         {/* 游標數值框：日期/開高低收/量(張) */}
         {hv && (
           <div style={{ position: 'absolute', top: 4, left: hoverIdx! < view.length / 2 ? 'auto' : 8, right: hoverIdx! < view.length / 2 ? 8 : 'auto',
-            background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, padding: '5px 8px', fontSize: 11, color: '#e2e8f0', pointerEvents: 'none', lineHeight: 1.6, whiteSpace: 'nowrap' }}>
+            background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, padding: '5px 8px', fontSize: 'calc(11px * var(--fz))', color: '#e2e8f0', pointerEvents: 'none', lineHeight: 1.6, whiteSpace: 'nowrap' }}>
             <div style={{ color: '#94a3b8' }}>{format(new Date(hv.t * 1000), hvFmt)}</div>
             <div>開 {hv.o}　高 <span style={{ color: '#f87171' }}>{hv.h}</span>　低 <span style={{ color: '#4ade80' }}>{hv.l}</span></div>
             <div>收 <b style={{ color: hv.c >= hv.o ? '#f87171' : '#4ade80' }}>{hv.c}</b>　量 {(hv.v / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} 張</div>
@@ -205,7 +205,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
         )}
       </div>
       {/* 縮放控制 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
         <button className={styles.periodTab} onClick={() => setSize(s => Math.round(Math.min(n, s * 1.4)))}>－ 縮小</button>
         <button className={styles.periodTab} onClick={() => setSize(s => Math.round(Math.max(8, s * 0.7)))}>＋ 放大</button>
         <span>顯示 {view.length} 根{MODE_LABEL[mode]}K（共 {n}）· 滾輪縮放 · 拖曳平移</span>
@@ -267,12 +267,12 @@ function InstStrip({ code, changePercent = 0, volume = 0 }: { code: string; chan
   const fmt = (n: number) => (n > 0 ? '+' : '') + Math.round(n).toLocaleString();
   const item = (lb: string, v: number) => <span>{lb}<b style={{ color: col(v), marginLeft: 2 }}>{fmt(v)}</b></span>;
   return (
-    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)', minWidth: 0, padding: '0 10px' }} title={tip}>
+    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', minWidth: 0, padding: '0 10px' }} title={tip}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 800, padding: '2px 10px', borderRadius: 20, color: p.color, background: p.bg, border: `1px solid ${p.color}55`, whiteSpace: 'nowrap' }}>
         {p.icon} {p.label}
-        {p.win != null && <span style={{ fontSize: 11, fontWeight: 700 }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
+        {p.win != null && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700 }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
       </span>
-      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>三大法人{useCum ? `(連買${d.streak}日累計)` : '(當日)'}</span>
+      <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>三大法人{useCum ? `(連買${d.streak}日累計)` : '(當日)'}</span>
       {item('外', ef)}{item('投', et)}{item('自', ed)}
     </div>
   );
@@ -435,13 +435,13 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
                 <YAxis domain={yDomain as [number, number]} tick={{ fill: '#7e8ba3', fontSize: 10 }} axisLine={false} tickLine={false} orientation="left" tickFormatter={v => v.toFixed(0)} />
                 {/* 量軸（隱藏）：domain 放大 4 倍→量棒只佔圖表下方約 1/4，不干擾價格線 */}
                 <YAxis yAxisId="vol" hide domain={[0, (dMax: number) => (dMax || 1) * 4]} />
-                <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11, color: '#e2e8f0' }}
+                <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 'calc(11px * var(--fz))', color: '#e2e8f0' }}
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 4 }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any, nm: any) => (nm === 'close' ? [parseFloat(String(value)).toFixed(2), '成交價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
                 {refPrev !== null && refPrev > 0 && (
                   <ReferenceLine y={refPrev} stroke="#fbbf24" strokeDasharray="5 4" strokeWidth={1.5} ifOverflow="extendDomain"
-                    label={{ value: `平盤 ${refPrev.toFixed(2)}`, position: 'insideTopRight', fill: '#fbbf24', fontSize: 10, fontWeight: 700 }} />
+                    label={{ value: `平盤 ${refPrev.toFixed(2)}`, position: 'insideTopRight', fill: '#fbbf24', fontSize: 'calc(10px * var(--fz))', fontWeight: 700 }} />
                 )}
                 <Bar yAxisId="vol" dataKey="volume" name="volume" fill={chartColor} opacity={0.28} isAnimationActive={false} />
                 <Area type="monotone" dataKey="close" name="close" stroke={chartColor} strokeWidth={2} fill={`url(#gradient-${code})`} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: chartColor }} />

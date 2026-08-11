@@ -7,8 +7,8 @@
 }
 
 .header { display: flex; flex-direction: column; gap: 4px; }
-.title { font-size: 1.5rem; font-weight: 800; color: var(--text-primary); }
-.subtitle { font-size: 0.875rem; color: var(--text-muted); }
+.title { font-size: calc(1.5rem * var(--fz)); font-weight: 800; color: var(--text-primary); }
+.subtitle { font-size: calc(0.875rem * var(--fz)); color: var(--text-muted); }
 
 .emptyState {
   display: flex;
@@ -19,9 +19,9 @@
   gap: 12px;
 }
 
-.emptyIcon { font-size: 4rem; opacity: 0.3; }
-.emptyText { font-size: 1.125rem; font-weight: 600; color: var(--text-secondary); }
-.emptySub { font-size: 0.875rem; color: var(--text-muted); }
+.emptyIcon { font-size: calc(4rem * var(--fz)); opacity: 0.3; }
+.emptyText { font-size: calc(1.125rem * var(--fz)); font-weight: 600; color: var(--text-secondary); }
+.emptySub { font-size: calc(0.875rem * var(--fz)); color: var(--text-muted); }
 
 .summaryGrid {
   display: grid;
@@ -38,7 +38,7 @@
 }
 
 .summaryLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -47,14 +47,14 @@
 
 .summaryValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.5rem;
+  font-size: calc(1.5rem * var(--fz));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1;
 }
 
 .summarySub {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
   font-family: 'JetBrains Mono', monospace;
@@ -75,7 +75,7 @@
 }
 
 .cardTitle {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 12px;
@@ -104,12 +104,12 @@
 
 .groupCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   color: var(--accent-blue);
 }
 
-.groupName { font-size: 0.875rem; color: var(--text-primary); flex: 1; }
+.groupName { font-size: calc(0.875rem * var(--fz)); color: var(--text-primary); flex: 1; }
 
 .groupBar {
   width: 10px;
@@ -138,14 +138,14 @@
   flex: 1;
 }
 
-.holdingDate { font-size: 0.75rem; color: var(--text-muted); }
-.holdingQty { font-size: 0.875rem; font-weight: 600; }
-.holdingBuy { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-secondary); }
-.holdingCurrent { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-secondary); }
+.holdingDate { font-size: calc(0.75rem * var(--fz)); color: var(--text-muted); }
+.holdingQty { font-size: calc(0.875rem * var(--fz)); font-weight: 600; }
+.holdingBuy { font-family: 'JetBrains Mono', monospace; font-size: calc(0.8rem * var(--fz)); color: var(--text-secondary); }
+.holdingCurrent { font-family: 'JetBrains Mono', monospace; font-size: calc(0.8rem * var(--fz)); color: var(--text-secondary); }
 
 .holdingPnl {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 700;
   display: flex;
   align-items: baseline;
@@ -153,7 +153,7 @@
   flex-shrink: 0;
 }
 
-.holdingPnlPct { font-size: 0.75rem; }
+.holdingPnlPct { font-size: calc(0.75rem * var(--fz)); }
 
 .rowActions {
   display: flex;
@@ -169,7 +169,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--fz));
   transition: all 0.15s ease;
   padding: 4px 6px;
   border-radius: var(--radius-sm);
@@ -226,7 +226,7 @@
 }
 
 .modalHeader h3 {
-  font-size: 1.05rem;
+  font-size: calc(1.05rem * var(--fz));
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
@@ -236,7 +236,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--fz));
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -263,20 +263,20 @@
 }
 
 .formGroup label {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 500;
   color: var(--text-secondary);
 }
 
 .inputHelper {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;
 }
 
 .costPreview {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-secondary);
   padding: 10px 12px;
   background: var(--bg-elevated);
@@ -326,5 +326,5 @@
   .txRow > :nth-child(3) { grid-row: 3; grid-column: 1 / -1; }
   .txRow > :nth-child(4) { grid-row: 1; grid-column: 2; }
   /* icon 只是輔助操作，縮到剛好可點（44px 觸控區由 padding 撐出） */
-  .txRow > :nth-child(4) button { padding: 5px 7px; font-size: 13px; line-height: 1; }
+  .txRow > :nth-child(4) button { padding: 5px 7px; font-size: calc(13px * var(--fz)); line-height: 1; }
 }

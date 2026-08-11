@@ -100,10 +100,10 @@ function InstCell({ label, lots, streak }: { label: string; lots?: number; strea
   const c = !has ? 'var(--text-muted)' : lots > 0 ? '#f03e3e' : lots < 0 ? '#2f9e44' : 'var(--text-muted)';
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', minWidth: 52, lineHeight: 1.15 }}>
-      <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{label}</span>
-      <span style={{ fontSize: 11.5, fontWeight: 800, color: c }}>{has ? (lots > 0 ? '+' : '') + lots.toLocaleString() : '—'}</span>
+      <span style={{ fontSize: 'calc(9px * var(--fz))', color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: c }}>{has ? (lots > 0 ? '+' : '') + lots.toLocaleString() : '—'}</span>
       {!!streak && Math.abs(streak) >= 2 && (
-        <span style={{ fontSize: 8.5, fontWeight: 700, color: streak > 0 ? '#f03e3e' : '#2f9e44' }}>{streak > 0 ? `連買${streak}` : `連賣${-streak}`}</span>
+        <span style={{ fontSize: 'calc(8.5px * var(--fz))', fontWeight: 700, color: streak > 0 ? '#f03e3e' : '#2f9e44' }}>{streak > 0 ? `連買${streak}` : `連賣${-streak}`}</span>
       )}
     </span>
   );
@@ -116,13 +116,13 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
   onlyCand: boolean; candSet: Set<string>;
 }) {
   const RESERVED = '⏳ 多模態預留：目前分類服務「隔日沖」；未來當沖／長期／波段模式將沿用同一分類、套用各自權重。';
-  if (!charData) return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '14px 4px' }}>載入完整總表…</div>;
+  if (!charData) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '14px 4px' }}>載入完整總表…</div>;
   if (!charData.found) {
     return (
-      <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 8px', lineHeight: 1.9 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 8px', lineHeight: 1.9 }}>
         📋 完整總表準備中——正在回填 3 年法人籌碼並計算「炒作 vs 長期持有」分類。
         <br />完成後此處將列出全部有法人部位的個股，一列同時看外資／投信／自營各自持有狀態＋分類標籤＋炒作活躍度。
-        <div style={{ marginTop: 8, fontSize: 11.5 }}>{RESERVED}</div>
+        <div style={{ marginTop: 8, fontSize: 'calc(11.5px * var(--fz))' }}>{RESERVED}</div>
       </div>
     );
   }
@@ -164,13 +164,13 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
     <div>
       {/* 性格分類過濾 */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 5, alignItems: 'center' }}>
-        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 30 }}>性格</span>
+        <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>性格</span>
         {CHAR_LABELS.map(f => {
           const on = filter === f;
           const st = CHAR_STYLE[f] || { c: '#7dd3fc', bg: 'rgba(125,211,252,0.14)' };
           return (
             <button key={f} onClick={() => { setFilter(f); setLimit(50); }}
-              style={{ padding: '3px 11px', borderRadius: 14, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+              style={{ padding: '3px 11px', borderRadius: 14, fontSize: 'calc(12px * var(--fz))', fontWeight: 800, cursor: 'pointer',
                 border: `1px solid ${on ? `${st.c}88` : 'var(--border-primary)'}`, background: on ? st.bg : 'transparent',
                 color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}>
               {f} {countOf(f).toLocaleString()}
@@ -180,12 +180,12 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
       </div>
       {/* 法人行為過濾 */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 5, alignItems: 'center' }}>
-        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 30 }}>法人</span>
+        <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>法人</span>
         {INST_FILTERS.map(f => {
           const on = instFilter === f;
           return (
             <button key={f} onClick={() => { setInstFilter(f); setLimit(50); }}
-              style={{ padding: '3px 10px', borderRadius: 13, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+              style={{ padding: '3px 10px', borderRadius: 13, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
                 border: `1px solid ${on ? 'rgba(125,211,252,0.55)' : 'var(--border-primary)'}`,
                 background: on ? 'rgba(125,211,252,0.14)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}>
               {f}
@@ -195,12 +195,12 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
       </div>
       {/* 排序 */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
-        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', minWidth: 30 }}>排序</span>
+        <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>排序</span>
         {CHAR_SORTS.map(s => {
           const on = sort === s.key;
           return (
             <button key={s.key} onClick={() => setSort(s.key)}
-              style={{ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              style={{ padding: '2px 9px', borderRadius: 12, fontSize: 'calc(11px * var(--fz))', fontWeight: 700, cursor: 'pointer',
                 border: `1px solid ${on ? 'rgba(246,160,106,0.6)' : 'var(--border-primary)'}`,
                 background: on ? 'rgba(246,160,106,0.14)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}>
               {s.label}
@@ -218,16 +218,16 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
           const specBar = Math.max(0, Math.min(100, r.spec ?? 0));
           return (
             <div key={r.code} onClick={() => navigateTo('stock', r.code)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13, flexWrap: 'wrap',
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13px * var(--fz))', flexWrap: 'wrap',
                 cursor: 'pointer', borderRadius: 8, background: 'rgba(148,163,184,0.06)',
                 ...(candSet.has(r.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.7)' } : {}) }}>
               <span onClick={e => e.stopPropagation()}><AddCandidateButton code={r.code} variant="icon" /></span>
               <span style={{ fontWeight: 800, minWidth: 42, color: '#7dd3fc' }}>{r.code}</span>
               <span style={{ fontWeight: 600, minWidth: 60 }}>{st?.name || '—'}</span>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+              <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
               {st?.price != null && <span style={{ color: 'var(--text-secondary)', minWidth: 40 }}>{st.price}</span>}
               {chg != null && <span style={{ fontWeight: 800, minWidth: 46, color: chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}%</span>}
-              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: ls.bg, color: ls.c }}>{r.label || '一般'}</span>
+              <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: ls.bg, color: ls.c }}>{r.label || '一般'}</span>
               {/* 三法人分別 20 日持有狀態 */}
               <span style={{ display: 'inline-flex', gap: 8, alignItems: 'flex-start', padding: '0 4px', borderLeft: '1px solid var(--border-primary)', borderRight: '1px solid var(--border-primary)' }}>
                 <InstCell label="外資" lots={r.f20} streak={r.fStreak} />
@@ -236,26 +236,26 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
               </span>
               {/* 炒作活躍度 */}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>炒作</span>
+                <span style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>炒作</span>
                 <span style={{ width: 52, height: 7, borderRadius: 4, background: 'rgba(148,163,184,0.15)', overflow: 'hidden', display: 'inline-block' }}>
                   <span style={{ display: 'block', width: `${specBar}%`, height: '100%', background: specBar >= 62 ? '#f03e3e' : specBar >= 40 ? '#f59e0b' : '#94a3b8' }} />
                 </span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: specBar >= 62 ? '#f03e3e' : 'var(--text-secondary)', width: 20 }}>{r.spec ?? '—'}</span>
-                {r.corr != null && <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>領先{r.corr.toFixed(2)}</span>}
+                <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, color: specBar >= 62 ? '#f03e3e' : 'var(--text-secondary)', width: 20 }}>{r.spec ?? '—'}</span>
+                {r.corr != null && <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>領先{r.corr.toFixed(2)}</span>}
               </span>
             </div>
           );
         })}
-        {shown.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '10px 4px' }}>此「{filter}×{instFilter}」條件下無標的，換個過濾。</div>}
+        {shown.length === 0 && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>此「{filter}×{instFilter}」條件下無標的，換個過濾。</div>}
       </div>
       {rows.length > limit && (
         <button onClick={() => setLimit(limit + 50)}
-          style={{ marginTop: 8, width: '100%', padding: '7px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+          style={{ marginTop: 8, width: '100%', padding: '7px', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
             border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-secondary)' }}>
           顯示更多（{Math.min(limit, rows.length)}/{rows.length.toLocaleString()}）
         </button>
       )}
-      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
         分類窗 {charData.window?.from}→{charData.window?.to}（{charData.window?.days} 日）· 三法人為近 20 日累計淨張（紅買綠賣、連買/連賣日數）· 炒作分＝週轉佔量＋籌碼領先＋建倉倒貨週期。
         <br />{RESERVED} 非投資建議。
       </div>
@@ -298,8 +298,8 @@ export default function ChipPicksPanel() {
     return () => { live = false; };
   }, [view, charData]);
 
-  if (!data) return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 4px' }}>載入法人籌碼推選…</div>;
-  if (!data.found) return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 4px' }}>法人籌碼推選尚無資料（常駐服務下一週期產生）。</div>;
+  if (!data) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 4px' }}>載入法人籌碼推選…</div>;
+  if (!data.found) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 4px' }}>法人籌碼推選尚無資料（常駐服務下一週期產生）。</div>;
 
   const liveMap = new Map(allStocks.map(st => [st.code, st]));
   const srcAll0: Pick[] = view === 'graded' ? data.graded : view === 'totalCum' ? data.totalCum : view === 'layout' ? data.layout : [];
@@ -326,8 +326,8 @@ export default function ChipPicksPanel() {
   return (
     <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(232,89,12,0.05)', border: '1px solid rgba(232,89,12,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontSize: 14.5, fontWeight: 900, color: '#f6a06a' }}>🧬 籌碼推選</span>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#f6a06a' }}>🧬 籌碼推選</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
           資料日 {data.dataDate} · 法人為 t-1（EOD 累計）× 即時價 · 宇宙 {data.counts?.universe ?? '—'} 檔 · 非投資建議
         </span>
       </div>
@@ -341,7 +341,7 @@ export default function ChipPicksPanel() {
           const on = view === v.key;
           return (
             <button key={v.key} onClick={() => { setView(v.key); setCtl(c => ({ ...c, limit: 30 })); }}
-              style={{ padding: '5px 12px', borderRadius: 16, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
+              style={{ padding: '5px 12px', borderRadius: 16, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: 'pointer',
                 border: `1px solid ${on ? 'rgba(246,160,106,0.6)' : 'var(--border-primary)'}`,
                 background: on ? 'rgba(246,160,106,0.14)' : 'transparent',
                 color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -356,10 +356,10 @@ export default function ChipPicksPanel() {
             不換行就會被壓縮成多行殘字。 */}
       {view === 'graded' && (
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-          <span style={{ fontSize: 10.5, color: 'var(--text-muted)', flexShrink: 0 }}>排序</span>
+          <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', flexShrink: 0 }}>排序</span>
           {([['comp', '🧬 綜合評分(實證加權)'], ['tier', '🏆 級別']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setGradedSort(k)}
-              style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+              style={{ padding: '3px 10px', borderRadius: 12, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
                 border: `1px solid ${gradedSort === k ? 'rgba(167,139,250,0.6)' : 'var(--border-primary)'}`,
                 background: gradedSort === k ? 'rgba(167,139,250,0.14)' : 'transparent',
                 color: gradedSort === k ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -369,7 +369,7 @@ export default function ChipPicksPanel() {
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flex: '1 1 auto' }}>{meta.hint}</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', flex: '1 1 auto' }}>{meta.hint}</span>
         <OnlyCandidatesToggle on={onlyCand} setOn={setOnlyCand} />
       </div>
 
@@ -384,7 +384,7 @@ export default function ChipPicksPanel() {
         />
       ) : view === 'accum' ? (
         accumRows.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '10px 4px' }}>目前無符合「布局中」條件的個股（需 60 日加碼≥1000 張且未倒貨）。</div>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>目前無符合「布局中」條件的個股（需 60 日加碼≥1000 張且未倒貨）。</div>
         ) : (
           <>
             <div style={{ display: 'grid', gap: 4 }}>
@@ -395,28 +395,28 @@ export default function ChipPicksPanel() {
                 return (
                   <div key={p.code} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.06)', border: open ? '1px solid rgba(61,142,248,0.35)' : '1px solid transparent', ...(candSet.has(p.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.7)' } : {}) }}>
                     <div onClick={() => setOpenCode(c => c === p.code ? null : p.code)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13.5, flexWrap: 'wrap', cursor: 'pointer' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap', cursor: 'pointer' }}>
+                      <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
                       <span onClick={e => e.stopPropagation()}><AddCandidateButton code={p.code} variant="icon" /></span>
                       <span style={{ fontWeight: 800, minWidth: 42 }}>{p.code}</span>
                       <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+                      <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                       <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: '#f6a06a' }}>加碼 {p.added.toLocaleString()} 張{p.addedXVol != null ? `(${p.addedXVol}x日均)` : ''}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{p.valueE8} 億 · 布局 {p.days} 日 · 買超 {p.buyDays} 天</span>
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: p.rise >= 0 ? '#f03e3e' : '#2f9e44' }}>期間{p.rise >= 0 ? '+' : ''}{p.rise}%</span>
-                      {p.lu60 > 0 && <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>3月{p.lu60}板</span>}
+                      <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: '#f6a06a' }}>加碼 {p.added.toLocaleString()} 張{p.addedXVol != null ? `(${p.addedXVol}x日均)` : ''}</span>
+                      <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)' }}>{p.valueE8} 億 · 布局 {p.days} 日 · 買超 {p.buyDays} 天</span>
+                      <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: p.rise >= 0 ? '#f03e3e' : '#2f9e44' }}>期間{p.rise >= 0 ? '+' : ''}{p.rise}%</span>
+                      {p.lu60 > 0 && <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>3月{p.lu60}板</span>}
                       {/* 倒貨風險進度條 */}
                       <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ width: 64, height: 7, borderRadius: 4, background: 'rgba(148,163,184,0.15)', overflow: 'hidden', display: 'inline-block' }}>
                           <span style={{ display: 'block', width: `${Math.min(100, p.dumpRisk)}%`, height: '100%', background: rc }} />
                         </span>
-                        <span style={{ fontSize: 10.5, fontWeight: 800, color: rc }}>{p.stage}</span>
+                        <span style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, color: rc }}>{p.stage}</span>
                       </span>
                     </div>
                     {open && (
                       <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 6, lineHeight: 1.8 }}>
+                        <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6, lineHeight: 1.8 }}>
                           布局全貌：{p.days} 日內三大法人淨加碼 <b style={{ color: '#f6a06a' }}>{p.added.toLocaleString()} 張</b>（約 {p.valueE8} 億、佔日均量 {p.addedXVol ?? '—'} 倍、買超 {p.buyDays} 天）、期間股價 {p.rise >= 0 ? '+' : ''}{p.rise}%。
                           <br />倒貨風險進度 <b style={{ color: rc }}>{Math.min(150, p.dumpRisk)}%</b>——實證錨點：444 個布局案例中位在「漲 21%／加碼 3 倍日均量」後開始倒貨（倒貨後股價中位 −10%）。{p.dumpRisk >= 80 ? '已接近實證倒貨點，追高需極度謹慎。' : p.dumpRisk >= 50 ? '布局中段，留意外資是否先轉賣。' : '布局早期。'}
                           {p.lu60 > 0 && <><br /><span style={{ color: 'var(--text-muted)' }}>3 個月漲停 {p.lu60} 次（參考資訊——實證法人加碼≠漲停訊號，漲停是短線動能事件）</span></>}
@@ -429,13 +429,13 @@ export default function ChipPicksPanel() {
               })}
             </div>
             <PickMore ctl={ctl} setCtl={setCtl} filteredTotal={accumTotal} />
-            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+            <div style={{ marginTop: 6, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
               ⚠ 實證：法人加碼是「週〜月」布局，與漲停（短線動能）為不同因素（漲停前法人買超佔比 58% vs 全市場 48%）——此榜用於跟隨布局與提防倒貨，非漲停預測（漲停請看 🚀 漲停預測分頁）。非投資建議。
             </div>
           </>
         )
       ) : rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '10px 4px' }}>此條件下無符合標的，換個榜別或價格區間。</div>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>此條件下無符合標的，換個榜別或價格區間。</div>
       ) : (
         <div style={{ display: 'grid', gap: 4 }}>
           {rows.map((p, i) => {
@@ -446,51 +446,51 @@ export default function ChipPicksPanel() {
             return (
               <div key={p.code} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.06)', border: open ? '1px solid rgba(61,142,248,0.35)' : '1px solid transparent', ...(candSet.has(p.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.7)' } : {}) }}>
                 <div onClick={() => setOpenCode(c => c === p.code ? null : p.code)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13.5, flexWrap: 'wrap', cursor: 'pointer' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
                   <span onClick={e => e.stopPropagation()}><AddCandidateButton code={p.code} variant="icon" /></span>
-                  {rankNo && <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', width: 18 }}>{rankNo}</span>}
-                  <span style={{ fontSize: 11, fontWeight: 900, padding: '1px 6px', borderRadius: 6, background: ts.bg, color: ts.c }}>{p.tier}</span>
+                  {rankNo && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', width: 18 }}>{rankNo}</span>}
+                  <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 900, padding: '1px 6px', borderRadius: 6, background: ts.bg, color: ts.c }}>{p.tier}</span>
                   <span style={{ fontWeight: 800, minWidth: 42 }}>{p.code}</span>
                   <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+                  <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                   {p.price != null && <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>}
                   <span style={{ fontWeight: 800, color: p.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.chg >= 0 ? '+' : ''}{p.chg}%</span>
-                  {p.win != null && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#7dd3fc' }}>勝率 {p.win}%</span>}
+                  {p.win != null && <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>勝率 {p.win}%</span>}
                   {view === 'graded' && (() => { const cmp = compositeOf(p, liveMap.get(p.code) as { high?: number; low?: number }); return (
                     <>
-                      <span title="綜合評分＝勝率雷達基底＋實證訊號加減分（點展開看資券）" style={{ fontSize: 11.5, fontWeight: 900, padding: '1px 7px', borderRadius: 7, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd' }}>🧬{cmp.score}</span>
-                      {cmp.badges.map(b => <span key={b.t} title={b.tip} style={{ fontSize: 10.5, fontWeight: 800, color: b.c }}>{b.t}</span>)}
+                      <span title="綜合評分＝勝率雷達基底＋實證訊號加減分（點展開看資券）" style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 900, padding: '1px 7px', borderRadius: 7, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd' }}>🧬{cmp.score}</span>
+                      {cmp.badges.map(b => <span key={b.t} title={b.tip} style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, color: b.c }}>{b.t}</span>)}
                     </>
                   ); })()}
-                  {p.streak >= 2 && <span style={{ fontSize: 11, fontWeight: 700, color: '#f03e3e', background: 'rgba(240,62,62,0.12)', padding: '1px 5px', borderRadius: 5 }}>外資連{p.streak}日</span>}
-                  {p.distributedPct >= 50 && <span style={{ fontSize: 11, fontWeight: 700, color: '#e8590c' }}>倒貨{p.distributedPct}%</span>}
+                  {p.streak >= 2 && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: '#f03e3e', background: 'rgba(240,62,62,0.12)', padding: '1px 5px', borderRadius: 5 }}>外資連{p.streak}日</span>}
+                  {p.distributedPct >= 50 && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: '#e8590c' }}>倒貨{p.distributedPct}%</span>}
                   {/* graded/布局→今日法人(與分級一致)；累計/分別→20日累計 */}
                   {view === 'graded' || view === 'layout' ? (
-                    <span style={{ marginLeft: 'auto', fontSize: 12, display: 'inline-flex', gap: 8 }}>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>今日</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', display: 'inline-flex', gap: 8 }}>
+                      <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>今日</span>
                       <Lots label="外" v={p.f} /><Lots label="投" v={p.t} /><Lots label="自" v={p.d} />
                     </span>
                   ) : (
-                    <span style={{ marginLeft: 'auto', fontSize: 12, display: 'inline-flex', gap: 8 }}>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>20日</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', display: 'inline-flex', gap: 8 }}>
+                      <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>20日</span>
                       <Lots label="外" v={p.foreignCum} /><Lots label="投" v={p.trustCum} /><Lots label="自" v={p.dealerCum} />
                     </span>
                   )}
                 </div>
                 {open && (
                   <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
                       <span>勝率雷達 <b style={{ color: ts.c }}>{p.tier}級 · {p.tierLabel}</b></span>
                       <span>近20日累計 外<b style={{ color: p.foreignCum >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.foreignCum >= 0 ? '+' : ''}{p.foreignCum.toLocaleString()}</b>／投<b style={{ color: p.trustCum >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.trustCum >= 0 ? '+' : ''}{p.trustCum.toLocaleString()}</b>／自<b style={{ color: p.dealerCum >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.dealerCum >= 0 ? '+' : ''}{p.dealerCum.toLocaleString()}</b> 張</span>
                       <span>今日 外<b style={{ color: p.f >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.f >= 0 ? '+' : ''}{p.f.toLocaleString()}</b></span>
                     </div>
                     {(p.mg || p.sh || p.ln) && (
-                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(167,139,250,0.07)' }}>
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(167,139,250,0.07)' }}>
                         <span style={{ fontWeight: 800, color: '#a78bfa' }}>🧬 資券借券(t-1·張)</span>
-                        {p.mg && <span title={METRIC_TIPS.融資} style={{ cursor: 'help' }}>融資 <b>{p.mg[0].toLocaleString()}</b><b style={{ fontSize: 11, color: p.mg[1] > 0 ? '#f03e3e' : p.mg[1] < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({p.mg[1] >= 0 ? '+' : ''}{p.mg[1].toLocaleString()})</b></span>}
-                        {p.sh && <span title={METRIC_TIPS.融券} style={{ cursor: 'help' }}>融券 <b>{p.sh[0].toLocaleString()}</b><b style={{ fontSize: 11, color: p.sh[1] > 0 ? '#f03e3e' : p.sh[1] < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({p.sh[1] >= 0 ? '+' : ''}{p.sh[1].toLocaleString()})</b></span>}
-                        {p.ln && <span title={METRIC_TIPS.借券} style={{ cursor: 'help' }}>借券 <b>{p.ln[0].toLocaleString()}</b><b style={{ fontSize: 11, color: p.ln[1] > 0 ? '#f03e3e' : p.ln[1] < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({p.ln[1] >= 0 ? '+' : ''}{p.ln[1].toLocaleString()})</b></span>}
+                        {p.mg && <span title={METRIC_TIPS.融資} style={{ cursor: 'help' }}>融資 <b>{p.mg[0].toLocaleString()}</b><b style={{ fontSize: 'calc(11px * var(--fz))', color: p.mg[1] > 0 ? '#f03e3e' : p.mg[1] < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({p.mg[1] >= 0 ? '+' : ''}{p.mg[1].toLocaleString()})</b></span>}
+                        {p.sh && <span title={METRIC_TIPS.融券} style={{ cursor: 'help' }}>融券 <b>{p.sh[0].toLocaleString()}</b><b style={{ fontSize: 'calc(11px * var(--fz))', color: p.sh[1] > 0 ? '#f03e3e' : p.sh[1] < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({p.sh[1] >= 0 ? '+' : ''}{p.sh[1].toLocaleString()})</b></span>}
+                        {p.ln && <span title={METRIC_TIPS.借券} style={{ cursor: 'help' }}>借券 <b>{p.ln[0].toLocaleString()}</b><b style={{ fontSize: 'calc(11px * var(--fz))', color: p.ln[1] > 0 ? '#f03e3e' : p.ln[1] < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({p.ln[1] >= 0 ? '+' : ''}{p.ln[1].toLocaleString()})</b></span>}
                         {p.mg && p.mg[0] > 0 && p.sh && <span title={METRIC_TIPS.券資比} style={{ cursor: 'help' }}>券資比 <b>{(p.sh[0] / p.mg[0] * 100).toFixed(1)}%</b></span>}
                         {p.hi20 != null && <span title={METRIC_TIPS['20日高']} style={{ cursor: 'help' }}>20日高 <b>{p.hi20}</b>{(p.price ?? 0) > p.hi20 ? <b style={{ color: '#f03e3e' }}>（已突破）</b> : null}</span>}
                       </div>
@@ -504,7 +504,7 @@ export default function ChipPicksPanel() {
         </div>
       )}
       {view !== 'accum' && view !== 'character' && <PickMore ctl={ctl} setCtl={setCtl} filteredTotal={filteredTotal} />}
-      <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
         ⚠ 法人籌碼為前一交易日 EOD 累計（台股無盤中法人）；分級/勝率為回測估計，非即時保證。進場鐵律：單筆風險≤1%。非投資建議。
       </div>
     </div>

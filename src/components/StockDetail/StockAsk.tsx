@@ -44,9 +44,9 @@ export default function StockAsk({ code, name }: { code: string; name: string })
   if (!isPremium) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-        <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+        <div style={{ fontSize: 'calc(40px * var(--fz))', marginBottom: 10 }}>🔒</div>
         <div>「問 AI」為高級會員專屬功能</div>
-        <div style={{ fontSize: 13, marginTop: 6, opacity: 0.8 }}>本地 AI 依第二大腦資料回答你對個股的提問</div>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', marginTop: 6, opacity: 0.8 }}>本地 AI 依第二大腦資料回答你對個股的提問</div>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export default function StockAsk({ code, name }: { code: string; name: string })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
         🧠 問 AI 關於 <b style={{ color: 'var(--text-secondary)' }}>{code} {name}</b> 的問題 —— 本地 AI 會根據第二大腦的技術/籌碼/新聞資料回答（約 10–40 秒）。
       </div>
 
@@ -72,17 +72,17 @@ export default function StockAsk({ code, name }: { code: string; name: string })
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {suggestions.map(s => (
-          <button key={s} onClick={() => setQ(s)} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 14, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{s}</button>
+          <button key={s} onClick={() => setQ(s)} style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: 14, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{s}</button>
         ))}
       </div>
 
       {/* 對話串 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 4 }}>
-        {items.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '12px 0' }}>還沒有提問。試試上面的建議問題。</div>}
+        {items.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))', padding: '12px 0' }}>還沒有提問。試試上面的建議問題。</div>}
         {items.map(it => (
           <div key={it.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ alignSelf: 'flex-end', maxWidth: '85%', padding: '8px 12px', borderRadius: '12px 12px 2px 12px', background: 'var(--accent-purple, #6366f1)', color: '#fff', fontSize: 14 }}>{it.question}</div>
-            <div style={{ alignSelf: 'flex-start', maxWidth: '90%', padding: '10px 14px', borderRadius: '12px 12px 12px 2px', background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+            <div style={{ alignSelf: 'flex-end', maxWidth: '85%', padding: '8px 12px', borderRadius: '12px 12px 2px 12px', background: 'var(--accent-purple, #6366f1)', color: '#fff', fontSize: 'calc(14px * var(--fz))' }}>{it.question}</div>
+            <div style={{ alignSelf: 'flex-start', maxWidth: '90%', padding: '10px 14px', borderRadius: '12px 12px 12px 2px', background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(14px * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
               {it.status === 'pending'
                 ? <span style={{ color: 'var(--text-muted)' }}>🤔 本地 AI 思考中…</span>
                 : (it.answer || '（無回應）')}

@@ -100,7 +100,7 @@ function PriceLadder({
                   {t.type === 'tp1' ? '🎯 TP1' : t.type === 'tp2' ? '🎯 TP2' : '🚀 TP3'}
                 </span>
                 <span className={styles.levelPrice}>{t.price.toFixed(2)}</span>
-                <span style={{ color: '#2f9e44', fontSize: '0.6875rem' }}>+{gainFromBuy}%</span>
+                <span style={{ color: '#2f9e44', fontSize: 'calc(0.6875rem * var(--fz))' }}>+{gainFromBuy}%</span>
               </div>
             </div>
           );
@@ -142,7 +142,7 @@ function PriceLadder({
                   🔴 {z.label}
                 </span>
                 <span className={styles.levelPrice}>{z.price.toFixed(2)}</span>
-                <span style={{ color: tc.color, fontSize: '0.6875rem' }}>{z.probability}%</span>
+                <span style={{ color: tc.color, fontSize: 'calc(0.6875rem * var(--fz))' }}>{z.probability}%</span>
               </div>
             </div>
           );
@@ -201,7 +201,7 @@ function PatternBadge({ p }: { p: PatternSignal }) {
           <div className={styles.strengthBar}>
             <div className={styles.strengthFill} style={{ width: `${p.strength}%`, background: cfg.color }} />
           </div>
-          <span style={{ color: cfg.color, fontSize: '0.75rem', fontWeight: 700 }}>{p.strength}%</span>
+          <span style={{ color: cfg.color, fontSize: 'calc(0.75rem * var(--fz))', fontWeight: 700 }}>{p.strength}%</span>
         </div>
       </div>
       <p className={styles.patternDesc}>{p.description}</p>
@@ -231,8 +231,8 @@ function TradeSetupCard({ setup }: { setup: TradeSetup }) {
           {setup.style}操作
         </span>
         <div className={styles.setupRR}>
-          <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>風報比</span>
-          <span style={{ color: rrColor, fontWeight: 800, fontSize: '1.1rem', fontFamily: 'JetBrains Mono, monospace' }}>
+          <span style={{ color: '#94a3b8', fontSize: 'calc(0.75rem * var(--fz))' }}>風報比</span>
+          <span style={{ color: rrColor, fontWeight: 800, fontSize: 'calc(1.1rem * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
             1:{setup.overallRiskReward}
           </span>
         </div>
@@ -249,11 +249,11 @@ function TradeSetupCard({ setup }: { setup: TradeSetup }) {
         </div>
         <div className={styles.setupItem}>
           <div className={styles.setupItemLabel}>持有週期</div>
-          <div className={styles.setupItemValue} style={{ fontSize: '0.8125rem' }}>{setup.holdPeriod}</div>
+          <div className={styles.setupItemValue} style={{ fontSize: 'calc(0.8125rem * var(--fz))' }}>{setup.holdPeriod}</div>
         </div>
         <div className={styles.setupItem}>
           <div className={styles.setupItemLabel}>部位建議</div>
-          <div className={styles.setupItemValue} style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{setup.positionSizing}</div>
+          <div className={styles.setupItemValue} style={{ fontSize: 'calc(0.75rem * var(--fz))', color: '#94a3b8' }}>{setup.positionSizing}</div>
         </div>
       </div>
 

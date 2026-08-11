@@ -60,9 +60,9 @@ export default function PortfolioAlertRules() {
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: rules.length || open ? 10 : 0 }}>
-        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>🔔 自訂條件警報</span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>({rules.length})</span>
-        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 12px', borderRadius: 8, background: 'var(--accent-purple,#6366f1)', color: '#fff', border: 'none', cursor: 'pointer' }}>
+        <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🔔 自訂條件警報</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>({rules.length})</span>
+        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', padding: '4px 12px', borderRadius: 8, background: 'var(--accent-purple,#6366f1)', color: '#fff', border: 'none', cursor: 'pointer' }}>
           {open ? '取消' : '+ 新增'}
         </button>
       </div>
@@ -75,7 +75,7 @@ export default function PortfolioAlertRules() {
             {!picked && matches.length > 0 && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: 8, marginTop: 2, maxHeight: 160, overflowY: 'auto' }}>
                 {matches.map(s => (
-                  <div key={s.code} onClick={() => { setPicked({ code: s.code, name: s.name }); setSearch(''); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+                  <div key={s.code} onClick={() => { setPicked({ code: s.code, name: s.name }); setSearch(''); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 'calc(13px * var(--fz))', display: 'flex', justifyContent: 'space-between' }}>
                     <b>{s.code}</b><span style={{ color: 'var(--text-muted)' }}>{s.name}</span>
                   </div>
                 ))}
@@ -91,10 +91,10 @@ export default function PortfolioAlertRules() {
       )}
 
       {rules.map(r => (
-        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--border-primary)' }}>
+        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'calc(13px * var(--fz))', padding: '5px 0', borderBottom: '1px solid var(--border-primary)' }}>
           <b>{r.code}</b><span style={{ color: 'var(--text-muted)' }}>{r.name}</span>
           <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>{typeLabel(r.type)} <b>{r.value}</b></span>
-          <button onClick={() => remove(r.id)} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}>🗑️</button>
+          <button onClick={() => remove(r.id)} style={{ fontSize: 'calc(12px * var(--fz))', padding: '2px 8px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}>🗑️</button>
         </div>
       ))}
     </div>

@@ -44,7 +44,7 @@ export default function ThesisCards() {
 
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-      <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>🧩 投資論點追蹤 <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>AI 依數據預填草稿，點擊論點可修改；支柱每日自動檢核</span></div>
+      <div style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 4 }}>🧩 投資論點追蹤 <span style={{ fontWeight: 400, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>AI 依數據預填草稿，點擊論點可修改；支柱每日自動檢核</span></div>
       {codes.map(code => {
         const t = theses[code];
         const okN = (t.pillars || []).filter(p => p.ok).length;
@@ -52,30 +52,30 @@ export default function ThesisCards() {
           <div key={code} style={{ padding: '10px 0', borderBottom: '1px solid var(--border-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <b style={{ cursor: 'pointer', color: '#7dd3fc' }} onClick={() => navigateTo('stock', code)}>{code} {t.name}</b>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: t.intact ? 'rgba(240,62,62,0.12)' : 'rgba(47,158,68,0.12)', color: t.intact ? '#f03e3e' : '#2f9e44' }}>
+              <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: t.intact ? 'rgba(240,62,62,0.12)' : 'rgba(47,158,68,0.12)', color: t.intact ? '#f03e3e' : '#2f9e44' }}>
                 {t.intact ? `論點成立 ${okN}/${(t.pillars || []).length}` : `⚠ 論點轉弱 ${okN}/${(t.pillars || []).length}`}
               </span>
               <select value={t.conviction} onChange={e => save(code, { conviction: e.target.value })}
-                style={{ fontSize: 11, padding: '1px 4px', borderRadius: 6, background: 'var(--bg-tertiary)', color: (CONV[t.conviction] || CONV.medium).c, border: '1px solid var(--border-primary)' }}>
+                style={{ fontSize: 'calc(11px * var(--fz))', padding: '1px 4px', borderRadius: 6, background: 'var(--bg-tertiary)', color: (CONV[t.conviction] || CONV.medium).c, border: '1px solid var(--border-primary)' }}>
                 {Object.entries(CONV).map(([v, x]) => <option key={v} value={v}>{x.t}</option>)}
               </select>
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>目標 {t.targetPrice} · 停損 {t.stopLoss}</span>
+              <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>目標 {t.targetPrice} · 停損 {t.stopLoss}</span>
             </div>
             {editCode === code ? (
               <div style={{ marginTop: 6 }}>
                 <textarea className="input" value={draft} rows={2} maxLength={200} onChange={e => setDraft(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <button className="btn btn-buy" style={{ fontSize: 12, padding: '3px 12px' }} onClick={() => { save(code, { thesis: draft }); setEditCode(null); }}>儲存</button>
-                  <button style={{ fontSize: 12, padding: '3px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }} onClick={() => setEditCode(null)}>取消</button>
+                  <button className="btn btn-buy" style={{ fontSize: 'calc(12px * var(--fz))', padding: '3px 12px' }} onClick={() => { save(code, { thesis: draft }); setEditCode(null); }}>儲存</button>
+                  <button style={{ fontSize: 'calc(12px * var(--fz))', padding: '3px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }} onClick={() => setEditCode(null)}>取消</button>
                 </div>
               </div>
             ) : (
               <div onClick={() => { setEditCode(code); setDraft(t.thesis); }} title="點擊修改論點"
-                style={{ marginTop: 5, fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)', cursor: 'text' }}>{t.thesis}</div>
+                style={{ marginTop: 5, fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)', cursor: 'text' }}>{t.thesis}</div>
             )}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
               {(t.pillars || []).map(p => (
-                <span key={p.key} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: p.ok ? 'rgba(240,62,62,0.10)' : 'rgba(47,158,68,0.10)', color: p.ok ? '#f03e3e' : '#2f9e44', border: `1px solid ${p.ok ? 'rgba(240,62,62,0.25)' : 'rgba(47,158,68,0.25)'}` }}>
+                <span key={p.key} style={{ fontSize: 'calc(11px * var(--fz))', padding: '2px 8px', borderRadius: 10, background: p.ok ? 'rgba(240,62,62,0.10)' : 'rgba(47,158,68,0.10)', color: p.ok ? '#f03e3e' : '#2f9e44', border: `1px solid ${p.ok ? 'rgba(240,62,62,0.25)' : 'rgba(47,158,68,0.25)'}` }}>
                   {p.ok ? '✓' : '✗'} {p.label}
                 </span>
               ))}

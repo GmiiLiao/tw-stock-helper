@@ -16,7 +16,7 @@
 }
 
 .pageTitle {
-  font-size: 1.5rem;
+  font-size: calc(1.5rem * var(--fz));
   font-weight: 800;
   background: linear-gradient(135deg, #f03e3e 0%, #e67700 50%, #1971c2 100%);
   -webkit-background-clip: text;
@@ -25,7 +25,7 @@
 }
 
 .pageSubtitle {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -34,7 +34,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -51,21 +51,21 @@
 }
 
 .aiBannerIcon {
-  font-size: 2.5rem;
+  font-size: calc(2.5rem * var(--fz));
   flex-shrink: 0;
 }
 
 .aiBannerText { flex: 1; min-width: 200px; }
 
 .aiBannerTitle {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .aiBannerDesc {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -88,12 +88,12 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   min-width: 52px;
 }
 
 .factorChipMax {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -148,12 +148,12 @@
 }
 
 .tabLabel {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
 }
 
 .tabDesc {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -170,7 +170,7 @@
   color: var(--text-secondary);
 }
 
-.loadingHint { font-size: 0.8125rem; color: var(--text-muted); }
+.loadingHint { font-size: calc(0.8125rem * var(--fz)); color: var(--text-muted); }
 .errorState { text-align: center; padding: 40px; color: var(--color-down); }
 .emptyState { text-align: center; padding: 40px; color: var(--text-muted); }
 
@@ -218,7 +218,7 @@
 }
 
 .rank {
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--fz));
   min-width: 36px;
   text-align: center;
   flex-shrink: 0;
@@ -236,19 +236,19 @@
 
 .stockCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 700;
   color: var(--accent-blue);
 }
 
 .stockName {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .gradeBadge {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 4px;
@@ -260,7 +260,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 600;
   padding: 3px 10px;
   border-radius: 20px;
@@ -275,14 +275,14 @@
 
 .price {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.125rem;
+  font-size: calc(1.125rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .priceChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 600;
   margin-top: 2px;
 }
@@ -316,19 +316,19 @@
 }
 
 .confidenceLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   margin-bottom: 2px;
 }
 
 .confidenceValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 700;
 }
 
 .expandIcon {
-  font-size: 1.2rem;
+  font-size: calc(1.2rem * var(--fz));
   color: var(--text-muted);
   transition: transform 0.2s;
   flex-shrink: 0;
@@ -356,13 +356,13 @@
 }
 
 .quickInfoLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 600;
 }
 
 .quickInfoValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -399,7 +399,7 @@
   background: transparent;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -436,7 +436,7 @@
 
 
 .detailTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   margin-bottom: 8px;
@@ -455,7 +455,7 @@
 }
 
 .factorLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   width: 32px;
   flex-shrink: 0;
@@ -477,7 +477,7 @@
 
 .factorVal {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 600;
   min-width: 32px;
   text-align: right;
@@ -493,7 +493,7 @@
 }
 
 .reasonItem {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-primary);
   padding: 6px 10px;
   background: rgba(201,42,42,0.06);
@@ -503,7 +503,7 @@
 }
 
 .riskItem {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   padding: 6px 10px;
   background: rgba(47,158,68,0.06);
@@ -514,7 +514,7 @@
 
 .disclaimer {
   grid-column: 1 / -1;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(245,158,11,0.06);
@@ -544,7 +544,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -558,7 +558,7 @@
   padding: 24px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .newsItem {
@@ -574,7 +574,7 @@
 .newsItem:hover { background: var(--bg-card-hover); }
 
 .newsIcon {
-  font-size: 1.125rem;
+  font-size: calc(1.125rem * var(--fz));
   flex-shrink: 0;
   margin-top: 1px;
 }
@@ -582,7 +582,7 @@
 .newsContent { flex: 1; min-width: 0; }
 
 .newsTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-primary);
   line-height: 1.4;
   margin-bottom: 4px;
@@ -596,13 +596,13 @@
 }
 
 .newsSource {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 600;
 }
 
 .newsStock {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   background: var(--bg-elevated);
   padding: 1px 6px;
   border-radius: 4px;
@@ -610,7 +610,7 @@
 }
 
 .newsTime {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -656,19 +656,19 @@
 .reportTitle { font-weight: 700; color: var(--accent-blue); white-space: nowrap; }
 .reportDate {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--fz));
   color: var(--text-muted);
   white-space: nowrap;
 }
 .reportSummary {
   flex: 1;
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--fz));
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.reportToggle { color: var(--text-muted); font-size: 0.7rem; }
+.reportToggle { color: var(--text-muted); font-size: calc(0.7rem * var(--fz)); }
 .reportBody {
   padding: 0 16px 14px;
   display: flex;
@@ -679,7 +679,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--fz));
   font-weight: 600;
 }
 .breadthBar {
@@ -690,10 +690,10 @@
   display: flex;
   background: var(--bg-elevated);
 }
-.breadthFlat { color: var(--text-muted); font-weight: 500; font-size: 0.76rem; white-space: nowrap; }
+.breadthFlat { color: var(--text-muted); font-weight: 500; font-size: calc(0.76rem * var(--fz)); white-space: nowrap; }
 .reportRisks { display: flex; flex-wrap: wrap; gap: 6px; }
 .reportRiskTag {
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--fz));
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(245,158,11,0.12);
@@ -720,11 +720,11 @@
 }
 .reportPick:hover { border-color: var(--border-accent); transform: translateY(-1px); }
 .reportPickTop { display: flex; align-items: center; gap: 6px; }
-.reportPickCode { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent-blue); font-size: 0.82rem; }
-.reportPickName { flex: 1; font-size: 0.8rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reportPickGrade { font-size: 0.7rem; font-weight: 800; color: var(--color-up); }
-.reportPickRow { display: flex; gap: 10px; font-size: 0.74rem; font-family: 'JetBrains Mono', monospace; }
-.reportMeta { font-size: 0.72rem; color: var(--text-muted); }
+.reportPickCode { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent-blue); font-size: calc(0.82rem * var(--fz)); }
+.reportPickName { flex: 1; font-size: calc(0.8rem * var(--fz)); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reportPickGrade { font-size: calc(0.7rem * var(--fz)); font-weight: 800; color: var(--color-up); }
+.reportPickRow { display: flex; gap: 10px; font-size: calc(0.74rem * var(--fz)); font-family: 'JetBrains Mono', monospace; }
+.reportMeta { font-size: calc(0.72rem * var(--fz)); color: var(--text-muted); }
 
 @media (max-width: 768px) {
   .reportSummary { display: none; }
@@ -740,7 +740,7 @@
   border: 1px solid rgba(167,139,250,0.25);
 }
 .aiNoteBody {
-  font-size: 0.84rem;
+  font-size: calc(0.84rem * var(--fz));
   line-height: 1.7;
   color: var(--text-secondary);
   white-space: pre-wrap;
@@ -748,7 +748,7 @@
 }
 .aiNoteMeta {
   margin-top: 8px;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--fz));
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
 }

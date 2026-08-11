@@ -31,7 +31,7 @@ export default class CardBoundary extends Component<
       <div style={{
         marginBottom: 16, padding: '12px 14px', borderRadius: 12,
         background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)',
-        fontSize: 12.5, color: '#dbe4f5', lineHeight: 1.7,
+        fontSize: 'calc(12.5px * var(--fz))', color: '#dbe4f5', lineHeight: 1.7,
       }}>
         <div style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: 2 }}>
           ⚠️ 「{this.props.name}」暫時無法顯示

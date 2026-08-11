@@ -101,13 +101,13 @@ export default function StrategyPicks() {
 
   if (!allowed) return (
     <div style={{ padding: '36px 20px', textAlign: 'center', border: '1px solid var(--border-primary)', borderRadius: 12, background: 'var(--bg-elevated)' }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
-      <div style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: 6 }}>選股策略為高級會員功能</div>
-      <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.9 }}>
+      <div style={{ fontSize: 'calc(28px * var(--fz))', marginBottom: 8 }}>🔒</div>
+      <div style={{ fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))', marginBottom: 6 }}>選股策略為高級會員功能</div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.9 }}>
         包含五種經一年實測驗證的隔日沖策略（勝率 54%~64%）每日候選清單、<br />
         大盤 MA20 濾網紅綠燈、多重共識標記與完整操作 SOP。
       </div>
-      <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>
+      <div style={{ marginTop: 10, fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#fbbf24' }}>
         {user?.uid && trialDaysLeft === 0 ? '你的 14 天新會員免費體驗已結束，升級高級會員即可繼續使用' : '🎁 新註冊會員可免費體驗 14 天（自註冊日起自動生效）'}
       </div>
     </div>
@@ -118,20 +118,20 @@ export default function StrategyPicks() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-        <span style={{ fontWeight: 800, fontSize: '1.05rem' }}>📐 實測驗證策略選股</span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>資料日 {d.date} · 收盤後更新 · 隔日沖適用</span>
-        {trialActive && <span style={{ fontSize: 12, fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)', color: '#fbbf24' }}>🎁 免費體驗中 · 剩 {trialDaysLeft} 天</span>}
+        <span style={{ fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))' }}>📐 實測驗證策略選股</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>資料日 {d.date} · 收盤後更新 · 隔日沖適用</span>
+        {trialActive && <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)', color: '#fbbf24' }}>🎁 免費體驗中 · 剩 {trialDaysLeft} 天</span>}
       </div>
       {/* 今日盤型即時警示改放「即時追蹤」頁；此處僅留一行提示導向 */}
       <MarketPatternHint onNavigate={() => navigateTo('tracker')} />
-      <div style={{ margin: '2px 0 6px', fontSize: 12.5, fontWeight: 800, color: 'var(--text-muted)', letterSpacing: 1 }}>
+      <div style={{ margin: '2px 0 6px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: 1 }}>
         ▼ 前日盤後選股策略（回答「買什麼」，收盤資料計算）
       </div>
       {d.regime && (
         <div style={{ marginBottom: 10, padding: '10px 14px', borderRadius: 10, background: d.regime.bull ? 'rgba(240,62,62,0.10)' : 'rgba(47,158,68,0.10)', border: `1px solid ${d.regime.bull ? 'rgba(240,62,62,0.4)' : 'rgba(47,158,68,0.4)'}` }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: d.regime.bull ? 'var(--color-up)' : 'var(--color-down)' }}>
+          <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 800, color: d.regime.bull ? 'var(--color-up)' : 'var(--color-down)' }}>
             {d.regime.bull ? '🟢 大盤位於 MA20 之上（多頭濾網通過）— 漲停鎖死策略升級：勝率 64%／+2.66%／PF 3.07' : '⚠️ 大盤位於 MA20 之下（多頭濾網未過）— 漲停鎖死優勢下降，建議減量或觀望'}
-            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>加權 {d.regime.index} vs MA20 {d.regime.ma20}</span>
+            <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>加權 {d.regime.index} vs MA20 {d.regime.ma20}</span>
           </div>
           {/* 升級版名單＝漲停鎖死 ∩ 非連3停 ∩ 非高當沖（64% 統計的實際適用股） */}
           {d.regime.bull && (() => {
@@ -141,17 +141,17 @@ export default function StrategyPicks() {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                 {q.slice(0, 14).map(p => (
                   <span key={p.code} onClick={() => navigateTo('stock', p.code)}
-                    style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 10, background: (consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.18)' : 'rgba(240,62,62,0.12)', border: `1px solid ${(consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.55)' : 'rgba(240,62,62,0.35)'}` }}>
+                    style={{ cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 700, padding: '4px 10px', borderRadius: 10, background: (consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.18)' : 'rgba(240,62,62,0.12)', border: `1px solid ${(consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.55)' : 'rgba(240,62,62,0.35)'}` }}>
                     {(consensus[p.code]?.count ?? 1) >= 2 ? '⭐' : ''}{p.code} {p.name} <span style={{ color: '#fbbf24' }}>{p.score ?? ''}</span> <RiskBadge code={p.code} size="xs" />
                   </span>
                 ))}
-                {q.length > 14 && <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>…共 {q.length} 檔（完整見下方 🥇 卡）</span>}
+                {q.length > 14 && <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', alignSelf: 'center' }}>…共 {q.length} 檔（完整見下方 🥇 卡）</span>}
               </div>
             );
           })()}
         </div>
       )}
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8, marginBottom: 14, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8, marginBottom: 14, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
         {RULES.map(r => <div key={r}>• {r}</div>)}
       </div>
 
@@ -164,7 +164,7 @@ export default function StrategyPicks() {
               <div key={code} onClick={() => navigateTo('stock', code)}
                 style={{ cursor: 'pointer', padding: '6px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)' }}>
                 <b style={{ color: '#fbbf24' }}>{code} {v.name}</b>
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 6 }}>
+                <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-secondary)', marginLeft: 6 }}>
                   評分 {v.score ?? '—'} · {v.keys.map(k => d.stats[k]?.icon + d.stats[k]?.name).join('＋')}
                 </span>
               </div>
@@ -180,31 +180,31 @@ export default function StrategyPicks() {
           <div key={key} style={{ marginBottom: 18, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 800 }}>{st.icon} {st.name}</span>
-              <span style={{ fontSize: 12, fontWeight: 700 }}>
+              <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700 }}>
                 勝率 <b style={{ color: st.winRate >= 57 ? 'var(--color-up)' : '#f59e0b' }}>{st.winRate}%</b>
                 {' · '}平均 <b style={{ color: 'var(--color-up)' }}>+{st.avgRet}%</b>/筆
                 {' · '}獲利因子 <b style={{ color: '#fbbf24' }}>{st.pf}</b>
               </span>
-              {st.recent && <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 8px', borderRadius: 10, background: 'rgba(240,62,62,0.12)', color: '#f03e3e' }}>{st.recent.label} 勝率 {st.recent.winRate}%／+{st.recent.avgRet}%</span>}
-              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>今日 {list.length} 檔</span>
+              {st.recent && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, padding: '1px 8px', borderRadius: 10, background: 'rgba(240,62,62,0.12)', color: '#f03e3e' }}>{st.recent.label} 勝率 {st.recent.winRate}%／+{st.recent.avgRet}%</span>}
+              <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>今日 {list.length} 檔</span>
               <button onClick={() => setOpsOpen(o => (o === key ? null : key))}
-                style={{ fontSize: 12, padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: opsOpen === key ? 'var(--accent-purple,#6366f1)' : 'var(--bg-tertiary)', color: opsOpen === key ? '#fff' : 'var(--text-secondary)', cursor: 'pointer' }}>
+                style={{ fontSize: 'calc(12px * var(--fz))', padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: opsOpen === key ? 'var(--accent-purple,#6366f1)' : 'var(--bg-tertiary)', color: opsOpen === key ? '#fff' : 'var(--text-secondary)', cursor: 'pointer' }}>
                 📖 操作說明
               </button>
             </div>
             {/* 原理說明隱藏（完整原理見「📖 操作說明」）；僅保留實用操作提示 note */}
             {st.note && (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 10px', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', margin: '4px 0 10px', lineHeight: 1.6 }}>
                 {st.note}
               </div>
             )}
             {opsOpen === key && OPS[key] && (
-              <div style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', fontSize: 12.5, lineHeight: 2, color: 'var(--text-secondary)' }}>
+              <div style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 2, color: 'var(--text-secondary)' }}>
                 {OPS[key].map(s => <div key={s}>{s}</div>)}
               </div>
             )}
             {list.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{key === 'volBreak' ? '今日無符合（或昨量資料累積中，次一交易日起完整）' : key === 'secondBar' ? '今日無符合（或收盤價歷史累積中，需 3 個交易日後完整）' : '今日無符合條件的股票'}</div>
+              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{key === 'volBreak' ? '今日無符合（或昨量資料累積中，次一交易日起完整）' : key === 'secondBar' ? '今日無符合（或收盤價歷史累積中，需 3 個交易日後完整）' : '今日無符合條件的股票'}</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(215px, 100%),1fr))', gap: 8 }}>
                 {[...list].sort((a, b) => ((consensus[b.code]?.count ?? 1) - (consensus[a.code]?.count ?? 1)) || ((b.score ?? 0) - (a.score ?? 0))).slice(0, 24).map(p => {
@@ -215,17 +215,17 @@ export default function StrategyPicks() {
                       background: cc >= 2 ? 'rgba(251,191,36,0.14)' : 'var(--bg-tertiary)',
                       border: cc >= 2 ? '1.5px solid rgba(251,191,36,0.55)' : '1px solid transparent' }}>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
-                      {cc >= 2 && <span style={{ fontSize: 10, fontWeight: 900, color: '#fbbf24' }}>⭐×{cc}</span>}
+                      {cc >= 2 && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 900, color: '#fbbf24' }}>⭐×{cc}</span>}
                       <b style={{ color: '#e2e8f0' }}>{p.code}</b>
                       <span style={{ color: '#7dd3fc', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                      <span style={{ fontSize: 9, fontWeight: 800, color: p.market === 'otc' ? '#f59e0b' : '#38bdf8' }}>{p.market === 'otc' ? '櫃' : '市'}</span>
-                      {p.streak && p.streak >= 2 && <span style={{ fontSize: 10, fontWeight: 800, color: p.streak >= 3 ? '#ef4444' : '#f97316' }}>連{p.streak}停{p.streak >= 3 ? '⚠不追' : ''}</span>}
-                      {p.volX != null && p.volX >= 2 && <span style={{ fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>⚡量{p.volX}倍</span>}
-                      {p.instF != null && <span style={{ fontSize: 10, fontWeight: 700, color: '#7dd3fc' }}>外{(p.instF / 1000).toFixed(1)}k/投{p.instT}</span>}
-                      {p.dd != null && <span style={{ fontSize: 10, fontWeight: 700, color: '#38bdf8' }}>回檔{p.dd}%</span>}
-                      {p.dtHigh && <span style={{ fontSize: 10, fontWeight: 800, color: '#f97316' }}>⚠高當沖</span>}
+                      <span style={{ fontSize: 'calc(9px * var(--fz))', fontWeight: 800, color: p.market === 'otc' ? '#f59e0b' : '#38bdf8' }}>{p.market === 'otc' ? '櫃' : '市'}</span>
+                      {p.streak && p.streak >= 2 && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 800, color: p.streak >= 3 ? '#ef4444' : '#f97316' }}>連{p.streak}停{p.streak >= 3 ? '⚠不追' : ''}</span>}
+                      {p.volX != null && p.volX >= 2 && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>⚡量{p.volX}倍</span>}
+                      {p.instF != null && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>外{(p.instF / 1000).toFixed(1)}k/投{p.instT}</span>}
+                      {p.dd != null && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, color: '#38bdf8' }}>回檔{p.dd}%</span>}
+                      {p.dtHigh && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 800, color: '#f97316' }}>⚠高當沖</span>}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, fontSize: 12, marginTop: 3 }}>
+                    <div style={{ display: 'flex', gap: 8, fontSize: 'calc(12px * var(--fz))', marginTop: 3 }}>
                       <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{p.price}</span>
                       <span style={{ color: 'var(--color-up)', fontFamily: "'JetBrains Mono',monospace" }}>+{p.changePct}%</span>
                       <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>評分 <b style={{ color: '#fbbf24' }}>{p.score ?? '—'}</b></span>
@@ -238,7 +238,7 @@ export default function StrategyPicks() {
           </div>
         );
       })}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
         ※ 勝率/平均為近一年歷史回測（前 100 大個股、隔日收盤出場、未含約 0.585% 交易成本與滑價），歷史績效不代表未來；非投資建議。
       </div>
     </div>

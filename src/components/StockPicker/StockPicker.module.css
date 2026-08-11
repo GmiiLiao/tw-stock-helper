@@ -39,18 +39,18 @@
 }
 
 .tabIcon {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   margin-right: 6px;
 }
 
 .tabLabel {
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--fz));
   font-weight: 700;
   display: inline;
 }
 
 .tabHint {
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--fz));
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -83,5 +83,5 @@
     flex-direction: row;
   }
   .tabHint { display: none; }
-  .tabLabel { font-size: 0.85rem; white-space: nowrap; }
+  .tabLabel { font-size: calc(0.85rem * var(--fz)); white-space: nowrap; }
 }

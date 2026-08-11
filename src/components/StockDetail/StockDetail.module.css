@@ -16,8 +16,8 @@
   gap: 16px;
 }
 
-.placeholderIcon { font-size: 4rem; opacity: 0.4; }
-.placeholderText { font-size: 1rem; color: var(--text-muted); }
+.placeholderIcon { font-size: calc(4rem * var(--fz)); opacity: 0.4; }
+.placeholderText { font-size: calc(1rem * var(--fz)); color: var(--text-muted); }
 
 /* Stock Header */
 .stockHeader {
@@ -62,14 +62,14 @@
 
 .stockCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.5rem;
+  font-size: calc(1.5rem * var(--fz));
   font-weight: 800;
   color: var(--accent-blue);
   letter-spacing: 0.02em;
 }
 
 .stockName {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   color: var(--text-secondary);
   margin-top: 2px;
 }
@@ -81,7 +81,7 @@
 
 .currentPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 2rem;
+  font-size: calc(2rem * var(--fz));
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -89,7 +89,7 @@
 
 .priceChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
   margin-top: 4px;
 }
@@ -107,7 +107,7 @@
 }
 
 .statKey {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -115,7 +115,7 @@
 
 .statVal {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
 }
 
@@ -135,7 +135,7 @@
   /* 手機上三顆按鈕接近整行寬，絕對定位會壓到股號 → 用 padding-top 幫它騰出一整列，
      按鈕仍釘在右上，但不再與內容重疊。 */
   .headerActions { top: 8px; right: 8px; left: 8px; gap: 4px; justify-content: flex-end; }
-  .headerActions :global(.btn) { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+  .headerActions :global(.btn) { padding: 4px 8px; font-size: calc(11px * var(--fz)); white-space: nowrap; }
 }
 
 /* Signal Badge Row */
@@ -170,7 +170,7 @@
   padding: 8px 14px;
   border: 1px solid;
   border-radius: 30px;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .signalBadgeLabel {
@@ -193,13 +193,13 @@
 
 .signalStrengthText {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 600;
   min-width: 28px;
 }
 
 .loadingText {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -243,7 +243,7 @@
 }
 
 .pnlLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -252,7 +252,7 @@
 
 .pnlValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 2rem;
+  font-size: calc(2rem * var(--fz));
   font-weight: 800;
   display: flex;
   align-items: baseline;
@@ -260,12 +260,12 @@
 }
 
 .pnlPct {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 600;
 }
 
 .pnlSub {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -293,14 +293,14 @@
   flex-wrap: wrap;
 }
 
-.holdingDate { font-size: 0.8125rem; color: var(--text-muted); }
-.holdingQty { font-size: 0.875rem; font-weight: 600; }
-.holdingBuyPrice { font-family: 'JetBrains Mono', monospace; font-size: 0.8125rem; color: var(--text-secondary); }
-.holdingNote { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
+.holdingDate { font-size: calc(0.8125rem * var(--fz)); color: var(--text-muted); }
+.holdingQty { font-size: calc(0.875rem * var(--fz)); font-weight: 600; }
+.holdingBuyPrice { font-family: 'JetBrains Mono', monospace; font-size: calc(0.8125rem * var(--fz)); color: var(--text-secondary); }
+.holdingNote { font-size: calc(0.75rem * var(--fz)); color: var(--text-muted); font-style: italic; }
 
 .holdingPnl {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 700;
   display: flex;
   align-items: baseline;
@@ -309,7 +309,7 @@
 }
 
 .holdingPnlPct {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
 }
 
 /* Modal */
@@ -344,7 +344,7 @@
 }
 
 .modalHeader h3 {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 600;
 }
 
@@ -352,7 +352,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--fz));
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -379,20 +379,20 @@
 }
 
 .formGroup label {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 500;
   color: var(--text-secondary);
 }
 
 .inputHelper {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;
 }
 
 .costPreview {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-secondary);
   padding: 10px 12px;
   background: var(--bg-elevated);

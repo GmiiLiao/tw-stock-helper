@@ -61,7 +61,7 @@ export default function HitRate({ list, label, horizons = [5, 10] }: {
     display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap',
     padding: '6px 10px', borderRadius: 8, marginBottom: 8,
     background: 'rgba(148,163,184,0.06)', border: '1px solid rgba(148,163,184,0.16)',
-    fontSize: 11.5, lineHeight: 1.7,
+    fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.7,
   };
 
   if (!b) return null;
@@ -87,11 +87,11 @@ export default function HitRate({ list, label, horizons = [5, 10] }: {
         return (
           <span key={h} style={{ whiteSpace: 'nowrap' }}>
             <span style={{ color: 'var(--text-muted)' }}>{h}日超額</span>{' '}
-            <b style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: c.excess > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+            <b style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))', color: c.excess > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
               {c.excess > 0 ? '+' : ''}{c.excess}pp
             </b>
             {thin && <span title={`只有 ${c.entryDays} 個進場日，樣本互相重疊，尚不足以當估計值`} style={{ color: '#fbbf24' }}>⚠</span>}
-            <span style={{ color: 'var(--text-muted)', fontSize: 10.5 }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>
               （勝率 {c.winRate}%／均 {c.avgRet >= 0 ? '+' : ''}{c.avgRet}%
               {c.base ? `，同期基準 ${c.base.winRate}%／${c.base.avgRet >= 0 ? '+' : ''}${c.base.avgRet}%` : ''}）
             </span>
@@ -99,11 +99,11 @@ export default function HitRate({ list, label, horizons = [5, 10] }: {
         );
       })}
       {isLegacy && (
-        <span style={{ fontSize: 10.5, color: '#fbbf24' }} title="2026-08-05 改了評分/濾網/排序鍵，此處顯示的是改版前的成績">
+        <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: '#fbbf24' }} title="2026-08-05 改了評分/濾網/排序鍵，此處顯示的是改版前的成績">
           ⚠舊口徑（{b.calibFrom ? `${b.calibFrom} 前` : '改版前'}）
         </span>
       )}
-      <span style={{ color: 'var(--text-muted)', fontSize: 10.5, marginLeft: 'auto' }}>
+      <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))', marginLeft: 'auto' }}>
         超額＝減去同期可交易宇宙等權；追蹤 {isLegacy ? b.records : (b.recordsV2 ?? b.records)} 日。非投資建議。
       </span>
     </div>

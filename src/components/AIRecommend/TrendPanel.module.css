@@ -14,21 +14,21 @@
   gap: 12px;
   padding: 40px 20px;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .errorState {
   padding: 24px;
   text-align: center;
   color: var(--color-down);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 /* ─── Sections ───────────────────────────────────────── */
 .section { display: flex; flex-direction: column; gap: 10px; }
 
 .sectionTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -40,7 +40,7 @@
 }
 
 .sectionBadge {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 600;
   padding: 2px 8px;
   background: var(--bg-elevated);
@@ -55,14 +55,14 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--color-up);
   text-transform: none;
   letter-spacing: 0;
 }
 
 .industryTag {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 600;
   padding: 2px 8px;
   background: rgba(61,142,248,0.1);
@@ -87,7 +87,7 @@
 }
 
 .momentumTag {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   padding: 4px 14px;
   border-radius: 20px;
@@ -97,7 +97,7 @@
 }
 
 .summaryText {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-primary);
   line-height: 1.6;
   grid-column: 1;
@@ -121,18 +121,18 @@
 
 .gaugeScore {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.375rem;
+  font-size: calc(1.375rem * var(--fz));
   font-weight: 800;
   line-height: 1;
 }
 
 .gaugeLevel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 700;
 }
 
 .gaugeLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -158,12 +158,12 @@
 }
 
 .reasonIcon {
-  font-size: 1.125rem;
+  font-size: calc(1.125rem * var(--fz));
   flex-shrink: 0;
 }
 
 .reasonTitle {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
   flex: 1;
@@ -171,7 +171,7 @@
 }
 
 .reasonStrength {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 20px;
@@ -180,7 +180,7 @@
 }
 
 .reasonDetail {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -192,7 +192,7 @@
   padding: 20px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .newsCard {
@@ -217,31 +217,31 @@
 }
 
 .newsTypeBadge {
-  font-size: 0.625rem;
+  font-size: calc(0.625rem * var(--fz));
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 4px;
 }
 
 .newsSentiment {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .newsDate {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   margin-left: auto;
 }
 
 .newsHeadline {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.45;
 }
 
 .newsSource {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -275,12 +275,12 @@
 }
 
 .horizonPeriod {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
 .horizonValue {
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 800;
 }
 
@@ -294,7 +294,7 @@
 }
 
 .sentimentLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   min-width: 68px;
   flex-shrink: 0;
@@ -316,7 +316,7 @@
 
 .sentimentValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   min-width: 36px;
   text-align: right;
@@ -340,12 +340,12 @@
 }
 
 .consensusLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
 .consensusValue {
-  font-size: 1.0625rem;
+  font-size: calc(1.0625rem * var(--fz));
   font-weight: 800;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -358,7 +358,7 @@
 }
 
 .catalystsTitle, .risksTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
 }
@@ -373,7 +373,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.45;
 }
@@ -397,7 +397,7 @@
 }
 
 .industryDesc {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(61,142,248,0.04);
@@ -408,7 +408,7 @@
 
 /* Disclaimer */
 .disclaimer {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(245,158,11,0.04);
@@ -419,7 +419,7 @@
 
 /* ─── Extra Badges ───────────────────────────────────── */
 .scaleBadge {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 700;
   padding: 2px 8px;
   background: var(--bg-elevated);
@@ -430,7 +430,7 @@
 }
 
 .timeBadge {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   font-weight: 700;
   padding: 3px 10px;
   background: rgba(230,119,0,0.1);
@@ -467,7 +467,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.375rem;
+  font-size: calc(1.375rem * var(--fz));
   font-weight: 800;
   color: var(--text-primary);
   flex-shrink: 0;
@@ -477,7 +477,7 @@
 .companyHeaderInfo { flex: 1; min-width: 0; }
 
 .companyFullName {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 6px;
@@ -493,7 +493,7 @@
 
 .companyCodeTag {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   color: var(--accent-blue);
   padding: 2px 8px;
@@ -502,12 +502,12 @@
 }
 
 .companyShortName {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-secondary);
 }
 
 .companyAge {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   padding: 2px 7px;
   background: var(--bg-card);
@@ -521,14 +521,14 @@
 }
 
 .capitalLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   margin-bottom: 2px;
 }
 
 .capitalValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -537,7 +537,7 @@
 .businessSection { display: flex; flex-direction: column; gap: 6px; }
 
 .businessLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -545,7 +545,7 @@
 }
 
 .businessText {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-primary);
   line-height: 1.6;
 }
@@ -556,7 +556,7 @@
 .productsList { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .productTag {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 600;
   padding: 4px 10px;
   background: rgba(201,42,42,0.07);
@@ -583,12 +583,12 @@
 .infoWide { grid-column: 1 / -1; }
 
 .infoLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
 .infoValue {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-primary);
   line-height: 1.4;
 }
@@ -613,18 +613,18 @@
   border: 1px solid;
 }
 
-.recIcon { font-size: 1.5rem; flex-shrink: 0; }
+.recIcon { font-size: calc(1.5rem * var(--fz)); flex-shrink: 0; }
 
 .recContent { flex: 1; }
 
 .recLabel {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 800;
   margin-bottom: 4px;
 }
 
 .recText {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -648,14 +648,14 @@
 }
 
 .priceOverLabel {
-  font-size: 0.625rem;
+  font-size: calc(0.625rem * var(--fz));
   color: var(--text-muted);
   font-weight: 600;
 }
 
 .priceOverValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 800;
   color: var(--text-primary);
 }
@@ -664,7 +664,7 @@
 .orderLevelsSection { display: flex; flex-direction: column; gap: 8px; }
 
 .orderLevelsTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
 }
@@ -691,7 +691,7 @@
 }
 
 .orderStyleBadge {
-  font-size: 0.625rem;
+  font-size: calc(0.625rem * var(--fz));
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 4px;
@@ -699,23 +699,23 @@
 }
 
 .orderLevelLabel {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
   flex: 1;
 }
 
-.orderRiskIcon { font-size: 0.875rem; flex-shrink: 0; }
+.orderRiskIcon { font-size: calc(0.875rem * var(--fz)); flex-shrink: 0; }
 
 .orderLevelPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 800;
   flex-shrink: 0;
 }
 
 .orderLevelRationale {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -732,13 +732,13 @@
 }
 
 .auctionTitle {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   color: var(--accent-blue);
 }
 
 .auctionText {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -755,7 +755,7 @@
 }
 
 .dtNoteLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 700;
   color: #f59e0b;
   flex-shrink: 0;
@@ -763,13 +763,13 @@
 }
 
 .dtNoteText {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .preMarketWarning {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
   padding: 6px 10px;
   background: rgba(134,142,150,0.06);

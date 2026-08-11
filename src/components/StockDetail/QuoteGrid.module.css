@@ -59,7 +59,7 @@
 
 /* 附註（張／日期）貼在數值後面，小一號 */
 .tail {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--fz));
   margin-left: 3px;
   font-weight: 600;
 }

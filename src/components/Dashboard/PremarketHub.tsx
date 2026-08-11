@@ -49,8 +49,8 @@ const BIAS: Record<string, { t: string; c: string }> = {
 /** 欄標題：三欄用同一套樣式，讓「這是三個並列的東西」一眼看得出來 */
 const ColHead = ({ icon, name, when }: { icon: string; name: string; when: string }) => (
   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6, paddingBottom: 5, borderBottom: '1px solid rgba(148,163,184,0.16)', flexWrap: 'wrap' }}>
-    <span style={{ fontWeight: 900, fontSize: 12.5 }}>{icon} {name}</span>
-    <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{when}</span>
+    <span style={{ fontWeight: 900, fontSize: 'calc(12.5px * var(--fz))' }}>{icon} {name}</span>
+    <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{when}</span>
   </div>
 );
 
@@ -136,13 +136,13 @@ export default function PremarketHub() {
     <div style={{ border: '1px solid rgba(56,189,248,0.3)', borderRadius: 12, padding: '12px 14px', margin: '0 0 4px', background: 'var(--bg-card)' }}>
       {/* 卡頭 */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <span style={{ fontWeight: 900, fontSize: '1.05rem' }}>🌅 盤前總覽</span>
-        <span style={{ fontSize: 13.5, color: 'var(--text-muted)' }}>
+        <span style={{ fontWeight: 900, fontSize: 'calc(1.05rem * var(--fz))' }}>🌅 盤前總覽</span>
+        <span style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)' }}>
           隔夜美股 → 今晨日韓 → 開盤前彙整
           {asia?.twOpenIn != null && asia.twOpenIn > 0 ? `　·　距台股開盤 ${asia.twOpenIn} 分` : ''}
         </span>
         {b && (
-          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 13.5, fontWeight: 900 }}>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 'calc(13.5px * var(--fz))', fontWeight: 900 }}>
             {asia?.jp && <span style={{ color: col(asia.jp.chg) }}>🇯🇵日本 {sign(asia.jp.chg)}</span>}
             {asia?.kr && <span style={{ color: col(asia.kr.chg) }}>🇰🇷韓國 {sign(asia.kr.chg)}</span>}
             <span style={{ color: b.c }}>綜合 {sign(asia?.score)} → {b.t}</span>
@@ -155,18 +155,18 @@ export default function PremarketHub() {
           三欄的數字都是背景，它才是使用者開盤前真正要帶走的結論。 */}
       {fc && (fc.bullish.length > 0 || fc.bearish.length > 0) && (
         <div style={{ margin: '0 0 8px', padding: '10px 14px', borderRadius: 10, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}>
-          <div style={{ fontSize: 13.5, color: 'var(--text-muted)', marginBottom: 5 }}>📰 今日風向推測（依國際盤＋新聞，AI 推測非事實）</div>
+          <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 5 }}>📰 今日風向推測（依國際盤＋新聞，AI 推測非事實）</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 8 }}>
             {fc.bullish.length > 0 && (
-              <div style={{ fontSize: '1rem', fontWeight: 900, color: UP, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 'calc(1rem * var(--fz))', fontWeight: 900, color: UP, lineHeight: 1.5 }}>
                 🔴 看漲：{fc.bullish.map(x => x.sector).join('、')}
-                <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--text-muted)', lineHeight: 1.5 }}>{fc.bullish.map(x => x.reason).join('；')}</div>
+                <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 400, color: 'var(--text-muted)', lineHeight: 1.5 }}>{fc.bullish.map(x => x.reason).join('；')}</div>
               </div>
             )}
             {fc.bearish.length > 0 && (
-              <div style={{ fontSize: '1rem', fontWeight: 900, color: DOWN, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 'calc(1rem * var(--fz))', fontWeight: 900, color: DOWN, lineHeight: 1.5 }}>
                 🟢 看跌：{fc.bearish.map(x => x.sector).join('、')}
-                <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--text-muted)', lineHeight: 1.5 }}>{fc.bearish.map(x => x.reason).join('；')}</div>
+                <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 400, color: 'var(--text-muted)', lineHeight: 1.5 }}>{fc.bearish.map(x => x.reason).join('；')}</div>
               </div>
             )}
           </div>
@@ -176,12 +176,12 @@ export default function PremarketHub() {
       {hits.length > 0 && (
         <div style={{ margin: '0 0 10px', padding: '10px 14px', borderRadius: 10, background: bear.length ? 'rgba(47,158,68,0.12)' : 'rgba(240,62,62,0.10)', border: `2px solid ${bear.length ? DOWN : UP}` }}>
           {bear.length > 0 && (
-            <div style={{ fontSize: '1.02rem', fontWeight: 900, color: DOWN, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'calc(1.02rem * var(--fz))', fontWeight: 900, color: DOWN, lineHeight: 1.5 }}>
               🚨 你的持股 {bear.map(h => `${h.code} ${h.name}（${h.industry}）`).join('、')} 屬今日看跌族群 — 開盤請留意
             </div>
           )}
           {bull.length > 0 && (
-            <div style={{ fontSize: '1rem', fontWeight: 800, color: UP, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'calc(1rem * var(--fz))', fontWeight: 800, color: UP, lineHeight: 1.5 }}>
               ✨ 你的持股 {bull.map(h => `${h.code} ${h.name}（${h.industry}）`).join('、')} 屬今日看漲族群
             </div>
           )}
@@ -199,17 +199,17 @@ export default function PremarketHub() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))', gap: 6 }}>
                 {gm!.markets.map(m => (
                   <div key={m.sym} style={{ textAlign: 'center', padding: '6px 3px', background: 'var(--bg-tertiary)', borderRadius: 7 }}>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{m.price.toLocaleString()}</div>
-                    <div style={{ fontSize: 13.5, fontWeight: 800, color: col(m.changePct) }}>{sign(m.changePct)}</div>
+                    <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                    <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{m.price.toLocaleString()}</div>
+                    <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 800, color: col(m.changePct) }}>{sign(m.changePct)}</div>
                   </div>
                 ))}
               </div>
-              <div style={{ fontSize: 13.5, marginTop: 7, fontWeight: 700, color: gm!.expectation.includes('多') ? UP : gm!.expectation.includes('空') ? DOWN : 'var(--text-muted)' }}>
+              <div style={{ fontSize: 'calc(13.5px * var(--fz))', marginTop: 7, fontWeight: 700, color: gm!.expectation.includes('多') ? UP : gm!.expectation.includes('空') ? DOWN : 'var(--text-muted)' }}>
                 開盤預期：{gm!.expectation}
               </div>
             </>
-          ) : <div style={{ fontSize: 13.5, color: 'var(--text-muted)' }}>載入中…</div>}
+          ) : <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)' }}>載入中…</div>}
         </div>
 
         {/* ② 今晨日韓早盤 */}
@@ -218,24 +218,24 @@ export default function PremarketHub() {
           {hasAsia ? (
             <>
               {stale > 180 && (
-                <div style={{ fontSize: 13.5, color: '#fbbf24', marginBottom: 5, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#fbbf24', marginBottom: 5, lineHeight: 1.5 }}>
                   ⚠資料為 {asia!.date}（已逾 {Math.round(stale / 60)} 小時未更新）——非今日盤前即時值，僅供回看。
                 </div>
               )}
               {(asia!.jp || asia!.kr) && (
                 <div style={{ display: 'grid', gap: 3, marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid rgba(148,163,184,0.14)' }}>
                   {[asia!.jp, asia!.kr].filter(Boolean).map(m => (
-                    <div key={m!.name} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 13.5, flexWrap: 'wrap' }}>
+                    <div key={m!.name} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 900 }}>{m!.name === '日本' ? '🇯🇵 日本' : '🇰🇷 韓國'}</span>
                       <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 900, color: col(m!.chg) }}>
                         {m!.dir === 'up' ? '▲' : m!.dir === 'down' ? '▼' : '—'} {sign(m!.chg)}
                       </span>
-                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>{m!.detail}</span>
+                      <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 'auto' }}>{m!.detail}</span>
                     </div>
                   ))}
-                  {asia!.split && <div style={{ fontSize: 13.5, color: '#fbbf24', lineHeight: 1.5 }}>{asia!.split}</div>}
+                  {asia!.split && <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.5 }}>{asia!.split}</div>}
                   {asia!.delayNote && (
-                    <div style={{ fontSize: 11.5, color: (asia!.delayMin ?? 0) > 45 ? '#fbbf24' : 'var(--text-muted)', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: (asia!.delayMin ?? 0) > 45 ? '#fbbf24' : 'var(--text-muted)', lineHeight: 1.5 }}>
                       {asia!.delayNote}{asia!.slot ? `　·　${asia!.slot} 那一輪` : ''}
                     </div>
                   )}
@@ -243,34 +243,34 @@ export default function PremarketHub() {
               )}
               <div style={{ display: 'grid', gap: 3 }}>
                 {asia!.indices!.map(x => (
-                  <div key={x.sym} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 13.5, flexWrap: 'wrap' }}>
+                  <div key={x.sym} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 700 }}>{x.name}</span>
                     <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: col(x.total) }}>{sign(x.total)}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>跳空{sign(x.gap)}·開後{sign(x.drift)}</span>
+                    <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 'auto' }}>跳空{sign(x.gap)}·開後{sign(x.drift)}</span>
                   </div>
                 ))}
               </div>
-              {asia!.biasNote && <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>📐 {asia!.biasNote}</div>}
-              {asia!.soxNote && <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.5 }}>🇺🇸 {asia!.soxNote}</div>}
+              {asia!.biasNote && <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>📐 {asia!.biasNote}</div>}
+              {asia!.soxNote && <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.5 }}>🇺🇸 {asia!.soxNote}</div>}
 
               {!!asia!.sectors?.length && (
                 <div style={{ marginTop: 7 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 3 }}>產業風向（日韓龍頭 → 台股對應）</div>
+                  <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 3 }}>產業風向（日韓龍頭 → 台股對應）</div>
                   {asia!.sectors!.map(s => (
-                    <div key={s.sector} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 13.5, padding: '1px 0', flexWrap: 'wrap' }}>
+                    <div key={s.sector} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 'calc(13.5px * var(--fz))', padding: '1px 0', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, minWidth: 56 }}>{s.sector}</span>
                       <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: col(s.chg), minWidth: 48, textAlign: 'right' }}>{sign(s.chg)}</span>
-                      <span style={{ fontSize: 11.5, color: '#7dd3fc', marginLeft: 'auto' }}>→ {s.twPeers}</span>
+                      <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: '#7dd3fc', marginLeft: 'auto' }}>→ {s.twPeers}</span>
                     </div>
                   ))}
                 </div>
               )}
 
-              <button onClick={() => setEvOpen(o => !o)} style={{ background: 'none', border: 'none', color: '#7dd3fc', fontSize: 13.5, cursor: 'pointer', padding: '6px 0 0', textAlign: 'left' }}>
+              <button onClick={() => setEvOpen(o => !o)} style={{ background: 'none', border: 'none', color: '#7dd3fc', fontSize: 'calc(13.5px * var(--fz))', cursor: 'pointer', padding: '6px 0 0', textAlign: 'left' }}>
                 {evOpen ? '▾ 收起實證與限制' : '▸ 實證數字與限制（務必先看）'}
               </button>
               {evOpen && (
-                <div style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 3 }}>
+                <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 3 }}>
                   {asia!.horizon && <div>⏱ {asia!.horizon}</div>}
                   {asia!.evidence && <div style={{ marginTop: 3 }}>📊 {asia!.evidence}</div>}
                   {asia!.caveats?.map((c, i) => <div key={i} style={{ marginTop: 3 }}>{c}</div>)}
@@ -278,17 +278,17 @@ export default function PremarketHub() {
                 </div>
               )}
             </>
-          ) : <div style={{ fontSize: 13.5, color: 'var(--text-muted)' }}>盤前 08:00 起每 15 分更新，尚無今日資料。</div>}
+          ) : <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)' }}>盤前 08:00 起每 15 分更新，尚無今日資料。</div>}
         </div>
 
         {/* ③ 盤前晨報（去重後只剩本頁沒有的段落，見 cleanNote） */}
         <div style={colBox}>
           <ColHead icon="📝" name="盤前晨報" when={note ? `${note.date} · 開盤前 70 分上報` : 'daemon 開盤前 70 分生成'} />
           {(() => {
-            if (!note?.content) return <div style={{ fontSize: 13.5, color: 'var(--text-muted)' }}>尚無今日晨報。</div>;
+            if (!note?.content) return <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)' }}>尚無今日晨報。</div>;
             const body = cleanNote(note.content, !!fc);
             if (!body) return (
-              <div style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 今日晨報的每一段都已呈現在左側兩欄與下方卡片（風向推測／國際盤／ADR 溢價／大盤健康度／事件日曆），沒有額外內容。
               </div>
             );
@@ -298,14 +298,14 @@ export default function PremarketHub() {
             return (
               <>
                 <div style={{
-                  fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
+                  fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
                   maxHeight: open ? 'none' : 108, overflow: 'hidden',
                   // 收合時底部漸隱，明示「下面還有」而不是「就這樣」
                   maskImage: open ? undefined : 'linear-gradient(180deg,#000 60%,transparent)',
                   WebkitMaskImage: open ? undefined : 'linear-gradient(180deg,#000 60%,transparent)',
                 }}>{body}</div>
                 {long && (
-                  <button onClick={() => setNoteOpen(o => !o)} style={{ background: 'none', border: 'none', color: '#7dd3fc', fontSize: 13.5, cursor: 'pointer', padding: '6px 0 0', textAlign: 'left' }}>
+                  <button onClick={() => setNoteOpen(o => !o)} style={{ background: 'none', border: 'none', color: '#7dd3fc', fontSize: 'calc(13.5px * var(--fz))', cursor: 'pointer', padding: '6px 0 0', textAlign: 'left' }}>
                     {noteOpen ? '▾ 收合晨報' : '▸ 展開晨報全文'}
                   </button>
                 )}

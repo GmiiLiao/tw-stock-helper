@@ -58,20 +58,20 @@
 }
 
 .indexLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   white-space: nowrap;
 }
 
 .indexValue {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--fz));
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: -0.02em;
 }
 
 .indexChange {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 500;
   font-family: 'JetBrains Mono', monospace;
   white-space: nowrap;
@@ -88,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
@@ -113,7 +113,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   padding: 3px 8px;
   border-radius: 6px;
   background: rgba(99, 102, 241, 0.1);
@@ -168,7 +168,7 @@
   border-radius: 8px;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   padding: 8px 36px 8px 34px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -226,14 +226,14 @@
 
 .searchCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
   min-width: 42px;
 }
 
 .searchName {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-primary);
 }
 
@@ -245,13 +245,13 @@
 
 .searchPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
 }
 
 .searchChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--fz));
 }
 
 /* Clock */
@@ -265,14 +265,14 @@
 
 .clockTime {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9375rem;
+  font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.05em;
 }
 
 .clockLabel {
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -289,15 +289,15 @@
     gap: 10px;
   }
   .indexItem { gap: 4px; }
-  .indexLabel { font-size: 0.6875rem; }
-  .indexValue { font-size: 0.8125rem; }
-  .indexChange { font-size: 0.6875rem; }
+  .indexLabel { font-size: calc(0.6875rem * var(--fz)); }
+  .indexValue { font-size: calc(0.8125rem * var(--fz)); }
+  .indexChange { font-size: calc(0.6875rem * var(--fz)); }
   .indexDivider { height: 16px; }
   .searchWrapper { max-width: 160px; }
-  .searchInput { padding: 6px 30px 6px 30px; font-size: 0.8125rem; }
+  .searchInput { padding: 6px 30px 6px 30px; font-size: calc(0.8125rem * var(--fz)); }
   .clock { display: none; }
-  .refreshBtn { padding: 2px 6px; font-size: 0.625rem; margin-left: 4px; }
-  .marketStatus { font-size: 0.625rem; gap: 3px; }
+  .refreshBtn { padding: 2px 6px; font-size: calc(0.625rem * var(--fz)); margin-left: 4px; }
+  .marketStatus { font-size: calc(0.625rem * var(--fz)); gap: 3px; }
   .statusDot { width: 5px; height: 5px; }
 }
 
@@ -309,8 +309,8 @@
     height: calc(44px + var(--safe-top));
   }
   .indexBar { gap: 6px; }
-  .indexValue { font-size: 0.75rem; }
-  .indexChange { font-size: 0.625rem; }
+  .indexValue { font-size: calc(0.75rem * var(--fz)); }
+  .indexChange { font-size: calc(0.625rem * var(--fz)); }
   .searchWrapper { max-width: 120px; }
   .refreshBtn { display: none; }
 }

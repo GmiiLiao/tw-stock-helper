@@ -44,19 +44,19 @@ export default function PortfolioTradeReview({ ledger }: { ledger?: Ledger }) {
       border: '1px solid rgba(34,197,94,0.22)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>🎓 AI 交易覆盤</span>
+        <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🎓 AI 交易覆盤</span>
         {data.stats && (
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: 'calc(0.74rem * var(--fz))', color: 'var(--text-muted)' }}>
             勝率 {data.stats.winRate}%（{data.stats.wins}勝/{data.stats.losses}負）
           </span>
         )}
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)' }}>
           {new Date(data.generatedAt).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 產出
         </span>
       </div>
       {stale && (
         <div style={{
-          fontSize: '0.76rem', lineHeight: 1.6, color: '#f59e0b', marginBottom: 8,
+          fontSize: 'calc(0.76rem * var(--fz))', lineHeight: 1.6, color: '#f59e0b', marginBottom: 8,
           padding: '7px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.08)',
         }}>
           ⚠ 這則覆盤是依<strong>當時的統計</strong>寫的（已實現 {Math.round(stored!).toLocaleString()}），
@@ -64,7 +64,7 @@ export default function PortfolioTradeReview({ ledger }: { ledger?: Ledger }) {
           下方數字才是最新。覆盤內文會在下一次 daemon 產出（每交易日 15:10）時更新。
         </div>
       )}
-      <div style={{ fontSize: '0.86rem', lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.review}</div>
+      <div style={{ fontSize: 'calc(0.86rem * var(--fz))', lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.review}</div>
     </div>
   );
 }

@@ -27,8 +27,8 @@ const card: React.CSSProperties = {
   background: 'var(--bg-card, rgba(148,163,184,0.04))', border: '1px solid var(--border-primary, rgba(148,163,184,0.18))',
   borderRadius: 10, padding: '14px 16px',
 };
-const title: React.CSSProperties = { fontWeight: 700, fontSize: '0.95rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
-const sub: React.CSSProperties = { fontWeight: 400, fontSize: '0.7rem', color: 'var(--text-muted)' };
+const title: React.CSSProperties = { fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
+const sub: React.CSSProperties = { fontWeight: 400, fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' };
 const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 14 };
 
 interface DivStock { code: string; name: string; yield: number; pe: number; pb: number }
@@ -46,7 +46,7 @@ const get = <T,>(url: string, set: (d: T) => void, alive: () => boolean) =>
 
 /** 缺資料時保留區塊、說明原因——不要整張消失，否則後面卡片位置會跳 */
 function Empty({ what }: { what: string }) {
-  return <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '6px 0' }}>今日無{what}——空榜是常態，不是故障。</div>;
+  return <div style={{ fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-muted)', padding: '6px 0' }}>今日無{what}——空榜是常態，不是故障。</div>;
 }
 
 export default function SignalBoards() {
@@ -77,7 +77,7 @@ export default function SignalBoards() {
   }, []);
 
   const Row = ({ code, name, right }: { code: string; name: string; right: React.ReactNode }) => (
-    <div onClick={() => navigateTo('stock', code)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', padding: '4px 0', cursor: 'pointer' }}>
+    <div onClick={() => navigateTo('stock', code)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'calc(0.8rem * var(--fz))', padding: '4px 0', cursor: 'pointer' }}>
       <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <b style={{ color: 'var(--text-primary)' }}>{code}</b> {name}
       </span>
@@ -114,7 +114,7 @@ export default function SignalBoards() {
             .filter(([, arr]) => arr?.length)
             .map(([label, arr]) => (
               <div key={label} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 'calc(0.74rem * var(--fz))', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
                 {arr.slice(0, 4).map(x => (
                   <Row key={x.code} code={x.code} name={x.name}
                     right={<span style={{ color: col(x.changePct), fontFamily: "'JetBrains Mono',monospace" }}>{sign(x.changePct)}{x.changePct}%</span>} />
@@ -131,20 +131,20 @@ export default function SignalBoards() {
       <div style={card}>
         <div style={title}>🌊 波段起漲 <span style={sub}>持有 5 個交易日·空頭日限定</span></div>
         <HitRate list="swing" label="波段起漲" horizons={[5, 10]} />
-        {swing?.gate && <div style={{ fontSize: '0.74rem', color: swing.gate.startsWith('✅') ? up : '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>{swing.gate}</div>}
+        {swing?.gate && <div style={{ fontSize: 'calc(0.74rem * var(--fz))', color: swing.gate.startsWith('✅') ? up : '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>{swing.gate}</div>}
         {swing?.items?.length
           ? swing.items.slice(0, 10).map(x => (
             <Row key={x.code} code={x.code} name={x.name}
               right={<span style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                <span style={{ color: '#fbbf24', fontSize: '0.72rem' }}>{'⭐'.repeat(x.tier)}</span>
-                {x.vol20 != null && <span style={{ fontSize: '0.7rem', color: x.vol20 >= 3 ? '#fb923c' : 'var(--text-muted)' }}>波動{x.vol20}%</span>}
-                {x.breakRisk && <span style={{ fontSize: '0.7rem', color: x.breakRisk === 'low' ? up : x.breakRisk === 'high' ? down : 'var(--text-muted)' }}>破底{x.breakRisk === 'low' ? '低' : x.breakRisk === 'high' ? '高' : '中'}</span>}
+                <span style={{ color: '#fbbf24', fontSize: 'calc(0.72rem * var(--fz))' }}>{'⭐'.repeat(x.tier)}</span>
+                {x.vol20 != null && <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: x.vol20 >= 3 ? '#fb923c' : 'var(--text-muted)' }}>波動{x.vol20}%</span>}
+                {x.breakRisk && <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: x.breakRisk === 'low' ? up : x.breakRisk === 'high' ? down : 'var(--text-muted)' }}>破底{x.breakRisk === 'low' ? '低' : x.breakRisk === 'high' ? '高' : '中'}</span>}
                 <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{x.price}</span>
               </span>} />
           ))
           : <Empty what="起漲訊號" />}
-        {swing?.evidence?.t1 && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>📐 {swing.evidence.t1}</div>}
-        {swing?.caveats?.map((c, i) => <div key={i} style={{ fontSize: '0.68rem', color: '#fbbf24', marginTop: 4, lineHeight: 1.6 }}>{c}</div>)}
+        {swing?.evidence?.t1 && <div style={{ fontSize: 'calc(0.68rem * var(--fz))', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>📐 {swing.evidence.t1}</div>}
+        {swing?.caveats?.map((c, i) => <div key={i} style={{ fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24', marginTop: 4, lineHeight: 1.6 }}>{c}</div>)}
       </div>
       <div style={card}>
         <div style={title}>🚀 波段追強 <span style={sub}>強勢整理·持有 5 個交易日</span></div>
@@ -153,15 +153,15 @@ export default function SignalBoards() {
           ? strength.items.slice(0, 10).map(x => (
             <Row key={x.code} code={x.code} name={x.name}
               right={<span style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                {x.lowVol && <span style={{ fontSize: '0.7rem', color: '#2f9e44' }}>😴低波動</span>}
-                {x.kdDead && <span style={{ fontSize: '0.7rem', color: down }}>⚔KD死叉</span>}
-                <span style={{ fontSize: '0.7rem', color: '#c084fc' }}>法人{(x.inst5Ratio * 100).toFixed(0)}%</span>
+                {x.lowVol && <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: '#2f9e44' }}>😴低波動</span>}
+                {x.kdDead && <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: down }}>⚔KD死叉</span>}
+                <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: '#c084fc' }}>法人{(x.inst5Ratio * 100).toFixed(0)}%</span>
                 <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{x.price}</span>
               </span>} />
           ))
           : <Empty what="追強訊號" />}
-        {strength?.evidence?.main && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>📐 {strength.evidence.main}</div>}
-        {strength?.caveats?.filter(Boolean).map((c, i) => <div key={i} style={{ fontSize: '0.68rem', color: '#fbbf24', marginTop: 4, lineHeight: 1.6 }}>{c}</div>)}
+        {strength?.evidence?.main && <div style={{ fontSize: 'calc(0.68rem * var(--fz))', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>📐 {strength.evidence.main}</div>}
+        {strength?.caveats?.filter(Boolean).map((c, i) => <div key={i} style={{ fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24', marginTop: 4, lineHeight: 1.6 }}>{c}</div>)}
       </div>
     </div>
   );
@@ -170,14 +170,14 @@ export default function SignalBoards() {
     <div style={grid}>
       <div style={card}>
         <div style={title}>⚡ 當沖候選 <span style={sub}>觀察用·本模式無評分模型</span></div>
-        <div style={{ fontSize: '0.74rem', color: '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 'calc(0.74rem * var(--fz))', color: '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>
           ⚠當沖尚無經驗證的評分模型（原料不足·見模式切換器的進度）。以下只是高振幅候選，**不是訊號**，請自行用三關法逐關檢核。
         </div>
         {trade?.dayTrade?.length
           ? trade.dayTrade.slice(0, 10).map(x => (
             <Row key={x.code} code={x.code} name={x.name}
               right={<span style={{ display: 'flex', gap: 8 }}>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>振幅{x.amplitude}%</span>
+                <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)' }}>振幅{x.amplitude}%</span>
                 <span style={{ color: col(x.changePct), fontFamily: "'JetBrains Mono',monospace" }}>{sign(x.changePct)}{x.changePct}%</span>
               </span>} />
           ))
@@ -191,11 +191,11 @@ export default function SignalBoards() {
       {/* 目前模式與口徑——使用者必須隨時知道自己在看哪個持有期的清單 */}
       <div style={{ ...card, marginBottom: 14, borderColor: 'rgba(167,139,250,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 900, fontSize: '0.95rem' }}>{M.icon} {M.label}模式的訊號榜單</span>
+          <span style={{ fontWeight: 900, fontSize: 'calc(0.95rem * var(--fz))' }}>{M.icon} {M.label}模式的訊號榜單</span>
           <span style={sub}>{M.horizon}｜{M.exit.replace(/\*\*/g, '').split('——')[0]}</span>
-          {!M.hasScoreModel && <span style={{ marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 800, color: '#fbbf24' }}>本模式無評分模型</span>}
+          {!M.hasScoreModel && <span style={{ marginLeft: 'auto', fontSize: 'calc(0.72rem * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>本模式無評分模型</span>}
         </div>
-        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 5, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)', marginTop: 5, lineHeight: 1.6 }}>
           切換左上角的模式即可換一整組榜單。**各模式的權重各自回測、絕不互借**——同一檔股票在不同模式的意義可以完全相反。
         </div>
       </div>
@@ -206,8 +206,8 @@ export default function SignalBoards() {
 
       {/* 不分模式：這三張沒有任何持有期的實證，硬塞進某個模式等於宣稱它有那個口徑的驗證 */}
       <div style={{ marginTop: 18 }}>
-        <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: 4 }}>📎 不分模式（基本面與通用觀察）</div>
-        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
+        <div style={{ fontWeight: 800, fontSize: 'calc(0.9rem * var(--fz))', marginBottom: 4 }}>📎 不分模式（基本面與通用觀察）</div>
+        <div style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
           以下三張**不屬於任何交易模式**——本站沒有測過它們在隔日沖/波段/當沖任一持有期的表現，
           所以不放進模式榜單，避免讓人以為它們有對應口徑的實證。當作背景資訊看。
         </div>
@@ -238,14 +238,14 @@ export default function SignalBoards() {
             {divStocks.length
               ? divStocks.slice(0, 8).map(x => (
                 <Row key={x.code} code={x.code} name={x.name}
-                  right={<span><b style={{ color: up }}>{x.yield}%</b><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 6 }}>PER {x.pe}</span></span>} />
+                  right={<span><b style={{ color: up }}>{x.yield}%</b><span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)', marginLeft: 6 }}>PER {x.pe}</span></span>} />
               ))
               : <Empty what="高股息名單" />}
           </div>
         </div>
       </div>
 
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 14 }}>非投資建議。</div>
+      <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)', marginTop: 14 }}>非投資建議。</div>
     </div>
   );
 }

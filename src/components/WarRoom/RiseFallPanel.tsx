@@ -79,9 +79,9 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-        <span style={{ fontWeight: 900, fontSize: 13.5, color }}>{icon} {title}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>{items.length.toLocaleString()} 檔</span>
-        <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+        <span style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', color }}>{icon} {title}</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)' }}>{items.length.toLocaleString()} 檔</span>
+        <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {stat}
         </span>
         {/* ⚠ 這排鈕要能橫向捲（2026-08-11 手機回報）：
@@ -91,7 +91,7 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, flexWrap: 'nowrap', overflowX: 'auto', maxWidth: '100%', scrollbarWidth: 'none' }}>
           {SORTS.map(s => (
             <button key={s.key} onClick={() => setSort(s.key)}
-              style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+              style={{ padding: '2px 8px', borderRadius: 10, fontSize: 'calc(10.5px * var(--fz))', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
                 border: `1px solid ${sort === s.key ? `${color}88` : 'var(--border-primary)'}`,
                 background: sort === s.key ? `${color}22` : 'transparent',
                 color: sort === s.key ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -115,14 +115,14 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
                   //   擋不住已經溢出的內容——要靠 overflow 裁掉。
                   background: tileBg(q.changePercent), border: open ? '1px solid #7dd3fc' : '1px solid transparent', minWidth: 0, overflow: 'hidden',
                   ...(candidateSet.has(q.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.8)' } : {}) }}>
-                <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 8.5, fontWeight: 800, color: otc ? '#fcd34d' : '#93c5fd', opacity: 0.9 }}>{otc ? '櫃' : '市'}</span>
+                <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 'calc(8.5px * var(--fz))', fontWeight: 800, color: otc ? '#fcd34d' : '#93c5fd', opacity: 0.9 }}>{otc ? '櫃' : '市'}</span>
                 <span style={{ position: 'absolute', top: 2, left: 3 }}><AddCandidateButton code={q.code} variant="icon" /></span>
-                <div style={{ fontSize: 11.5, fontWeight: 800, lineHeight: 1.25 }}>{q.code}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{q.name}</div>
-                <div style={{ fontSize: 10.5, fontWeight: 800, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, lineHeight: 1.25 }}>{q.code}</div>
+                <div style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{q.name}</div>
+                <div style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {q.price} <span>{q.changePercent >= 0 ? '+' : ''}{q.changePercent.toFixed(1)}%</span>
                 </div>
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.75)', whiteSpace: 'nowrap', display: 'flex', gap: 4, alignItems: 'center' }}>
+                <div style={{ fontSize: 'calc(9px * var(--fz))', color: 'rgba(255,255,255,0.75)', whiteSpace: 'nowrap', display: 'flex', gap: 4, alignItems: 'center' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{Math.round(q.volume / 1000).toLocaleString()} 張{q.volX != null ? `·${q.volX}x` : ''}</span>
                   {(() => { const st = strengthOf(q.changePercent); return <span style={{ marginLeft: 'auto', flexShrink: 0, fontWeight: 800, color: st.c === '#94a3b8' ? 'rgba(255,255,255,0.6)' : '#fff', background: `${st.c}66`, borderRadius: 4, padding: '0 3px' }}>{st.t}{scoreOf(q)}</span>; })()}
                 </div>
@@ -139,12 +139,12 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
       {rest > 0 && (
         <button onClick={() => setLimit(items.length)}
           style={{ marginTop: 6, width: '100%', padding: '6px 0', borderRadius: 8, cursor: 'pointer',
-            fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)',
+            fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
             background: 'transparent', border: '1px dashed var(--border-primary)' }}>
           顯示其餘 {rest.toLocaleString()} 檔
         </button>
       )}
-      {items.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '10px 4px' }}>無</div>}
+      {items.length === 0 && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>無</div>}
     </div>
   );
 }
@@ -206,16 +206,16 @@ export default function RiseFallPanel() {
   return (
     <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.05)', border: '1px solid rgba(61,142,248,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontSize: 14.5, fontWeight: 900, color: '#7dd3fc' }}>📈 即時漲跌</span>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#7dd3fc' }}>📈 即時漲跌</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
           全市場 {snaps.length.toLocaleString()} 檔 · ▲{risers.length.toLocaleString()} ▼{fallers.length.toLocaleString()} 平{flat}
           {updatedAt ? ` · ${new Date(updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : ''}{!marketOpen ? ' · ⏸ 非盤中(最後快照)' : ''}
         </span>
         <OnlyCandidatesToggle on={onlyCand} setOn={setOnlyCand} />
-        <span className="mobile-hide" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span className="mobile-hide" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
           欄數
           <select value={cols} onChange={e => saveCols(+e.target.value)}
-            style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 11, padding: '2px 4px' }}>
+            style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 'calc(11px * var(--fz))', padding: '2px 4px' }}>
             {[2, 3, 4, 5, 6, 8, 10].map(v => <option key={v} value={v}>{v}</option>)}
           </select>
           <span>· 點方塊看即時K線</span>
@@ -230,7 +230,7 @@ export default function RiseFallPanel() {
         <Column title="上漲" icon="▲" color="#f03e3e" items={risers} sort={sortUp} setSort={setSortUp} cols={effCols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
         <Column title="下跌" icon="▼" color="#2f9e44" items={fallers} sort={sortDn} setSort={setSortDn} cols={effCols} openCode={openCode} setOpenCode={setOpenCode} candidateSet={candidateSet} />
       </div>
-      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
         底色深淺＝漲跌幅強度（紅漲綠跌）；漲跌兩區各自獨立排序（手機為上下排、桌機為左右並排）；每 30 秒更新。非投資建議。
       </div>
     </div>

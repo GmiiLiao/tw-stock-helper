@@ -36,7 +36,7 @@ export default function PageHelp({ id }: { id: string }) {
   return (
     <div style={{ marginBottom: 10 }}>
       <button onClick={toggle} aria-expanded={open}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 14, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 14, fontSize: 'calc(12px * var(--fz))', fontWeight: 700, cursor: 'pointer',
           border: `1px solid ${open ? 'rgba(125,211,252,0.55)' : 'var(--border-primary)'}`,
           background: open ? 'rgba(125,211,252,0.12)' : 'transparent',
           color: open ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -44,8 +44,8 @@ export default function PageHelp({ id }: { id: string }) {
       </button>
 
       {open && (
-        <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 12.5, lineHeight: 1.8 }}>
-          <div style={{ fontWeight: 900, fontSize: 13.5, marginBottom: 4 }}>{content.icon} {content.title}：{content.what}</div>
+        <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
+          <div style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', marginBottom: 4 }}>{content.icon} {content.title}：{content.what}</div>
 
           <div style={{ fontWeight: 800, color: '#7dd3fc', margin: '8px 0 2px' }}>🖱 怎麼操作</div>
           {how.map((h, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {h}</div>)}
@@ -61,7 +61,7 @@ export default function PageHelp({ id }: { id: string }) {
                   const on = term === t;
                   return (
                     <button key={t} onClick={() => setTerm(on ? null : t)}
-                      style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+                      style={{ padding: '2px 10px', borderRadius: 12, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
                         border: `1px solid ${on ? 'rgba(196,181,253,0.6)' : 'var(--border-primary)'}`,
                         background: on ? 'rgba(196,181,253,0.14)' : 'transparent',
                         color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}>
@@ -80,10 +80,10 @@ export default function PageHelp({ id }: { id: string }) {
 
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button onClick={() => navigateTo('help')}
-              style={{ padding: '4px 12px', borderRadius: 10, fontSize: 11.5, fontWeight: 800, cursor: 'pointer', border: '1px solid rgba(125,211,252,0.45)', background: 'rgba(125,211,252,0.10)', color: '#7dd3fc' }}>
+              style={{ padding: '4px 12px', borderRadius: 10, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: '1px solid rgba(125,211,252,0.45)', background: 'rgba(125,211,252,0.10)', color: '#7dd3fc' }}>
               📖 完整說明書（操作流程＋全部術語）
             </button>
-            <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>非投資建議。</span>
+            <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>非投資建議。</span>
           </div>
         </div>
       )}

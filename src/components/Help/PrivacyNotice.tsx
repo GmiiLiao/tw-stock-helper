@@ -48,20 +48,20 @@ const SECTIONS: { t: string; items: string[] }[] = [
 export function PrivacyPage() {
   const navigateTo = useAppStore(s => s.navigateTo);
   return (
-    <div style={{ padding: '14px 16px', maxWidth: 780, margin: '0 auto', fontSize: 13, lineHeight: 1.9 }}>
-      <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 4 }}>🔒 隱私聲明</div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>更新日期：2026-07-17 · 台股助手 TW Stock Pro</div>
+    <div style={{ padding: '14px 16px', maxWidth: 780, margin: '0 auto', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.9 }}>
+      <div style={{ fontSize: 'calc(20px * var(--fz))', fontWeight: 900, marginBottom: 4 }}>🔒 隱私聲明</div>
+      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 12 }}>更新日期：2026-07-17 · 台股助手 TW Stock Pro</div>
       {SECTIONS.map(sec => (
         <div key={sec.t} style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>{sec.t}</div>
           {sec.items.map((it, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {it}</div>)}
         </div>
       ))}
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
         本站為投資分析工具，非證券商亦非投資顧問；所有資料與統計僅供參考，非投資建議。
       </div>
       <button onClick={() => navigateTo('dashboard')}
-        style={{ marginTop: 14, padding: '7px 16px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-secondary)' }}>
+        style={{ marginTop: 14, padding: '7px 16px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-secondary)' }}>
         ← 回市場總覽
       </button>
     </div>
@@ -93,13 +93,13 @@ export function ConsentBanner() {
   return (
     <div style={{ position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 950, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
       <div style={{ pointerEvents: 'auto', maxWidth: 720, width: '100%', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-        padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.4)', boxShadow: '0 8px 28px rgba(0,0,0,0.4)', fontSize: 12.5 }}>
+        padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.4)', boxShadow: '0 8px 28px rgba(0,0,0,0.4)', fontSize: 'calc(12.5px * var(--fz))' }}>
         <span style={{ flex: '1 1 320px', lineHeight: 1.7 }}>
           🔒 為提供投組損益、決策分析與服務改善，本站會記錄你的操作與交易記錄（僅你輸入的）；對外只使用匿名彙總。
           <b onClick={() => navigateTo('privacy')} style={{ color: '#7dd3fc', cursor: 'pointer', marginLeft: 4 }}>閱讀完整隱私聲明</b>
         </span>
         <button onClick={ack}
-          style={{ padding: '7px 18px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer', border: 'none', background: 'linear-gradient(135deg,#3d8ef8,#7dd3fc)', color: '#fff' }}>
+          style={{ padding: '7px 18px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: 'none', background: 'linear-gradient(135deg,#3d8ef8,#7dd3fc)', color: '#fff' }}>
           我知道了
         </button>
       </div>

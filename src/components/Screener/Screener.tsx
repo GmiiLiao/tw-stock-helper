@@ -255,7 +255,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
         boxShadow: '0 24px 64px rgba(0, 0, 0, 0.5)'
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-          <span style={{ fontSize: '16px', fontWeight: 700, color: '#f1f5f9' }}>⚙️ 自選比較組管理</span>
+          <span style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: '#f1f5f9' }}>⚙️ 自選比較組管理</span>
           <button
             onClick={onClose}
             style={{
@@ -283,7 +283,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <input
                       className="input"
-                      style={{ fontSize: '0.875rem', padding: '6px 10px' }}
+                      style={{ fontSize: 'calc(0.875rem * var(--fz))', padding: '6px 10px' }}
                       value={editName}
                       onChange={e => setEditName(e.target.value)}
                       placeholder="請輸入群組名稱"
@@ -291,7 +291,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                       autoFocus
                     />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '13px', color: '#8b9bb8' }}>群組顏色：</span>
+                      <span style={{ fontSize: 'calc(13px * var(--fz))', color: '#8b9bb8' }}>群組顏色：</span>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {GROUP_COLORS.map(c => (
                           <button
@@ -310,21 +310,21 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                       </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '2px' }}>
-                      <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: '13px', borderRadius: '6px', height: 'auto' }} onClick={() => setEditingGroupId(null)}>取消</button>
-                      <button className="btn btn-primary btn-sm" style={{ padding: '4px 10px', fontSize: '13px', borderRadius: '6px', height: 'auto' }} onClick={() => handleSaveEdit(group.id)} disabled={!editName.trim()}>儲存</button>
+                      <button className="btn btn-secondary btn-sm" style={{ padding: '4px 10px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: 'auto' }} onClick={() => setEditingGroupId(null)}>取消</button>
+                      <button className="btn btn-primary btn-sm" style={{ padding: '4px 10px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: 'auto' }} onClick={() => handleSaveEdit(group.id)} disabled={!editName.trim()}>儲存</button>
                     </div>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                       <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: group.color, flexShrink: 0 }} />
-                      <span style={{ fontWeight: 600, fontSize: '13px', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.name}</span>
-                      <span style={{ fontSize: '12px', color: '#8b9bb8', background: 'rgba(255, 255, 255, 0.04)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>{group.stocks.length} 檔</span>
+                      <span style={{ fontWeight: 600, fontSize: 'calc(13px * var(--fz))', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.name}</span>
+                      <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#8b9bb8', background: 'rgba(255, 255, 255, 0.04)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>{group.stocks.length} 檔</span>
                     </div>
                     <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                       <button
                         className="btn btn-secondary btn-sm"
-                        style={{ padding: '3px 8px', fontSize: '13px', borderRadius: '6px', height: '24px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                        style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: '24px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
                         onClick={() => handleStartEdit(group)}
                       >
                         ✏️ 編輯
@@ -332,7 +332,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                       {group.id !== 'default' && (
                         <button
                           className="btn btn-secondary btn-sm"
-                          style={{ padding: '3px 8px', fontSize: '13px', borderRadius: '6px', height: '24px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                          style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: '24px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
                           onClick={() => handleDelete(group.id, group.name)}
                         >
                           🗑️ 刪除
@@ -787,7 +787,7 @@ export default function Screener() {
           {screenerMode === 'filter' ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
               <div>找到 <strong>{filteredStocks.length}</strong> 支符合條件的股票</div>
-              <div style={{ fontSize: '0.8rem', color: selectedCompareCodes.length > 0 ? 'var(--accent-blue)' : 'var(--text-muted)' }}>
+              <div style={{ fontSize: 'calc(0.8rem * var(--fz))', color: selectedCompareCodes.length > 0 ? 'var(--accent-blue)' : 'var(--text-muted)' }}>
                 已選擇比較：<strong>{selectedCompareCodes.length} / 5</strong> 檔
               </div>
             </div>
@@ -1023,7 +1023,7 @@ export default function Screener() {
                         >
                           <span className={styles.searchResultCode}>{s.code}</span>
                           <span className={styles.searchResultName}>{s.name}</span>
-                          <span style={{ fontSize: '13px', color: 'var(--accent-blue)', marginLeft: 'auto' }}>＋ 加入</span>
+                          <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--accent-blue)', marginLeft: 'auto' }}>＋ 加入</span>
                         </button>
                       ))}
                     </div>
@@ -1035,7 +1035,7 @@ export default function Screener() {
                 <button
                   onClick={() => setSelectedCompareCodes([])}
                   className="btn btn-ghost btn-xs"
-                  style={{ color: 'var(--text-muted)', fontSize: '0.75rem', padding: '2px 8px', flexShrink: 0 }}
+                  style={{ color: 'var(--text-muted)', fontSize: 'calc(0.75rem * var(--fz))', padding: '2px 8px', flexShrink: 0 }}
                 >
                   🧹 清除全部
                 </button>
@@ -1214,7 +1214,7 @@ export default function Screener() {
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{i + 1}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 'calc(0.8rem * var(--fz))' }}>{i + 1}</td>
                           <td style={{ textAlign: 'center' }}>
                             <input
                               type="checkbox"
@@ -1229,7 +1229,7 @@ export default function Screener() {
                             </span>
                           </td>
                           <td>{stock.name}</td>
-                          <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 'calc(0.8rem * var(--fz))' }}>
                             {industryInfo.emoji} {industryInfo.name}
                           </td>
                           <td style={{ textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
@@ -1253,7 +1253,7 @@ export default function Screener() {
                             {formatVolume(stock.volume)}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                            <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(0.7rem * var(--fz))', padding: '2px 8px' }}>
                               {aiRating.grade} {aiRating.grade === 'A+' ? '強力買進' : aiRating.grade === 'A' ? '買進' : aiRating.grade === 'B+' ? '觀察' : '中性'}
                             </span>
                           </td>
@@ -1310,7 +1310,7 @@ export default function Screener() {
                         <div className={styles.mobileCardTitle}>
                           <span className={styles.mobileCode}>{stock.code}</span>
                           <span className={styles.mobileName}>{stock.name}</span>
-                          <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: '0.65rem', padding: '1px 6px', marginLeft: '6px' }}>
+                          <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(0.65rem * var(--fz))', padding: '1px 6px', marginLeft: '6px' }}>
                             {aiRating.grade}
                           </span>
                         </div>
@@ -1329,7 +1329,7 @@ export default function Screener() {
                         </div>
                       </div>
                       <div className={styles.mobileCardActions} onClick={e => e.stopPropagation()}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>排序 #{i + 1}</span>
+                        <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>排序 #{i + 1}</span>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <button
                             className={`btn ${selectedCompareCodes.includes(stock.code) ? 'btn-primary' : 'btn-ghost'} btn-xs`}
@@ -1432,7 +1432,7 @@ export default function Screener() {
                     onChange={e => setBudget(Math.max(0, parseInt(e.target.value) || 0))}
                     placeholder="例如 500000"
                     className="input"
-                    style={{ fontSize: '0.85rem' }}
+                    style={{ fontSize: 'calc(0.85rem * var(--fz))' }}
                   />
                 </div>
                 <div className={styles.paramGroup}>
@@ -1454,7 +1454,7 @@ export default function Screener() {
                     placeholder={profitTargetType === 'percent' ? "例如 10" : "例如 50000"}
                     step={profitTargetType === 'percent' ? "0.5" : "1000"}
                     className="input"
-                    style={{ fontSize: '0.85rem' }}
+                    style={{ fontSize: 'calc(0.85rem * var(--fz))' }}
                   />
                 </div>
                 <div className={styles.paramGroup}>
@@ -1498,16 +1498,16 @@ export default function Screener() {
           {allStocks.length === 0 ? (
             <div className={styles.resultsCard} style={{ padding: '60px 40px', textAlign: 'center' }}>
               <div className={styles.spinner} style={{ margin: '0 auto 16px auto' }}></div>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>個股資料載入中...</h3>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 700, color: 'var(--text-primary)' }}>個股資料載入中...</h3>
+              <p style={{ fontSize: 'calc(0.875rem * var(--fz))', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
                 正在從 TWSE 載入個股即時報價與分析資料，請稍候。
               </p>
             </div>
           ) : comparedStocks.length === 0 ? (
             <div className={styles.resultsCard} style={{ padding: '60px 40px', textAlign: 'center' }}>
-              <span style={{ fontSize: '3rem', display: 'block', marginBottom: '16px' }}>📊</span>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>自選股比較名單為空</h3>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 20px auto', lineHeight: 1.5 }}>
+              <span style={{ fontSize: 'calc(3rem * var(--fz))', display: 'block', marginBottom: '16px' }}>📊</span>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 700, color: 'var(--text-primary)' }}>自選股比較名單為空</h3>
+              <p style={{ fontSize: 'calc(0.875rem * var(--fz))', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 20px auto', lineHeight: 1.5 }}>
                 您選擇的分組中目前沒有任何股票。請切換至「篩選模式」或至「個股分析」點擊星號（★）將股票加入自選。
               </p>
               <button
@@ -1638,7 +1638,7 @@ export default function Screener() {
                             onClick={() => navigateTo('stock', stock.code)}
                             style={{ cursor: 'pointer' }}
                           >
-                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{i + 1}</td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: 'calc(0.8rem * var(--fz))' }}>{i + 1}</td>
                             <td>
                               <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--accent-blue)' }}>
                                 {stock.code}
@@ -1666,14 +1666,14 @@ export default function Screener() {
                               {shares > 0 ? `${netProfit >= 0 ? '+' : ''}${Math.round(netProfit).toLocaleString()} 元` : '--'}
                             </td>
                             <td style={{ textAlign: 'center' }}>
-                              <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
+                              <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: 'calc(0.7rem * var(--fz))', padding: '2px 6px' }}>
                                 {fitBadge.text}
                               </span>
                             </td>
                             <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                               <button
                                 className="btn btn-ghost btn-xs"
-                                style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}
+                                style={{ color: 'var(--text-muted)', fontSize: 'calc(0.75rem * var(--fz))' }}
                                 onClick={() => navigateTo('stock', stock.code)}
                               >
                                 📊 分析
@@ -1791,7 +1791,7 @@ export default function Screener() {
                         </div>
 
                         <div className={styles.mobileCardActions} onClick={e => e.stopPropagation()}>
-                          <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: '0.7rem' }}>
+                          <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: 'calc(0.7rem * var(--fz))' }}>
                             {fitBadge.text}
                           </span>
                           <button
@@ -1811,10 +1811,10 @@ export default function Screener() {
             {selectedGroupId !== 'all' && selectedGroupId !== 'selected' && (
               <div className={styles.aiAnalysisCard}>
                 <div className={styles.aiAnalysisHeader}>
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                  <h3 style={{ margin: 0, fontSize: 'calc(1.1rem * var(--fz))', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
                     🧠 AI 深度分析報告歷史記錄
                   </h3>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: 'calc(0.8rem * var(--fz))', color: 'var(--text-muted)' }}>
                     每 10 分鐘限分析一次
                   </span>
                 </div>
@@ -1823,7 +1823,7 @@ export default function Screener() {
                 {isAiAnalyzing && (
                   <div className={styles.aiLoading}>
                     <div className={styles.spinner}></div>
-                    <p style={{ margin: '10px 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                    <p style={{ margin: '10px 0 0 0', fontSize: 'calc(0.9rem * var(--fz))', color: 'var(--text-secondary)' }}>
                       本地 AI 投資專家正在評估您的配置、計算選購建議與潛在風險...
                     </p>
                   </div>
@@ -1853,17 +1853,17 @@ export default function Screener() {
                   
                   return currentGroupRecords.length > 0 ? (
                     <div className={styles.recordsList}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      <div style={{ fontSize: 'calc(0.85rem * var(--fz))', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
                         歷史報告列表 ({currentGroupRecords.length})：
                       </div>
                       <div className={styles.historyGrid}>
                         {currentGroupRecords.map((rec, index) => (
                           <div key={index} className={styles.historyItem}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left' }}>
-                              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              <span style={{ fontSize: 'calc(0.85rem * var(--fz))', fontWeight: 600, color: 'var(--text-primary)' }}>
                                 📝 分析記錄 #{currentGroupRecords.length - index}
                               </span>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>
                                 {new Date(rec.timestamp).toLocaleString('zh-TW')}
                               </span>
                             </div>
@@ -1880,7 +1880,7 @@ export default function Screener() {
                     </div>
                   ) : (
                     !isAiAnalyzing && (
-                      <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                      <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)', fontSize: 'calc(0.875rem * var(--fz))' }}>
                         💡 該分組目前尚無 AI 分析記錄。點擊頂部 **「🧠 AI 深度分析」** 按鈕可立刻產出最佳選購建議與風險報告！
                       </div>
                     )

@@ -301,7 +301,7 @@ export default function Header() {
           {/* Data date + source badge */}
           {dataDate && (
             <span style={{
-              fontSize: '12px',
+              fontSize: 'calc(12px * var(--fz))',
               color: isRealtime ? '#22c55e' : 'var(--text-muted)',
               background: isRealtime ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.08)',
               border: `1px solid ${isRealtime ? 'rgba(34,197,94,0.3)' : 'var(--border-primary)'}`,

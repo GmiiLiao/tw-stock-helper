@@ -29,22 +29,22 @@ export default function RotationAdvice() {
 
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: weak.length ? '1px solid rgba(249,115,22,0.4)' : '1px solid var(--border-primary)' }}>
-      <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 8 }}>♻️ 汰弱留強檢查
-        <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>持股評分 vs 全市場（每日收盤後更新）</span>
+      <div style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 8 }}>♻️ 汰弱留強檢查
+        <span style={{ fontWeight: 400, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>持股評分 vs 全市場（每日收盤後更新）</span>
       </div>
       {data.items.map(i => (
-        <div key={i.code} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 13 }}>
+        <div key={i.code} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 'calc(13px * var(--fz))' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <b style={{ color: '#7dd3fc', cursor: 'pointer' }} onClick={() => navigateTo('stock', i.code)}>{i.code} {i.name}</b>
             <span>評分 <b style={{ color: i.weak ? '#f97316' : '#fbbf24' }}>{i.score ?? '—'}</b></span>
-            {i.percentile != null && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>市場前 {100 - i.percentile}%</span>}
-            {i.weak && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: '#f97316' }}>⚠ 弱勢</span>}
+            {i.percentile != null && <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>市場前 {100 - i.percentile}%</span>}
+            {i.weak && <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: '#f97316' }}>⚠ 弱勢</span>}
           </div>
-          {i.note && <div style={{ marginTop: 3, fontSize: 12, color: '#f97316', lineHeight: 1.6 }}>{i.note}</div>}
+          {i.note && <div style={{ marginTop: 3, fontSize: 'calc(12px * var(--fz))', color: '#f97316', lineHeight: 1.6 }}>{i.note}</div>}
         </div>
       ))}
       {weak.length > 0 && data.alternatives?.length > 0 && (
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+        <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)' }}>
           目前評分最強替代參考：{data.alternatives.map(a => (
             <span key={a.code} onClick={() => navigateTo('stock', a.code)} style={{ cursor: 'pointer', marginRight: 8, color: '#7dd3fc' }}>
               {a.code} {a.name}（<b style={{ color: '#fbbf24' }}>{a.score}</b>）

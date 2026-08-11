@@ -17,16 +17,16 @@
   gap: 14px;
 }
 
-.signalEmoji { font-size: 2rem; flex-shrink: 0; }
+.signalEmoji { font-size: calc(2rem * var(--fz)); flex-shrink: 0; }
 
 .signalLabel {
-  font-size: 1.125rem;
+  font-size: calc(1.125rem * var(--fz));
   font-weight: 700;
   margin-bottom: 4px;
 }
 
 .signalDesc {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -39,14 +39,14 @@
 }
 
 .strengthLabel {
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--fz));
   color: var(--text-muted);
   margin-bottom: 4px;
   text-align: right;
 }
 
 .strengthValue {
-  font-size: 1.5rem;
+  font-size: calc(1.5rem * var(--fz));
   font-weight: 800;
   font-family: 'JetBrains Mono', monospace;
   text-align: right;
@@ -81,7 +81,7 @@
 }
 
 .sectionTitle {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 12px;
@@ -104,7 +104,7 @@
 
 .indLabel {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-muted);
   width: 64px;
   flex-shrink: 0;
@@ -112,13 +112,13 @@
 
 .indValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 600;
   flex: 1;
 }
 
 .indState {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 700;
   min-width: 28px;
   text-align: center;
@@ -141,18 +141,18 @@
 }
 
 .riskLabel {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   color: var(--text-secondary);
 }
 
 .riskValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
 }
 
 .disclaimer {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   line-height: 1.5;
   padding: 8px 10px;
@@ -168,7 +168,7 @@
 }
 
 .reasonItem {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   color: var(--text-primary);
   padding: 8px 12px;
   background: var(--bg-elevated);

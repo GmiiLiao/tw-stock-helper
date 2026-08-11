@@ -63,25 +63,25 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
   return (
     <div style={bare ? {} : { marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: bare ? 'none' : 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontWeight: 900, fontSize: '1rem' }}>🌪 大盤風向</span>
-        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <span style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))' }}>🌪 大盤風向</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
           強勢股聚集 × 供應鏈驗證 × 驅動力歸因 · {data.marketOpen ? '盤中即時' : '收盤定案'}
         </span>
       </div>
 
       {/* 大盤走向判定 */}
       <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', marginBottom: 8 }}>
-        <div style={{ fontSize: 14.5, fontWeight: 900, color: dirColor, marginBottom: 3 }}>{dir.label}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+        <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: dirColor, marginBottom: 3 }}>{dir.label}</div>
+        <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)' }}>
           漲 {dir.up} / 跌 {dir.down} · 強勢股 {dir.strongCount} 檔 · 前3題材佔強勢股 {Math.round(dir.topShare * 100)}%
         </div>
       </div>
 
       {/* 白話敘事（qwythos 歸因，30分更新） */}
       {data.narrative?.text && (
-        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', marginBottom: 10, fontSize: 13, lineHeight: 1.7 }}>
+        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', marginBottom: 10, fontSize: 'calc(13px * var(--fz))', lineHeight: 1.7 }}>
           🗣 {data.narrative.text}
-          <span style={{ fontSize: 10.5, color: 'var(--text-muted)', marginLeft: 8 }}>
+          <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>
             AI 判讀 {new Date(data.narrative.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Taipei' })}
           </span>
         </div>
@@ -97,8 +97,8 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
           return (
             <div key={t.key} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.08)' : 'transparent' }}>
               <div onClick={() => setOpenKey(o => (o === t.key ? null : t.key))}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13, cursor: 'pointer', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13px * var(--fz))', cursor: 'pointer', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
                 <span style={{ fontWeight: 700, minWidth: 108 }}>{t.name}</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ width: 56, height: 6, borderRadius: 3, background: 'rgba(148,163,184,0.15)', overflow: 'hidden', display: 'inline-block' }}>
@@ -106,13 +106,13 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                   </span>
                   <b style={{ minWidth: 30, color: t.score >= 55 ? '#f03e3e' : 'var(--text-secondary)' }}>{t.score}</b>
                 </span>
-                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>強勢 {t.strong}/{t.members}</span>
-                {t.limitUps > 0 && <span style={{ fontSize: 11.5, color: '#f03e3e', fontWeight: 800 }}>漲停{t.limitUps}</span>}
-                {cb && <span style={{ fontSize: 11, color: cb.color, fontWeight: 700 }}>{cb.text}</span>}
-                {dm && <span style={{ marginLeft: 'auto', fontSize: 11.5, color: dm.color, fontWeight: 700 }}>{dm.icon} {drv!.type}</span>}
+                <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)' }}>強勢 {t.strong}/{t.members}</span>
+                {t.limitUps > 0 && <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: '#f03e3e', fontWeight: 800 }}>漲停{t.limitUps}</span>}
+                {cb && <span style={{ fontSize: 'calc(11px * var(--fz))', color: cb.color, fontWeight: 700 }}>{cb.text}</span>}
+                {dm && <span style={{ marginLeft: 'auto', fontSize: 'calc(11.5px * var(--fz))', color: dm.color, fontWeight: 700 }}>{dm.icon} {drv!.type}</span>}
               </div>
               {open && (
-                <div style={{ padding: '2px 10px 8px 32px', fontSize: 12.5, display: 'grid', gap: 5 }}>
+                <div style={{ padding: '2px 10px 8px 32px', fontSize: 'calc(12.5px * var(--fz))', display: 'grid', gap: 5 }}>
                   {drv && (
                     <div style={{ color: 'var(--text-secondary)', lineHeight: 1.65 }}>
                       {dm?.icon} <b style={{ color: dm?.color }}>{drv.type}</b>：{drv.text}
@@ -122,7 +122,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                   {t.segs.filter(s => s.role !== '族群').length > 0 && (
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                       {t.segs.map((s, i) => (
-                        <span key={i} style={{ fontSize: 11.5, padding: '2px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.08)', color: s.avgChg > 0.5 ? '#f03e3e' : s.avgChg < -0.5 ? '#2f9e44' : 'var(--text-muted)' }}>
+                        <span key={i} style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '2px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.08)', color: s.avgChg > 0.5 ? '#f03e3e' : s.avgChg < -0.5 ? '#2f9e44' : 'var(--text-muted)' }}>
                           {s.role}{s.label ? `·${s.label}` : ''} {s.avgChg >= 0 ? '+' : ''}{s.avgChg}%{s.strong > 0 ? ` 🔥${s.strong}` : ''}
                         </span>
                       ))}
@@ -134,10 +134,10 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                       <span key={l.code} onClick={e => { e.stopPropagation(); navigateTo('stock', l.code); }} style={{ cursor: 'pointer' }}>
                         <b style={{ color: '#7dd3fc' }}>{l.code} {l.name}</b>
                         <span style={{ color: '#f03e3e', marginLeft: 4 }}>+{l.cp}%{l.limitUp ? '🔒' : ''}</span>
-                        {l.volX > 0 && <span style={{ color: 'var(--text-muted)', marginLeft: 3, fontSize: 11 }}>{l.volX}x量</span>}
+                        {l.volX > 0 && <span style={{ color: 'var(--text-muted)', marginLeft: 3, fontSize: 'calc(11px * var(--fz))' }}>{l.volX}x量</span>}
                       </span>
                     ))}
-                    {t.yNet !== 0 && <span style={{ fontSize: 11.5, color: t.yNet > 0 ? '#f03e3e' : '#2f9e44' }}>昨法人{t.yNet > 0 ? '+' : ''}{t.yNet.toLocaleString()}張</span>}
+                    {t.yNet !== 0 && <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: t.yNet > 0 ? '#f03e3e' : '#2f9e44' }}>昨法人{t.yNet > 0 ? '+' : ''}{t.yNet.toLocaleString()}張</span>}
                   </div>
                 </div>
               )}
@@ -148,13 +148,13 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
 
       {/* 第二參考值：官方 33 類加權分（收合） */}
       <div style={{ marginTop: 8 }}>
-        <div onClick={() => setShowRef(v => !v)} style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+        <div onClick={() => setShowRef(v => !v)} style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
           {showRef ? '▾' : '▸'} 第二參考：官方 33 產業分類加權分
         </div>
         {showRef && <div style={{ marginTop: 6 }}><SectorWind compact={compact} /></div>}
       </div>
 
-      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+      <div style={{ marginTop: 6, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         統計皆為確定性計算；驅動力歸因由本地 AI 依當日新聞標題判讀，「證據弱」表示新聞無直接佐證。非投資建議。
       </div>
     </div>

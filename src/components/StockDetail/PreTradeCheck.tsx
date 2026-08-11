@@ -24,7 +24,7 @@ export default function PreTradeCheck({ code, price, qty }: { code: string; pric
   const totalRisk = qty > 0 ? riskPerLot * qty : null;
 
   return (
-    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.25)', fontSize: 12.5, lineHeight: 1.9 }}>
+    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.25)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
       <b>📋 下單前檢查（AI 出場計畫）</b>
       <div>· AI 評分 <b style={{ color: '#fbbf24' }}>{s.score}</b>
         {buy ? <>，建議買點 <b>{buy}</b>{price > buy * 1.03 ? <span style={{ color: '#f59e0b' }}>（你的買價高出 {((price / buy - 1) * 100).toFixed(1)}%，注意追高）</span> : null}</> : null}

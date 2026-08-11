@@ -91,7 +91,7 @@ export default function ModeSwitcher({ compact = false }: { compact?: boolean })
           borderRadius: 10, padding: 8, boxShadow: '0 10px 32px rgba(0,0,0,0.55)',
         }}
       >
-        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', padding: '2px 6px 6px', lineHeight: 1.6 }}>
+        <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', padding: '2px 6px 6px', lineHeight: 1.6 }}>
           每個模式的權重各自回測、絕不互借——同一個訊號換個持有期可以完全相反。
         </div>
         {MODE_KEYS.map(k => {
@@ -113,22 +113,22 @@ export default function ModeSwitcher({ compact = false }: { compact?: boolean })
               }}
             >
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 900, fontSize: 12.5, color: COLOR[k] }}>{m.icon} {m.label}</span>
-                <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{m.horizon}</span>
-                {on && <span style={{ fontSize: 10, fontWeight: 800, color: COLOR[k] }}>✓ 使用中</span>}
+                <span style={{ fontWeight: 900, fontSize: 'calc(12.5px * var(--fz))', color: COLOR[k] }}>{m.icon} {m.label}</span>
+                <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>{m.horizon}</span>
+                {on && <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 800, color: COLOR[k] }}>✓ 使用中</span>}
                 {!m.hasScoreModel && (
-                  <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#fbbf24' }}>
+                  <span style={{ marginLeft: 'auto', fontSize: 'calc(9.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>
                     {prog ? '資料累積中' : '無評分卡'}
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: 3 }}>
+              <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: 3 }}>
                 進場：{m.entry}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+              <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                 出場：{m.exit.replace(/\*\*/g, '')}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.55, marginTop: 2 }}>
+              <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.55, marginTop: 2 }}>
                 基準：{m.baseline}｜成本 {m.costPct}%
               </div>
               {prog && (
@@ -136,7 +136,7 @@ export default function ModeSwitcher({ compact = false }: { compact?: boolean })
                   <div style={{ height: 4, background: 'rgba(148,163,184,0.2)', borderRadius: 3, overflow: 'hidden' }}>
                     <div style={{ width: `${Math.max(pct, 1)}%`, height: '100%', background: '#fbbf24' }} />
                   </div>
-                  <div style={{ fontSize: 9.5, color: '#fbbf24', marginTop: 3, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 'calc(9.5px * var(--fz))', color: '#fbbf24', marginTop: 3, lineHeight: 1.5 }}>
                     {have != null
                       ? `第三關原料 ${gate!.intradayDays} 日／第一關原料 ${gate!.snap0930Days} 日（需 ${need}）`
                       : prog.text}
@@ -167,8 +167,8 @@ export default function ModeSwitcher({ compact = false }: { compact?: boolean })
       >
         <span>{cur.icon}</span>
         <span>{cur.label}</span>
-        {!cur.hasScoreModel && <span style={{ fontSize: 9.5, opacity: 0.8 }}>無評分</span>}
-        <span style={{ fontSize: 9, opacity: 0.7, transform: open ? 'rotate(180deg)' : undefined }}>▾</span>
+        {!cur.hasScoreModel && <span style={{ fontSize: 'calc(9.5px * var(--fz))', opacity: 0.8 }}>無評分</span>}
+        <span style={{ fontSize: 'calc(9px * var(--fz))', opacity: 0.7, transform: open ? 'rotate(180deg)' : undefined }}>▾</span>
       </button>
       {mounted && open && createPortal(panel, document.body)}
     </>

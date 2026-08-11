@@ -99,6 +99,23 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* ── 字級倍率 --fz（2026-08-11 使用者要求「網頁版字體加大 25%，統一調整」）──
+   為什麼不是只改 html 的 font-size：
+     全站字級有 1,455 處寫成 px（內聯 style 佔絕大多數），只有 653 處是 rem。
+     只調 root 只會放大三成的文字，其餘七成不動——那不叫統一，只會讓大小更亂。
+   ⇒ 改成所有字級都寫成 `calc(<原值> * var(--fz))`，px 與 rem 一視同仁。
+     手機 --fz: 1（維持先前逐項調校過的手機字級，一個像素都不動）
+     桌機 --fz: 1.25
+   日後要再調整，只改這一個變數即可。
+   ⚠ 圖表（recharts tick）與 SVG <text> 刻意排除：
+     它們的 font-size 是 **SVG presentation attribute**，不吃 calc()/var()，
+     套下去會變成無效值而回退成預設大小。 */
+:root { --fz: 1; }
+
+@media (min-width: 1024px) {
+  :root { --fz: 1.25; }
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-primary);
@@ -117,13 +134,13 @@ body {
 /* ===== Typography ===== */
 .font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 
-.text-xs { font-size: 0.75rem; }
-.text-sm { font-size: 0.875rem; }
-.text-base { font-size: 1rem; }
-.text-lg { font-size: 1.125rem; }
-.text-xl { font-size: 1.25rem; }
-.text-2xl { font-size: 1.5rem; }
-.text-3xl { font-size: 1.875rem; }
+.text-xs { font-size: calc(0.75rem * var(--fz)); }
+.text-sm { font-size: calc(0.875rem * var(--fz)); }
+.text-base { font-size: calc(1rem * var(--fz)); }
+.text-lg { font-size: calc(1.125rem * var(--fz)); }
+.text-xl { font-size: calc(1.25rem * var(--fz)); }
+.text-2xl { font-size: calc(1.5rem * var(--fz)); }
+.text-3xl { font-size: calc(1.875rem * var(--fz)); }
 
 .font-medium { font-weight: 500; }
 .font-semibold { font-weight: 600; }
@@ -166,7 +183,7 @@ body {
   border: none;
   cursor: pointer;
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   font-weight: 500;
   transition: all 0.2s;
   white-space: nowrap;
@@ -219,8 +236,8 @@ body {
   box-shadow: 0 0 16px var(--color-down-glow);
 }
 
-.btn-sm { padding: 5px 10px; font-size: 0.75rem; }
-.btn-lg { padding: 12px 24px; font-size: 1rem; }
+.btn-sm { padding: 5px 10px; font-size: calc(0.75rem * var(--fz)); }
+.btn-lg { padding: 12px 24px; font-size: calc(1rem * var(--fz)); }
 
 /* ===== Inputs ===== */
 .input {
@@ -229,7 +246,7 @@ body {
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
   padding: 8px 12px;
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
@@ -250,7 +267,7 @@ body {
   gap: 4px;
   padding: 3px 8px;
   border-radius: 20px;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--fz));
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -272,14 +289,14 @@ body {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }
 
 .data-table th {
   background: var(--bg-elevated);
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 10px 12px;
@@ -340,7 +357,7 @@ body {
   background: transparent;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -363,7 +380,7 @@ body {
   align-items: center;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 500;
   background: var(--bg-elevated);
   color: var(--text-secondary);
@@ -462,7 +479,7 @@ body {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-primary);
   white-space: nowrap;
   pointer-events: none;

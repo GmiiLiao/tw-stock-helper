@@ -134,7 +134,13 @@ const syncNotifications = async (uid: string, notifications: any[]) => {
 interface AppState {
   // View
   currentPage: 'dashboard' | 'stock' | 'picker' | 'portfolio' | 'backtest' | 'tracker' | 'war' | 'admin' | 'help' | 'privacy' | 'indexnews';
-  pageHistory: Array<{ page: AppState['currentPage']; stock?: string | null }>;  // navigation stack
+  // ⚠ 歷史要連**捲動位置**一起記（2026-08-11 使用者要求「返回能回到上一個狀態位置」）：
+  //   先前只記 {page, stock}，所以從清單捲到第 30 檔點進個股，返回時被丟回最頂端，
+  //   使用者得重新捲一次才找得到剛剛看的那一檔——清單越長越難用。
+  pageHistory: Array<{ page: AppState['currentPage']; stock?: string | null; scrollY?: number }>;  // navigation stack
+  // 返回時要還原到的捲動位置；由 page.tsx 的 effect 消費後清成 null。
+  // 不能在 store 裡直接 scrollTo——那時候新頁面還沒渲染完，捲了也會被內容撐掉。
+  pendingScrollY: number | null;
   selectedStock: string | null;
   activeTab: string;
   // 頁面內分頁選取：存在 store(非持久化)，讓「進個股→返回」時回到原本的子分頁而非重置
@@ -179,6 +185,7 @@ interface AppState {
   // Actions
   setCurrentPage: (page: AppState['currentPage']) => void;
   navigateTo: (page: AppState['currentPage'], stock?: string | null) => void;
+  clearPendingScroll: () => void;
   navigateBack: () => void;
   setSelectedStock: (code: string | null) => void;
   setActiveTab: (tab: string) => void;
@@ -279,6 +286,7 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       currentPage: 'dashboard',
       pageHistory: [],
+      pendingScrollY: null,
       selectedStock: null,
       activeTab: 'overview',
       pickerTab: 'recommend',
@@ -336,10 +344,12 @@ export const useAppStore = create<AppState>()(
           return {
             pageHistory: [
               ...state.pageHistory.slice(-19),  // keep max 20 history items
-              { page: state.currentPage, stock: state.selectedStock },
+              // 記下離開當下的捲動位置，返回時才回得到同一個地方
+              { page: state.currentPage, stock: state.selectedStock, scrollY: typeof window !== 'undefined' ? window.scrollY : 0 },
             ],
             currentPage: page,
             selectedStock: nextStock,
+            pendingScrollY: null,   // 前進一律回到頂端（新頁面從頭看）
           };
         });
       },
@@ -353,8 +363,11 @@ export const useAppStore = create<AppState>()(
           // 精確還原來源頁的個股選取(含 null)，回到清單頁時清掉殘留的個股選取，
           // 否則「個股分析」項目會殘留、且來源頁狀態混亂
           selectedStock: prev.stock ?? null,
+          pendingScrollY: prev.scrollY ?? 0,
         };
       }),
+
+      clearPendingScroll: () => set({ pendingScrollY: null }),
 
       setSelectedStock: (code) => set({ selectedStock: code }),
       setActiveTab: (tab) => set({ activeTab: tab }),

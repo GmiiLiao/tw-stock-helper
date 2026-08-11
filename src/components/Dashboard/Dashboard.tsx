@@ -140,7 +140,7 @@ function TopMoversTable({ title, stocks, type }: { title: string; stocks: StockI
             <span className={styles.moversCode}>{stock.code}</span>
             <span className={styles.moversName}>
               {stock.name}
-              {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 800, color: b.c, border: `1px solid ${b.c}55`, borderRadius: 4, padding: '0 3px' }}>{b.t}</span> : null; })()}
+              {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 4, fontSize: 'calc(9px * var(--fz))', fontWeight: 800, color: b.c, border: `1px solid ${b.c}55`, borderRadius: 4, padding: '0 3px' }}>{b.t}</span> : null; })()}
               <RiskBadge code={stock.code} size="xs" />
             </span>
             <span className={styles.moversPrice}>{stock.price.toFixed(2)}</span>
@@ -172,7 +172,7 @@ function LimitBoard({ stocks }: { stocks: StockInfo[] }) {
       <button key={s.code} className={styles.heatmapCell}
         style={{ background: up ? 'rgba(201,42,42,0.6)' : 'rgba(30,126,52,0.6)', position: 'relative' }}
         onClick={() => navigateTo('stock', s.code)} title={`${s.code} ${s.name} ${s.price}（${badge?.t === '櫃' ? '上櫃' : badge?.t === '市' ? '上市' : badge?.t || ''}）`}>
-        {badge && <span style={{ position: 'absolute', top: 2, right: 3, fontSize: 9, fontWeight: 800, color: badge.c, opacity: 0.95 }}>{badge.t}</span>}
+        {badge && <span style={{ position: 'absolute', top: 2, right: 3, fontSize: 'calc(9px * var(--fz))', fontWeight: 800, color: badge.c, opacity: 0.95 }}>{badge.t}</span>}
         <span className={styles.heatCode}>{s.code}</span>
         <span className={styles.heatName}>{s.name}</span>
         <span className={styles.heatChange} style={{ color: up ? '#ffb3b3' : '#9fe8ac' }}>

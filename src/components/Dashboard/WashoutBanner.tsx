@@ -32,18 +32,18 @@ export default function WashoutBanner() {
   return (
     <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 12, background: s.bg, border: `1px solid ${s.c}55` }}>
       <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer' }}>
-        <span style={{ fontWeight: 900, fontSize: '0.95rem', color: s.c }}>{s.icon} 大盤{w.stage}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700 }}>距高點 <b style={{ color: s.c, fontFamily: 'JetBrains Mono, monospace' }}>-{w.dd}%</b>（{w.hi66.toLocaleString()} → {w.index.toLocaleString()}）</span>
-        {w.confirming && <span style={{ fontSize: 11.5, fontWeight: 800, padding: '1px 8px', borderRadius: 10, background: 'rgba(240,62,62,0.15)', color: '#f03e3e' }}>洗完確認中 {w.signals.length}/4 訊號</span>}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>{open ? '收合 ▾' : '詳情 ▸'}</span>
+        <span style={{ fontWeight: 900, fontSize: 'calc(0.95rem * var(--fz))', color: s.c }}>{s.icon} 大盤{w.stage}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }}>距高點 <b style={{ color: s.c, fontFamily: 'JetBrains Mono, monospace' }}>-{w.dd}%</b>（{w.hi66.toLocaleString()} → {w.index.toLocaleString()}）</span>
+        {w.confirming && <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, padding: '1px 8px', borderRadius: 10, background: 'rgba(240,62,62,0.15)', color: '#f03e3e' }}>洗完確認中 {w.signals.length}/4 訊號</span>}
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '收合 ▾' : '詳情 ▸'}</span>
       </div>
       {open && (
-        <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+        <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
           <div>{w.advice}</div>
-          <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 4, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
             確認訊號：{w.signals.length ? w.signals.join('、') : '尚無'}｜融資自峰值 -{w.marginDrop}%｜外資5日 {w.foreign5 >= 0 ? '+' : ''}{w.foreign5.toLocaleString()} 張{w.volRatio != null ? `｜量能 5日/20日 ${w.volRatio}x` : ''}
           </div>
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 4, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
             實測依據：2020-2024 四段牛市修正 6.7~12.7% 後 6 個月指數再漲 17~32%；但 2024/7 同樣特徵實為 -28.7% 空頭開端——洗盤與空頭事前無法區分，等確認訊號(外資轉買/放量收紅/站回月線/融資止穩 ≥2)再進場。非投資建議。
           </div>
         </div>

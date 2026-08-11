@@ -61,14 +61,14 @@ export default function PushSetup() {
     <div style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       {state !== 'unsupported' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>📱 警報推播</span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>停損紀律／買點狙擊／論點轉弱等警報直接推到此裝置</span>
+          <span style={{ fontWeight: 700, fontSize: 'calc(0.9rem * var(--fz))' }}>📱 警報推播</span>
+          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>停損紀律／買點狙擊／論點轉弱等警報直接推到此裝置</span>
           {state === 'on' ? (
-            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#22c55e' }}>✓ 已啟用</span>
+            <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#22c55e' }}>✓ 已啟用</span>
           ) : state === 'denied' ? (
-            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#ef4444' }}>已被瀏覽器封鎖，請至網站設定允許通知</span>
+            <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', color: '#ef4444' }}>已被瀏覽器封鎖，請至網站設定允許通知</span>
           ) : (
-            <button onClick={enable} disabled={state === 'working'} className="btn btn-buy" style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 14px' }}>
+            <button onClick={enable} disabled={state === 'working'} className="btn btn-buy" style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', padding: '4px 14px' }}>
               {state === 'working' ? '啟用中…' : '啟用推播'}
             </button>
           )}
@@ -76,17 +76,17 @@ export default function PushSetup() {
       )}
       {/* Telegram 推播（bot 設定完成後才顯示連結按鈕） */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: state !== 'unsupported' ? 8 : 0, paddingTop: state !== 'unsupported' ? 8 : 0, borderTop: state !== 'unsupported' ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
-        <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>✈️ Telegram 推播</span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>警報同步發送到 Telegram（手機免加入主畫面）</span>
+        <span style={{ fontWeight: 700, fontSize: 'calc(0.9rem * var(--fz))' }}>✈️ Telegram 推播</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>警報同步發送到 Telegram（手機免加入主畫面）</span>
         {tg?.linked ? (
-          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#22c55e' }}>✓ 已連結</span>
+          <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#22c55e' }}>✓ 已連結</span>
         ) : tg?.botUsername ? (
           <a href={`https://t.me/${tg.botUsername}?start=${user.uid}`} target="_blank" rel="noopener noreferrer"
-            className="btn btn-buy" style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 14px', textDecoration: 'none' }}>
+            className="btn btn-buy" style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', padding: '4px 14px', textDecoration: 'none' }}>
             連結 Telegram
           </a>
         ) : (
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>尚未設定（管理員需設定 Bot Token）</span>
+          <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>尚未設定（管理員需設定 Bot Token）</span>
         )}
       </div>
     </div>

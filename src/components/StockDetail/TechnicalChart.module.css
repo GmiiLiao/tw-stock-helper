@@ -14,7 +14,7 @@
 }
 
 .indicatorLabel {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   color: var(--text-muted);
   margin-right: 4px;
 }
@@ -27,7 +27,7 @@
 }
 
 .chartTitle {
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -44,5 +44,5 @@
   min-height: 300px;
   gap: 12px;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--fz));
 }

@@ -26,11 +26,11 @@ export default function WeeklyReport() {
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>🗓️ 週報 {rep.weekOf}</span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>每週六生成 · 零幻覺模板</span>
-        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
+        <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🗓️ 週報 {rep.weekOf}</span>
+        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>每週六生成 · 零幻覺模板</span>
+        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
       </div>
-      {open && <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{rep.content.replace(/^#+ /gm, '').replace(/^- /gm, '· ')}</div>}
+      {open && <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{rep.content.replace(/^#+ /gm, '').replace(/^- /gm, '· ')}</div>}
     </div>
   );
 }
