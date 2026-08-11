@@ -142,9 +142,16 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
         {MA_DEFS.map((d, di) => {
           const v = maFull[di][legendIdx];
           return (
-            <span key={d.p} title={`${d.p} 根收盤均價${mode === 'day' ? `（台股慣稱${d.p === 5 ? '週線' : d.p === 20 ? '月線' : '季線'}）` : ''}`} style={{ cursor: 'help', whiteSpace: 'nowrap' }}>
-              <span style={{ display: 'inline-block', width: 14, height: 2.5, background: d.color, verticalAlign: 'middle', marginRight: 4, borderRadius: 2 }} />
-              {d.label} <b style={{ color: d.color }}>{v != null ? v.toFixed(2) : '—'}</b>
+            // ⚠ 圖例用「色線＋週期數」當圖示（2026-08-11 使用者要求以 icon 縮減文字）：
+            //   顏色本身就是識別，"MA" 三個字母對每一條都重複、純粹佔位。
+            //   全名與台股慣稱留在 title，長按/hover 看得到。
+            <span key={d.p} title={`MA${d.p}：${d.p} 根收盤均價${mode === 'day' ? `（台股慣稱${d.p === 5 ? '週線' : d.p === 20 ? '月線' : '季線'}）` : ''}`}
+              style={{ cursor: 'help', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              {/* 週期做成色塊標籤，而不是裸數字——「5 488.10」會被誤讀成同一個數字，
+                  在報價畫面上讀錯數字比佔空間嚴重得多。 */}
+              <span style={{ display: 'inline-block', padding: '0 4px', borderRadius: 3, background: d.color,
+                color: '#0b1220', fontWeight: 900, fontSize: 'calc(9.5px * var(--fz))', lineHeight: '13px' }}>{d.p}</span>
+              <b style={{ color: d.color }}>{v != null ? v.toFixed(2) : '—'}</b>
             </span>
           );
         })}
@@ -158,7 +165,6 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             return (
               <g key={i}>
                 <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="rgba(255,255,255,0.05)" />
-                <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="10" fill="#8b9bb8">{v.toFixed(v < 50 ? 1 : 0)}</text>
               </g>
             );
           })}
@@ -191,13 +197,35 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
           {hv && (
             <line x1={xOf(hoverIdx!)} y1={padT} x2={xOf(hoverIdx!)} y2={H - padB} stroke="rgba(255,255,255,0.35)" strokeWidth={1} strokeDasharray="3 3" />
           )}
-          {/* X 刻度 */}
-          {view.map((c, i) => (i % step === 0 ? (
-            <text key={c.t} x={xOf(i)} y={H - 6} textAnchor="middle" fontSize="10" fill="#8b9bb8">
-              {format(new Date(c.t * 1000), fmt)}
-            </text>
-          ) : null))}
         </svg>
+        {/* ── 座標軸標籤：**必須畫在 HTML 層，不能放進上面那個 SVG**（2026-08-11）──
+            那個 SVG 是 viewBox 1000 寬 ＋ preserveAspectRatio="none"，
+            在手機上實際只有 301px → **x 縮放 0.301、y 縮放 1**。
+            文字被水平壓成 30%：「2049」四個字只有 7.5px 寬、12.2px 高，
+            變成幾條細長黑影，使用者回報「xy 軸的資訊完全看不到」就是這個。
+            非等比縮放對線條無所謂（線本來就要跟著拉伸），但對文字是毀滅性的。
+            ⇒ 軸標籤改用絕對定位的 HTML，字級不受 SVG 變形影響。 */}
+        {Array.from({ length: yTicks + 1 }, (_, i) => {
+          const v = yMin + (yMax - yMin) * (i / yTicks);
+          return (
+            <span key={`yl${i}`} style={{
+              position: 'absolute', left: 0, top: yOf(v), transform: 'translateY(-50%)',
+              width: padL - 6, textAlign: 'right', pointerEvents: 'none',
+              fontSize: 'calc(10px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
+            }}>{v.toFixed(v < 50 ? 1 : 0)}</span>
+          );
+        })}
+        {/* X 軸日期獨立成一條帶狀區並 overflow:hidden——
+            最左/最右的標籤置中後會探出容器 2px，把整頁推寬；裁掉即可，視覺上看不出來。 */}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 15, overflow: 'hidden', pointerEvents: 'none' }}>
+          {view.map((c, i) => (i % step === 0 ? (
+            <span key={`xl${c.t}`} style={{
+              position: 'absolute', left: `${(xOf(i) / W) * 100}%`, bottom: 0, transform: 'translateX(-50%)',
+              whiteSpace: 'nowrap',
+              fontSize: 'calc(10px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
+            }}>{format(new Date(c.t * 1000), fmt)}</span>
+          ) : null))}
+        </div>
         {/* 游標數值框：日期/開高低收/量(張) */}
         {hv && (
           <div style={{ position: 'absolute', top: 4, left: hoverIdx! < view.length / 2 ? 'auto' : 8, right: hoverIdx! < view.length / 2 ? 8 : 'auto',
@@ -279,9 +307,6 @@ function InstStrip({ code, changePercent = 0, volume = 0 }: { code: string; chan
   const volLots = volume > 0 ? Math.round(volume / 1000) : d.vol;
   const p = classifyPhase(ef, et, ed, d.streak, changePercent, retail, volLots);
   const tip = `🎯 勝率雷達 — 三大法人籌碼階段（2年×41萬樣本實測隔日勝率·2026-07-19 稽核修正，非保證）\n① 外資布局(連買·投信未跟) 46-47%\n② 投信跟進(A) 50%／三方同買(S) 49%／B+ 47%\n③ 大漲未鎖 42%（二次修正：舊53%為漲停幻覺——81%樣本是買不到的鎖死日；可交易部分實測34-43%屬弱勢群）\n④ 外資賣超·危險 44% 迴避\n\n目前：${p.label}\n${p.action}`;
-  const col = (n: number) => (n > 0 ? '#f03e3e' : n < 0 ? '#2f9e44' : 'var(--text-muted)');
-  const fmt = (n: number) => (n > 0 ? '+' : '') + Math.round(n).toLocaleString();
-  const item = (lb: string, v: number) => <span>{lb}<b style={{ color: col(v), marginLeft: 2 }}>{fmt(v)}</b></span>;
   return (
     <div style={{ flex: '1 1 100%', display: 'flex', justifyContent: 'center', gap: 8, rowGap: 3, alignItems: 'center', flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', minWidth: 0, padding: '0 4px' }} title={tip}>
       {/* ⚠ 徽章本體不可 nowrap（2026-08-11 手機實測溢出 46px）：
@@ -292,8 +317,9 @@ function InstStrip({ code, changePercent = 0, volume = 0 }: { code: string; chan
         {p.icon} {p.label}
         {p.win != null && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, whiteSpace: 'nowrap' }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
       </span>
-      <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>三大法人{useCum ? `(連買${d.streak}日累計)` : '(當日)'}</span>
-      {item('外', ef)}{item('投', et)}{item('自', ed)}
+      {/* ⚠ 三大法人數值已移至「籌碼判讀」卡（2026-08-11 使用者指示「可以放到籌碼判讀裡，省下空間」）：
+          同一組數字原本在個股頁出現兩次，圖表這裡又要多佔一整行。
+          此處只留**階段判讀徽章**（那是圖表的解讀，留著才有意義）。 */}
     </div>
   );
 }

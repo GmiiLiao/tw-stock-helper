@@ -45,7 +45,7 @@ export function VerdictBadge({ v, compact = false }: { v?: Verdict | null; compa
   if (!v) return null;
   const s = ACTION_STYLE[v.a] || ACTION_STYLE.續抱;
   return (
-    <span title={`${v.r}｜${tierDisplay(v.tier)}${TIER_META[v.tier] ? `（${TIER_META[v.tier].hint}）` : ''}｜倒貨 ${v.dist}%｜外${v.f >= 0 ? '+' : ''}${v.f}/投${v.t >= 0 ? '+' : ''}${v.t}(張)\n\n${METRIC_TIPS.勝率雷達分級}`}
+    <span title={`${v.r}｜${tierDisplay(v.tier)}${TIER_META[v.tier] ? `（${TIER_META[v.tier].hint}）` : ''}｜倒貨 ${v.dist}%｜外${v.f >= 0 ? '+' : ''}${v.f}/投${v.t >= 0 ? '+' : ''}${v.t}/自${v.d >= 0 ? '+' : ''}${v.d}(張)\n\n${METRIC_TIPS.勝率雷達分級}`}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 7px' : '2px 9px', borderRadius: 8, fontSize: compact ? 10.5 : 12, fontWeight: 800, background: s.bg, color: s.c, border: `1px solid ${s.c}55`, whiteSpace: 'nowrap' }}>
       {s.icon} {v.a}
     </span>
@@ -60,8 +60,21 @@ export function VerdictStrip({ v }: { v?: Verdict | null }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: s.bg, border: `1px solid ${s.c}44`, fontSize: 'calc(12.5px * var(--fz))' }}>
       <span style={{ fontWeight: 900, color: s.c }}>{s.icon} 籌碼判讀：{v.a}</span>
       <span style={{ color: 'var(--text-secondary)' }}>{v.r}</span>
-      <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-        {tierDisplay(v.tier) || `${v.tier}級`} · 倒貨{v.dist}% · 外{v.f >= 0 ? '+' : ''}{v.f}/投{v.t >= 0 ? '+' : ''}{v.t}張
+      {/* ⚠ 三大法人補齊自營（2026-08-11 使用者指示「三大法人的數據可以放到籌碼判讀裡，省下空間」）：
+          原本這裡只印外資/投信，自營明明 API 就有（Verdict.d）卻沒顯示；
+          而個股頁的 K 線標頭又另外畫了一整行「三大法人 外/投/自」——同一組數字出現兩次、
+          還多佔一行。現在自營補進來，K 線那一行整條移除。 */}
+      {/* ⚠ 整段**不可**設 nowrap（2026-08-11 我自己剛踩到）：
+          補上自營之後這一串變成 359px，在 375px 手機上直接把 <main> 推出去 15px。
+          正確做法是「每一個不該被拆開的小段各自 nowrap，段與段之間可以換行」——
+          與量價背離、籌碼風向那幾處同一條規矩：要斷就在整段邊界斷，不在數值中間斷。 */}
+      <span style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', gap: '0 6px', justifyContent: 'flex-end',
+        fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', minWidth: 0 }}>
+        <span style={{ whiteSpace: 'nowrap' }}>{tierDisplay(v.tier) || `${v.tier}級`}</span>
+        <span style={{ whiteSpace: 'nowrap' }}>· 倒貨{v.dist}%</span>
+        <span style={{ whiteSpace: 'nowrap' }}>· 外{v.f >= 0 ? '+' : ''}{v.f}</span>
+        <span style={{ whiteSpace: 'nowrap' }}>投{v.t >= 0 ? '+' : ''}{v.t}</span>
+        <span style={{ whiteSpace: 'nowrap' }}>自{v.d >= 0 ? '+' : ''}{v.d}張</span>
       </span>
     </div>
   );
