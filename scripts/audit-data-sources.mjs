@@ -85,6 +85,11 @@ const CONTRACTS = [
   // 它要連續記錄 60 個交易日才有結論，中間任何一天沒寫入就是永久的洞——
   // 事後無法補算（分型用的是當日橫斷面 z-score，母體無法重建）。
   { c: 'swingCurvePicks',  kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  // ⚠ 月營收要看的是**資料所屬月**，不是更新時間（2026-08-11）：
+  //   openapi t187ap05 落後**整整一個月**（不是一天），而 daemon 每天都會跑一次，
+  //   所以 maxStale 永遠是綠的、筆數也夠——三道閘門裡只有第三道抓得到。
+  //   computeRevenue 已改為與 revenueArchive 比對取新，這裡加 dataMonth 監看實際月份。
+  { c: 'revenue',          kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'strategyPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'snipeList',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'squeezeSetup',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },

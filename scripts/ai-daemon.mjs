@@ -2176,13 +2176,72 @@ async function computeRevenue() {
   const items = rows.filter(x => /^\d{4}$/.test(x['公司代號'] || '')).map(x => ({
     code: x['公司代號'], name: x['公司名稱'], industry: x['產業別'] || '',
     revenue: Math.round(_f(x['營業收入-當月營收'])),
+    last: Math.round(_f(x['營業收入-去年當月營收'])),
+    prevRev: Math.round(_f(x['營業收入-上月營收'])),
     yoy: +_f(x['營業收入-去年同月增減(%)']).toFixed(1),
     mom: +_f(x['營業收入-上月比較增減(%)']).toFixed(1),
   })).filter(x => x.revenue > 0);
   const month = rows[0]?.['資料年月'] || '';
-  const topYoY = [...items].sort((a, b) => b.yoy - a.yoy).slice(0, 20);
-  const topMoM = [...items].sort((a, b) => b.mom - a.mom).slice(0, 20);
-  await db.collection('revenue').doc('latest').set({ updatedAt: Date.now(), month, topYoY, topMoM });
+  // ⚠ 排行必須設**分母下限**（2026-08-11）：YoY = 當月/去年同月 - 1，
+  //   去年同月趨近於零時會噴出天文數字。實測 2026-07 未設限時榜首是
+  //   聯上 +1,096,391%、富旺 +316,265% —— 數學上沒錯，但當排行完全沒有意義，
+  //   而且會讓人誤以為那是超級成長股（實際是營建業認列時點集中造成的基期假象）。
+  //   下限取 10,000 千元（＝1 千萬）：只剔除 79/1,820 檔就消掉純分母假象，
+  //   再高就開始砍到真實資料（50,000 會砍掉 302 檔）。
+  //   ⚠ 這道下限**不能消除營建業的認列集中**（全坤建 +5,220% 仍在榜上），
+  //     那不是資料錯誤而是產業特性，故改以 caveat 揭露而非繼續加嚴。
+  const BASE_FLOOR = 10000;
+  const yoyOk = x => (x.last ?? 0) >= BASE_FLOOR;
+  const momOk = x => (x.prevRev ?? x.prev ?? 0) >= BASE_FLOOR;
+  let topYoY = items.filter(yoyOk).sort((a, b) => b.yoy - a.yoy).slice(0, 20);
+  let topMoM = items.filter(momOk).sort((a, b) => b.mom - a.mom).slice(0, 20);
+  let outMonth = month, src = 'openapi';
+
+  // ── 取新：若 revenueArchive 已有更新的月份，改用它 ──────────────────────
+  // ⚠ **openapi t187ap05 落後一整個月**（不是一天）——這件事下方歸檔處的註解
+  //   從 2026-08-10 就寫著了，卻沒人回頭修 latest：於是使用者看到的月營收排行
+  //   一直慢一個月。2026-08-11 實測：openapi 還停在 11506(6月)，
+  //   而 MOPS 管線早已把 2026-07 的 1,820 檔寫進 revenueArchive。
+  //   同一個病理：**較新的來源就在旁邊，只是沒有人比對過**。
+  //   ⇒ 這裡改成比對兩邊的「資料所屬月」，取較新的那一份重建排行。
+  const toId = m => (/^\d{5,6}$/.test(String(m)) ? `${parseInt(String(m).slice(0, -2), 10) + 1911}-${String(m).slice(-2)}` : '');
+  try {
+    const apiId = toId(month);
+    // ⚠ **不要用 orderBy('__name__','desc')**——Firestore 會要求建複合索引而整段拋錯
+    //   （本專案已踩過一次，2026-08-11 這裡又踩了第二次）。
+    //   revenueArchive 一年才 12 筆，直接取回本地排序即可。
+    const all = await db.collection('revenueArchive').select('n').get();
+    const ids = all.docs.map(d => d.id).filter(x => /^\d{4}-\d{2}$/.test(x)).sort();
+    const archId = ids[ids.length - 1] || '';
+    if (archId && (!apiId || archId > apiId)) {
+      const a = (await db.collection('revenueArchive').doc(archId).get()).data() || {};
+      const ar = a.rowsJson ? JSON.parse(a.rowsJson) : null;
+      const list = Array.isArray(ar) ? ar : Object.values(ar || {});
+      // 產業別只有 openapi 有，用代號補回去（缺了不影響排行，只影響顯示）
+      const indBy = {};
+      for (const x of rows) { const c = x['公司代號']; if (c) indBy[c] = x['產業別'] || ''; }
+      const built = list
+        .filter(x => x && /^\d{4}$/.test(String(x.c)) && x.rev > 0 && Number.isFinite(x.yoy))
+        .map(x => ({ code: String(x.c), name: x.n || String(x.c), industry: indBy[String(x.c)] || '',
+          revenue: Math.round(x.rev), last: Math.round(x.last ?? 0), prevRev: Math.round(x.prev ?? 0),
+          yoy: +Number(x.yoy).toFixed(1), mom: +Number(x.mom ?? 0).toFixed(1) }));
+      if (built.length >= 800) {
+        topYoY = built.filter(yoyOk).sort((a2, b2) => b2.yoy - a2.yoy).slice(0, 20);
+        topMoM = built.filter(momOk).sort((a2, b2) => b2.mom - a2.mom).slice(0, 20);
+        outMonth = `${archId.slice(0, 4) - 1911}${archId.slice(5, 7)}`;   // 回填成民國格式，維持既有介面
+        src = `archive:${archId}`;
+        log(`  ℹ 月營收改用歸檔 ${archId}（${built.length} 檔）——openapi 仍停在 ${apiId || '?'}`);
+      }
+    }
+  } catch (e) { log('  ⚠ 月營收取新失敗，沿用 openapi:', e.message); }
+
+  // dataMonth 一律寫西元的「資料所屬月」，讓前端與稽核不必自己換算民國
+  await db.collection('revenue').doc('latest').set({
+    updatedAt: Date.now(), month: outMonth, dataMonth: toId(outMonth), source: src, topYoY, topMoM,
+    baseFloor: BASE_FLOOR,
+    caveat: `已排除去年同月（或上月）營收 < ${(BASE_FLOOR / 1000).toLocaleString()} 萬元者——基期趨近於零會讓 YoY 噴出無意義的天文數字。`
+      + '仍需留意營建業採**認列時點集中**，單月 YoY 可達數十倍而非實質成長。非投資建議。',
+  });
 
   // ── 逐檔逐月歸檔（2026-08-10 補）────────────────────────────────
   // 先前這裡抓了全市場 1,800+ 檔，算完兩張 20 名排行榜就把原始資料丟掉，
@@ -2220,7 +2279,7 @@ async function computeRevenue() {
       log(`✓ 月營收歸檔 ${id}：${arch.length} 檔 ${(j.length / 1024).toFixed(0)}KB`);
     }
   }
-  log(`✓ 月營收(${month})：YoY 最強 ${topYoY[0]?.name}(+${topYoY[0]?.yoy}%)`);
+  log(`✓ 月營收(${toId(outMonth) || outMonth}·${src})：YoY 最強 ${topYoY[0]?.name}(+${topYoY[0]?.yoy}%)`);
 }
 
 // ── 12) 融資融券軋空候選 ───────────────────────────────────────
@@ -8821,6 +8880,7 @@ if (ONESHOT) {
     alerts: () => checkAlerts(),
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
+    revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
     globalMarkets: () => computeGlobalMarkets(),
