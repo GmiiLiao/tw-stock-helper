@@ -152,6 +152,19 @@ const FRESH_PROBES = [
   { name: '借券(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${d}&response=json`,                  from: 'title', mode: 'forward' },
   { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field', publishHour: 15 },
   { name: '指數(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`,        from: 'field' },
+  // ⚠ BWIBBU_ALL 的 rwd：**讀 date 欄，不要讀 title**（2026-08-11 實證，過程記錄如下）。
+  //   這支端點有兩個怪癖，兩個都會誤導人：
+  //   ① **完全忽略 date 參數**——帶明天(20260812)或三週後(20260901)都照樣 stat=OK、
+  //      回同一份 1,084 筆。所以它不能用來查歷史，只能拿到「最新一份」。
+  //   ② **title 的日期比資料日早一天**（date欄=20260811 但 title=115/08/10）。
+  //   我一度據此判定「rwd 與 openapi 是同一份 08-10 資料」並把探針改讀 title——**這是錯的**。
+  //   使用者提出「會不會是今天的資料記成昨天的日期」，用 PBR 反推價格驗證：
+  //   PBR ∝ 價格，故 PBR(rwd)/PBR(openapi) 應等於 收盤(08-11)/收盤(08-10)。
+  //   實測 9 檔全部吻合到小數第三位（2330 實際1.0063 vs 比值1.0057、
+  //   2454 1.0152/1.0154、3008 0.9898/0.9900、2882 0.9861/0.9851）
+  //   ⇒ **rwd 是當日(08-11)資料、title 標成前一日；date 欄才是真正的資料日**。
+  //   openapi 則是誠實的落後一日（Date=1150810、數值對應 08-10 收盤）。
+  //   ⇒ 要當日估值一律走 rwd（見 src/lib/fundamentals-server.ts）。
   { name: '殖利率(rwd)',   url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${d}&response=json`,               from: 'field' },
 ];
 

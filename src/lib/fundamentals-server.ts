@@ -47,20 +47,69 @@ function intClean(s: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// ── Valuation (BWIBBU_ALL) ──────────────────────────────────
-let valCache: { map: Record<string, Valuation>; at: number } | null = null;
+// ── Valuation（本益比／殖利率／股價淨值比）────────────────────────────
+//
+// ⚠ PRIMARY 必須是 rwd，不能是 openapi（2026-08-11 實證後修正）：
+//   本益比、殖利率、股價淨值比**全都是價格導出的**，用昨天的收盤價算出來的
+//   估值，在今天漲跌 5% 的股票上就直接錯 5%。而這裡原本打的是 openapi 鏡像，
+//   它誠實地落後一個交易日（Date=1150810，數值對應 08-10 收盤）
+//   ⇒ 站上顯示的 PER/殖利率一直是**昨天的**。
+//
+//   同一份報表的 rwd 端點給的是**當日**資料，只是它有兩個怪癖：
+//   ① 忽略 date 參數（帶未來日期也照回最新一份）——所以不能拿來查歷史。
+//   ② **title 的日期比資料日早一天**，date 欄才是真正的資料日。
+//   驗證方式（別只看欄位，要驗數值）：PBR ∝ 價格，故
+//   PBR(rwd)/PBR(openapi) 應等於 收盤(今日)/收盤(昨日)——
+//   實測 9 檔全部吻合到小數第三位，確認 rwd 就是當日。
+//
+//   openapi 保留為 FALLBACK：rwd 偶有維護時段，寧可退回昨天的估值也不要整片空白，
+//   但**必須把資料日一起回傳**，讓呼叫端能揭露「這是哪一天的估值」。
+let valCache: { map: Record<string, Valuation>; at: number; date: string | null } | null = null;
+
+function ymdOf(v: unknown): string | null {
+  const m = String(v ?? '').match(/^(\d{4})(\d{2})(\d{2})$/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
 export async function getValuationMap(): Promise<Record<string, Valuation>> {
-  if (valCache && Date.now() - valCache.at < TTL) return valCache.map;
-  const arr = await fetchJSON('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL');
+  return (await getValuation()).map;
+}
+
+// 回傳估值與**它代表的資料日**。缺了資料日就無法分辨「今天的」與「昨天的」，
+// 而這正是本專案栽過四次的那道閘門。
+export async function getValuation(): Promise<{ map: Record<string, Valuation>; date: string | null }> {
+  if (valCache && Date.now() - valCache.at < TTL) return { map: valCache.map, date: valCache.date };
   const map: Record<string, Valuation> = {};
-  if (Array.isArray(arr)) {
-    for (const it of arr) {
-      const code = (it.Code || '').trim();
-      if (code) map[code] = { pe: num(it.PEratio), dividendYield: num(it.DividendYield), pb: num(it.PBratio) };
+  let date: string | null = null;
+
+  // PRIMARY：rwd（當日）。欄序 [股票代號, 股票名稱, 本益比, 殖利率(%), 股價淨值比]
+  const today = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000)
+    .toISOString().slice(0, 10).replace(/-/g, '');
+  const rwd = await fetchJSON(`https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${today}&response=json`);
+  if (rwd?.stat === 'OK' && Array.isArray(rwd.data) && rwd.data.length > 500) {
+    for (const row of rwd.data) {
+      const code = String(row[0] || '').trim();
+      if (code) map[code] = { pe: num(row[2]), dividendYield: num(row[3]), pb: num(row[4]) };
+    }
+    date = ymdOf(rwd.date);
+  }
+
+  // FALLBACK：openapi（落後一日）。只有在 rwd 整批失敗時才用。
+  if (!Object.keys(map).length) {
+    const arr = await fetchJSON('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL');
+    if (Array.isArray(arr)) {
+      for (const it of arr) {
+        const code = (it.Code || '').trim();
+        if (code) map[code] = { pe: num(it.PEratio), dividendYield: num(it.DividendYield), pb: num(it.PBratio) };
+      }
+      // openapi 的 Date 是民國 1150810 格式
+      const m = String(arr[0]?.Date ?? '').match(/^(\d{3})(\d{2})(\d{2})$/);
+      if (m) date = `${+m[1] + 1911}-${m[2]}-${m[3]}`;
     }
   }
-  valCache = { map, at: Date.now() };
-  return map;
+
+  valCache = { map, at: Date.now(), date };
+  return { map, date };
 }
 
 // ── Margin (MI_MARGN) ───────────────────────────────────────
