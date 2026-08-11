@@ -1089,6 +1089,7 @@ async function misBatch(batch) {
 let _codesCache = null, _codesAt = 0, _codesCloseDate = '';
 // 民國日期 1150715 → 20260715（西元 YYYYMMDD）
 const rocToYmd = s => { s = String(s).trim(); return /^\d{7}$/.test(s) ? String(+s.slice(0, 3) + 1911) + s.slice(3) : ''; };
+let _otcCloseDate = '';
 async function getAllMarketCodes(force = false) {
   if (!force && _codesCache && Date.now() - _codesAt < 10 * 60000) return _codesCache;
   const codes = [];
@@ -1115,10 +1116,40 @@ async function getAllMarketCodes(force = false) {
     } catch { /* tse */ }
   }
   for (const c of tseRows) codes.push(c);
+  // ── 上櫃種子（2026-08-11 修）────────────────────────────────────────
+  // ⚠ 這個 openapi 鏡像**自帶 Date 欄位（民國 YYYMMDD）**，但舊版從來不讀它。
+  //   上市那半有 closeDate 回音驗證，上櫃這半沒有 —— 於是「上櫃種子是哪一天的」
+  //   系統完全不知道，鏡像落後時就把昨日收盤當今日餵給「即時漲跌」。
+  //   （CLAUDE.md 明文規則：openapi 一律假設是舊的，且必須讀它自報的日期比對。）
+  // 修法：讀鏡像自報日 → 與上市的 closeDate 比對 → 落後就改用**帶日期**的
+  //       afterTrading/dailyQuotes（回聲驗證，回補腳本已實測可靠）重抓。
+  let otcRows = []; let otcDate = '';
   try {
     const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) for (const x of await r.json()) { const code = x.SecuritiesCompanyCode || x.Code || ''; if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) codes.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares) }); }
+    if (r.ok) for (const x of await r.json()) {
+      const code = x.SecuritiesCompanyCode || x.Code || '';
+      if (!otcDate && x.Date) otcDate = rocToYmd(String(x.Date));
+      if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) otcRows.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares) });
+    }
   } catch { /* otc */ }
+  if (closeDate && otcDate && otcDate < closeDate) {
+    // 鏡像落後 → 用帶日期端點補今日。TPEx 只認 YYYY/MM/DD，且必須回聲驗證，
+    // 否則它會**靜默忽略日期**回最新資料（實案：首輪回填整批變今日快照）。
+    const slash = `${closeDate.slice(0, 4)}/${closeDate.slice(4, 6)}/${closeDate.slice(6, 8)}`;
+    try {
+      const j = await (await fetch(`https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=${encodeURIComponent(slash)}&type=EW&id=&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.tpex.org.tw/' } })).json();
+      const tb = String(j?.date || '') === closeDate ? j?.tables?.[0] : null;
+      const fixed = [];
+      for (const r2 of (tb?.data || [])) {
+        const code = String(r2[0] || '').trim();
+        if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) fixed.push({ code, name: String(r2[1] || '').trim(), market: 'otc', close: _num(r2[2]), change: _num(r2[3]), vol: _num(r2[8]) });
+      }
+      if (fixed.length > 500) { otcRows = fixed; log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，已改用帶日期端點重抓 ${fixed.length} 檔`); otcDate = closeDate; }
+      else log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，帶日期端點只回 ${fixed.length} 檔，維持鏡像值`);
+    } catch (e) { log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，補抓失敗：${(e.message || '').slice(0, 40)}`); }
+  }
+  codes.push(...otcRows);
+  _otcCloseDate = otcDate;
   if (codes.length > 0) { _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate; }
   return _codesCache || [];
 }
@@ -1133,7 +1164,7 @@ async function writeSnapshot(quotes, marketOpen, source, sweeping = marketOpen) 
   const sweepAt = Date.now();
   // Store quotes as a JSON STRING — a 1900-key map exceeds Firestore's 20k
   // per-doc index-entry limit; a string is indexed once.
-  try { await db.collection('marketSnapshot').doc('latest').set({ quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()) }); }
+  try { await db.collection('marketSnapshot').doc('latest').set({ quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()), seedDateTse: _codesCloseDate || null, seedDateOtc: _otcCloseDate || null }); }
   catch (e) { log('  ✖ snapshot write', (e.message || '').slice(0, 60)); }
   try { mkdirSync(MARKET_DIR, { recursive: true }); writeFileSync(join(MARKET_DIR, 'snapshot.json'), JSON.stringify({ count, liveCount, sweepAt, marketOpen, source, quotes }, null, 2)); } catch { /* ignore */ }
 }
@@ -1319,6 +1350,21 @@ async function marketSnapshotLoop() {
       // Always seed EVERY stock from close so the full market is present.
       const quotes = {};
       for (const c of codes) quotes[c.code] = seedQuote(c);
+      // ⚠ 掃描窗外也要套回今日掃到的真實價（2026-08-11 修）：
+      //   舊版只在 `if (active)` 裡套 _lastLive，於是 16:30 一過，
+      //   每一輪都把整份快照重鋪成種子——**白天辛苦掃到的今日收盤全部丟掉**，
+      //   上櫃那半又因為 openapi 鏡像落後而退回昨天。
+      //   使用者在半夜看到的「有些是昨天的」就是這個。
+      //   種子只在「這一檔今天從未掃到」時才該出現。
+      if (!active) {
+        const today = isoDate(tw);
+        for (const k in _lastLive) {
+          const v = _lastLive[k];
+          if (!quotes[k] || !v) continue;
+          if (isoDate(new Date(v.liveAt || 0)) !== today) continue;   // 跨日殘留不可沿用
+          quotes[k] = { ...v };
+        }
+      }
 
       if (active) {
         const byCode = {}; for (const c of codes) byCode[c.code] = c;
