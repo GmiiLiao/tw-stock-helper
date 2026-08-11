@@ -12,7 +12,7 @@ import RiskBadge from '@/components/shared/RiskBadge';
 
 interface Pick { code: string; name: string; market: string; price: number; changePct: number; score: number | null; signal: string | null; dtHigh: boolean; streak?: number; volX?: number | null; instF?: number; instT?: number; dd?: number }
 interface Stat { name: string; icon: string; winRate: number; avgRet: number; pf: number; principle: string; note: string; recent?: { label: string; winRate: number; avgRet: number }; regimeBoost?: { bull: string; bear: string } }
-interface Data { date: string; updatedAt: number; stats: Record<string, Stat>; groups: Record<string, Pick[]>; regime?: { index: number; ma20: number; bull: boolean } | null }
+interface Data { date: string; dataDate?: string | null; updatedAt: number; stats: Record<string, Stat>; groups: Record<string, Pick[]>; regime?: { index: number; ma20: number; bull: boolean } | null }
 
 const ORDER = ['limitLock', 'dipLimit', 'gapUp', 'volBreak', 'secondBar', 'chip']; // dipLimit 實測 58% 排第2、高於連2K棒
 const RULES = [
@@ -119,7 +119,7 @@ export default function StrategyPicks() {
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
         <span style={{ fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))' }}>📐 實測驗證策略選股</span>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>資料日 {d.date} · 收盤後更新 · 隔日沖適用</span>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>資料日 {d.dataDate || d.date} · 收盤後更新 · 隔日沖適用</span>
         {trialActive && <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)', color: '#fbbf24' }}>🎁 免費體驗中 · 剩 {trialDaysLeft} 天</span>}
       </div>
       {/* 今日盤型即時警示改放「即時追蹤」頁；此處僅留一行提示導向 */}

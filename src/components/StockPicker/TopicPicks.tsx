@@ -20,7 +20,7 @@ import { useAppStore } from '@/lib/store';
 const UP = '#f03e3e', DOWN = '#2f9e44';
 
 interface TopicItem { code: string; name: string; price: number; chg: number | null; bias5: number; rsi5?: number; rsi10?: number; dualRsi?: boolean; deathX?: boolean; rsiHot?: boolean; triple?: boolean; volX?: number | null; instT1?: number | null; ind: string | null; newsN: number; hot: boolean; aboveM20: boolean }
-interface TopicData { found: boolean; date?: string; mode?: string; updatedAt?: number; instDate?: string | null; instSameDay?: boolean; hotSectors?: { ind: string; n: number }[]; oversold?: TopicItem[]; overheat?: TopicItem[]; breakdown?: TopicItem[]; evidence?: Record<string, string> }
+interface TopicData { found: boolean; date?: string; dataDate?: string | null; mode?: string; updatedAt?: number; instDate?: string | null; instSameDay?: boolean; hotSectors?: { ind: string; n: number }[]; oversold?: TopicItem[]; overheat?: TopicItem[]; breakdown?: TopicItem[]; evidence?: Record<string, string> }
 
 function TopicRow({ it }: { it: TopicItem }) {
   const navigateTo = useAppStore(s => s.navigateTo);
@@ -73,7 +73,7 @@ export default function TopicPicks() {
         <b style={{ color: '#7dd3fc' }}>過熱勿追＝避開</b>（不是放空訊號）。故本頁不顯示綜合評分。
       </div>
       <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span>📅 {d.date} · {d.mode === 'live' ? '盤中即時' : '收盤定版'}</span>
+        <span>📅 {d.mode === 'live' ? d.date : (d.dataDate || d.date)} · {d.mode === 'live' ? '盤中即時' : '收盤定版'}</span>
         {d.instDate && (
           <span title="法人資料日決定「可執行版本」：含今日T86＝依此決策要明日才能買；前一交易日＝今日收盤可買">
             🏦 法人資料 {d.instDate}{d.instSameDay ? '（含今日T86 → 可執行版本＝明日買進）' : '（前一交易日 → 今日收盤可買）'}

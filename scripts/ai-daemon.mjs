@@ -827,12 +827,53 @@ async function fetchDated(url, expectYmd, dateFrom = 'field', mode = 'exact') {
   }
 }
 
+// ── chipArchive 讀取的唯一入口（2026-08-12 建立）────────────────────────
+//
+// 為什麼要有這個：當日的歸檔文件是**分批**長出來的——15:10 先寫收盤、15:00 後法人、
+// 21:45 才回填資券。更糟的是 daemon 一重啟就會在盤前跑一次 archiveChipDaily，
+// 於是整個交易日的 00:00~15:10 之間，`orderBy('date','desc')` 的**第一筆是空殼**
+// （只有 date/at/market，沒有任何 JSON 欄位）。實測 2026-08-12 就是這種文件。
+//
+// 空殼不會讓程式壞掉，只會安靜地給出錯的答案，而且有兩種：
+//   ① `arch[0].instJson` → undefined → 法人買賣超整片變 0（產業輪動、雷達、風向）；
+//   ② `arch.map(a => a.closeJson ? ... : {})` → maps[0] 變空物件，
+//      **後面每一天都往後位移一格**：所謂「5 日均量」其實是 4 天＋1 天空白、
+//      「昨收」指到前天。這種錯在畫面上完全看不出來。
+// 6954 那支早就手寫過同樣的濾法（註解記著 2026-07-20 實案 n=0），
+// 但沒有推廣出去 —— 這就是同一個 bug 會出現第二次的原因，故收斂成單一入口。
+//
+// field 指定「這一天必須有哪個欄位才算數」：要日 K 序列用 closeJson（預設）、
+// 要資券用 marginJson、要借券用 lendingJson，各自取「最近一個有該欄位的日子」。
+async function readArchive(limit, field = 'closeJson') {
+  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(limit).get();
+  return snap.docs.map(d => d.data()).filter(a => a && a[field]);
+}
+
+// 榜單要標的「資料日」——三個時段的答案不一樣，少想一個就會標錯：
+//   ① 盤中(marketOpen)          → 今天（盤中即時價）
+//   ② 13:30 收盤後但 15:10 前   → **今天**（今天的收盤已經產生，只是還沒歸檔；
+//                                  這格若照 dataDate() 走會退回昨天，是回歸性錯誤）
+//   ③ 收盤已歸檔／盤前／非交易日 → 最近一個有資料的歸檔日
+// ⚠ 不要拿 liveDay 當標籤依據：它的定義是「歸檔還沒有今天」，
+//   在 00:00~09:00 也成立，於是深夜的榜單會自稱「盤中即時」。
+async function boardDataDate(tw, marketOpen) {
+  if (marketOpen) return isoDate(tw);
+  const mins = tw.getHours() * 60 + tw.getMinutes();
+  if (isTradingDay(tw) && mins >= 13 * 60 + 30) return isoDate(tw);
+  return await dataDate();
+}
+
 let _dataDateCache = { at: 0, d: null };
 async function dataDate() {
   if (_dataDateCache.d && Date.now() - _dataDateCache.at < 10 * 60000) return _dataDateCache.d;
   try {
-    const s = await db.collection('chipArchive').orderBy('date', 'desc').limit(1).get();
-    const d = s.empty ? null : s.docs[0].id;
+    // ⚠ 不能取「最新的文件」，要取「最新的**有資料**的文件」。
+    //   否則盤前空殼一建立，dataDate() 就回今天，而 sectorRotation / tradeSignals /
+    //   rsRanking / scanner / multiTimeframe / snipeList 這 7 張表全都拿它當
+    //   「資料日期」印在畫面上 ⇒ 昨天的資料掛today的日期（稽核已見 strategyPicks
+    //   與 topicPicks 標 2026-08-12，其餘全站都是 2026-08-11）。
+    const docs = await readArchive(5);
+    const d = docs[0]?.date || null;
     if (d) _dataDateCache = { at: Date.now(), d };
     return d;
   } catch { return _dataDateCache.d; }
@@ -3806,8 +3847,11 @@ async function computeSwingPicks() {
   try {
     const arch = await loadLuArchive();
     if (arch.length < 61) { log('✖ 波段起漲：歸檔僅', arch.length, '日（需 61）'); return; }   // 逐檔另有 closes.length>=61 保護
-    const quo = (await readSnapshotQuotes())?.quotes || {};
+    const _snap = await readSnapshotQuotes();
+    const quo = _snap?.quotes || {};
+    const marketOpen = !!_snap?.marketOpen;
     const tw = taipei();
+    // liveDay 只管「取價要用快照還是歸檔」，不可拿來當盤中與否的標籤（見 boardDataDate）
     const liveDay = isTradingDay(tw) && arch[arch.length - 1].date !== isoDate(tw);
     const L = arch.length - 1;
     // 市場寬度（regime gate·收盤即知 PIT 安全）：上漲家數比 <50% ＝空頭日
@@ -3898,8 +3942,11 @@ async function computeSwingPicks() {
     // 條件會同時鬆掉兩道 → 出榜數暴增數十倍。此時榜單母體已不是回測的母體，須明說。
     const total = items.length;
     const crowded = total >= 60;                       // ≒回測日均的 10 倍
+    // date＝這份榜單「產生」的日曆日；dataDate＝底層資料真正屬於哪個交易日。
+    // 收盤模式下這兩者在 00:00~15:10 之間會差一天，UI 只能標 dataDate，
+    // 否則就是把昨天的收盤資料掛上今天的日期（使用者 2026-08-11 已抓過同類錯誤）。
     await db.collection('swingPicks').doc('latest').set({
-      updatedAt: Date.now(), date: isoDate(tw), mode: liveDay ? 'live' : 'close',
+      updatedAt: Date.now(), date: isoDate(tw), dataDate: await boardDataDate(tw, marketOpen), mode: marketOpen ? 'live' : 'close',
       breadth, bearDay, instDate, instSameDay, total, crowded,
       horizon: '持有 5 個交易日（非隔日沖：本訊號隔日開賣 -0.06%／收賣 -0.44%，edge 全在第5日）·已套用 vol20≥1.5% 波動 gate',
       gate: bearDay === false ? '⚠今日為多頭日（上漲家數比 ' + breadth + '%）——實測多頭日此訊號 5日 -0.24%·真起漲僅14.4% 低於基準，本日不建議進場'
@@ -3930,7 +3977,9 @@ async function computeTopicPicks() {
   try {
     const arch = await loadLuArchive();                       // 62日收盤（10分鐘快取）
     if (arch.length < 25) return;
-    const quo = (await readSnapshotQuotes())?.quotes || {};
+    const _snap = await readSnapshotQuotes();
+    const quo = _snap?.quotes || {};
+    const marketOpen = !!_snap?.marketOpen;
     const indMap = await getIndustryMap();
     const tw = taipei();
     const liveDay = isTradingDay(tw) && arch[arch.length - 1].date !== isoDate(tw);
@@ -3993,8 +4042,9 @@ async function computeTopicPicks() {
     oversold.sort((a, b) => (b.triple ? 1 : 0) - (a.triple ? 1 : 0) || (b.dualRsi ? 1 : 0) - (a.dualRsi ? 1 : 0) || a.bias5 - b.bias5);
     overheat.sort((a, b) => b.bias5 - a.bias5);
     breakdown.sort((a, b) => (b.deathX ? 1 : 0) - (a.deathX ? 1 : 0) || (b.hot ? 1 : 0) - (a.hot ? 1 : 0) || (b.newsN - a.newsN));
+    // dataDate：同 swingPicks，收盤模式一律標資料日而非日曆日
     await db.collection('topicPicks').doc('latest').set({
-      updatedAt: Date.now(), date: isoDate(tw), mode: liveDay ? 'live' : 'close',
+      updatedAt: Date.now(), date: isoDate(tw), dataDate: await boardDataDate(tw, marketOpen), mode: marketOpen ? 'live' : 'close',
       instDate, instSameDay,
       hotSectors, bullishNote: [...hotSet].slice(0, 8),
       oversold: oversold.slice(0, 20), overheat: overheat.slice(0, 15), breakdown: breakdown.slice(0, 15),
@@ -4577,7 +4627,9 @@ async function trackStopDiscipline() {
         }
         const it = items[code];
         const days = Math.max(1, Math.round((Date.now() - it.firstAt) / 86400000) + 1);
-        const extraLoss = Math.round((it.priceAtTrigger - price) * g.qty);
+        // ⚠ g.qty 是「張」，要 ×1000 股才是元。原本漏乘，警示寫「可少虧約 50 元」
+        //   而實際是 50,000 元 —— 數字看起來完全正常，只是小到讓這則紀律提醒失去意義。
+        const extraLoss = Math.round((it.priceAtTrigger - price) * g.qty * 1000);
         it.days = days; it.extraLoss = extraLoss; it.lastPrice = price;
         const key = `${uid}:${code}`;
         if (_disciplineAlerted.has(key)) continue; _disciplineAlerted.add(key);
@@ -6264,6 +6316,19 @@ async function archiveChipDaily() {
   }
 
   patch.complete = !!((cur.instJson || patch.instJson) && cur.closeJson);
+  // ⚠ 沒有任何實料就**不要建文件**（2026-08-12）。
+  //   本函式會在 daemon 重啟時的補跑清單裡被叫到，若那時是盤前，
+  //   所有 fetch 都拿不到當日資料、每個 if 區塊都跳過，patch 只剩
+  //   {date, at, market, complete:false}——但 `set()` 照樣把它寫下去，
+  //   於是 chipArchive 多出一份「日期最新、內容全空」的殼。
+  //   它不會讓任何程式壞掉，只會讓 orderBy('date','desc') 的第一筆變成空的：
+  //   法人資料整片歸零、日 K 視窗整體位移一天、dataDate() 回報錯的資料日期。
+  //   已存在的文件仍要 merge（15:10 寫收盤、21:45 補資券就是靠這條路）。
+  const hasPayload = Object.keys(patch).some(k => !['date', 'at', 'market', 'complete'].includes(k));
+  if (!hasPayload && !Object.keys(cur).length) {
+    log(`· 籌碼歸檔 ${iso}：本輪無任何當日資料，略過建檔（避免產生空殼文件）`);
+    return;
+  }
   await ref.set(patch, { merge: true });
   log(`✓ 籌碼歸檔 ${iso}：法人${(cur.instJson || patch.instJson) ? '✓' : '—'} 資券${(cur.marginJson || patch.marginJson) ? '✓' : '—'}`
     + ` 借券${(cur.lendingJson || patch.lendingJson) ? '✓' : '—'} 當沖${(cur.dayTradeJson || patch.dayTradeJson) ? '✓' : '—'}（收盤另依資料日歸檔）`);
@@ -8040,10 +8105,11 @@ let _windCtx = { date: '', avgVol: null, yInst: null };
 async function getWindCtx() {
   const today = isoDate(taipei());
   if (_windCtx.date === today && _windCtx.avgVol) return _windCtx;
-  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(6).get()).docs.map(d => d.data());
+  // 空殼會讓 maps[0] 變 {} 並把整串日期往後推一格（5日均量少一天、昨收變前天）。
+  const arch = await readArchive(8);
   if (!arch.length) return _windCtx;
-  const maps = arch.map(a => (a.closeJson ? JSON.parse(a.closeJson) : {}));
-  const yInst = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : {};
+  const maps = arch.map(a => JSON.parse(a.closeJson));
+  const yInst = arch.find(a => a.instJson)?.instJson ? JSON.parse(arch.find(a => a.instJson).instJson) : {};
   const avgVol = {};
   const codes = new Set(); for (const m of maps) for (const k in m) codes.add(k);
   for (const code of codes) {
@@ -8299,7 +8365,8 @@ async function computeSectorWind() {
   const q = snap.quotes;
   const indMap = await getIndustryMap();
   // 昨日法人(chipArchive 最近一日 inst)：盤中無當日 T86，用昨日傾向；收盤後也先用昨日(當日 15:00 後另有 T86)
-  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(1).get()).docs.map(d => d.data());
+  // limit(1) 會抓到盤前空殼 ⇒ 法人買賣超整片變 0。改取「最近一個有法人的日子」。
+  const arch = await readArchive(5, 'instJson');
   const instY = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : {};
 
   const sec = {};
@@ -8371,13 +8438,16 @@ async function computeIntradayRadar() {
 
   // 每日一次：5日均量/5日高/昨收/MA5(近似:前5日收盤均)/昨日漲幅/昨日外資（chipArchive）
   if (_radarCtx.date !== today) {
-    const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(21).get()).docs.map(d => d.data());
+    // 同 8045：先濾掉空殼再取序列，否則 maps 整串位移、mgY 會拿到空物件。
+    const arch = await readArchive(23);
     if (!arch.length) return;
-    const maps = arch.map(a => a.closeJson ? JSON.parse(a.closeJson) : {});
-    const instY = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : {};
+    const maps = arch.map(a => JSON.parse(a.closeJson));
+    const instY = arch.find(a => a.instJson)?.instJson ? JSON.parse(arch.find(a => a.instJson).instJson) : {};
     // 軋空啟動 setup：昨日融券增 ≥ 昨量 0.5%（2年稽核 46.0-47.7%·淨正兩窗穩定）
-    const mgY = arch[0]?.marginJson ? JSON.parse(arch[0].marginJson) : {};
-    const mgY2 = arch[1]?.marginJson ? JSON.parse(arch[1].marginJson) : {};
+    // 資券 21:45 才回填 ⇒ 必須取「最近兩個有 marginJson 的日子」而不是 arch[0]/arch[1]。
+    const mgDays = arch.filter(a => a.marginJson);
+    const mgY = mgDays[0] ? JSON.parse(mgDays[0].marginJson) : {};
+    const mgY2 = mgDays[1] ? JSON.parse(mgDays[1].marginJson) : {};
     const ySqueeze = {};
     for (const code in mgY) {
       const a = mgY[code], b = mgY2[code]; if (!a || !b) continue;
