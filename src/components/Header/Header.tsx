@@ -152,7 +152,19 @@ export default function Header() {
       timeoutId = setTimeout(tick, getInterval());
     };
     timeoutId = setTimeout(tick, getInterval());
-    return () => clearTimeout(timeoutId);
+    // ⚠ 回到前景要**立刻重排**（2026-08-11 使用者回報「加權指數沒有即時更新」）：
+    //   間隔是在**排程當下**算的。分頁被切到背景時排的是 5 分鐘，
+    //   使用者切回來後那顆計時器**不會自己縮短**——畫面就凍在原地最久 5 分鐘。
+    //   手機上切去 LINE/Telegram 再切回來是常態，所以幾乎每次回來都看到不動的指數。
+    //   （時鐘顯示那個 effect 早就有 visibilitychange，唯獨這裡漏了。）
+    const onVis = () => {
+      if (document.hidden) return;
+      clearTimeout(timeoutId);
+      loadMarketIndex();                        // 先補一次，不讓使用者等
+      timeoutId = setTimeout(tick, getInterval());
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearTimeout(timeoutId); document.removeEventListener('visibilitychange', onVis); };
   }, [loadMarketIndex]);
 
   // Poll full stock list (heavy) — dynamic interval recalculated each tick
@@ -169,7 +181,15 @@ export default function Header() {
       timeoutId = setTimeout(tick, getInterval());
     };
     timeoutId = setTimeout(tick, getInterval());
-    return () => clearTimeout(timeoutId);
+    // 同上：背景時排的是 15 分鐘，回前景必須重排，否則全站股價表跟著一起凍住。
+    const onVis = () => {
+      if (document.hidden) return;
+      clearTimeout(timeoutId);
+      loadAllStocks();
+      timeoutId = setTimeout(tick, getInterval());
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearTimeout(timeoutId); document.removeEventListener('visibilitychange', onVis); };
   }, [loadAllStocks]);
 
 
