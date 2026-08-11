@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type { StockInfo } from '@/lib/twse-api';
 import styles from './QuoteGrid.module.css';
 
@@ -7,9 +8,13 @@ import styles from './QuoteGrid.module.css';
 //
 // 目標：像券商 App 一樣「一眼看完」——三欄格子、大數字、漲跌用顏色直接講完。
 //
-// ⚠**只放算得出來的欄位**：券商那張有「內盤/外盤/單量/買量/賣量」，
-//   那些來自即時五檔委託簿，本站沒有這個資料源（bookDepth 只有尾盤歸檔、且非全市場）。
-//   寧可少一格，也不放推估值假裝是實際成交明細——那會讓人拿去做判斷。
+// ⚠ 內盤/外盤（2026-08-11 使用者指定要這兩格）——**必須看清楚它的口徑**：
+//   TWSE MIS 沒有內外盤欄位（實測只有五檔價量與成交價），券商那種逐筆內外盤
+//   要 tick 級成交明細，本站取得不到。
+//   daemon 改用「兩次輪詢之間的成交量增量 Δv」配上當下成交價相對五檔判方向：
+//     成交價 ≥ 賣一 → 外盤（買方主動）；≤ 買一 → 內盤（賣方主動）。
+//   ⇒ **總量精確、方向是 5 秒取樣**，且只涵蓋優先集（自選/持股/正在瀏覽的個股）。
+//   所以格子上標「取樣」、tooltip 寫明起算時間——不可讓人誤以為是券商等級的成交明細。
 //
 // 漲跌停價用台股跳動單位(tick)取整，實測與券商一致：
 //   大立光昨收 4575 → 4575×1.1=5032.5，≥1000 檔 tick=5 → 5030 ✓（券商顯示 5030）
@@ -64,6 +69,19 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
   // 五檔委託簿：最佳一檔的買/賣量（＝券商的「買量/賣量」），以及五檔加總的委買賣力道。
   // ⚠這是**委託簿(掛單)**，不是券商的「內盤/外盤」——後者要逐筆成交分類，見檔頭說明。
   const bid1 = book?.bid?.[0], ask1 = book?.ask?.[0];
+  // 內外盤（取樣）——見檔頭口徑說明
+  const [flow, setFlow] = useState<{ inner: number; outer: number; total: number; outerPct: number | null; since: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => fetch(`/api/twse/order-flow?code=${stock.code}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (live && j?.found) setFlow(j); else if (live) setFlow(null); }).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => { live = false; clearInterval(t); };
+  }, [stock.code]);
+  const flowSince = flow?.since ? new Date(flow.since).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+  const flowLots = (v: number) => Math.round(v / 1000).toLocaleString();
   const bidSum = book?.bid?.reduce((a, [, v]) => a + v, 0) ?? 0;
   const askSum = book?.ask?.reduce((a, [, v]) => a + v, 0) ?? 0;
   const bidPct = bidSum + askSum > 0 ? bidSum / (bidSum + askSum) * 100 : null;
@@ -107,8 +125,16 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
         <Cell k="筆數" v={stock.transactions ? ni(stock.transactions) : '—'} c="#7dd3fc" />
         <Cell k="跌停" v={lim ? nf(lim.down) : '—'} chip="cold" sub="昨收×0.9，取合法跳動單位" />
         {/* 第 5 列 */}
-        <Cell k="買量" v={bid1 ? String(bid1[1]) : '—'} c={UP} sub={bid1 ? `最佳買價 ${nf(bid1[0])}（五檔委買合計 ${bidSum} 張）` : '此檔不在即時五檔掃描範圍'} />
-        <Cell k="賣量" v={ask1 ? String(ask1[1]) : '—'} c={DOWN} sub={ask1 ? `最佳賣價 ${nf(ask1[0])}（五檔委賣合計 ${askSum} 張）` : '此檔不在即時五檔掃描範圍'} />
+        <Cell k="內盤" v={flow ? flowLots(flow.inner) : '—'} c={DOWN} tail="張"
+          sub={flow
+            ? `賣方主動成交（撮在買價）· 取樣自 ${flowSince} 起 · 佔 ${flow.total > 0 ? ((flow.inner / flow.total) * 100).toFixed(0) : 0}%`
+            + `｜⚠ 官方無逐筆內外盤，此為 5 秒輪詢取樣估計，非券商成交明細`
+            : '此檔尚未進入即時掃描範圍（加入自選或停留在本頁即會開始取樣）'} />
+        <Cell k="外盤" v={flow ? flowLots(flow.outer) : '—'} c={UP} tail="張"
+          sub={flow
+            ? `買方主動成交（撮在賣價）· 取樣自 ${flowSince} 起 · 佔 ${flow.outerPct ?? 0}%`
+            + `｜⚠ 官方無逐筆內外盤，此為 5 秒輪詢取樣估計，非券商成交明細`
+            : '此檔尚未進入即時掃描範圍（加入自選或停留在本頁即會開始取樣）'} />
         <Cell k="金額" v={money(stock.value)} c="#7dd3fc" sub="成交金額" />
         {/* 第 6 列 */}
         <Cell k="歷史高" v={allTimeHigh ? nf(allTimeHigh.high) : '—'} c="#fbbf24" tail={allTimeHigh?.date} />

@@ -153,7 +153,7 @@ export default function StockDetail() {
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [signal, setSignal] = useState<TradingSignal | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'intraday' | 'chart' | 'signal' | 'peers' | 'fin' | 'portfolio' | 'company' | 'premarket' | 'strategy' | 'news' | 'ask'>('intraday');
+  const [activeTab, setActiveTab] = useState<'intraday' | 'chart' | 'signal' | 'peers' | 'fin' | 'portfolio' | 'company' | 'strategy' | 'news' | 'ask'>('intraday');
 
   const [trendData, setTrendData] = useState<TrendApiResponse | null>(null);
   const [trendLoading, setTrendLoading] = useState(false);
@@ -277,7 +277,8 @@ export default function StockDetail() {
   // ── Load trend analysis for company / premarket tabs ─────────
   useEffect(() => {
     if (!selectedStock) return;
-    if (activeTab !== 'company' && activeTab !== 'premarket' && activeTab !== 'news') return;
+    // strategy 分頁現在同時含原本的 premarket 內容，兩者共用 trendData
+    if (activeTab !== 'company' && activeTab !== 'strategy' && activeTab !== 'news') return;
     if (trendData) return; // already loaded for this stock
 
     setTrendLoading(true);
@@ -349,8 +350,9 @@ export default function StockDetail() {
     { id: 'fin',       label: '💰 財務體檢' },
     { id: 'portfolio', label: `💼 持倉 ${myHoldings.length > 0 ? `(${myHoldings.length})` : ''}` },
     { id: 'company',   label: '🏢 公司資訊' },
-    { id: 'premarket', label: '📋 當日行情' },
-    { id: 'strategy',  label: '⏰ 開盤策略' },
+    // 「當日行情」與「開盤策略」合併（2026-08-11 使用者指出內容大量重複）：
+    // 兩者都在講同一天的開盤區間、前日收盤、預期跳空——分成兩個分頁只是讓人來回切。
+    { id: 'strategy',  label: '⏰ 當日行情與開盤策略' },
     { id: 'news',      label: '📰 產業新聞' },
   ];
 
@@ -551,14 +553,12 @@ export default function StockDetail() {
           <CompanyTab trendData={trendData} loading={trendLoading} stockName={stock.name} stockCode={stock.code} />
         )}
 
-        {/* ── 開盤策略分頁 ───────────────────────────────────── */}
-        {activeTab === 'premarket' && (
-          <PremarketTab trendData={trendData} loading={trendLoading} stockName={stock.name} stock={stock} />
-        )}
-
-        {/* ── 開盤策略分頁 ───────────────────────────────────── */}
+        {/* ── 當日行情與開盤策略（原本是兩個分頁，2026-08-11 合併）──────
+            兩邊都在講同一天的開盤區間／前日收盤／預期跳空，分開只是讓人來回切。
+            順序＝先「今天實際發生什麼」（當日行情），再「所以明天怎麼下單」（開盤策略）。 */}
         {activeTab === 'strategy' && (
           <>
+            <PremarketTab trendData={trendData} loading={trendLoading} stockName={stock.name} stock={stock} />
             <EarningsCallCard code={stock.code} />
             <StrategyTab trendData={trendData} loading={trendLoading} stockName={stock.name} />
           </>

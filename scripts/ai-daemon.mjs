@@ -1086,6 +1086,37 @@ async function misBatch(batch) {
   } catch { clearTimeout(t); return {}; }
 }
 
+// ── 內外盤（取樣式）─────────────────────────────────────────────────
+// ⚠ 先講清楚限制：**TWSE MIS 沒有內外盤欄位**。
+//   實測 getStockInfo 只回 a/b(五檔價)、f/g(五檔量)、z(成交價)、tv(單量)、v(累計量)，
+//   真正的內外盤要逐筆成交明細（每筆撮在買價還是賣價），那是券商 tick API 才有。
+//
+// 這裡做的是**可誠實交代的逼近**：
+//   每次輪詢取「累計量的增量 Δv」，用當下的成交價相對最佳五檔判方向：
+//     成交價 ≥ 賣一 → 外盤（買方主動吃賣單）
+//     成交價 ≤ 買一 → 內盤（賣方主動砍買單）
+//     介於中間     → 中性（不計入任一邊）
+//   ⇒ **總量是精確的**（Δv 累加起來就是當日全量），只有「方向」是 5 秒取樣。
+//     急拉急殺的瞬間可能被歸到相鄰的取樣區間，但比例上的偏差有限。
+//   前端必須標示「取樣」，不可讓使用者誤以為是券商等級的逐筆內外盤。
+let _flow = { date: '', by: {} };   // code → { in, out, mid, lastVol }
+function accumulateFlow(code, q, tw) {
+  const today = isoDate(tw);
+  if (_flow.date !== today) _flow = { date: today, by: {} };
+  if (!q?.hasLive || !(q.price > 0)) return;
+  // ⚠ since：**從 daemon 首次看到這一檔開始算**。重啟、或該檔中途才進優先集時，
+  //   前面的成交量不在樣本內——UI 必須把這個時間標出來，否則使用者會誤以為是全日累計。
+  const e = _flow.by[code] || (_flow.by[code] = { in: 0, out: 0, mid: 0, lastVol: q.volume, since: Date.now() });
+  const dv = q.volume - e.lastVol;
+  e.lastVol = q.volume;
+  if (!(dv > 0)) return;                       // 沒有新成交
+  // _parseLevels 回的是 [[價, 量], ...]，不是物件——取 [0][0] 才是最佳價
+  const a1 = q.ask?.[0]?.[0] ?? 0, b1 = q.bid?.[0]?.[0] ?? 0;
+  if (a1 > 0 && q.price >= a1) e.out += dv;
+  else if (b1 > 0 && q.price <= b1) e.in += dv;
+  else e.mid += dv;
+}
+
 let _codesCache = null, _codesAt = 0, _codesCloseDate = '';
 // 民國日期 1150715 → 20260715（西元 YYYYMMDD）
 const rocToYmd = s => { s = String(s).trim(); return /^\d{7}$/.test(s) ? String(+s.slice(0, 3) + 1911) + s.slice(3) : ''; };
@@ -1164,6 +1195,10 @@ async function writeSnapshot(quotes, marketOpen, source, sweeping = marketOpen) 
   const sweepAt = Date.now();
   // Store quotes as a JSON STRING — a 1900-key map exceeds Firestore's 20k
   // per-doc index-entry limit; a string is indexed once.
+  // 內外盤取樣：只寫有累積到量的個股，避免整包 2000 檔都塞 0
+  const flowOut = {};
+  for (const c in _flow.by) { const e = _flow.by[c]; if (e.in + e.out + e.mid > 0) flowOut[c] = [e.in, e.out, e.mid, e.since]; }
+  try { await db.collection('marketSnapshot').doc('flow').set({ date: _flow.date, n: Object.keys(flowOut).length, byCodeJson: JSON.stringify(flowOut), at: Date.now() }); } catch { /* optional */ }
   try { await db.collection('marketSnapshot').doc('latest').set({ quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()), seedDateTse: _codesCloseDate || null, seedDateOtc: _otcCloseDate || null }); }
   catch (e) { log('  ✖ snapshot write', (e.message || '').slice(0, 60)); }
   try { mkdirSync(MARKET_DIR, { recursive: true }); writeFileSync(join(MARKET_DIR, 'snapshot.json'), JSON.stringify({ count, liveCount, sweepAt, marketOpen, source, quotes }, null, 2)); } catch { /* ignore */ }
@@ -1382,6 +1417,7 @@ async function marketSnapshotLoop() {
               _depthWin.data[k] = { bid, ask, at: Date.now() };   // 逐筆記時間戳，歸檔時據以過濾
             }
             if (hasLive) {
+              accumulateFlow(k, { ...q, hasLive, bid, ask }, tw);   // 內外盤取樣累計（見 accumulateFlow 註解）
               quotes[k] = { ...q, market: byCode[k]?.market || quotes[k]?.market || null, live: true, liveAt: Date.now() };
               _lastLive[k] = quotes[k];                 // remember the last REAL price
               if (captureDepth && (bid?.length || ask?.length)) depthOut[k] = { bid, ask };
