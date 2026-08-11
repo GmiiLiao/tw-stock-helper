@@ -2,6 +2,7 @@
 
 import { useAppStore } from '@/lib/store';
 import AIRecommend from '@/components/AIRecommend/AIRecommend';
+import ModeSwitcher from '@/components/shared/ModeSwitcher';
 import Screener from '@/components/Screener/Screener';
 import NlScreen from './NlScreen';
 import StrategyPicks from './StrategyPicks';
@@ -50,6 +51,17 @@ export default function StockPicker() {
       <PageHelp id="picker" />
       {/* 自然語言選股（AI 解析白話需求 → 篩選） */}
       <NlScreen />
+
+      {/* ── 操作模式切換（2026-08-11 由 Navbar 移來，使用者指定放在選股模型旁）──
+          模式決定評分／榜單／警報／問AI 的口徑，放在選股模型正上方＝
+          「先選口徑，再選模型」，順序與實際操作一致。 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '12px 20px 0' }}>
+        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', flexShrink: 0 }}>操作模式</span>
+        <ModeSwitcher />
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 0 }}>
+          切換後評分、榜單、警報與問AI 都會改用該模式的口徑
+        </span>
+      </div>
 
       <div className={styles.tabBar} role="tablist" aria-label="選股模式">
         {TABS.map(t => (

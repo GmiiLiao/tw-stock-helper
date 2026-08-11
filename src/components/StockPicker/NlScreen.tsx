@@ -36,6 +36,7 @@ export default function NlScreen() {
   const isPremium = !!user && PREMIUM.includes(user.level);
   const [data, setData] = useState<Doc | null>(null);
   const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);   // 預設收合，見下方註解
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -44,6 +45,13 @@ export default function NlScreen() {
     const unsub = onSnapshot(ref, snap => setData(snap.exists() ? (snap.data() as Doc) : null), () => {});
     return () => unsub();
   }, [user?.uid]);
+
+  // ⚠ 必須放在任何 early return **之前**（Hook 規則：每次渲染呼叫順序要一致）。
+  //   有結果或正在查時自動展開——否則使用者送出後看不到任何回應，會以為壞掉。
+  useEffect(() => {
+    const st = data?.status;
+    if (st === 'pending' || st === 'done' || st === 'error') setOpen(true);
+  }, [data?.status]);
 
   const run = async () => {
     if (!q.trim() || !user?.uid || sending) return;
@@ -61,8 +69,24 @@ export default function NlScreen() {
 
   const pending = data?.status === 'pending';
   return (
-    <div style={{ marginBottom: 18, padding: '16px 18px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>🗣️ 自然語言選股 <span style={{ fontWeight: 400, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>用白話描述，AI 幫你篩（約 10–40 秒）</span></div>
+    <div style={{ marginBottom: 18, padding: open ? '14px 16px' : '10px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
+      {/* ⚠ 預設收合（2026-08-11 使用者要求「問 AI 要可以收合查詢內容」）：
+          這一區平時只是入口，卻固定佔掉輸入框＋範例鈕＋結果清單的高度，
+          把下面真正每天在用的分頁列一路往下推。
+          收起時只留一行標題；有查詢結果時自動展開，免得使用者以為查失敗。 */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: 0,
+          background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textAlign: 'left',
+          fontWeight: 700, marginBottom: open ? 8 : 0, fontSize: 'calc(14px * var(--fz))' }}>
+        <span style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>{open ? '▾' : '▸'}</span>
+        <span>🗣️ 自然語言選股</span>
+        <span style={{ fontWeight: 400, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {open ? '用白話描述，AI 幫你篩（約 10–40 秒）'
+                : (data?.status === 'done' ? `上次：「${data.query}」→ ${data.count} 檔` : '用白話描述，AI 幫你篩')}
+        </span>
+      </button>
+      {open && (<>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input className="input" value={q} maxLength={120} placeholder="例：外資連買且月營收年增超過30%"
           onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') run(); }} style={{ flex: 1 }} />
@@ -123,6 +147,7 @@ export default function NlScreen() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }

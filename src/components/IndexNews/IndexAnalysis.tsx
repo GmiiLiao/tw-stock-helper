@@ -172,6 +172,12 @@ function readIndex(bars: Bar[], name: string, iv: string): { headline: string; l
 // ── SVG 蠟燭圖＋均線＋VOL/RSI/MACD/KD 副圖 ──────────────────────
 function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
   const [tip, setTip] = useState<number | null>(null);
+  // ⚠ SVG 內的字級要用 viewBox 座標思考，不是 CSS px（2026-08-11 手機回報看不清）：
+  //   這張圖是 viewBox 寬 860、CSS 寬 100%，手機 375px → **整體縮到 0.436 倍**。
+  //   原本 fontSize="20" 實際只有 4.4px，等於看不見。
+  //   （與 K 線那張的成因不同：那張是 preserveAspectRatio="none" 壓扁，
+  //     這張是等比縮小——症狀一樣是讀不到，但解法是把 viewBox 內字級放大。）
+  //   放大到 20 → 手機約 8.7px、桌機（約 860px 寬）20px，兩邊都讀得到。
   const W = 860, H = 320, VH = 64, IH = 64, GAP = 18, PADL = 8, PADR = 64;
   const m5 = useMemo(() => ma(bars, 5), [bars]);
   const m20 = useMemo(() => ma(bars, 20), [bars]);
@@ -202,7 +208,7 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
   const t = tip != null ? bars[tip] : null;
   const ti = tip ?? bars.length - 1;
   const paneLabel = (y0: number, txt: string) => (
-    <text x={PADL} y={y0 + 11} fontSize="10" fontWeight={700} fill="#cbd5f5">{txt}</text>
+    <text x={PADL} y={y0 + 11} fontSize="20" fontWeight={700} fill="#cbd5f5">{txt}</text>
   );
   return (
     <div style={{ position: 'relative' }}>
@@ -223,7 +229,7 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         onMouseMove={e => { const r = (e.target as SVGElement).closest('svg')!.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left) / r.width * W / bw - PADL / bw); setTip(i >= 0 && i < bars.length ? i : null); }}>
         {/* 主圖：K棒＋均線 */}
         {[0.25, 0.5, 0.75].map(f => <line key={f} x1={PADL} x2={W - PADR} y1={8 + (H - 16) * f} y2={8 + (H - 16) * f} stroke="rgba(148,163,184,0.12)" />)}
-        {[hi, lo + (hi - lo) / 2, lo].map((p, i) => <text key={i} x={W - PADR + 6} y={y(p) + 4} fontSize="11" fill="#cbd5f5">{fmtN(p)}</text>)}
+        {[hi, lo + (hi - lo) / 2, lo].map((p, i) => <text key={i} x={W - PADR + 6} y={y(p) + 4} fontSize="22" fill="#cbd5f5">{fmtN(p)}</text>)}
         {bars.map((b, i) => {
           const up = b.c >= b.o, col = up ? UP : DOWN;
           const bodyT = y(Math.max(b.o, b.c)), bodyB = y(Math.min(b.o, b.c));
@@ -249,7 +255,7 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         {paneLabel(rsiY0, 'RSI（— 5 — 10·Wilder）')}
         {[20, 50, 80].map(v => <g key={'rg' + v}>
           <line x1={PADL} x2={W - PADR} y1={pctY(rsiY0)(v)} y2={pctY(rsiY0)(v)} stroke="rgba(148,163,184,0.14)" strokeDasharray={v === 50 ? '2 3' : undefined} />
-          <text x={W - PADR + 6} y={pctY(rsiY0)(v) + 3.5} fontSize="10" fill="#cbd5f5">{v}</text>
+          <text x={W - PADR + 6} y={pctY(rsiY0)(v) + 3.5} fontSize="20" fill="#cbd5f5">{v}</text>
         </g>)}
         <polyline points={line(r5, pctY(rsiY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(r10, pctY(rsiY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
@@ -267,13 +273,13 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         {paneLabel(kdY0, 'KD（9·⅔平滑）— K — D')}
         {[20, 80].map(v => <g key={'kg' + v}>
           <line x1={PADL} x2={W - PADR} y1={pctY(kdY0)(v)} y2={pctY(kdY0)(v)} stroke="rgba(148,163,184,0.14)" />
-          <text x={W - PADR + 6} y={pctY(kdY0)(v) + 3.5} fontSize="10" fill="#cbd5f5">{v}</text>
+          <text x={W - PADR + 6} y={pctY(kdY0)(v) + 3.5} fontSize="20" fill="#cbd5f5">{v}</text>
         </g>)}
         <polyline points={line(kd.K, pctY(kdY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(kd.D, pctY(kdY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
         {/* 十字線與日期軸 */}
         {tip != null && <line x1={x(tip)} x2={x(tip)} y1={0} y2={totalH - 14} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />}
-        {bars.map((b, i) => (i % Math.ceil(bars.length / 8) === 0) && <text key={'d' + b.t} x={x(i)} y={totalH - 2} fontSize="10" fill="#cbd5f5" textAnchor="middle">{fmtD(b.t, iv)}</text>)}
+        {bars.map((b, i) => (i % Math.ceil(bars.length / 8) === 0) && <text key={'d' + b.t} x={x(i)} y={totalH - 2} fontSize="20" fill="#cbd5f5" textAnchor="middle">{fmtD(b.t, iv)}</text>)}
       </svg>
     </div>
   );
@@ -304,25 +310,51 @@ export default function IndexAnalysis() {
   const chg = last && prev ? (last.c - prev.c) / prev.c * 100 : 0;
   const hist = useMemo(() => [...all.slice(-20)].reverse(), [all]);
 
-  const chip = (on: boolean) => ({ padding: '5px 12px', borderRadius: 14, fontSize: 12.5, fontWeight: 800 as const, cursor: 'pointer', border: `1px solid ${on ? 'rgba(125,211,252,0.6)' : 'var(--border-primary)'}`, background: on ? 'rgba(125,211,252,0.14)' : 'transparent', color: on ? 'var(--text-primary)' : '#cbd5f5' });
+  // ── 改用個股分析頁的分頁列格式（2026-08-11 使用者指定）───────────────
+  // 原本三組選擇器都是 flex-wrap 的膠囊：手機上 7 個指數換 2~3 行、
+  // 加上週期與根數共佔掉 4 行，把圖表一路擠到畫面外。
+  // 個股頁那組 .tabs 是**橫向捲動**的（塞不下就左右滑，不換行、不推高版面），
+  // 這裡沿用同一個 class，操作手感與個股頁一致。
+  // ⚠ minWidth: 0 不可省——這幾條是 grid 子項，預設 min-width:auto ＝
+  //   「不縮到 min-content 以下」，而 min-content 是所有 nowrap 分頁的總寬。
+  //   只寫 overflowX:auto 沒有用：捲動殼自己就先被撐爆了（實測仍溢出 33px）。
+  const strip: React.CSSProperties = {
+    display: 'flex', gap: 2, background: 'var(--bg-secondary)', borderRadius: 10,
+    padding: 3, minWidth: 0, maxWidth: '100%', overflowX: 'auto', scrollbarWidth: 'none',
+  };
+  const chip = (on: boolean): React.CSSProperties => ({
+    flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 12px', borderRadius: 7, border: 'none',
+    fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+    background: on ? 'var(--bg-elevated)' : 'transparent',
+    color: on ? 'var(--text-primary)' : 'var(--text-muted)',
+    boxShadow: on ? 'var(--shadow-sm)' : 'none',
+  });
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    // ⚠ 必須明寫 gridTemplateColumns: minmax(0, 1fr)（2026-08-11 實測）：
+    //   隱式 auto 軌道會被子項的 max-content 拉大——即使子項已 minWidth:0 + overflowX:auto，
+    //   軌道仍被算成 387.6px（容器只有 335px），整頁溢出 33px。
+    //   子項的 maxWidth:100% 在這裡是循環參照（百分比對上正在計算中的軌道），救不了。
+    //   釘成 minmax(0, 1fr) 之後軌道＝容器寬，捲動殼才真的在殼裡捲。
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, minWidth: 0 }}>
+      {/* 指數：7 個，手機一定塞不下 → 橫向捲 */}
+      <div style={strip}>
         {SYMS.map(s => <button key={s.id} onClick={() => setSym(s.id)} style={chip(sym === s.id)}>{s.label}</button>)}
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* 週期＋根數合併成一列（原本各佔一行）；中間用細分隔線區隔兩組語意 */}
+      <div style={strip}>
         {INTERVALS.map(i => <button key={i.id} onClick={() => setIv(i.id)} style={chip(iv === i.id)}>{i.label}</button>)}
-        <span style={{ width: 8 }} />
-        {WINDOWS.map(w => <button key={w} onClick={() => setWin(w)} style={chip(win === w)}>近{w}根</button>)}
-        {last && (
-          <span style={{ marginLeft: 'auto', fontSize: 14, fontWeight: 900 }}>
-            {name} <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{fmtN(last.c)}</span>{' '}
-            <span style={{ color: chg >= 0 ? UP : DOWN }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-            <span style={{ fontSize: 11, color: '#cbd5f5', marginLeft: 6 }}>{fmtD(last.t, iv)}</span>
-          </span>
-        )}
+        <span style={{ flexShrink: 0, width: 1, margin: '4px 6px', background: 'var(--border-primary)' }} />
+        {WINDOWS.map(w => <button key={w} onClick={() => setWin(w)} style={chip(win === w)}>{w}根</button>)}
       </div>
+      {last && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(14px * var(--fz))', fontWeight: 900, minWidth: 0, maxWidth: '100%' }}>
+          <span style={{ whiteSpace: 'nowrap' }}>{name}</span>
+          <span style={{ fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtN(last.c)}</span>
+          <span style={{ color: chg >= 0 ? UP : DOWN, whiteSpace: 'nowrap' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+          <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 400, color: '#cbd5f5', whiteSpace: 'nowrap' }}>{fmtD(last.t, iv)}</span>
+        </div>
+      )}
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
         {loading ? <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>

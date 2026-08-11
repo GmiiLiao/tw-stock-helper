@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import styles from './Navbar.module.css';
 import AiNewsTicker, { NavbarIndexWidget } from '@/components/AiNewsTicker/AiNewsTicker';
-import ModeSwitcher from '@/components/shared/ModeSwitcher';
 import { useIsPremium } from '@/lib/view-as';
 
 const NAV_ITEMS = [
@@ -170,10 +169,11 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* ── 操作模式切換器（全站狀態·2026-08-03 模式化）──
-           放在指數 widget 之前＝視線第一站。使用者必須隨時知道自己在哪個口徑，
-           否則會把波段訊號拿去隔日沖（實測 -0.06%）。 */}
-      <div style={{ marginRight: 8, flexShrink: 0 }}><ModeSwitcher compact /></div>
+      {/* ⚠ 操作模式切換器已移到「選股」頁的選股模型上方（2026-08-11 使用者指定）。
+           原本放在這裡的理由仍然成立且未消失：使用者必須隨時知道自己在哪個口徑，
+           否則會把波段訊號拿去隔日沖（實測 -0.06%）。
+           搬走之後，在選股頁以外就看不到目前模式了——若之後發現有人在個股頁誤用口徑，
+           優先考慮的是「在各頁加一個唯讀的模式標示」，而不是把切換器搬回來。 */}
 
       {/* ── 台股指數 Widget ── */}
       <NavbarIndexWidget />
