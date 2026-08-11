@@ -81,6 +81,10 @@ const CONTRACTS = [
   { c: 'swingPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   // allowEmpty：本榜回測日均僅 1.6 檔，零檔是常態（例：大反彈日後 RSI5 全面噴高）——EMPTY 不是故障
   { c: 'strengthPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', allowEmpty: true },
+  // 第2套預選（PID 斜率曲線·60 日前瞻實驗）。⚠ 這條**特別需要稽核**：
+  // 它要連續記錄 60 個交易日才有結論，中間任何一天沒寫入就是永久的洞——
+  // 事後無法補算（分型用的是當日橫斷面 z-score，母體無法重建）。
+  { c: 'swingCurvePicks',  kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'strategyPicks',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'snipeList',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'squeezeSetup',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },

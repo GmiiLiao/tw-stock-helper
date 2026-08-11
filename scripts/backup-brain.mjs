@@ -44,6 +44,9 @@ const DATED = [
   'revenueArchive',         // MOPS 月營收逐檔（每月）
   'orderFlowArchive', 'intradayArchive', 'bookDepthArchive',
   'snap0930Archive', 'volSurgeArchive', 'asiaPremarketArchive',
+  // ↓ 2026-08-11 補：第2套預選的 60 日前瞻實記（逐日 doc）。
+  //   這是實驗資料本身，不是衍生品——雲端掉了就再也算不回來。
+  'swingCurvePicks',
 ];
 const CONTENT_DIFF = ['finReports', 'stockHistory', 'stockPeBand', 'stockAI', 'userPerf', 'indexHistory'];
 const SKIP = new Set(['activity_logs', 'users', ...DATED, ...CONTENT_DIFF]);
