@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
+import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -2361,39 +2362,11 @@ async function publishUserSummaries() {
 // 進階技能 v3（第4批）：交易日誌自動覆盤
 // ════════════════════════════════════════════════════════════
 // 每位 premium 用戶的交易紀錄(users/{uid}/data/trades) → 統計勝率/盈虧 → LLM 檢討。
-// 交易帳本重放（daemon 版）——逐 code 按時間重放，加權平均成本含買進手續費。
-// ⚠鏡像警告：這是 src/lib/portfolio-calc.ts `buildLedger` 的精簡 mjs 副本，
-//   兩邊口徑必須一致（wm-source-aggregation「mirror 漂移」風險）。
-//   不一致的後果很具體：2026-08-01 前 AI 覆盤讀存死的 realizedPnL，
-//   同一頁上方寫「總損益 -712,785」、下方重算寫 -533,480，使用者兩邊都不敢信。
-function replayLedger(records) {
-  const sorted = [...records].sort((a, b) => String(a.date).localeCompare(String(b.date)) || (a.createdAt || 0) - (b.createdAt || 0));
-  const st = {}, closed = [], byStock = {};
-  let buyCount = 0, oversoldCount = 0;
-  for (const t of sorted) {
-    if (t.type === 'dividend') continue;
-    (st[t.code] ??= { lots: 0, cost: 0 });
-    if (t.type === 'buy') { st[t.code].lots += t.quantity; st[t.code].cost += Math.abs(t.totalAmount); buyCount++; continue; }
-    const s = st[t.code];
-    const matched = Math.min(t.quantity, s.lots);
-    if (t.quantity - matched > 1e-6) oversoldCount++;
-    const shares = Math.round(s.lots * 1000);
-    const avgCost = shares > 0 ? s.cost / shares : 0;
-    const matchedCost = avgCost * Math.round(matched * 1000);
-    const pnl = Math.round((t.quantity > 0 ? t.totalAmount * (matched / t.quantity) : 0) - matchedCost);
-    s.lots = +(s.lots - matched).toFixed(6);
-    s.cost = s.lots > 0 ? s.cost - matchedCost : 0;
-    if (matched > 0) {
-      // date 是給「本週/本月」這類期間報表用的：成本基礎必須用**全部**歷史重放
-      // （上個月買、這個月賣，只餵當月紀錄的話那筆會被判成超賣 → 損益算成 0），
-      // 所以一律全量重放，再用這個 date 篩期間。
-      closed.push({ code: t.code, name: t.name, pnl, date: t.date });
-      (byStock[t.code] ??= { name: t.name, pnl: 0, n: 0 });
-      byStock[t.code].pnl += pnl; byStock[t.code].n++;
-    }
-  }
-  return { closed, byStock, buyCount, oversoldCount };
-}
+//
+// 帳本重放（replayLedger / statRows）已抽到 scripts/lib/ledger-replay.mjs，
+// 與 compute-analytics.mjs 共用同一份——原本這裡有一份 mjs 副本，後台分析要用時
+// 差點再抄第三份。口徑、兩個使用陷阱（全量重放再篩期間／全額超賣不進分母）
+// 都寫在那個檔案的檔頭，改口徑時連同 src/lib/portfolio-calc.ts 一起改。
 
 async function publishTradeReviews() {
   const premium = await getPremiumUsers();
@@ -2404,7 +2377,8 @@ async function publishTradeReviews() {
       const trades = td.exists ? (td.data().trades || td.data().tradeRecords || []) : [];
       // 2026-08-01：改用帳本重放，不再讀存死的 realizedPnL（那是記錄當下用
       // 手動持倉成本算的，與交易紀錄脫鉤時會給出錯誤的覆盤結論）。
-      const { closed: sells, byStock, buyCount, oversoldCount } = replayLedger(trades);
+      const { closed, byStock, buyCount, oversoldCount } = replayLedger(trades);
+      const sells = statRows(closed); // 全額超賣列 pnl 恆 0，不能進勝率分母/期望值除數
       if (sells.length < 3) continue; // 太少不覆盤
       const wins = sells.filter(t => t.pnl > 0), losses = sells.filter(t => t.pnl < 0);
       const winRate = (wins.length / sells.length * 100).toFixed(0);
@@ -4270,7 +4244,7 @@ async function publishMonthlyReports() {
       //      月報的勝率/已實現就漏算（越訂正資料、報表越失真）。
       //   ② 重放要餵**全量**歷史再依日期篩，不能只餵當月：
       //      上月買本月賣的部位在只餵當月時會被判成超賣，損益歸 0。
-      const sells = replayLedger(allTrades).closed
+      const sells = statRows(replayLedger(allTrades).closed)
         .filter(c => { const ts = c.date ? Date.parse(c.date) : 0; return ts >= monthStart && ts < monthEnd; })
         .map(c => ({ ...c, realizedPnL: c.pnl }));
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
@@ -5356,7 +5330,7 @@ async function publishWeeklyReviews() {
       const allTrades = td?.trades || td?.tradeRecords || [];
       const trades = allTrades.filter(t => { const ts = t.at || t.createdAt || (t.date ? Date.parse(t.date) : 0); return ts >= weekStart; });
       // 同月報：全量重放取得成本基礎，再依日期篩本週（理由見 publishMonthlyReports）
-      const sells = replayLedger(allTrades).closed
+      const sells = statRows(replayLedger(allTrades).closed)
         .filter(c => { const ts = c.date ? Date.parse(c.date) : 0; return ts >= weekStart; })
         .map(c => ({ ...c, realizedPnL: c.pnl }));
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
