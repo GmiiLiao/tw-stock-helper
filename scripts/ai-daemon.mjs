@@ -8737,13 +8737,35 @@ async function dailyJobsLoop() {
               });
               log(`✓ 尾盤五檔歸檔 ${today}（${n} 檔·${mode}·窗外丟棄 ${stale}）`);
             } else {
+              // ⚠⚠ **絕不可用空的跳過紀錄覆蓋已歸檔的好資料**（2026-08-11 查出的資料銷毀 bug）：
+              //   `_depthArchDate` 是模組級變數，**daemon 一重啟就歸零**。只要在 13:36 之後
+              //   重啟（LaunchAgent 拉起、當機、或人工重啟），這段會再跑一次，
+              //   而新 process 的 `_depthWin` 是空的 → winOK=false → 走到這裡用 `.set()`
+              //   把當天已存好的全市場五檔**整份覆寫成 {n:0, skipped:true}**。
+              //   實證（daemon log）：
+              //     05:40:02 ✓ 尾盤五檔歸檔 2026-08-11（1913 檔）
+              //     12:28:09 ⚠ 跳過：累積窗無資料   ← 覆蓋
+              //     13:24:52 ⚠ 跳過：累積窗無資料   ← 再覆蓋
+              //   這解釋了空洞為何間歇：沒在 13:36 後重啟的那幾天就保住了（08-04/08-07）。
+              //   而舊的理由字串「daemon 當時未運行？」把因果講反了——
+              //   daemon 當時**有**運行且成功歸檔，是**之後重啟**把它抹掉的。
+              //   ⚠ 這道守衛不能寫成提早 return：本區塊之後還有 15:10/16:30/16:45/21:45
+              //     等多個排程，return 會把它們全部跳過，比原本的 bug 更糟。
+              const exist = (await db.collection('bookDepthArchive').doc(today).get()).data();
+              if (exist && (exist.n ?? 0) >= 300 && exist.byCodeJson) {
+                log(`  ℹ 尾盤五檔 ${today} 已歸檔（${exist.n} 檔），本次不覆蓋`);
+              } else {
               // 沒歸檔就要留下痕跡——舊版靜默跳過，9 天缺 2 天都沒人知道
               await db.collection('bookDepthArchive').doc(today).set({
                 date: today, n, skipped: true,
-                reason: winOK ? `窗內樣本僅 ${n} 檔（<300）` : '13:20~13:35 未累積到資料（daemon 當時未運行？）',
+                // ⚠ 理由要能分辨兩種完全不同的情況，否則會像先前那樣把因果講反：
+                reason: winOK ? `窗內樣本僅 ${n} 檔（<300）`
+                  : '本 process 的 13:20~13:35 累積窗為空（多半是 13:36 後才啟動的 process；'
+                    + '若當日稍早已成功歸檔，上方守衛會攔下不覆蓋）',
                 archivedAt: Date.now(),
               });
               log(`⚠ 尾盤五檔歸檔跳過 ${today}：${winOK ? `窗內僅 ${n} 檔` : '累積窗無資料'}`);
+              }
             }
             _depthWin = { date: '', data: {} };   // 釋放記憶體
           } catch (e) { log('✖ 尾盤五檔歸檔:', e.message); }
