@@ -6092,13 +6092,41 @@ async function archiveChipDaily() {
   }
   // 融資券（21:30 後才有今日資料；16:30 先跳過待 21:45 補）
   const mins = tw.getHours() * 60 + tw.getMinutes();
-  if (!cur.marginJson && mins >= 21 * 60 + 30) {
+  // ⚠ 條件不能只寫 `!cur.marginJson`（2026-08-11）：只要上市那半先寫進去，
+  //   這道判斷就永遠成立不了，上櫃**再也不會補**——與 hasOtcInst 當初的 bug 同型。
+  //   用上櫃樣本股（6274 台燿／8069 元太／5483 中美晶）判斷上櫃那半到底進來沒有。
+  const hasOtcMargin = (() => {
+    try { const m = cur.marginJson ? JSON.parse(cur.marginJson) : null;
+      return m ? ['6274', '8069', '5483'].some(c => m[c]) : false; } catch { return false; }
+  })();
+  if ((!cur.marginJson || !hasOtcMargin) && mins >= 21 * 60 + 30) {
     const mg = await J(`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${ymd}&selectType=ALL&response=json`);
     // 回音驗證：資券餘額歸檔錯日 = 整段歷史被污染，且不會有任何徵兆
     const mtb = String(mg?.date || '') === ymd ? (mg?.tables || []).find(t => (t.data || []).length > 100) : null;
     if (mg && String(mg?.date || '') !== ymd) log(`  ⚠ 歸檔 MI_MARGN 回音 ${mg?.date} ≠ ${ymd}，不併入`);
-    const margin = {};
+    // 沿用既有（可能已有上市那半），避免重跑時把上市資料丟掉
+    const margin = (() => { try { return cur.marginJson ? JSON.parse(cur.marginJson) : {}; } catch { return {}; } })();
     for (const r of (mtb?.data || [])) { const c = (r[0] || '').trim(); if (/^\d{4}$/.test(c)) margin[c] = [Math.round(_f(r[6])), Math.round(_f(r[12]))]; }
+    // ── 上櫃資券合併（2026-08-11 補）──────────────────────────────────
+    // ⚠ **每日流程原本只收上市**，上櫃資券只存在於一次性腳本 backfill-margin-tpex.mjs。
+    //   後果不是「少一點」而是**宇宙砍半**：實測 2026-08-11 當日 marginJson 僅 1,066 檔
+    //   （08-10 為 1,865），而當天「法人籌碼推選」的宇宙從 1,880 掉到 1,075。
+    //   這與 2026-07-20 那次「daemon 只收上市法人 → 上櫃法人整段缺失五個月」
+    //   是**完全相同的形狀**，只是換成資券——當時修了法人卻沒回頭看資券。
+    //   ⇒ 比照法人區塊：回音驗證日期後合併，且只補不覆蓋（上市優先）。
+    try {
+      const dSlash = encodeURIComponent(`${iso.slice(0, 4)}/${iso.slice(5, 7)}/${iso.slice(8, 10)}`);
+      const tpm = await J(`https://www.tpex.org.tw/www/zh-tw/margin/balance?date=${dSlash}&response=json`);
+      if (tpm && String(tpm.date || '') !== ymd) log(`  ⚠ 歸檔上櫃資券回音 ${tpm?.date} ≠ ${ymd}，不併入`);
+      else if (Array.isArray(tpm?.tables?.[0]?.data)) {
+        let add = 0;
+        for (const r of tpm.tables[0].data) {
+          const c = String(r[0] || '').trim();
+          if (/^\d{4}$/.test(c) && !margin[c]) { margin[c] = [Math.round(_f(r[2])), Math.round(_f(r[3]))]; add++; }
+        }
+        if (add) log(`  ℹ 上櫃資券併入 ${add} 檔`);
+      }
+    } catch (e) { log('  ⚠ 上櫃資券合併失敗:', e.message); }
     if (Object.keys(margin).length > 100) patch.marginJson = JSON.stringify(margin);
   }
   // ── 借券餘額 + 當沖張數（2026-08-10 補上每日歸檔）────────────────
