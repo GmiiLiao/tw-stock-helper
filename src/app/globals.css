@@ -603,3 +603,11 @@ body {
 @media (min-width: 641px) {
   .mobile-only { display: none !important; }
 }
+
+
+/* 只在桌機顯示的提示（滑鼠滾輪、hover 之類手機沒有的操作）。
+   與既有的 .mobile-hide 語意相同，取名正向以便閱讀。 */
+.desktop-only { display: inline; }
+@media (max-width: 1023px) {
+  .desktop-only { display: none !important; }
+}

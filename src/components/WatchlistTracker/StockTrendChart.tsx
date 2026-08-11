@@ -95,10 +95,14 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
   const onLeave = () => { drag.current = null; setHoverIdx(null); };
 
   // 均線（台股慣稱：週線=MA5、月線=MA20、季線=MA60）——以全序列計算再切視窗
+  // ⚠ 標籤一律用短名（2026-08-11 手機回報「文字用詞太長」）：
+  //   原本日線模式會顯示「週MA5 / 月MA20 / 季MA60」，三個加上數值約 390px，
+  //   剛好超過手機可用寬度 → 每一條各佔一行，圖例就吃掉三整行高度。
+  //   台股慣稱（週線/月線/季線）改放在 title 提示裡，需要的人長按就看得到。
   const MA_DEFS = [
-    { p: 5, label: mode === 'day' ? '週MA5' : 'MA5', color: '#f6c945' },
-    { p: 20, label: mode === 'day' ? '月MA20' : 'MA20', color: '#3d8ef8' },
-    { p: 60, label: mode === 'day' ? '季MA60' : 'MA60', color: '#c084fc' },
+    { p: 5, label: 'MA5', color: '#f6c945' },
+    { p: 20, label: 'MA20', color: '#3d8ef8' },
+    { p: 60, label: 'MA60', color: '#c084fc' },
   ];
   const maFull = useMemo(() => MA_DEFS.map(d => {
     const out: (number | null)[] = new Array(candles.length).fill(null);
@@ -134,11 +138,11 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 'calc(11px * var(--fz))', padding: '2px 4px 4px', color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', gap: 10, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(11px * var(--fz))', padding: '2px 4px 3px', color: 'var(--text-muted)' }}>
         {MA_DEFS.map((d, di) => {
           const v = maFull[di][legendIdx];
           return (
-            <span key={d.p} title={`${d.p} 根收盤均價${mode === 'day' ? `（台股慣稱${d.p === 5 ? '週線' : d.p === 20 ? '月線' : '季線'}）` : ''}`} style={{ cursor: 'help' }}>
+            <span key={d.p} title={`${d.p} 根收盤均價${mode === 'day' ? `（台股慣稱${d.p === 5 ? '週線' : d.p === 20 ? '月線' : '季線'}）` : ''}`} style={{ cursor: 'help', whiteSpace: 'nowrap' }}>
               <span style={{ display: 'inline-block', width: 14, height: 2.5, background: d.color, verticalAlign: 'middle', marginRight: 4, borderRadius: 2 }} />
               {d.label} <b style={{ color: d.color }}>{v != null ? v.toFixed(2) : '—'}</b>
             </span>
@@ -205,11 +209,23 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
         )}
       </div>
       {/* 縮放控制 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
-        <button className={styles.periodTab} onClick={() => setSize(s => Math.round(Math.min(n, s * 1.4)))}>－ 縮小</button>
-        <button className={styles.periodTab} onClick={() => setSize(s => Math.round(Math.max(8, s * 0.7)))}>＋ 放大</button>
-        <span>顯示 {view.length} 根{MODE_LABEL[mode]}K（共 {n}）· 滾輪縮放 · 拖曳平移</span>
-        {clampOffset > 0 && <button className={styles.periodTab} onClick={() => setOffset(0)}>回到最新 ›</button>}
+      {/* ⚠ 這一列必須 wrap（2026-08-11 手機回報）：
+          原本 flex 不換行，手機上三顆鈕加一段長說明擠在一起，
+          鈕被壓到只剩一個字寬 →「縮小」變成 縮/小 直排（實機截圖可見）。
+          用詞同時縮短：「－ 縮小 / ＋ 放大 / 回到最新 ›」→「－ / ＋ / 最新」，
+          說明從「顯示 30 根日K（共 1214）· 滾輪縮放 · 拖曳平移」
+          縮成「30/1214 根」——滾輪提示在手機上本來就沒有意義，只在桌機顯示。 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 4, flexWrap: 'wrap', marginTop: 5, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <button className={styles.periodTab} style={{ flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }} title="縮小（顯示更多根）"
+          onClick={() => setSize(s => Math.round(Math.min(n, s * 1.4)))}>－</button>
+        <button className={styles.periodTab} style={{ flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }} title="放大（顯示更少根）"
+          onClick={() => setSize(s => Math.round(Math.max(8, s * 0.7)))}>＋</button>
+        <span style={{ whiteSpace: 'nowrap' }}>{view.length}/{n} 根{MODE_LABEL[mode]}K</span>
+        <span className="desktop-only" style={{ whiteSpace: 'nowrap' }}>· 滾輪縮放 · 拖曳平移</span>
+        {clampOffset > 0 && (
+          <button className={styles.periodTab} style={{ marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }}
+            onClick={() => setOffset(0)}>最新 ›</button>
+        )}
       </div>
     </div>
   );
@@ -267,10 +283,14 @@ function InstStrip({ code, changePercent = 0, volume = 0 }: { code: string; chan
   const fmt = (n: number) => (n > 0 ? '+' : '') + Math.round(n).toLocaleString();
   const item = (lb: string, v: number) => <span>{lb}<b style={{ color: col(v), marginLeft: 2 }}>{fmt(v)}</b></span>;
   return (
-    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', minWidth: 0, padding: '0 10px' }} title={tip}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 800, padding: '2px 10px', borderRadius: 20, color: p.color, background: p.bg, border: `1px solid ${p.color}55`, whiteSpace: 'nowrap' }}>
+    <div style={{ flex: '1 1 100%', display: 'flex', justifyContent: 'center', gap: 8, rowGap: 3, alignItems: 'center', flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', minWidth: 0, padding: '0 4px' }} title={tip}>
+      {/* ⚠ 徽章本體不可 nowrap（2026-08-11 手機實測溢出 46px）：
+          「🚀 投信跟進·強勢加速 · S級 勝率59%」整串 219px，加上 nowrap 就縮不下去，
+          在 375px 手機上把整個 <main> 推出去 46px。
+          改為允許整體換行、上限 100%；只有「勝率59%」這種**不該被拆開的數值**保留 nowrap。 */}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxWidth: '100%', fontWeight: 800, padding: '2px 10px', borderRadius: 20, color: p.color, background: p.bg, border: `1px solid ${p.color}55`, lineHeight: 1.5 }}>
         {p.icon} {p.label}
-        {p.win != null && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700 }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
+        {p.win != null && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, whiteSpace: 'nowrap' }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
       </span>
       <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>三大法人{useCum ? `(連買${d.streak}日累計)` : '(當日)'}</span>
       {item('外', ef)}{item('投', et)}{item('自', ed)}
