@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import SwingCurveBoard from './SwingCurveBoard';
 import { MODES } from '@/lib/trading-mode';
 import HitRate from '@/components/shared/HitRate';
 
@@ -162,6 +163,13 @@ export default function SignalBoards() {
           : <Empty what="追強訊號" />}
         {strength?.evidence?.main && <div style={{ fontSize: 'calc(0.68rem * var(--fz))', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>📐 {strength.evidence.main}</div>}
         {strength?.caveats?.filter(Boolean).map((c, i) => <div key={i} style={{ fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24', marginTop: 4, lineHeight: 1.6 }}>{c}</div>)}
+      </div>
+      {/* 第 2 套預選機制（2026-08-11 使用者指定）。
+          ⚠ 刻意跨滿整個 grid 寬度並用虛線框：它是**觀察中的實驗**，
+            八種曲線在歷史三窗沒有任何一種通過准入門檻，由 60 日實記當裁判。
+            與上面兩張已驗證的榜單並排同寬會讓人誤以為同級。 */}
+      <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+        <SwingCurveBoard />
       </div>
     </div>
   );

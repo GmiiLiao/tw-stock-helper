@@ -3361,6 +3361,237 @@ async function checkRsiHot() {
   }
 }
 
+// ── 28.7) 波段第 2 套預選：PID 斜率曲線分型 swingCurvePicks ───────────────
+// 使用者指定（2026-08-11）：「用 PID 演算法找出 5/20 日最高勝率漲幅的斜率曲線，
+//   至少 5 種，依曲線相似度來預選推薦股，設為第 2 套預選機制，
+//   並做 60 日的記錄後看是哪一種的勝率高」。
+//
+// 分型來自 scripts/screen-swing-pid.mjs（987 交易日 × 2,015 檔·三窗驗證），
+// 定義凍結於 scripts/data/swing-pid-curves.json。
+//
+// ⚠ **這裡的 PID 算式必須與研究腳本逐行相同**，否則記錄下來的分類
+//   不是被驗證過的那個分類，60 日實記就對不上歷史統計、整個實驗作廢。
+//   改任何一行前先跑 screen-swing-pid.mjs 確認分型未變。
+//
+// ⚠ 歷史三窗**無任何曲線通過**「淨報酬與勝率三窗皆正」的嚴格門檻——
+//   這是刻意保留的實驗，由 60 日前瞻實記當裁判。UI 必須標「觀察中」，
+//   不得與已驗證的 swingPicks／strengthPicks 同級呈現。
+const CURVE_PICK_N = 20;        // 每型取相似度最高的前 20 檔＝該型當日「預選股」
+const CURVE_TARGET_DAYS = 60;   // 使用者指定的實記天數
+
+let _curveDefs = null;
+function loadCurveDefs() {
+  if (_curveDefs) return _curveDefs;
+  try {
+    const p = join(dirname(fileURLToPath(import.meta.url)), 'data', 'swing-pid-curves.json');
+    _curveDefs = JSON.parse(readFileSync(p, 'utf8'));
+  } catch (e) { log('✖ 曲線定義讀取失敗:', e.message); _curveDefs = null; }
+  return _curveDefs;
+}
+
+// 單檔 PID（與 screen-swing-pid.mjs 同式；closes 為舊→新、長度需 ≥ L）
+function pidOf(closes, L = 20) {
+  if (closes.length < L) return null;
+  const w = closes.slice(-L);
+  const p0 = w[0];
+  if (!(p0 > 0)) return null;
+  const r = [];
+  let s = 0, s2 = 0, n = 0;
+  for (let k = 0; k < L; k++) {
+    if (!(w[k] > 0)) return null;
+    r.push(Math.log(w[k] / p0));
+    if (k > 0) { const lr = r[k] - r[k - 1]; s += lr; s2 += lr * lr; n++; }
+  }
+  const mu = s / n;
+  const sigma = Math.sqrt(Math.max(s2 / n - mu * mu, 1e-12));
+  if (!(sigma > 1e-6)) return null;
+  const xs = Array.from({ length: L }, (_, i) => i);
+  const xbar = (L - 1) / 2;
+  let sxx = 0; for (const x of xs) sxx += (x - xbar) ** 2;
+  const rbar = r.reduce((a, b) => a + b, 0) / L;
+  let sxy = 0; for (let k = 0; k < L; k++) sxy += (xs[k] - xbar) * (r[k] - rbar);
+  const slope = sxy / sxx;
+  const halfSlope = (a, b) => {
+    let sx = 0, sy = 0, m = 0;
+    for (let k = a; k < b; k++) { sx += xs[k]; sy += r[k]; m++; }
+    const mx = sx / m, my = sy / m;
+    let xx = 0, xy = 0;
+    for (let k = a; k < b; k++) { xx += (xs[k] - mx) ** 2; xy += (xs[k] - mx) * (r[k] - my); }
+    return xx > 0 ? xy / xx : 0;
+  };
+  const d2 = halfSlope(L / 2, L) - halfSlope(0, L / 2);
+  // 積分項：誤差對 5 日均線（⚠ 不可用對迴歸線的殘差和——含截距的 OLS 殘差和恆為 0）
+  let errSum = 0, errNow = 0, en = 0;
+  for (let k = 4; k < L; k++) {
+    let ma = 0; for (let j = 0; j < 5; j++) ma += r[k - j];
+    ma /= 5;
+    const e = r[k] - ma;
+    errSum += e; en++;
+    if (k === L - 1) errNow = e;
+  }
+  if (!en) return null;
+  return { P: errNow / sigma, I: (errSum / en) / sigma, D: slope / sigma, D2: d2 / sigma, sigma: sigma * 100, curve: r.map(v => v / sigma) };
+}
+
+async function computeSwingCurves() {
+  const defs = loadCurveDefs();
+  if (!defs) return;
+  const arch = await loadLuArchive();
+  if (arch.length < 22) { log('✖ 曲線分型：歸檔僅', arch.length, '日'); return; }
+  const L = defs.window || 20;
+  const today = arch[arch.length - 1].date;
+  const quo = (await readSnapshotQuotes())?.quotes || {};
+
+  // 逐檔 PID
+  const raw = [];
+  for (const code in arch[arch.length - 1].close) {
+    if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+    const closes = [];
+    for (const day of arch) { const r = day.close[code]; if (r?.[0] > 0) closes.push(r[0]); }
+    if (closes.length < L + 1) continue;
+    const last = arch[arch.length - 1].close[code];
+    const vol = last[1] || 0;
+    if (vol < 300) continue;                                  // 流動性（與研究同口徑）
+    const prev = arch[arch.length - 2]?.close[code]?.[0];
+    if (!(prev > 0)) continue;
+    if ((last[0] / prev - 1) * 100 > 8.5) continue;           // 可交易宇宙
+    const f = pidOf(closes, L);
+    if (!f) continue;
+    raw.push({ code, price: last[0], vol, ...f });
+  }
+  if (raw.length < 200) { log('✖ 曲線分型：可用樣本僅', raw.length); return; }
+
+  // 橫斷面 z-score（與研究同：逐日標準化，否則不同市況下的「相似」不可比）
+  const F = ['P', 'I', 'D', 'D2'];
+  const mz = {};
+  for (const f of F) {
+    const v = raw.map(x => x[f]);
+    const m = v.reduce((a, b) => a + b, 0) / v.length;
+    const sd = Math.sqrt(Math.max(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length, 1e-9));
+    mz[f] = { m, sd };
+  }
+  for (const x of raw) x.z = F.map(f => (x[f] - mz[f].m) / mz[f].sd);
+
+  // 最近分型
+  for (const x of raw) {
+    let best = null, bd = Infinity;
+    for (const c of defs.centroids) {
+      let s = 0; for (let i = 0; i < 4; i++) s += (x.z[i] - c.z[i]) ** 2;
+      if (s < bd) { bd = s; best = c; }
+    }
+    x.curveId = best.id; x.curveName = best.name; x.dist = Math.sqrt(bd);
+  }
+
+  // 每型取相似度最高的前 N 檔＝當日預選股
+  const byCurve = {};
+  for (const c of defs.centroids) {
+    const g = raw.filter(x => x.curveId === c.id).sort((a, b) => a.dist - b.dist).slice(0, CURVE_PICK_N);
+    byCurve[c.id] = {
+      name: c.name, total: raw.filter(x => x.curveId === c.id).length,
+      score5: c.score5, score20: c.score20,
+      picks: g.map(x => ({ code: x.code, name: (quo[x.code]?.name || '').trim() || x.code,
+        price: +x.price.toFixed(2), dist: +x.dist.toFixed(3), sigma: +x.sigma.toFixed(2) })),
+    };
+  }
+  await db.collection('swingCurvePicks').doc(today).set({
+    date: today, at: Date.now(), version: defs.version, window: L, pickN: CURVE_PICK_N,
+    universe: raw.length, byCurve, settled5: false, settled20: false,
+  });
+  await db.collection('swingCurvePicks').doc('latest').set({
+    date: today, at: Date.now(), version: defs.version, universe: raw.length,
+    curves: defs.centroids.map(c => ({ id: c.id, name: c.name, curve: c.curve,
+      score5: c.score5, score20: c.score20,
+      hist: c.windows?.length ? {
+        net5: +(c.windows.reduce((s, w) => s + w.d5, 0) / c.windows.length).toFixed(2),
+        win5: +(c.windows.reduce((s, w) => s + w.dw5, 0) / c.windows.length).toFixed(2),
+        net20: +(c.windows.reduce((s, w) => s + w.d20, 0) / c.windows.length).toFixed(2),
+        win20: +(c.windows.reduce((s, w) => s + w.dw20, 0) / c.windows.length).toFixed(2),
+        grow5: +(c.windows.reduce((s, w) => s + w.g5, 0) / c.windows.length).toFixed(2),
+        grow20: +(c.windows.reduce((s, w) => s + w.g20, 0) / c.windows.length).toFixed(2),
+        draw5: +(c.windows.reduce((s, w) => s + w.a5, 0) / c.windows.length).toFixed(2),
+        draw20: +(c.windows.reduce((s, w) => s + w.a20, 0) / c.windows.length).toFixed(2),
+      } : null })),
+    byCurve,
+    note: '第2套預選機制·觀察中。歷史三窗無任何曲線通過「淨報酬與勝率皆為正」的嚴格門檻，'
+      + `由 ${CURVE_TARGET_DAYS} 日前瞻實記當裁判。非投資建議。`,
+  });
+  log(`  ✓ 曲線分型 ${today}：宇宙 ${raw.length} 檔 → ${defs.centroids.length} 型 × 前 ${CURVE_PICK_N} 檔`);
+}
+
+// 對答案：滿 5/20 個交易日就回填實際結果，並累積記分板
+async function scoreSwingCurves() {
+  const arch = await loadLuArchive();
+  if (arch.length < 22) return;
+  const dates = arch.map(d => d.date);
+  const closeAt = (di, code) => arch[di]?.close?.[code];
+  const snap = await db.collection('swingCurvePicks').orderBy('date', 'desc').limit(CURVE_TARGET_DAYS + 30).get();
+  const board = {};   // curveId → 累積
+  let recorded = 0;
+
+  for (const doc of snap.docs) {
+    if (doc.id === 'latest' || doc.id === 'scoreboard') continue;
+    const d = doc.data();
+    const di = dates.indexOf(d.date);
+    if (di < 0) continue;                       // 超出歸檔視窗＝無法對答案（已計入的仍留在 scoreboard）
+    const upd = {};
+    for (const horizon of [5, 20]) {
+      const key = `settled${horizon}`;
+      if (d[key]) continue;
+      const ti = di + horizon;
+      if (ti >= dates.length) continue;         // 還沒到期
+      for (const cid in d.byCurve || {}) {
+        for (const p of d.byCurve[cid].picks || []) {
+          const now = closeAt(ti, p.code);
+          if (!now?.[0]) continue;
+          const net = (now[0] / p.price - 1) * 100 - 0.4425;
+          let mfe = -Infinity, mae = Infinity;
+          for (let k = di + 1; k <= ti; k++) {
+            const r = closeAt(k, p.code); if (!r) continue;
+            const hi = r[3] > 0 ? r[3] : r[0], lo = r[4] > 0 ? r[4] : r[0];
+            mfe = Math.max(mfe, (hi / p.price - 1) * 100);
+            mae = Math.min(mae, (lo / p.price - 1) * 100);
+          }
+          const b = (board[cid] ||= {});
+          const h = (b[horizon] ||= { n: 0, win: 0, net: 0, grow: 0, draw: 0 });
+          h.n++; if (net > 0) h.win++;
+          h.net += net;
+          if (isFinite(mfe)) h.grow += mfe;
+          if (isFinite(mae)) h.draw += mae;
+        }
+      }
+      upd[key] = true;
+    }
+    if (Object.keys(upd).length) await doc.ref.set(upd, { merge: true });
+    recorded++;
+  }
+
+  const defs = loadCurveDefs();
+  const out = {};
+  for (const cid in board) {
+    const r = {};
+    for (const h of [5, 20]) {
+      const x = board[cid][h];
+      if (!x?.n) continue;
+      r[`d${h}`] = { n: x.n, winRate: +(x.win / x.n * 100).toFixed(2), avgNet: +(x.net / x.n).toFixed(3),
+        avgGrow: +(x.grow / x.n).toFixed(2), avgDraw: +(x.draw / x.n).toFixed(2) };
+    }
+    out[cid] = { name: defs?.centroids?.find(c => c.id === +cid)?.name || cid, ...r };
+  }
+  // 目前領先者（勝率為使用者指定的裁判標準）
+  const rank5 = Object.entries(out).filter(([, v]) => v.d5?.n >= 100).sort((a, b) => b[1].d5.winRate - a[1].d5.winRate);
+  const rank20 = Object.entries(out).filter(([, v]) => v.d20?.n >= 100).sort((a, b) => b[1].d20.winRate - a[1].d20.winRate);
+  await db.collection('swingCurvePicks').doc('scoreboard').set({
+    at: Date.now(), recordedDays: recorded, targetDays: CURVE_TARGET_DAYS,
+    complete: recorded >= CURVE_TARGET_DAYS,
+    byCurve: out,
+    leader5: rank5[0] ? { id: +rank5[0][0], name: rank5[0][1].name, winRate: rank5[0][1].d5.winRate } : null,
+    leader20: rank20[0] ? { id: +rank20[0][0], name: rank20[0][1].name, winRate: rank20[0][1].d20.winRate } : null,
+    note: `實記進度 ${recorded}/${CURVE_TARGET_DAYS} 日。樣本數未達 100 的分型不列入領先判定。非投資建議。`,
+  });
+  log(`  ✓ 曲線記分板：已記錄 ${recorded}/${CURVE_TARGET_DAYS} 日`
+    + (rank5[0] ? `·5日領先 ${rank5[0][1].name} ${rank5[0][1].d5.winRate}%` : ''));
+}
+
 // ── 28.8) 波段起漲選股 swingPicks（2026-07-27 使用者定案·5日持有語意）────
 // 訊號來源：screen-rsi-entry-grid.mjs 網格 + verify-triple-oot.mjs out-of-time 驗證。
 // ⚠與隔日沖綜合評分「口徑不同」：本訊號隔日開賣 -0.06%／收賣 -0.44%／持有5日 +1.10%
@@ -8462,6 +8693,10 @@ async function dailyJobsLoop() {
         try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
         try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
         try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }   // 收盤定版價出貨警示（盤中另有每分檢查）
+        // 第2套預選：先對前幾天的答案（scoreSwingCurves 讀的是歸檔，與今日分型無關），
+        // 再產今日分型。順序反過來也不會錯，但這樣 log 讀起來是「先結算再開盤」。
+        try { await scoreSwingCurves(); } catch (e) { log('✖ 曲線記分板:', e.message); }
+        try { await computeSwingCurves(); } catch (e) { log('✖ 曲線分型:', e.message); }
       }
       if (mins >= 17 * 60 && _backupDate !== today) {
         _backupDate = today;
@@ -8568,6 +8803,8 @@ if (ONESHOT) {
     alerts: () => checkAlerts(),
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
+    swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
+    curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
     globalMarkets: () => computeGlobalMarkets(),
     trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
     tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
