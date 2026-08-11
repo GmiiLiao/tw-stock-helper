@@ -71,7 +71,11 @@ export function VerdictStrip({ v }: { v?: Verdict | null }) {
       <span style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', gap: '0 6px', justifyContent: 'flex-end',
         fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', minWidth: 0 }}>
         <span style={{ whiteSpace: 'nowrap' }}>{tierDisplay(v.tier) || `${v.tier}級`}</span>
-        <span style={{ whiteSpace: 'nowrap' }}>· 倒貨{v.dist}%</span>
+        {/* ⚠ 只在理由句沒提過時才印（2026-08-11 使用者圈出重複）：
+            理由句常已含「未倒貨(0%)」，右側又印一次「· 倒貨0%」＝同一個數字出現兩次。
+            但**不能一律刪**——有些個股的理由句是「外資布局中·勝率58%」，不含倒貨，
+            刪掉就少一項資訊。依理由句內容決定，才不會為了整齊而丟資料。 */}
+        {!/倒貨/.test(v.r) && <span style={{ whiteSpace: 'nowrap' }}>· 倒貨{v.dist}%</span>}
         <span style={{ whiteSpace: 'nowrap' }}>· 外{v.f >= 0 ? '+' : ''}{v.f}</span>
         <span style={{ whiteSpace: 'nowrap' }}>投{v.t >= 0 ? '+' : ''}{v.t}</span>
         <span style={{ whiteSpace: 'nowrap' }}>自{v.d >= 0 ? '+' : ''}{v.d}張</span>

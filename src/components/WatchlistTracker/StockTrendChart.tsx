@@ -72,12 +72,35 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
   }, [n]);
 
   // 拖曳平移
-  const drag = useRef<{ x: number; off: number; per: number } | null>(null);
+  // ⚠ 手機上「碰一下」必須是**看十字線**，不是平移（2026-08-11 使用者回報
+  //   「日週月的線圖沒有標線，無法準確查看」）：
+  //   舊版 onDown 一律進入拖曳模式，onMove 又在拖曳分支就 return，
+  //   於是觸控裝置**永遠叫不出十字線**——沒有游標可以 hover，只能拖著跑。
+  //   ⇒ 按下時先不算拖曳，位移超過 PAN_THRESHOLD 才切成平移；
+  //     在那之前照樣更新 hoverIdx，點哪根就讀哪根。
+  const PAN_THRESHOLD = 6;
+  const drag = useRef<{ x: number; off: number; per: number; panning: boolean } | null>(null);
+  const setHoverFromX = (el: HTMLElement, clientX: number) => {
+    const rect = el.getBoundingClientRect();
+    const vbX = (clientX - rect.left) / rect.width * 1000;
+    const slotW = (1000 - 48 - 10) / Math.max(1, clampSize);
+    const idx = Math.round((vbX - 48) / slotW - 0.5);
+    setHoverIdx(idx >= 0 && idx < clampSize ? idx : null);
+  };
   const onDown = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { x: e.clientX, off: clampOffset, per: (e.currentTarget as HTMLElement).clientWidth / Math.max(1, view.length) };
+    drag.current = { x: e.clientX, off: clampOffset, per: (e.currentTarget as HTMLElement).clientWidth / Math.max(1, view.length), panning: false };
+    setHoverFromX(e.currentTarget as HTMLElement, e.clientX);   // 按下即顯示十字線
   };
   const onMove = (e: React.PointerEvent) => {
+    if (drag.current && !drag.current.panning) {
+      if (Math.abs(e.clientX - drag.current.x) < PAN_THRESHOLD) {
+        setHoverFromX(e.currentTarget as HTMLElement, e.clientX);   // 還在門檻內＝繼續讀值
+        return;
+      }
+      drag.current.panning = true;
+      setHoverIdx(null);
+    }
     if (drag.current) {
       const barsMoved = Math.round((e.clientX - drag.current.x) / drag.current.per);
       setOffset(Math.max(0, Math.min(Math.max(0, n - clampSize), drag.current.off + barsMoved)));
@@ -164,7 +187,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             const v = yMin + (yMax - yMin) * (i / yTicks); const y = yOf(v);
             return (
               <g key={i}>
-                <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="rgba(255,255,255,0.05)" />
+                <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="rgba(255,255,255,0.11)" />
               </g>
             );
           })}
@@ -193,9 +216,19 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             if (pts.length < 2) return null;
             return <path key={d.p} d={pts.join(' ')} fill="none" stroke={d.color} strokeWidth={1.4} opacity={0.9} />;
           })}
-          {/* 游標十字線 */}
+          {/* ── 最新價基準線（券商標配）──────────────────────────────
+              沒有這條線時，要判斷「現在離某根 K 棒多遠」只能目測，
+              使用者回報「無法準確查看」有一半是這個原因。 */}
+          {view.length > 0 && (
+            <line x1={padL} y1={yOf(view[view.length - 1].c)} x2={W - padR} y2={yOf(view[view.length - 1].c)}
+              stroke="#f59e0b" strokeWidth={1} strokeDasharray="4 4" opacity={0.85} />
+          )}
+          {/* 游標十字線：縱線標時間、**橫線標價格**（原本只有縱線，讀不出價位） */}
           {hv && (
-            <line x1={xOf(hoverIdx!)} y1={padT} x2={xOf(hoverIdx!)} y2={H - padB} stroke="rgba(255,255,255,0.35)" strokeWidth={1} strokeDasharray="3 3" />
+            <>
+              <line x1={xOf(hoverIdx!)} y1={padT} x2={xOf(hoverIdx!)} y2={H - padB} stroke="rgba(255,255,255,0.45)" strokeWidth={1} strokeDasharray="3 3" />
+              <line x1={padL} y1={yOf(hv.c)} x2={W - padR} y2={yOf(hv.c)} stroke="rgba(255,255,255,0.45)" strokeWidth={1} strokeDasharray="3 3" />
+            </>
           )}
         </svg>
         {/* ── 座標軸標籤：**必須畫在 HTML 層，不能放進上面那個 SVG**（2026-08-11）──
@@ -215,6 +248,25 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             }}>{v.toFixed(v < 50 ? 1 : 0)}</span>
           );
         })}
+        {/* 最新價 / 游標價 的價格標籤——同樣畫在 HTML 層，
+            放進 SVG 會被 preserveAspectRatio="none" 壓扁（見上方註解）。 */}
+        {view.length > 0 && (
+          <span style={{
+            position: 'absolute', right: 2, top: yOf(view[view.length - 1].c), transform: 'translateY(-50%)',
+            padding: '0 4px', borderRadius: 3, background: '#f59e0b', color: '#1a1200',
+            fontSize: 'calc(9.5px * var(--fz))', fontWeight: 900, lineHeight: '14px',
+            fontFamily: "'JetBrains Mono', monospace", pointerEvents: 'none',
+          }}>{view[view.length - 1].c.toFixed(2)}</span>
+        )}
+        {hv && (
+          <span style={{
+            position: 'absolute', left: 0, top: yOf(hv.c), transform: 'translateY(-50%)',
+            width: padL - 6, textAlign: 'right', padding: '0 3px', borderRadius: 3,
+            background: 'rgba(255,255,255,0.9)', color: '#0b1220',
+            fontSize: 'calc(9.5px * var(--fz))', fontWeight: 900, lineHeight: '14px',
+            fontFamily: "'JetBrains Mono', monospace", pointerEvents: 'none',
+          }}>{hv.c.toFixed(2)}</span>
+        )}
         {/* X 軸日期獨立成一條帶狀區並 overflow:hidden——
             最左/最右的標籤置中後會探出容器 2px，把整頁推寬；裁掉即可，視覺上看不出來。 */}
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 15, overflow: 'hidden', pointerEvents: 'none' }}>

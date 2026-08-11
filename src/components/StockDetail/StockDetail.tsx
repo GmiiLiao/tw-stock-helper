@@ -1001,7 +1001,8 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
       </div>
 
       {/* Today's OHLC boxes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+      {/* 同上：內聯樣式沒有 media query 可救，寫死四欄在手機必爆 → auto-fit */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '10px' }}>
         {[
           { label: '今日開盤', value: todayOpen.toFixed(2), color: todayOpen >= prevClose ? 'var(--color-up)' : 'var(--color-down)', emoji: '🔔' },
           { label: '今日最高', value: todayHigh.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
@@ -1251,10 +1252,12 @@ function StrategyTab({ trendData, loading, stockName }: {
               borderRadius: '8px', background: rec.bg, color: rec.color,
             }}>{rec.label}</div>
           </div>
+          {/* ⚠ 不可 nowrap：optimalOrderTime 是後端組出來的字串，
+              長度不固定（例如「09:05–09:15 分批進場」），nowrap 會直接把整頁推寬。 */}
           <div style={{
             fontSize: 'calc(12px * var(--fz))', padding: '6px 12px', borderRadius: '999px',
             background: 'rgba(251,146,60,0.15)', color: '#fb923c',
-            border: '1px solid rgba(251,146,60,0.3)', fontWeight: 600, whiteSpace: 'nowrap',
+            border: '1px solid rgba(251,146,60,0.3)', fontWeight: 600, maxWidth: '100%', lineHeight: 1.5,
           }}>
             ⏰ {pm.optimalOrderTime}
           </div>
@@ -1264,8 +1267,11 @@ function StrategyTab({ trendData, loading, stockName }: {
         </div>
       </div>
 
-      {/* Price boxes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+      {/* Price boxes
+          ⚠ 原本寫死 repeat(4,1fr)：手機每欄只剩 ~78px，
+            但「預期開盤低點」四個字加上 4 位數價格至少要 ~150px → 撐爆版面。
+            改 auto-fit：手機自然 2×2，桌機仍是一排四欄。 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '10px' }}>
         {[
           { label: '預期開盤低點', value: pm.expectedOpeningRange.low.toFixed(2), color: 'var(--color-down)', emoji: '📉' },
           { label: '預期開盤高點', value: pm.expectedOpeningRange.high.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
