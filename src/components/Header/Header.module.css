@@ -293,8 +293,12 @@
   .indexValue { font-size: calc(0.8125rem * var(--fz)); }
   .indexChange { font-size: calc(0.6875rem * var(--fz)); }
   .indexDivider { height: 16px; }
-  .searchWrapper { max-width: 160px; }
-  .searchInput { padding: 6px 30px 6px 30px; font-size: calc(0.8125rem * var(--fz)); }
+  /* ⚠ 不要再把搜尋框壓窄（2026-08-11 使用者實機截圖：只剩約 62px、字級 9.75px，
+     使用者看不到自己打了什麼，而且窄框會橫向捲動，Android 輸入法重新錨定游標時
+     已提交的字元會被重排——「打 3008 變 8003」在真機才重現得出來就是這個原因）。
+     ⇒ 給它實際可用的寬度，字級固定 16px（低於 16px 時 iOS 聚焦會自動放大整頁）。 */
+  .searchWrapper { max-width: none; min-width: 150px; }
+  .searchInput { padding: 7px 30px 7px 30px; font-size: 16px; }
   .clock { display: none; }
   .refreshBtn { padding: 2px 6px; font-size: calc(0.625rem * var(--fz)); margin-left: 4px; }
   .marketStatus { font-size: calc(0.625rem * var(--fz)); gap: 3px; }
@@ -311,7 +315,9 @@
   .indexBar { gap: 6px; }
   .indexValue { font-size: calc(0.75rem * var(--fz)); }
   .indexChange { font-size: calc(0.625rem * var(--fz)); }
-  .searchWrapper { max-width: 120px; }
+  /* 480px 以下同理：寧可讓左邊的指數列縮，也不要把搜尋框壓到不能用 */
+  .searchWrapper { max-width: none; min-width: 140px; }
+  .searchInput { font-size: 16px; }
   .refreshBtn { display: none; }
 }
 
@@ -321,3 +327,8 @@
   .indexItem:first-child { display: flex; }
   .indexDivider { display: none; }
 }
+
+
+/* 註：先前嘗試「聚焦時才展開全寬」，但 onFocus 狀態在實機/模擬都沒有生效，
+   而且那個作法每次聚焦都會讓旁邊的指數跳動。改為**固定給足寬度**，
+   行為可預測、也不需要額外狀態。 */

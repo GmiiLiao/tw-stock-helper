@@ -432,6 +432,7 @@ export default function Header() {
       </div>
 
       {/* Search */}
+      {/* 搜尋框寬度由 CSS 固定放寬（見 Header.module.css 斷點註解），不依賴聚焦狀態。 */}
       <div ref={searchRef} className={styles.searchWrapper}>
         <div className={styles.searchContainer}>
           <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
