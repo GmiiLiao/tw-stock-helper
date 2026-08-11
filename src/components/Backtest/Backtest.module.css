@@ -69,7 +69,8 @@
 }
 
 .sectionTitle {
-  font-size: calc(0.6875rem * var(--fz));
+  /* 表單區段標題：0.6875rem 在手機只有 9.6px，填表時看不清（2026-08-11 量測） */
+  font-size: calc(0.8125rem * var(--fz));
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
