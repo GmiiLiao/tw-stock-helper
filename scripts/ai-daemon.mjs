@@ -6165,7 +6165,9 @@ async function archiveChipDaily() {
     if (Object.keys(lend).length > 100) patch.lendingJson = JSON.stringify(lend);
     await sleep(1200);
   }
-  if (!cur.dayTradeJson) {
+  // ⚠ 又是同型閘門（本日第三次）：只看 dayTradeJson 的話，上市當沖先寫入後
+  //   新增的上櫃兩欄就**永遠不會被寫**。新增欄位時必須同步放寬觸發條件。
+  if (!cur.dayTradeJson || !cur.dtOtcEligibleJson || !cur.dtOtcStat) {
     const dt = await J(`https://www.twse.com.tw/exchangeReport/TWTB4U?response=json&date=${ymd}&selectType=All`);
     if (dt?.stat === 'OK' && String(dt?.date || '') === ymd) {
       // ⚠**不能只用「證券代號」找表**：這支 API 回兩張都含證券代號的表——
@@ -6193,6 +6195,53 @@ async function archiveChipDaily() {
       }
     }
     await sleep(1200);
+
+    // ── 上櫃當沖（2026-08-11 使用者指定加入）──────────────────────────
+    // ⚠ **TPEx 沒有公布逐檔當沖成交量**——這不是漏抓，是上游真的沒有。
+    //   查證範圍：openapi swagger 全部 225 支端點中提到「當沖」的只有 5 支，
+    //   逐檔那支 tpex_securities 只有標的清單與暫停註記、無成交量；
+    //   www/zh-tw/intraday/stat 只接受 type=Daily（市場總計，n=1）；
+    //   日收盤報價 tpex_mainboard_daily_close_quotes 的 18 個欄位也沒有當沖欄。
+    //   ⇒ 能拿到的只有「資格清單」與「市場總量」，兩者都存，但**必須與 dayTradeJson 分開**：
+    //     dayTradeJson 是**逐檔張數**，把資格清單併進去會讓 dtRatio 變成
+    //     「有些檔是量、有些檔是 1」的垃圾，而且完全看不出來。
+    //   ⇒ dtRatio 的母體因此**仍然只有上市**，回測可比性不受本次改動影響。
+    try {
+      // ⚠ 這裡**必須自己宣告 dSlash**：上面那個是借券區塊的 block-scoped const，
+      //   跨區塊引用會是 ReferenceError，而且會被下方的 try/catch 吞成一行警告
+      //   「上櫃當沖抓取失敗」——看起來像上游問題，其實是我們自己的作用域錯誤。
+      const dSlash = `${iso.slice(0, 4)}/${iso.slice(5, 7)}/${iso.slice(8, 10)}`;
+      const secs = await J('https://www.tpex.org.tw/openapi/v1/tpex_securities');
+      const roc = String(parseInt(iso.slice(0, 4), 10) - 1911) + ymd.slice(4);
+      if (Array.isArray(secs) && secs.length > 100) {
+        const d0 = String(secs[0]?.['資料日期'] || '');
+        if (d0 && d0 !== roc) log(`  ⚠ 上櫃當沖標的回音 ${d0} ≠ ${roc}，不寫入`);
+        else {
+          const el = {};
+          for (const x of secs) {
+            const c = String(x['證券代號'] || '').trim();
+            if (!/^\d{4}$/.test(c)) continue;
+            const susp = String(x['暫停現股賣出後現款買進當沖註記'] || '').trim();
+            el[c] = susp ? 2 : 1;         // 1=可現股當沖　2=暫停先賣後買（僅能先買後賣）
+          }
+          if (Object.keys(el).length > 100) patch.dtOtcEligibleJson = JSON.stringify(el);
+        }
+      }
+      await sleep(1200);
+      const st = await J(`https://www.tpex.org.tw/www/zh-tw/intraday/stat?date=${dSlash}&type=Daily&response=json`);
+      const stb = st?.tables?.[0];
+      if (st && String(st.date || '') !== ymd) log(`  ⚠ 上櫃當沖統計回音 ${st?.date} ≠ ${ymd}，不寫入`);
+      else if (stb?.fields?.length && stb?.data?.[0]) {
+        const g = name => { const i = stb.fields.findIndex(f => String(f).replace(/\s/g, '') === name); return i < 0 ? null : _f(stb.data[0][i]); };
+        const lots = g('當日沖銷交易總成交股數');
+        patch.dtOtcStat = {
+          lots: lots != null ? Math.round(lots / 1000) : null,          // 張
+          pctOfMarket: String(stb.data[0][stb.fields.findIndex(f => /占市場比重/.test(String(f)))] || ''),
+          buyAmt: g('當日沖銷交易總買進成交金額'), sellAmt: g('當日沖銷交易總賣出成交金額'),
+          note: '上櫃當沖**市場總量**（TPEx 未公布逐檔量）',
+        };
+      }
+    } catch (e) { log('  ⚠ 上櫃當沖抓取失敗:', e.message); }
   }
 
   patch.complete = !!((cur.instJson || patch.instJson) && cur.closeJson);
