@@ -1385,47 +1385,11 @@ function StrategyTab({ trendData, loading, stockName }: {
             ))}
           </div>
 
-          {/* Resistance / Support */}
-          <div style={{
-            background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
-            borderRadius: '10px', padding: '14px 16px',
-          }}>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '10px' }}>
-              📊 支撐 / 壓力位
-            </div>
-            <div style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px' }}>壓力位</div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {pp.resistance.map((r, i) => (
-                  <span key={i} style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
-                    background: `${STRENGTH_COLOR[r.strength]}18`,
-                    color: STRENGTH_COLOR[r.strength],
-                    border: `1px solid ${STRENGTH_COLOR[r.strength]}44`,
-                    fontWeight: 600,
-                  }}>
-                    {r.label} {r.price.toFixed(2)}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px' }}>支撐位</div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {pp.support.map((s, i) => (
-                  <span key={i} style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
-                    background: `${STRENGTH_COLOR[s.strength]}18`,
-                    color: STRENGTH_COLOR[s.strength],
-                    border: `1px solid ${STRENGTH_COLOR[s.strength]}44`,
-                    fontWeight: 600,
-                  }}>
-                    {s.label} {s.price.toFixed(2)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
+          {/* ⚠ 「支撐 / 壓力位」已移除（2026-08-11 使用者指出當日策略有重複卡）：
+              合併分頁時我只是把兩個分頁的內容接起來，沒有比對內容——
+              這一段與上方 PremarketTab 的「📊 技術面支撐 / 壓力位」是**逐行相同的程式碼**，
+              連資料來源 pp.resistance / pp.support 都是同一份，等於同一張卡印兩次。
+              保留 PremarketTab 那份（在「今天實際發生什麼」的段落裡，位置較合理）。 */}
         </>
       )}
     </div>

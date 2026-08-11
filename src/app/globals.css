@@ -611,3 +611,11 @@ body {
 @media (max-width: 1023px) {
   .desktop-only { display: none !important; }
 }
+
+/* 指數分析「歷史資料」表：9 欄數字若無 padding 會黏成一串（2026-08-11 使用者回報）。
+   inline style 只寫得到 <table>，td/th 逐格加太囉嗦，統一在這裡給間距與 nowrap。 */
+.idxHistTable th,
+.idxHistTable td {
+  padding: 5px 9px;
+  white-space: nowrap;
+}

@@ -28,6 +28,19 @@ const fmtD = (t: number, iv: string) => {
   const d = new Date(t * 1000);
   return iv === '1mo' ? `${d.getFullYear()}/${d.getMonth() + 1}` : `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
 };
+// ⚠ 軸標與游標讀數要用這個，不要用 fmtD（2026-08-11 實機發現）：
+//   fmtD 只有月K會帶年份，日K/週K一律 MM/DD。
+//   但 250 根週K橫跨約 5 年、250 根日K也跨年，
+//   軸上就會出現「10/01、06/01、02/01、10/01、06/01」——同一組數字重複，
+//   使用者無從分辨那是哪一年的 10 月。
+//   跨年時改印 YY/MM：軸上的刻度間距本來就是數十根，日的精度沒有意義，
+//   而確切日期在圖上方的游標讀數列（那裡是單一根，不會混淆）。
+const fmtAxisD = (t: number, iv: string, multiYear: boolean) => {
+  const d = new Date(t * 1000);
+  if (iv === '1mo') return `${d.getFullYear()}/${d.getMonth() + 1}`;
+  if (multiYear) return `${String(d.getFullYear() % 100).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+};
 const fmtN = (v: number) => v >= 10000 ? v.toLocaleString('zh-TW', { maximumFractionDigits: 0 }) : v.toLocaleString('zh-TW', { maximumFractionDigits: 2 });
 const fmtV = (v: number) => v >= 1e8 ? `${(v / 1e8).toFixed(2)}億` : v >= 1e4 ? `${(v / 1e4).toFixed(1)}萬` : String(Math.round(v));
 
@@ -178,7 +191,7 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
   //   （與 K 線那張的成因不同：那張是 preserveAspectRatio="none" 壓扁，
   //     這張是等比縮小——症狀一樣是讀不到，但解法是把 viewBox 內字級放大。）
   //   放大到 20 → 手機約 8.7px、桌機（約 860px 寬）20px，兩邊都讀得到。
-  const W = 860, H = 320, VH = 64, IH = 64, GAP = 18, PADL = 8, PADR = 64;
+  const W = 860, H = 320, VH = 64, IH = 64, GAP = 18, PADL = 8, PADR = 96;
   const m5 = useMemo(() => ma(bars, 5), [bars]);
   const m20 = useMemo(() => ma(bars, 20), [bars]);
   const m60 = useMemo(() => ma(bars, 60), [bars]);
@@ -205,18 +218,45 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
   const difVals = [...macd.dif, ...macd.dea].filter((v): v is number => v != null);
   const mAbs = Math.max(...oscVals.map(Math.abs), ...difVals.map(Math.abs), 1e-9);
   const macdY = (v: number) => macdY0 + (IH - 4) * (1 - (v + mAbs) / (2 * mAbs)) + 2;
+  const pick = (clientX: number, el: SVGElement) => {
+    const r = el.getBoundingClientRect();
+    const i = Math.floor((clientX - r.left) / r.width * W / bw - PADL / bw);
+    setTip(i >= 0 && i < bars.length ? i : null);
+  };
   const t = tip != null ? bars[tip] : null;
   const ti = tip ?? bars.length - 1;
-  const paneLabel = (y0: number, txt: string) => (
-    <text x={PADL} y={y0 + 11} fontSize="20" fontWeight={700} fill="#cbd5f5">{txt}</text>
-  );
+  // ⚠ 軸文字一律走 HTML 疊層，不要放回 <svg>（2026-08-11）：
+  //   這張 SVG 是等比縮放的（viewBox 寬 860，手機實際寬約 375 → 0.436×），
+  //   所以 SVG 裡寫 fontSize=10 到手機上只剩 4.4px，寫 22 也才 9.6px，
+  //   而桌機又會被放大到過粗——同一個數字沒有任何一個值能同時服務兩端。
+  //   HTML 疊層的字級是 CSS px，跟縮放脫鉤，還能吃全站的 var(--fz)。
+  //   （這與 K 線圖 StockTrendChart 的做法一致，那張是被 preserveAspectRatio 拉扁。）
+  const pctY_ = (v: number) => `${(v / totalH) * 100}%`;
+  const paneLabels: { y0: number; txt: string }[] = [];
+  if (hasVol) paneLabels.push({ y0: volY0, txt: `VOL · 5${iv === '1d' ? '日' : iv === '1wk' ? '週' : '月'}均量 ${vma5[bars.length - 1] != null ? fmtV(vma5[bars.length - 1]!) : '—'}` });
+  paneLabels.push({ y0: rsiY0, txt: 'RSI 5／10（Wilder）· 格線 20/50/80' });
+  paneLabels.push({ y0: macdY0, txt: 'MACD 12·26·9（柱＝DIF−DEA）· 零軸' });
+  paneLabels.push({ y0: kdY0, txt: 'KD 9（⅔平滑）· 格線 20/80' });
+  // 右側刻度**只放主圖價位**。
+  // ⚠ 不要把 RSI/KD 的 20/50/80 放回這裡（2026-08-11 實機量測）：
+  //   副圖高 64 個 viewBox 單位，手機等比縮到只剩約 23px，
+  //   而一個 10px 字的標籤實際佔 15px —— 三個標籤放進 23px，
+  //   量到的是「80↔50 重疊 9px、50↔20 重疊 8px」，等於三個數字疊成一團黑。
+  //   刻度值改寫進左側面板名（橫向有空間），而**精確讀數本來就在圖上方那兩列**
+  //   （RSI5/RSI10/K/D/DIF/柱 會跟著標線走），比軸刻度更準，所以這裡沒有資訊損失。
+  //   要改回逐檔刻度的前提是先把 IH 加高，但那會讓手機again變成長頁捲動。
+  const axisTicks: { top: number; txt: string }[] =
+    [hi, lo + (hi - lo) / 2, lo].map(v => ({ top: y(v), txt: Math.round(v).toLocaleString('zh-TW') }));
+  const multiYear = bars.length > 1 &&
+    new Date(bars[0].t * 1000).getFullYear() !== new Date(bars[bars.length - 1].t * 1000).getFullYear();
+  const step = Math.ceil(bars.length / (bars.length > 30 ? 6 : 8));
   return (
     <div style={{ position: 'relative' }}>
       <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5f5', marginBottom: 2, flexWrap: 'wrap' }}>
         <span style={{ color: '#f6c945' }}>— MA5 {m5[bars.length - 1] != null ? fmtN(m5[bars.length - 1]!) : '—'}</span>
         <span style={{ color: '#3d8ef8' }}>— MA20 {m20[bars.length - 1] != null ? fmtN(m20[bars.length - 1]!) : '—'}</span>
         <span style={{ color: '#c084fc' }}>— MA60 {m60[bars.length - 1] != null ? fmtN(m60[bars.length - 1]!) : '—'}</span>
-        {t && <span style={{ color: '#dbe4f5' }}>{fmtD(t.t, iv)} 開{fmtN(t.o)} 高{fmtN(t.h)} 低{fmtN(t.l)} 收<b style={{ color: t.c >= t.o ? UP : DOWN }}>{fmtN(t.c)}</b>{hasVol ? ` 量${fmtV(t.v)}` : ''}</span>}
+        {t && <span style={{ color: '#dbe4f5' }}>{multiYear && iv !== '1mo' ? `${new Date(t.t * 1000).getFullYear()}/` : ''}{fmtD(t.t, iv)} 開{fmtN(t.o)} 高{fmtN(t.h)} 低{fmtN(t.l)} 收<b style={{ color: t.c >= t.o ? UP : DOWN }}>{fmtN(t.c)}</b>{hasVol ? ` 量${fmtV(t.v)}` : ''}</span>}
       </div>
       <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5f5', marginBottom: 2, flexWrap: 'wrap', fontFamily: 'JetBrains Mono, monospace' }}>
         {r5[ti] != null && <span>RSI5 <b style={{ color: '#dbe4f5' }}>{r5[ti]!.toFixed(1)}</b></span>}
@@ -224,12 +264,20 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         {kd.K[ti] != null && <span>K <b style={{ color: '#dbe4f5' }}>{kd.K[ti]!.toFixed(1)}</b> D <b style={{ color: '#dbe4f5' }}>{kd.D[ti]!.toFixed(1)}</b></span>}
         {macd.dif[ti] != null && <span>DIF <b style={{ color: '#dbe4f5' }}>{macd.dif[ti]!.toFixed(1)}</b> 柱 <b style={{ color: (macd.osc[ti] ?? 0) >= 0 ? UP : DOWN }}>{(macd.osc[ti] ?? 0).toFixed(1)}</b></span>}
       </div>
-      <svg viewBox={`0 0 ${W} ${totalH}`} style={{ width: '100%', height: 'auto', display: 'block' }}
-        onMouseLeave={() => setTip(null)}
-        onMouseMove={e => { const r = (e.target as SVGElement).closest('svg')!.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left) / r.width * W / bw - PADL / bw); setTip(i >= 0 && i < bars.length ? i : null); }}>
+      {/* ⚠ 必須用 pointer 事件而不是 mouse 事件（2026-08-11 使用者：「多欄式要有標線可以精準查看」）：
+          原本只綁 onMouseMove/onMouseLeave —— 手機沒有滑鼠移動事件，
+          **觸控完全叫不出標線**，等於這張圖在手機上只能看不能讀值。
+          （與 K 線那張同一類問題，那張是被拖曳分支吃掉。）
+          touchAction:'none' 讓手指在圖上滑動是讀值而不是捲頁面。 */}
+      <div style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${totalH}`} style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none' }}
+        onPointerLeave={() => setTip(null)}
+        onPointerUp={e => (e.currentTarget as SVGElement).releasePointerCapture?.(e.pointerId)}
+        onPointerDown={e => { (e.currentTarget as SVGElement).setPointerCapture?.(e.pointerId); pick(e.clientX, e.currentTarget as SVGElement); }}
+        onPointerMove={e => pick(e.clientX, e.currentTarget as SVGElement)}>
         {/* 主圖：K棒＋均線 */}
         {[0.25, 0.5, 0.75].map(f => <line key={f} x1={PADL} x2={W - PADR} y1={8 + (H - 16) * f} y2={8 + (H - 16) * f} stroke="rgba(148,163,184,0.12)" />)}
-        {[hi, lo + (hi - lo) / 2, lo].map((p, i) => <text key={i} x={W - PADR + 6} y={y(p) + 4} fontSize="22" fill="#cbd5f5">{fmtN(p)}</text>)}
+        
         {bars.map((b, i) => {
           const up = b.c >= b.o, col = up ? UP : DOWN;
           const bodyT = y(Math.max(b.o, b.c)), bodyB = y(Math.min(b.o, b.c));
@@ -245,22 +293,19 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         <polyline points={line(m60, y)} fill="none" stroke="#c084fc" strokeWidth={1.4} />
         {/* VOL 副圖＋5日均量線 */}
         {hasVol && <>
-          {paneLabel(volY0, `VOL（— 5${iv === '1d' ? '日' : iv === '1wk' ? '週' : '月'}均量 ${vma5[bars.length - 1] != null ? fmtV(vma5[bars.length - 1]!) : '—'}）`)}
           {bars.map((b, i) => (
             <rect key={'v' + b.t} x={x(i) - Math.max(bw * 0.32, 0.8)} y={volY0 + 14 + (VH - 18) * (1 - b.v / vMax)} width={Math.max(bw * 0.64, 1.6)} height={(VH - 18) * (b.v / vMax)} fill={b.c >= b.o ? UP : DOWN} opacity={0.45} />
           ))}
           <polyline points={line(vma5, v => volY0 + 14 + (VH - 18) * (1 - v / vMax))} fill="none" stroke="#f6c945" strokeWidth={1.2} opacity={0.9} />
         </>}
         {/* RSI 副圖（Wilder 5/10·全站同口徑） */}
-        {paneLabel(rsiY0, 'RSI（— 5 — 10·Wilder）')}
         {[20, 50, 80].map(v => <g key={'rg' + v}>
           <line x1={PADL} x2={W - PADR} y1={pctY(rsiY0)(v)} y2={pctY(rsiY0)(v)} stroke="rgba(148,163,184,0.14)" strokeDasharray={v === 50 ? '2 3' : undefined} />
-          <text x={W - PADR + 6} y={pctY(rsiY0)(v) + 3.5} fontSize="20" fill="#cbd5f5">{v}</text>
+          
         </g>)}
         <polyline points={line(r5, pctY(rsiY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(r10, pctY(rsiY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
         {/* MACD 副圖 */}
-        {paneLabel(macdY0, 'MACD（12·26·9）柱=DIF-DEA')}
         <line x1={PADL} x2={W - PADR} y1={macdY(0)} y2={macdY(0)} stroke="rgba(148,163,184,0.2)" />
         {bars.map((b, i) => {
           const v = macd.osc[i]; if (v == null) return null;
@@ -270,17 +315,35 @@ function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
         <polyline points={line(macd.dif, macdY)} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(macd.dea, macdY)} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
         {/* KD 副圖（9·⅔平滑） */}
-        {paneLabel(kdY0, 'KD（9·⅔平滑）— K — D')}
         {[20, 80].map(v => <g key={'kg' + v}>
           <line x1={PADL} x2={W - PADR} y1={pctY(kdY0)(v)} y2={pctY(kdY0)(v)} stroke="rgba(148,163,184,0.14)" />
-          <text x={W - PADR + 6} y={pctY(kdY0)(v) + 3.5} fontSize="20" fill="#cbd5f5">{v}</text>
+          
         </g>)}
         <polyline points={line(kd.K, pctY(kdY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
         <polyline points={line(kd.D, pctY(kdY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
         {/* 十字線與日期軸 */}
-        {tip != null && <line x1={x(tip)} x2={x(tip)} y1={0} y2={totalH - 14} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />}
-        {bars.map((b, i) => (i % Math.ceil(bars.length / 8) === 0) && <text key={'d' + b.t} x={x(i)} y={totalH - 2} fontSize="20" fill="#cbd5f5" textAnchor="middle">{fmtD(b.t, iv)}</text>)}
+        {tip != null && <line x1={x(tip)} x2={x(tip)} y1={0} y2={totalH - 14} stroke="rgba(255,255,255,0.55)" strokeDasharray="3 3" />}
+        {/* 主圖補一條水平價格線：只有縱線讀不出「這根收在哪個價位」 */}
+        {t && <line x1={PADL} x2={W - PADR} y1={y(t.c)} y2={y(t.c)} stroke="rgba(255,255,255,0.45)" strokeDasharray="3 3" />}
+        
       </svg>
+      {/* ── HTML 軸層：面板名／右側刻度／底部日期 ──────────────────────
+          pointerEvents:'none' 是必要的——這層蓋在整張圖上，
+          若攔到指標事件，標線就永遠叫不出來（等於白修）。 */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontFamily: 'JetBrains Mono, monospace', color: '#cbd5f5' }}>
+        {paneLabels.map(p2 => (
+          <div key={p2.y0} style={{ position: 'absolute', left: 2, top: pctY_(p2.y0 + 1), fontSize: 'calc(10px * var(--fz))', fontWeight: 700, whiteSpace: 'nowrap', textShadow: '0 0 4px var(--bg-elevated,#0b1220)' }}>{p2.txt}</div>
+        ))}
+        {axisTicks.map((a, i) => (
+          <div key={'a' + i} style={{ position: 'absolute', right: 2, top: pctY_(a.top), transform: 'translateY(-50%)', fontSize: 'calc(10px * var(--fz))', whiteSpace: 'nowrap' }}>{a.txt}</div>
+        ))}
+        {bars.map((b, i) => (i % step === 0) && (
+          <div key={'d' + b.t} style={{ position: 'absolute', left: `${(x(i) / W) * 100}%`, top: pctY_(totalH - 13), transform: 'translateX(-50%)', fontSize: 'calc(9.5px * var(--fz))', whiteSpace: 'nowrap' }}>{fmtAxisD(b.t, iv, multiYear)}</div>
+        ))}
+        {/* 標線落點的價格籤：縱線本身讀不出數字 */}
+        {t && <div style={{ position: 'absolute', right: 2, top: pctY_(y(t.c)), transform: 'translateY(-50%)', fontSize: 'calc(10px * var(--fz))', fontWeight: 800, padding: '1px 4px', borderRadius: 4, background: t.c >= t.o ? UP : DOWN, color: '#fff', whiteSpace: 'nowrap' }}>{fmtN(t.c)}</div>}
+      </div>
+      </div>
     </div>
   );
 }
@@ -376,10 +439,18 @@ export default function IndexAnalysis() {
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
         <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 6 }}>📋 歷史資料（近 20 根{INTERVALS.find(i => i.id === iv)?.label}）</div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>
+        <div className="mobile-only" style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 4 }}>← 左右滑動可看完 9 個欄位</div>
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {/* ⚠ 這張表**必須**給 td/th padding（2026-08-11 使用者：「歷史資料的數字都粘在一起了，無法判讀」）：
+              9 個欄位裡只有「日期」那格寫了 padding，其餘 8 格是 0，
+              加上 borderCollapse:'collapse' 連框線間距都沒有，
+              於是「24,318 24,402 24,201」在手機上直接黏成一長串數字。
+              padding 撐開後整表約需 560px > 手機 335px，所以配 minWidth＋外層 overflowX:auto
+              讓它在卡片內橫向捲動——寧可捲，也不要把數字擠在一起。
+              nowrap 是同一件事的另一半：絕不在一個數值中間換行。 */}
+          <table className="idxHistTable" style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 'calc(12px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
             <thead><tr style={{ color: '#cbd5f5', textAlign: 'right' }}>
-              <th style={{ textAlign: 'left', padding: '4px 6px' }}>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌%</th><th>成交量</th><th>RSI5</th><th>K</th>
+              <th style={{ textAlign: 'left' }}>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌%</th><th>成交量</th><th>RSI5</th><th>K</th>
             </tr></thead>
             <tbody>
               {hist.map((b, i) => {
@@ -388,7 +459,7 @@ export default function IndexAnalysis() {
                 const r5all = readCache(all, gi);
                 return (
                   <tr key={b.t} style={{ textAlign: 'right', borderTop: '1px solid rgba(148,163,184,0.08)' }}>
-                    <td style={{ textAlign: 'left', padding: '4px 6px', color: '#dbe4f5' }}>{fmtD(b.t, iv)}</td>
+                    <td style={{ textAlign: 'left', color: '#dbe4f5' }}>{fmtD(b.t, iv)}</td>
                     <td>{fmtN(b.o)}</td><td>{fmtN(b.h)}</td><td>{fmtN(b.l)}</td>
                     <td style={{ fontWeight: 700, color: b.c >= b.o ? UP : DOWN }}>{fmtN(b.c)}</td>
                     <td style={{ color: ch == null ? '#cbd5f5' : ch >= 0 ? UP : DOWN }}>{ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}</td>
