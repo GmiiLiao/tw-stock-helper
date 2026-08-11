@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
 import { fetchAllStocksDayData } from '@/lib/twse-api';
 import type { StockInfo } from '@/lib/twse-api';
-import { getSession, isForeground } from '@/lib/market-clock';
+import { getSession, isForeground, isMarketOpen as isMarketOpenClock } from '@/lib/market-clock';
 import styles from './Header.module.css';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -224,27 +224,36 @@ export default function Header() {
     setShowDropdown(false);
   };
 
-  const isMarketOpen = () => {
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
-    const day = now.getDay();
-    if (day === 0 || day === 6) return false;
-    const t = h * 60 + m;
-    return t >= 9 * 60 && t < 13 * 60 + 30;
-  };
-
-  const isUsOpen = () => {
-    const now = new Date();
-    const h = now.getHours();
-    const day = now.getDay();
-    if (day === 0 || day === 6) return false;
-    // US regular hours in Taiwan time: ~21:30-04:00
-    return h >= 21 || h < 5;
-  };
-
-  const marketOpen  = isMarketOpen();
-  const usOpen = isUsOpen();
+  // ── 盤別燈號（2026-08-11 重寫）──────────────────────────────────────
+  // ⚠ 這裡曾經是**整站白畫面的根因**（React error #418 hydration 不匹配）：
+  //   舊版在 render 期間直接呼叫 new Date().getHours()。
+  //   伺服器（App Hosting）跑 UTC、瀏覽器跑台北時間，差 8 小時：
+  //     TPE 10:00 → 伺服器 h=2 算出「美股盤中」、瀏覽器 h=10 算出「台股盤中」
+  //   兩邊 HTML 不同 → hydration 失敗 → 未捕捉的例外冒到 error.tsx → 整頁變錯誤畫面。
+  //   （症狀是**看時段而定**的：某些時刻兩邊剛好同結論就不會炸，所以很難重現。）
+  //
+  // 兩道修正，缺一不可：
+  //   ① 時區寫死台北 —— 不能用瀏覽器/伺服器的本地時區，兩者都不保證是台灣。
+  //   ② **掛載後才算** —— SSR 與 client 首次渲染都吃 null（顯示「—」），
+  //      HTML 必然一致；掛載後才切換成真實盤別。
+  //   台股那半直接用 market-clock（它會查休市日曆，不會把颱風假算成盤中）。
+  const [session, setSession] = useState<{ tw: boolean; us: boolean } | null>(null);
+  useEffect(() => {
+    const twNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    const calc = () => {
+      const n = twNow();
+      const day = n.getDay();
+      const h = n.getHours();
+      // 美股常規時段換算台北：約 21:30–04:00（週末不算）
+      const us = day !== 0 && day !== 6 && (h >= 21 || h < 5);
+      setSession({ tw: isMarketOpenClock(n), us });
+    };
+    calc();
+    const id = setInterval(calc, 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const marketOpen = session?.tw ?? false;
+  const usOpen = session?.us ?? false;
   const changeColor = marketIndex.change >= 0 ? 'var(--color-up)' : 'var(--color-down)';
   const isRealtime  = dataSource === 'mis_realtime';
 
@@ -361,8 +370,8 @@ export default function Header() {
         <div className={styles.indexDivider} />
 
         <div className={styles.marketStatus}>
-          <div className={`${styles.statusDot} ${(marketOpen || usOpen) ? styles.open : styles.closed}`} />
-          <span>{marketOpen ? '台股盤中' : usOpen ? '美股盤中' : '收盤'}</span>
+          <div className={`${styles.statusDot} ${session !== null && (marketOpen || usOpen) ? styles.open : styles.closed}`} />
+          <span>{session === null ? '—' : marketOpen ? '台股盤中' : usOpen ? '美股盤中' : '收盤'}</span>
         </div>
 
         {/* Manual refresh button */}

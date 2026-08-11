@@ -20,6 +20,14 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
     console.error('[PageError]', error);
   }, [error]);
 
+  const detail = [
+    error?.digest ? `digest: ${error.digest}` : null,
+    `message: ${error?.message || '(無訊息)'}`,
+    error?.stack ? `stack:\n${error.stack.split('\n').slice(0, 6).join('\n')}` : null,
+    typeof navigator !== 'undefined' ? `ua: ${navigator.userAgent}` : null,
+    typeof location !== 'undefined' ? `url: ${location.href}` : null,
+  ].filter(Boolean).join('\n');
+
   const btn = (bg: string, color = '#fff'): React.CSSProperties => ({
     padding: '9px 18px', borderRadius: 10, border: 'none', cursor: 'pointer',
     fontWeight: 800, fontSize: 13.5, background: bg, color,
@@ -44,11 +52,27 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
           location.reload();
         }}>清除本機暫存並重載</button>
       </div>
-      {error?.digest && (
-        <div style={{ fontSize: 11, color: '#a9b6d6', marginTop: 6, fontFamily: "'JetBrains Mono',monospace" }}>
-          錯誤代碼 {error.digest}（回報時附上這串，我們才查得到是哪一顆）
-        </div>
-      )}
+      {/* ⚠ 一定要把**真正的錯誤訊息**顯示出來（2026-08-11）：
+          先前這裡只印 error.digest，但 digest 只有**伺服器端**錯誤才有；
+          client-side 例外（hydration 不匹配、undefined 存取…）digest 是 undefined，
+          於是整個區塊不渲染 —— 使用者看到一張沒有任何線索的錯誤畫面，
+          回報時我們也拿不到任何可查的東西，只能靠猜。
+          改成：有 digest 就印 digest，沒有就印 message + stack 前幾行，並提供一鍵複製。 */}
+      <details style={{ marginTop: 10, maxWidth: 560, width: '100%' }}>
+        <summary style={{ fontSize: 12, color: '#a9b6d6', cursor: 'pointer' }}>
+          顯示技術細節（回報問題時請附上）
+        </summary>
+        <pre style={{
+          marginTop: 6, padding: 10, borderRadius: 8, textAlign: 'left',
+          background: 'rgba(148,163,184,0.10)', color: '#c7d2e5',
+          fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          maxHeight: 180, overflow: 'auto', fontFamily: "'JetBrains Mono',monospace",
+        }}>{detail}</pre>
+        <button
+          style={{ ...btn('#334155'), marginTop: 6, fontSize: 12 }}
+          onClick={() => { navigator.clipboard?.writeText(detail).catch(() => {}); }}
+        >複製錯誤訊息</button>
+      </details>
     </div>
   );
 }

@@ -156,11 +156,12 @@ export default function RiseFallPanel() {
   const [sortUp, setSortUp] = useState<SortKey>('chg');
   const [sortDn, setSortDn] = useState<SortKey>('chg');
   const [cols, setCols] = useState(4);
-  // ⚠ 手機必須降欄數（2026-08-11）：版面定案是「漲左跌右並排、不換成上下排」，
-  //   所以每欄在 375px 只有 ~150px。維持使用者設定的 4 欄時每塊僅 ~34px，
-  //   代號/名稱/漲跌幅會互相疊在一起（實機截圖可見字重疊）。
-  //   一塊磚要放得下 4 位代號 + 漲跌幅，至少需要 ~66px ⇒ 窄螢幕上限 2 欄。
-  //   只在渲染時 clamp，不動使用者存下來的偏好（桌機仍照他選的欄數）。
+  // ⚠ 手機要 clamp 欄數（2026-08-11）：使用者存的偏好可能是 4~10 欄，
+  //   窄螢幕照搬會把磚塊壓到剩三十幾 px，代號/名稱/漲跌幅互相疊字。
+  //   一塊磚要放得下 4 位代號 + 漲跌幅，至少需要 ~66px。
+  //   ⇒ 只在渲染時 clamp（見下方 effCols），**不動使用者存下來的偏好**，桌機照舊。
+  //   註：手機同時改為上下排（見下方 stacked），所以每一區拿得到整個寬度，
+  //       上限可以放到 3 欄；這段註解先前寫「一律並排」已作廢。
   const [vw, setVw] = useState(1200);
   useEffect(() => {
     const on = () => setVw(window.innerWidth);
