@@ -17,7 +17,12 @@ const SYMS: Record<string, { sym: string; name: string }> = {
   n225: { sym: '^N225', name: '日經 225' },
 };
 type Interval = '1d' | '1wk' | '1mo';
-const RANGE: Record<Interval, string> = { '1d': '5y', '1wk': 'max', '1mo': 'max' };
+// ⚠ 週K **不能**用 range=max（2026-08-11 實測，使用者看到週K與月K長得一模一樣）：
+//   Yahoo 在 range=max 時會**自行把 interval 降級**，interval=1wk 回來的是月線——
+//   350 根、間隔 30~31 天，與 1mo 的回應逐筆相同。
+//   改 range=10y 後正常回週線（524 根、間隔 7 天）。
+//   它並沒有報錯，只是安靜地換了粒度；唯一的線索是 meta.dataGranularity（見下方回音驗證）。
+const RANGE: Record<Interval, string> = { '1d': '5y', '1wk': '10y', '1mo': 'max' };
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 
 // 日K → 週/月K 聚合（櫃買官方序列用）
@@ -35,6 +40,25 @@ function aggregate(bars: Bar[], interval: Interval): Bar[] {
   return [...groups.values()].map(g => ({
     t: g[0].t, o: g[0].o, h: Math.max(...g.map(x => x.h)), l: Math.min(...g.map(x => x.l)), c: g[g.length - 1].c, v: g.reduce((s, x) => s + x.v, 0),
   })).sort((a, b) => a.t - b.t);
+}
+
+// Yahoo chart 取值 —— 同時回傳它**自報的粒度**，呼叫端必須比對（見 GET 內回音驗證）
+async function yahooChart(sym: string, interval: Interval, range: string): Promise<{ bars: Bar[]; granularity?: string }> {
+  const ctl = new AbortController();
+  const tm = setTimeout(() => ctl.abort(), 8000);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}`;
+  const j = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.json()).finally(() => clearTimeout(tm));
+  const res = j?.chart?.result?.[0];
+  if (!res) return { bars: [] };
+  const ts: number[] = res.timestamp || [];
+  const q = res.indicators?.quote?.[0] || {};
+  const bars: Bar[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    const c = q.close?.[i];
+    if (c == null) continue;
+    bars.push({ t: ts[i], o: +(q.open?.[i] ?? c).toFixed(2), h: +(q.high?.[i] ?? c).toFixed(2), l: +(q.low?.[i] ?? c).toFixed(2), c: +c.toFixed(2), v: q.volume?.[i] ?? 0 });
+  }
+  return { bars, granularity: res.meta?.dataGranularity };
 }
 
 async function otcCandles(interval: Interval): Promise<Bar[]> {
@@ -78,22 +102,23 @@ export async function GET(request: NextRequest) {
   }
   const def = SYMS[id];
   try {
-    const ctl = new AbortController();
-    const tm = setTimeout(() => ctl.abort(), 8000);
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(def.sym)}?interval=${interval}&range=${RANGE[interval]}`;
-    const j = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.json()).finally(() => clearTimeout(tm));
-    const res = j?.chart?.result?.[0];
-    if (!res) return NextResponse.json({ sym: id, name: def.name, candles: [] }, { headers: { 'Cache-Control': 'no-store' } });
-    const ts: number[] = res.timestamp || [];
-    const q = res.indicators?.quote?.[0] || {};
-    const out: { t: number; o: number; h: number; l: number; c: number; v: number }[] = [];
-    for (let i = 0; i < ts.length; i++) {
-      const c = q.close?.[i];
-      if (c == null) continue;
-      out.push({ t: ts[i], o: +(q.open?.[i] ?? c).toFixed(2), h: +(q.high?.[i] ?? c).toFixed(2), l: +(q.low?.[i] ?? c).toFixed(2), c: +c.toFixed(2), v: q.volume?.[i] ?? 0 });
+    const { bars: fetched, granularity } = await yahooChart(def.sym, interval, RANGE[interval]);
+    let raw = fetched;
+    let note: string | undefined;
+    // ── 回音驗證：上游自報的粒度必須等於我們要的粒度 ────────────────────
+    // 這是 CLAUDE.md 那條「一定要讀它自報的欄位並比對」的同一類問題：
+    // 資料有值、很新、筆數也夠，三道健康閘門全綠，但它代表的是**別的週期**。
+    // 不符時寧可用日K重新聚合（少幾年歷史），也不要安靜地送出錯粒度的 K 線。
+    if (granularity && granularity !== interval) {
+      const d = await yahooChart(def.sym, '1d', '10y');
+      if (d.bars.length) {
+        raw = aggregate(d.bars, interval);
+        note = `上游粒度回音為 ${granularity}（要求 ${interval}），已改由日K聚合`;
+      }
     }
-    const { bars } = sanitizeOhlcSeries(out);
-    return NextResponse.json({ sym: id, name: def.name, candles: bars }, {
+    if (!raw.length) return NextResponse.json({ sym: id, name: def.name, candles: [] }, { headers: { 'Cache-Control': 'no-store' } });
+    const { bars } = sanitizeOhlcSeries(raw);
+    return NextResponse.json({ sym: id, name: def.name, candles: bars, ...(note ? { note } : {}) }, {
       headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
     });
   } catch {

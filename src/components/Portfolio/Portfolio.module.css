@@ -23,11 +23,17 @@
 .emptyText { font-size: calc(1.125rem * var(--fz)); font-weight: 600; color: var(--text-secondary); }
 .emptySub { font-size: calc(0.875rem * var(--fz)); color: var(--text-muted); }
 
+/* ⚠ 一律 minmax(0, 1fr)，不要只寫 1fr（本專案已重演多次：Dashboard .structGrid、指數分析外層）：
+   grid 子項預設 min-width:auto ＝「永不縮到 min-content 以下」，
+   而 min-content 是卡片裡最長那串不能斷的字（這裡是等寬字體的金額）。
+   只寫 1fr 時軌道會被那串字撐大到超過容器，整頁被推寬、出現橫向捲軸。
+   釘死上界 0 之後，軌道才真的等於容器寬。子項的 min-width:0 是同一件事的另一半。 */
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
+.summaryGrid > * { min-width: 0; }
 
 .summaryCard {
   background: var(--bg-card);
@@ -62,10 +68,11 @@
 
 .mainGrid {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
+.mainGrid > * { min-width: 0; }
 
 .chartCard, .holdingsCard {
   background: var(--bg-card);
@@ -109,7 +116,13 @@
   color: var(--accent-blue);
 }
 
-.groupName { font-size: calc(0.875rem * var(--fz)); color: var(--text-primary); flex: 1; }
+/* flex:1 只給了「可以長大」，沒給「可以縮小」——預設 min-width:auto 讓它縮不下去。
+   長股名＋判讀徽章會一起把整條 groupHeader 撐出卡片外，所以要 minWidth:0 + 省略號。 */
+.groupName {
+  font-size: calc(0.875rem * var(--fz)); color: var(--text-primary);
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.groupHeader { min-width: 0; flex-wrap: wrap; row-gap: 2px; }
 
 .groupBar {
   width: 10px;
@@ -190,8 +203,8 @@
 
 
 @media (max-width: 1100px) {
-  .summaryGrid { grid-template-columns: repeat(2, 1fr); }
-  .mainGrid { grid-template-columns: 1fr; }
+  .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mainGrid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ── Edit Holding Modal Styles ── */
@@ -327,4 +340,39 @@
   .txRow > :nth-child(4) { grid-row: 1; grid-column: 2; }
   /* icon 只是輔助操作，縮到剛好可點（44px 觸控區由 padding 撐出） */
   .txRow > :nth-child(4) button { padding: 5px 7px; font-size: calc(13px * var(--fz)); line-height: 1; }
+
+  /* ⚠ 持倉明細的每一列也要降成兩欄（2026-08-11 使用者回報「投資組合最下方卡片還是超出手機畫面」）
+     —— 這個 700px 斷點原本**只處理 .txRow，漏了 .holdingRow**，
+     兩者版面結構其實一樣（資訊 ＋ 損益 ＋ 操作鈕），所以同一個症狀只修好一半。
+
+     真正撐爆版面的是 .holdingPnl 的 `flex-shrink: 0`：
+     它宣告「我永不收縮」，而它裡面除了損益數字，還有一條副行
+     「毛 −30,000｜費稅 −25,520」——那條比上面的數字寬得多，
+     於是整列的 min-content 直接超過手機寬度，把整頁往右推。
+     （與 min-width:auto 是同一族問題：子項自己宣稱不讓步，容器就只能被撐開。）
+
+     ⇒ 手機改成：第一列＝標的資訊＋操作鈕，第二列＝損益整段獨佔一行；
+       並且解除 flex-shrink:0、允許 wrap、min-width:0，讓它真的能讓步。
+     另外左邊 margin 10 + padding 20 共吃掉 30px，手機收成 8 + 12。 */
+  .holdingRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 8px;
+    row-gap: 4px;
+    padding: 10px 8px 10px 12px;
+    margin-left: 8px;
+  }
+  .holdingRow > .holdingMeta { grid-row: 1; grid-column: 1; min-width: 0; }
+  .holdingRow > .rowActions { grid-row: 1; grid-column: 2; opacity: 1; }
+  .holdingRow > .holdingPnl {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    flex-shrink: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  .holdingRow > .holdingPnl > span { min-width: 0; }
+  .rowActions button { padding: 5px 7px; font-size: calc(13px * var(--fz)); line-height: 1; }
 }

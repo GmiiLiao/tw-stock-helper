@@ -11,7 +11,7 @@
 //   MACD=EMA12/26/DEA9。本站實測（個股宇宙·bt-core）：MACD/KD 交叉類「確認型訊號」
 //   無預測增量——副圖與判讀是**盤勢描述**，不是買賣訊號，文案不得暗示方向。
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 
 interface Bar { t: number; o: number; h: number; l: number; c: number; v: number }
 
@@ -183,170 +183,271 @@ function readIndex(bars: Bar[], name: string, iv: string): { headline: string; l
 }
 
 // ── SVG 蠟燭圖＋均線＋VOL/RSI/MACD/KD 副圖 ──────────────────────
-function CandleSvg({ bars, iv }: { bars: Bar[]; iv: string }) {
-  const [tip, setTip] = useState<number | null>(null);
-  // ⚠ SVG 內的字級要用 viewBox 座標思考，不是 CSS px（2026-08-11 手機回報看不清）：
-  //   這張圖是 viewBox 寬 860、CSS 寬 100%，手機 375px → **整體縮到 0.436 倍**。
-  //   原本 fontSize="20" 實際只有 4.4px，等於看不見。
-  //   （與 K 線那張的成因不同：那張是 preserveAspectRatio="none" 壓扁，
-  //     這張是等比縮小——症狀一樣是讀不到，但解法是把 viewBox 內字級放大。）
-  //   放大到 20 → 手機約 8.7px、桌機（約 860px 寬）20px，兩邊都讀得到。
-  const W = 860, H = 320, VH = 64, IH = 64, GAP = 18, PADL = 8, PADR = 96;
-  const m5 = useMemo(() => ma(bars, 5), [bars]);
-  const m20 = useMemo(() => ma(bars, 20), [bars]);
-  const m60 = useMemo(() => ma(bars, 60), [bars]);
-  const vma5 = useMemo(() => maOf(bars.map(b => b.v), 5), [bars]);
-  const r5 = useMemo(() => rsiSeries(bars, 5), [bars]);
-  const r10 = useMemo(() => rsiSeries(bars, 10), [bars]);
-  const macd = useMemo(() => macdSeries(bars), [bars]);
-  const kd = useMemo(() => kdSeries(bars), [bars]);
-  if (bars.length < 2) return null;
-  const hasVol = bars.some(b => b.v > 0);
-  const lo = Math.min(...bars.map(b => b.l), ...[m20, m60].flatMap(m => m.filter((x): x is number => x != null)));
-  const hi = Math.max(...bars.map(b => b.h), ...[m20, m60].flatMap(m => m.filter((x): x is number => x != null)));
-  const vMax = Math.max(...bars.map(b => b.v), 1);
-  const y = (p: number) => 8 + (H - 16) * (1 - (p - lo) / (hi - lo || 1));
-  const bw = (W - PADL - PADR) / bars.length;
-  const x = (i: number) => PADL + i * bw + bw / 2;
-  const line = (m: (number | null)[], yFn: (v: number) => number) =>
-    m.map((v, i) => v == null ? null : `${x(i).toFixed(1)},${yFn(v).toFixed(1)}`).filter(Boolean).join(' ');
-  // 面板 Y 座標器
-  const volY0 = H, rsiY0 = volY0 + (hasVol ? VH + GAP : 0), macdY0 = rsiY0 + IH + GAP, kdY0 = macdY0 + IH + GAP;
-  const totalH = kdY0 + IH + 16;
-  const pctY = (y0: number) => (v: number) => y0 + (IH - 4) * (1 - v / 100) + 2;
-  const oscVals = macd.osc.filter((v): v is number => v != null);
-  const difVals = [...macd.dif, ...macd.dea].filter((v): v is number => v != null);
-  const mAbs = Math.max(...oscVals.map(Math.abs), ...difVals.map(Math.abs), 1e-9);
-  const macdY = (v: number) => macdY0 + (IH - 4) * (1 - (v + mAbs) / (2 * mAbs)) + 2;
-  const pick = (clientX: number, el: SVGElement) => {
+// ── 多欄式線圖：主圖＋VOL／RSI／MACD／KD 各自獨立一欄 ────────────────
+// （2026-08-11 使用者指定「使用個股分析那個格式，可以放大縮小有標線，
+//   vol/rsi/macd/kd 都獨立一個線圖欄」。）
+//
+// 三個關鍵決定，改動前先讀：
+//
+// ① **指標一律用全序列算，算完才切視窗**。
+//    舊版是先 `all.slice(-win)` 再算指標，於是視窗最前面那幾根沒有暖身資料——
+//    MACD 需要 26 根、KD 需要 9 根，畫出來的頭段是空的或失真的。
+//    現在傳進來的是完整序列，切窗只發生在「畫」的階段。
+//
+// ② **每一欄是自己的 <svg>，但共用同一組 x 幾何**（W/padL/padR/view 長度相同），
+//    所以同一個 index 在五欄的 x 位置完全對齊，一條標線讀得穿。
+//    hover 狀態提在父層 → 摸任何一欄，五欄同時出現標線。
+//
+// ③ **軸文字全部走 HTML 疊層**。這裡的 <svg> 用 preserveAspectRatio="none"
+//    （高度固定、寬度撐滿，這樣手機上副圖不會被壓扁），代價是 x/y 縮放比不同，
+//    文字放進 SVG 會被水平壓扁成細長黑影——與個股 K 線圖同一個坑。
+function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSize: number }) {
+  const n = all.length;
+  const [size, setSize] = useState(Math.min(initSize, n || initSize));
+  const [offset, setOffset] = useState(0);
+  const [hover, setHover] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setSize(Math.min(initSize, n || initSize)); setOffset(0); setHover(null); }, [initSize, n, iv]);
+
+  const ind = useMemo(() => ({
+    m5: ma(all, 5), m20: ma(all, 20), m60: ma(all, 60),
+    r5: rsiSeries(all, 5), r10: rsiSeries(all, 10),
+    macd: macdSeries(all), kd: kdSeries(all),
+    vma5: maOf(all.map(b => b.v), 5),
+  }), [all]);
+
+  const clampSize = Math.max(8, Math.min(size, n || 8));
+  const clampOffset = Math.max(0, Math.min(offset, Math.max(0, n - clampSize)));
+  const start = Math.max(0, n - clampSize - clampOffset);
+  const end = n - clampOffset;
+  const view = all.slice(start, end);
+
+  // 滾輪縮放（passive:false 才能 preventDefault，否則頁面會跟著捲）
+  useEffect(() => {
+    const el = wrapRef.current; if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      // ⚠ 資料還沒到（n=0）時**必須直接返回**（2026-08-11 實測）：
+      //   原本寫 Math.min(n || 8, …)，載入中滾一下滑鼠就變成 min(8, 120)=8，
+      //   而且會卡住不還原 —— 進頁面看到的是「8/1214 根日K」，只剩八根 K 棒。
+      //   這種「用 `|| 預設值` 掩蓋未初始化狀態」的寫法，錯的時候不會報錯，只會靜靜給出爛值。
+      if (n < 8) return;
+      e.preventDefault();
+      setSize(s => Math.round(Math.max(8, Math.min(n, s * (e.deltaY > 0 ? 1.18 : 0.85)))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [n]);
+
+  const W = 1000, padL = 52, padR = 10;
+  const slot = (W - padL - padR) / Math.max(1, view.length);
+  const xOf = (i: number) => padL + (i + 0.5) * slot;
+
+  // ⚠ 按下先讀值、位移超過門檻才改判為平移（沿用個股 K 線的做法）：
+  //   若一按下就進拖曳分支，觸控裝置永遠叫不出標線——手指沒有 hover 這回事。
+  const PAN_THRESHOLD = 6;
+  const drag = useRef<{ x: number; off: number; per: number; panning: boolean } | null>(null);
+  const hoverFromX = (el: HTMLElement, clientX: number) => {
     const r = el.getBoundingClientRect();
-    const i = Math.floor((clientX - r.left) / r.width * W / bw - PADL / bw);
-    setTip(i >= 0 && i < bars.length ? i : null);
+    const vbX = (clientX - r.left) / r.width * W;
+    const i = Math.round((vbX - padL) / slot - 0.5);
+    setHover(i >= 0 && i < view.length ? i : null);
   };
-  const t = tip != null ? bars[tip] : null;
-  const ti = tip ?? bars.length - 1;
-  // ⚠ 軸文字一律走 HTML 疊層，不要放回 <svg>（2026-08-11）：
-  //   這張 SVG 是等比縮放的（viewBox 寬 860，手機實際寬約 375 → 0.436×），
-  //   所以 SVG 裡寫 fontSize=10 到手機上只剩 4.4px，寫 22 也才 9.6px，
-  //   而桌機又會被放大到過粗——同一個數字沒有任何一個值能同時服務兩端。
-  //   HTML 疊層的字級是 CSS px，跟縮放脫鉤，還能吃全站的 var(--fz)。
-  //   （這與 K 線圖 StockTrendChart 的做法一致，那張是被 preserveAspectRatio 拉扁。）
-  const pctY_ = (v: number) => `${(v / totalH) * 100}%`;
-  const paneLabels: { y0: number; txt: string }[] = [];
-  if (hasVol) paneLabels.push({ y0: volY0, txt: `VOL · 5${iv === '1d' ? '日' : iv === '1wk' ? '週' : '月'}均量 ${vma5[bars.length - 1] != null ? fmtV(vma5[bars.length - 1]!) : '—'}` });
-  paneLabels.push({ y0: rsiY0, txt: 'RSI 5／10（Wilder）· 格線 20/50/80' });
-  paneLabels.push({ y0: macdY0, txt: 'MACD 12·26·9（柱＝DIF−DEA）· 零軸' });
-  paneLabels.push({ y0: kdY0, txt: 'KD 9（⅔平滑）· 格線 20/80' });
-  // 右側刻度**只放主圖價位**。
-  // ⚠ 不要把 RSI/KD 的 20/50/80 放回這裡（2026-08-11 實機量測）：
-  //   副圖高 64 個 viewBox 單位，手機等比縮到只剩約 23px，
-  //   而一個 10px 字的標籤實際佔 15px —— 三個標籤放進 23px，
-  //   量到的是「80↔50 重疊 9px、50↔20 重疊 8px」，等於三個數字疊成一團黑。
-  //   刻度值改寫進左側面板名（橫向有空間），而**精確讀數本來就在圖上方那兩列**
-  //   （RSI5/RSI10/K/D/DIF/柱 會跟著標線走），比軸刻度更準，所以這裡沒有資訊損失。
-  //   要改回逐檔刻度的前提是先把 IH 加高，但那會讓手機again變成長頁捲動。
-  const axisTicks: { top: number; txt: string }[] =
-    [hi, lo + (hi - lo) / 2, lo].map(v => ({ top: y(v), txt: Math.round(v).toLocaleString('zh-TW') }));
-  const multiYear = bars.length > 1 &&
-    new Date(bars[0].t * 1000).getFullYear() !== new Date(bars[bars.length - 1].t * 1000).getFullYear();
-  const step = Math.ceil(bars.length / (bars.length > 30 ? 6 : 8));
-  return (
-    <div style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5f5', marginBottom: 2, flexWrap: 'wrap' }}>
-        <span style={{ color: '#f6c945' }}>— MA5 {m5[bars.length - 1] != null ? fmtN(m5[bars.length - 1]!) : '—'}</span>
-        <span style={{ color: '#3d8ef8' }}>— MA20 {m20[bars.length - 1] != null ? fmtN(m20[bars.length - 1]!) : '—'}</span>
-        <span style={{ color: '#c084fc' }}>— MA60 {m60[bars.length - 1] != null ? fmtN(m60[bars.length - 1]!) : '—'}</span>
-        {t && <span style={{ color: '#dbe4f5' }}>{multiYear && iv !== '1mo' ? `${new Date(t.t * 1000).getFullYear()}/` : ''}{fmtD(t.t, iv)} 開{fmtN(t.o)} 高{fmtN(t.h)} 低{fmtN(t.l)} 收<b style={{ color: t.c >= t.o ? UP : DOWN }}>{fmtN(t.c)}</b>{hasVol ? ` 量${fmtV(t.v)}` : ''}</span>}
-      </div>
-      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#cbd5f5', marginBottom: 2, flexWrap: 'wrap', fontFamily: 'JetBrains Mono, monospace' }}>
-        {r5[ti] != null && <span>RSI5 <b style={{ color: '#dbe4f5' }}>{r5[ti]!.toFixed(1)}</b></span>}
-        {r10[ti] != null && <span>RSI10 <b style={{ color: '#dbe4f5' }}>{r10[ti]!.toFixed(1)}</b></span>}
-        {kd.K[ti] != null && <span>K <b style={{ color: '#dbe4f5' }}>{kd.K[ti]!.toFixed(1)}</b> D <b style={{ color: '#dbe4f5' }}>{kd.D[ti]!.toFixed(1)}</b></span>}
-        {macd.dif[ti] != null && <span>DIF <b style={{ color: '#dbe4f5' }}>{macd.dif[ti]!.toFixed(1)}</b> 柱 <b style={{ color: (macd.osc[ti] ?? 0) >= 0 ? UP : DOWN }}>{(macd.osc[ti] ?? 0).toFixed(1)}</b></span>}
-      </div>
-      {/* ⚠ 必須用 pointer 事件而不是 mouse 事件（2026-08-11 使用者：「多欄式要有標線可以精準查看」）：
-          原本只綁 onMouseMove/onMouseLeave —— 手機沒有滑鼠移動事件，
-          **觸控完全叫不出標線**，等於這張圖在手機上只能看不能讀值。
-          （與 K 線那張同一類問題，那張是被拖曳分支吃掉。）
-          touchAction:'none' 讓手指在圖上滑動是讀值而不是捲頁面。 */}
-      <div style={{ position: 'relative' }}>
-      <svg viewBox={`0 0 ${W} ${totalH}`} style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none' }}
-        onPointerLeave={() => setTip(null)}
-        onPointerUp={e => (e.currentTarget as SVGElement).releasePointerCapture?.(e.pointerId)}
-        onPointerDown={e => { (e.currentTarget as SVGElement).setPointerCapture?.(e.pointerId); pick(e.clientX, e.currentTarget as SVGElement); }}
-        onPointerMove={e => pick(e.clientX, e.currentTarget as SVGElement)}>
-        {/* 主圖：K棒＋均線 */}
-        {[0.25, 0.5, 0.75].map(f => <line key={f} x1={PADL} x2={W - PADR} y1={8 + (H - 16) * f} y2={8 + (H - 16) * f} stroke="rgba(148,163,184,0.12)" />)}
-        
-        {bars.map((b, i) => {
-          const up = b.c >= b.o, col = up ? UP : DOWN;
-          const bodyT = y(Math.max(b.o, b.c)), bodyB = y(Math.min(b.o, b.c));
-          return (
-            <g key={b.t}>
-              <line x1={x(i)} x2={x(i)} y1={y(b.h)} y2={y(b.l)} stroke={col} strokeWidth={1} />
-              <rect x={x(i) - Math.max(bw * 0.32, 0.8)} y={bodyT} width={Math.max(bw * 0.64, 1.6)} height={Math.max(bodyB - bodyT, 1)} fill={up ? col : 'var(--bg-primary, #0b1220)'} stroke={col} strokeWidth={1} />
-            </g>
-          );
-        })}
-        <polyline points={line(m5, y)} fill="none" stroke="#f6c945" strokeWidth={1.4} />
-        <polyline points={line(m20, y)} fill="none" stroke="#3d8ef8" strokeWidth={1.4} />
-        <polyline points={line(m60, y)} fill="none" stroke="#c084fc" strokeWidth={1.4} />
-        {/* VOL 副圖＋5日均量線 */}
-        {hasVol && <>
-          {bars.map((b, i) => (
-            <rect key={'v' + b.t} x={x(i) - Math.max(bw * 0.32, 0.8)} y={volY0 + 14 + (VH - 18) * (1 - b.v / vMax)} width={Math.max(bw * 0.64, 1.6)} height={(VH - 18) * (b.v / vMax)} fill={b.c >= b.o ? UP : DOWN} opacity={0.45} />
+  const onDown = (e: React.PointerEvent) => {
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* 指標已結束就略過，不該擋掉讀值 */ }
+    drag.current = { x: e.clientX, off: clampOffset, per: (e.currentTarget as HTMLElement).clientWidth / Math.max(1, view.length), panning: false };
+    hoverFromX(e.currentTarget as HTMLElement, e.clientX);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (drag.current && !drag.current.panning) {
+      if (Math.abs(e.clientX - drag.current.x) < PAN_THRESHOLD) { hoverFromX(e.currentTarget as HTMLElement, e.clientX); return; }
+      drag.current.panning = true; setHover(null);
+    }
+    if (drag.current) {
+      const moved = Math.round((e.clientX - drag.current.x) / drag.current.per);
+      setOffset(Math.max(0, Math.min(Math.max(0, n - clampSize), drag.current.off + moved)));
+      return;
+    }
+    hoverFromX(e.currentTarget as HTMLElement, e.clientX);
+  };
+  const onUp = () => { drag.current = null; };
+  const onLeave = () => { drag.current = null; setHover(null); };
+  const panProps = { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: onLeave };
+
+  if (!view.length) return <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', padding: 24 }}>無資料</div>;
+
+  const gi = hover != null ? start + hover : end - 1;   // 讀數用的全序列索引
+  const hv = hover != null ? view[hover] : null;
+  const at = (a: (number | null)[]) => a[gi];
+  const sliceOf = (a: (number | null)[]) => view.map((_, i) => a[start + i]);
+  const multiYear = view.length > 1 &&
+    new Date(view[0].t * 1000).getFullYear() !== new Date(view[view.length - 1].t * 1000).getFullYear();
+  const dateStep = Math.max(1, Math.ceil(view.length / 6));
+
+  // 一欄 = 一張獨立的圖：自己的標題列、自己的 Y 軸、共用的 x 與標線
+  // ⚠ 這是**渲染函式**不是元件，呼叫方式固定為 {renderPane({...})}（2026-08-11）：
+  //   若寫成 `const Pane = (props) => ...` 再用 <Pane /> 掛載，
+  //   由於它定義在 render 內部，每次 render 都是一個**新的元件型別**，
+  //   React 會卸載整棵子樹再重掛 —— 拖曳中的 pointer capture 會斷、標線會閃掉，
+  //   實測第一次模擬 pointerdown 量到五欄標線全是 0。
+  //   當成純函式呼叫就沒有元件識別，等同把 JSX 直接寫在原地。
+  const renderPane = ({ h, title, legend, lo, hi, fmtY, ticks, showDates, draw }: {
+    h: number; title: string; legend?: React.ReactNode; lo: number; hi: number;
+    fmtY: (v: number) => string; ticks: number[]; showDates?: boolean;
+    draw: (yOf: (v: number) => number) => React.ReactNode;
+  }) => {
+    const padT = 6, padB = 6;
+    const yOf = (v: number) => padT + ((hi - v) / ((hi - lo) || 1)) * (h - padT - padB);
+    return (
+      <div style={{ border: '1px solid var(--border-primary)', borderRadius: 10, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '4px 8px',
+          fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)' }}>
+          <span style={{ whiteSpace: 'nowrap' }}>{title}</span>{legend}
+        </div>
+        <div style={{ position: 'relative', touchAction: 'none', cursor: 'crosshair', userSelect: 'none' }} {...panProps}>
+          <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} preserveAspectRatio="none">
+            {ticks.map(v => <line key={v} x1={padL} x2={W - padR} y1={yOf(v)} y2={yOf(v)} stroke="rgba(148,163,184,0.16)" />)}
+            {draw(yOf)}
+            {hover != null && <line x1={xOf(hover)} x2={xOf(hover)} y1={padT} y2={h - padB} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" />}
+          </svg>
+          {ticks.map(v => (
+            <span key={v} style={{ position: 'absolute', left: 0, top: yOf(v), transform: 'translateY(-50%)', width: padL - 6,
+              textAlign: 'right', pointerEvents: 'none', whiteSpace: 'nowrap',
+              fontSize: 'calc(10px * var(--fz))', color: '#9fb0c9', fontFamily: 'JetBrains Mono, monospace' }}>{fmtY(v)}</span>
           ))}
-          <polyline points={line(vma5, v => volY0 + 14 + (VH - 18) * (1 - v / vMax))} fill="none" stroke="#f6c945" strokeWidth={1.2} opacity={0.9} />
-        </>}
-        {/* RSI 副圖（Wilder 5/10·全站同口徑） */}
-        {[20, 50, 80].map(v => <g key={'rg' + v}>
-          <line x1={PADL} x2={W - PADR} y1={pctY(rsiY0)(v)} y2={pctY(rsiY0)(v)} stroke="rgba(148,163,184,0.14)" strokeDasharray={v === 50 ? '2 3' : undefined} />
-          
-        </g>)}
-        <polyline points={line(r5, pctY(rsiY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
-        <polyline points={line(r10, pctY(rsiY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
-        {/* MACD 副圖 */}
-        <line x1={PADL} x2={W - PADR} y1={macdY(0)} y2={macdY(0)} stroke="rgba(148,163,184,0.2)" />
-        {bars.map((b, i) => {
-          const v = macd.osc[i]; if (v == null) return null;
-          const y0 = macdY(0), y1 = macdY(v);
-          return <rect key={'o' + b.t} x={x(i) - Math.max(bw * 0.28, 0.7)} y={Math.min(y0, y1)} width={Math.max(bw * 0.56, 1.4)} height={Math.max(Math.abs(y1 - y0), 0.5)} fill={v >= 0 ? UP : DOWN} opacity={0.55} />;
-        })}
-        <polyline points={line(macd.dif, macdY)} fill="none" stroke="#f6c945" strokeWidth={1.3} />
-        <polyline points={line(macd.dea, macdY)} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
-        {/* KD 副圖（9·⅔平滑） */}
-        {[20, 80].map(v => <g key={'kg' + v}>
-          <line x1={PADL} x2={W - PADR} y1={pctY(kdY0)(v)} y2={pctY(kdY0)(v)} stroke="rgba(148,163,184,0.14)" />
-          
-        </g>)}
-        <polyline points={line(kd.K, pctY(kdY0))} fill="none" stroke="#f6c945" strokeWidth={1.3} />
-        <polyline points={line(kd.D, pctY(kdY0))} fill="none" stroke="#7dd3fc" strokeWidth={1.3} />
-        {/* 十字線與日期軸 */}
-        {tip != null && <line x1={x(tip)} x2={x(tip)} y1={0} y2={totalH - 14} stroke="rgba(255,255,255,0.55)" strokeDasharray="3 3" />}
-        {/* 主圖補一條水平價格線：只有縱線讀不出「這根收在哪個價位」 */}
-        {t && <line x1={PADL} x2={W - PADR} y1={y(t.c)} y2={y(t.c)} stroke="rgba(255,255,255,0.45)" strokeDasharray="3 3" />}
-        
-      </svg>
-      {/* ── HTML 軸層：面板名／右側刻度／底部日期 ──────────────────────
-          pointerEvents:'none' 是必要的——這層蓋在整張圖上，
-          若攔到指標事件，標線就永遠叫不出來（等於白修）。 */}
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontFamily: 'JetBrains Mono, monospace', color: '#cbd5f5' }}>
-        {paneLabels.map(p2 => (
-          <div key={p2.y0} style={{ position: 'absolute', left: 2, top: pctY_(p2.y0 + 1), fontSize: 'calc(10px * var(--fz))', fontWeight: 700, whiteSpace: 'nowrap', textShadow: '0 0 4px var(--bg-elevated,#0b1220)' }}>{p2.txt}</div>
-        ))}
-        {axisTicks.map((a, i) => (
-          <div key={'a' + i} style={{ position: 'absolute', right: 2, top: pctY_(a.top), transform: 'translateY(-50%)', fontSize: 'calc(10px * var(--fz))', whiteSpace: 'nowrap' }}>{a.txt}</div>
-        ))}
-        {bars.map((b, i) => (i % step === 0) && (
-          <div key={'d' + b.t} style={{ position: 'absolute', left: `${(x(i) / W) * 100}%`, top: pctY_(totalH - 13), transform: 'translateX(-50%)', fontSize: 'calc(9.5px * var(--fz))', whiteSpace: 'nowrap' }}>{fmtAxisD(b.t, iv, multiYear)}</div>
-        ))}
-        {/* 標線落點的價格籤：縱線本身讀不出數字 */}
-        {t && <div style={{ position: 'absolute', right: 2, top: pctY_(y(t.c)), transform: 'translateY(-50%)', fontSize: 'calc(10px * var(--fz))', fontWeight: 800, padding: '1px 4px', borderRadius: 4, background: t.c >= t.o ? UP : DOWN, color: '#fff', whiteSpace: 'nowrap' }}>{fmtN(t.c)}</div>}
+          {/* 日期軸只掛在主圖與最末欄：五欄各掛一條會多吃 75px，而 x 是共用的，
+              中間三欄照著上下兩條對就讀得到。 */}
+          {showDates && (
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: -15, height: 15, overflow: 'hidden', pointerEvents: 'none' }}>
+              {view.map((b, i) => (i % dateStep === 0 ? (
+                <span key={b.t} style={{ position: 'absolute', left: `${(xOf(i) / W) * 100}%`, bottom: 0, transform: 'translateX(-50%)',
+                  whiteSpace: 'nowrap', fontSize: 'calc(9.5px * var(--fz))', color: '#9fb0c9', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {fmtAxisD(b.t, iv, multiYear)}
+                </span>
+              ) : null))}
+            </div>
+          )}
+        </div>
+        {showDates && <div style={{ height: 15 }} />}
       </div>
+    );
+  };
+
+  // 主圖範圍：含均線，否則均線會被畫到框外
+  const maVis = [ind.m5, ind.m20, ind.m60].flatMap(a => sliceOf(a).filter((v): v is number => v != null));
+  const pLo = Math.min(...view.map(b => b.l), ...(maVis.length ? maVis : [Infinity]));
+  const pHi = Math.max(...view.map(b => b.h), ...(maVis.length ? maVis : [-Infinity]));
+  const pPad = (pHi - pLo) * 0.06 || 1;
+  const yLo = pLo - pPad, yHi = pHi + pPad;
+  const vMax = Math.max(...view.map(b => b.v), 1);
+  const oscV = sliceOf(ind.macd.osc).filter((v): v is number => v != null);
+  const difV = [...sliceOf(ind.macd.dif), ...sliceOf(ind.macd.dea)].filter((v): v is number => v != null);
+  const mAbs = Math.max(...oscV.map(Math.abs), ...difV.map(Math.abs), 1e-9);
+  const hasVol = view.some(b => b.v > 0);
+
+  const poly = (a: (number | null)[], yOf: (v: number) => number, color: string, sw = 1.4) => {
+    const pts: string[] = [];
+    sliceOf(a).forEach((v, i) => { if (v != null) pts.push(`${pts.length ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`); });
+    return pts.length > 1 ? <path d={pts.join(' ')} fill="none" stroke={color} strokeWidth={sw} /> : null;
+  };
+  const chip = (color: string, label: string, val: string) => (
+    <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+      <span style={{ display: 'inline-block', padding: '0 4px', borderRadius: 3, background: color, color: '#0b1220',
+        fontWeight: 900, fontSize: 'calc(9.5px * var(--fz))', lineHeight: '13px' }}>{label}</span>
+      <b style={{ color, fontFamily: 'JetBrains Mono, monospace' }}>{val}</b>
+    </span>
+  );
+  const nz = (v: number | null | undefined, d = 1) => (v == null ? '—' : v.toFixed(d));
+
+  return (
+    <div ref={wrapRef} style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+      {/* 游標讀數：哪一根、開高低收 */}
+      <div style={{ display: 'flex', gap: 8, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(11px * var(--fz))', color: '#dbe4f5', minWidth: 0 }}>
+        <b style={{ whiteSpace: 'nowrap' }}>{fmtD((hv ?? view[view.length - 1]).t, iv)}{multiYear && iv !== '1mo' ? `（${new Date((hv ?? view[view.length - 1]).t * 1000).getFullYear()}）` : ''}</b>
+        {(() => { const b = hv ?? view[view.length - 1]; return (
+          <>
+            <span style={{ whiteSpace: 'nowrap' }}>開 {fmtN(b.o)}</span>
+            <span style={{ whiteSpace: 'nowrap' }}>高 <b style={{ color: UP }}>{fmtN(b.h)}</b></span>
+            <span style={{ whiteSpace: 'nowrap' }}>低 <b style={{ color: DOWN }}>{fmtN(b.l)}</b></span>
+            <span style={{ whiteSpace: 'nowrap' }}>收 <b style={{ color: b.c >= b.o ? UP : DOWN }}>{fmtN(b.c)}</b></span>
+          </>
+        ); })()}
+        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{hv ? '游標' : '最新'}</span>
+      </div>
+
+      {renderPane({ h: 230, title: 'K線', lo: yLo, hi: yHi, showDates: true,
+        fmtY: v => fmtN(v), ticks: [yHi, yLo + (yHi - yLo) * 0.5, yLo],
+        legend: (<>{chip('#f6c945', '5', nz(at(ind.m5), 0))}{chip('#3d8ef8', '20', nz(at(ind.m20), 0))}{chip('#c084fc', '60', nz(at(ind.m60), 0))}</>),
+        draw: yOf => (<>
+          {view.map((b, i) => {
+            const up = b.c >= b.o, col = up ? UP : DOWN;
+            const yO = yOf(b.o), yC = yOf(b.c);
+            return (
+              <g key={b.t}>
+                <line x1={xOf(i)} x2={xOf(i)} y1={yOf(b.h)} y2={yOf(b.l)} stroke={col} strokeWidth={1} />
+                <rect x={xOf(i) - Math.max(slot * 0.31, 0.6)} y={Math.min(yO, yC)} width={Math.max(slot * 0.62, 1.2)} height={Math.max(Math.abs(yO - yC), 1)} fill={col} />
+              </g>
+            );
+          })}
+          {poly(ind.m5, yOf, '#f6c945')}{poly(ind.m20, yOf, '#3d8ef8')}{poly(ind.m60, yOf, '#c084fc')}
+          <line x1={padL} x2={W - padR} y1={yOf(view[view.length - 1].c)} y2={yOf(view[view.length - 1].c)} stroke="#f59e0b" strokeWidth={1} strokeDasharray="4 4" opacity={0.85} />
+          {hv && <line x1={padL} x2={W - padR} y1={yOf(hv.c)} y2={yOf(hv.c)} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" />}
+        </>) })}
+
+      {hasVol && renderPane({ h: 84, title: 'VOL 成交量', lo: 0, hi: vMax,
+        fmtY: v => fmtV(v), ticks: [vMax, vMax / 2, 0],
+        legend: (<>{chip('#f6c945', '均5', at(ind.vma5) != null ? fmtV(at(ind.vma5)!) : '—')}
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', color: '#dbe4f5' }}>{fmtV((hv ?? view[view.length - 1]).v)}</span></>),
+        draw: yOf => (<>
+            {view.map((b, i) => (
+              <rect key={b.t} x={xOf(i) - Math.max(slot * 0.31, 0.6)} y={yOf(b.v)} width={Math.max(slot * 0.62, 1.2)}
+                height={Math.max(yOf(0) - yOf(b.v), 0.5)} fill={b.c >= b.o ? UP : DOWN} opacity={0.5} />
+            ))}
+            {poly(ind.vma5, yOf, '#f6c945', 1.2)}
+          </>) })}
+
+      {renderPane({ h: 84, title: 'RSI 5／10（Wilder）', lo: 0, hi: 100,
+        fmtY: v => String(v), ticks: [80, 50, 20],
+        legend: (<>{chip('#f6c945', '5', nz(at(ind.r5)))}{chip('#7dd3fc', '10', nz(at(ind.r10)))}</>),
+        draw: yOf => (<>{poly(ind.r5, yOf, '#f6c945', 1.3)}{poly(ind.r10, yOf, '#7dd3fc', 1.3)}</>) })}
+
+      {renderPane({ h: 84, title: 'MACD 12·26·9', lo: -mAbs, hi: mAbs,
+        fmtY: v => (Math.abs(v) < 1e-6 ? '0' : v.toFixed(0)), ticks: [mAbs, 0, -mAbs],
+        legend: (<>{chip('#f6c945', 'DIF', nz(at(ind.macd.dif)))}{chip('#7dd3fc', 'DEA', nz(at(ind.macd.dea)))}
+          <span style={{ whiteSpace: 'nowrap' }}>柱 <b style={{ color: (at(ind.macd.osc) ?? 0) >= 0 ? UP : DOWN, fontFamily: 'JetBrains Mono, monospace' }}>{nz(at(ind.macd.osc))}</b></span></>),
+        draw: yOf => (<>
+          {view.map((b, i) => {
+            const v = sliceOf(ind.macd.osc)[i]; if (v == null) return null;
+            const y0 = yOf(0), y1 = yOf(v);
+            return <rect key={b.t} x={xOf(i) - Math.max(slot * 0.27, 0.5)} y={Math.min(y0, y1)} width={Math.max(slot * 0.54, 1)}
+              height={Math.max(Math.abs(y1 - y0), 0.5)} fill={v >= 0 ? UP : DOWN} opacity={0.55} />;
+          })}
+          {poly(ind.macd.dif, yOf, '#f6c945', 1.3)}{poly(ind.macd.dea, yOf, '#7dd3fc', 1.3)}
+        </>) })}
+
+      {renderPane({ h: 84, title: 'KD 9（⅔平滑）', lo: 0, hi: 100, showDates: true,
+        fmtY: v => String(v), ticks: [80, 50, 20],
+        legend: (<>{chip('#f6c945', 'K', nz(at(ind.kd.K)))}{chip('#7dd3fc', 'D', nz(at(ind.kd.D)))}</>),
+        draw: yOf => (<>{poly(ind.kd.K, yOf, '#f6c945', 1.3)}{poly(ind.kd.D, yOf, '#7dd3fc', 1.3)}</>) })}
+
+      {/* 縮放列：與個股 K 線同一組操作（－／＋／根數／最新 ›） */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 4, flexWrap: 'wrap', marginTop: 2,
+        fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <button onClick={() => setSize(s => Math.round(Math.min(n, s * 1.4)))} title="縮小（顯示更多根）" style={zoomBtn}>－</button>
+        <button onClick={() => setSize(s => Math.round(Math.max(8, s * 0.7)))} title="放大（顯示更少根）" style={zoomBtn}>＋</button>
+        <span style={{ whiteSpace: 'nowrap' }}>{view.length}/{n} 根{iv === '1d' ? '日' : iv === '1wk' ? '週' : '月'}K</span>
+        <span className="desktop-only" style={{ whiteSpace: 'nowrap' }}>· 滾輪縮放 · 拖曳平移</span>
+        {clampOffset > 0 && <button onClick={() => setOffset(0)} style={{ ...zoomBtn, marginLeft: 'auto' }}>最新 ›</button>}
       </div>
     </div>
   );
 }
+
+const zoomBtn: React.CSSProperties = {
+  flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px', borderRadius: 7,
+  border: '1px solid var(--border-primary)', background: 'var(--bg-elevated)',
+  color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'calc(11.5px * var(--fz))',
+};
 
 // ── 指數分頁 ─────────────────────────────────────────────────────
 export default function IndexAnalysis() {
@@ -367,7 +468,6 @@ export default function IndexAnalysis() {
   }, [sym, iv]);
   useEffect(() => { load(); }, [load]);
 
-  const bars = useMemo(() => all.slice(-win), [all, win]);
   const read = useMemo(() => readIndex(all, name, iv), [all, name, iv]);
   const last = all[all.length - 1], prev = all[all.length - 2];
   const chg = last && prev ? (last.c - prev.c) / prev.c * 100 : 0;
@@ -408,7 +508,7 @@ export default function IndexAnalysis() {
       <div style={strip}>
         {INTERVALS.map(i => <button key={i.id} onClick={() => setIv(i.id)} style={chip(iv === i.id)}>{i.label}</button>)}
         <span style={{ flexShrink: 0, width: 1, margin: '4px 6px', background: 'var(--border-primary)' }} />
-        {WINDOWS.map(w => <button key={w} onClick={() => setWin(w)} style={chip(win === w)}>{w}根</button>)}
+        {WINDOWS.map(w => <button key={w} onClick={() => setWin(w)} style={chip(win === w)} title={`初始顯示 ${w} 根（圖上可再用 －／＋ 或滾輪縮放、拖曳平移）`}>{w}根</button>)}
       </div>
       {last && (
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(14px * var(--fz))', fontWeight: 900, minWidth: 0, maxWidth: '100%' }}>
@@ -421,7 +521,7 @@ export default function IndexAnalysis() {
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
         {loading ? <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>
-          : bars.length ? <CandleSvg bars={bars} iv={iv} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>無資料</div>}
+          : all.length ? <MultiPaneChart all={all} iv={iv} initSize={win} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>無資料</div>}
         {note && <div style={{ fontSize: 11, color: '#cbd5f5', marginTop: 4 }}>ℹ {note}</div>}
       </div>
 
