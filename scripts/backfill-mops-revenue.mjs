@@ -24,8 +24,19 @@
 import admin from 'firebase-admin';
 import { pathToFileURL } from 'node:url';
 
-if (!admin.apps.length) admin.initializeApp();
-const db = admin.firestore();
+// ⚠ 絕對不可以在 module 載入時 initializeApp()（2026-08-11 事故）：
+//   ai-daemon 會 `import { backfillMopsRevenue }` 這支模組，
+//   ESM 的 import 會在 daemon 自己用正式憑證 initializeApp() **之前**執行，
+//   於是 daemon 啟動時撞上
+//     「A Firebase app named "[DEFAULT]" already exists with a different configuration」
+//   直接 exit 1 —— daemon 完全起不來（實際停擺，盤中無人發現，因為
+//   marketSnapshot 還留著崩潰前最後一次的內容，看起來只是「有點舊」）。
+//   ⇒ 一律改成用到才初始化。任何要被 daemon import 的腳本都適用這條。
+let _db = null;
+const getDb = () => {
+  if (!_db) { if (!admin.apps.length) admin.initializeApp(); _db = admin.firestore(); }
+  return _db;
+};
 
 const MARKETS = [['sii', '上市'], ['otc', '上櫃']];
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
@@ -81,7 +92,7 @@ export async function backfillMopsRevenue(months = 36, logFn = console.log) {
     //   daemon 走 openapi 只涵蓋 ~1,350 檔，若門檻是 >1000 就會把那份薄資料
     //   誤判成「已完整」而永遠不再加厚。一個完整月份是 1,775–1,850 檔，
     //   所以門檻設 1700——低於此就當作不完整，重抓 MOPS 彙總表補厚。
-    const exist = await db.collection('revenueArchive').doc(id).get();
+    const exist = await getDb().collection('revenueArchive').doc(id).get();
     const prevN = exist.exists ? (exist.data()?.n ?? 0) : 0;
     if (prevN >= 1700) { skip++; continue; }
 
@@ -101,7 +112,7 @@ export async function backfillMopsRevenue(months = 36, logFn = console.log) {
       continue;
     }
     const json = JSON.stringify(all);
-    await db.collection('revenueArchive').doc(id).set({
+    await getDb().collection('revenueArchive').doc(id).set({
       month: id, n: all.length, rowsJson: json, bytes: json.length,
       bySrc: per, at: Date.now(),
     });
