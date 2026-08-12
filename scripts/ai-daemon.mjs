@@ -1330,7 +1330,18 @@ async function buildPriorityCodes(codes) {
   const valid = new Set(codes.map(c => c.code));
   const set = new Set();
   // 1) members' watchlists + holdings, 2) actively-viewed stocks — both highest priority.
-  try { for (const [code] of await resolveWatchCodes()) if (valid.has(code)) set.add(code); } catch { /* ignore */ }
+  // ⚠ 這兩步都要有 cap 檢查。原本第 1 步（自選/持股）**無上限**地 add，
+  //   一旦全站自選＋持股去重後超過 PRIORITY_CAP，第 2 步的 `set.size < CAP`
+  //   就恆為 false ⇒ **「開啟任何個股就變即時」這個功能整個失效**，
+  //   而且畫面上只是「這檔比較慢更新」，不會有任何錯誤。
+  //   目前實測 21 檔還沒踩到，屬於會隨用戶成長自己引爆的地雷。
+  //   兩步都設 cap 後最壞情況是各佔一半，瀏覽中的個股一定進得去。
+  const WATCH_BUDGET = Math.floor(PRIORITY_CAP / 2);
+  try {
+    for (const [code] of await resolveWatchCodes()) {
+      if (valid.has(code) && set.size < WATCH_BUDGET) set.add(code);
+    }
+  } catch { /* ignore */ }
   for (const code of await readViewedCodes()) if (valid.has(code) && set.size < PRIORITY_CAP) set.add(code);
   // 2.5) 昨日策略榜個股：早盤起漲提醒(earlyBird)與潛力榜需要它們的即時報價，
   //      否則中小型飆股不在掃描範圍、漲停了才後知後覺。
@@ -1425,7 +1436,39 @@ async function backfillIntradayMorning(trackedSet, byCode) {
   log(`  ⏮ 早盤回補 ${target} +${morning.length} 筆`);
 }
 
+// ── 重啟後把「今天已經掃到的即時價」接回來（2026-08-12）────────────────
+//
+// _lastLive 是純記憶體的，行程一重啟就整個清空。後果不是報錯，而是
+// **全市場安靜地退回昨日收盤**：每一檔都要等到 MIS 再次回一筆「真的成交」
+// 才會重新變成即時，而 misBatch 刻意只認 z/pz（不拿掛單價充數，見該處註解），
+// 所以冷門股可能數十分鐘都停在昨收，熱門股也要好幾輪。
+//
+// 2026-07-17 就出過同一件事（註解記在下方掃描窗那段），但當時的處置是
+// 「延長掃描窗」——那只解決收盤後的空窗，沒有解決「重啟就失憶」本身。
+// 2026-08-12 使用者回報「友達的價格怎麼沒有即時更新」即是此症：
+// 我在 08:50（開盤前 10 分鐘）重啟 daemon，2409 直到 09:23 才重新取得即時價。
+//
+// 快照本來就把今日即時價寫在 Firestore（live:true + liveAt），直接讀回來即可。
+// ⚠ 一定要比對 liveAt 是不是「今天」——跨日殘留沿用會把昨天的價當今天的。
+async function restoreLastLive() {
+  try {
+    const s = (await db.collection('marketSnapshot').doc('latest').get()).data();
+    if (!s?.quotesJson) return;
+    const today = isoDate(taipei());
+    const q = JSON.parse(s.quotesJson);
+    let n = 0;
+    for (const k in q) {
+      const v = q[k];
+      if (!v?.live || !v.liveAt) continue;
+      if (isoDate(new Date(v.liveAt)) !== today) continue;
+      _lastLive[k] = v; n++;
+    }
+    log(n ? `✓ 還原今日即時價 ${n} 檔（重啟不再整批退回昨收）` : '· 快照無今日即時價可還原（正常：盤前或非交易日）');
+  } catch (e) { log('✖ 還原今日即時價失敗：', (e.message || '').slice(0, 80)); }
+}
+
 async function marketSnapshotLoop() {
+  await restoreLastLive();
   for (;;) {
     try {
       const tw = taipei();
