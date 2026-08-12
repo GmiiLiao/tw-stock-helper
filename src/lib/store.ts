@@ -29,6 +29,7 @@ export interface HoldingItem {
   quantity: number;
   buyDate: string;
   note?: string;
+  unit?: 'lot' | 'share';  // 建立時使用者選的顯示單位（見 tw-fee.fmtQty）；未指定＝'lot'
 }
 
 export interface TradeRecord {
@@ -37,7 +38,8 @@ export interface TradeRecord {
   name: string;
   type: 'buy' | 'sell' | 'dividend';  // 買入/賣出/股利
   price: number;           // 成交價
-  quantity: number;        // 張數
+  quantity: number;        // 張數（內部一律以張儲存，可小數；0.35 = 350 股）
+  unit?: 'lot' | 'share';  // 輸入時選的單位，只影響顯示：'share' 一律寫成「N 股」不進位成張
   fee: number;             // 手續費
   tax: number;             // 交易稅（賣出 0.3%）
   totalAmount: number;     // 實際金額（含費用）
@@ -624,6 +626,7 @@ export const useAppStore = create<AppState>()(
             name: record.name,
             buyPrice: record.price,
             quantity: record.quantity,
+            unit: record.unit,          // 零股買進 → 持倉也以股顯示，不要進位成張
             buyDate: record.date,
             note: record.note,
           };

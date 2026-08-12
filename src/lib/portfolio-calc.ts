@@ -42,6 +42,7 @@ export interface ClosedTrade {
   matchedLots: number;     // 真正有成本可對應的張數
   oversoldLots: number;    // 無買進紀錄可對應的張數
   holdingDays: number | null; // 距最近一次買進的日曆天數
+  unit?: 'lot' | 'share';  // 沿用該筆賣出登錄時的顯示單位（零股單不進位成張）
   dayTrade?: boolean;
 }
 
@@ -169,7 +170,7 @@ export function buildLedger(records: TradeRecord[]): Ledger {
       avgCost: +avgCost.toFixed(4), proceeds: Math.round(proceedsMatched),
       pnl, roi, storedPnL,
       mismatch: storedPnL != null && Math.abs(pnl - storedPnL) > 1,
-      matchedLots, oversoldLots,
+      matchedLots, oversoldLots, unit: t.unit,
       holdingDays: led.lastBuyDate ? dayDiff(led.lastBuyDate, t.date) : null,
       dayTrade: t.dayTrade,
     };

@@ -22,9 +22,18 @@ export const ODD_LOT_MIN_FEE = 1; // 零股單低消（各券商 1~20 元不等�
 // 張數（可含小數）→ 股數
 export function sharesOf(lots: number): number { return Math.round(lots * 1000); }
 
-// 張數顯示：整張→「N 張」；純零股→「N 股」；混合→「N 張 M 股」
-export function fmtQty(lots: number): string {
+// 數量顯示單位。內部儲存一律是「張」（可小數），這個旗標只決定**怎麼寫給人看**。
+export type QtyUnit = 'lot' | 'share';
+
+// 張數顯示：整張→「N 張」；純零股→「N 股」；混合→「N 張 M 股」。
+//
+// unit='share'（使用者在表單上選了「股(零股)」）時**一律以股表示、不進位成張**：
+//   1313 股就寫「1313 股」，不是「1 張 313 股」。
+//   零股交易者心裡的單位就是股，硬換成張反而要自己再乘回去
+//   （2026-08-12 使用者指定）。整張模式才做 1000 進位。
+export function fmtQty(lots: number, unit?: QtyUnit): string {
   const shares = sharesOf(lots);
+  if (unit === 'share') return `${shares.toLocaleString()} 股`;
   const whole = Math.floor(shares / 1000), odd = shares % 1000;
   if (whole === 0) return `${odd} 股`;
   if (odd === 0) return `${whole} 張`;

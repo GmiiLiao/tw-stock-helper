@@ -129,6 +129,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
       realizedPnL,
       costBasis: avgCostBasis || undefined,
       dayTrade: form.dayTrade || undefined,
+      unit: form.unit,          // 只影響顯示：'share' 一律寫成「N 股」不進位成張
     });
     onClose();
   };
@@ -254,12 +255,17 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
               </label>
               <input
                 className="input" type="number" min="1" step={form.unit === 'share' ? 1 : 'any'}
-                placeholder={form.unit === 'share' ? '1~999 股' : '張數（可小數，0.35=350股）'}
+                placeholder={form.unit === 'share' ? '股數（例 1313）' : '張數（可小數，0.35=350股）'}
                 value={form.quantity}
                 onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))}
               />
               {form.unit === 'share' && qtyRaw > 0 && (
-                <span className={styles.inputHelper}>＝ {fmtQty(qtyRaw / 1000)}（零股費率同 0.1425%，低消以 1 元計）</span>
+                <span className={styles.inputHelper}>
+                  {/* 零股模式不進位成張：1313 股就寫 1313 股（2026-08-12 使用者指定） */}
+                  ＝ {fmtQty(qtyRaw / 1000, 'share')}
+                  {qtyRaw >= 1000 && <span style={{ color: 'var(--text-muted)' }}>（＝ {fmtQty(qtyRaw / 1000)}）</span>}
+                  （零股費率同 0.1425%，低消以 1 元計）
+                </span>
               )}
             </div>
           </div>
@@ -537,7 +543,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                     <span style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: 'var(--text-primary)' }}>
                       {t.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
-                    <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{fmtQty(t.quantity)}</span>
+                    <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{fmtQty(t.quantity, t.unit)}</span>
                   </div>
 
                   {/* Amount + PnL */}
@@ -558,10 +564,10 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                       if (!c) return null;
                       return (
                         <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 600, color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}
-                          title={`依交易紀錄重算：賣價 ${c.sellPrice} − 成本均價 ${c.avgCost.toFixed(2)}（含買進費）× ${fmtQty(c.lots)}${c.mismatch ? `\n⚠ 紀錄當下存的是 ${c.storedPnL?.toLocaleString()}（用了過期的手動持倉成本）——以重算為準` : ''}`}>
+                          title={`依交易紀錄重算：賣價 ${c.sellPrice} − 成本均價 ${c.avgCost.toFixed(2)}（含買進費）× ${fmtQty(c.lots, c.unit)}${c.mismatch ? `\n⚠ 紀錄當下存的是 ${c.storedPnL?.toLocaleString()}（用了過期的手動持倉成本）——以重算為準` : ''}`}>
                           實際獲利 {c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}（{c.roi >= 0 ? '+' : ''}{c.roi}%）
                           {c.mismatch && <span style={{ color: '#f59e0b', marginLeft: 4 }}>⚠核對</span>}
-                          {c.oversoldLots > 0 && <span style={{ color: '#f59e0b', marginLeft: 4 }}>⚠超賣{fmtQty(c.oversoldLots)}</span>}
+                          {c.oversoldLots > 0 && <span style={{ color: '#f59e0b', marginLeft: 4 }}>⚠超賣{fmtQty(c.oversoldLots, c.unit)}</span>}
                         </span>
                       );
                     })()}
@@ -769,7 +775,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           </div>
           {ledger.closed.filter(c => c.mismatch).map(c => (
             <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid rgba(245,158,11,0.15)', fontSize: 'calc(12px * var(--fz))', flexWrap: 'wrap' }}>
-              <span>{c.date} 賣出 <strong>{c.code} {c.name}</strong> {fmtQty(c.lots)} @ {c.sellPrice}</span>
+              <span>{c.date} 賣出 <strong>{c.code} {c.name}</strong> {fmtQty(c.lots, c.unit)} @ {c.sellPrice}</span>
               <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                 存檔 {c.storedPnL != null ? (c.storedPnL >= 0 ? '+' : '') + Math.round(c.storedPnL).toLocaleString() : '—'}
                 <span style={{ margin: '0 6px', color: 'var(--text-muted)' }}>→</span>
@@ -814,7 +820,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
                       {c.dayTrade ? <span style={{ color: '#f59e0b' }}> 沖</span> : ''}
                       {(c.mismatch || c.oversoldLots > 0) && <span style={{ color: '#f59e0b' }}> ⚠</span>}
                     </td>
-                    <td style={{ padding: '6px 4px', whiteSpace: 'nowrap' }}>{fmtQty(c.lots)}</td>
+                    <td style={{ padding: '6px 4px', whiteSpace: 'nowrap' }}>{fmtQty(c.lots, c.unit)}</td>
                     <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.sellPrice.toLocaleString()}</td>
                     <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.avgCost > 0 ? c.avgCost.toFixed(2) : '—'}</td>
                     <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
@@ -1198,7 +1204,7 @@ export default function Portfolio() {
                   <span>
                     <span style={{ color: 'var(--text-muted)', marginRight: 8 }}>{c.date}</span>
                     <strong style={{ cursor: 'pointer' }} onClick={() => navigateTo('stock', c.code)}>{c.code} {c.name}</strong>
-                    <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{fmtQty(c.lots)} @ {c.sellPrice}</span>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{fmtQty(c.lots, c.unit)} @ {c.sellPrice}</span>
                   </span>
                   <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: c.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                     {c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}（{c.roi >= 0 ? '+' : ''}{c.roi}%）
@@ -1436,7 +1442,7 @@ export default function Portfolio() {
                       <div key={item.id} className={styles.holdingRow}>
                         <div className={styles.holdingMeta}>
                           <span className={styles.holdingDate}>{item.buyDate}</span>
-                          <span className={styles.holdingQty}>{fmtQty(item.quantity)}</span>
+                          <span className={styles.holdingQty}>{fmtQty(item.quantity, item.unit)}</span>
                           <span className={styles.holdingBuy}>買進 {item.buyPrice.toFixed(2)}</span>
                           <span className={styles.holdingCurrent}>現價 {item.currentPrice.toFixed(2)}</span>
                         </div>
@@ -1465,7 +1471,7 @@ export default function Portfolio() {
                             id={`remove-holding-${item.id}`}
                             className={styles.removeBtn}
                             onClick={() => {
-                              if (confirm(`確定要刪除 ${item.buyDate} 買進的 ${fmtQty(item.quantity)} ${item.stockName || item.name} 嗎？`)) {
+                              if (confirm(`確定要刪除 ${item.buyDate} 買進的 ${fmtQty(item.quantity, item.unit)} ${item.stockName || item.name} 嗎？`)) {
                                 removeHolding(item.id);
                               }
                             }}

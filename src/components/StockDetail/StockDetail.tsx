@@ -526,7 +526,8 @@ export default function StockDetail() {
                   <div key={h.id} className={styles.holdingItem}>
                     <div className={styles.holdingInfo}>
                       <span className={styles.holdingDate}>{h.buyDate}</span>
-                      <span className={styles.holdingQty}>{fmtQty(h.quantity)}</span>
+                      {/* 在投資組合以「股(零股)」建立的部位，這裡也要維持股為單位 */}
+                      <span className={styles.holdingQty}>{fmtQty(h.quantity, h.unit)}</span>
                       <span className={styles.holdingBuyPrice}>成本 ${h.buyPrice.toFixed(2)}</span>
                       {h.note && <span className={styles.holdingNote}>{h.note}</span>}
                     </div>
