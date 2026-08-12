@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import admin from 'firebase-admin';
+import { runCheck as checkFieldConventions } from './check-field-conventions.mjs';
 
 process.env.GOOGLE_APPLICATION_CREDENTIALS =
   process.env.GOOGLE_APPLICATION_CREDENTIALS ||
@@ -295,7 +296,11 @@ async function lastTradingDay() {
 }
 
 function pickTimestamp(d) {
-  for (const k of ['updatedAt', 'at', 'generatedAt', 'fetchedAt', 'topupAt']) {
+  // ⚠ 這份清單與 check-field-conventions.mjs 的 REQUIRED_AUDIT_ALIASES 互相鎖定：
+  //   寫入端可用的「文件級新鮮度戳」名字都必須在這裡——少一個就是
+  //   bookDepthArchive 事故重演（資料好好的、稽核紅一整天「缺 fetchedAt」）。
+  //   單方面改任一邊，欄位命名契約檢查會失敗。
+  for (const k of ['updatedAt', 'at', 'generatedAt', 'fetchedAt', 'topupAt', 'archivedAt']) {
     const v = d?.[k];
     if (typeof v === 'number' && v > 1e12) return v;
     if (typeof v === 'string') { const t = Date.parse(v); if (!Number.isNaN(t)) return t; }
@@ -538,6 +543,13 @@ async function main() {
       console.log(`${icon} ${e.name.padEnd(10)} ${String(e.status).padEnd(9)} n=${String(e.records ?? '—').padEnd(6)} date=${(e.feedDate || '—').padEnd(11)} ${e.note}`);
     }
   }
+  // ── 欄位命名契約（防 archivedAt/fetchedAt 相撞再犯；違規不擋稽核但一定要吼出來）──
+  try {
+    const fieldProblems = checkFieldConventions();
+    if (fieldProblems.length) { console.log(`\n❌ 欄位命名契約 ${fieldProblems.length} 項違規：`); for (const fp of fieldProblems) console.log('  ' + fp); }
+    else console.log('\n✓ 欄位命名契約：無未登記欄位名');
+  } catch (e) { console.log('⚠ 欄位命名契約檢查失敗：', e.message); }
+
   console.log(`\n總計 ${results.length} 個資料源：正常 ${results.length - bad.length}、需處理 ${bad.length}`);
   const byStatus = {};
   bad.forEach(r => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });

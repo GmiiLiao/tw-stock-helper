@@ -286,6 +286,7 @@ rate limit 目前是 per-instance in-memory，要全域一致需自行申請 Ups
 npx tsc --noEmit && npx eslint .
 npm run build          # 只能在 Mac 上跑
 node scripts/audit-data-sources.mjs     # 全站資料源健康稽核（52 內部 + 6 外部）
+node scripts/check-field-conventions.mjs  # 欄位命名契約（新 xxxAt/xxxDate 名字必須登記，防止讀寫兩端相撞）
 ```
 
 ### 資料源健康稽核（wm-freshness-health-monitoring）
