@@ -55,12 +55,23 @@ function intClean(s: unknown): number {
 //   它誠實地落後一個交易日（Date=1150810，數值對應 08-10 收盤）
 //   ⇒ 站上顯示的 PER/殖利率一直是**昨天的**。
 //
-//   同一份報表的 rwd 端點給的是**當日**資料，只是它有兩個怪癖：
-//   ① 忽略 date 參數（帶未來日期也照回最新一份）——所以不能拿來查歷史。
-//   ② **title 的日期比資料日早一天**，date 欄才是真正的資料日。
-//   驗證方式（別只看欄位，要驗數值）：PBR ∝ 價格，故
-//   PBR(rwd)/PBR(openapi) 應等於 收盤(今日)/收盤(昨日)——
-//   實測 9 檔全部吻合到小數第三位，確認 rwd 就是當日。
+//   同一份報表的 rwd 端點給的是**最新一個交易日收盤**的資料，但有兩個怪癖：
+//   ① 忽略 date 參數（帶 20260701、20261231 都回同一份）——所以不能拿來查歷史。
+//   ② **`date` 欄是「今天的日曆日」，不是資料日；`title` 開頭的民國日期才是資料日。**
+//
+//   ⚠ 這一條我在 2026-08-11 判斷錯過一次，寫成「date 欄才是真正的資料日」。
+//     錯的原因很有教育意義：那次是**收盤後**測的，當天的收盤已經發布，
+//     於是「服務日」恰好等於「資料日」，兩個欄位看起來都對，我挑了錯的那個。
+//     2026-08-12 09:32（盤中、當日收盤尚未存在）再測就露餡了：
+//       date=20260812、title=115/08/11，而內容經數值反推是 08-11 的。
+//     驗證方式（別只看欄位，要驗數值）：PBR ∝ 價格。
+//       · 08-11 測：PBR(rwd)/PBR(openapi) == 收盤(08-11)/收盤(08-10)，9 檔全中
+//         → rwd 領先 openapi 一天（此結論仍成立）
+//       · 08-12 測：openapi 已追到 08-11，兩邊 PBR 比值恆為 1.0000，
+//         openapi 自報 Date=1150811 → rwd 內容就是 08-11 ⇒ title 對、date 錯
+//     另以 date 參數掃描確認：req=20260805/20260701/20261231 回傳的
+//     date 一律是 20260812、title 一律 115/08/11、PBR 一字不差 ⇒ date 純粹是服務日。
+//   ⇒ 資料日一律從 title 解析；date 欄只在 title 解不出來時當退路。
 //
 //   openapi 保留為 FALLBACK：rwd 偶有維護時段，寧可退回昨天的估值也不要整片空白，
 //   但**必須把資料日一起回傳**，讓呼叫端能揭露「這是哪一天的估值」。
@@ -69,6 +80,12 @@ let valCache: { map: Record<string, Valuation>; at: number; date: string | null 
 function ymdOf(v: unknown): string | null {
   const m = String(v ?? '').match(/^(\d{4})(\d{2})(\d{2})$/);
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+// title 形如「115/08/11 個股日本益比、殖利率及股價淨值比」——開頭的民國日期才是資料日。
+function rocDateOf(title: unknown): string | null {
+  const m = String(title ?? '').match(/(\d{2,3})\/(\d{2})\/(\d{2})/);
+  return m ? `${+m[1] + 1911}-${m[2]}-${m[3]}` : null;
 }
 
 export async function getValuationMap(): Promise<Record<string, Valuation>> {
@@ -91,7 +108,8 @@ export async function getValuation(): Promise<{ map: Record<string, Valuation>; 
       const code = String(row[0] || '').trim();
       if (code) map[code] = { pe: num(row[2]), dividendYield: num(row[3]), pb: num(row[4]) };
     }
-    date = ymdOf(rwd.date);
+    // title 優先（真資料日）；解不出來才退回 date 欄（服務日，可能超前一天）。
+    date = rocDateOf(rwd.title) ?? ymdOf(rwd.date);
   }
 
   // FALLBACK：openapi（落後一日）。只有在 rwd 整批失敗時才用。
