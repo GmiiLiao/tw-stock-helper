@@ -8,6 +8,7 @@
 // ============================================================
 
 import { isTradingDay } from './twse-api-server';
+import { memoize } from './singleflight';
 
 export interface Valuation { pe: number | null; dividendYield: number | null; pb: number | null; }
 export interface Margin {
@@ -24,6 +25,12 @@ export interface Institutional {
   totalNetLots: number;   // 三大法人合計(張)
 }
 
+// ⚠ 快取一律走 singleflight.memoize，不要手寫 `let cached; let cachedAt;`（CLAUDE.md 規矩）。
+// 這裡曾經是三份手寫 TTL 快取（2026-08-12 收斂）：手寫版沒有 in-flight 合流
+// ——TTL 到期瞬間 N 個併發 request＝N 次直打 TWSE；也沒有失敗負快取
+// ——TWSE 一掛，每個 request 都立刻重打。region 已在台灣（asia-east1），
+// 這些直打**會成功**，正面違反「上游請求數與線上人數脫鉤」的唯一不變式。
+// memoize 的 timeoutMs 必須涵蓋函式內的**連續多段** fetch（預設 8 秒會把它們砍半）。
 const TTL = 10 * 60 * 1000;
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)', Accept: 'application/json' };
 
@@ -75,7 +82,7 @@ function intClean(s: unknown): number {
 //
 //   openapi 保留為 FALLBACK：rwd 偶有維護時段，寧可退回昨天的估值也不要整片空白，
 //   但**必須把資料日一起回傳**，讓呼叫端能揭露「這是哪一天的估值」。
-let valCache: { map: Record<string, Valuation>; at: number; date: string | null } | null = null;
+
 
 function ymdOf(v: unknown): string | null {
   const m = String(v ?? '').match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -94,8 +101,7 @@ export async function getValuationMap(): Promise<Record<string, Valuation>> {
 
 // 回傳估值與**它代表的資料日**。缺了資料日就無法分辨「今天的」與「昨天的」，
 // 而這正是本專案栽過四次的那道閘門。
-export async function getValuation(): Promise<{ map: Record<string, Valuation>; date: string | null }> {
-  if (valCache && Date.now() - valCache.at < TTL) return { map: valCache.map, date: valCache.date };
+const _valuation = memoize('fund:valuation', TTL, async () => {
   const map: Record<string, Valuation> = {};
   let date: string | null = null;
 
@@ -126,14 +132,15 @@ export async function getValuation(): Promise<{ map: Record<string, Valuation>; 
     }
   }
 
-  valCache = { map, at: Date.now(), date };
   return { map, date };
+}, { timeoutMs: 20_000, isDegraded: v => !Object.keys((v as { map: object }).map).length });
+
+export async function getValuation(): Promise<{ map: Record<string, Valuation>; date: string | null }> {
+  return (await _valuation()) ?? { map: {}, date: null };
 }
 
 // ── Margin (MI_MARGN) ───────────────────────────────────────
-let marginCache: { map: Record<string, Margin>; at: number } | null = null;
-export async function getMarginMap(): Promise<Record<string, Margin>> {
-  if (marginCache && Date.now() - marginCache.at < TTL) return marginCache.map;
+const _margin = memoize('fund:margin', TTL, async () => {
   const arr = await fetchJSON('https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN');
   const map: Record<string, Margin> = {};
   if (Array.isArray(arr)) {
@@ -150,16 +157,19 @@ export async function getMarginMap(): Promise<Record<string, Margin>> {
       };
     }
   }
-  marginCache = { map, at: Date.now() };
   return map;
+}, { timeoutMs: 12_000, isDegraded: v => !Object.keys(v as object).length });
+
+export async function getMarginMap(): Promise<Record<string, Margin>> {
+  return (await _margin()) ?? {};
 }
 
 import { getAdminDb } from './firebase-admin';
 
 // ── Institutional (T86 上市 ＋ 第二大腦 chipDaily 補上櫃, dated) ────
-let instCache: { map: Record<string, Institutional>; date: string; at: number } | null = null;
-export async function getInstitutionalMap(): Promise<{ map: Record<string, Institutional>; date: string }> {
-  if (instCache && Date.now() - instCache.at < TTL) return { map: instCache.map, date: instCache.date };
+// timeoutMs 35s：候選日最多 4 個、逐一嘗試（每個 fetch 自身 8s 上限）——
+// 假日連休後第一次呼叫就是會走滿，砍太短等於假日後法人恆空。
+const _inst = memoize('fund:institutional', TTL, async () => {
 
   // Build candidate dates: today, then walk back over recent trading days.
   const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
@@ -215,8 +225,11 @@ export async function getInstitutionalMap(): Promise<{ map: Record<string, Insti
     }
   } catch { /* 第二大腦不可用時維持上市-only */ }
 
-  instCache = { map, date: usedDate, at: Date.now() };
   return { map, date: usedDate };
+}, { timeoutMs: 35_000, isDegraded: v => !Object.keys((v as { map: object }).map).length });
+
+export async function getInstitutionalMap(): Promise<{ map: Record<string, Institutional>; date: string }> {
+  return (await _inst()) ?? { map: {}, date: '' };
 }
 
 // ── Derived factors & risk flags ────────────────────────────

@@ -26,6 +26,8 @@
 //   注意股缺理由＝視為不是注意股（跳過）；處置股則保留（在名單上本身就是事實），
 //   但要明說「來源未提供事由」，不要編。
 
+import { memoize } from './singleflight';
+
 export interface RiskStockInfo {
   code: string;
   name: string;
@@ -45,7 +47,6 @@ export interface RiskStocksResult {
 
 const TTL = 5 * 60 * 1000;
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)' };
-let cache: { data: RiskStocksResult; at: number } | null = null;
 
 async function fetchJSON(url: string): Promise<unknown> {
   try {
@@ -72,8 +73,10 @@ function splitPeriod(p: string): { startDate?: string; endDate?: string } {
   return m ? { startDate: toIso(m[1]), endDate: toIso(m[2]) } : {};
 }
 
-export async function fetchRiskStocks(): Promise<RiskStocksResult> {
-  if (cache && Date.now() - cache.at < TTL) return cache.data;
+// 手寫快取 → memoize（同 fundamentals-server 的理由：in-flight 合流＋失敗負快取）。
+// 四個上游並行、各 8s 上限 ⇒ timeoutMs 12s。兩清單皆空視為降級（正常日極少見，
+// 走 30s 負快取重試的代價只是四次輕量 fetch）。
+const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResult> => {
 
   const [twAtt, twDisp, tpAtt, tpDisp] = await Promise.all([
     fetchJSON('https://openapi.twse.com.tw/v1/announcement/notice'),
@@ -130,7 +133,11 @@ export async function fetchRiskStocks(): Promise<RiskStocksResult> {
     });
   }
 
-  const data: RiskStocksResult = { attention, disposition, fetchedAt: new Date().toISOString() };
-  cache = { data, at: Date.now() };
-  return data;
+  return { attention, disposition, fetchedAt: new Date().toISOString() };
+}, { timeoutMs: 12_000, isDegraded: v => {
+  const r = v as RiskStocksResult; return !r.attention.length && !r.disposition.length;
+} });
+
+export async function fetchRiskStocks(): Promise<RiskStocksResult> {
+  return (await _riskStocks()) ?? { attention: [], disposition: [], fetchedAt: new Date().toISOString() };
 }
