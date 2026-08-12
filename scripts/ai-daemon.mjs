@@ -8956,7 +8956,7 @@ async function dailyJobsLoop() {
             if (n >= 300) {
               await db.collection('bookDepthArchive').doc(today).set({
                 date: today, byCodeJson: json, n, mode,
-                winFrom: '13:20', winTo: '13:35', staleDropped: stale, archivedAt: Date.now(),
+                winFrom: '13:20', winTo: '13:35', staleDropped: stale, archivedAt: Date.now(), fetchedAt: Date.now(),
               });
               log(`✓ 尾盤五檔歸檔 ${today}（${n} 檔·${mode}·窗外丟棄 ${stale}）`);
             } else {
@@ -8985,7 +8985,7 @@ async function dailyJobsLoop() {
                 reason: winOK ? `窗內樣本僅 ${n} 檔（<300）`
                   : '本 process 的 13:20~13:35 累積窗為空（多半是 13:36 後才啟動的 process；'
                     + '若當日稍早已成功歸檔，上方守衛會攔下不覆蓋）',
-                archivedAt: Date.now(),
+                archivedAt: Date.now(), fetchedAt: Date.now(),
               });
               log(`⚠ 尾盤五檔歸檔跳過 ${today}：${winOK ? `窗內僅 ${n} 檔` : '累積窗無資料'}`);
               }
