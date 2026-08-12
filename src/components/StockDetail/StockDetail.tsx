@@ -521,7 +521,7 @@ export default function StockDetail() {
                 const value = stock.price * h.quantity * 1000;
                 const cost  = h.buyPrice * h.quantity * 1000;
                 const pnl   = value - cost;
-                const pnlPct = (pnl / cost) * 100;
+                const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;   // buyPrice=0 的壞資料不要印 NaN%
                 return (
                   <div key={h.id} className={styles.holdingItem}>
                     <div className={styles.holdingInfo}>
