@@ -120,13 +120,29 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
         }
         return { mg, md };
       });
+      // 比較線圖用路徑：以「相似點」（20日窗的終點）為 0% 錨——
+      // 這樣四條線在錨點交會，之後的分岔就是「長得像的走勢後來怎麼走」，
+      // 視覺可直接比。窗內段（-19..0）顯示形狀、窗後段（+1..+20）顯示結局。
+      const pathOf = (sr, i2) => {
+        const out = [];
+        for (let k = Math.max(0, i2 - 19); k <= Math.min(i2 + 20, sr.c.length - 1); k++) {
+          out.push(+(((sr.c[k] / sr.c[i2]) - 1) * 100).toFixed(2));
+        }
+        return out;
+      };
+      // 本檔近 20 日（終點=今天=0%）；沒有未來段，圖上停在相似點
+      const selfPath = [];
+      for (let k = n - 20; k < n; k++) selfPath.push(+(((c[k] / last) - 1) * 100).toFixed(2));
       analog = {
         n: top.length, stats,
         grow: +(med(gd.map(x => x.mg)) * 100).toFixed(1),
         draw: +(med(gd.map(x => x.md)) * 100).toFixed(1),
+        selfPath,
         examples: top.slice(0, 3).map(([, w]) => ({
           code: W.codes[w], date: ctx.series[W.codes[w]].dates[W.idx[w]],
           ret5: (() => { const r = fwd(w, 5); return r != null ? +(r * 100).toFixed(1) : null; })(),
+          path: pathOf(ctx.series[W.codes[w]], W.idx[w]),   // 窗內20＋窗後至多20，錨=相似點
+          winLen: Math.min(20, W.idx[w]),                    // 窗內段實際長度（對齊繪圖用）
         })),
       };
     }

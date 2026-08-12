@@ -7,7 +7,8 @@ export interface HoldingStrategyResult {
   analog: {
     n: number; stats: Array<{ d: number; med: number; win: number }>;
     grow: number; draw: number;
-    examples: Array<{ code: string; date: string; ret5: number | null }>;
+    selfPath: number[];   // 本檔近20日累計%（錨=今天=0）
+    examples: Array<{ code: string; date: string; ret5: number | null; path: number[]; winLen: number }>;
   } | null;
 }
 export interface StrategySeries { [code: string]: { dates: string[]; c: number[]; h: number[]; l: number[] } }
