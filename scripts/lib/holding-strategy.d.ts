@@ -8,7 +8,7 @@ export interface HoldingStrategyResult {
   heldDays: number | null; holdN: number;
   analog: {
     n: number; tube: number; stats: Array<{ d: number; med: number; win: number }>;
-    grow: number; draw: number;
+    grow: number | null; draw: number | null;   // <5 段時留空——小樣本中位數不是統計
     selfPath: number[];   // 本檔近20日累計%（錨=今天=0）
     examples: Array<{ code: string; name: string; ind: string | null; sameInd: boolean; date: string; ret5: number | null; path: number[]; winLen: number }>;
   } | null;

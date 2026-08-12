@@ -236,6 +236,9 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
                     後5日收盤中位 <b style={{ color: (st.nextAnalog.d5Med ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{st.nextAnalog.d5Med != null ? `${st.nextAnalog.d5Med >= 0 ? '+' : ''}${st.nextAnalog.d5Med}%` : '—'}</b> <span style={{ color: 'var(--text-muted)' }}>勝{st.nextAnalog.d5Win ?? '—'}%</span>
                   </span>
                   <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', fontSize: 'calc(0.68rem * var(--fz))', color: 'var(--text-muted)' }}>近5日逐點 ±3%·例外≤1日·n={st.nextAnalog.n}·同族群優先</span>
+                  {st.nextAnalog.n < 5 && (
+                    <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24' }}>樣本&lt;5——統計留空，僅供目視</span>
+                  )}
                 </div>
                 <NextAnalogChart na={st.nextAnalog} selfPath5={st.selfPath5} />
                 <div style={caveat}>⚠ 「隔日開盤賣」為鐵律出場口徑（用歷史開盤價實算）；相似→未來報酬檢定未通過，此為描述統計、非訊號。</div>
@@ -274,6 +277,9 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
       {st.analog && (
         <div style={panel(VIOLET)}>
           <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·逐點 ±3% 內·例外 ≤5 日且不超過 ±{st.analog.tube}%）</span></div>
+          {st.analog.n < 5 && (
+            <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ 僅找到 {st.analog.n} 段（&lt;5）——樣本過少、無統計意義，中位/勝率不顯示，線圖僅供目視比對。</div>
+          )}
           {st.analog.tube > 5 && (
             <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ 走勢較極端，例外日的離群上限已放寬到 ±{st.analog.tube}%（逐點 ±3%/≤5 日鐵則不變）——判讀請更保守。</div>
           )}
@@ -283,11 +289,13 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
                 後{x.d}日 <b style={{ color: x.med >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{x.med >= 0 ? '+' : ''}{x.med}%</b> <span style={{ color: 'var(--text-muted)' }}>勝{x.win}%</span>
               </span>
             ))}
-            <span style={chip(`1px solid ${VIOLET}55`)}>
-              最大成長 <b style={{ color: 'var(--color-up)' }}>+{st.analog.grow}%</b> ／ 回檔 <b style={{ color: 'var(--color-down)' }}>{st.analog.draw}%</b>
-            </span>
+            {st.analog.grow != null && st.analog.draw != null && (
+              <span style={chip(`1px solid ${VIOLET}55`)}>
+                最大成長 <b style={{ color: 'var(--color-up)' }}>+{st.analog.grow}%</b> ／ 回檔 <b style={{ color: 'var(--color-down)' }}>{st.analog.draw}%</b>
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>成長是賣不到的上界，必須配回檔一起看。例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
+          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>{st.analog.grow != null ? '成長是賣不到的上界，必須配回檔一起看。' : ''}例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
           {st.selfPath?.length ? (
             <>
               <button onClick={() => setShowChart(v => !v)}

@@ -131,13 +131,15 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
       top = scored.slice(0, 30); usedTube = tube;
       if (top.length >= 5) break;
     }
-    if (top.length < 5) {
-      analogNote = `全市場歷史中，符合「逐點 ±3% 內（容許 ≤5 日例外、例外不超過 ±${usedTube}%）」的相似波段僅 ${top.length} 段——樣本不足，不硬湊統計。`;
+    if (top.length === 0) {
+      analogNote = `全市場歷史中，符合「逐點 ±3% 內（容許 ≤5 日例外、例外不超過 ±${usedTube}%）」的相似波段為 0 段。`;
     }
-    if (top.length >= 5) {
+    // 1~4 段也要顯示（2026-08-12 使用者定案）：例子與線圖照出，
+    // 但統計欄位（中位/勝率/成長/回檔）**留空**——4 段的中位數不是統計，是巧合。
+    if (top.length >= 1) {
       const fwd = (w, hn) => { const sc = ctx.series[W.codes[w]].c; const i2 = W.idx[w]; return i2 + hn < sc.length ? sc[i2 + hn] / sc[i2] - 1 : null; };
       const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
-      const stats = [5, 10, 20].map(hn => {
+      const stats = top.length < 5 ? [] : [5, 10, 20].map(hn => {
         const rs = top.map(([, w]) => fwd(w, hn)).filter(r => r != null && Number.isFinite(r));
         if (rs.length < 5) return null;   // n 一律隨卡揭露，小樣本由讀者自行折價
         return { d: hn, med: +(med(rs) * 100).toFixed(2), win: +(rs.filter(r => r > 0).length / rs.length * 100).toFixed(1) };
@@ -172,8 +174,8 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
       analog = {
         n: top.length, tube: usedTube, stats,
         selfPath,   // 相容欄位：舊 bundle 的 AnalogChart 讀這裡；新 UI 讀根層（下版可移除）
-        grow: +(med(gd.map(x => x.mg)) * 100).toFixed(1),
-        draw: +(med(gd.map(x => x.md)) * 100).toFixed(1),
+        grow: top.length >= 5 ? +(med(gd.map(x => x.mg)) * 100).toFixed(1) : null,
+        draw: top.length >= 5 ? +(med(gd.map(x => x.md)) * 100).toFixed(1) : null,
         selfPath,
         examples: pickExamples(top, 3).map(([, w]) => ({
           code: W.codes[w], name: ctx.nameMap?.[W.codes[w]] || '',
@@ -218,7 +220,7 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
       top5 = scored.slice(0, 30); usedTube5 = tube;
       if (top5.length >= 5) break;
     }
-    if (top5.length >= 5) {
+    if (top5.length >= 1) {
       const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
       // 隔日開盤賣（鐵律口徑）與後5日收盤
       const openRets = [], c5Rets = [];
