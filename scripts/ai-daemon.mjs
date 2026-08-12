@@ -572,7 +572,13 @@ async function getStrategyCtx() {
   // 股名對照（相似例顯示用）：快照 quotes 全市場都有 name
   let nameMap = {};
   try { const q = (await readSnapshotQuotes())?.quotes || {}; for (const cc in q) if (q[cc]?.name) nameMap[cc] = q[cc].name; } catch { /* 缺名不擋 */ }
-  _stratCtx = { archDate: newest, ctx: { series, windows, charMap, nameMap } };
+  // 族群對照（同族群優先取樣用）：peerComps 同業表為「相近話題/上下游」的代理
+  let indMap = {};
+  try {
+    const pc = (await db.collection('peerComps').doc('latest').get()).data();
+    if (pc?.industriesJson) { const ind = JSON.parse(pc.industriesJson); for (const g in ind) for (const it of ind[g]) if (it?.code) indMap[it.code] = g; }
+  } catch { /* 缺分類不擋 */ }
+  _stratCtx = { archDate: newest, ctx: { series, windows, charMap, nameMap, indMap } };
   log(`  · 持股策略脈絡就緒（資料至 ${newest}）：${Object.keys(series).length} 檔、${windows.count} 個相似窗`);
   return _stratCtx.ctx;
 }

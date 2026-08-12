@@ -35,8 +35,17 @@ const getCtx = memoize('stock-strategy-ctx', 6 * 3600_000, async () => {
     const q = JSON.parse(ms?.quotesJson || '{}');
     for (const cc in q) if (q[cc]?.name) nameMap[cc] = q[cc].name;
   } catch { /* 缺名不擋 */ }
+  // 族群對照（同族群優先取樣）：peerComps 同業表為相近話題/上下游的代理
+  let indMap: Record<string, string> = {};
+  try {
+    const pc = (await db.collection('peerComps').doc('latest').get()).data();
+    if (pc?.industriesJson) {
+      const ind = JSON.parse(pc.industriesJson) as Record<string, Array<{ code?: string }>>;
+      for (const g in ind) for (const it of ind[g]) if (it?.code) indMap[it.code] = g;
+    }
+  } catch { /* 缺分類不擋 */ }
   const archDate = asc.length ? (asc[asc.length - 1] as { date: string }).date : null;
-  return { series, windows, charMap, nameMap, archDate };
+  return { series, windows, charMap, nameMap, indMap, archDate };
 }, { timeoutMs: 60_000, isDegraded: v => !(v as { windows: { count: number } }).windows?.count });
 
 export async function GET(request: NextRequest) {

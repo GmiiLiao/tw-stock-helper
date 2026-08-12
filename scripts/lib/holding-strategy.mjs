@@ -24,8 +24,8 @@ export function buildStrategySeries(archDocsAsc) {
     const m = JSON.parse(day.closeJson);
     for (const code in m) {
       const r = m[code]; if (!r || !(r[0] > 0)) continue;
-      const st = (series[code] ??= { dates: [], c: [], h: [], l: [] });
-      st.dates.push(day.date); st.c.push(r[0]); st.h.push(r[3] ?? r[0]); st.l.push(r[4] ?? r[0]);
+      const st = (series[code] ??= { dates: [], c: [], h: [], l: [], o: [] });
+      st.dates.push(day.date); st.c.push(r[0]); st.h.push(r[3] ?? r[0]); st.l.push(r[4] ?? r[0]); st.o.push(r[2] ?? r[0]);
     }
   }
   return series;
@@ -160,14 +160,24 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
         }
         return out;
       };
+      // 例子挑選（2026-08-12 使用者定案）：**同族群（相近話題/上下游，以同業表為代理）優先**。
+      // 統計池（top 30）仍按距離排——族群偏好只影響「秀哪 3 個例子」，不污染統計。
+      const myInd = ctx.indMap?.[code] || null;
+      const pickExamples = (pool, k) => {
+        if (!myInd) return pool.slice(0, k);
+        const same = pool.filter(([, w]) => ctx.indMap?.[W.codes[w]] === myInd);
+        const rest = pool.filter(([, w]) => ctx.indMap?.[W.codes[w]] !== myInd);
+        return [...same, ...rest].slice(0, k);
+      };
       analog = {
         n: top.length, tube: usedTube, stats,
         selfPath,   // 相容欄位：舊 bundle 的 AnalogChart 讀這裡；新 UI 讀根層（下版可移除）
         grow: +(med(gd.map(x => x.mg)) * 100).toFixed(1),
         draw: +(med(gd.map(x => x.md)) * 100).toFixed(1),
         selfPath,
-        examples: top.slice(0, 3).map(([, w]) => ({
+        examples: pickExamples(top, 3).map(([, w]) => ({
           code: W.codes[w], name: ctx.nameMap?.[W.codes[w]] || '',
+          ind: ctx.indMap?.[W.codes[w]] || null, sameInd: myInd != null && ctx.indMap?.[W.codes[w]] === myInd,
           date: ctx.series[W.codes[w]].dates[W.idx[w]],
           ret5: (() => { const r = fwd(w, 5); return r != null ? +(r * 100).toFixed(1) : null; })(),
           path: pathOf(ctx.series[W.codes[w]], W.idx[w]),   // 窗內20＋窗後至多20，錨=相似點
@@ -176,5 +186,71 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
       };
     }
   }
-  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, selfPath, hi20Rel, filterPass, passes, fails, hold, heldDays, holdN: n, analog, analogNote };
+  // ── 隔日沖相似日（2026-08-12 使用者需求：4 組取樣＋後續 5 日）────────
+  // 取樣空間：近 5 日累計%（錨=今日=0）——正是既有 20 維窗向量的**末 5 維**，
+  // 零額外記憶體。鐵則按比例收斂：逐點 ±3%、例外 ≤1 日（20點:5日 → 5點:1日）。
+  // 出場統計用**隔日開盤價**（歸檔 r[2]）＝與「明早開盤賣」鐵律同口徑，不拿收盤充數。
+  let nextAnalog = null;
+  let selfPath5 = null;
+  if (n >= 6 && W?.count) {
+    selfPath5 = [];
+    for (let k = n - 5; k < n; k++) selfPath5.push(+(((c[k] / last) - 1) * 100).toFixed(2));
+    const qv5 = selfPath5;
+    const myInd = ctx.indMap?.[code] || null;
+    const TUBES5 = [5, 8, 12];
+    let top5 = [], usedTube5 = TUBES5[0];
+    for (const tube of TUBES5) {
+      const scored = [];
+      for (let w = 0; w < W.count; w++) {
+        if (W.codes[w] === code && W.idx[w] > n - 15) continue;
+        const base = w * 20 + 15;   // 末 5 維＝該窗近 5 日
+        let d = 0, ok = true, outDays = 0;
+        for (let k = 0; k < 5; k++) {
+          const t = qv5[k] - W.vecs[base + k];
+          const a2 = t < 0 ? -t : t;
+          if (a2 > tube) { ok = false; break; }
+          if (a2 > 3 && ++outDays > 1) { ok = false; break; }
+          d += t * t;
+        }
+        if (ok) scored.push([d, w]);
+      }
+      scored.sort((a, b) => a[0] - b[0]);
+      top5 = scored.slice(0, 30); usedTube5 = tube;
+      if (top5.length >= 5) break;
+    }
+    if (top5.length >= 5) {
+      const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
+      // 隔日開盤賣（鐵律口徑）與後5日收盤
+      const openRets = [], c5Rets = [];
+      for (const [, w] of top5) {
+        const sr = ctx.series[W.codes[w]]; const i2 = W.idx[w];
+        if (i2 + 1 < sr.o.length && sr.o[i2 + 1] > 0) openRets.push(sr.o[i2 + 1] / sr.c[i2] - 1);
+        if (i2 + 5 < sr.c.length) c5Rets.push(sr.c[i2 + 5] / sr.c[i2] - 1);
+      }
+      const same = top5.filter(([, w]) => myInd && ctx.indMap?.[W.codes[w]] === myInd);
+      const rest = top5.filter(([, w]) => !(myInd && ctx.indMap?.[W.codes[w]] === myInd));
+      const picked = [...same, ...rest].slice(0, 3);
+      nextAnalog = {
+        n: top5.length, tube: usedTube5,
+        openMed: openRets.length >= 5 ? +(med(openRets) * 100).toFixed(2) : null,
+        openWin: openRets.length >= 5 ? +(openRets.filter(r => r > 0).length / openRets.length * 100).toFixed(1) : null,
+        d5Med: c5Rets.length >= 5 ? +(med(c5Rets) * 100).toFixed(2) : null,
+        d5Win: c5Rets.length >= 5 ? +(c5Rets.filter(r => r > 0).length / c5Rets.length * 100).toFixed(1) : null,
+        examples: picked.map(([, w]) => {
+          const sr = ctx.series[W.codes[w]]; const i2 = W.idx[w];
+          const path5 = [];
+          for (let k = Math.max(0, i2 - 4); k <= Math.min(i2 + 5, sr.c.length - 1); k++) path5.push(+(((sr.c[k] / sr.c[i2]) - 1) * 100).toFixed(2));
+          return {
+            code: W.codes[w], name: ctx.nameMap?.[W.codes[w]] || '',
+            ind: ctx.indMap?.[W.codes[w]] || null, sameInd: myInd != null && ctx.indMap?.[W.codes[w]] === myInd,
+            date: sr.dates[i2],
+            openRet: (i2 + 1 < sr.o.length && sr.o[i2 + 1] > 0) ? +(((sr.o[i2 + 1] / sr.c[i2]) - 1) * 100).toFixed(2) : null,
+            path5, winLen5: Math.min(5, i2) + 0,
+          };
+        }),
+      };
+    }
+  }
+
+  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, selfPath, selfPath5, hi20Rel, filterPass, passes, fails, hold, heldDays, holdN: n, analog, analogNote, nextAnalog };
 }

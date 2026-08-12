@@ -27,6 +27,63 @@ const caveat: React.CSSProperties = {
   border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24', fontSize: 'calc(0.68rem * var(--fz))',
 };
 
+// ── 隔日沖相似日疊圖（近5日形狀·後續5日·4 組）──────────────────────
+// 與波段版同語言：錨=相似日（今日）=0%，左=近5日形狀、右=那三天後來的5日。
+// 出場統計另以**隔日開盤價**計（與明開賣鐵律同口徑）。SVG 內零文字。
+function NextAnalogChart({ na, selfPath5 }: { na: NonNullable<HoldingStrategyResult['nextAnalog']>; selfPath5: number[] }) {
+  const [sel, setSel] = useState<number | 'self' | null>(null);
+  const toggleSel = (k: number | 'self') => setSel(cur => (cur === k ? null : k));
+  const opa = (k: number | 'self') => (sel == null ? undefined : sel === k ? 1 : 0.12);
+  const W = 400, H = 130, DAYS = 10;   // day -4..+5
+  const x = (day: number) => ((day + 4) / (DAYS - 1)) * W;
+  const all: number[] = [...selfPath5];
+  for (const e of na.examples) all.push(...e.path5);
+  const lo = Math.min(...all), hi = Math.max(...all);
+  const pad = Math.max((hi - lo) * 0.08, 0.4);
+  const y = (v: number) => H - ((v - (lo - pad)) / ((hi + pad) - (lo - pad))) * H;
+  const line = (pts: Array<[number, number]>) => pts.map(([d, v], i) => `${i === 0 ? 'M' : 'L'}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 'calc(0.66rem * var(--fz))', marginBottom: 3 }}>
+        <button onClick={() => toggleSel('self')}
+          style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit',
+            background: sel === 'self' ? 'rgba(226,232,240,0.18)' : 'transparent', color: 'var(--text-secondary)',
+            border: sel === 'self' ? '1px solid #e2e8f0' : '1px solid var(--border-primary)', opacity: sel != null && sel !== 'self' ? 0.4 : 1 }}>
+          <span style={{ display: 'inline-block', width: 14, height: 3, background: '#e2e8f0', marginRight: 4 }} />本檔（至今日）
+        </button>
+        {na.examples.map((e, i) => (
+          <button key={e.code + e.date} onClick={() => toggleSel(i)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 8px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit',
+              background: sel === i ? `${EX_COLORS[i]}22` : 'transparent', color: 'var(--text-secondary)',
+              border: sel === i ? `1px solid ${EX_COLORS[i]}` : '1px solid var(--border-primary)', opacity: sel != null && sel !== i ? 0.4 : 1 }}>
+            <span style={{ display: 'inline-block', width: 14, height: 3, background: EX_COLORS[i] }} />
+            {e.code} {e.name}{e.sameInd && <span style={{ fontSize: 'calc(0.6rem * var(--fz))', padding: '0 4px', borderRadius: 999, background: 'rgba(45,212,191,0.15)', color: '#2dd4bf', border: '1px solid rgba(45,212,191,0.35)' }}>同族群</span>} {e.date}{e.openRet != null ? `（隔日開盤 ${e.openRet >= 0 ? '+' : ''}${e.openRet}%）` : ''}
+          </button>
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 130, display: 'block', background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
+        <rect x={x(0)} y={0} width={W - x(0)} height={H} fill="rgba(61,142,248,0.06)" />
+        <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.35)" strokeDasharray="4 4" strokeWidth={0.6} />
+        <line x1={x(0)} x2={x(0)} y1={0} y2={H} stroke="rgba(226,232,240,0.5)" strokeDasharray="2 3" strokeWidth={0.8} />
+        {na.examples.map((e, i) => (
+          <path key={e.code + e.date} d={line(e.path5.map((v, k) => [k - (e.winLen5 - 1), v] as [number, number]))}
+            fill="none" stroke={EX_COLORS[i]} strokeWidth={sel === i ? 2.6 : 1.4} vectorEffect="non-scaling-stroke"
+            opacity={opa(i) ?? 0.9} style={{ cursor: 'pointer' }} pointerEvents="stroke" onClick={() => toggleSel(i)} />
+        ))}
+        <path d={line(selfPath5.map((v, k) => [k - (selfPath5.length - 1), v] as [number, number]))}
+          fill="none" stroke="#e2e8f0" strokeWidth={sel === 'self' ? 3.2 : 2.4} vectorEffect="non-scaling-stroke"
+          opacity={opa('self')} style={{ cursor: 'pointer' }} pointerEvents="stroke" onClick={() => toggleSel('self')} />
+        <circle cx={x(0)} cy={y(0)} r={3} fill="#e2e8f0" />
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
+        <span>← 相似的近 5 日</span>
+        <span>▲ 相似日（0%·本檔＝今日）</span>
+        <span>後續 5 日（僅歷史例）→</span>
+      </div>
+    </div>
+  );
+}
+
 // ── 相似波段比較疊圖 ────────────────────────────────────────────────
 // 四條線（本檔＋3 段相似）以「相似點」為 0% 錨對齊：
 // 錨左邊是拿去比對的 20 日形狀、右邊是那三段歷史「後來怎麼走」。
@@ -95,7 +152,7 @@ function AnalogChart({ analog, selfPath }: { analog: NonNullable<HoldingStrategy
             style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit',
               background: sel === i ? `${EX_COLORS[i]}22` : 'transparent', color: 'var(--text-secondary)',
               border: sel === i ? `1px solid ${EX_COLORS[i]}` : '1px solid var(--border-primary)', opacity: sel != null && sel !== i ? 0.4 : 1 }}>
-            <span style={{ display: 'inline-block', width: 14, height: 3, background: EX_COLORS[i], marginRight: 4 }} />{e.code} {e.name || ''} {e.date}{e.ret5 != null ? `（5日 ${e.ret5 >= 0 ? '+' : ''}${e.ret5}%）` : ''}
+            <span style={{ display: 'inline-block', width: 14, height: 3, background: EX_COLORS[i], marginRight: 4 }} />{e.code} {e.name || ''}{e.sameInd && <span style={{ fontSize: 'calc(0.6rem * var(--fz))', padding: '0 4px', borderRadius: 999, background: 'rgba(45,212,191,0.15)', color: '#2dd4bf', border: '1px solid rgba(45,212,191,0.35)', marginLeft: 3 }}>同族群</span>} {e.date}{e.ret5 != null ? `（5日 ${e.ret5 >= 0 ? '+' : ''}${e.ret5}%）` : ''}
           </button>
         ))}
       </div>
@@ -132,6 +189,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
   // 「接下來持有滿 1 個交易日，歷史上中位是多少」。
   const [showChart, setShowChart] = useState(false);   // 相似疊圖（預設收合）
   const [showBreakout, setShowBreakout] = useState(false);   // 隔日沖走勢/突破位圖（預設收合）
+  const [showNextAnalog, setShowNextAnalog] = useState(false);   // 隔日沖相似日疊圖（預設收合）
   const elapsed = st.heldDays;
   const dayNo = elapsed != null ? elapsed + 1 : null;
   const matched = elapsed != null ? st.hold.find(h => h.d >= Math.max(1, elapsed)) ?? st.hold[st.hold.length - 1] : null;
@@ -160,6 +218,29 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
               📈 {showBreakout ? '收合走勢與突破位 ▴' : '展開走勢與突破位（時機判斷）▾'}
             </button>
             {showBreakout && <BreakoutChart selfPath={st.selfPath} hi20Rel={st.hi20Rel} brk20={st.brk20} />}
+          </>
+        ) : null}
+        {st.nextAnalog && st.selfPath5?.length ? (
+          <>
+            <button onClick={() => setShowNextAnalog(v => !v)}
+              style={{ marginTop: 4, marginLeft: 6, padding: '3px 10px', borderRadius: 8, fontSize: 'calc(0.7rem * var(--fz))', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', background: showNextAnalog ? `${BLUE}22` : 'var(--bg-secondary)', color: showNextAnalog ? BLUE : 'var(--text-secondary)', border: `1px solid ${showNextAnalog ? BLUE : 'var(--border-primary)'}` }}>
+              📈 {showNextAnalog ? '收合相似日比較 ▴' : `展開相似日比較（4 組·後續 5 日）▾`}
+            </button>
+            {showNextAnalog && (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 0' }}>
+                  <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.72rem * var(--fz))' }}>
+                    隔日<b style={{ color: BLUE }}>開盤賣</b>中位 <b style={{ color: (st.nextAnalog.openMed ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{st.nextAnalog.openMed != null ? `${st.nextAnalog.openMed >= 0 ? '+' : ''}${st.nextAnalog.openMed}%` : '—'}</b> <span style={{ color: 'var(--text-muted)' }}>勝{st.nextAnalog.openWin ?? '—'}%</span>
+                  </span>
+                  <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.72rem * var(--fz))' }}>
+                    後5日收盤中位 <b style={{ color: (st.nextAnalog.d5Med ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{st.nextAnalog.d5Med != null ? `${st.nextAnalog.d5Med >= 0 ? '+' : ''}${st.nextAnalog.d5Med}%` : '—'}</b> <span style={{ color: 'var(--text-muted)' }}>勝{st.nextAnalog.d5Win ?? '—'}%</span>
+                  </span>
+                  <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', fontSize: 'calc(0.68rem * var(--fz))', color: 'var(--text-muted)' }}>近5日逐點 ±3%·例外≤1日·n={st.nextAnalog.n}·同族群優先</span>
+                </div>
+                <NextAnalogChart na={st.nextAnalog} selfPath5={st.selfPath5} />
+                <div style={caveat}>⚠ 「隔日開盤賣」為鐵律出場口徑（用歷史開盤價實算）；相似→未來報酬檢定未通過，此為描述統計、非訊號。</div>
+              </>
+            )}
           </>
         ) : null}
       </div>

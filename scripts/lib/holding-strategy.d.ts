@@ -10,9 +10,17 @@ export interface HoldingStrategyResult {
     n: number; tube: number; stats: Array<{ d: number; med: number; win: number }>;
     grow: number; draw: number;
     selfPath: number[];   // 本檔近20日累計%（錨=今天=0）
-    examples: Array<{ code: string; name: string; date: string; ret5: number | null; path: number[]; winLen: number }>;
+    examples: Array<{ code: string; name: string; ind: string | null; sameInd: boolean; date: string; ret5: number | null; path: number[]; winLen: number }>;
   } | null;
   analogNote: string | null;
+  selfPath5: number[] | null;   // 近5日累計%（錨=今日=0）——隔日沖相似日圖
+  nextAnalog: {
+    n: number; tube: number;
+    openMed: number | null; openWin: number | null;   // 隔日開盤賣口徑（鐵律出場）
+    d5Med: number | null; d5Win: number | null;
+    examples: Array<{ code: string; name: string; ind: string | null; sameInd: boolean; date: string;
+      openRet: number | null; path5: number[]; winLen5: number }>;
+  } | null;
 }
 export interface StrategySeries { [code: string]: { dates: string[]; c: number[]; h: number[]; l: number[] } }
 export interface StrategyWindows { codes: string[]; idx: Int32Array; vecs: Float32Array; count: number }
