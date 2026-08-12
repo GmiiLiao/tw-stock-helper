@@ -26,8 +26,15 @@ const caveat: React.CSSProperties = {
   border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24', fontSize: 'calc(0.68rem * var(--fz))',
 };
 
-export default function StrategyPanels({ st, pnlPct }: { st: HoldingStrategyResult; pnlPct?: number }) {
-  const matched = st.heldDays != null ? st.hold.find(h => h.d >= st.heldDays!) ?? st.hold[st.hold.length - 1] : null;
+export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: HoldingStrategyResult; pnlPct?: number; mode?: 'holding' | 'candidate' }) {
+  // 日計慣例（2026-08-12 使用者定案）：**進場／操作當天＝第 1 日**。
+  // st.heldDays 是「經過的交易日數」（進場日=0）——顯示一律 +1；
+  // 候選（無買進日）由呼叫端把 heldDays 錨定為 0＝「以操作時間為第 1 日」。
+  // 對照列取 max(1, elapsed)：進場當天對到 d=1（＝明日收盤那格），語意是
+  // 「接下來持有滿 1 個交易日，歷史上中位是多少」。
+  const elapsed = st.heldDays;
+  const dayNo = elapsed != null ? elapsed + 1 : null;
+  const matched = elapsed != null ? st.hold.find(h => h.d >= Math.max(1, elapsed)) ?? st.hold[st.hold.length - 1] : null;
   return (
     <div style={{ padding: '2px 10px 10px', fontSize: 'calc(0.76rem * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
       {/* ① 隔日沖 */}
@@ -57,8 +64,13 @@ export default function StrategyPanels({ st, pnlPct }: { st: HoldingStrategyResu
             </span>
           ))}
         </div>
-        {st.heldDays != null && matched && pnlPct != null && (
-          <div>你目前持有<b style={{ color: TEAL }}>第 {st.heldDays} 個交易日</b>、帳面 <b style={{ color: pnlPct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</b>；該股歷史同持有期中位 {matched.med >= 0 ? '+' : ''}{matched.med}%（勝率 {matched.win}%）。</div>
+        {dayNo != null && matched && (
+          <div>
+            你目前{mode === 'candidate' ? '操作' : '持有'}<b style={{ color: TEAL }}>第 {dayNo} 個交易日</b>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（{mode === 'candidate' ? '以操作時間為第 1 日' : '買進日＝第 1 日'}）</span>
+            {pnlPct != null && <>、帳面 <b style={{ color: pnlPct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</b></>}
+            ；持有滿 <b>{matched.d}</b> 個交易日的歷史中位 {matched.med >= 0 ? '+' : ''}{matched.med}%（勝率 {matched.win}%）。
+          </div>
         )}
         <div style={caveat}>⚠ 全歷史描述統計，會完整繼承這一年的趨勢——不是對你這筆進場的預測。</div>
       </div>

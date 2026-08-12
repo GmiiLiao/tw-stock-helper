@@ -453,7 +453,9 @@ export default function DecisionDesk() {
                                 ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>計算中…（首次載入需建立全市場相似窗，約 3~5 秒）</div>
                                 : stratData[c.code] === 'none'
                                   ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>該檔歷史序列不足，無法分析。</div>
-                                  : <StrategyPanels st={stratData[c.code] as HoldingStrategyResult} />
+                                  : (() => { const sd = stratData[c.code] as HoldingStrategyResult;
+                                      // 候選無買進日：以「操作時間為第 1 日」（heldDays=0＝今天進場）——使用者定案
+                                      return <StrategyPanels st={sd.heldDays == null ? { ...sd, heldDays: 0 } : sd} mode="candidate" />; })()
                             )}
                           </div>
                           {/* 均線讀值＋停損/1%風險部位（隔日沖鐵律工具化） */}
