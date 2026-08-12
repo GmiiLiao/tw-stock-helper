@@ -176,8 +176,22 @@ const poll = async () => {
 
 ## 絕對不要做的事
 
-- **`?t=${Date.now()}` 或 `cache: 'no-store'`** 加在 GET API 上 —— CDN 會 100% miss。
-  這是本專案歷史上最貴的單一錯誤。
+- **讓 GET API 打穿 CDN** —— 這是本專案歷史上最貴的單一錯誤。
+  2026-08-12 用 `x-cache` 標頭實測，把三件常被混為一談的事分清楚：
+
+  | 做法 | CDN 結果 | 判斷 |
+  |---|---|---|
+  | URL 加 `?t=${Date.now()}` 之類的變動參數 | **MISS（每次）** | ❌ 每次都是新 URL，必定打穿 |
+  | **回應**標頭 `Cache-Control: no-store` | **MISS（每次）** | ❌ 等於宣告不可快取 |
+  | 前端 `fetch(url, { cache: 'no-store' })` | **HIT** | ✅ 只跳過瀏覽器自己的快取，動不到 CDN |
+
+  （第三列連 `Cache-Control: no-cache`、`Pragma: no-cache` 送出去也一樣是 HIT。）
+  ⇒ 要抓這類問題，看的是 **URL 是否穩定** 與 **回應標頭**，不是前端的 `cache` 選項。
+  我一度打算把前端那些 `cache: 'no-store'` 全部拿掉，量完才發現那是白工。
+  真正的破口是回應標頭：`stock-day-all`（646KB、盤中高頻輪詢）原本盤中回 `no-store`
+  ⇒ 實測連續三次 `x-cache: MISS`，每個使用者每次輪詢都打穿 origin，
+  已改 `s-maxage=2, stale-while-revalidate=20`（資料本身就有 5 秒 instance 快取、
+  daemon 掃描週期 25~32 秒、MIS 也是 5 秒才更新 ⇒ 2 秒的落後量遠小於資料自身的更新週期）。
 - **`setInterval(load, isTradingHours() ? A : B)`** —— 三元判斷只在掛載時算一次，之後永不重算。
 - **`useAppStore()` 不帶 selector** —— zustand v5 會比對整個 state，任何 `set()` 都重繪整棵樹。
   一律 `useAppStore(s => s.xxx)`。
