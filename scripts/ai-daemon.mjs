@@ -5824,7 +5824,10 @@ async function computeStressTest() {
       for (const h of (hd?.holdings || [])) { const g = (byCode[h.code] ??= { qty: 0, name: h.name }); g.qty += h.quantity; }
       const codes = Object.keys(byCode); if (!codes.length) continue;
       let tot = 0; const ws = {};
-      for (const c of codes) { const mv = (q[c]?.price ?? 0) * byCode[c].qty; ws[c] = mv; tot += mv; }
+      // ×1000（張→股）：β 加權是比值、係數相消，數學上原本就對——
+      // 但留著會讓「qty×price 必須 ×1000」的單位稽核永遠有一筆例外要人工判讀，
+      // 例外累積起來就是下一個真錯誤的藏身處。補上，稽核歸零。
+      for (const c of codes) { const mv = (q[c]?.price ?? 0) * byCode[c].qty * 1000; ws[c] = mv; tot += mv; }
       if (!(tot > 0)) continue;
       const betas = {}; let betaP = 0, covered = 0;
       for (const c of codes) { const b = await betaOf(c); if (b != null) { betas[c] = b; betaP += (ws[c] / tot) * b; covered += ws[c]; } }
