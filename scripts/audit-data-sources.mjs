@@ -178,7 +178,9 @@ const FRESH_PROBES = [
   //
   //   ⚠ 教訓：驗「日期欄位」要挑**資料日 ≠ 今天**的時段測（盤中或休市日）。
   //     收盤後測會讓服務日與資料日重合，兩個欄位看起來都對，等於沒驗。
-  { name: '殖利率(rwd)',   url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${d}&response=json`,               from: 'title' },
+  //   publishHour 22：BWIBBU 當日內容的確切發布時刻未實測；2026-08-12 17:05 PBR 反推
+  //   實測內容仍為前一交易日（9/9 檔），故收盤後至 22:00 前接受前一交易日不算落後。
+  { name: '殖利率(rwd)',   url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${d}&response=json`,               from: 'title', publishHour: 22 },
 ];
 
 // 民國日期出現在 title 的兩種寫法都要吃（都是實測格式）：
