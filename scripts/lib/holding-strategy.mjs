@@ -107,25 +107,32 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
   if (n >= 22 && W?.count) {
     const qv = new Float32Array(20);
     for (let k = 0; k < 20; k++) qv[k] = (c[n - 20 + k] / last - 1) * 100;   // 與窗向量同空間
+    // 逐點貼合鐵則（2026-08-12 使用者二度看圖收緊）：
+    // 「不重合的點在 ±3% 內、超過 3% 的天數 >5 日就不採用」——
+    // 20 個點裡至少 15 點必須貼在 ±3pp 內；其餘至多 5 點也不得超出外層管
+    // （±5，極端走勢分級放寬 ±8/±12 並據實標示）。
+    const INNER_PP = 3, MAX_OUT_DAYS = 5;
     let top = [], usedTube = TUBES[0];
     for (const tube of TUBES) {
       const scored = [];
       for (let w = 0; w < W.count; w++) {
         if (W.codes[w] === code && W.idx[w] > n - 40) continue;   // 排除自己最近重疊窗
-        const base = w * 20; let d = 0; let inTube = true;
+        const base = w * 20; let d = 0; let ok = true; let outDays = 0;
         for (let k = 0; k < 20; k++) {
           const t = qv[k] - W.vecs[base + k];
-          if (t > tube || t < -tube) { inTube = false; break; }
+          const a = t < 0 ? -t : t;
+          if (a > tube) { ok = false; break; }                      // 離群上限（分級管）
+          if (a > INNER_PP && ++outDays > MAX_OUT_DAYS) { ok = false; break; }  // 鐵則
           d += t * t;
         }
-        if (inTube) scored.push([d, w]);
+        if (ok) scored.push([d, w]);
       }
       scored.sort((a, b) => a[0] - b[0]);
       top = scored.slice(0, 30); usedTube = tube;
       if (top.length >= 5) break;
     }
     if (top.length < 5) {
-      analogNote = `全市場歷史中，即使放寬到 ±${usedTube}%，與本檔近 20 日走勢相似的波段僅 ${top.length} 段——樣本不足，不硬湊統計。`;
+      analogNote = `全市場歷史中，符合「逐點 ±3% 內（容許 ≤5 日例外、例外不超過 ±${usedTube}%）」的相似波段僅 ${top.length} 段——樣本不足，不硬湊統計。`;
     }
     if (top.length >= 5) {
       const fwd = (w, hn) => { const sc = ctx.series[W.codes[w]].c; const i2 = W.idx[w]; return i2 + hn < sc.length ? sc[i2 + hn] / sc[i2] - 1 : null; };

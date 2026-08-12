@@ -192,9 +192,9 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
       )}
       {st.analog && (
         <div style={panel(VIOLET)}>
-          <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·近20日走勢 ±{st.analog.tube}% 相似帶內）</span></div>
+          <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·逐點 ±3% 內·例外 ≤5 日且不超過 ±{st.analog.tube}%）</span></div>
           {st.analog.tube > 5 && (
-            <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ ±5% 內找不到足夠的歷史同類（走勢較極端），已放寬到 ±{st.analog.tube}% ——相似程度打了折，判讀請更保守。</div>
+            <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ 走勢較極端，例外日的離群上限已放寬到 ±{st.analog.tube}%（逐點 ±3%/≤5 日鐵則不變）——判讀請更保守。</div>
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '3px 0' }}>
             {st.analog.stats.map(x => (
