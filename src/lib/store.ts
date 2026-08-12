@@ -106,7 +106,9 @@ const syncHoldings = async (uid: string, holdings: any[]) => {
 const syncTrades = async (uid: string, tradeRecords: any[]) => {
   if (_syncReadOnly) return;
   try {
-    const data = JSON.parse(JSON.stringify({ tradeRecords }));
+    // updatedAt：daemon 的配置漂移監看拿它與 rebalance.updatedAt 比大小，
+    // 記/改/刪一筆交易後右下再平衡卡才會在數分鐘內重算（原本缺這欄＝監看盲區）。
+    const data = JSON.parse(JSON.stringify({ tradeRecords, updatedAt: Date.now() }));
     await setDoc(doc(db, 'users', uid, 'data', 'trades'), data);
   } catch (e) {
     console.error('Error syncing trades:', e);

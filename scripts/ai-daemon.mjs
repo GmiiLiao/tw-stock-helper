@@ -4216,16 +4216,36 @@ async function checkAllocationDrift() {
       const settings = (await db.collection('users').doc(uid).collection('data').doc('rebalanceSettings').get()).data() || {};
       const lim = { ...REBAL_LIMITS, ...(settings.limits || {}) };
       let cash = settings.cash > 0 ? settings.cash : null;
-      // 有現金流水帳(cashLedger)則自動推算餘額，優先於手動值：
-      // 入金 − 出金 + 股利 + 賣出入帳 − 買入扣款（totalAmount 已含稅費）
+      // 現金來源優先序（2026-08-12 對帳修正，與前端 CashLedger 同一把尺）：
+      //   ① 銀行實際餘額經交割調整 = bankBalance − 未交割買進待扣 + 未交割賣出待入
+      //   ② 帳本重放（入金−出金+股利+賣出−買入）——僅在沒有銀行餘額時退用
+      //   ③ rebalanceSettings 手動值——僅在連流水帳都沒有時
+      // 原本只有②：帳本任何未記的出入金/利息/折讓差都讓它漂（實測與銀行差 29.1 萬），
+      // 而且畫面上「資金總覽」顯示銀行對帳、這張再平衡卡卻顯示帳本值——
+      // 同一頁兩個「現金」對不上，使用者無從判斷哪個能信。
       try {
         const led = (await db.collection('users').doc(uid).collection('data').doc('cashLedger').get()).data();
-        if (led?.entries?.length) {
+        if (led?.entries?.length || typeof led?.bankBalance === 'number') {
           const td = (await db.collection('users').doc(uid).collection('data').doc('trades').get()).data();
           const ts = td?.trades || td?.tradeRecords || [];
-          cash = led.entries.reduce((s, e) => s + (e.type === 'withdraw' ? -e.amount : e.amount), 0)
-            + ts.filter(t => t.type === 'sell').reduce((s, t) => s + (t.totalAmount || 0), 0)
-            - ts.filter(t => t.type === 'buy').reduce((s, t) => s + (t.totalAmount || 0), 0);
+          if (typeof led.bankBalance === 'number') {
+            // ⚠鏡像警告：T+2 規則抄自 src/lib/tw-settlement.ts（跳過週末的近似），
+            //   兩邊必須一致，否則同一筆未交割款前端算進、daemon 不算。
+            const addTradingDays = (dIso, n) => {
+              const [y, m, dd] = dIso.split('-').map(Number); const d = new Date(y, m - 1, dd);
+              let a = 0; while (a < n) { d.setDate(d.getDate() + 1); const g = d.getDay(); if (g !== 0 && g !== 6) a++; }
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+            const today = isoDate(taipei());
+            const pending = t => t.date && addTradingDays(t.date, 2) > today;
+            const deduct = ts.filter(t => t.type === 'buy' && pending(t)).reduce((s, t) => s + (t.totalAmount || 0), 0);
+            const credit = ts.filter(t => t.type === 'sell' && pending(t)).reduce((s, t) => s + (t.totalAmount || 0), 0);
+            cash = led.bankBalance - deduct + credit;
+          } else {
+            cash = led.entries.reduce((s, e) => s + (e.type === 'withdraw' ? -e.amount : e.amount), 0)
+              + ts.filter(t => t.type === 'sell').reduce((s, t) => s + (t.totalAmount || 0), 0)
+              - ts.filter(t => t.type === 'buy').reduce((s, t) => s + (t.totalAmount || 0), 0);
+          }
           if (!(cash > 0)) cash = 0;
         }
       } catch { /* ledger 讀取失敗則沿用手動值 */ }
@@ -9021,13 +9041,18 @@ async function rebalanceSettingsLoop() {
       const premium = await getPremiumUsers();
       let stale = false;
       for (const u of premium) {
-        const [st, led, rb] = await Promise.all([
+        const [st, led, rb, td] = await Promise.all([
           db.collection('users').doc(u.id).collection('data').doc('rebalanceSettings').get(),
           db.collection('users').doc(u.id).collection('data').doc('cashLedger').get(),
           db.collection('users').doc(u.id).collection('data').doc('rebalance').get(),
+          db.collection('users').doc(u.id).collection('data').doc('trades').get(),
         ]);
         const rbAt = rb.data()?.updatedAt || 0;
-        if ((st.exists && (st.data().updatedAt || 0) > rbAt) || (led.exists && (led.data().updatedAt || 0) > rbAt)) { stale = true; break; }
+        // trades 也要看：記一筆買賣同時改變持股與現金，原本不在監看清單，
+        // 使用者下單後這張卡最慢要等到下一輪 daily jobs（可達數小時）才重算。
+        if ((st.exists && (st.data().updatedAt || 0) > rbAt)
+          || (led.exists && (led.data().updatedAt || 0) > rbAt)
+          || (td.exists && (td.data().updatedAt || 0) > rbAt)) { stale = true; break; }
       }
       if (stale) { await checkAllocationDrift(); log('✓ 配置漂移：偵測到設定變更即時重算'); }
     } catch (e) { log('✖ rebalance settings loop:', e.message); }

@@ -61,7 +61,10 @@ export default function CashLedger() {
     const v = bankInput.trim() === '' ? null : parseFloat(bankInput);
     if (v != null && isNaN(v)) return;
     setBankBalance(v);
-    await setDoc(doc(db, 'users', dataUid, 'data', 'cashLedger'), { bankBalance: v, bankAt: Date.now() }, { merge: true });
+    // updatedAt 一定要一起寫：daemon 的配置漂移監看是拿 cashLedger.updatedAt 與
+    // rebalance.updatedAt 比大小——原本這裡只寫 bankBalance/bankAt，
+    // 使用者按「更新」後右下的再平衡卡永遠不會重算，兩邊現金對不上。
+    await setDoc(doc(db, 'users', dataUid, 'data', 'cashLedger'), { bankBalance: v, bankAt: Date.now(), updatedAt: Date.now() }, { merge: true });
   };
   const add = async () => {
     const v = parseFloat(form.amount);
@@ -109,6 +112,19 @@ export default function CashLedger() {
     const diff = bankBalance - expectedToday;
     return { investable, expectedToday, diff };
   }, [bankBalance, calc]);
+
+  // ── 現金的唯一真相（2026-08-12 使用者對帳指正）───────────────────────
+  // 有銀行餘額時：現金＝銀行實際餘額經交割調整（bank.investable）。
+  // 帳本推算的 calc.cash 只在「沒有銀行餘額可對」時退而用之——
+  // 它是全部交易+流水的重放，任何未記的出入金/利息/折讓差都會讓它漂
+  // （實測與銀行差 −29.1 萬，對帳橫幅有揭露），但原本下游的
+  // 持股現值＋現金／帳戶總報酬仍拿它來算＝把已知的漂移假裝不存在。
+  // 口徑證明：淨值 = 持股現值 + 銀行 − 待扣 + 待入。
+  //   買進未交割：股票已計入持股現值、款還在銀行 → 減待扣款才不重複計；
+  //   賣出未交割：股票已不在持股、款未入帳 → 加待入帳才不漏計。
+  const cashUsed = bank ? bank.investable : calc.cash;
+  const totalReturnUsed = calc.mv + cashUsed - calc.netDeposits;
+  const retPctUsed = calc.netDeposits > 0 ? (totalReturnUsed / calc.netDeposits) * 100 : null;
 
   if (!user?.uid) return null;
   const hasLedger = entries.length > 0;
@@ -196,10 +212,12 @@ export default function CashLedger() {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px,1fr))', gap: 8, marginBottom: 10 }}>
             {[
-              { l: '現金餘額(自動)', v: wan(calc.cash), c: calc.cash < 0 ? '#ef4444' : 'var(--text-primary)' },
+              bank
+                ? { l: '現金（銀行為準·交割後）', v: wan(cashUsed), c: cashUsed < 0 ? '#ef4444' : 'var(--text-primary)' }
+                : { l: '現金餘額(帳本推算)', v: wan(calc.cash), c: calc.cash < 0 ? '#ef4444' : 'var(--text-primary)' },
               { l: '淨投入本金', v: wan(calc.netDeposits), c: 'var(--text-primary)' },
-              { l: '持股現值＋現金', v: wan(calc.mv + calc.cash), c: 'var(--text-primary)' },
-              { l: '帳戶總報酬', v: `${calc.totalReturn >= 0 ? '+' : ''}${wan(calc.totalReturn)}${calc.retPct != null ? `（${calc.retPct >= 0 ? '+' : ''}${calc.retPct.toFixed(1)}%）` : ''}`, c: calc.totalReturn >= 0 ? 'var(--color-up)' : 'var(--color-down)' },
+              { l: '持股現值＋現金', v: wan(calc.mv + cashUsed), c: 'var(--text-primary)' },
+              { l: '帳戶總報酬', v: `${totalReturnUsed >= 0 ? '+' : ''}${wan(totalReturnUsed)}${retPctUsed != null ? `（${retPctUsed >= 0 ? '+' : ''}${retPctUsed.toFixed(1)}%）` : ''}`, c: totalReturnUsed >= 0 ? 'var(--color-up)' : 'var(--color-down)' },
             ].map(x => (
               <div key={x.l} style={{ padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
                 <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{x.l}</div>
@@ -210,6 +228,7 @@ export default function CashLedger() {
           {calc.cash < 0 && <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#ef4444', marginBottom: 8 }}>⚠ 現金餘額為負：入金紀錄少於實際（請補記初始入金）。</div>}
           <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
             自動帶入：買入扣款 −{wan(calc.buys)} · 賣出入帳 +{wan(calc.sells)}｜手動：入金 +{wan(calc.deposits)} · 出金 −{wan(calc.withdraws)} · 股利 +{wan(calc.dividends)}
+            {bank && <>｜帳本推算現金 {wan(calc.cash)}（與銀行差 {bank.diff >= 0 ? '+' : ''}{wan(bank.diff)}，上方數字以銀行為準）</>}
           </div>
           <div style={{ maxHeight: 150, overflowY: 'auto' }}>
             {entries.map(e => (
