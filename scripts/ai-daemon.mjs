@@ -25,6 +25,7 @@ import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
+import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -557,114 +558,20 @@ function parseRationale(text) {
 //     ⚠ 誠實揭露不可省：相似度→未來報酬在本站歷史檢定**未通過**
 //     （最大漲幅在數學上隨波動放大——analog 實驗實測 Top10% 回檔 -6.58% vs 宇宙 -4.07%），
 //     所以它是參考描述，絕不能當訊號排序用。
-let _stratCtx = { date: '', series: null, wins: null, charMap: null };
+let _stratCtx = { archDate: '', ctx: null };
 async function getStrategyCtx() {
-  const today = isoDate(taipei());
-  if (_stratCtx.date === today && _stratCtx.series) return _stratCtx;
-  const arch = await readArchive(262);            // 新→舊（readArchive 已濾空殼）
-  const asc = arch.slice().reverse();             // 舊→新
-  const series = {};                              // code → {dates[], c[], h[], l[]}
-  for (const day of asc) {
-    const m = JSON.parse(day.closeJson);
-    for (const code in m) {
-      const r = m[code]; if (!r || !(r[0] > 0)) continue;
-      const st = (series[code] ??= { dates: [], c: [], h: [], l: [] });
-      st.dates.push(day.date); st.c.push(r[0]); st.h.push(r[3] ?? r[0]); st.l.push(r[4] ?? r[0]);
-    }
-  }
-  // 相似波段索引：每檔每個 20 日窗的「自身波動歸一」對數報酬向量。
-  // 步長 2＝樣本減半但形狀覆蓋不變；需留 20 日前瞻才能算「後來怎麼了」。
-  const wins = [];
-  for (const code in series) {
-    const st = series[code]; const n = st.c.length;
-    if (n < 45) continue;
-    for (let i = 20; i + 20 < n; i += 2) {
-      const rets = []; let sum = 0, sum2 = 0; let ok = true;
-      for (let k = i - 19; k <= i; k++) {
-        if (!(st.c[k] > 0) || !(st.c[k - 1] > 0)) { ok = false; break; }
-        const r = Math.log(st.c[k] / st.c[k - 1]); rets.push(r); sum += r; sum2 += r * r;
-      }
-      if (!ok) continue;
-      const sd = Math.sqrt(Math.max(sum2 / 20 - (sum / 20) ** 2, 1e-8));
-      wins.push({ code, i, v: rets.map(r => r / sd) });
-    }
-  }
+  // 以「最新歸檔日」為快取鍵而非日曆日：15:10 今日收盤歸檔落地後，
+  // 傍晚的分析週期會自動重建脈絡吃到今天——用日曆日當鍵會整晚吃早上的舊窗。
+  const newest = (await readArchive(1))[0]?.date || '';
+  if (_stratCtx.ctx && _stratCtx.archDate === newest) return _stratCtx.ctx;
+  const asc = (await readArchive(262)).slice().reverse();   // 舊→新（readArchive 已濾空殼）
+  const series = buildStrategySeries(asc);
+  const windows = buildStrategyWindows(series);
   let charMap = {};
   try { const cd = await db.collection('chipCharacter').doc('latest').get(); if (cd.exists) charMap = JSON.parse(cd.data().byCodeJson || '{}'); } catch { /* 無分類則略 */ }
-  _stratCtx = { date: today, series, wins, charMap };
-  log(`  · 持股策略脈絡就緒：${Object.keys(series).length} 檔序列、${wins.length} 個相似窗`);
-  return _stratCtx;
-}
-
-function computeHoldingStrategy(ctx, code, buyDate) {
-  const st = ctx.series[code];
-  if (!st || st.c.length < 25) return null;
-  const n = st.c.length, c = st.c;
-  const last = c[n - 1], prev = c[n - 2];
-  const chg = prev > 0 ? (last / prev - 1) * 100 : 0;
-  const hi = st.h[n - 1], lo = st.l[n - 1];
-  const pos = hi > lo ? (last - lo) / (hi - lo) : null;
-  const hi20 = Math.max(...c.slice(Math.max(0, n - 21), n - 1));
-  const brk20 = last > hi20;
-  const charLabel = ctx.charMap[code]?.label || null;
-  // ① 隔日沖：對照定版濾網
-  const passes = [], fails = [];
-  (brk20 ? passes : fails).push('破20日新高');
-  ((pos != null && pos >= 0.7) ? passes : fails).push('收位≥0.7');
-  ((chg >= 3 && chg <= 7) ? passes : fails).push('漲3~7%');
-  const filterPass = pos != null && fails.length === 0;
-  // ② 持有日 profile：全歷史逐日進場
-  const hold = [1, 2, 3, 5, 10, 20].map(hn => {
-    const rets = [];
-    for (let i = 0; i + hn < n; i++) if (c[i] > 0 && c[i + hn] > 0) rets.push(c[i + hn] / c[i] - 1);
-    if (rets.length < 30) return null;
-    rets.sort((a, b) => a - b);
-    return { d: hn, med: +(rets[rets.length >> 1] * 100).toFixed(2), win: +(rets.filter(r => r > 0).length / rets.length * 100).toFixed(1), n: rets.length };
-  }).filter(Boolean);
-  // 使用者目前持有第幾個交易日
-  let heldDays = null;
-  if (buyDate) { const idx = st.dates.findIndex(d => d >= buyDate); if (idx >= 0) heldDays = n - 1 - idx; }
-  // ③ 相似波段
-  let analog = null;
-  if (n >= 22 && ctx.wins?.length) {
-    const rets = []; let sum = 0, sum2 = 0;
-    for (let k = n - 20; k < n; k++) { const r = Math.log(c[k] / c[k - 1]); rets.push(r); sum += r; sum2 += r * r; }
-    const sd = Math.sqrt(Math.max(sum2 / 20 - (sum / 20) ** 2, 1e-8));
-    const qv = rets.map(r => r / sd);
-    const scored = [];
-    for (const w of ctx.wins) {
-      if (w.code === code && w.i > n - 40) continue;   // 排除自己最近的重疊窗
-      let d = 0; for (let k = 0; k < 20; k++) { const t = qv[k] - w.v[k]; d += t * t; }
-      scored.push({ w, d });
-    }
-    scored.sort((a, b) => a.d - b.d);
-    const top = scored.slice(0, 30);
-    if (top.length >= 10) {
-      const fwd = (w, hn) => { const sc = ctx.series[w.code].c; return w.i + hn < sc.length ? sc[w.i + hn] / sc[w.i] - 1 : null; };
-      const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
-      const stats = [5, 10, 20].map(hn => {
-        const rs = top.map(t => fwd(t.w, hn)).filter(r => r != null && Number.isFinite(r));
-        if (rs.length < 10) return null;
-        return { d: hn, med: +(med(rs) * 100).toFixed(2), win: +(rs.filter(r => r > 0).length / rs.length * 100).toFixed(1) };
-      }).filter(Boolean);
-      // 最大成長／最大回檔成對（20 日窗；用高低點，賣不到的上界要配回檔看）
-      const gd = top.map(t => {
-        const sr = ctx.series[t.w.code]; const i = t.w.i; let mg = 0, md = 0;
-        for (let k = i + 1; k <= Math.min(i + 20, sr.c.length - 1); k++) {
-          mg = Math.max(mg, (sr.h[k] ?? sr.c[k]) / sr.c[i] - 1);
-          md = Math.min(md, (sr.l[k] ?? sr.c[k]) / sr.c[i] - 1);
-        }
-        return { mg, md };
-      });
-      analog = {
-        n: top.length, stats,
-        grow: +(med(gd.map(x => x.mg)) * 100).toFixed(1),
-        draw: +(med(gd.map(x => x.md)) * 100).toFixed(1),
-        examples: top.slice(0, 3).map(t => ({ code: t.w.code, date: ctx.series[t.w.code].dates[t.w.i], ret5: (() => { const r = fwd(t.w, 5); return r != null ? +(r * 100).toFixed(1) : null; })() })),
-      };
-    }
-  }
-  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, filterPass, passes, fails, hold, heldDays, holdN: n, analog };
+  _stratCtx = { archDate: newest, ctx: { series, windows, charMap } };
+  log(`  · 持股策略脈絡就緒（資料至 ${newest}）：${Object.keys(series).length} 檔、${windows.count} 個相似窗`);
+  return _stratCtx.ctx;
 }
 
 // ── per-user analysis ──

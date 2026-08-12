@@ -5,6 +5,8 @@
 // 給出隔日沖策略傾向，協助決策下單。資料不足者誠實標註。非投資建議。
 
 import { useEffect, useMemo, useState } from 'react';
+import StrategyPanels from '@/components/shared/StrategyPanels';
+import type { HoldingStrategyResult } from '../../../scripts/lib/holding-strategy';
 import { useAppStore } from '@/lib/store';
 import { useChipVerdicts, VerdictStrip, type Verdict } from '@/components/shared/ChipVerdict';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
@@ -54,6 +56,19 @@ export default function DecisionDesk() {
   const [openCode, setOpenCode] = useState<string | null>(null);
   // 資券借券（t-1）：[資餘,資增,券餘,券增,借餘,借增,前20日高,昨量張]
   const [margins, setMargins] = useState<Record<string, (number | null)[]>>({});
+  // 持股策略分析（收合·首次展開才打 /api/ai/stock-strategy——脈絡在 server 端 memoize）
+  const [stratOpen, setStratOpen] = useState<Record<string, boolean>>({});
+  const [stratData, setStratData] = useState<Record<string, HoldingStrategyResult | 'loading' | 'none'>>({});
+  const toggleStrat = (code: string) => {
+    setStratOpen(o => ({ ...o, [code]: !o[code] }));
+    if (stratData[code] === undefined) {
+      setStratData(d => ({ ...d, [code]: 'loading' }));
+      fetch(`/api/ai/stock-strategy?code=${code}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(j => setStratData(d => ({ ...d, [code]: j?.found ? j.strategy : 'none' })))
+        .catch(() => setStratData(d => ({ ...d, [code]: 'none' })));
+    }
+  };
   const [chartMode, setChartMode] = useState<Record<string, 'live' | 'kline'>>({});
   const [candlesMap, setCandlesMap] = useState<Record<string, CandleData[]>>({});
   const [candleLoading, setCandleLoading] = useState<Record<string, boolean>>({});
@@ -425,6 +440,22 @@ export default function DecisionDesk() {
                         <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
                           {/* 五檔委買委賣（盤中即時，僅供當下參考） */}
                           <div style={{ marginBottom: 6 }}><OrderBookDepth code={c.code} price={c.price > 0 ? c.price : undefined} /></div>
+                          {/* 📐 持股策略分析（與投組 AI 持倉卡同一套面板；預設收合、首開才取數） */}
+                          <div style={{ marginBottom: 6, border: '1px solid var(--border-primary)', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
+                            <button onClick={() => toggleStrat(c.code)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '6px 10px', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left', fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, fontFamily: 'inherit' }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10px * var(--fz))' }}>{stratOpen[c.code] ? '▾' : '▸'}</span>
+                              📐 持股策略分析
+                              <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>隔日沖對照 · 持有日獲利 · 相似歷史波段</span>
+                            </button>
+                            {stratOpen[c.code] && (
+                              stratData[c.code] === 'loading' || stratData[c.code] === undefined
+                                ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>計算中…（首次載入需建立全市場相似窗，約 3~5 秒）</div>
+                                : stratData[c.code] === 'none'
+                                  ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>該檔歷史序列不足，無法分析。</div>
+                                  : <StrategyPanels st={stratData[c.code] as HoldingStrategyResult} />
+                            )}
+                          </div>
                           {/* 均線讀值＋停損/1%風險部位（隔日沖鐵律工具化） */}
                           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', padding: '5px 8px', borderRadius: 8, background: 'rgba(61,142,248,0.06)', marginBottom: 6 }}>
                             {candleLoading[c.code] && <span style={{ color: 'var(--text-muted)' }}>載入日K…</span>}
