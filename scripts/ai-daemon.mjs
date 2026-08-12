@@ -4453,9 +4453,9 @@ async function previewEarningsCalls() {
 async function analyzeShadowAccount() {
   // 2026-08-01：原本全量掃 chipArchive（~1,000 docs·每次 runDailyJobs 都來一次）。
   // 影子帳戶模擬只需覆蓋使用者近期交易，260 日（約一年）綽綽有餘。
-  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(260).get()).docs.map(d => d.data()).reverse();
+  const arch = (await readArchive(262)).reverse();   // readArchive 已濾空殼，+2 緩衝
   const dates = arch.map(a => a.date);
-  const closes = arch.map(a => a.closeJson ? JSON.parse(a.closeJson) : {});
+  const closes = arch.map(a => JSON.parse(a.closeJson));
   const closeOn = (code, dateStr) => { const i = dates.indexOf(dateStr); return i >= 0 ? closes[i]?.[code]?.[0] : null; };
   const nextTradingIdx = dateStr => { for (let i = 0; i < dates.length; i++) if (dates[i] > dateStr) return i; return -1; };
 
@@ -5014,8 +5014,7 @@ const ADJ_W = 3;
 async function computeRecommendAdj() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
   // 近 30 個交易日足夠算 20 日高／20 日波動／KD(9)／MA5
-  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(30).get();
-  const days = snap.docs.map(d => d.data()).filter(v => v.closeJson)
+  const days = (await readArchive(30))
     .map(v => ({ date: v.date, close: JSON.parse(v.closeJson) }))
     .sort((a, b) => a.date.localeCompare(b.date));
   if (days.length < 22) { log('  ✖ 推薦修正量：歸檔不足 22 日，略過'); return; }
@@ -5133,13 +5132,12 @@ const REV_CALIB = 'v1';
 
 async function computeReversalSignals() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
-  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(80).get();   // 80：60日位階需 60+ 根
-  const days = snap.docs.map(d => ({ date: d.data().date,
-    close: d.data().closeJson ? JSON.parse(d.data().closeJson) : null,
-    inst: d.data().instJson ? JSON.parse(d.data().instJson) : null,
-    mg: d.data().marginJson ? JSON.parse(d.data().marginJson) : null,
-    ln: d.data().lendingJson ? JSON.parse(d.data().lendingJson) : null }))
-    .filter(d => d.close).sort((a, b) => a.date.localeCompare(b.date));
+  const days = (await readArchive(82)).map(x => ({ date: x.date,   // 80+2 空殼緩衝
+    close: JSON.parse(x.closeJson),
+    inst: x.instJson ? JSON.parse(x.instJson) : null,
+    mg: x.marginJson ? JSON.parse(x.marginJson) : null,
+    ln: x.lendingJson ? JSON.parse(x.lendingJson) : null }))
+    .sort((a, b) => a.date.localeCompare(b.date));
   if (days.length < 30) { log('  ✖ 反轉訊號：歸檔不足 30 日'); return; }
   const N = days.length, D = days[N - 1], P = days[N - 2];
 
@@ -5954,8 +5952,9 @@ async function computeStrategyPicks() {
   const enrich = r => { const pc = r.close - r.change; return { code: r.code, name: r.name, market: r.market, price: r.close, changePct: pc > 0 ? +((r.change / pc) * 100).toFixed(2) : 0, score: rating[r.code]?.score ?? null, signal: rating[r.code]?.signal ?? null, dtHigh: dtHigh.has(r.code) }; };
   // 歷史來源改用籌碼歸檔 chipArchive（已回填 83 日）：昨量、近 3 日收盤、法人皆取自此。
   // 資料日 = 今日 CSV 的交易日；arch[0] 應與其同日（同日已歸檔）或為前一交易日。
-  const archSnap = await db.collection('chipArchive').orderBy('date', 'desc').limit(61).get(); // 61天：昨量/近3日收盤+60日收盤高點(跌深反轉用)
-  const arch = archSnap.docs.map(x => x.data());
+  // readArchive 保證 arch[0] 一定有 closeJson——原本裸讀時，盤前空殼會讓
+  // dataDate 變成今天、cToday 卻是 null，整段撿尾盤靜默失效。
+  const arch = await readArchive(63); // 61+2：昨量/近3日收盤+60日收盤高點(跌深反轉用)
   const dataDate = arch[0]?.date; // 最新歸檔日（收盤後=今日；盤前/假日=最近交易日）
   const offset = 0; // arch[0]=資料日 → 昨=arch[1]
   const parseClose = i => (arch[i + offset]?.closeJson ? JSON.parse(arch[i + offset].closeJson) : null);
@@ -6496,9 +6495,9 @@ async function computeTailEndPicks() {
   if (!liveWindow && !closedToday && trading) return;                        // 盤中前段不算(位置未定)
 
   // 近日高 + 均量(張)：chipArchive closeJson {code:[收盤,量張]}；instJson {code:[外資,投信]}
-  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(21).get()).docs.map(d => d.data());
+  const arch = await readArchive(23);   // 21+2；濾空殼後 maps 不會出現 {} 位移
   if (!arch.length) return;
-  const maps = arch.map(a => a.closeJson ? JSON.parse(a.closeJson) : {});
+  const maps = arch.map(a => JSON.parse(a.closeJson));
   const instMaps = arch.map(a => a.instJson ? JSON.parse(a.instJson) : {});
   // 外資連續買超天數(由最近往回；實測：有買超為關鍵、連6日+略優)
   const foreignStreak = code => { let s = 0; for (let k = 0; k < instMaps.length; k++) { const f = instMaps[k]?.[code]?.[0]; if (f > 0) s++; else break; } return s; };
@@ -6635,7 +6634,7 @@ const CHIP_HEAVY_LOTS = 5000;   // 外資單日大買門檻(張)
 const CHIP_STREAK_MIN = 3;      // 連買天數門檻
 const CHIP_NEWHIGH_LOOKBACK = 20;
 async function computeChipSignals() {
-  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(24).get()).docs.map(d => d.data());
+  const arch = await readArchive(26);   // 24+2；inst/close 再各自子過濾
   const instDocs = arch.filter(a => a.instJson);
   if (instDocs.length < CHIP_STREAK_MIN) { log('  ⚠ 籌碼訊號：chipArchive 法人資料不足'); return; }
   const inst = instDocs.map(a => JSON.parse(a.instJson));              // [外資,投信] 張（不含外資自營）
@@ -6969,9 +6968,9 @@ let _volAvg = { date: '', map: null };          // 20日均量(張)快取
 async function loadVolAvg() {
   const today = isoDate(taipei());
   if (_volAvg.date === today && _volAvg.map) return _volAvg.map;
-  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(20).get();
+  const arch = await readArchive(20);
   const sum = {}, cnt = {};
-  for (const d of snap.docs) { const x = d.data(); if (!x.closeJson) continue; const c = JSON.parse(x.closeJson); for (const code in c) { const v = c[code][1] || 0; if (v > 0) { sum[code] = (sum[code] || 0) + v; cnt[code] = (cnt[code] || 0) + 1; } } }
+  for (const x of arch) { const c = JSON.parse(x.closeJson); for (const code in c) { const v = c[code][1] || 0; if (v > 0) { sum[code] = (sum[code] || 0) + v; cnt[code] = (cnt[code] || 0) + 1; } } }
   const map = {}; for (const code in sum) if (cnt[code] >= 5) map[code] = sum[code] / cnt[code];
   _volAvg = { date: today, map };
   // 落地供 API 用（market-snapshot 算量能倍數/強度分），每日一次
@@ -7031,7 +7030,7 @@ async function computeChipPicks() {
   // 資券借券（t-1 vs t-2）＋前 20 日高＋昨量：實證訊號 setup 與綜合評分素材
   let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {}, bm5Map = {}, vol20Map = {}, rsiMap = {};
   try {
-    const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(22).get()).docs.map(d => d.data());
+    const arch = await readArchive(24);   // 22+2；margin/lending 於下方各取「最近有該欄位的日子」
     // 資券/借券取「最近一個有該欄位的日子」：當日歸檔 15:10 先建（僅收盤價）、
     // 資券 21:45 才回填——若盲取 arch[0] 會在 15:10~21:45 間全空（2026-07-20 實案 n=0）。
     const mgDays = arch.filter(a => a.marginJson);
@@ -7359,7 +7358,7 @@ async function computeWashoutMonitor() {
   const ma20 = px.slice(-20).reduce((a, b) => a + b, 0) / 20;
 
   // 市場融資餘額趨勢（chipArchive marginJson 全市場資餘加總）
-  const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(40).get()).docs.map(d => d.data()).filter(x => x.marginJson);
+  const arch = await readArchive(40, 'marginJson');
   const marginTot = arch.map(x => { const m = JSON.parse(x.marginJson); let s = 0; for (const c in m) s += m[c][0] || 0; return s; }); // 新→舊(張)
   const mNow = marginTot[0] || 0; const mPeak = Math.max(...marginTot, 1);
   const marginDrop = (mPeak - mNow) / mPeak * 100;
@@ -7368,7 +7367,7 @@ async function computeWashoutMonitor() {
   const win = await loadChipWindow(5);
   const f5 = win.reduce((s, w) => { let t2 = 0; for (const c in w.map) t2 += w.map[c][0] || 0; return s + t2; }, 0);
   // 量能：全市場 5 日均量 vs 20 日均量（chipArchive closeJson 加總）
-  const arch2 = (await db.collection('chipArchive').orderBy('date', 'desc').limit(20).get()).docs.map(d => d.data()).filter(x => x.closeJson);
+  const arch2 = await readArchive(20);
   const volTot = arch2.map(x => { const m = JSON.parse(x.closeJson); let s = 0; for (const c in m) s += m[c][1] || 0; return s; });
   const v5 = volTot.slice(0, 5).reduce((a, b) => a + b, 0) / Math.max(Math.min(5, volTot.length), 1);
   const v20 = volTot.reduce((a, b) => a + b, 0) / Math.max(volTot.length, 1);
@@ -7481,9 +7480,8 @@ async function loadLuArchive() {
   if (_luArch.days && Date.now() - _luArch.at < 10 * 60000) return _luArch.days;
   // ⚠多取 12 天再切 62：歸檔偶有空洞（例：2026-07-10 被 fix-archive-dates 清掉 closeJson），
   //   若只取 62 筆，任何一天壞掉就永遠湊不到 62，下游 `arch.length < 62` 會整個功能靜默停擺。
-  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(74).get(); // 62日：3個月漲停統計因子
-  const days = snap.docs.map(d => { const x = d.data(); return x.closeJson ? { date: x.date, close: JSON.parse(x.closeJson) } : null; })
-    .filter(x => x && Object.keys(x.close).length > 500).slice(0, 62).reverse(); // 新→舊取62 → 轉舊→新
+  const days = (await readArchive(74)).map(x => ({ date: x.date, close: JSON.parse(x.closeJson) }))
+    .filter(x => Object.keys(x.close).length > 500).slice(0, 62).reverse(); // 新→舊取62 → 轉舊→新
   _luArch = { at: Date.now(), days };
   return days;
 }
@@ -7753,8 +7751,7 @@ let _chipMarginUp = new Set(); let _chipMarginAt = 0;
 async function refreshChipMarginUp() {
   if (Date.now() - _chipMarginAt < 15 * 60000) return;
   try {
-    const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(8).get();
-    const mm = snap.docs.map(d => d.data()).filter(x => x.marginJson).slice(0, 2).map(x => JSON.parse(x.marginJson));
+    const mm = (await readArchive(8, 'marginJson')).slice(0, 2).map(x => JSON.parse(x.marginJson));
     if (mm.length === 2) {
       const s = new Set();
       for (const c in mm[0]) { const a = mm[0][c]?.[0] || 0, b = mm[1][c]?.[0] || 0; if (b > 0 && a > b * 1.02) s.add(c); }
@@ -7897,8 +7894,8 @@ async function computeChipDivergence() {
   const instWin = await loadChipWindow(DIV_WIN + 1); // 新→舊
   if (instWin.length < 3) { log('  ⚠ 量價背離：chipDaily 不足'); return; }
   // 收盤(chipArchive) 對齊日期
-  const cArch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(10).get()).docs.map(d => d.data());
-  const closeByDate = {}; for (const a of cArch) if (a.closeJson) closeByDate[a.date] = JSON.parse(a.closeJson);
+  const cArch = await readArchive(10);
+  const closeByDate = {}; for (const a of cArch) closeByDate[a.date] = JSON.parse(a.closeJson);
   const endDate = instWin[0].date;
   const startDate = instWin[Math.min(DIV_WIN, instWin.length - 1)].date;
   const cEndMap = closeByDate[endDate], cStartMap = closeByDate[startDate];
@@ -8864,9 +8861,9 @@ async function dailyJobsLoop() {
         if (mins >= 16 * 60 + 55 && _tailEvalDate !== today) {
           _tailEvalDate = today;
           try {
-            const arch = (await db.collection('chipArchive').orderBy('date', 'desc').limit(8).get()).docs
-              .map(d => ({ date: d.id, close: d.data().closeJson ? JSON.parse(d.data().closeJson) : null }))
-              .filter(d => d.close).sort((a, b) => a.date.localeCompare(b.date));
+            const arch = (await readArchive(8))
+              .map(x => ({ date: x.date, close: JSON.parse(x.closeJson) }))   // doc.date 與 doc.id 同值
+              .sort((a, b) => a.date.localeCompare(b.date));
             const idxOf = Object.fromEntries(arch.map((d, k) => [d.date, k]));
             const pend = await db.collection('tailTrack').where('evaluated', '==', false).limit(10).get()
               .catch(() => null);

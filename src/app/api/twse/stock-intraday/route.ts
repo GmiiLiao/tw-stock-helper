@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rate-limit';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { isMarketOpen } from '@/lib/twse-api-server';
+import { cacheHeader } from '@/lib/api-cache';
 
 export const runtime = 'nodejs';
 
@@ -17,10 +19,9 @@ export const runtime = 'nodejs';
 // 而單一使用者 5 秒一次的輪詢仍然幾乎每次都拿到重新驗證過的資料。
 // 快取鍵天然按 ?code= 分開，不會互相污染。
 // ⚠ 只套在**成功**回應；400/404/500 一律不帶標頭，錯誤不該被快取。
-const OK_CACHE = {
-  'Cache-Control': 'public, s-maxage=2, stale-while-revalidate=15',
-  'Access-Control-Allow-Origin': '*',
-};
+// 數值收斂到 api-cache 'hot' 層級（s-maxage=2·使用者指定的保守值），
+// 這裡不再手寫字串；每個 request 現算是因為收盤後 cacheHeader 會自動切長 TTL。
+const okCache = () => ({ 'Cache-Control': cacheHeader('hot'), 'Access-Control-Allow-Origin': '*' });
 const taipeiDate = () => {
   const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
   return `${tw.getFullYear()}-${String(tw.getMonth() + 1).padStart(2, '0')}-${String(tw.getDate()).padStart(2, '0')}`;
@@ -94,14 +95,17 @@ export async function GET(request: NextRequest) {
     // 但只記錄被追蹤個股、且被檢視前的早盤靠 daemon 端 Yahoo 回補補齊。
     // 快速路徑：盤中時 daemon 若已從 09:0x 起完整 → 直接回 daemon(免等 Yahoo，維持即時)。
     const daemon = await fetchDaemonIntraday(code);
-    const nowTw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    const nowMin = nowTw.getHours() * 60 + nowTw.getMinutes();
-    const marketOpen = nowTw.getDay() >= 1 && nowTw.getDay() <= 5 && nowMin >= 9 * 60 && nowMin < 13 * 60 + 35;
+    // 交易時段一律走 isMarketOpen()（查假日）。原本這裡自己算星期＋分鐘
+    // ——CLAUDE.md 記過「舊 codebase 有 6 份互相不一致的實作，其中 5 份不查假日」，
+    // 這支就是漏網的那種：颱風假的星期三會被它當成盤中。
+    // （語意差異：舊寫法到 13:35，isMarketOpen 到 13:31——13:31~13:35 改走一般路徑，
+    //   daemon 尾段仍會接上，資料不變，只是少走快速路徑四分鐘。）
+    const marketOpen = isMarketOpen();
     const firstTickMin = daemon?.ticks?.length
       ? (() => { const t = new Date(new Date(daemon.ticks[0].time * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return t.getHours() * 60 + t.getMinutes(); })()
       : 9999;
     if (marketOpen && daemon && firstTickMin <= 9 * 60 + 10) {
-      return NextResponse.json({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, { headers: OK_CACHE });
+      return NextResponse.json({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, { headers: okCache() });
     }
 
     // 一般路徑：以 Yahoo 全日為主幹，盤中再把 daemon 更即時的尾段接上，兼顧完整與即時。
@@ -146,7 +150,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No data found' }, { status: 404 });
     }
 
-    return NextResponse.json({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, { headers: OK_CACHE });
+    return NextResponse.json({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, { headers: okCache() });
   } catch (error) {
     console.error(`Stock intraday proxy error for ${code}:`, error);
     return NextResponse.json({ error: 'Failed to fetch stock intraday data' }, { status: 500 });

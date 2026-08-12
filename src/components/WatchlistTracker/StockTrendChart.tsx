@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAppStore } from '@/lib/store';
+import { isMarketOpen, shouldPollNow } from '@/lib/market-clock';
 import { type CandleData } from '@/lib/twse-api';
 import { format } from 'date-fns';
 import {
@@ -29,11 +30,10 @@ const MODE_LABEL: Record<Mode, string> = { rt: '即時', day: '日', week: '週'
 
 interface Candle { t: number; o: number; h: number; l: number; c: number; v: number }
 
-const isTradingHours = () => {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const day = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return day >= 1 && day <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-};
+// 交易時段唯一真相來源＝market-clock（查假日）。原本這裡是第 N 份手寫時鐘副本，
+// 不查假日：颱風假的星期三會被當成盤中，錯誤訊息與輪詢判斷全跟著錯。
+// （語意差異：舊版到 13:35，isMarketOpen 到 13:30——13:30 後的收盤競價點由 daemon 序列補。）
+const isTradingHours = () => isMarketOpen();
 
 // ── 蠟燭圖（自繪 SVG，支援縮放/平移）─────────────────────────────
 function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode: Exclude<Mode, 'rt'>; code: string; onView?: (s: { highest: number; lowest: number; pct: number }) => void }) {
@@ -411,8 +411,8 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
   // daemon 據此納入 MIS 即時掃描並累積分時序列。Yahoo 對創新板/冷門股常無分時，
   // 未登記前 stock-intraday 會 404（例：漲停預測展開 6969 顯示無法載入）。
   useEffect(() => {
-    if (!isTradingHours()) return;
-    const ping = () => { fetch(`/api/twse/mis-quote?codes=${code}`, { cache: 'no-store' }).catch(() => { /* 登記失敗下次再試 */ }); };
+    // gate 在每次觸發（同上）：盤前開圖 → 09:00 自動開始登記；跨過收盤 → 自動停。
+    const ping = () => { if (!shouldPollNow()) return; fetch(`/api/twse/mis-quote?codes=${code}`, { cache: 'no-store' }).catch(() => { /* 登記失敗下次再試 */ }); };
     ping();
     const t = setInterval(ping, 60000);
     return () => clearInterval(t);
@@ -432,10 +432,13 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
   useEffect(() => {
     setKView(null); // 換模式先清可視統計，待蠟燭圖回報
     if (mode === 'rt') {
-      loadRealtime();
-      let poll: ReturnType<typeof setInterval> | null = null;
-      if (isTradingHours()) poll = setInterval(loadRealtime, 5000);
-      return () => { if (poll) clearInterval(poll); };
+      loadRealtime();   // 首次載入不 gate：休市時也要畫出最近一個交易日的走勢
+      // ⚠ gate 放在**每次觸發**而不是建立時。原本 `if (isTradingHours()) poll = setInterval(...)`
+      //   只在掛載那一刻判斷一次——盤前開的圖永遠不會開始更新、
+      //   盤中開著跨過 13:30 的圖會整個下午每 5 秒白打一次。
+      //   shouldPollNow 同時擋休市與背景分頁。
+      const poll = setInterval(() => { if (shouldPollNow()) loadRealtime(); }, 5000);
+      return () => clearInterval(poll);
     }
     loadKline(mode);
   }, [mode, loadRealtime, loadKline]);

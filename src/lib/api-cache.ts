@@ -21,6 +21,7 @@ import { getSession, setHolidays } from '@/lib/market-clock';
  */
 
 export type Tier =
+  | 'hot'       // 盤中被每 5 秒輪詢的大 payload（stock-day-all 646KB、stock-intraday）
   | 'tick'      // 5 秒級即時報價
   | 'quote'     // 準即時（分時、五檔）
   | 'intraday'  // 盤中週期性、或 daemon 日頻產出
@@ -29,6 +30,9 @@ export type Tier =
   | 'private';  // 使用者專屬，不可共享快取
 
 const TIERS: Record<Tier, string> = {
+  // hot：s-maxage=2 是使用者指定的保守值（2026-08-12，原提案 5 秒）。
+  // 不設 max-age——輪詢端自己就是 5 秒一次，瀏覽器快取只會疊加落後。
+  hot:      'public, s-maxage=2,    stale-while-revalidate=20,   stale-if-error=60',
   tick:     'public, max-age=2,    s-maxage=3,     stale-while-revalidate=5,    stale-if-error=60',
   quote:    'public, max-age=5,    s-maxage=10,    stale-while-revalidate=15,   stale-if-error=120',
   intraday: 'public, max-age=60,   s-maxage=120,   stale-while-revalidate=120,  stale-if-error=900',
@@ -42,7 +46,9 @@ const CLOSED_OVERRIDE =
   'public, max-age=300, s-maxage=1800, stale-while-revalidate=600, stale-if-error=86400';
 
 export function cacheHeader(tier: Tier): string {
-  if ((tier === 'tick' || tier === 'quote') && getSession() === 'closed') return CLOSED_OVERRIDE;
+  // hot/tick/quote 收盤即凍結。注意 getSession 在 14:00–14:31 回 'post-close'
+  // （官方結算價逐步落地的窗），不觸發長 TTL —— 結算修正不會被釘住 30 分鐘。
+  if ((tier === 'hot' || tier === 'tick' || tier === 'quote') && getSession() === 'closed') return CLOSED_OVERRIDE;
   return TIERS[tier];
 }
 
