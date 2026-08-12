@@ -211,7 +211,9 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
           鐵律：隔日沖持股一律<b style={{ color: BLUE }}>明早開盤賣出</b>（700 日實測唯一穩定淨正出場；開高續抱平均吐光溢價 -0.33%）。來回費稅約 <b>0.44%</b>。
           {st.charLabel === '長期核心' ? <b style={{ color: '#fbbf24' }}>此股屬長期核心——短線訊號是雜訊，不建議隔日沖。</b> : null}
         </div>
-        {st.selfPath?.length ? (
+        {/* 走勢與突破位：**只在已突破時出現**（2026-08-12 使用者定案）——
+            未突破的股不顯示此區，避免對「時機未到」的股提供追價視覺。 */}
+        {st.brk20 && st.selfPath?.length ? (
           <>
             <button onClick={() => setShowBreakout(v => !v)}
               style={{ marginTop: 4, padding: '3px 10px', borderRadius: 8, fontSize: 'calc(0.7rem * var(--fz))', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', background: showBreakout ? `${BLUE}22` : 'var(--bg-secondary)', color: showBreakout ? BLUE : 'var(--text-secondary)', border: `1px solid ${showBreakout ? BLUE : 'var(--border-primary)'}` }}>
@@ -236,8 +238,8 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
                     後5日收盤中位 <b style={{ color: (st.nextAnalog.d5Med ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{st.nextAnalog.d5Med != null ? `${st.nextAnalog.d5Med >= 0 ? '+' : ''}${st.nextAnalog.d5Med}%` : '—'}</b> <span style={{ color: 'var(--text-muted)' }}>勝{st.nextAnalog.d5Win ?? '—'}%</span>
                   </span>
                   <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.25)', fontSize: 'calc(0.68rem * var(--fz))', color: 'var(--text-muted)' }}>近5日逐點 ±3%·例外≤1日·n={st.nextAnalog.n}·同族群優先</span>
-                  {st.nextAnalog.n < 5 && (
-                    <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24' }}>樣本&lt;5——統計留空，僅供目視</span>
+                  {(st.nextAnalog.n < 5 || st.nextAnalog.relaxedOutDays != null) && (
+                    <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24' }}>{st.nextAnalog.relaxedOutDays != null ? `標準鐵則 0 段——已放寬例外 ≤${st.nextAnalog.relaxedOutDays} 日` : '樣本<5'}——統計留空，僅供目視</span>
                   )}
                 </div>
                 <NextAnalogChart na={st.nextAnalog} selfPath5={st.selfPath5} />
@@ -277,7 +279,10 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
       {st.analog && (
         <div style={panel(VIOLET)}>
           <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·逐點 ±3% 內·例外 ≤5 日且不超過 ±{st.analog.tube}%）</span></div>
-          {st.analog.n < 5 && (
+          {st.analog.relaxedOutDays != null && (
+            <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ 標準鐵則（例外 ≤5 日）下為 0 段——已放寬至例外 ≤{st.analog.relaxedOutDays} 日找出最接近者；統計一律留空，僅供目視比對。</div>
+          )}
+          {st.analog.relaxedOutDays == null && st.analog.n < 5 && (
             <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ 僅找到 {st.analog.n} 段（&lt;5）——樣本過少、無統計意義，中位/勝率不顯示，線圖僅供目視比對。</div>
           )}
           {st.analog.tube > 5 && (

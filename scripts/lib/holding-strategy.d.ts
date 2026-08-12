@@ -7,7 +7,7 @@ export interface HoldingStrategyResult {
   hold: Array<{ d: number; med: number; win: number; n: number }>;
   heldDays: number | null; holdN: number;
   analog: {
-    n: number; tube: number; stats: Array<{ d: number; med: number; win: number }>;
+    n: number; tube: number; relaxedOutDays: number | null; stats: Array<{ d: number; med: number; win: number }>;
     grow: number | null; draw: number | null;   // <5 段時留空——小樣本中位數不是統計
     selfPath: number[];   // 本檔近20日累計%（錨=今天=0）
     examples: Array<{ code: string; name: string; ind: string | null; sameInd: boolean; date: string; ret5: number | null; path: number[]; winLen: number }>;
@@ -15,7 +15,7 @@ export interface HoldingStrategyResult {
   analogNote: string | null;
   selfPath5: number[] | null;   // 近5日累計%（錨=今日=0）——隔日沖相似日圖
   nextAnalog: {
-    n: number; tube: number;
+    n: number; tube: number; relaxedOutDays: number | null;
     openMed: number | null; openWin: number | null;   // 隔日開盤賣口徑（鐵律出場）
     d5Med: number | null; d5Win: number | null;
     examples: Array<{ code: string; name: string; ind: string | null; sameInd: boolean; date: string;

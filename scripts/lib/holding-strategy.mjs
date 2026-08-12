@@ -112,24 +112,35 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
     // 20 個點裡至少 15 點必須貼在 ±3pp 內；其餘至多 5 點也不得超出外層管
     // （±5，極端走勢分級放寬 ±8/±12 並據實標示）。
     const INNER_PP = 3, MAX_OUT_DAYS = 5;
-    let top = [], usedTube = TUBES[0];
-    for (const tube of TUBES) {
-      const scored = [];
-      for (let w = 0; w < W.count; w++) {
-        if (W.codes[w] === code && W.idx[w] > n - 40) continue;   // 排除自己最近重疊窗
-        const base = w * 20; let d = 0; let ok = true; let outDays = 0;
-        for (let k = 0; k < 20; k++) {
-          const t = qv[k] - W.vecs[base + k];
-          const a = t < 0 ? -t : t;
-          if (a > tube) { ok = false; break; }                      // 離群上限（分級管）
-          if (a > INNER_PP && ++outDays > MAX_OUT_DAYS) { ok = false; break; }  // 鐵則
-          d += t * t;
+    const scanTubes = (maxOutDays) => {
+      let best = [], bestTube = TUBES[0];
+      for (const tube of TUBES) {
+        const scored = [];
+        for (let w = 0; w < W.count; w++) {
+          if (W.codes[w] === code && W.idx[w] > n - 40) continue;   // 排除自己最近重疊窗
+          const base = w * 20; let d = 0; let ok = true; let outDays = 0;
+          for (let k = 0; k < 20; k++) {
+            const t = qv[k] - W.vecs[base + k];
+            const a = t < 0 ? -t : t;
+            if (a > tube) { ok = false; break; }                      // 離群上限（分級管）
+            if (a > INNER_PP && ++outDays > maxOutDays) { ok = false; break; }  // 鐵則
+            d += t * t;
+          }
+          if (ok) scored.push([d, w]);
         }
-        if (ok) scored.push([d, w]);
+        scored.sort((a, b) => a[0] - b[0]);
+        best = scored.slice(0, 30); bestTube = tube;
+        if (best.length >= 5) break;
       }
-      scored.sort((a, b) => a[0] - b[0]);
-      top = scored.slice(0, 30); usedTube = tube;
-      if (top.length >= 5) break;
+      return { best, bestTube };
+    };
+    let { best: top, bestTube: usedTube } = scanTubes(MAX_OUT_DAYS);
+    // 0 段備援（2026-08-12 使用者定案）：新 K 棒平移可能讓鐵則下瞬間無同類——
+    // 例外日 +1（≤6）再掃一輪，找到就以「放寬版」顯示（統計留空＋琥珀標示）。
+    let relaxedOutDays = null;
+    if (top.length === 0) {
+      const r2 = scanTubes(MAX_OUT_DAYS + 1);
+      if (r2.best.length > 0) { top = r2.best; usedTube = r2.bestTube; relaxedOutDays = MAX_OUT_DAYS + 1; }
     }
     if (top.length === 0) {
       analogNote = `全市場歷史中，符合「逐點 ±3% 內（容許 ≤5 日例外、例外不超過 ±${usedTube}%）」的相似波段為 0 段。`;
@@ -139,7 +150,7 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
     if (top.length >= 1) {
       const fwd = (w, hn) => { const sc = ctx.series[W.codes[w]].c; const i2 = W.idx[w]; return i2 + hn < sc.length ? sc[i2 + hn] / sc[i2] - 1 : null; };
       const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
-      const stats = top.length < 5 ? [] : [5, 10, 20].map(hn => {
+      const stats = (top.length < 5 || relaxedOutDays != null) ? [] : [5, 10, 20].map(hn => {
         const rs = top.map(([, w]) => fwd(w, hn)).filter(r => r != null && Number.isFinite(r));
         if (rs.length < 5) return null;   // n 一律隨卡揭露，小樣本由讀者自行折價
         return { d: hn, med: +(med(rs) * 100).toFixed(2), win: +(rs.filter(r => r > 0).length / rs.length * 100).toFixed(1) };
@@ -172,10 +183,10 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
         return [...same, ...rest].slice(0, k);
       };
       analog = {
-        n: top.length, tube: usedTube, stats,
+        n: top.length, tube: usedTube, relaxedOutDays, stats,
         selfPath,   // 相容欄位：舊 bundle 的 AnalogChart 讀這裡；新 UI 讀根層（下版可移除）
-        grow: top.length >= 5 ? +(med(gd.map(x => x.mg)) * 100).toFixed(1) : null,
-        draw: top.length >= 5 ? +(med(gd.map(x => x.md)) * 100).toFixed(1) : null,
+        grow: (top.length >= 5 && relaxedOutDays == null) ? +(med(gd.map(x => x.mg)) * 100).toFixed(1) : null,
+        draw: (top.length >= 5 && relaxedOutDays == null) ? +(med(gd.map(x => x.md)) * 100).toFixed(1) : null,
         selfPath,
         examples: pickExamples(top, 3).map(([, w]) => ({
           code: W.codes[w], name: ctx.nameMap?.[W.codes[w]] || '',
@@ -200,25 +211,34 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
     const qv5 = selfPath5;
     const myInd = ctx.indMap?.[code] || null;
     const TUBES5 = [5, 8, 12];
-    let top5 = [], usedTube5 = TUBES5[0];
-    for (const tube of TUBES5) {
-      const scored = [];
-      for (let w = 0; w < W.count; w++) {
-        if (W.codes[w] === code && W.idx[w] > n - 15) continue;
-        const base = w * 20 + 15;   // 末 5 維＝該窗近 5 日
-        let d = 0, ok = true, outDays = 0;
-        for (let k = 0; k < 5; k++) {
-          const t = qv5[k] - W.vecs[base + k];
-          const a2 = t < 0 ? -t : t;
-          if (a2 > tube) { ok = false; break; }
-          if (a2 > 3 && ++outDays > 1) { ok = false; break; }
-          d += t * t;
+    const scan5 = (maxOut) => {
+      let best = [], bestTube = TUBES5[0];
+      for (const tube of TUBES5) {
+        const scored = [];
+        for (let w = 0; w < W.count; w++) {
+          if (W.codes[w] === code && W.idx[w] > n - 15) continue;
+          const base = w * 20 + 15;   // 末 5 維＝該窗近 5 日
+          let d = 0, ok = true, outDays = 0;
+          for (let k = 0; k < 5; k++) {
+            const t = qv5[k] - W.vecs[base + k];
+            const a2 = t < 0 ? -t : t;
+            if (a2 > tube) { ok = false; break; }
+            if (a2 > 3 && ++outDays > maxOut) { ok = false; break; }
+            d += t * t;
+          }
+          if (ok) scored.push([d, w]);
         }
-        if (ok) scored.push([d, w]);
+        scored.sort((a, b) => a[0] - b[0]);
+        best = scored.slice(0, 30); bestTube = tube;
+        if (best.length >= 5) break;
       }
-      scored.sort((a, b) => a[0] - b[0]);
-      top5 = scored.slice(0, 30); usedTube5 = tube;
-      if (top5.length >= 5) break;
+      return { best, bestTube };
+    };
+    let { best: top5, bestTube: usedTube5 } = scan5(1);
+    let relaxedOut5 = null;
+    if (top5.length === 0) {   // 0 段備援：例外 ≤2 再掃（統計留空＋標示）
+      const r2 = scan5(2);
+      if (r2.best.length > 0) { top5 = r2.best; usedTube5 = r2.bestTube; relaxedOut5 = 2; }
     }
     if (top5.length >= 1) {
       const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
@@ -232,12 +252,13 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
       const same = top5.filter(([, w]) => myInd && ctx.indMap?.[W.codes[w]] === myInd);
       const rest = top5.filter(([, w]) => !(myInd && ctx.indMap?.[W.codes[w]] === myInd));
       const picked = [...same, ...rest].slice(0, 3);
+      const statOK = relaxedOut5 == null;
       nextAnalog = {
-        n: top5.length, tube: usedTube5,
-        openMed: openRets.length >= 5 ? +(med(openRets) * 100).toFixed(2) : null,
-        openWin: openRets.length >= 5 ? +(openRets.filter(r => r > 0).length / openRets.length * 100).toFixed(1) : null,
-        d5Med: c5Rets.length >= 5 ? +(med(c5Rets) * 100).toFixed(2) : null,
-        d5Win: c5Rets.length >= 5 ? +(c5Rets.filter(r => r > 0).length / c5Rets.length * 100).toFixed(1) : null,
+        n: top5.length, tube: usedTube5, relaxedOutDays: relaxedOut5,
+        openMed: statOK && openRets.length >= 5 ? +(med(openRets) * 100).toFixed(2) : null,
+        openWin: statOK && openRets.length >= 5 ? +(openRets.filter(r => r > 0).length / openRets.length * 100).toFixed(1) : null,
+        d5Med: statOK && c5Rets.length >= 5 ? +(med(c5Rets) * 100).toFixed(2) : null,
+        d5Win: statOK && c5Rets.length >= 5 ? +(c5Rets.filter(r => r > 0).length / c5Rets.length * 100).toFixed(1) : null,
         examples: picked.map(([, w]) => {
           const sr = ctx.series[W.codes[w]]; const i2 = W.idx[w];
           const path5 = [];
