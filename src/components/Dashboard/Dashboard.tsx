@@ -276,7 +276,7 @@ function MarketHeatmap({ stocks }: { stocks: StockInfo[] }) {
 const DASH_TABS = [
   { id: 'market', icon: '📊', label: '大盤總覽', hint: '風向 · 籌碼 · 漲跌停 · 排行' },
   { id: 'index',  icon: '📈', label: '指數分析', hint: '日週月K · 自動判讀' },
-  { id: 'news',   icon: '📰', label: '每日新聞', hint: '每日 07:00 四類聚合' },
+  { id: 'news',   icon: '📰', label: '每日新聞', hint: '07:00 首發 · 3小時滾動刷新' },
 ] as const;
 type DashTab = typeof DASH_TABS[number]['id'];
 
