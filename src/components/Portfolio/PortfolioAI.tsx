@@ -20,6 +20,16 @@ interface HoldingAnalysis {
   sellTrigger: string; newsSummary: string; rationale: string;
   isRisk: boolean; riskType: 'attention' | 'disposition' | null;
   swingAdvice: string | null;
+  strategy?: HoldingStrategy | null;
+}
+// daemon computeHoldingStrategy 的實算輸出（零 LLM，欄位見 ai-daemon.mjs 同名函式）
+interface HoldingStrategy {
+  chg: number; pos: number | null; brk20: boolean; charLabel: string | null;
+  filterPass: boolean; passes: string[]; fails: string[];
+  hold: Array<{ d: number; med: number; win: number; n: number }>;
+  heldDays: number | null; holdN: number;
+  analog: { n: number; stats: Array<{ d: number; med: number; win: number }>; grow: number; draw: number;
+    examples: Array<{ code: string; date: string; ret5: number | null }> } | null;
 }
 interface AnalysisDoc { generatedAt: number; model: string; analyses: Record<string, HoldingAnalysis>; }
 interface DaemonStatus { running: boolean; lastHeartbeat: number | null; ageSeconds?: number; host?: string; model?: string }
@@ -48,6 +58,7 @@ export default function PortfolioAI({ codes }: { codes: Array<{ code: string; na
   const isPremium = useIsPremium();   // 受身分模擬影響（見 lib/view-as）
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [data, setData] = useState<AnalysisDoc | null>(null);
+  const [openStrat, setOpenStrat] = useState<Record<string, boolean>>({});   // 持股策略區收合（預設收合）
 
   // poll daemon status
   useEffect(() => {
@@ -123,6 +134,65 @@ export default function PortfolioAI({ codes }: { codes: Array<{ code: string; na
                       📈 <strong>波段操作建議：</strong>{a.swingAdvice}
                     </div>
                   )}
+
+                  {/* ── 📐 持股策略分析（零 LLM 實算·預設收合，2026-08-12 使用者需求）── */}
+                  {a.strategy && (() => {
+                    const st = a.strategy!;
+                    const open = !!openStrat[code];
+                    const matched = st.heldDays != null ? st.hold.find(h => h.d >= st.heldDays!) ?? st.hold[st.hold.length - 1] : null;
+                    return (
+                      <div style={{ marginTop: 8, border: '1px solid var(--border-primary)', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
+                        <button onClick={() => setOpenStrat(o => ({ ...o, [code]: !o[code] }))}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left', fontSize: 'calc(0.78rem * var(--fz))', fontWeight: 700, fontFamily: 'inherit' }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 'calc(0.65rem * var(--fz))' }}>{open ? '▾' : '▸'}</span>
+                          📐 持股策略分析
+                          <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.7rem * var(--fz))' }}>隔日沖對照 · 持有日獲利 · 相似歷史波段</span>
+                        </button>
+                        {open && (
+                          <div style={{ padding: '2px 12px 10px', fontSize: 'calc(0.76rem * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+                            {/* ① 隔日沖 */}
+                            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>🎯 若以隔日沖操作</div>
+                            <div>
+                              今日 {st.chg >= 0 ? '+' : ''}{st.chg}%{st.pos != null ? `·收位 ${st.pos}` : ''}{st.charLabel ? `·${st.charLabel}` : ''}——
+                              {st.filterPass
+                                ? <b style={{ color: 'var(--color-up)' }}>符合撿尾盤定版濾網（破20日高×收位≥0.7×漲3~7%）</b>
+                                : <>不符定版濾網（缺 {st.fails.join('、')}）——今日型態非實證的隔日沖進場點</>}
+                            </div>
+                            <div style={{ color: 'var(--text-muted)' }}>鐵律：隔日沖持股一律<b>明早開盤賣出</b>（700 日實測唯一穩定淨正出場；開高續抱平均吐光溢價 -0.33%）。來回費稅約 0.44%。{st.charLabel === '長期核心' ? '此股屬長期核心——籌碼/動能訊號對短線是雜訊，不建議做隔日沖。' : ''}</div>
+                            {/* ② 持有日獲利 */}
+                            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginTop: 8 }}>🌊 波段持有日獲利（該股近一年逐日進場統計）</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '3px 0' }}>
+                              {st.hold.map(h => (
+                                <span key={h.d} style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--bg-secondary)', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.72rem * var(--fz))', border: matched && matched.d === h.d ? '1px solid var(--accent-blue)' : '1px solid transparent' }}>
+                                  第{h.d}日 <b style={{ color: h.med >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{h.med >= 0 ? '+' : ''}{h.med}%</b> 勝{h.win}%
+                                </span>
+                              ))}
+                            </div>
+                            {st.heldDays != null && matched && (
+                              <div>你目前持有第 <b>{st.heldDays}</b> 個交易日、帳面 {a.pnlPct >= 0 ? '+' : ''}{a.pnlPct.toFixed(2)}%；該股歷史同持有期中位 {matched.med >= 0 ? '+' : ''}{matched.med}%（勝率 {matched.win}%）。</div>
+                            )}
+                            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>⚠ 這是該股全歷史（n={st.hold[0]?.n ?? '—'} 段）的描述統計，會完整繼承這一年的趨勢——不是對你這筆進場的預測。</div>
+                            {/* ③ 相似歷史波段 */}
+                            {st.analog && (
+                              <>
+                                <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginTop: 8 }}>🔁 相似歷史波段（全市場最像的 {st.analog.n} 段·近20日形狀）</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '3px 0' }}>
+                                  {st.analog.stats.map(x => (
+                                    <span key={x.d} style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--bg-secondary)', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.72rem * var(--fz))' }}>
+                                      後{x.d}日 <b style={{ color: x.med >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{x.med >= 0 ? '+' : ''}{x.med}%</b> 勝{x.win}%
+                                    </span>
+                                  ))}
+                                </div>
+                                <div>期間最大成長中位 <b style={{ color: 'var(--color-up)' }}>+{st.analog.grow}%</b>／最大回檔中位 <b style={{ color: 'var(--color-down)' }}>{st.analog.draw}%</b>（成長是賣不到的上界，必須配回檔一起看）。</div>
+                                <div style={{ color: 'var(--text-muted)' }}>例：{st.analog.examples.map(e => `${e.code} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
+                                <div style={{ color: '#fbbf24', fontSize: 'calc(0.68rem * var(--fz))' }}>⚠ 誠實揭露：「走勢相似→未來報酬」在本站歷史檢定<b>未通過</b>（最大漲幅在數學上隨波動放大）——此表是描述統計、不是訊號，請勿當排序依據。</div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {a.newsSummary && (
                     <div style={{ marginTop: 8, fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)' }}>📰 近一月新聞：{a.newsSummary}</div>
