@@ -4,7 +4,23 @@ import { getAdminDb } from '@/lib/firebase-admin';
 
 export const runtime = 'nodejs';
 
-const NO_STORE = { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' };
+// ── 成功回應要可被 CDN 共用（2026-08-12，與 stock-day-all 同一輪巡查）──
+//
+// 這支被 StockTrendChart 以 `setInterval(loadRealtime, 5000)` 每 5 秒輪詢，
+// 原本回 `no-store` ⇒ 每個看盤的人、每 5 秒都打穿到 origin。
+// 但底層是 daemon 寫進 Firestore 的分時序列，掃描週期實測 25~32 秒才更新一次
+// ——no-store 一點新鮮度都換不到，純粹是把「origin 負載」綁死在「線上人數」上，
+// 正是本專案唯一不變式要避免的東西。
+//
+// s-maxage 取 2 秒（與 stock-day-all 同一個保守值）：
+// 同一檔股票的多個觀看者會收斂成每 2 秒 1 次 origin 取用，
+// 而單一使用者 5 秒一次的輪詢仍然幾乎每次都拿到重新驗證過的資料。
+// 快取鍵天然按 ?code= 分開，不會互相污染。
+// ⚠ 只套在**成功**回應；400/404/500 一律不帶標頭，錯誤不該被快取。
+const OK_CACHE = {
+  'Cache-Control': 'public, s-maxage=2, stale-while-revalidate=15',
+  'Access-Control-Allow-Origin': '*',
+};
 const taipeiDate = () => {
   const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
   return `${tw.getFullYear()}-${String(tw.getMonth() + 1).padStart(2, '0')}-${String(tw.getDate()).padStart(2, '0')}`;
@@ -85,7 +101,7 @@ export async function GET(request: NextRequest) {
       ? (() => { const t = new Date(new Date(daemon.ticks[0].time * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return t.getHours() * 60 + t.getMinutes(); })()
       : 9999;
     if (marketOpen && daemon && firstTickMin <= 9 * 60 + 10) {
-      return NextResponse.json({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, { headers: NO_STORE });
+      return NextResponse.json({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, { headers: OK_CACHE });
     }
 
     // 一般路徑：以 Yahoo 全日為主幹，盤中再把 daemon 更即時的尾段接上，兼顧完整與即時。
@@ -130,7 +146,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No data found' }, { status: 404 });
     }
 
-    return NextResponse.json({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, { headers: NO_STORE });
+    return NextResponse.json({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, { headers: OK_CACHE });
   } catch (error) {
     console.error(`Stock intraday proxy error for ${code}:`, error);
     return NextResponse.json({ error: 'Failed to fetch stock intraday data' }, { status: 500 });
