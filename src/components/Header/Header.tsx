@@ -258,8 +258,30 @@ export default function Header() {
     navigateTo('stock', stock.code);
     queryRef.current = '';
     setDebouncedQuery('');
-    if (searchInputRef.current) searchInputRef.current.value = '';   // 非受控：手動清空
+    if (searchInputRef.current) { searchInputRef.current.value = ''; searchInputRef.current.blur(); }  // 非受控：手動清空＋收鍵盤
     setShowDropdown(false);
+  };
+
+  // ── 手機鍵盤「搜尋」鍵（2026-08-12 使用者回報：搜尋都要按兩次）──
+  // 輸入框標了 enterKeyHint="search"，鍵盤右下角就會顯示「搜尋」，
+  // 但原本**沒有任何 Enter 處理**——按下去毫無反應，使用者只能再打一次
+  // 或改點下拉。這裡按下即開第一筆相符。
+  // 兩個坑：
+  //   ① 不能等 150ms debounce 的 state——按鍵當下用 queryRef **同步重算**最佳匹配，
+  //     否則快打快按的人拿到的是上一次的結果。
+  //   ② 注音/倉頡選字的 Enter 是「確認組字」不是「搜尋」——isComposing 時必須放行
+  //     給輸入法（keyCode 229 同義，Android 舊鍵盤只給這個）。
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;   // 輸入法組字確認，不是搜尋
+    const q = queryRef.current.trim().toLowerCase();
+    if (!q) return;
+    e.preventDefault();
+    const hit = allStocksLocal.find(st => st && (String(st.code).toLowerCase() === q))  // 代號全等優先
+      ?? allStocksLocal.find(st => st && (String(st.code).toLowerCase().includes(q) || String(st.name || '').toLowerCase().includes(q)));
+    if (hit) { handleSelectStock(hit); return; }
+    // 清單沒有（載入中/上櫃缺漏）：4~6 碼代號直接開，個股頁會自己抓資料
+    if (/^\d{4,6}[a-z]?$/.test(q)) handleSelectStock({ code: q.toUpperCase(), name: '', price: 0, change: 0, changePercent: 0, volume: 0 } as StockInfo);
   };
 
   // ── 盤別燈號（2026-08-11 重寫）──────────────────────────────────────
@@ -448,6 +470,7 @@ export default function Header() {
             onChange={(e) => scheduleSearch(e.target.value)}
             onCompositionStart={() => { composingRef.current = true; }}
             onCompositionEnd={(e) => { composingRef.current = false; scheduleSearch((e.target as HTMLInputElement).value); }}
+            onKeyDown={handleSearchKeyDown}
             inputMode="search"
             enterKeyHint="search"
             className={styles.searchInput}
@@ -463,6 +486,12 @@ export default function Header() {
                 key={stock.code}
                 id={`search-result-${stock.code}`}
                 className={styles.searchItem}
+                // ⚠ onPointerDown 而不是只有 onClick（2026-08-12）：iOS 鍵盤開著時，
+                //   第一次觸點會被拿去收鍵盤/失焦，click 要**第二次**觸點才發——
+                //   使用者體感就是「每次都要點兩下」。pointerdown 在第一觸就發；
+                //   preventDefault 擋掉後續的失焦連鎖。onClick 保留給鍵盤操作（Enter 選取），
+                //   滑鼠雙觸發無害（同一檔開兩次＝同一頁）。
+                onPointerDown={(e) => { e.preventDefault(); handleSelectStock(stock); }}
                 onClick={() => handleSelectStock(stock)}
               >
                 <div className={styles.searchItemInfo}>
