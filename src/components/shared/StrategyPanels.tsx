@@ -34,22 +34,69 @@ const caveat: React.CSSProperties = {
 // ⚠ SVG 內不放任何文字（preserveAspectRatio="none" 會把字壓扁——個股K線圖的舊坑），
 //   圖例與軸標全部放 HTML。
 const EX_COLORS = ['#a78bfa', '#f472b6', '#38bdf8'];
-function AnalogChart({ analog }: { analog: NonNullable<HoldingStrategyResult['analog']> }) {
+
+// ── 隔日沖：走勢與突破位圖 ────────────────────────────────────────────
+// 一眼回答「現在是不是突破 20 日高的時機」：近 20 日收盤線（錨=今日=0%）＋
+// 琥珀虛線=20日高突破線＋今日端點。線在虛線上方收＝已突破（濾網第一條件）。
+// SVG 內零文字（preserveAspectRatio="none" 壓扁字的舊坑），標籤全在 HTML。
+function BreakoutChart({ selfPath, hi20Rel, brk20 }: { selfPath: number[]; hi20Rel: number; brk20: boolean }) {
+  const W = 400, H = 110;
+  const all = [...selfPath, hi20Rel, 0];
+  const lo = Math.min(...all), hi = Math.max(...all);
+  const pad = Math.max((hi - lo) * 0.08, 0.4);
+  const y = (v: number) => H - ((v - (lo - pad)) / ((hi + pad) - (lo - pad))) * H;
+  const x = (i: number) => (i / (selfPath.length - 1)) * W;
+  const d = selfPath.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const lineColor = brk20 ? 'var(--color-up)' : '#e2e8f0';
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 'calc(0.66rem * var(--fz))', color: 'var(--text-muted)', marginBottom: 3 }}>
+        <span><span style={{ display: 'inline-block', width: 14, height: 3, background: lineColor, verticalAlign: 'middle', marginRight: 4 }} />近 20 日收盤（今日＝0%）</span>
+        <span><span style={{ display: 'inline-block', width: 14, height: 0, borderTop: '2px dashed #fbbf24', verticalAlign: 'middle', marginRight: 4 }} />20日高突破線（{hi20Rel >= 0 ? `還差 +${hi20Rel}%` : '已站上'}）</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 110, display: 'block', background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
+        <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.3)" strokeDasharray="4 4" strokeWidth={0.6} />
+        <line x1={0} x2={W} y1={y(hi20Rel)} y2={y(hi20Rel)} stroke="#fbbf24" strokeDasharray="5 4" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+        <path d={d} fill="none" stroke={lineColor} strokeWidth={2.2} vectorEffect="non-scaling-stroke" />
+        <circle cx={W} cy={y(0)} r={3.5} fill={lineColor} />
+      </svg>
+      <div style={{ fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
+        {brk20 ? '✓ 收盤已越過 20 日高——定版濾網第一條件成立，再看收位與漲幅。' : '收盤仍在 20 日高之下——追突破的時機未到（濾網要求「破 20 日新高」才進場）。'}
+      </div>
+    </div>
+  );
+}
+function AnalogChart({ analog, selfPath }: { analog: NonNullable<HoldingStrategyResult['analog']>; selfPath: number[] }) {
+  // 點選辨識（2026-08-12 使用者需求）：點圖例或線段 → 該線高亮、其餘退淡；再點取消。
+  const [sel, setSel] = useState<number | 'self' | null>(null);
+  const toggleSel = (k: number | 'self') => setSel(cur => (cur === k ? null : k));
+  const opa = (k: number | 'self') => (sel == null ? undefined : sel === k ? 1 : 0.12);
   const W = 400, H = 150, DAYS = 40;              // x 槽位：day -19..+20
   const x = (day: number) => ((day + 19) / (DAYS - 1)) * W;
-  const all: number[] = [...analog.selfPath];
+  const all: number[] = [...selfPath];
   for (const e of analog.examples) all.push(...e.path);
   const lo = Math.min(...all), hi = Math.max(...all);
   const pad = Math.max((hi - lo) * 0.06, 0.5);
   const y = (v: number) => H - ((v - (lo - pad)) / ((hi + pad) - (lo - pad))) * H;
   const line = (pts: Array<[number, number]>) => pts.map(([d, v], i) => `${i === 0 ? 'M' : 'L'}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const selfPts: Array<[number, number]> = analog.selfPath.map((v, i) => [i - 19, v]);
+  const selfPts: Array<[number, number]> = selfPath.map((v, i) => [i - (selfPath.length - 1), v]);
   return (
     <div style={{ marginTop: 6 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 'calc(0.66rem * var(--fz))', marginBottom: 3 }}>
-        <span><span style={{ display: 'inline-block', width: 14, height: 3, background: '#e2e8f0', verticalAlign: 'middle', marginRight: 4 }} />本檔（至今日）</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 'calc(0.66rem * var(--fz))', marginBottom: 3 }}>
+        {/* 圖例即開關：點選高亮該線、其餘退淡（線段本身也可點） */}
+        <button onClick={() => toggleSel('self')}
+          style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit',
+            background: sel === 'self' ? 'rgba(226,232,240,0.18)' : 'transparent', color: 'var(--text-secondary)',
+            border: sel === 'self' ? '1px solid #e2e8f0' : '1px solid var(--border-primary)', opacity: sel != null && sel !== 'self' ? 0.4 : 1 }}>
+          <span style={{ display: 'inline-block', width: 14, height: 3, background: '#e2e8f0', marginRight: 4 }} />本檔（至今日）
+        </button>
         {analog.examples.map((e, i) => (
-          <span key={e.code + e.date}><span style={{ display: 'inline-block', width: 14, height: 3, background: EX_COLORS[i], verticalAlign: 'middle', marginRight: 4 }} />{e.code} {e.date}{e.ret5 != null ? `（5日 ${e.ret5 >= 0 ? '+' : ''}${e.ret5}%）` : ''}</span>
+          <button key={e.code + e.date} onClick={() => toggleSel(i)}
+            style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit',
+              background: sel === i ? `${EX_COLORS[i]}22` : 'transparent', color: 'var(--text-secondary)',
+              border: sel === i ? `1px solid ${EX_COLORS[i]}` : '1px solid var(--border-primary)', opacity: sel != null && sel !== i ? 0.4 : 1 }}>
+            <span style={{ display: 'inline-block', width: 14, height: 3, background: EX_COLORS[i], marginRight: 4 }} />{e.code} {e.name || ''} {e.date}{e.ret5 != null ? `（5日 ${e.ret5 >= 0 ? '+' : ''}${e.ret5}%）` : ''}
+          </button>
         ))}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 150, display: 'block', background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
@@ -60,9 +107,12 @@ function AnalogChart({ analog }: { analog: NonNullable<HoldingStrategyResult['an
         <line x1={x(0)} x2={x(0)} y1={0} y2={H} stroke="rgba(226,232,240,0.5)" strokeDasharray="2 3" strokeWidth={0.8} />
         {analog.examples.map((e, i) => (
           <path key={e.code + e.date} d={line(e.path.map((v, k) => [k - (e.winLen - 1), v] as [number, number]))}
-            fill="none" stroke={EX_COLORS[i]} strokeWidth={1.4} vectorEffect="non-scaling-stroke" opacity={0.9} />
+            fill="none" stroke={EX_COLORS[i]} strokeWidth={sel === i ? 2.6 : 1.4} vectorEffect="non-scaling-stroke"
+            opacity={opa(i) ?? 0.9} style={{ cursor: 'pointer' }} pointerEvents="stroke"
+            onClick={() => toggleSel(i)} />
         ))}
-        <path d={line(selfPts)} fill="none" stroke="#e2e8f0" strokeWidth={2.4} vectorEffect="non-scaling-stroke" />
+        <path d={line(selfPts)} fill="none" stroke="#e2e8f0" strokeWidth={sel === 'self' ? 3.2 : 2.4} vectorEffect="non-scaling-stroke"
+          opacity={opa('self')} style={{ cursor: 'pointer' }} pointerEvents="stroke" onClick={() => toggleSel('self')} />
         <circle cx={x(0)} cy={y(0)} r={3} fill="#e2e8f0" />
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
@@ -80,7 +130,8 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
   // 候選（無買進日）由呼叫端把 heldDays 錨定為 0＝「以操作時間為第 1 日」。
   // 對照列取 max(1, elapsed)：進場當天對到 d=1（＝明日收盤那格），語意是
   // 「接下來持有滿 1 個交易日，歷史上中位是多少」。
-  const [showChart, setShowChart] = useState(false);   // 比較疊圖（預設收合）
+  const [showChart, setShowChart] = useState(false);   // 相似疊圖（預設收合）
+  const [showBreakout, setShowBreakout] = useState(false);   // 隔日沖走勢/突破位圖（預設收合）
   const elapsed = st.heldDays;
   const dayNo = elapsed != null ? elapsed + 1 : null;
   const matched = elapsed != null ? st.hold.find(h => h.d >= Math.max(1, elapsed)) ?? st.hold[st.hold.length - 1] : null;
@@ -102,6 +153,15 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
           鐵律：隔日沖持股一律<b style={{ color: BLUE }}>明早開盤賣出</b>（700 日實測唯一穩定淨正出場；開高續抱平均吐光溢價 -0.33%）。來回費稅約 <b>0.44%</b>。
           {st.charLabel === '長期核心' ? <b style={{ color: '#fbbf24' }}>此股屬長期核心——短線訊號是雜訊，不建議隔日沖。</b> : null}
         </div>
+        {st.selfPath?.length ? (
+          <>
+            <button onClick={() => setShowBreakout(v => !v)}
+              style={{ marginTop: 4, padding: '3px 10px', borderRadius: 8, fontSize: 'calc(0.7rem * var(--fz))', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', background: showBreakout ? `${BLUE}22` : 'var(--bg-secondary)', color: showBreakout ? BLUE : 'var(--text-secondary)', border: `1px solid ${showBreakout ? BLUE : 'var(--border-primary)'}` }}>
+              📈 {showBreakout ? '收合走勢與突破位 ▴' : '展開走勢與突破位（時機判斷）▾'}
+            </button>
+            {showBreakout && <BreakoutChart selfPath={st.selfPath} hi20Rel={st.hi20Rel} brk20={st.brk20} />}
+          </>
+        ) : null}
       </div>
       {/* ② 持有日獲利 */}
       <div style={panel(TEAL)}>
@@ -124,9 +184,18 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
         <div style={caveat}>⚠ 全歷史描述統計，會完整繼承這一年的趨勢——不是對你這筆進場的預測。</div>
       </div>
       {/* ③ 相似歷史波段 */}
+      {!st.analog && st.analogNote && (
+        <div style={panel(VIOLET)}>
+          <div style={pTitle(VIOLET)}>🔁 相似歷史波段</div>
+          <div style={{ color: 'var(--text-muted)' }}>{st.analogNote}</div>
+        </div>
+      )}
       {st.analog && (
         <div style={panel(VIOLET)}>
-          <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·近20日形狀）</span></div>
+          <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(0.68rem * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·近20日走勢 ±{st.analog.tube}% 相似帶內）</span></div>
+          {st.analog.tube > 5 && (
+            <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ ±5% 內找不到足夠的歷史同類（走勢較極端），已放寬到 ±{st.analog.tube}% ——相似程度打了折，判讀請更保守。</div>
+          )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '3px 0' }}>
             {st.analog.stats.map(x => (
               <span key={x.d} style={chip()}>
@@ -137,14 +206,14 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
               最大成長 <b style={{ color: 'var(--color-up)' }}>+{st.analog.grow}%</b> ／ 回檔 <b style={{ color: 'var(--color-down)' }}>{st.analog.draw}%</b>
             </span>
           </div>
-          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>成長是賣不到的上界，必須配回檔一起看。例：{st.analog.examples.map(e => `${e.code} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
-          {st.analog.selfPath?.length ? (
+          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>成長是賣不到的上界，必須配回檔一起看。例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
+          {st.selfPath?.length ? (
             <>
               <button onClick={() => setShowChart(v => !v)}
                 style={{ marginTop: 4, padding: '3px 10px', borderRadius: 8, fontSize: 'calc(0.7rem * var(--fz))', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', background: showChart ? `${VIOLET}22` : 'var(--bg-secondary)', color: showChart ? VIOLET : 'var(--text-secondary)', border: `1px solid ${showChart ? VIOLET : 'var(--border-primary)'}` }}>
                 📈 {showChart ? '收合比較線圖 ▴' : '展開比較線圖（本檔＋3 段相似疊圖）▾'}
               </button>
-              {showChart && <AnalogChart analog={st.analog} />}
+              {showChart && <AnalogChart analog={st.analog} selfPath={st.selfPath} />}
             </>
           ) : null}
           <div style={caveat}>⚠ 誠實揭露：「走勢相似→未來報酬」本站歷史檢定<b>未通過</b>（最大漲幅隨波動放大）——描述統計、非訊號，勿當排序依據。</div>

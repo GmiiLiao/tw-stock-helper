@@ -28,8 +28,15 @@ const getCtx = memoize('stock-strategy-ctx', 6 * 3600_000, async () => {
     const cd = await db.collection('chipCharacter').doc('latest').get();
     if (cd.exists) charMap = JSON.parse(cd.data()?.byCodeJson || '{}');
   } catch { /* 無分類則略 */ }
+  // 股名對照（相似例顯示用）：marketSnapshot 快照全市場皆有 name
+  let nameMap: Record<string, string> = {};
+  try {
+    const ms = (await db.collection('marketSnapshot').doc('latest').get()).data();
+    const q = JSON.parse(ms?.quotesJson || '{}');
+    for (const cc in q) if (q[cc]?.name) nameMap[cc] = q[cc].name;
+  } catch { /* 缺名不擋 */ }
   const archDate = asc.length ? (asc[asc.length - 1] as { date: string }).date : null;
-  return { series, windows, charMap, archDate };
+  return { series, windows, charMap, nameMap, archDate };
 }, { timeoutMs: 60_000, isDegraded: v => !(v as { windows: { count: number } }).windows?.count });
 
 export async function GET(request: NextRequest) {

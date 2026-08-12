@@ -569,7 +569,10 @@ async function getStrategyCtx() {
   const windows = buildStrategyWindows(series);
   let charMap = {};
   try { const cd = await db.collection('chipCharacter').doc('latest').get(); if (cd.exists) charMap = JSON.parse(cd.data().byCodeJson || '{}'); } catch { /* 無分類則略 */ }
-  _stratCtx = { archDate: newest, ctx: { series, windows, charMap } };
+  // 股名對照（相似例顯示用）：快照 quotes 全市場都有 name
+  let nameMap = {};
+  try { const q = (await readSnapshotQuotes())?.quotes || {}; for (const cc in q) if (q[cc]?.name) nameMap[cc] = q[cc].name; } catch { /* 缺名不擋 */ }
+  _stratCtx = { archDate: newest, ctx: { series, windows, charMap, nameMap } };
   log(`  · 持股策略脈絡就緒（資料至 ${newest}）：${Object.keys(series).length} 檔、${windows.count} 個相似窗`);
   return _stratCtx.ctx;
 }

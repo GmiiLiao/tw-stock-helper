@@ -31,7 +31,13 @@ export function buildStrategySeries(archDocsAsc) {
   return series;
 }
 
-/** 相似波段索引（緊湊打包）。步長 2＝樣本減半、形狀覆蓋不變；留 20 日前瞻。 */
+/** 相似波段索引（緊湊打包）。步長 2＝樣本減半、形狀覆蓋不變；留 20 日前瞻。
+ *
+ *  ⚠ 相似的定義（2026-08-12 使用者看圖打槍後定案）：**振幅也要像**。
+ *  第一版在「除以自身波動」的歸一空間比形狀——劇烈 V 與溫和 V 歸一後相同，
+ *  畫回實際 % 完全不像（使用者截圖實證：本檔 -8% 深 V 配三條近乎水平線）。
+ *  改為直接在「實際累計%（錨=窗終點=0）」空間比對——比什麼就畫什麼，
+ *  圖上的相似是構造保證，不是巧合。 */
 export function buildStrategyWindows(series) {
   const codes = [], idx = [];
   const vecList = [];
@@ -39,15 +45,15 @@ export function buildStrategyWindows(series) {
     const st = series[code]; const n = st.c.length;
     if (n < 45) continue;
     for (let i = 20; i + 20 < n; i += 2) {
-      const rets = []; let sum = 0, sum2 = 0; let ok = true;
+      if (!(st.c[i] > 0)) continue;
+      let ok = true; const vec = [];
       for (let k = i - 19; k <= i; k++) {
-        if (!(st.c[k] > 0) || !(st.c[k - 1] > 0)) { ok = false; break; }
-        const r = Math.log(st.c[k] / st.c[k - 1]); rets.push(r); sum += r; sum2 += r * r;
+        if (!(st.c[k] > 0)) { ok = false; break; }
+        vec.push((st.c[k] / st.c[i] - 1) * 100);   // 實際累計%，最後一點恆為 0
       }
       if (!ok) continue;
-      const sd = Math.sqrt(Math.max(sum2 / 20 - (sum / 20) ** 2, 1e-8));
       codes.push(code); idx.push(i);
-      for (let k = 0; k < 20; k++) vecList.push(rets[k] / sd);
+      for (let k = 0; k < 20; k++) vecList.push(vec[k]);
     }
   }
   return { codes, idx: Int32Array.from(idx), vecs: Float32Array.from(vecList), count: codes.length };
@@ -65,6 +71,11 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
   const hi20 = Math.max(...c.slice(Math.max(0, n - 21), n - 1));
   const brk20 = last > hi20;
   const charLabel = ctx.charMap?.[code]?.label || null;
+  // 近 20 日累計%（錨=今日=0）＋20日高相對位置——隔日沖「走勢與突破位」圖的素材，
+  // 與 analog 是否成立無關，一律提供。
+  const selfPath = [];
+  for (let k = Math.max(0, n - 20); k < n; k++) selfPath.push(+(((c[k] / last) - 1) * 100).toFixed(2));
+  const hi20Rel = +(((hi20 / last) - 1) * 100).toFixed(2);   // >0＝突破線在上方（未破）；<0＝已站上
 
   // ① 隔日沖：對照定版濾網
   const passes = [], fails = [];
@@ -85,31 +96,43 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
   let heldDays = null;
   if (buyDate) { const i2 = st.dates.findIndex(d => d >= buyDate); if (i2 >= 0) heldDays = n - 1 - i2; }
 
-  // ③ 相似波段
+  // ③ 相似波段（形狀＋振幅雙重相似；±5pp 管狀硬約束＝使用者定案）
   let analog = null;
+  let analogNote = null;
+  // 帶寬分級（使用者定案 ±5% 為準）：±5 找不到 ≥5 段才放寬到 ±8、±12，
+  // **用了哪個帶寬據實寫在卡上**（極端走勢如 +40% 瘋漲，歷史上就是沒有 ±5% 內的同類，
+  // 硬湊會回到「看起來不像」的原問題；放寬＋標示是誠實的折衷）。
+  const TUBES = [5, 8, 12];
   const W = ctx.windows;
   if (n >= 22 && W?.count) {
-    const rets = []; let sum = 0, sum2 = 0;
-    for (let k = n - 20; k < n; k++) { const r = Math.log(c[k] / c[k - 1]); rets.push(r); sum += r; sum2 += r * r; }
-    const sd = Math.sqrt(Math.max(sum2 / 20 - (sum / 20) ** 2, 1e-8));
     const qv = new Float32Array(20);
-    for (let k = 0; k < 20; k++) qv[k] = rets[k] / sd;
-    // 全窗掃描（~187k × 20 乘加 ≈ 4M flops·<50ms）
-    const scored = [];
-    for (let w = 0; w < W.count; w++) {
-      if (W.codes[w] === code && W.idx[w] > n - 40) continue;   // 排除自己最近重疊窗
-      const base = w * 20; let d = 0;
-      for (let k = 0; k < 20; k++) { const t = qv[k] - W.vecs[base + k]; d += t * t; }
-      scored.push([d, w]);
+    for (let k = 0; k < 20; k++) qv[k] = (c[n - 20 + k] / last - 1) * 100;   // 與窗向量同空間
+    let top = [], usedTube = TUBES[0];
+    for (const tube of TUBES) {
+      const scored = [];
+      for (let w = 0; w < W.count; w++) {
+        if (W.codes[w] === code && W.idx[w] > n - 40) continue;   // 排除自己最近重疊窗
+        const base = w * 20; let d = 0; let inTube = true;
+        for (let k = 0; k < 20; k++) {
+          const t = qv[k] - W.vecs[base + k];
+          if (t > tube || t < -tube) { inTube = false; break; }
+          d += t * t;
+        }
+        if (inTube) scored.push([d, w]);
+      }
+      scored.sort((a, b) => a[0] - b[0]);
+      top = scored.slice(0, 30); usedTube = tube;
+      if (top.length >= 5) break;
     }
-    scored.sort((a, b) => a[0] - b[0]);
-    const top = scored.slice(0, 30);
-    if (top.length >= 10) {
+    if (top.length < 5) {
+      analogNote = `全市場歷史中，即使放寬到 ±${usedTube}%，與本檔近 20 日走勢相似的波段僅 ${top.length} 段——樣本不足，不硬湊統計。`;
+    }
+    if (top.length >= 5) {
       const fwd = (w, hn) => { const sc = ctx.series[W.codes[w]].c; const i2 = W.idx[w]; return i2 + hn < sc.length ? sc[i2 + hn] / sc[i2] - 1 : null; };
       const med = arr => { const s2 = arr.slice().sort((a, b) => a - b); return s2[s2.length >> 1]; };
       const stats = [5, 10, 20].map(hn => {
         const rs = top.map(([, w]) => fwd(w, hn)).filter(r => r != null && Number.isFinite(r));
-        if (rs.length < 10) return null;
+        if (rs.length < 5) return null;   // n 一律隨卡揭露，小樣本由讀者自行折價
         return { d: hn, med: +(med(rs) * 100).toFixed(2), win: +(rs.filter(r => r > 0).length / rs.length * 100).toFixed(1) };
       }).filter(Boolean);
       const gd = top.map(([, w]) => {
@@ -130,16 +153,15 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
         }
         return out;
       };
-      // 本檔近 20 日（終點=今天=0%）；沒有未來段，圖上停在相似點
-      const selfPath = [];
-      for (let k = n - 20; k < n; k++) selfPath.push(+(((c[k] / last) - 1) * 100).toFixed(2));
       analog = {
-        n: top.length, stats,
+        n: top.length, tube: usedTube, stats,
+        selfPath,   // 相容欄位：舊 bundle 的 AnalogChart 讀這裡；新 UI 讀根層（下版可移除）
         grow: +(med(gd.map(x => x.mg)) * 100).toFixed(1),
         draw: +(med(gd.map(x => x.md)) * 100).toFixed(1),
         selfPath,
         examples: top.slice(0, 3).map(([, w]) => ({
-          code: W.codes[w], date: ctx.series[W.codes[w]].dates[W.idx[w]],
+          code: W.codes[w], name: ctx.nameMap?.[W.codes[w]] || '',
+          date: ctx.series[W.codes[w]].dates[W.idx[w]],
           ret5: (() => { const r = fwd(w, 5); return r != null ? +(r * 100).toFixed(1) : null; })(),
           path: pathOf(ctx.series[W.codes[w]], W.idx[w]),   // 窗內20＋窗後至多20，錨=相似點
           winLen: Math.min(20, W.idx[w]),                    // 窗內段實際長度（對齊繪圖用）
@@ -147,5 +169,5 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
       };
     }
   }
-  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, filterPass, passes, fails, hold, heldDays, holdN: n, analog };
+  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, selfPath, hi20Rel, filterPass, passes, fails, hold, heldDays, holdN: n, analog, analogNote };
 }
