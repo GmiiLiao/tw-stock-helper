@@ -725,6 +725,7 @@ function GroupPanel({
                     code={stock.code}
                     name={stock.name || quotes[stock.code]?.name || ''}
                     closePrice={quotes[stock.code]?.price}
+                    changePercent={quotes[stock.code]?.changePercent}
                   />
                   <StockAIEval code={stock.code} name={stock.name || quotes[stock.code]?.name || ''} />
                 </div>

@@ -149,7 +149,7 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
               <span>隔日跌停 <b style={{ color: '#2f9e44' }}>{limDn}</b></span>
             </div>
             {/* 即時K線（預設即時，可切日/週/月） */}
-            <StockTrendChart code={p.code} name={p.name} closePrice={p.price} />
+            <StockTrendChart code={p.code} name={p.name} closePrice={p.price} changePercent={p.chg} />
           </div>
         )}
       </div>

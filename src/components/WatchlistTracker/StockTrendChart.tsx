@@ -485,7 +485,17 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
     return { highest: Math.max(...kline.map(c => c.h)), lowest: Math.min(...kline.map(c => c.l)), pct: startP > 0 ? (endP - startP) / startP * 100 : 0 };
   }, [mode, displayCandles, kline, refPrev, kView]);
 
-  const isUp = (stats?.pct ?? 0) >= 0;
+  // ── 今日漲跌的唯一真相＝權威報價（2026-08-13 使用者抓到同族錯誤）──
+  // 3629 實案：熱力方塊顯示 +9.7%（快照真實價 14.65），展開圖卻寫 ▼0.75%——
+  // 因為標題拿「自己殘缺的分時序列最後一筆」除平盤算。冷門/創新板股
+  // Yahoo 無分時、daemon 又是被瀏覽後才開始追蹤，序列常只有零星幾點，
+  // 缺的段正好是它拉上去的段。同一畫面兩個來源打架＝本專案最常見的病。
+  // ⇒ rt 模式標題一律用呼叫端傳入的權威 changePercent；序列值僅當 fallback。
+  //   兩者差距 >0.5pp 時掛「分時不完整」章——序列缺段要明說，不是假裝完整。
+  const headlinePct = mode === 'rt' && Number.isFinite(changePercent) ? (changePercent as number) : (stats?.pct ?? 0);
+  const seriesIncomplete = mode === 'rt' && Number.isFinite(changePercent) && stats != null
+    && Math.abs((stats.pct ?? 0) - (changePercent as number)) > 0.5;
+  const isUp = headlinePct >= 0;
   const chartColor = isUp ? 'var(--color-up)' : 'var(--color-down)';
 
   const yDomain = useMemo(() => {
@@ -502,10 +512,13 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
           <span className={styles.chartTitleText}>{name} ({code}) {mode === 'rt' ? '即時走勢' : `${MODE_LABEL[mode]}K線`}</span>
           {stats && (
             <span className={styles.chartPeriodChange} style={{ color: isUp ? 'var(--color-up)' : 'var(--color-down)' }}>
-              {mode === 'rt' ? '今日漲跌' : '此區間'}：{isUp ? '▲' : '▼'}{Math.abs(stats.pct).toFixed(2)}%
+              {mode === 'rt' ? '今日漲跌' : '此區間'}：{isUp ? '▲' : '▼'}{Math.abs(mode === 'rt' ? headlinePct : stats.pct).toFixed(2)}%
             </span>
           )}
         </div>
+        {seriesIncomplete && (
+          <span title="此股分時序列不完整（冷門股 Yahoo 無分時、且是被瀏覽後才納入即時追蹤）——圖只畫已記錄的片段，今日漲跌以權威報價為準" style={{ fontSize: 'calc(0.64rem * var(--fz))', padding: '1px 7px', borderRadius: 999, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap', cursor: 'help' }}>⚠ 分時不完整·以報價為準</span>
+        )}
         <InstStrip code={code} changePercent={changePercent} volume={volume} />
         <div className={styles.periodTabs}>
           {(['rt', 'day', 'week', 'month'] as Mode[]).map(m => (
