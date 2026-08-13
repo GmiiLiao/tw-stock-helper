@@ -62,6 +62,7 @@ function NextAnalogChart({ na, selfPath5 }: { na: NonNullable<HoldingStrategyRes
         ))}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 130, display: 'block', background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
+        <DayBands dayMin={-4} dayMax={5} W={W} H={H} />
         <rect x={x(0)} y={0} width={W - x(0)} height={H} fill="rgba(61,142,248,0.06)" />
         <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.35)" strokeDasharray="4 4" strokeWidth={0.6} />
         <line x1={x(0)} x2={x(0)} y1={0} y2={H} stroke="rgba(226,232,240,0.5)" strokeDasharray="2 3" strokeWidth={0.8} />
@@ -75,11 +76,7 @@ function NextAnalogChart({ na, selfPath5 }: { na: NonNullable<HoldingStrategyRes
           opacity={opa('self')} style={{ cursor: 'pointer' }} pointerEvents="stroke" onClick={() => toggleSel('self')} />
         <circle cx={x(0)} cy={y(0)} r={3} fill="#e2e8f0" />
       </svg>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
-        <span>← 相似的近 5 日</span>
-        <span>▲ 相似日（0%·本檔＝今日）</span>
-        <span>後續 5 日（僅歷史例）→</span>
-      </div>
+      <DayLabels dayMin={-4} dayMax={5} step={1} />
     </div>
   );
 }
@@ -91,6 +88,40 @@ function NextAnalogChart({ na, selfPath5 }: { na: NonNullable<HoldingStrategyRes
 // ⚠ SVG 內不放任何文字（preserveAspectRatio="none" 會把字壓扁——個股K線圖的舊坑），
 //   圖例與軸標全部放 HTML。
 const EX_COLORS = ['#a78bfa', '#f472b6', '#38bdf8'];
+
+// ── 日刻度（2026-08-12 使用者需求：線段看不出是第幾日）────────────────
+// SVG 內畫「每 5 日交替底色帶＋日刻度線」，日數字放 HTML 標籤列（SVG 零文字鐵則）。
+// dayMin..dayMax 對映 0..W；labelStep 決定標籤密度。
+function DayBands({ dayMin, dayMax, W, H }: { dayMin: number; dayMax: number; W: number; H: number }) {
+  const x = (d: number) => ((d - dayMin) / (dayMax - dayMin)) * W;
+  const bands: React.ReactNode[] = [];
+  for (let d = Math.ceil(dayMin / 5) * 5; d < dayMax; d += 5) {
+    const isAlt = ((d / 5) % 2 + 2) % 2 === 1;
+    if (isAlt) bands.push(<rect key={'b' + d} x={x(d)} y={0} width={x(Math.min(d + 5, dayMax)) - x(d)} height={H} fill="rgba(255,255,255,0.03)" />);
+  }
+  const ticks: React.ReactNode[] = [];
+  for (let d = Math.ceil(dayMin); d <= dayMax; d++) {
+    if (d === 0) continue;   // 錨線另有樣式
+    const major = d % 5 === 0;
+    ticks.push(<line key={'t' + d} x1={x(d)} x2={x(d)} y1={0} y2={H}
+      stroke={major ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.08)'} strokeWidth={major ? 0.8 : 0.5} />);
+  }
+  return <>{bands}{ticks}</>;
+}
+function DayLabels({ dayMin, dayMax, step }: { dayMin: number; dayMax: number; step: number }) {
+  const labels: number[] = [];
+  for (let d = Math.ceil(dayMin / step) * step; d <= dayMax; d += step) labels.push(d);
+  if (!labels.includes(0)) labels.push(0);
+  return (
+    <div style={{ position: 'relative', height: 14, marginTop: 1, fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.6rem * var(--fz))', color: 'var(--text-muted)' }}>
+      {labels.sort((a, b) => a - b).map(d => (
+        <span key={d} style={{ position: 'absolute', left: `${((d - dayMin) / (dayMax - dayMin)) * 100}%`, transform: 'translateX(-50%)', color: d === 0 ? 'var(--text-secondary)' : undefined, fontWeight: d === 0 ? 700 : 400 }}>
+          {d === 0 ? '今' : d > 0 ? `+${d}` : d}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 // ── 隔日沖：走勢與突破位圖 ────────────────────────────────────────────
 // 一眼回答「現在是不是突破 20 日高的時機」：近 20 日收盤線（錨=今日=0%）＋
@@ -112,14 +143,13 @@ function BreakoutChart({ selfPath, hi20Rel, brk20 }: { selfPath: number[]; hi20R
         <span><span style={{ display: 'inline-block', width: 14, height: 0, borderTop: '2px dashed #fbbf24', verticalAlign: 'middle', marginRight: 4 }} />20日高突破線（{hi20Rel >= 0 ? `還差 +${hi20Rel}%` : '已站上'}）</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 110, display: 'block', background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
+        <DayBands dayMin={-(selfPath.length - 1)} dayMax={0} W={W} H={H} />
         <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.3)" strokeDasharray="4 4" strokeWidth={0.6} />
         <line x1={0} x2={W} y1={y(hi20Rel)} y2={y(hi20Rel)} stroke="#fbbf24" strokeDasharray="5 4" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
         <path d={d} fill="none" stroke={lineColor} strokeWidth={2.2} vectorEffect="non-scaling-stroke" />
         <circle cx={W} cy={y(0)} r={3.5} fill={lineColor} />
       </svg>
-      <div style={{ fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
-        {brk20 ? '✓ 收盤已越過 20 日高——定版濾網第一條件成立，再看收位與漲幅。' : '收盤仍在 20 日高之下——追突破的時機未到（濾網要求「破 20 日新高」才進場）。'}
-      </div>
+      <DayLabels dayMin={-(selfPath.length - 1)} dayMax={0} step={5} />
     </div>
   );
 }
@@ -157,6 +187,7 @@ function AnalogChart({ analog, selfPath }: { analog: NonNullable<HoldingStrategy
         ))}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 150, display: 'block', background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
+        <DayBands dayMin={-19} dayMax={20} W={W} H={H} />
         {/* 右半（相似點之後）淡紫底＝「後來怎麼走」區 */}
         <rect x={x(0)} y={0} width={W - x(0)} height={H} fill="rgba(167,139,250,0.06)" />
         {/* 0% 水平線與相似點分隔線 */}
@@ -172,11 +203,7 @@ function AnalogChart({ analog, selfPath }: { analog: NonNullable<HoldingStrategy
           opacity={opa('self')} style={{ cursor: 'pointer' }} pointerEvents="stroke" onClick={() => toggleSel('self')} />
         <circle cx={x(0)} cy={y(0)} r={3} fill="#e2e8f0" />
       </svg>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
-        <span>← 相似的 20 日形狀</span>
-        <span>▲ 相似點（0%·本檔＝今日）</span>
-        <span>後續 20 日（僅歷史例）→</span>
-      </div>
+      <DayLabels dayMin={-19} dayMax={20} step={5} />
     </div>
   );
 }
@@ -243,7 +270,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
                   )}
                 </div>
                 <NextAnalogChart na={st.nextAnalog} selfPath5={st.selfPath5} />
-                <div style={caveat}>⚠ 「隔日開盤賣」為鐵律出場口徑（用歷史開盤價實算）；相似→未來報酬檢定未通過，此為描述統計、非訊號。</div>
+                <div style={caveat}>⚠ 開盤賣＝鐵律口徑·描述統計非訊號（詳見說明書「持股策略分析」）</div>
               </>
             )}
           </>
@@ -267,7 +294,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
             ；持有滿 <b>{matched.d}</b> 個交易日的歷史中位 {matched.med >= 0 ? '+' : ''}{matched.med}%（勝率 {matched.win}%）。
           </div>
         )}
-        <div style={caveat}>⚠ 全歷史描述統計，會完整繼承這一年的趨勢——不是對你這筆進場的預測。</div>
+        <div style={caveat}>⚠ 描述統計·繼承趨勢·非預測（詳見說明書「持股策略分析」）</div>
       </div>
       {/* ③ 相似歷史波段 */}
       {!st.analog && st.analogNote && (
@@ -300,7 +327,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
               </span>
             )}
           </div>
-          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>{st.analog.grow != null ? '成長是賣不到的上界，必須配回檔一起看。' : ''}例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
+          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
           {st.selfPath?.length ? (
             <>
               <button onClick={() => setShowChart(v => !v)}
@@ -310,7 +337,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
               {showChart && <AnalogChart analog={st.analog} selfPath={st.selfPath} />}
             </>
           ) : null}
-          <div style={caveat}>⚠ 誠實揭露：「走勢相似→未來報酬」本站歷史檢定<b>未通過</b>（最大漲幅隨波動放大）——描述統計、非訊號，勿當排序依據。</div>
+          <div style={caveat}>⚠ 相似≠預測·檢定未通過·非訊號（詳見說明書「持股策略分析」）</div>
         </div>
       )}
     </div>
