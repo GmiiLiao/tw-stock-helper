@@ -1145,6 +1145,9 @@ const _parseLevels = (priceStr, volStr) => {
 };
 
 async function misBatch(batch) {
+  const _twNow = taipei();
+  const _nowMins = _twNow.getHours() * 60 + _twNow.getMinutes();
+  const inCloseAuction = _nowMins >= 13 * 60 + 24 && _nowMins <= 13 * 60 + 35;
   const exCh = batch.map(c => `${c.market}_${c.code}.tw`).join('|');
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_=${Date.now()}`;
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
@@ -1162,8 +1165,22 @@ async function misBatch(batch) {
       // 真實價=成交z或試撮pz。委買b1/委賣a1只是掛單非成交——實案(2026-07-17 東訊)：
       // 收盤後 z/pz 皆'-'，b1=16.45 殘留買單被當現價標 live(+5.8%)，實際收 15.40(-0.96%)。
       // 回退掛單價僅供無 _lastLive 時的顯示參考，一律不得標 hasLive。
-      let price = _num(it.z); if (price <= 0) price = _num(it.pz);
-      const realTrade = price > 0;
+      // pz（試撮指示價）只在收盤集合競價窗 13:24–13:35 可信：那 5 分鐘全市場 z='-'，
+      // pz 收斂到收盤價。其餘時段（分盤處置股的盤中集合競價尤甚）pz 可能永不成交——
+      // 實案 2026-08-13 1435 中福（分盤、全日僅 66 張）：13:00 試撮 25.75 從未成交
+      // （官方當日最高 25.50），卻被當真成交寫入 _lastLive，跨夜後顯示成 +8.65%。
+      let price = _num(it.z);
+      if (price <= 0 && inCloseAuction) price = _num(it.pz);
+      let realTrade = price > 0;
+      // 健全性：成交價必落在當日漲跌停 [d,u] 內，且不高於當日高/低於當日低
+      // （高低價由成交更新，真成交不可能超出）。超界＝來源壞資料，降級為非即時。
+      const _up = _num(it.u), _dn = _num(it.w);   // MIS: u=漲停 w=跌停（d 是日期欄，不可誤用）
+      const _hi = _num(it.h), _lo = _num(it.l);
+      if (realTrade) {
+        if ((_up > 0 && price > _up + 1e-9) || (_dn > 0 && price < _dn - 1e-9)) realTrade = false;
+        else if (!inCloseAuction && ((_hi > 0 && price > _hi + 1e-9) || (_lo > 0 && price < _lo - 1e-9))) realTrade = false;
+      }
+      if (!realTrade) price = 0;
       if (price <= 0) {
         const b1 = parseFloat(String(it.b || '').split('_')[0]);
         const a1 = parseFloat(String(it.a || '').split('_')[0]);
@@ -1519,6 +1536,17 @@ async function marketSnapshotLoop() {
       // 掃描窗延長至 16:30：MIS 收盤後仍回今日收盤價，補「TPEx openapi 上櫃收盤延遲
       // 一天」的缺口(實案 2026-07-17：6732 上櫃今收193.5，TPEx種子仍昨收214)。
       const active = isTradingDay(tw) && mins >= 8 * 60 + 30 && mins < 16 * 60 + 30;
+      // 跨夜清倉：restoreLastLive 的「只還原今天」只在重啟時把關；daemon 長跑跨夜時
+      // 記憶體 _lastLive 沒人清（實案 2026-08-14：305 檔昨日殘價標 live 混入今日快照，
+      // 1435 的 8/13 假試撮價 25.75 顯示成今日 +8.65%）。逐輪把非今日的殘留刪掉，
+      // 冷門股在拿到今日首筆真成交前回種子昨收——寧可持平，不可掛昨價。
+      {
+        const todayIso = isoDate(tw);
+        for (const k in _lastLive) {
+          const la = _lastLive[k]?.liveAt;
+          if (!la || isoDate(new Date(la)) !== todayIso) delete _lastLive[k];
+        }
+      }
       const marketNow = isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 35;
       // 收盤後 13:35–15:00：官方 STOCK_DAY_ALL 逐步更新今日結算價，強制刷新代碼表以便即時取得。
       const postClose = isTradingDay(tw) && mins >= 13 * 60 + 35 && mins < 15 * 60;
@@ -1572,25 +1600,33 @@ async function marketSnapshotLoop() {
           }
         };
         // ① 優先集每輪即時（自選/持股/熱門），paced ≤1 batch / 2s (MIS-safe)
-        for (let i = 0; i < prio.length; i += 60) {
-          applyMis(await misBatch(prio.slice(i, i + 60).map(code => byCode[code]).filter(Boolean)), true);
+        for (let i = 0; i < prio.length; i += 120) {
+          applyMis(await misBatch(prio.slice(i, i + 120).map(code => byCode[code]).filter(Boolean)), true);
           await sleep(2000);
         }
         try { await db.collection('bookDepth').doc('latest').set({ byCodeJson: JSON.stringify(depthOut), n: Object.keys(depthOut).length, at: Date.now(), date: isoDate(taipei()) }); } catch { /* ignore */ }
-        // ② 全市場輪掃：其餘代碼每輪掃 8 批(480檔)，~2分鐘覆蓋全市場一輪。
+        // ② 全市場輪掃：其餘代碼每輪掃 8 批(960檔·單批120實測OK)，~1分鐘覆蓋全市場一輪。
         //    修正實案(2026-07-17)：全市場快照僅150檔live、1830檔掛昨日種子 →
         //    「即時漲跌」左欄混入大量昨日上漲的殘留資料。
         const prioSet = new Set(prio);
         const rest = codes.map(c => c.code).filter(c => !prioSet.has(c));
         for (let n = 0; n < 8 && rest.length; n++) {
           const batch = [];
-          for (let j = 0; j < 60 && rest.length; j++) { batch.push(byCode[rest[_rotIdx % rest.length]]); _rotIdx++; }
+          for (let j = 0; j < 120 && rest.length; j++) { batch.push(byCode[rest[_rotIdx % rest.length]]); _rotIdx++; }
           applyMis(await misBatch(batch.filter(Boolean)), false);
           await sleep(2000);
         }
         // 輪掃間隙沿用最後真實價（_lastLive），避免掃描空窗跳回昨日種子
         for (const c of codes) { const k = c.code; if (!quotes[k].live && _lastLive[k]) quotes[k] = { ..._lastLive[k] }; }
         const liveN = Object.values(quotes).filter(q => q.live).length;
+        // 盤中：今日尚無真成交的檔（分盤處置/極冷門）漲跌歸零顯示平盤——種子帶的是
+        // 「昨日」漲跌，不歸零會像 1435 一樣以昨日 +7.59% 掛在今日即時漲幅榜上。
+        if (marketNow) {
+          for (const k in quotes) {
+            const q = quotes[k];
+            if (!q.live && (q.change || q.changePercent)) quotes[k] = { ...q, change: 0, changePercent: 0 };
+          }
+        }
         await writeSnapshot(quotes, marketNow, 'mixed', true);
         // 記錄使用者關注個股的分時序列(即時走勢圖用，不依賴延遲的 Yahoo)。
         try {
