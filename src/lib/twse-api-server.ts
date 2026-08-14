@@ -1,6 +1,6 @@
 // Note: execFile/curl removed — using native fetch for Cloud Functions compatibility
 
-import { readMarketSnapshot, readHotQuotes, isSnapshotFresh, type SnapQuote } from './market-snapshot-store';
+import { readMarketSnapshot, isSnapshotFresh, type SnapQuote } from './market-snapshot-store';
 import { memoize } from './singleflight';
 
 // ============================================================
@@ -1036,18 +1036,10 @@ export async function getMisQuoteDataInternal(codes: string[]): Promise<MisQuote
   try {
     const snap = await readMarketSnapshot();
     if (isSnapshotFresh(snap)) {
-      // 5 秒快線覆蓋：daemon 對「使用者正在看的股票」每 5 秒寫 marketSnapshot/hot，
-      // 蓋在 ~30 秒全市場快照之上（只取更新的 liveAt，不回寫共享快取物件）。
-      let hotQuotes: Record<string, SnapQuote> | null = null;
-      try {
-        const hot = await readHotQuotes();
-        if (hot && Date.now() - hot.at < 30_000) hotQuotes = hot.quotes;
-      } catch { /* hot lane optional */ }
+      // 5 秒快線覆蓋已統一在 readMarketSnapshot() 內完成（liveAt 較新者勝）。
       const hit: MisQuote[] = [];
       for (const code of codes) {
-        const base = snap!.quotes[code];
-        const hq = hotQuotes?.[code];
-        const q = hq && (hq.liveAt || 0) > (base?.liveAt || 0) ? hq : base;
+        const q = snap!.quotes[code];
         if (!q || !(q.price > 0)) continue;
         const live = !!q.live;
         hit.push({

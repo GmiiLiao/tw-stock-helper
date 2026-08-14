@@ -29,6 +29,7 @@ export interface MarketSnapshot {
   liveCount?: number;    // how many quotes carry a real-time MIS tick
   sweepAt: number;       // epoch ms of last full/partial sweep write
   marketOpen: boolean;
+  sweeping?: boolean;    // daemon 掃描窗內（盤中+收盤後至15:00）
   source: 'mis_sweep' | 'stock_day_all' | 'mixed';
 }
 
@@ -52,15 +53,26 @@ export async function writeMarketSnapshot(snap: MarketSnapshot): Promise<void> {
 let _snapCache: { at: number; snap: MarketSnapshot | null } = { at: 0, snap: null };
 
 export async function readMarketSnapshot(): Promise<MarketSnapshot | null> {
-  if (Date.now() - _snapCache.at < 5000) return _snapCache.snap;
+  if (Date.now() - _snapCache.at < 3000) return _snapCache.snap;
   const db = getAdminDb();
   if (!db) return null;
   try {
     const s = await db.collection(COLLECTION).doc('latest').get();
     if (!s.exists) return null;
-    const d = s.data() as { quotesJson?: string; quotes?: Record<string, SnapQuote>; count: number; liveCount?: number; sweepAt: number; marketOpen: boolean; source: MarketSnapshot['source'] };
+    const d = s.data() as { quotesJson?: string; quotes?: Record<string, SnapQuote>; count: number; liveCount?: number; sweepAt: number; marketOpen: boolean; sweeping?: boolean; source: MarketSnapshot['source'] };
     const quotes: Record<string, SnapQuote> = d.quotesJson ? JSON.parse(d.quotesJson) : (d.quotes || {});
-    const snap = { quotes, count: d.count, liveCount: d.liveCount ?? 0, sweepAt: d.sweepAt, marketOpen: d.marketOpen, source: d.source };
+    // 5 秒快線覆蓋（在 reader 統一做）：所有讀快照的 API（mis-quote、market-snapshot、
+    // stock-day-all…）都自動吃到「使用者正在看的股票」的 5 秒級報價，liveAt 較新者勝。
+    try {
+      const hot = await readHotQuotes();
+      if (hot && Date.now() - hot.at < 30_000) {
+        for (const code in hot.quotes) {
+          const hq = hot.quotes[code];
+          if ((hq.liveAt || 0) > (quotes[code]?.liveAt || 0)) quotes[code] = hq;
+        }
+      }
+    } catch { /* hot lane optional */ }
+    const snap = { quotes, count: d.count, liveCount: d.liveCount ?? 0, sweepAt: d.sweepAt, marketOpen: d.marketOpen, sweeping: d.sweeping, source: d.source };
     _snapCache = { at: Date.now(), snap };
     return snap;
   } catch (e) {

@@ -6,6 +6,7 @@
 // 點方塊展開即時K線。資料：/api/twse/market-snapshot（daemon 每分掃）。
 
 import { useEffect, useMemo, useState } from 'react';
+import { shouldPollNow } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
@@ -182,12 +183,16 @@ export default function RiseFallPanel() {
 
   useEffect(() => {
     let live = true;
-    const load = () => fetch('/api/twse/market-snapshot').then(r => (r.ok ? r.json() : null)).then(d => {
-      if (!live || !d?.quotes) return;
-      setSnaps(d.quotes); setUpdatedAt(d.updatedAt ?? null); setMarketOpen(!!d.marketOpen);
-    }).catch(() => {});
+    const load = () => {
+      if (!shouldPollNow()) return;   // 休市 or 分頁在背景 → 跳過（計時器照跑）
+      fetch('/api/twse/market-snapshot').then(r => (r.ok ? r.json() : null)).then(d => {
+        if (!live || !d?.quotes) return;
+        setSnaps(d.quotes); setUpdatedAt(d.updatedAt ?? null); setMarketOpen(!!d.marketOpen);
+      }).catch(() => {});
+    };
     load();
-    const t = setInterval(load, isTwTradingHours() ? 30000 : 120000);
+    // 10 秒：API 已含 5 秒快線覆蓋（正在看的股票），30 秒會吃掉快線的增益
+    const t = setInterval(load, isTwTradingHours() ? 10000 : 120000);
     return () => { live = false; clearInterval(t); };
   }, []);
 

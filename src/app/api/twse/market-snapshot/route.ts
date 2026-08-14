@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
+import { readMarketSnapshot } from '@/lib/market-snapshot-store';
 import { cacheHeader } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
@@ -11,9 +12,11 @@ export async function GET() {
   const db = getAdminDb();
   if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   try {
-    const s = (await db.collection('marketSnapshot').doc('latest').get()).data();
-    if (!s?.quotesJson) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('quote') } });
-    const q = JSON.parse(s.quotesJson as string) as Record<string, { name?: string; price?: number; change?: number; changePercent?: number; volume?: number; market?: string; open?: number; high?: number; low?: number; live?: boolean }>;
+    // 走統一 reader：含 5 秒快線覆蓋（使用者正在看的 ~120 檔）＋3 秒實例快取。
+    const snap = await readMarketSnapshot();
+    if (!snap) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('quote') } });
+    const s = { quotesJson: true, marketOpen: snap.marketOpen, sweeping: snap.sweeping, sweepAt: snap.sweepAt };
+    const q = snap.quotes as Record<string, { name?: string; price?: number; change?: number; changePercent?: number; volume?: number; market?: string; open?: number; high?: number; low?: number; live?: boolean }>;
     // 20日均量表（daemon volAvg20，供量能倍數/強度分）
     let avg: Record<string, number> = {};
     try { const va = (await db.collection('volAvg20').doc('latest').get()).data(); if (va?.avgJson) avg = JSON.parse(va.avgJson as string); } catch { /* optional */ }
@@ -38,7 +41,8 @@ export async function GET() {
     }
     return NextResponse.json(
       { found: true, updatedAt: s.sweepAt ?? null, marketOpen: !!s.marketOpen, count: quotes.length, quotes },
-      { headers: { 'Cache-Control': cacheHeader('quote') } },
+      // hot 層（s-maxage=2）：內容含 5 秒快線，10 秒層會把快線的增益吃掉一半
+      { headers: { 'Cache-Control': cacheHeader('hot') } },
     );
   } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
 }
