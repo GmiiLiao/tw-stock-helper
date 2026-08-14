@@ -1354,21 +1354,65 @@ let _depthWin = { date: '', data: {} };   // code → { bid, ask, at }
 // 線上 /api/twse/market-index 直抓 MIS 一律失敗(weighted=0/「--」)。daemon 在台灣
 // 抓得到，寫入 marketIndex/latest 供 API 讀。每分一次。
 let _idxAt = 0;
+// ── 大盤/櫃買盤中逐點序列（2026-08-14 使用者需求：點左上指數彈出走勢圖）──
+// 同一個 MIS 請求帶 t00+o00（不增加上游額度），每 ~55 秒累積一點
+// [epochMs, 指數, 累積成交值(億)]，寫 marketIndexIntraday/latest。
+// 重啟自快照還原當日序列（同 restoreLastLive 的教訓：記憶體序列重啟即蒸發）。
+const _idxIntra = { date: '', tse: [], otc: [], prevTse: 0, prevOtc: 0, restored: false };
+async function restoreIdxIntra() {
+  _idxIntra.restored = true;
+  try {
+    const d = (await db.collection('marketIndexIntraday').doc('latest').get()).data();
+    if (d?.date === isoDate(taipei())) {
+      _idxIntra.date = d.date;
+      _idxIntra.tse = JSON.parse(d.tseJson || '[]');
+      _idxIntra.otc = JSON.parse(d.otcJson || '[]');
+      log(`✓ 還原今日指數序列 tse ${_idxIntra.tse.length} 點 / otc ${_idxIntra.otc.length} 點`);
+    }
+  } catch { /* 無舊序列可還原 */ }
+}
+
 async function writeMarketIndex() {
   if (Date.now() - _idxAt < 55000) return;
   try {
-    const r = await fetch(`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0&_=${Date.now()}`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://mis.twse.com.tw/' } });
+    if (!_idxIntra.restored) await restoreIdxIntra();
+    const r = await fetch(`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw|otc_o00.tw&json=1&delay=0&_=${Date.now()}`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://mis.twse.com.tw/' } });
     if (!r.ok) return;
-    const it = ((await r.json())?.msgArray || [])[0]; if (!it) return;
-    const cur = _num(it.z) || _num(it.l), prev = _num(it.y);
-    if (cur > 0 && prev > 0) {
-      const chg = +(cur - prev).toFixed(2);
-      await db.collection('marketIndex').doc('latest').set({
-        weighted: cur, weightedChange: chg, weightedChangePercent: +((chg / prev) * 100).toFixed(2),
-        high: _num(it.h), low: _num(it.l), prevClose: prev, tradeDate: it.d, tradeTime: it.t,
-        at: Date.now(), source: 'daemon_mis',
+    const arr = (await r.json())?.msgArray || [];
+    const tse = arr.find(m => m.c === 't00'), otc = arr.find(m => m.c === 'o00');
+    if (!tse) return;
+    const cur = _num(tse.z) || _num(tse.l), prev = _num(tse.y);
+    if (!(cur > 0 && prev > 0)) return;
+    const chg = +(cur - prev).toFixed(2);
+    const oCur = otc ? (_num(otc.z) || _num(otc.l)) : 0, oPrev = otc ? _num(otc.y) : 0;
+    const doc = {
+      weighted: cur, weightedChange: chg, weightedChangePercent: +((chg / prev) * 100).toFixed(2),
+      high: _num(tse.h), low: _num(tse.l), prevClose: prev, tradeDate: tse.d, tradeTime: tse.t,
+      value: _num(tse.v),   // 累積成交值（億）
+      at: Date.now(), source: 'daemon_mis',
+    };
+    if (oCur > 0 && oPrev > 0) {
+      doc.otc = oCur; doc.otcChange = +(oCur - oPrev).toFixed(2);
+      doc.otcChangePercent = +(((oCur - oPrev) / oPrev) * 100).toFixed(2);
+      doc.otcPrevClose = oPrev; doc.otcHigh = _num(otc.h); doc.otcLow = _num(otc.l); doc.otcValue = _num(otc.v);
+    }
+    await db.collection('marketIndex').doc('latest').set(doc);
+    _idxAt = Date.now();
+
+    // 盤中累積序列（09:00–13:35）；跨日自動重置
+    const tw = taipei();
+    const mins = tw.getHours() * 60 + tw.getMinutes();
+    const today = isoDate(tw);
+    if (isTradingDay(tw) && mins >= 9 * 60 && mins <= 13 * 60 + 35) {
+      if (_idxIntra.date !== today) { _idxIntra.date = today; _idxIntra.tse = []; _idxIntra.otc = []; }
+      _idxIntra.tse.push([Date.now(), cur, _num(tse.v)]);
+      if (oCur > 0) _idxIntra.otc.push([Date.now(), oCur, _num(otc.v)]);
+      _idxIntra.prevTse = prev; _idxIntra.prevOtc = oPrev;
+      await db.collection('marketIndexIntraday').doc('latest').set({
+        date: today, updatedAt: Date.now(),
+        prevCloseTse: prev, prevCloseOtc: oPrev || null,
+        tseJson: JSON.stringify(_idxIntra.tse), otcJson: JSON.stringify(_idxIntra.otc),
       });
-      _idxAt = Date.now();
     }
   } catch { /* 網路波動可缺 */ }
 }

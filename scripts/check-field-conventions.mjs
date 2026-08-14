@@ -55,6 +55,7 @@ export const DATE_ALLOWLIST = new Set([
   'firstDate', 'latestDate', 'prevDate', 'weekDate', 'evalDate', 'predDate',
   'flowDate', 'feedDate', 'adjDate', 'instDate', 'marginDate', 'latestReportDate',
   'archDate',   // 記憶體快取鍵：持股策略 ctx 以最新歸檔日為代（非 Firestore 欄位）
+  'anchorDate', // 銀行餘額錨點日（tw-settlement rollBankToToday 回傳值，非 Firestore 欄位）
   // 領域日期（交易/公司/新聞/處置）
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',

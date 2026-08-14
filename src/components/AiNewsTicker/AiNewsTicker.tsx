@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getSession, isForeground } from '@/lib/market-clock';
+import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
 import styles from './AiNewsTicker.module.css';
 
 // ──────────────────────────────────────────────────────────────
@@ -153,6 +154,7 @@ function TickerStrip({ messages, onSelect }: {
 
 export function NavbarIndexWidget() {
   const [data, setData] = useState<MarketIndexData | null>(null);
+  const [showChart, setShowChart] = useState(false);   // 點卡片彈出大盤即時走勢（2026-08-14）
 
   useEffect(() => {
     const load = async () => {
@@ -181,7 +183,9 @@ export function NavbarIndexWidget() {
   const sign  = isUp ? '+' : '';
 
   return (
-    <div className={styles.indexWidget}>
+    <>
+    <div className={styles.indexWidget} onClick={() => setShowChart(true)}
+      style={{ cursor: 'pointer' }} title="點擊查看大盤即時走勢圖（含成交量）">
       <div className={styles.indexWidgetTitle}>📊 台股加權指數</div>
       <div className={styles.indexWidgetValue} style={{ color }}>
         {data.weighted.toLocaleString('zh-TW', { minimumFractionDigits: 2 })}
@@ -209,6 +213,8 @@ export function NavbarIndexWidget() {
         <div className={styles.indexWidgetSource}>● 即時數據</div>
       )}
     </div>
+    <IndexIntradayModal open={showChart} onClose={() => setShowChart(false)} />
+    </>
   );
 }
 
