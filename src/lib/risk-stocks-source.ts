@@ -73,6 +73,46 @@ function splitPeriod(p: string): { startDate?: string; endDate?: string } {
   return m ? { startDate: toIso(m[1]), endDate: toIso(m[2]) } : {};
 }
 
+// ── 處置新制（2026-08-10 上路）校正 ─────────────────────────────────
+// 證交所/櫃買修正處置制度：處置期間一般 5 個營業日、涉當沖注意 7 個營業日
+// （原 10／12 日），且「已符合新天數者自實施日起即解除」。
+// ⚠ 官方公告端點**不會回頭改舊公告的起迄日**——8046 實案（2026-08-14）：
+//   公告仍寫 115/08/03～115/08/18，但新制下 8/3 起 7 個營業日 8/11 已滿、
+//   8/12 起已解除；照抄公告會把人家多關 5 天，持股警示、評分扣分全跟著錯。
+// 故迄日取「公告迄日」與「新制天數推算迄日」較早者，已屆滿者整筆剔除。
+// （營業日以跳過週末近似，國定假日未內建——與 tw-settlement 同一把尺。）
+const NEW_REGIME_START = '2026-08-10';
+
+// 自 startIso 起算第 n 個營業日（start 當天算第 1 日，跳過週末）
+function nthTradingDay(startIso: string, n: number): string {
+  const [y, m, d] = startIso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  let count = dt.getDay() !== 0 && dt.getDay() !== 6 ? 1 : 0;
+  while (count < n) {
+    dt.setDate(dt.getDate() + 1);
+    if (dt.getDay() !== 0 && dt.getDay() !== 6) count++;
+  }
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function applyNewDispositionRegime(list: RiskStockInfo[]): RiskStockInfo[] {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+  const out: RiskStockInfo[] = [];
+  for (const d of list) {
+    if (!d.startDate || !d.endDate) { out.push(d); continue; }          // 無日期可算 → 原樣保留
+    if (d.endDate < NEW_REGIME_START) { out.push(d); continue; }        // 新制上路前已結束 → 歷史事實不動
+    const days = /當沖|沖銷/.test(d.reason) ? 7 : 5;                    // 涉當沖 7 日、一般 5 日
+    const newEnd = nthTradingDay(d.startDate, days);
+    const effEnd = newEnd < d.endDate ? newEnd : d.endDate;
+    if (effEnd < today) continue;                                       // 新制下已解除 → 剔除
+    out.push(effEnd === d.endDate ? d : {
+      ...d, endDate: effEnd,
+      reason: `${d.reason}（依8/10處置新制縮短至 ${effEnd}）`.slice(0, 200),
+    });
+  }
+  return out;
+}
+
 // 手寫快取 → memoize（同 fundamentals-server 的理由：in-flight 合流＋失敗負快取）。
 // 四個上游並行、各 8s 上限 ⇒ timeoutMs 12s。兩清單皆空視為降級（正常日極少見，
 // 走 30s 負快取重試的代價只是四次輕量 fetch）。
@@ -133,7 +173,7 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
     });
   }
 
-  return { attention, disposition, fetchedAt: new Date().toISOString() };
+  return { attention, disposition: applyNewDispositionRegime(disposition), fetchedAt: new Date().toISOString() };
 }, { timeoutMs: 12_000, isDegraded: v => {
   const r = v as RiskStocksResult; return !r.attention.length && !r.disposition.length;
 } });
