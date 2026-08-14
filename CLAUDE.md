@@ -44,7 +44,8 @@ Next.js on Firebase App Hosting（us-central1）
 | 項目 | 數值 | 後果 |
 |---|---|---|
 | TWSE MIS rate limit | 每 5 秒 3 個 request | 超過鎖 IP，**封鎖時長無人證實** |
-| MIS 更新節奏 | 5 秒 | 輪詢快過 5 秒沒有資訊增益 |
+| MIS 更新節奏 | 5 秒揭示；`z` 只在該 5 秒窗內**有成交**才有值 | 輪詢快過 5 秒沒有資訊增益；冷門股 z 長期 '-' 是市場現實不是故障 |
+| daemon MIS 頻寬分配 | 快線(120檔優先股/5s=1req)＋主迴圈(1req/3s) ≈ 2.7 req/5s | 動任何一邊前先重算總和；**除錯時自己手打 MIS 也算在同一個 IP 額度內** |
 | 交易時段 | 09:00–13:30（盤前試撮 08:30） | 其餘 81% 的時間資料不會變 |
 | `firebase.json` `maxInstances` | 5 × 併發 80 = 約 400 in-flight | 破口約 200–400 個同時在線使用者 |
 | function timeout | 120 秒 | 上游 hang 會佔滿 worker → 全站 503 |
@@ -149,6 +150,15 @@ import { getSession, isMarketOpen, pollInterval } from '@/lib/market-clock';
 ⚠ 官方表裡「國曆新年開始交易日」「農曆春節前/後最後/開始交易日」是**交易日標記不是休市**；
 而「市場無交易，僅辦理結算交割作業」字面有「交易」兩字卻**是休市**。
 分類規則是 `/開始交易|最後交易/` 才排除 —— 已用自家歸檔全量對帳，2026 年 27 筆 100% 相符。
+
+**即時報價的雙軌（2026-08-14 起）**
+
+- **5 秒快線** `hotQuoteLoop`：自選/持股/瀏覽中/策略榜前 120 檔（`buildPriorityCodes`），
+  每 5 秒單一 MIS 請求 → 寫小型 `marketSnapshot/hot`（~20KB）。
+- **主迴圈**：全市場輪掃（批 120、1req/3s），~1 分鐘覆蓋一輪 → 寫 `marketSnapshot/latest`。
+- web 端 `getMisQuoteDataInternal` 把 hot 蓋在 latest 上（只取 liveAt 較新者）。
+  端對端實測：被看的股票成交後 3~10 秒可見。`/api/twse/mis-quote` 盤中回
+  `s-maxage=2`（不再 no-store 打穿 CDN）。
 
 **前端輪詢：現況是「加 gate」，不是「換 hook」**
 

@@ -1165,15 +1165,15 @@ async function misBatch(batch) {
       // 真實價=成交z或試撮pz。委買b1/委賣a1只是掛單非成交——實案(2026-07-17 東訊)：
       // 收盤後 z/pz 皆'-'，b1=16.45 殘留買單被當現價標 live(+5.8%)，實際收 15.40(-0.96%)。
       // 回退掛單價僅供無 _lastLive 時的顯示參考，一律不得標 hasLive。
-      // pz（試撮指示價）只在收盤集合競價窗 13:24–13:35 可信：那 5 分鐘全市場 z='-'，
-      // pz 收斂到收盤價。其餘時段（分盤處置股的盤中集合競價尤甚）pz 可能永不成交——
-      // 實案 2026-08-13 1435 中福（分盤、全日僅 66 張）：13:00 試撮 25.75 從未成交
-      // （官方當日最高 25.50），卻被當真成交寫入 _lastLive，跨夜後顯示成 +8.65%。
+      // z=本盤成交價（該 5 秒揭示內有成交才有值）；pz 雙語義：連續交易時段＝上一盤
+      // 成交價回聲（活躍股 z 常為 '-'，pz 是主要載體，拿掉會讓 2330 都停更），
+      // 集合競價時段（開盤前/收盤前/分盤處置股全日）＝試撮指示價、可能永不成交。
+      // 兩種語義用「當日高低價」判別：真成交必落在 [當日低, 當日高] 內（高低由成交
+      // 更新），試撮可以超出。實案 2026-08-13 1435（分盤、全日 66 張）：13:00 試撮
+      // 25.75 > 當日高 25.50 ⇒ 這道護欄會攔下；收盤集合競價窗預期收在新高/新低，故豁免。
       let price = _num(it.z);
-      if (price <= 0 && inCloseAuction) price = _num(it.pz);
+      if (price <= 0) price = _num(it.pz);
       let realTrade = price > 0;
-      // 健全性：成交價必落在當日漲跌停 [d,u] 內，且不高於當日高/低於當日低
-      // （高低價由成交更新，真成交不可能超出）。超界＝來源壞資料，降級為非即時。
       const _up = _num(it.u), _dn = _num(it.w);   // MIS: u=漲停 w=跌停（d 是日期欄，不可誤用）
       const _hi = _num(it.h), _lo = _num(it.l);
       if (realTrade) {
@@ -1525,6 +1525,53 @@ async function restoreLastLive() {
   } catch (e) { log('✖ 還原今日即時價失敗：', (e.message || '').slice(0, 80)); }
 }
 
+// ── 5 秒快線（2026-08-14）：使用者正在看的股票（自選/持股/瀏覽中/策略榜，
+// buildPriorityCodes 前 120 檔＝單一 MIS 請求）獨立於全市場輪掃、每 5 秒掃一次，
+// 寫入小型 marketSnapshot/hot（~20KB）。web 端把它蓋在 30 秒全市場快照上。
+// MIS 揭示週期本身是 5 秒——這條線就是即時性的物理上限，不能也不必更快。
+// 頻寬帳：快線 1 req/5s ＋ 主迴圈 1 req/3s ≈ 2.7 req/5s < MIS 限制 3 req/5s。
+async function hotQuoteLoop() {
+  let _hotN = 0, _hotFresh = 0;
+  for (;;) {
+    try {
+      const tw = taipei();
+      const mins = tw.getHours() * 60 + tw.getMinutes();
+      const hotActive = isTradingDay(tw) && mins >= 8 * 60 + 55 && mins < 13 * 60 + 35;
+      if (!hotActive) { await sleep(60000); continue; }
+      const t0 = Date.now();
+      const codes = await getAllMarketCodes(false);
+      if (!codes.length) { await sleep(15000); continue; }
+      const byCode = {}; for (const c of codes) byCode[c.code] = c;
+      const prio = (await buildPriorityCodes(codes)).slice(0, 120);
+      const batch = prio.map(c => byCode[c]).filter(Boolean);
+      if (!batch.length) { await sleep(15000); continue; }
+      const mis = await misBatch(batch);   // 護欄（pz 紀律/漲跌停/高低價）都在裡面
+      const out = {};
+      for (const c of batch) {
+        const k = c.code; const q = mis[k];
+        if (q?.hasLive) {
+          const merged = { code: k, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent,
+            open: q.open, high: q.high, low: q.low, volume: q.volume, value: q.value,
+            market: c.market, live: true, liveAt: Date.now() };
+          _lastLive[k] = merged;            // 主迴圈快照下一輪也直接受益
+          out[k] = merged;
+        } else if (_lastLive[k]) {
+          out[k] = _lastLive[k];            // 兩筆撮合之間沿用最後真實價
+        }
+      }
+      if (Object.keys(out).length) {
+        await db.collection('marketSnapshot').doc('hot').set({
+          quotesJson: JSON.stringify(out), n: Object.keys(out).length, at: Date.now(), date: isoDate(tw),
+        });
+      }
+      // 心跳：每 ~5 分鐘報一次本期拿到新成交的檔次（觀察 MIS 供應健康度）
+      _hotFresh += Object.values(mis).filter(q => q?.hasLive).length;
+      if (++_hotN >= 60) { log(`✓ 快線：近5分鐘 ${_hotFresh} 檔次新成交（每輪 ${batch.length} 檔）`); _hotN = 0; _hotFresh = 0; }
+      await sleep(Math.max(1000, 5000 - (Date.now() - t0)));
+    } catch (e) { log('✖ 快線', (e.message || '').slice(0, 60)); await sleep(10000); }
+  }
+}
+
 async function marketSnapshotLoop() {
   await restoreLastLive();
   for (;;) {
@@ -1602,7 +1649,7 @@ async function marketSnapshotLoop() {
         // ① 優先集每輪即時（自選/持股/熱門），paced ≤1 batch / 2s (MIS-safe)
         for (let i = 0; i < prio.length; i += 120) {
           applyMis(await misBatch(prio.slice(i, i + 120).map(code => byCode[code]).filter(Boolean)), true);
-          await sleep(2000);
+          await sleep(3000);   // 快線佔 1 req/5s，主迴圈放緩到 1 req/3s，合計 ~2.7 req/5s < MIS 限制
         }
         try { await db.collection('bookDepth').doc('latest').set({ byCodeJson: JSON.stringify(depthOut), n: Object.keys(depthOut).length, at: Date.now(), date: isoDate(taipei()) }); } catch { /* ignore */ }
         // ② 全市場輪掃：其餘代碼每輪掃 8 批(960檔·單批120實測OK)，~1分鐘覆蓋全市場一輪。
@@ -1614,7 +1661,7 @@ async function marketSnapshotLoop() {
           const batch = [];
           for (let j = 0; j < 120 && rest.length; j++) { batch.push(byCode[rest[_rotIdx % rest.length]]); _rotIdx++; }
           applyMis(await misBatch(batch.filter(Boolean)), false);
-          await sleep(2000);
+          await sleep(3000);
         }
         // 輪掃間隙沿用最後真實價（_lastLive），避免掃描空窗跳回昨日種子
         for (const c of codes) { const k = c.code; if (!quotes[k].live && _lastLive[k]) quotes[k] = { ..._lastLive[k] }; }
@@ -3237,7 +3284,7 @@ async function premarketLoop() {
 }
 if (!ONESHOT) premarketLoop();
 if (!ONESHOT) newsLoop();
-if (!ONESHOT) marketSnapshotLoop();
+if (!ONESHOT) { marketSnapshotLoop(); hotQuoteLoop(); }
 
 // 停損停利提醒：盤中每 60s 檢查觸價。
 async function alertLoop() {

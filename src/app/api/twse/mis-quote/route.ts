@@ -29,7 +29,9 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': marketOpen ? 'no-store' : 'public, max-age=60',
+          // 盤中 no-store 會讓每個 5 秒輪詢都打穿 CDN（CLAUDE.md 最貴教訓）。
+          // 快線資料本身 5 秒一更、實例快取 2 秒，s-maxage=2 無損即時性。
+          'Cache-Control': marketOpen ? 'public, s-maxage=2, stale-while-revalidate=10' : 'public, max-age=60',
           'Access-Control-Allow-Origin': '*',
           'X-Data-Source': result.source,
         },

@@ -69,6 +69,27 @@ export async function readMarketSnapshot(): Promise<MarketSnapshot | null> {
   }
 }
 
+// ── 5 秒快線（marketSnapshot/hot）：daemon 對「使用者正在看的股票」每 5 秒
+// 寫一份小型報價（~120 檔）。讀取端 2 秒實例快取——文件本身 5 秒才更新，
+// 2 秒快取無損即時性，同實例內所有 5 秒輪詢共享一次 Firestore 讀。
+export interface HotQuotes { quotes: Record<string, SnapQuote>; at: number }
+let _hotCache: { at: number; hot: HotQuotes | null } = { at: 0, hot: null };
+
+export async function readHotQuotes(): Promise<HotQuotes | null> {
+  if (Date.now() - _hotCache.at < 2000) return _hotCache.hot;
+  const db = getAdminDb();
+  if (!db) return null;
+  try {
+    const s = await db.collection(COLLECTION).doc('hot').get();
+    const d = s.exists ? (s.data() as { quotesJson?: string; at?: number }) : null;
+    const hot = d?.quotesJson ? { quotes: JSON.parse(d.quotesJson) as Record<string, SnapQuote>, at: d.at || 0 } : null;
+    _hotCache = { at: Date.now(), hot };
+    return hot;
+  } catch {
+    return null;
+  }
+}
+
 /** Fresh = written within `maxAgeMs` (default 5 min) — used to decide overlay. */
 export function isSnapshotFresh(snap: MarketSnapshot | null, maxAgeMs = 5 * 60 * 1000): boolean {
   return !!snap && Date.now() - (snap.sweepAt || 0) < maxAgeMs && Object.keys(snap.quotes || {}).length > 0;
