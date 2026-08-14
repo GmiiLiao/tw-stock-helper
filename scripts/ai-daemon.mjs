@@ -4361,10 +4361,24 @@ async function checkAllocationDrift() {
               return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             };
             const today = isoDate(taipei());
+            // ⚠鏡像警告：銀行錨點自動逐日滾動抄自 src/lib/tw-settlement.ts rollBankToToday
+            //   （2026-08-14 使用者指正：輸入的餘額是錨點，之後的交割款進出系統都知道，
+            //   要自動滾動；錨點視為已含錨點日當天早上的交割）。兩邊必須一致。
+            const anchorDate = new Date(led.bankAt || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+            let est = led.bankBalance;
+            for (const t of ts) {
+              if ((t.type !== 'buy' && t.type !== 'sell') || !t.date) continue;
+              const sd = addTradingDays(t.date, 2);
+              if (sd > anchorDate && sd <= today) est += (t.type === 'sell' ? 1 : -1) * (t.totalAmount || 0);
+            }
+            for (const e of (led.entries || [])) {
+              if (!e.date || e.date <= anchorDate || e.date > today) continue;
+              est += e.type === 'withdraw' ? -(e.amount || 0) : (e.amount || 0);
+            }
             const pending = t => t.date && addTradingDays(t.date, 2) > today;
             const deduct = ts.filter(t => t.type === 'buy' && pending(t)).reduce((s, t) => s + (t.totalAmount || 0), 0);
             const credit = ts.filter(t => t.type === 'sell' && pending(t)).reduce((s, t) => s + (t.totalAmount || 0), 0);
-            cash = led.bankBalance - deduct + credit;
+            cash = est - deduct + credit;
           } else {
             cash = led.entries.reduce((s, e) => s + (e.type === 'withdraw' ? -e.amount : e.amount), 0)
               + ts.filter(t => t.type === 'sell').reduce((s, t) => s + (t.totalAmount || 0), 0)

@@ -5,7 +5,7 @@ import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
-import { settleDate, isSettled, todayTaipeiIso } from '@/lib/tw-settlement';
+import { settleDate, isSettled, todayTaipeiIso, rollBankToToday } from '@/lib/tw-settlement';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 
 // ── 資金總覽（現金流水帳）──
@@ -32,6 +32,7 @@ export default function CashLedger() {
   const [broker, saveBroker] = useBrokerSettings();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [bankBalance, setBankBalance] = useState<number | null>(null);
+  const [bankAt, setBankAt] = useState<number | null>(null);
   const [bankInput, setBankInput] = useState('');
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -44,6 +45,7 @@ export default function CashLedger() {
       setEntries(data?.entries || []);
       const bb = typeof data?.bankBalance === 'number' ? data.bankBalance : null;
       setBankBalance(bb); setBankInput(bb != null ? String(bb) : '');
+      setBankAt(typeof data?.bankAt === 'number' ? data.bankAt : null);
     }, () => {});
     return () => unsub();
   }, [dataUid]);
@@ -102,16 +104,26 @@ export default function CashLedger() {
     return { deposits, withdraws, dividends, buys, sells, cash, netDeposits, mv, totalReturn, retPct, pendingDeduct, pendingCredit, schedule };
   }, [entries, tradeRecords, holdings, allStocks]);
 
-  // 銀行對帳（需使用者填今日餘額）
+  // 銀行對帳（需使用者填餘額一次，之後逐日自動滾動）
   const bank = useMemo(() => {
     if (bankBalance == null) return null;
-    // 交割後實際可動用 = 今日餘額 − 未交割買進待扣 + 未交割賣出待入
-    const investable = bankBalance - calc.pendingDeduct + calc.pendingCredit;
-    // 預期今日餘額 = 全交割現金 + 未交割買進(尚未扣) − 未交割賣出(尚未入)
-    const expectedToday = calc.cash + calc.pendingDeduct - calc.pendingCredit;
-    const diff = bankBalance - expectedToday;
-    return { investable, expectedToday, diff };
-  }, [bankBalance, calc]);
+    // ── 自動逐日滾動（2026-08-14 使用者指正）：輸入的餘額是「錨點」，之後每天
+    //    的交割款進出（交易紀錄＋T+2）與新記的入出金，系統自動滾上去。
+    //    實案：8/12 輸入 837,959 → 8/13/8/14 交割後實際 342,751，
+    //    畫面卻仍拿舊錨點算剩餘籌碼（虛胖 49 萬）。
+    const roll = rollBankToToday(bankBalance, bankAt ?? Date.now(), tradeRecords, entries);
+    const estBank = roll.estBank;
+    // 交割後實際可動用 = 推算今日餘額 − 未交割買進待扣 + 未交割賣出待入
+    const investable = estBank - calc.pendingDeduct + calc.pendingCredit;
+    // 對帳基準在「錨點日」：預期錨點日餘額 = 錨點日已交割現金 ± 錨點日前的流水
+    const sumTo = (ty: Entry['type']) => entries.filter(e => e.type === ty && e.date <= roll.anchorDate).reduce((s, e) => s + e.amount, 0);
+    const settledByAnchor = (ty: 'buy' | 'sell') => tradeRecords
+      .filter(t => t.type === ty && t.date && settleDate(t.date) <= roll.anchorDate)
+      .reduce((s, t) => s + (t.totalAmount || 0), 0);
+    const expectedAnchor = sumTo('deposit') - sumTo('withdraw') + sumTo('dividend') + settledByAnchor('sell') - settledByAnchor('buy');
+    const diff = bankBalance - expectedAnchor;
+    return { investable, estBank, rolledNet: roll.rolledNet, rolledCount: roll.rolledCount, anchorDate: roll.anchorDate, expectedToday: expectedAnchor, diff };
+  }, [bankBalance, bankAt, calc, tradeRecords, entries]);
 
   // ── 現金的唯一真相（2026-08-12 使用者對帳指正）───────────────────────
   // 有銀行餘額時：現金＝銀行實際餘額經交割調整（bank.investable）。
@@ -153,7 +165,7 @@ export default function CashLedger() {
 
       {/* 銀行對帳 + T+2 剩餘籌碼 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 10, padding: 10, background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 8 }}>
-        <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 600, color: '#38bdf8' }}>🏦 銀行今日餘額</span>
+        <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 600, color: '#38bdf8' }}>🏦 銀行餘額（錨點）</span>
         <input className="input" type="number" placeholder="填入交割銀行餘額" value={bankInput}
           onChange={e => setBankInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveBank(); }} style={{ width: 150 }} />
         <button onClick={saveBank} className="btn" style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 12px', background: '#38bdf8', color: '#062', border: 'none', borderRadius: 8, fontWeight: 700 }}>更新</button>
@@ -169,14 +181,23 @@ export default function CashLedger() {
           <div style={{ padding: '8px 10px', background: 'rgba(34,197,94,0.08)', borderRadius: 8, border: '1px solid rgba(34,197,94,0.25)' }}>
             <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>💵 剩餘籌碼（交割後可動用）</div>
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: bank.investable >= 0 ? '#f03e3e' : '#2f9e44', fontFamily: "'JetBrains Mono',monospace" }}>{wan(bank.investable)}</div>
-            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>今日餘額 − 待扣 + 待入</div>
+            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>推算今日餘額 − 待扣 + 待入</div>
+          </div>
+          <div style={{ padding: '8px 10px', background: 'rgba(56,189,248,0.06)', borderRadius: 8, border: '1px solid rgba(56,189,248,0.2)' }}>
+            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>🏦 銀行餘額（自動滾動至今日）</div>
+            <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: '#38bdf8', fontFamily: "'JetBrains Mono',monospace" }}>{bank.estBank.toLocaleString()}</div>
+            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>
+              {bank.rolledCount > 0
+                ? `錨點 ${bank.anchorDate} 輸入 ${bankBalance?.toLocaleString()}，已滾動 ${bank.rolledCount} 筆交割/流水（${bank.rolledNet >= 0 ? '+' : ''}${bank.rolledNet.toLocaleString()}）`
+                : `錨點 ${bank.anchorDate} 輸入，尚無後續交割`}
+            </div>
           </div>
           <div style={{ padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
             <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>對帳差異</div>
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: Math.abs(bank.diff) < 100 ? '#22c55e' : '#f59e0b', fontFamily: "'JetBrains Mono',monospace" }}>
               {Math.abs(bank.diff) < 100 ? '✓ 相符' : `${bank.diff >= 0 ? '+' : ''}${bank.diff.toLocaleString()} 元`}
             </div>
-            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>預期今日 {wan(bank.expectedToday)}</div>
+            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>預期錨點日（{bank.anchorDate}）{wan(bank.expectedToday)}</div>
           </div>
         </div>
       )}
