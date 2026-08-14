@@ -47,7 +47,8 @@ export function calcFee(price: number, lots: number, s: BrokerSettings = DEFAULT
   if (gross <= 0) return 0;
   const raw = gross * STD_FEE_RATE * (s.discount ?? 1);
   const minFee = shares < 1000 ? ODD_LOT_MIN_FEE : (s.minFee ?? 0);  // 純零股單低消 1 元
-  return Math.max(Math.round(raw), minFee);
+  // 元以下捨去（2026-08-14 以券商 app 近三日交割逐筆對帳驗證：floor 對到個位數，round 差 1~2 元）
+  return Math.max(Math.floor(raw), minFee);
 }
 
 export function isEtf(code: string): boolean {
@@ -59,7 +60,8 @@ export function calcTax(price: number, lots: number, opts?: { dayTrade?: boolean
   const gross = price * sharesOf(lots);
   if (gross <= 0) return 0;
   const rate = opts?.dayTrade ? DAYTRADE_TAX_RATE : (opts?.code && isEtf(opts.code)) ? ETF_TAX_RATE : STD_TAX_RATE;
-  return Math.max(1, Math.round(gross * rate));  // 證交稅最低 1 元
+  // 元以下捨去（證交稅法定捨去；實測 2409 稅 799.5 券商收 799，round 會多 1 元）
+  return Math.max(1, Math.floor(gross * rate));
 }
 
 export function taxRateLabel(opts?: { dayTrade?: boolean; code?: string }): string {
