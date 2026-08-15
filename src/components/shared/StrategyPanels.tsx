@@ -243,7 +243,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
           <b style={{ color: 'var(--text-primary)' }}>🗼 寶塔線</b>
           {st.pagoda && pagodaChip(st.pagoda, '波段·日K')}
           {st.pagoda60 && pagodaChip(st.pagoda60, '短線·60分K')}
-          <span style={{ fontSize: 'calc(0.64rem * var(--fz))', color: 'var(--text-muted)' }}>古典規則·未經本站回測（詳見說明書）</span>
+          <span style={{ fontSize: 'calc(0.64rem * var(--fz))', color: 'var(--text-muted)' }}>古典規則·2026-08-15 檢定未過（勝率約25%·詳見說明書）</span>
         </div>
       )}
       {/* ① 隔日沖 */}

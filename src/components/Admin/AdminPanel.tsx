@@ -7,6 +7,7 @@ import { collection, onSnapshot, doc, setDoc, query, orderBy, limit } from 'fire
 import styles from './AdminPanel.module.css';
 
 import OpsPanel from './OpsPanel';
+import SwingLab from './SwingLab';
 import ViewAsPanel from './ViewAsPanel';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -57,7 +58,7 @@ export default function AdminPanel() {
   const isAdmin = user && (user.level === 'superadmin' || user.level === 'admin' || (adminEmail && user.email === adminEmail));
 
   // Tabs state
-  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'logs' | 'ops' | 'viewas'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'logs' | 'ops' | 'viewas' | 'lab'>('users');
 
   // Real-time data states
   const [users, setUsers] = useState<UserDoc[]>([]);
@@ -483,7 +484,20 @@ export default function AdminPanel() {
             >
               🎭 身分模擬
             </button>
+            <button
+              className={`${styles.tabBtn} ${activeTab === 'lab' ? styles.tabBtnActive : ''}`}
+              onClick={() => setActiveTab('lab')}
+            >
+              🧪 技巧實驗室
+            </button>
           </div>
+
+          {/* ── TAB: 🧪 波段技巧實驗室（回測實證視覺驗證·pass 才生成 skill）── */}
+          {activeTab === 'lab' && (
+            <div className={styles.tabContent}>
+              <SwingLab />
+            </div>
+          )}
 
           {/* ── TAB 1: User Management ── */}
           {activeTab === 'users' && (
