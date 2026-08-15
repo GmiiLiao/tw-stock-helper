@@ -48,6 +48,17 @@ const getCtx = memoize('stock-strategy-ctx', 6 * 3600_000, async () => {
   return { series, windows, charMap, nameMap, indMap, archDate };
 }, { timeoutMs: 60_000, isDegraded: v => !(v as { windows: { count: number } }).windows?.count });
 
+// 60分K 寶塔線判定（daemon pagodaSignals 每 ~15 分鐘更新）——與大脈絡分開快取，
+// TTL 短（5 分鐘）才跟得上盤中翻多/翻黑；大脈絡 6 小時不動。
+const getPagoda60 = memoize('stock-strategy-pagoda60', 5 * 60_000, async () => {
+  const db = getAdminDb();
+  if (!db) return {};
+  try {
+    const d = (await db.collection('pagodaSignals').doc('latest').get()).data();
+    return d?.h60Json ? JSON.parse(d.h60Json) : {};
+  } catch { return {}; }
+}, { timeoutMs: 10_000 });
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
   if (!code || !/^\d{4,6}[A-Za-z]?$/.test(code)) {
@@ -55,6 +66,7 @@ export async function GET(request: NextRequest) {
   }
   const buyDate = request.nextUrl.searchParams.get('buyDate');   // 可選：持股才有
   const ctx = await getCtx();
+  if (ctx) (ctx as { pagoda60Map?: unknown }).pagoda60Map = await getPagoda60();
   if (!ctx) return NextResponse.json({ found: false, error: 'context unavailable' }, { status: 503 });
   const strategy = computeHoldingStrategy(ctx, code, buyDate || null);
   if (!strategy) {

@@ -26,6 +26,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
+import { judgePagoda } from './lib/pagoda.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -328,7 +329,12 @@ const SWING_SKILL = `【波段模式（本站實證·持有5個交易日·非隔
   · 曲線8 加速橫盤·強於趨勢：勝率Δ[-1.40/-3.12/-2.00] 全負 ⇒ 適合當**排除濾網**（追高橫盤）。
 ◆**最大累計成長一律要與同期最大回檔一起講**。前一版（走勢相似度推最大漲幅）已實測：
   只照最大漲幅排行＝系統性買進最會亂跳的股票，回檔加深約六成而報酬無增量（見 swingAnalog）。
-非投資建議。`;
+非投資建議。
+【🗼 寶塔線技能·2026-08-15 使用者定義·古典規則未經本站回測】
+◆寶塔線(3)＝三線轉向：收盤>前三根寶塔線最高點→翻紅；收盤<前三根最低點→翻黑；否則延續。
+◆波段口徑（日K）：紅K且站上月線(MA20)→未翻黑前可續抱；綠K且跌破月線→賣出；紅K在月線下＝觀察（不符續抱）；綠K在月線上＝警戒（留意翻黑）。
+◆短線口徑（隔日沖/當沖）：同規則，K線圖改 60 分K、均線改 20 根 60 分K。
+⚠此為市場慣用古典規則的忠實實作，**未經本站 480 日主窗＋OOT 檢定**——與上面實證過的訊號不同級，只作判讀輔助；與「明早開盤賣」鐵律衝突時，隔日沖持股仍以鐵律優先。`;
 
 // 開盤三關選股法（當沖/短線·使用者提供之方法論，2026-07-19 導入）
 // 本站實證註記：第二關「跟風漲放棄」已於日線代理驗證（日配對後跟風股仍-0.36~-1.46pp）；
@@ -559,11 +565,78 @@ function parseRationale(text) {
 //     （最大漲幅在數學上隨波動放大——analog 實驗實測 Top10% 回檔 -6.58% vs 宇宙 -4.07%），
 //     所以它是參考描述，絕不能當訊號排序用。
 let _stratCtx = { archDate: '', ctx: null };
+// ── 🗼 寶塔線技能（2026-08-15 使用者定義）────────────────────────────
+// 波段：日K 寶塔線(3)×月線（MA20）——紅K×線上未翻黑前續抱、綠K×線下賣出。
+// 短線：同規則改 60 分K（MA=20 根 60 分K）。60 分K 收盤來自 intradayArchive
+// 的 15 分取樣（整點索引 4/8/12/16/18），今日已完成小時另從 marketIntraday
+// （追蹤股）補上。古典規則技能，未經本站 480 日主窗＋OOT 回測驗證。
+let _pagoda60Map = {};
+let _pagodaAt = 0;
+async function computePagodaSignals() {
+  try {
+    const ctx = await getStrategyCtx();
+    const daily = {}; const flipUpDaily = [];
+    for (const code in ctx.series) {
+      const j = judgePagoda(ctx.series[code].c, 20, 3);
+      if (!j) continue;
+      daily[code] = j;
+      if (j.flip === 'up' && j.above) flipUpDaily.push(code);
+    }
+    // 60 分K：近 14 個歸檔日（~70 根）＋今日已完成小時（追蹤股）
+    const h60 = {}; const flipUp60 = [];
+    const seriesByCode = {};
+    const snap = await db.collection('intradayArchive').orderBy('date', 'desc').limit(14).get();
+    const days = snap.docs.map(d => d.data()).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    for (const day of days) {
+      const by = JSON.parse(day.byCodeJson || '{}');
+      for (const code in by) {
+        const pts = by[code];
+        if (!Array.isArray(pts) || pts.length < 19) continue;
+        const closes = [4, 8, 12, 16, 18].map(i => pts[i]?.[0]).filter(v => v > 0);
+        if (closes.length === 5) (seriesByCode[code] ??= []).push(...closes);
+      }
+    }
+    try {   // 今日已完成小時（marketIntraday 只有追蹤股；沒有就用到昨日，誠實即可）
+      const mi = (await db.collection('marketIntraday').doc('latest').get()).data();
+      const today = isoDate(taipei());
+      if (mi?.date === today && mi.seriesJson && !days.some(d => d.date === today)) {
+        const by = JSON.parse(mi.seriesJson);
+        const tw = taipei();
+        const bounds = [10, 11, 12, 13].filter(hh => tw.getHours() * 60 + tw.getMinutes() >= hh * 60)
+          .map(hh => { const b = new Date(tw); b.setHours(hh, 0, 0, 0); return b.getTime() / 1000; });
+        if (tw.getHours() * 60 + tw.getMinutes() >= 13 * 60 + 30) { const b = new Date(tw); b.setHours(13, 30, 0, 0); bounds.push(b.getTime() / 1000); }
+        for (const code in by) {
+          const pts = by[code]?.pts; if (!Array.isArray(pts) || !seriesByCode[code]) continue;
+          for (const bSec of bounds) {
+            let px = 0;
+            for (const pt of pts) { if (pt[0] <= bSec && pt[1] > 0) px = pt[1]; else if (pt[0] > bSec) break; }
+            if (px > 0) seriesByCode[code].push(px);
+          }
+        }
+      }
+    } catch { /* 今日補點失敗不擋 */ }
+    for (const code in seriesByCode) {
+      const j = judgePagoda(seriesByCode[code], 20, 3);
+      if (!j) continue;
+      h60[code] = j;
+      if (j.flip === 'up' && j.above) flipUp60.push(code);
+    }
+    _pagoda60Map = h60;
+    await db.collection('pagodaSignals').doc('latest').set({
+      date: isoDate(taipei()), updatedAt: Date.now(),
+      dailyJson: JSON.stringify(daily), h60Json: JSON.stringify(h60),
+      flipUpDaily: flipUpDaily.slice(0, 100), flipUp60: flipUp60.slice(0, 100),
+      nDaily: Object.keys(daily).length, n60: Object.keys(h60).length,
+    });
+    log(`✓ 寶塔線：日K ${Object.keys(daily).length} 檔（翻多且線上 ${flipUpDaily.length}）｜60分K ${Object.keys(h60).length} 檔（翻多 ${flipUp60.length}）`);
+  } catch (e) { log('  ⚠ 寶塔線計算：', (e.message || '').slice(0, 80)); }
+}
+
 async function getStrategyCtx() {
   // 以「最新歸檔日」為快取鍵而非日曆日：15:10 今日收盤歸檔落地後，
   // 傍晚的分析週期會自動重建脈絡吃到今天——用日曆日當鍵會整晚吃早上的舊窗。
   const newest = (await readArchive(1))[0]?.date || '';
-  if (_stratCtx.ctx && _stratCtx.archDate === newest) return _stratCtx.ctx;
+  if (_stratCtx.ctx && _stratCtx.archDate === newest) { _stratCtx.ctx.pagoda60Map = _pagoda60Map; return _stratCtx.ctx; }
   const asc = (await readArchive(262)).slice().reverse();   // 舊→新（readArchive 已濾空殼）
   const series = buildStrategySeries(asc);
   const windows = buildStrategyWindows(series);
@@ -578,7 +651,7 @@ async function getStrategyCtx() {
     const pc = (await db.collection('peerComps').doc('latest').get()).data();
     if (pc?.industriesJson) { const ind = JSON.parse(pc.industriesJson); for (const g in ind) for (const it of ind[g]) if (it?.code) indMap[it.code] = g; }
   } catch { /* 缺分類不擋 */ }
-  _stratCtx = { archDate: newest, ctx: { series, windows, charMap, nameMap, indMap } };
+  _stratCtx = { archDate: newest, ctx: { series, windows, charMap, nameMap, indMap, pagoda60Map: _pagoda60Map } };
   log(`  · 持股策略脈絡就緒（資料至 ${newest}）：${Object.keys(series).length} 檔、${windows.count} 個相似窗`);
   return _stratCtx.ctx;
 }
@@ -1644,6 +1717,9 @@ async function marketSnapshotLoop() {
       const codes = await getAllMarketCodes(postClose);
       if (codes.length === 0) { await sleep(60000); continue; }
       writeMarketIndex().catch(() => {}); // 加權指數落地（t00 收盤後仍回今日收盤，整晚有效）
+      // 🗼 寶塔線每 ~15 分鐘重算（讀 Firestore 為主，無上游請求；掃描窗外也要跑——
+      // 週末/盤後開站看的是最近交易日的判定，不能等到下次開盤才有資料）
+      if (Date.now() - _pagodaAt > 15 * 60e3) { _pagodaAt = Date.now(); computePagodaSignals().catch(() => {}); }
 
       // Always seed EVERY stock from close so the full market is present.
       const quotes = {};

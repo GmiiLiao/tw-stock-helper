@@ -220,8 +220,32 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
   const elapsed = st.heldDays;
   const dayNo = elapsed != null ? elapsed + 1 : null;
   const matched = elapsed != null ? st.hold.find(h => h.d >= Math.max(1, elapsed)) ?? st.hold[st.hold.length - 1] : null;
+  // 🗼 寶塔線技能（2026-08-15 使用者定義）：紅K×月線上未翻黑前續抱、綠K×月線下賣出；
+  // 短線同規則改 60 分K。古典規則、未經本站回測——顯示判定與依據，不下結論。
+  const pagodaChip = (j: NonNullable<HoldingStrategyResult['pagoda']>, label: string) => {
+    const kc = j.color === 'red' ? 'var(--color-up)' : 'var(--color-down)';
+    const ac = j.action === '續抱' ? 'var(--color-up)' : j.action === '賣出' ? 'var(--color-down)' : '#f59e0b';
+    return (
+      <span title={`${j.note}（收 ${j.close}／MA20 ${j.ma}）`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+        <b style={{ color: kc }}>{j.color === 'red' ? '紅' : '綠'}K第{j.run}根</b>
+        <span style={{ color: 'var(--text-muted)' }}>{j.above ? '線上' : '線下'}</span>
+        {j.flip && <b style={{ color: j.flip === 'up' ? 'var(--color-up)' : 'var(--color-down)' }}>{j.flip === 'up' ? '⚡翻多' : '⚡翻空'}</b>}
+        <b style={{ padding: '0 7px', borderRadius: 999, background: `${'#000'}00`, border: `1px solid ${ac}`, color: ac }}>{j.action}</b>
+      </span>
+    );
+  };
   return (
     <div style={{ padding: '2px 10px 10px', fontSize: 'calc(0.76rem * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+      {/* 🗼 寶塔線（波段=日K×月線；短線=60分K×20根均） */}
+      {(st.pagoda || st.pagoda60) && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', padding: '6px 10px', margin: '6px 0 2px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+          <b style={{ color: 'var(--text-primary)' }}>🗼 寶塔線</b>
+          {st.pagoda && pagodaChip(st.pagoda, '波段·日K')}
+          {st.pagoda60 && pagodaChip(st.pagoda60, '短線·60分K')}
+          <span style={{ fontSize: 'calc(0.64rem * var(--fz))', color: 'var(--text-muted)' }}>古典規則·未經本站回測（詳見說明書）</span>
+        </div>
+      )}
       {/* ① 隔日沖 */}
       <div style={panel(BLUE)}>
         <div style={pTitle(BLUE)}>🎯 若以隔日沖操作</div>

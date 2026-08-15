@@ -18,6 +18,8 @@
 
 /** archDocsAsc：chipArchive 文件（**舊→新**、已濾空殼、closeJson 存在）。
  *  closeJson 形狀 {code: [收盤, 量張, 開, 高, 低]}（舊檔可能缺 3/4 → 以收盤代）。 */
+import { judgePagoda } from './pagoda.mjs';
+
 export function buildStrategySeries(archDocsAsc) {
   const series = {};
   for (const day of archDocsAsc) {
@@ -275,5 +277,9 @@ export function computeHoldingStrategy(ctx, code, buyDate) {
     }
   }
 
-  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, selfPath, selfPath5, hi20Rel, filterPass, passes, fails, hold, heldDays, holdN: n, analog, analogNote, nextAnalog };
+  // 🗼 寶塔線技能（2026-08-15）：日K＝波段口徑（MA20=月線）；
+  // 60分K 判定由呼叫端經 ctx.pagoda60Map 傳入（daemon computePagodaSignals 產出）。
+  const pagoda = judgePagoda(c, 20, 3);
+  const pagoda60 = ctx.pagoda60Map?.[code] ?? null;
+  return { chg: +chg.toFixed(2), pos: pos != null ? +pos.toFixed(2) : null, brk20, charLabel, selfPath, selfPath5, hi20Rel, filterPass, passes, fails, hold, heldDays, holdN: n, analog, analogNote, nextAnalog, pagoda, pagoda60 };
 }
