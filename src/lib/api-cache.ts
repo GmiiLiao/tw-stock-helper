@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJson } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
-import { getSession, setHolidays } from '@/lib/market-clock';
+import { getSession, setHolidays, isTradingDay } from '@/lib/market-clock';
 
 /**
  * API 回應快取層級表 + daemon latest-doc 共用 helper
@@ -45,10 +45,20 @@ const TIERS: Record<Tier, string> = {
 const CLOSED_OVERRIDE =
   'public, max-age=300, s-maxage=1800, stale-while-revalidate=600, stale-if-error=86400';
 
+// 開盤交界投毒防護（2026-08-17 實案）：交易日早上 08:58 被快取的「休市版」回應
+// 帶 s-maxage=1800，開盤後一路活到 09:28——左上加權指數整整 28 分鐘顯示上週五收盤。
+// 規則：交易日 08:00 以後即使 session 仍是 'closed'（getSession 08:30 前回 closed），
+// 也不得再發長 TTL——08:00 前快取的長 TTL 條目（1800+swr600）最晚 08:40 到期，碰不到 09:00。
+function longTtlSafe(): boolean {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+  if (!isTradingDay(now)) return true;
+  return now.getHours() < 8;
+}
+
 export function cacheHeader(tier: Tier): string {
   // hot/tick/quote 收盤即凍結。注意 getSession 在 14:00–14:31 回 'post-close'
   // （官方結算價逐步落地的窗），不觸發長 TTL —— 結算修正不會被釘住 30 分鐘。
-  if ((tier === 'hot' || tier === 'tick' || tier === 'quote') && getSession() === 'closed') return CLOSED_OVERRIDE;
+  if ((tier === 'hot' || tier === 'tick' || tier === 'quote') && getSession() === 'closed' && longTtlSafe()) return CLOSED_OVERRIDE;
   return TIERS[tier];
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getMarketIndexDataInternal, isAnyMarketActive } from '@/lib/twse-api-server';
+import { isTradingDay } from '@/lib/market-clock';
 
 export const runtime = 'nodejs';
 
@@ -16,9 +17,17 @@ export async function GET() {
     // stale-if-error 讓上游掛掉時供應舊價而不是空白。
     // 收盤後資料不再變動，直接把 TTL 拉到隔天開盤。
     const active = isAnyMarketActive();
+    // ⚠ 開盤交界投毒（2026-08-17 實案）：08:58 快取的「休市版」帶 s-maxage=1800，
+    // 開盤後活到 09:28——左上加權指數 28 分鐘停在上週五收盤。交易日 08:00 起
+    // 即使未開盤也只發短快取；長 TTL 只留給「距開盤夠遠」的時段（半夜/假日），
+    // 08:00 前快取的條目（1800+swr600）最晚 08:40 到期，碰不到 09:00。
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    const nearOpen = isTradingDay(now) && now.getHours() >= 8;
     const cacheHeader = active
       ? 'public, max-age=2, s-maxage=3, stale-while-revalidate=5, stale-if-error=60'
-      : 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600, stale-if-error=86400';
+      : nearOpen
+        ? 'public, max-age=15, s-maxage=30, stale-while-revalidate=30, stale-if-error=600'
+        : 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600, stale-if-error=86400';
 
     return NextResponse.json(data, {
       headers: {
