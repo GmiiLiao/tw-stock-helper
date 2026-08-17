@@ -1266,7 +1266,7 @@ async function misBatch(batch) {
       const prev = _num(it.y); if (price <= 0) price = prev;  // 僅供 change 計算
       const change = hasLive && prev > 0 ? +(price - prev).toFixed(2) : 0;
       out[code] = {
-        code, name: it.n || '', price, change,
+        code, name: it.n || '', price, change, prev, mVal: _num(it.m),
         changePercent: hasLive && prev > 0 ? +((change / prev) * 100).toFixed(2) : 0,
         open: _num(it.o), high: _num(it.h), low: _num(it.l),
         volume: vol, value: Math.round(price * vol), hasLive,
@@ -1461,13 +1461,13 @@ async function writeMarketIndex() {
     const doc = {
       weighted: cur, weightedChange: chg, weightedChangePercent: +((chg / prev) * 100).toFixed(2),
       high: _num(tse.h), low: _num(tse.l), prevClose: prev, tradeDate: tse.d, tradeTime: tse.t,
-      value: _num(tse.v),   // 累積成交值（億）
+      value: _num(tse.m) > 0 ? +( _num(tse.m) / 1000).toFixed(1) : 0,   // m=累積成交金額(十萬元)→億（t00 無 v 欄）
       at: Date.now(), source: 'daemon_mis',
     };
     if (oCur > 0 && oPrev > 0) {
       doc.otc = oCur; doc.otcChange = +(oCur - oPrev).toFixed(2);
       doc.otcChangePercent = +(((oCur - oPrev) / oPrev) * 100).toFixed(2);
-      doc.otcPrevClose = oPrev; doc.otcHigh = _num(otc.h); doc.otcLow = _num(otc.l); doc.otcValue = _num(otc.v);
+      doc.otcPrevClose = oPrev; doc.otcHigh = _num(otc.h); doc.otcLow = _num(otc.l); doc.otcValue = _num(otc.m) > 0 ? +(_num(otc.m) / 1000).toFixed(1) : 0;
     }
     await db.collection('marketIndex').doc('latest').set(doc);
     _idxAt = Date.now();
@@ -1478,8 +1478,8 @@ async function writeMarketIndex() {
     const today = isoDate(tw);
     if (isTradingDay(tw) && mins >= 9 * 60 && mins <= 13 * 60 + 35) {
       if (_idxIntra.date !== today) { _idxIntra.date = today; _idxIntra.tse = []; _idxIntra.otc = []; }
-      _idxIntra.tse.push([Date.now(), cur, _num(tse.v)]);
-      if (oCur > 0) _idxIntra.otc.push([Date.now(), oCur, _num(otc.v)]);
+      _idxIntra.tse.push([Date.now(), cur, _num(tse.m) > 0 ? +(_num(tse.m) / 1000).toFixed(1) : 0]);
+      if (oCur > 0) _idxIntra.otc.push([Date.now(), oCur, _num(otc.m) > 0 ? +(_num(otc.m) / 1000).toFixed(1) : 0]);
       _idxIntra.prevTse = prev; _idxIntra.prevOtc = oPrev;
       await db.collection('marketIndexIntraday').doc('latest').set({
         date: today, updatedAt: Date.now(),
@@ -1647,6 +1647,48 @@ async function restoreLastLive() {
 // 寫入小型 marketSnapshot/hot（~20KB）。web 端把它蓋在 30 秒全市場快照上。
 // MIS 揭示週期本身是 5 秒——這條線就是即時性的物理上限，不能也不必更快。
 // 頻寬帳：快線 1 req/5s ＋ 主迴圈 1 req/3s ≈ 2.7 req/5s < MIS 限制 3 req/5s。
+// 指數 5 秒級發布（快線搭車）。headline（marketIndex/latest·小文件）每班車都寫；
+// 盤中序列（走勢圖用）≥50 秒才補一點——圖表 1 分鐘解析度足夠，不用灌爆文件。
+// ⚠ t00/o00 沒有 v 欄（成交值不在 getStockInfo），序列第三欄暫為 0，量條另尋來源。
+async function publishIndexFromHot(t, o) {
+  if (!t || !(t.price > 0) || !(t.prev > 0)) return;
+  const chg = +(t.price - t.prev).toFixed(2);
+  // 成交值：t00 的 m 欄＝累積成交金額（十萬元）——2026-08-17 以自家快照加總
+  // （6,542億 vs m/1000=7,637億·官方含冷門/零股故略高）與上週五全日 10,645 億量級雙重校準。
+  const valYi = t.mVal > 0 ? +(t.mVal / 1000).toFixed(1) : 0;
+  const doc = {
+    weighted: t.price, weightedChange: chg, weightedChangePercent: +((chg / t.prev) * 100).toFixed(2),
+    high: t.high, low: t.low, prevClose: t.prev,
+    tradeDate: isoDate(taipei()).replace(/-/g, ''), tradeTime: taipei().toTimeString().slice(0, 8),
+    value: valYi, at: Date.now(), source: 'daemon_mis',
+  };
+  if (o && o.price > 0 && o.prev > 0) {
+    const oc = +(o.price - o.prev).toFixed(2);
+    doc.otc = o.price; doc.otcChange = oc; doc.otcChangePercent = +((oc / o.prev) * 100).toFixed(2);
+    doc.otcPrevClose = o.prev; doc.otcHigh = o.high; doc.otcLow = o.low;
+    doc.otcValue = o.mVal > 0 ? +(o.mVal / 1000).toFixed(1) : 0;
+  }
+  await db.collection('marketIndex').doc('latest').set(doc);
+  _idxAt = Date.now();   // writeMarketIndex 的 55 秒守門會自動讓路（只在快線停機時段接手）
+  const tw = taipei();
+  const mins = tw.getHours() * 60 + tw.getMinutes();
+  const today = isoDate(tw);
+  if (isTradingDay(tw) && mins >= 9 * 60 && mins <= 13 * 60 + 35) {
+    if (!_idxIntra.restored) await restoreIdxIntra();
+    if (_idxIntra.date !== today) { _idxIntra.date = today; _idxIntra.tse = []; _idxIntra.otc = []; }
+    const lastT = _idxIntra.tse[_idxIntra.tse.length - 1]?.[0] || 0;
+    if (Date.now() - lastT >= 50e3) {
+      _idxIntra.tse.push([Date.now(), t.price, valYi]);
+      if (o && o.price > 0) _idxIntra.otc.push([Date.now(), o.price, o.mVal > 0 ? +(o.mVal / 1000).toFixed(1) : 0]);
+      await db.collection('marketIndexIntraday').doc('latest').set({
+        date: today, updatedAt: Date.now(),
+        prevCloseTse: t.prev, prevCloseOtc: (o && o.prev > 0) ? o.prev : null,
+        tseJson: JSON.stringify(_idxIntra.tse), otcJson: JSON.stringify(_idxIntra.otc),
+      });
+    }
+  }
+}
+
 async function hotQuoteLoop() {
   let _hotN = 0, _hotFresh = 0;
   for (;;) {
@@ -1660,11 +1702,15 @@ async function hotQuoteLoop() {
       if (!codes.length) { await sleep(15000); continue; }
       const byCode = {}; for (const c of codes) byCode[c.code] = c;
       const prio = (await buildPriorityCodes(codes)).slice(0, 120);
-      const batch = prio.map(c => byCode[c]).filter(Boolean);
-      if (!batch.length) { await sleep(15000); continue; }
+      // 指數搭同一班車（2026-08-17 使用者要求 5 秒內更新）：120+2 檔一個請求，
+      // 上游請求數零增加。t00/o00 只進指數發布，不進個股報價。
+      const batch = [...prio.map(c => byCode[c]).filter(Boolean), { market: 'tse', code: 't00' }, { market: 'otc', code: 'o00' }];
+      if (batch.length <= 2) { await sleep(15000); continue; }
       const mis = await misBatch(batch);   // 護欄（pz 紀律/漲跌停/高低價）都在裡面
+      publishIndexFromHot(mis.t00, mis.o00).catch(() => {});
       const out = {};
       for (const c of batch) {
+        if (c.code === 't00' || c.code === 'o00') continue;   // 指數不進個股報價
         const k = c.code; const q = mis[k];
         if (q?.hasLive) {
           const merged = { code: k, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent,

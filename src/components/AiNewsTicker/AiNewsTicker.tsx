@@ -166,9 +166,21 @@ export function NavbarIndexWidget() {
         if (res.ok) setData(await res.json());
       } catch { /* ignore */ }
     };
+    // 盤中 5 秒（與 Header 同節奏；daemon 已把指數搭進 5 秒快線，60 秒輪詢會白白落後
+    // ——2026-08-17 使用者回報「左上更新太久」）。固定 setInterval 是本專案明令禁止的
+    // 陷阱（間隔只算一次），改遞迴 setTimeout 每次重算。
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const getInterval = () => {
+      if (!isForeground()) return 300_000;
+      const s = getSession();
+      if (s === 'regular') return 5_000;
+      if (s === 'pre-open') return 15_000;
+      return 60_000;
+    };
+    const tick = () => { load(); timeoutId = setTimeout(tick, getInterval()); };
     load();
-    const t = setInterval(load, 60_000);
-    return () => clearInterval(t);
+    timeoutId = setTimeout(tick, getInterval());
+    return () => clearTimeout(timeoutId);
   }, []);
 
   if (!data || data.weighted === 0) return (

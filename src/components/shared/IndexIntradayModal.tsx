@@ -56,8 +56,13 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
     const yPrev = y(prev);
     const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
     const area = `${line}L${x(pts[pts.length - 1][0]).toFixed(1)},${yPrev.toFixed(1)}L${x(pts[0][0]).toFixed(1)},${yPrev.toFixed(1)}Z`;
-    // 每點成交值增量（億）→ 量條
-    const vols = pts.map((p, i) => Math.max(0, p[2] - (i ? pts[i - 1][2] : 0)));
+    // 每點成交值增量（億）→ 量條。前一點為 0（歷史缺值/序列起頭補件）時不畫增量，
+    // 否則第一筆真值會被畫成一根涵蓋整個上午的天柱。
+    const vols = pts.map((p, i) => {
+      const pv = i ? pts[i - 1][2] : 0;
+      if (!(p[2] > 0)) return 0;
+      return pv > 0 ? Math.max(0, p[2] - pv) : (i === 0 ? p[2] : 0);
+    });
     const vMax = Math.max(...vols, 0.001);
     const bw = Math.max(1.2, W / Math.max(pts.length, 60) * 0.7);
     const last = pts[pts.length - 1];
