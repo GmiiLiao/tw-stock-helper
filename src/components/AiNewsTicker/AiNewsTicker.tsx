@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getSession, isForeground } from '@/lib/market-clock';
+import { getSession, isForeground, msToNextReveal } from '@/lib/market-clock';
 import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
 import styles from './AiNewsTicker.module.css';
 
@@ -173,7 +173,7 @@ export function NavbarIndexWidget() {
     const getInterval = () => {
       if (!isForeground()) return 300_000;
       const s = getSession();
-      if (s === 'regular') return 5_000;
+      if (s === 'regular') return msToNextReveal(3000);   // 鎖相：揭示邊界+3s
       if (s === 'pre-open') return 15_000;
       return 60_000;
     };

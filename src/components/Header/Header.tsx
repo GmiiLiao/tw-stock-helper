@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
 import { fetchAllStocksDayData } from '@/lib/twse-api';
 import type { StockInfo } from '@/lib/twse-api';
-import { getSession, isForeground, isMarketOpen as isMarketOpenClock } from '@/lib/market-clock';
+import { getSession, isForeground, isMarketOpen as isMarketOpenClock, msToNextReveal } from '@/lib/market-clock';
 import styles from './Header.module.css';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -143,7 +143,7 @@ export default function Header() {
     const getInterval = () => {
       if (!isForeground()) return 300_000;
       const s = getSession();
-      if (s === 'regular') return 5_000;
+      if (s === 'regular') return msToNextReveal(3000);   // 鎖相：揭示邊界+3s（見 market-clock）
       if (s === 'pre-open') return 15_000;
       const h = new Date().getHours();
       if (h >= 21 || h < 5) return 30_000;   // 美股時段

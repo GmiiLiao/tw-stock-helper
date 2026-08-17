@@ -79,6 +79,17 @@ export const isMarketOpen = (now?: Date) => getSession(now) === 'regular';
  *      目前 38 個輪詢點中 document.hidden 使用次數為 0，
  *      使用者把分頁丟在背景整夜，5 秒輪詢照樣打。
  */
+// ── 揭示鎖相（2026-08-17）───────────────────────────────────────────
+// TWSE MIS 每 5 秒在「整 5 秒牆鐘」揭示；daemon 快線在邊界+1s 抓、寫入約 +1.5s
+// 落地。前端在「邊界+offset」讀（預設 +3s），全體使用者同一時刻拿到同一筆揭示
+// ——單一時鐘同步擴散，而不是各層各自相位疊加出 0~18 秒的亂數延遲。
+// CDN s-maxage=2~3 在此架構下是同時段內的合流器（第一個人回源、其他人共用）。
+export function msToNextReveal(offsetMs = 3000): number {
+  const now = Date.now();
+  const next = Math.ceil((now - offsetMs) / 5000) * 5000 + offsetMs;
+  return Math.max(50, next - now);
+}
+
 export function pollInterval(opts: {
   regularMs: number;
   preOpenMs?: number;

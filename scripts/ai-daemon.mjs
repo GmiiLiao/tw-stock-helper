@@ -1650,6 +1650,13 @@ async function restoreLastLive() {
 // 指數 5 秒級發布（快線搭車）。headline（marketIndex/latest·小文件）每班車都寫；
 // 盤中序列（走勢圖用）≥50 秒才補一點——圖表 1 分鐘解析度足夠，不用灌爆文件。
 // ⚠ t00/o00 沒有 v 欄（成交值不在 getStockInfo），序列第三欄暫為 0，量條另尋來源。
+// 距下一個「MIS 揭示邊界 + offset 毫秒」還有多久（邊界＝整 5 秒牆鐘）
+function msToNextReveal(offsetMs = 1000) {
+  const now = Date.now();
+  const next = Math.ceil((now - offsetMs) / 5000) * 5000 + offsetMs;
+  return Math.max(50, next - now);
+}
+
 async function publishIndexFromHot(t, o) {
   if (!t || !(t.price > 0) || !(t.prev > 0)) return;
   const chg = +(t.price - t.prev).toFixed(2);
@@ -1730,7 +1737,11 @@ async function hotQuoteLoop() {
       // 心跳：每 ~5 分鐘報一次本期拿到新成交的檔次（觀察 MIS 供應健康度）
       _hotFresh += Object.values(mis).filter(q => q?.hasLive).length;
       if (++_hotN >= 60) { log(`✓ 快線：近5分鐘 ${_hotFresh} 檔次新成交（每輪 ${batch.length} 檔）`); _hotN = 0; _hotFresh = 0; }
-      await sleep(Math.max(1000, 5000 - (Date.now() - t0)));
+      // 鎖相（2026-08-17 使用者指正「應該只有一個時間同步擴散」）：
+      // MIS 揭示貼齊整 5 秒牆鐘（實測 t 欄全為 :00/:05/:10…）。與其用自己的
+      // 相位每 5 秒睡一輪（平均多等 2.5 秒、且每個使用者相位都不同），
+      // 改在「揭示邊界 +1 秒」準時抓——資料落地時刻確定，前端據此對錶。
+      await sleep(msToNextReveal(1000));
     } catch (e) { log('✖ 快線', (e.message || '').slice(0, 60)); await sleep(10000); }
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getSession, isForeground } from './market-clock';
+import { getSession, isForeground, msToNextReveal } from './market-clock';
 
 // ============================================================
 // useLiveQuotes — shared real-time MIS quote poller.
@@ -24,7 +24,7 @@ export interface LiveQuote {
 function marketInterval(): number {
   if (!isForeground()) return 600_000;
   const s = getSession();
-  if (s === 'regular') return 5_000;
+  if (s === 'regular') return msToNextReveal(3000);   // 鎖相：揭示邊界+3s
   if (s === 'pre-open') return 15_000;
   return 600_000;
 }
