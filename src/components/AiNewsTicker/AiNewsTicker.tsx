@@ -377,7 +377,7 @@ export default function AiNewsTicker() {
 
             {/* Footer */}
             <div className={styles.panelFooter}>
-              🤖 AI 子代理 · 盤前 08:55 啟動 · 盤中持續分析 · 13:32 收盤總結
+              🤖 AI 子代理 · 08:55 啟動 · 盤中持續分析＋追蹤股即時警示 · 14:30 關閉
             </div>
           </div>
         )}

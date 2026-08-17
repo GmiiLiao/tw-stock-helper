@@ -1781,7 +1781,7 @@ async function agentTick(quotes, marketNow) {
     const mins = tw.getHours() * 60 + tw.getMinutes();
     const today = isoDate(tw);
     if (_agent.day !== today) { _agent.day = today; _agent.flags = {}; _agent.queue = []; _agent.lastByKey = {}; }
-    if (mins < 8 * 60 + 55 || mins > 13 * 60 + 40) return;   // 盤前 5 分鐘啟動 → 收盤總結後休眠
+    if (mins < 8 * 60 + 55 || mins > 14 * 60 + 30) return;   // 盤前 5 分鐘（08:55）啟動 → 14:30 盤後才關閉（2026-08-17 使用者定案）
 
     // ① 08:55 盤前特報（晨報摘要＋隔日沖鐵律提醒）
     if (!_agent.flags.preOpen) {
@@ -1798,7 +1798,19 @@ async function agentTick(quotes, marketNow) {
       });
     }
 
-    if (!marketNow) return;
+    // 盤後段（13:35–14:30）：14:00 定價交易提醒後待命，14:30 關閉
+    if (!marketNow) {
+      if (mins >= 14 * 60 && !_agent.flags.post1400) {
+        _agent.flags.post1400 = true;
+        await pushAgentMsg({
+          type: 'brief', label: '盤後提醒', emoji: '🕑', severity: 'info',
+          text: '盤後定價交易 14:00–14:30（以今日收盤價撮合）、盤後零股 13:40–14:30。今日法人籌碼與歸檔資料 15:10 起陸續更新，屆時各榜單自動刷新。',
+          summary: '盤後定價/零股交易時段 14:00–14:30；法人資料 15:10 起更新。',
+          dedupeKey: 'post1400',
+        });
+      }
+      return;
+    }
 
     // ② 盤勢特報：每 10 分鐘（指數＋家數，全為即時實數）
     const idxDoc = { w: 0, chg: 0, pct: 0 };
@@ -1851,6 +1863,52 @@ async function agentTick(quotes, marketNow) {
         });
       }
     }
+
+    // ⑦ 自選/持股池即時異動警示（2026-08-17 使用者需求）：
+    // 全體會員自選＋持股聯集（resolveWatchCodes——快線優先集的同一來源，價新鮮度 ≤30 秒）。
+    // 隱私線：警示只標「自選/持股池」，不標是誰的、不揭停損價位（那是個人資料）。
+    // 規則（皆為實數觸發·每檔每類 20 分鐘冷卻）：5分鐘急拉≥+2%／急跌≤-2%／觸及漲停。
+    try {
+      if (!_agent.px) _agent.px = {};
+      const watchSet = new Set();
+      try { for (const [code] of await resolveWatchCodes()) watchSet.add(code); } catch { /* skip */ }
+      let checked = 0;
+      for (const code of watchSet) {
+        if (++checked > 80) break;   // 池上限，護 CPU 與訊息量
+        const q = quotes[code];
+        if (!q?.live || !(q.price > 0)) continue;
+        const trail = (_agent.px[code] ||= []);
+        trail.push([Date.now(), q.price]);
+        while (trail.length && Date.now() - trail[0][0] > 6 * 60e3) trail.shift();
+        const base = trail[0];
+        if (!base || Date.now() - base[0] < 3 * 60e3) continue;   // 至少 3 分鐘的基期才判定
+        const mv = (q.price / base[1] - 1) * 100;
+        const prev = q.price - (q.change || 0);
+        const nearLimitUp = prev > 0 && q.changePercent >= 9.7;
+        if (nearLimitUp) {
+          await pushAgentMsg({
+            type: 'alert', label: '追蹤股觸漲停', emoji: '🔒', severity: 'warning',
+            text: `${q.name || ''}(${code}) 觸及/逼近漲停 ${q.price}（${q.changePercent >= 0 ? '+' : ''}${q.changePercent}%）。自選/持股池標的。⚠ 隔日沖口徑「今日收盤買」漲停買不到；已持有者留意漲停打開的賣壓。`,
+            summary: `🔒 ${q.name || ''}(${code}) 觸漲停 ${q.price}——收盤買不到，勿追。`,
+            stocks: [code], dedupeKey: `lu:${code}`, cooldownMs: 60 * 60e3,
+          });
+        } else if (mv >= 2) {
+          await pushAgentMsg({
+            type: 'alert', label: '追蹤股急拉', emoji: '⚡', severity: 'success',
+            text: `${q.name || ''}(${code}) 5分鐘急拉 +${mv.toFixed(1)}%（現價 ${q.price}，今日 ${q.changePercent >= 0 ? '+' : ''}${q.changePercent}%）。自選/持股池標的。追價前先過定版濾網與倒貨進度，勿追高。`,
+            summary: `⚡ ${q.name || ''}(${code}) 5分鐘 +${mv.toFixed(1)}%（${q.price}）`,
+            stocks: [code], dedupeKey: `up:${code}`, cooldownMs: 20 * 60e3,
+          });
+        } else if (mv <= -2) {
+          await pushAgentMsg({
+            type: 'risk', label: '追蹤股急跌', emoji: '🔻', severity: 'danger',
+            text: `${q.name || ''}(${code}) 5分鐘急跌 ${mv.toFixed(1)}%（現價 ${q.price}，今日 ${q.changePercent >= 0 ? '+' : ''}${q.changePercent}%）。自選/持股池標的——持有者請即刻確認停損價位與部位。`,
+            summary: `🔻 ${q.name || ''}(${code}) 5分鐘 ${mv.toFixed(1)}%（${q.price}）——確認停損`,
+            stocks: [code], dedupeKey: `dn:${code}`, cooldownMs: 20 * 60e3,
+          });
+        }
+      }
+    } catch (e) { log('  ⚠ 追蹤警示：', (e.message || '').slice(0, 50)); }
 
     // ⑤ 13:08 買進行動窗（撿尾盤＋波段候選——本站兩個實證進場口徑都是「收盤前買」）
     if (mins >= 13 * 60 + 8 && !_agent.flags.tailEnd) {
