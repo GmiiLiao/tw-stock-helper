@@ -36,7 +36,7 @@ export interface AgentMessage {
 }
 
 // Server-side in-memory queue (persists across requests in same process)
-const MAX_MESSAGES = 5;
+const MAX_MESSAGES = 8;   // daemon 佇列上限（2026-08-17 重做）
 const queue: AgentMessage[] = [];
 
 // Prevent abuse
@@ -56,29 +56,45 @@ export async function GET() {
   let agentActive = true;
   let lastHeartbeat = 0;
 
+  // 2026-08-17 重做：訊息改由 daemon 產生寫入 aiMessages/latest（盤前 08:55 啟動、
+  // 盤中持續、13:32 收盤總結）。舊的 in-memory 佇列有三個死因：多實例各自為政、
+  // 產生要靠 Cloud Run 連不到的本機 Ollama（永遠退回 4 則樣板）、沒有排程。
+  // in-memory queue 僅剩 POST 手動推播的暫存相容用途。
+  let docMessages: AgentMessage[] | null = null;
+  let docUpdatedAt: number | null = null;
   try {
     const adb = getAdminDb();
-    const docSnap = adb ? await adb.collection('system').doc('monitor-agent').get() : null;
-    if (docSnap?.exists) {
-      const data = docSnap.data() ?? {};
+    const [statusSnap, msgSnap] = adb
+      ? await Promise.all([
+          adb.collection('system').doc('monitor-agent').get(),
+          adb.collection('aiMessages').doc('latest').get(),
+        ])
+      : [null, null];
+    if (statusSnap?.exists) {
+      const data = statusSnap.data() ?? {};
       agentActive = data.active !== false;
       lastHeartbeat = data.lastHeartbeat || 0;
     }
+    if (msgSnap?.exists) {
+      const md = msgSnap.data() ?? {};
+      if (md.messagesJson) { docMessages = JSON.parse(md.messagesJson); docUpdatedAt = md.updatedAt || null; }
+    }
   } catch (e) {
-    console.error('Error fetching agent status in GET:', e);
+    console.error('Error fetching agent data in GET:', e);
   }
 
+  const messages = docMessages ?? [...queue].reverse();
   return NextResponse.json(
     {
-      messages: [...queue].reverse(), // newest first
-      count:    queue.length,
+      messages,
+      count:    messages.length,
       maxCount: MAX_MESSAGES,
-      updatedAt: queue.length > 0 ? queue[queue.length - 1].timestamp : null,
+      updatedAt: docUpdatedAt ?? (queue.length > 0 ? queue[queue.length - 1].timestamp : null),
       agentActive,
       lastHeartbeat,
     },
-    // 佇列是 in-memory、每 15 秒就變：no-store 正確；但不開放跨來源共享
-    { headers: { 'Cache-Control': 'no-store' } }
+    // 文件約 30 秒才變、前端 15 秒輪詢：s-maxage=5 讓 CDN 合流，不再打穿
+    { headers: { 'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=15, stale-if-error=120' } }
   );
 }
 

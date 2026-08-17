@@ -1746,6 +1746,143 @@ async function hotQuoteLoop() {
   }
 }
 
+// ── 🤖 AI 監控子代理（2026-08-17 重做）────────────────────────────────
+// 舊架構的三個死因：訊息存 web 實例記憶體（多實例各自為政）、產生要靠
+// Cloud Run 連不到的本機 Ollama（永遠退回 4 則樣板）、沒有排程。
+// 重做為 daemon 產生 → aiMessages/latest → web 只讀。
+// 排程（使用者定案）：盤前 5 分鐘（08:55）啟動 → 盤中持續 → 13:32 收盤總結。
+// 內容鐵則：只引用本站實證訊號與實際數據，動作訊息必附口徑與依據，非投資建議。
+const _agent = { queue: [], lastByKey: {}, day: '', flags: {} };
+
+async function pushAgentMsg({ type, label, emoji, text, summary, severity = 'info', stocks = [], dedupeKey = null, cooldownMs = 30 * 60e3 }) {
+  const now = Date.now();
+  if (dedupeKey) {
+    if (_agent.lastByKey[dedupeKey] && now - _agent.lastByKey[dedupeKey] < cooldownMs) return;
+    _agent.lastByKey[dedupeKey] = now;
+  }
+  _agent.queue.push({
+    id: `msg_${now}_${Math.random().toString(36).slice(2, 6)}`,
+    type, label, emoji, text, summary, severity, stocks,
+    timestamp: now, agentId: 'daemon-agent',
+  });
+  while (_agent.queue.length > 8) _agent.queue.shift();
+  try {
+    await db.collection('aiMessages').doc('latest').set({
+      updatedAt: now, date: isoDate(taipei()),
+      messagesJson: JSON.stringify([..._agent.queue].reverse()),   // newest first
+    });
+  } catch { /* 下輪重試 */ }
+}
+
+async function agentTick(quotes, marketNow) {
+  try {
+    const tw = taipei();
+    if (!isTradingDay(tw)) return;
+    const mins = tw.getHours() * 60 + tw.getMinutes();
+    const today = isoDate(tw);
+    if (_agent.day !== today) { _agent.day = today; _agent.flags = {}; _agent.queue = []; _agent.lastByKey = {}; }
+    if (mins < 8 * 60 + 55 || mins > 13 * 60 + 40) return;   // 盤前 5 分鐘啟動 → 收盤總結後休眠
+
+    // ① 08:55 盤前特報（晨報摘要＋隔日沖鐵律提醒）
+    if (!_agent.flags.preOpen) {
+      _agent.flags.preOpen = true;
+      let brief = '';
+      try {
+        const mn = (await db.collection('morningNote').doc('latest').get()).data();
+        if (mn?.date === today && mn.summary) brief = String(mn.summary).slice(0, 180);
+      } catch { /* 晨報缺就略 */ }
+      await pushAgentMsg({
+        type: 'brief', label: '盤前特報', emoji: '🌅', severity: 'info',
+        text: `${brief || '今日晨報尚未產出。'}\n\n⏰ 出場鐵律提醒：昨日尾盤進場的隔日沖部位，今日**開盤市價賣出**（700 日實測唯一穩定淨正出場；開高續抱平均吐光溢價 -0.33%）。波段部位依持有日口徑，勿混用。`,
+        summary: '盤前特報：晨報摘要＋隔日沖「今早開盤賣」鐵律提醒。',
+      });
+    }
+
+    if (!marketNow) return;
+
+    // ② 盤勢特報：每 10 分鐘（指數＋家數，全為即時實數）
+    const idxDoc = { w: 0, chg: 0, pct: 0 };
+    try {
+      const d = (await db.collection('marketIndex').doc('latest').get()).data();
+      if (d?.weighted > 0) { idxDoc.w = d.weighted; idxDoc.chg = d.weightedChange; idxDoc.pct = d.weightedChangePercent; }
+    } catch { /* skip */ }
+    let up = 0, dn = 0;
+    for (const k in quotes) { const q = quotes[k]; if (!q.live) continue; if (q.changePercent > 0) up++; else if (q.changePercent < 0) dn++; }
+    if (idxDoc.w > 0 && up + dn > 300) {
+      const tone = idxDoc.pct >= 0.5 ? '偏多' : idxDoc.pct <= -0.5 ? '偏空' : '震盪';
+      const breadth = up > dn * 1.5 ? '買氣熱絡' : dn > up * 1.5 ? '賣壓沉重' : '多空拉鋸';
+      await pushAgentMsg({
+        type: 'trend', label: '盤勢特報', emoji: '📊',
+        severity: idxDoc.pct <= -0.5 ? 'warning' : 'info',
+        text: `加權指數 ${idxDoc.w.toLocaleString('zh-TW')} 點（${idxDoc.chg >= 0 ? '+' : ''}${idxDoc.chg}，${idxDoc.pct >= 0 ? '+' : ''}${idxDoc.pct}%），盤勢${tone}。上漲 ${up} 家／下跌 ${dn} 家，${breadth}。${dn > up * 1.5 ? '市場強弱偏弱時，隔日沖偏多策略先保守。' : ''}`,
+        summary: `加權 ${idxDoc.w.toLocaleString('zh-TW')}（${idxDoc.pct >= 0 ? '+' : ''}${idxDoc.pct}%）·漲${up}跌${dn}·${breadth}`,
+        dedupeKey: 'trend', cooldownMs: 10 * 60e3,
+      });
+    }
+
+    // ③ 機會偵測：每 10 分鐘（盤中爆量榜·附隔日沖濾網門檻，不是無條件推薦）
+    try {
+      const vs = (await db.collection('volSurge').doc('latest').get()).data();
+      const items = (vs?.items || []).slice(0, 3);
+      if (vs?.date === today && items.length) {
+        const names = items.map(i => `${i.name || ''}(${i.code})`).join('、');
+        await pushAgentMsg({
+          type: 'opportunity', label: '機會偵測', emoji: '🎯', severity: 'success',
+          text: `盤中量能異常偵測：${names}。\n⚠ 爆量≠訊號：隔日沖需通過定版濾網（破20日新高 × 收位≥0.7 × 漲3~7%）才具實證淨正期望；散戶接棒／倒貨進度>60% 一律跳過。請至 ⚡盤中戰情 或 🪣撿尾盤 檢視完整評分。`,
+          summary: `量能異常：${names}——需過定版濾網再考慮。`,
+          stocks: items.map(i => String(i.code)),
+          dedupeKey: 'surge', cooldownMs: 10 * 60e3,
+        });
+      }
+    } catch { /* skip */ }
+
+    // ④ 急跌警示（事件型）：指數 10 分鐘內回落 ≥0.7%
+    if (idxDoc.w > 0) {
+      if (!_agent.idxTrail) _agent.idxTrail = [];
+      _agent.idxTrail.push([Date.now(), idxDoc.w]);
+      while (_agent.idxTrail.length && Date.now() - _agent.idxTrail[0][0] > 11 * 60e3) _agent.idxTrail.shift();
+      const past = _agent.idxTrail[0];
+      if (past && (idxDoc.w / past[1] - 1) * 100 <= -0.7) {
+        await pushAgentMsg({
+          type: 'risk', label: '急跌警示', emoji: '⚠️', severity: 'danger',
+          text: `加權指數 10 分鐘內回落 ${((idxDoc.w / past[1] - 1) * 100).toFixed(2)}%（${Math.round(past[1]).toLocaleString('zh-TW')} → ${Math.round(idxDoc.w).toLocaleString('zh-TW')}）。持股請確認停損價位；隔日沖偏多策略暫停追價。`,
+          summary: `急跌警示：指數 10 分鐘回落 ${((idxDoc.w / past[1] - 1) * 100).toFixed(2)}%`,
+          dedupeKey: 'plunge', cooldownMs: 30 * 60e3,
+        });
+      }
+    }
+
+    // ⑤ 13:08 買進行動窗（撿尾盤＋波段候選——本站兩個實證進場口徑都是「收盤前買」）
+    if (mins >= 13 * 60 + 8 && !_agent.flags.tailEnd) {
+      _agent.flags.tailEnd = true;
+      let swingTxt = '';
+      try {
+        const sp = (await db.collection('swingPicks').doc('latest').get()).data();
+        const stars = (sp?.date === today && sp.bearDay === true) ? (sp.items || []).filter(x => x.tier === 1) : [];
+        if (stars.length) swingTxt = `\n🌊 波段⭐三重確認今日候選（空頭日 gate 通過）：${stars.slice(0, 5).map(x => `${x.name || ''}(${x.code})`).join('、')}——口徑=今日收盤買·持有5個交易日（主窗+1.15%/勝54%），與隔日沖口徑勿混用。`;
+        else if (sp?.date === today && sp.bearDay === false) swingTxt = '\n🌊 波段⭐：今日為多頭日（gate 不通過），實測此訊號多頭日 5日-0.24%——本日不進場是紀律不是遺漏。';
+      } catch { /* skip */ }
+      await pushAgentMsg({
+        type: 'opportunity', label: '買進行動窗', emoji: '🪣', severity: 'success',
+        text: `13:00–13:25 撿尾盤觀察窗開啟。隔日沖唯一實證淨正組合：**定版濾網（破20日新高×收位≥0.7×漲3~7%）× 明早開盤賣**；候選與評分見 📡即時追蹤 → 🪣撿尾盤。13:25–13:30 為試撮時段，價格會跳、掛單可撤，勿被試撮假價騙進場。${swingTxt}`,
+        summary: '買進行動窗：撿尾盤 13:00-13:25·定版濾網候選見🪣分頁。',
+        dedupeKey: 'tailEnd',
+      });
+    }
+
+    // ⑥ 13:32 收盤總結
+    if (mins >= 13 * 60 + 32 && !_agent.flags.close) {
+      _agent.flags.close = true;
+      await pushAgentMsg({
+        type: 'brief', label: '收盤總結', emoji: '🔔', severity: 'info',
+        text: `今日收盤：加權指數 ${idxDoc.w.toLocaleString('zh-TW')} 點（${idxDoc.chg >= 0 ? '+' : ''}${idxDoc.chg}，${idxDoc.pct >= 0 ? '+' : ''}${idxDoc.pct}%），上漲 ${up} 家／下跌 ${dn} 家。\n⏰ 明早提醒：今日尾盤進場的隔日沖部位，明日開盤市價賣出（鐵律）。盤後 15:10 起法人籌碼與歸檔資料陸續更新。`,
+        summary: `收盤：加權 ${idxDoc.w.toLocaleString('zh-TW')}（${idxDoc.pct >= 0 ? '+' : ''}${idxDoc.pct}%）·明早鐵律出場提醒`,
+        dedupeKey: 'close',
+      });
+    }
+  } catch (e) { log('  ⚠ 子代理：', (e.message || '').slice(0, 60)); }
+}
+
 async function marketSnapshotLoop() {
   await restoreLastLive();
   for (;;) {
@@ -1852,6 +1989,7 @@ async function marketSnapshotLoop() {
           }
         }
         await writeSnapshot(quotes, marketNow, 'mixed', true);
+        agentTick(quotes, marketNow).catch(() => {});
         // 記錄使用者關注個股的分時序列(即時走勢圖用，不依賴延遲的 Yahoo)。
         try {
           const tracked = await getTrackedCodes(new Set(codes.map(c => c.code)));
