@@ -70,10 +70,11 @@ export function enrichScoredStock(
   bars: DailyBar[] | null,
   fund: FundamentalSignals | null,
   newsItems?: NewsLite[] | null,
+  livePrice?: number | null,   // 盤中即時價：只影響 swingSignal 的現價位置判定
 ): EnrichedAnalysis {
   const stock: ScoredStock = { ...base };
   const snap = bars ? computeIndicators(bars) : null;
-  const swingSignal = bars ? computeSwingSignal(bars) : null;
+  const swingSignal = bars ? computeSwingSignal(bars, livePrice) : null;
   const newsSentiment = newsItems && newsItems.length ? analyzeNews(newsItems) : null;
   const enriched = { buyZones: false, sellProb: false, fundamentals: false, swing: false, news: false };
 

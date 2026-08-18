@@ -44,12 +44,18 @@ const lastNum = (a: (number | null)[]): number | null => {
 };
 
 /** Compute the swing signal from a daily-bar history (needs ≥ 20 bars). */
-export function computeSwingSignal(bars: DailyBar[]): SwingSignal | null {
+/**
+ * @param livePrice 盤中即時價（2026-08-18 使用者指正「開盤後應用今日分析」）：
+ * 均線/RSI/MACD 仍以**已收盤K**計（未收盤K盤中會變臉），但「現價 vs 結構」的
+ * 判定（趨勢位置/乖離/追高禁令）改用即時價——否則跳空日整天沿用昨收判定。
+ * 不傳＝行為與舊版完全相同（回測 PIT 安全）。
+ */
+export function computeSwingSignal(bars: DailyBar[], livePrice?: number | null): SwingSignal | null {
   if (!bars || bars.length < 20) return null;
   const closes = bars.map(b => b.c);
   const vols = bars.map(b => b.v);
   const n = closes.length - 1;
-  const price = closes[n];
+  const price = livePrice && livePrice > 0 ? livePrice : closes[n];
 
   const ma5 = lastNum(calculateSMA(closes, 5)) ?? price;
   const ma10 = lastNum(calculateSMA(closes, 10)) ?? price;

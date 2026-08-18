@@ -12,6 +12,7 @@ import { fetchDailyHistory, yearsAgoUnix } from '@/lib/history-fetch';
 import { getFundamentalSignals } from '@/lib/fundamentals-server';
 import { getStockNews } from '@/lib/news-server';
 import { enrichScoredStock } from '@/lib/analysis-enrich';
+import { readMarketSnapshot } from '@/lib/market-snapshot-store';
 import type { NewsLite } from '@/lib/news-sentiment';
 
 export const runtime = 'nodejs';
@@ -83,8 +84,16 @@ export async function GET(request: NextRequest) {
         if (ai?.news?.length) news = ai.news;
       }
 
+      // 盤中即時價（含 5 秒快線覆蓋）：乖離/追高/趨勢位置判定用今日，
+      // 不再整天沿用昨收（2026-08-18 使用者指正）。非 live 時傳 null＝維持舊行為。
+      let livePrice: number | null = null;
+      try {
+        const ms = await readMarketSnapshot();
+        const lq = ms?.quotes[code];
+        if (lq?.live && lq.price > 0) livePrice = lq.price;
+      } catch { /* 快照缺就用昨收 */ }
       const { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched } =
-        enrichScoredStock(base, bars, fund, news);
+        enrichScoredStock(base, bars, fund, news, livePrice);
       return NextResponse.json(
         { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched, dataDate, generatedAt: new Date().toISOString() },
         { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30' } },
