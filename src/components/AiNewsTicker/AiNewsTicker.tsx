@@ -240,6 +240,7 @@ export default function AiNewsTicker() {
   const [selectedMsg, setSelected] = useState<AgentMessage | null>(null);
   const [lastFetch, setLastFetch] = useState<number | null>(null);
   const [agentActive, setAgentActive] = useState(false);
+  const [heartbeat, setHeartbeat] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Poll /api/ai-analysis every 15s ──────────────────────
@@ -254,6 +255,8 @@ export default function AiNewsTicker() {
         setMessages(data.messages);
         if (data.messages.length > 0) setLastFetch(Date.now());
       }
+      // 上線判定以 daemon 心跳為準（訊息 10 分鐘一則是設計節奏，不代表離線）
+      if (typeof data.lastHeartbeat === 'number') setHeartbeat(data.lastHeartbeat);
     } catch { /* ignore */ }
   }, []);
 
@@ -268,12 +271,10 @@ export default function AiNewsTicker() {
 
   // ── Check agent status (ping agentId in messages) ──────
   useEffect(() => {
-    if (messages.length > 0) {
-      const latest = messages[0];
-      const age = Date.now() - latest.timestamp;
-      setAgentActive(age < 5 * 60_000); // active if message < 5min old
-    }
-  }, [messages]);
+    const hbFresh = heartbeat > 0 && Date.now() - heartbeat < 3 * 60_000;
+    const msgFresh = messages.length > 0 && Date.now() - messages[0].timestamp < 5 * 60_000;
+    setAgentActive(hbFresh || msgFresh);   // 心跳為主；訊息稀疏是設計節奏不是離線
+  }, [messages, heartbeat]);
 
   const hasMessages = messages.length > 0;
   const latestMsg   = messages[0];

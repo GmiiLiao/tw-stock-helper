@@ -1800,6 +1800,12 @@ async function agentTick(quotes, marketNow) {
     const today = isoDate(tw);
     if (_agent.day !== today) { _agent.day = today; _agent.flags = {}; _agent.queue = []; _agent.lastByKey = {}; }
     if (mins < 8 * 60 + 55 || mins > 14 * 60 + 30) return;   // 盤前 5 分鐘（08:55）啟動 → 14:30 盤後才關閉（2026-08-17 使用者定案）
+    // 心跳（2026-08-18 使用者回報「顯示離線」）：訊息 10 分鐘一則是設計節奏，
+    // 上線與否要看心跳不是看訊息年齡——視窗內每 ≤60 秒蓋章一次。
+    if (Date.now() - (_agent.hbAt || 0) > 60e3) {
+      _agent.hbAt = Date.now();
+      db.collection('system').doc('monitor-agent').set({ active: true, lastHeartbeat: Date.now() }, { merge: true }).catch(() => {});
+    }
 
     // ① 08:55 盤前特報（晨報摘要＋隔日沖鐵律提醒）
     if (!_agent.flags.preOpen) {
