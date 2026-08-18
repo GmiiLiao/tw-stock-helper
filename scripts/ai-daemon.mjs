@@ -1910,6 +1910,50 @@ async function agentTick(quotes, marketNow) {
       }
     } catch (e) { log('  ⚠ 追蹤警示：', (e.message || '').slice(0, 50)); }
 
+    // ⑧ 法人×大戶 推漲/倒貨跡象（2026-08-17 使用者需求）：台股**無盤中法人資料**
+    // （EOD 15:00 後才有）——此為「昨日法人買賣超(PIT) × 今日盤中價量 × 內外盤取樣」
+    // 的推斷跡象，內文據實標示。池＝自選/持股 ∪ 盤中爆量榜前15。
+    try {
+      if (!_agent.instMap || Date.now() - (_agent.instAt || 0) > 30 * 60e3) {
+        const arch = await readArchive(1, 'instJson');
+        _agent.instMap = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : {};
+        try { const va = (await db.collection('volAvg20').doc('latest').get()).data(); _agent.avgMap = va?.avgJson ? JSON.parse(va.avgJson) : {}; } catch { _agent.avgMap = {}; }
+        _agent.instAt = Date.now();
+      }
+      const pool8 = new Set();
+      try { for (const [c] of await resolveWatchCodes()) pool8.add(c); } catch { /* skip */ }
+      try { const vs8 = (await db.collection('volSurge').doc('latest').get()).data(); for (const it8 of (vs8?.items || []).slice(0, 15)) pool8.add(String(it8.code)); } catch { /* skip */ }
+      let n8 = 0;
+      for (const code of pool8) {
+        if (++n8 > 100) break;
+        const q = quotes[code]; if (!q?.live || !(q.price > 0)) continue;
+        const it = _agent.instMap[code]; if (!it) continue;
+        const instNet = (it[0] || 0) + (it[1] || 0);           // 外資+投信（張·昨日EOD）
+        const avg = _agent.avgMap[code] || 0;
+        const volX = avg > 0 ? ((q.volume || 0) / 1000) / avg : 0;
+        const fl = _flow.by?.[code];
+        const outR = fl && (fl.in + fl.out) > 50 ? fl.out / (fl.in + fl.out) : null;  // 外盤佔比≈主動買
+        const prevC = q.price - (q.change || 0);
+        const dayHighPct = q.high > 0 && prevC > 0 ? (q.high / prevC - 1) * 100 : 0;
+        const pctFromHigh = q.high > 0 ? (q.price / q.high - 1) * 100 : 0;
+        if (instNet > 0 && q.changePercent >= 3 && volX >= 2) {
+          await pushAgentMsg({
+            type: 'opportunity', label: '法人推漲跡象', emoji: '🏦', severity: 'success',
+            text: `${q.name || ''}(${code}) 昨日外資+投信買超 ${Math.round(instNet).toLocaleString('zh-TW')} 張，今日 +${q.changePercent}%·量 ${volX.toFixed(1)} 倍均量${outR != null ? `·外盤佔比 ${(outR * 100).toFixed(0)}%${outR >= 0.6 ? '（主動買盤主導）' : ''}` : ''}。⚠ 推斷跡象：台股無盤中法人資料，這是昨日 EOD 籌碼 × 今日價量的組合；追價前仍須過定版濾網與倒貨進度（>60% 不追）。`,
+            summary: `🏦 ${q.name || ''}(${code}) 昨買超${Math.round(instNet)}張×今日+${q.changePercent}%·量${volX.toFixed(1)}倍`,
+            stocks: [code], dedupeKey: `push:${code}`, cooldownMs: 60 * 60e3,
+          });
+        } else if (instNet < 0 && dayHighPct >= 4 && pctFromHigh <= -3 && volX >= 2) {
+          await pushAgentMsg({
+            type: 'risk', label: '疑似出貨警示', emoji: '📤', severity: 'danger',
+            text: `${q.name || ''}(${code}) 昨日外資+投信賣超 ${Math.round(-instNet).toLocaleString('zh-TW')} 張，今日衝高 +${dayHighPct.toFixed(1)}% 後自高點回落 ${pctFromHigh.toFixed(1)}%·量 ${volX.toFixed(1)} 倍${outR != null && outR <= 0.4 ? '·內盤主導（主動賣壓）' : ''}。⚠ 推斷跡象（昨日 EOD 籌碼 × 今日盤中價量）；持有者確認停損位，未持有者勿接刀。`,
+            summary: `📤 ${q.name || ''}(${code}) 昨賣超×衝高回落${pctFromHigh.toFixed(1)}%——疑似出貨`,
+            stocks: [code], dedupeKey: `dump:${code}`, cooldownMs: 60 * 60e3,
+          });
+        }
+      }
+    } catch (e) { log('  ⚠ 法人跡象：', (e.message || '').slice(0, 50)); }
+
     // ⑤ 13:08 買進行動窗（撿尾盤＋波段候選——本站兩個實證進場口徑都是「收盤前買」）
     if (mins >= 13 * 60 + 8 && !_agent.flags.tailEnd) {
       _agent.flags.tailEnd = true;
@@ -3421,6 +3465,49 @@ async function runNlScreens() {
     const ref = db.collection('users').doc(u.id).collection('data').doc('nlScreen');
     const d = (await ref.get()).data(); if (!d || d.status !== 'pending') continue;
     try {
+      // 🔄 換股意圖（2026-08-17 使用者需求）：偵測「想換股」→ 直接給即時推薦，
+      // 不走 LLM 篩選（換股不是篩選條件，LLM 會硬湊）。推薦基礎＝實證綜合評分
+      // 分級排行（chipPicks.graded·兩窗回測權重）× 即時價量，排除漲停/準漲停；
+      // 換出側只「檢視」使用者持股今日最弱者，不下指令。
+      if (/換股|換掉|想換|替換|轉倉|換一檔|換別的|換其他|賣.{0,6}買什麼/.test(d.query)) {
+        try {
+          const [cpSnap, snapQ] = await Promise.all([
+            db.collection('chipPicks').doc('latest').get(),
+            readSnapshotQuotes(),
+          ]);
+          const graded = cpSnap.data()?.graded || [];
+          const quotes = snapQ?.quotes || {};
+          const recs = [];
+          for (const g of graded) {
+            const q = quotes[g.code];
+            if (!q || !(q.price > 0)) continue;
+            if ((q.changePercent ?? 0) > 8.5) continue;   // 漲停/準漲停收盤買不到
+            // graded 欄位：tier(S/A/B分級)+netWin(明開賣淨勝率%)+danger(倒貨旗標)
+            if (g.danger) continue;   // 倒貨旗標者不推
+            recs.push({ code: g.code, name: g.name || q.name || '', score: g.netWin ?? null,
+              signal: g.tier === 'S' ? 'STRONG_BUY' : 'BUY', rs: null, yield: null,
+              tierLabel: g.tierLabel || g.tier || null });
+            if (recs.length >= 8) break;
+          }
+          let weakTxt = '';
+          try {
+            const hd = (await db.collection('users').doc(u.id).collection('data').doc('holdings').get()).data();
+            const hs = (hd?.holdings || []).map(h => ({ ...h, chg: quotes[h.code]?.changePercent ?? null }))
+              .filter(h => h.chg != null).sort((a, b) => a.chg - b.chg).slice(0, 2);
+            if (hs.length) weakTxt = `換出側檢視（你今日最弱的持股，僅供比對非指令）：${hs.map(h => `${h.name}(${h.code}) ${h.chg >= 0 ? '+' : ''}${h.chg}%`).join('、')}。`;
+          } catch { /* 無持股則略 */ }
+          const twN = taipei(); const mN = twN.getHours() * 60 + twN.getMinutes();
+          const live = isTradingDay(twN) && mN >= 9 * 60 && mN < 13 * 60 + 30;
+          await ref.set({
+            query: d.query, status: 'done', at: Date.now(), answeredAt: Date.now(),
+            interpreted: '偵測到「換股」意圖 → 即時換股推薦（不經篩選條件解析）',
+            note: `依據：法人籌碼分級排行（S/A級·兩窗實證）× ${live ? '盤中即時' : '最近收盤'}價量；「評分」欄＝該分級歷史明開賣淨勝率%；已排除今日漲停/準漲停（收盤買不到）與倒貨旗標股。${weakTxt}提醒：請以「決策工作台」逐檔比對籌碼判讀與勝率後再決定；評分是排序與避開工具，非進場保證。非投資建議。`,
+            results: recs, count: recs.length,
+          });
+          log(`  🔄 NL換股推薦 ${u.id}「${String(d.query).slice(0, 30)}」→ ${recs.length} 檔`);
+          continue;
+        } catch (e) { log('  ⚠ 換股推薦失敗，退回一般解析：', (e.message || '').slice(0, 50)); }
+      }
       // 2026-08-01 修正：舊版只支援 7 種欄位，需求提到 RSI 等不支援的概念時 LLM 回空物件，
       // 空條件跑過濾迴圈＝全部通過 → 「找到 1936 檔」。實例：使用者查
       // 「rsi5日介於60-75且rsi10日超過60」拿到全市場，還以為篩選壞了（確實壞了）。
