@@ -1221,6 +1221,8 @@ async function misBatch(batch) {
   const _twNow = taipei();
   const _nowMins = _twNow.getHours() * 60 + _twNow.getMinutes();
   const inCloseAuction = _nowMins >= 13 * 60 + 24 && _nowMins <= 13 * 60 + 35;
+  // 連續交易時段（試撮窗除外）：z/pz 缺席時允許以五檔中價當即時價（見下）
+  const inRegularCont = _nowMins >= 9 * 60 && _nowMins < 13 * 60 + 30 && !inCloseAuction;
   const exCh = batch.map(c => `${c.market}_${c.code}.tw`).join('|');
   const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_=${Date.now()}`;
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
@@ -1254,6 +1256,22 @@ async function misBatch(batch) {
         else if (!inCloseAuction && ((_hi > 0 && price > _hi + 1e-9) || (_lo > 0 && price < _lo - 1e-9))) realTrade = false;
       }
       if (!realTrade) price = 0;
+      // ── 五檔中價層（2026-08-18 實測定案）：盤中連續交易時段，MIS 對個股常
+      // 「v 前進但 z='-'」（2330 連 6 次揭示無 z、量卻 +10 張）——成交價欄位缺席
+      // 不等於沒成交。此時買一/賣一中點就是市場現價（流動股與成交價差 <1 檔），
+      // 據此個股才能跟上大盤指數的 5 秒節奏（指數的 z 每揭示必有）。
+      // ⚠ 僅限盤中連續時段：東訊事故（收盤後殘單 b1 被當現價 +5.8%）的教訓保留——
+      // 收盤後/試撮窗一律不用掛單價。漲跌停界內才收。
+      let quoteLive = false;
+      if (!realTrade && inRegularCont) {
+        const _b1 = parseFloat(String(it.b || '').split('_')[0]);
+        const _a1 = parseFloat(String(it.a || '').split('_')[0]);
+        const mid = _b1 > 0 && _a1 > 0 ? (_b1 + _a1) / 2 : 0;   // 單邊掛單不收（漲跌停鎖死時另有 z）
+        if (mid > 0 && !(_up > 0 && mid > _up + 1e-9) && !(_dn > 0 && mid < _dn - 1e-9)) {
+          price = +mid.toFixed(2);
+          quoteLive = true;
+        }
+      }
       if (price <= 0) {
         const b1 = parseFloat(String(it.b || '').split('_')[0]);
         const a1 = parseFloat(String(it.a || '').split('_')[0]);
@@ -1262,14 +1280,14 @@ async function misBatch(batch) {
       const volLots = _num(it.v);           // MIS v 單位=張
       const vol = volLots * 1000;            // 統一為「股」，與種子(STOCK_DAY_ALL)一致
       // 只有「真成交價 + 當日有量」才算即時真實價（開盤前試撮 v=0 不覆蓋昨收）。
-      const hasLive = realTrade && volLots > 0;
+      const hasLive = (realTrade && volLots > 0) || (quoteLive && volLots > 0);   // 今日有量才可信
       const prev = _num(it.y); if (price <= 0) price = prev;  // 僅供 change 計算
       const change = hasLive && prev > 0 ? +(price - prev).toFixed(2) : 0;
       out[code] = {
         code, name: it.n || '', price, change, prev, mVal: _num(it.m),
         changePercent: hasLive && prev > 0 ? +((change / prev) * 100).toFixed(2) : 0,
         open: _num(it.o), high: _num(it.h), low: _num(it.l),
-        volume: vol, value: Math.round(price * vol), hasLive,
+        volume: vol, value: Math.round(price * vol), hasLive, realTrade,
         bid: _parseLevels(it.b, it.g), ask: _parseLevels(it.a, it.f), // 五檔委買委賣（僅供當下參考，不歸檔）
       };
     }
@@ -2052,7 +2070,7 @@ async function marketSnapshotLoop() {
               _depthWin.data[k] = { bid, ask, at: Date.now() };   // 逐筆記時間戳，歸檔時據以過濾
             }
             if (hasLive) {
-              accumulateFlow(k, { ...q, hasLive, bid, ask }, tw);   // 內外盤取樣累計（見 accumulateFlow 註解）
+              if (q.realTrade) accumulateFlow(k, { ...q, hasLive, bid, ask }, tw);   // 內外盤只取真成交（中價無主動方向）
               quotes[k] = { ...q, market: byCode[k]?.market || quotes[k]?.market || null, live: true, liveAt: Date.now() };
               _lastLive[k] = quotes[k];                 // remember the last REAL price
               if (captureDepth && (bid?.length || ask?.length)) depthOut[k] = { bid, ask };
