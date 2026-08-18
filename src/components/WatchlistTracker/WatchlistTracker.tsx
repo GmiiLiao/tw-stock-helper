@@ -488,6 +488,7 @@ function StockRow({
   const isLimitDown = (quote?.changePercent ?? 0) <= -9.9;
   
   const allStocks = useAppStore(s => s.allStocks);
+  const navigateTo = useAppStore(s => s.navigateTo);   // 點代號/名稱 → 個股分析頁（2026-08-18）
   const stockInfo = allStocks.find(s => s.code === stock.code);
   const targetPrice = stockInfo ? getTargetPrice({
     ...stockInfo,
@@ -526,12 +527,23 @@ function StockRow({
       {/* Stock info */}
       <div className={styles.stockInfo}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className={styles.stockCode}>{stock.code}</span>
+          {/* 點代號/名稱進個股分析頁（stopPropagation：別觸發整列的展開切換） */}
+          <span className={styles.stockCode}
+            onClick={(e) => { e.stopPropagation(); navigateTo('stock', stock.code); }}
+            style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(125,211,252,0.35)', textUnderlineOffset: 3 }}
+            title={`開啟 ${stock.code} 個股分析頁`}>
+            {stock.code}
+          </span>
           {isAiPick  && <span style={{ fontSize: 'calc(12px * var(--fz))' }}>🤖</span>}
           {hasAlert  && <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b' }}>🔔</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <span className={styles.stockName}>{stock.name || quote?.name || ''}</span>
+          <span className={styles.stockName}
+            onClick={(e) => { e.stopPropagation(); navigateTo('stock', stock.code); }}
+            style={{ cursor: 'pointer' }}
+            title={`開啟 ${stock.code} 個股分析頁`}>
+            {stock.name || quote?.name || ''}
+          </span>
           <StatusBadges code={stock.code} changePercent={quote?.changePercent} />
         </div>
       </div>
