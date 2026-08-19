@@ -50,6 +50,10 @@ const CONTRACTS = [
   // 但半個市場不見了。實案：一次 TPEx 抓取失敗 + 快取條件只看 length>0。
   { c: 'marketSnapshot',   kind: 'latest',  maxStale: 10 * MIN,  session: 'intraday', countField: 'quotes',
     markets: { field: 'quotesJson', min: { tse: 900, otc: 700 } } },
+  // 興櫃（2026-08-19 接上）：獨立文件，只供搜尋/個股頁。興櫃交易到 15:00，
+  // 盤中 3 分鐘更新一次；不進任何榜單故不設市場組成閘門。
+  { c: 'marketSnapshot',   kind: 'latest',  docId: 'emerging', label: 'marketSnapshot/emerging',
+    maxStale: 60 * MIN, session: 'intraday', minRecords: 200, countField: 'quotesJson' },
   { c: 'marketIntraday',   kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'intradayRadar',    kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'limitUpForecast',  kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
@@ -342,7 +346,7 @@ function pickDataDate(d, dateField) {
 }
 
 async function auditOne(spec, ltd, marketOpen, tradingToday) {
-  const out = { collection: spec.c, status: 'OK', notes: [] };
+  const out = { collection: spec.docId && spec.docId !== 'latest' ? `${spec.c}/${spec.docId}` : spec.c, status: 'OK', notes: [] };
   try {
     let data = null, docId = null;
 
