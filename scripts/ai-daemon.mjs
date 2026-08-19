@@ -1376,6 +1376,28 @@ let _codesCache = null, _codesAt = 0, _codesCloseDate = '';
 // 民國日期 1150715 → 20260715（西元 YYYYMMDD）
 const rocToYmd = s => { s = String(s).trim(); return /^\d{7}$/.test(s) ? String(+s.slice(0, 3) + 1911) + s.slice(3) : ''; };
 let _otcCloseDate = '';
+
+// TPEx 帶日期端點：openapi 鏡像落後或整個回空時的後備來源。
+// TPEx 只認 YYYY/MM/DD，且**必須回聲驗證**——否則它會靜默忽略日期參數
+// 回最新資料（實案：首輪回填整批變今日快照）。dateYmd 為空時不做回聲比對，
+// 純粹當「拿到一份上櫃清單」用（宇宙缺市場比日期差一天嚴重得多）。
+async function _fetchOtcDated(dateYmd) {
+  try {
+    const useEcho = /^\d{8}$/.test(dateYmd || '');
+    const slash = useEcho ? `${dateYmd.slice(0, 4)}/${dateYmd.slice(4, 6)}/${dateYmd.slice(6, 8)}` : '';
+    const url = `https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=${encodeURIComponent(slash)}&type=EW&id=&response=json`;
+    const j = await (await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.tpex.org.tw/' }, signal: AbortSignal.timeout(12000) })).json();
+    const tb = useEcho ? (String(j?.date || '') === dateYmd ? j?.tables?.[0] : null) : j?.tables?.[0];
+    const out = [];
+    for (const r2 of (tb?.data || [])) {
+      const code = String(r2[0] || '').trim();
+      if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) {
+        out.push({ code, name: String(r2[1] || '').trim(), market: 'otc', close: _num(r2[2]), change: _num(r2[3]), vol: _num(r2[8]) });
+      }
+    }
+    return out;
+  } catch { return []; }
+}
 async function getAllMarketCodes(force = false) {
   if (!force && _codesCache && Date.now() - _codesAt < 10 * 60000) return _codesCache;
   const codes = [];
@@ -1417,26 +1439,45 @@ async function getAllMarketCodes(force = false) {
       if (!otcDate && x.Date) otcDate = rocToYmd(String(x.Date));
       if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) otcRows.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares) });
     }
-  } catch { /* otc */ }
+  } catch (e) { log(`  ⚠ 上櫃 openapi 鏡像抓取失敗：${(e.message || '').slice(0, 60)}`); }
   if (closeDate && otcDate && otcDate < closeDate) {
-    // 鏡像落後 → 用帶日期端點補今日。TPEx 只認 YYYY/MM/DD，且必須回聲驗證，
-    // 否則它會**靜默忽略日期**回最新資料（實案：首輪回填整批變今日快照）。
-    const slash = `${closeDate.slice(0, 4)}/${closeDate.slice(4, 6)}/${closeDate.slice(6, 8)}`;
-    try {
-      const j = await (await fetch(`https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=${encodeURIComponent(slash)}&type=EW&id=&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.tpex.org.tw/' } })).json();
-      const tb = String(j?.date || '') === closeDate ? j?.tables?.[0] : null;
-      const fixed = [];
-      for (const r2 of (tb?.data || [])) {
-        const code = String(r2[0] || '').trim();
-        if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) fixed.push({ code, name: String(r2[1] || '').trim(), market: 'otc', close: _num(r2[2]), change: _num(r2[3]), vol: _num(r2[8]) });
-      }
-      if (fixed.length > 500) { otcRows = fixed; log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，已改用帶日期端點重抓 ${fixed.length} 檔`); otcDate = closeDate; }
-      else log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，帶日期端點只回 ${fixed.length} 檔，維持鏡像值`);
-    } catch (e) { log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，補抓失敗：${(e.message || '').slice(0, 40)}`); }
+    const fixed = await _fetchOtcDated(closeDate);
+    if (fixed.length > 500) { otcRows = fixed; log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，已改用帶日期端點重抓 ${fixed.length} 檔`); otcDate = closeDate; }
+    else log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，帶日期端點只回 ${fixed.length} 檔，維持鏡像值`);
+  }
+  // ── 整個市場消失的防線（2026-08-19 實案）──────────────────────────────
+  // 上面的 TPEx 抓取原本是 `catch { /* otc */ }` 靜默吞掉，且**沒有任何後備**
+  //（上市那半有 openapi 後備，上櫃這半沒有）。於是一次暫時性失敗就會讓
+  // otcRows=[]，而 codes 仍有 1,229 檔上市 ⇒ `codes.length > 0` 成立 ⇒
+  // **把「只有上市」的宇宙當成權威寫進快取**，連上一份好的快取都被覆蓋。
+  // 後果：全站上櫃股整批消失（快照 2,132→1,229 檔），漲停榜再也不會有上櫃，
+  // 而且不會報錯——正是使用者 2026-08-19 回報的現象。
+  if (otcRows.length === 0) {
+    log('  ⚠ 上櫃清單抓取失敗（鏡像回空）→ 改用帶日期端點後備');
+    const alt = await _fetchOtcDated(closeDate || _codesCloseDate || '');
+    if (alt.length > 500) { otcRows = alt; otcDate = closeDate || otcDate; log(`  ✓ 上櫃後備成功 ${alt.length} 檔`); }
+    else {
+      // 最後一道：沿用上一份快取裡的上櫃（stale-if-error）。寧可用舊的上櫃種子，
+      // 也不要讓整個市場從站上蒸發——即時價本來就由 MIS 逐輪覆蓋。
+      const prevOtc = (_codesCache || []).filter(c => c.market === 'otc');
+      if (prevOtc.length > 0) { otcRows = prevOtc; log(`  ⚠ 上櫃後備亦失敗 → 沿用上一份快取 ${prevOtc.length} 檔（stale-if-error）`); }
+      else log('  ✗ 上櫃完全無來源且無快取可沿用——本輪宇宙將缺少上櫃');
+    }
   }
   codes.push(...otcRows);
   _otcCloseDate = otcDate;
-  if (codes.length > 0) { _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate; }
+  // 只有「兩個市場都在」才可以覆蓋快取：任何一邊整批消失都視為抓取失敗，
+  // 保留舊快取而不是把殘缺宇宙固化下來。
+  const hasTse = codes.some(c => c.market === 'tse');
+  const hasOtc = codes.some(c => c.market === 'otc');
+  if (codes.length > 0 && hasTse && hasOtc) {
+    _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate;
+  } else if (codes.length > 0 && !_codesCache) {
+    _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate;   // 首次啟動，殘缺也好過空手
+    log(`  ⚠ 首次載入宇宙殘缺（tse=${hasTse} otc=${hasOtc}），暫用之並待下輪修復`);
+  } else if (!hasOtc || !hasTse) {
+    log(`  ⚠ 本輪宇宙殘缺（tse=${hasTse} otc=${hasOtc}）→ 不覆蓋快取，沿用上一份 ${(_codesCache || []).length} 檔`);
+  }
   return _codesCache || [];
 }
 
