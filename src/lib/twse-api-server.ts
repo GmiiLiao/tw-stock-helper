@@ -1,6 +1,6 @@
 // Note: execFile/curl removed — using native fetch for Cloud Functions compatibility
 
-import { readMarketSnapshot, isSnapshotFresh, type SnapQuote } from './market-snapshot-store';
+import { readMarketSnapshot, isSnapshotFresh, readEmergingQuotes, type SnapQuote } from './market-snapshot-store';
 import { memoize } from './singleflight';
 
 // ============================================================
@@ -528,7 +528,19 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
     Transaction:  item.TransactionNumber ?? '0',
   }));
 
-  const raw = [...rawTse, ...mappedOtc];
+  // ── 證券種類濾網（2026-08-19）──────────────────────────────────────────
+  // TPEx 的日成交清單**包含權證/債券等所有商品**（實測 10,561 筆），而上面
+  // 從未篩過。後果分三層，且只在收盤後現形（盤中走快照路徑，快照是篩過的）：
+  //   ① payload 從 ~2,100 筆暴增到 11,980 筆——這支是全站最大回應，直接
+  //      違反 CDN/流量的既有結論；
+  //   ② 搜尋被權證灌爆：查「7924」第一筆回「707924 久元凱基5A購01」
+  //      （使用者 2026-08-19 回報找不到 7924 TLC-KY 的同一條路徑）；
+  //   ③ 宇宙形狀隨時間變動（盤中 2,100／盤後 11,980），任何以筆數做的
+  //      健康判斷都會失真。
+  // 保留：普通股與特別股 4 碼(+單一字母)、ETF 00 開頭(含主動式 00400A)。
+  // 排除：6 碼權證（707924 這類，不以 00 開頭故不匹配）。
+  const isSecurity = (c: string) => /^\d{4}[A-Z]?$/.test(c) || /^00\d{2,4}[A-Z]?$/.test(c);
+  const raw = [...rawTse, ...mappedOtc].filter(it => isSecurity(String((it as { Code?: string }).Code || '')));
 
   // Overlay the second brain's FULL-MARKET realtime snapshot (maintained by
   // the resident daemon's continuous MIS sweep). Replaces the old top-100
@@ -563,6 +575,36 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
     }
     if (added > 0) console.warn(`[twse-api-server] TPEx 缺失，以第二大腦快照補上櫃 ${added} 檔（搜尋完整性後備）`);
   }
+
+  // ── 興櫃併入（2026-08-19）──────────────────────────────────────────────
+  // 使用者實報：7924 TLC-KY 搜尋不到。原因是宇宙只有上市＋上櫃，興櫃 360 檔
+  // 從來沒有進來過。刻意**只在這一層併入**（web 對外宇宙），daemon 的選股
+  // 與榜單走自己的 byCode，永遠看不到興櫃——避免「沒有漲跌停的股票」污染
+  // 漲停榜與量價門檻。closeOnly（AI 評分用穩定收盤）同樣不併入。
+  const mergeEmerging = async (rows: StockDayData[]): Promise<StockDayData[]> => {
+    if (closeOnly) return rows;
+    try {
+      const esb = await readEmergingQuotes();
+      if (!esb) return rows;
+      const have = new Set(rows.map(r => r.Code));
+      let added = 0;
+      for (const q of Object.values(esb)) {
+        if (have.has(q.code) || !(q.price > 0)) continue;
+        rows.push({
+          Date: '', Code: q.code, Name: q.name,
+          TradeVolume: String(q.volume ?? 0), TradeValue: '0',
+          OpeningPrice: String(q.avg || q.price), HighestPrice: String(q.high || q.price),
+          LowestPrice: String(q.low || q.price), ClosingPrice: String(q.price),
+          Change: String(q.change ?? 0), Transaction: '0',
+          _source: 'esb', _changePercent: String(q.changePercent ?? 0),
+          _prevClose: String(q.prev ?? 0), _market: 'esb',
+        } as unknown as StockDayData);
+        added++;
+      }
+      if (added > 0) console.log(`[twse-api-server] 併入興櫃 ${added} 檔（僅供搜尋/個股頁，不進榜單）`);
+    } catch { /* 興櫃是加值資料，失敗不影響主市場 */ }
+    return rows;
+  };
 
   // When the second brain snapshot is fresh, BUILD the whole market from it
   // (full ~1976 stocks with real TWSE quotes) rather than from the incomplete
@@ -601,11 +643,11 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
         _market:      (q as { market?: string }).market ?? undefined,
       };
       });
-    if (data.length > 0) return data;
+    if (data.length > 0) return await mergeEmerging(data);
   }
 
   // Fallback: honest STOCK_DAY_ALL close data (no fake partial realtime).
-  return raw.map(item => ({
+  const fallback: StockDayData[] = raw.map(item => ({
     _market:      (item as { _market?: string })._market ?? 'tse',
     Date:         item.Date,
     Code:         item.Code,
@@ -620,6 +662,7 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
     Transaction:  item.Transaction,
     _source:      'stock_day_all',
   }));
+  return await mergeEmerging(fallback);
 }
 
 async function fetchYahooSymbolServer(symbol: string) {

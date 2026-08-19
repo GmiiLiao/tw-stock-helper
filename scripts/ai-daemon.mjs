@@ -3876,6 +3876,64 @@ async function alertLoop() {
 if (!ONESHOT) alertLoop();
 
 // 產業輪動：盤中每 3 分鐘更新一次；盤後也更新一次。
+// ════════════════════════════════════════════════════════════
+// 興櫃（ESB, Emerging Stock Board）——2026-08-19 使用者實報 7924 TLC-KY 搜不到
+//
+// ⚠ 刻意**不併入 loadCodes() 的宇宙**，寫成獨立的 marketSnapshot/emerging：
+//   興櫃與上市櫃的市場語意不同，混進主宇宙會污染所有選股與榜單——
+//   · **沒有漲跌停**：+9.9% 只是正常成交，不是漲停。混入 isLimitUp 濾網
+//     （4 碼且非 00 開頭，7924 完全符合）就會產生假漲停。
+//   · 撮合方式是議價，參考價是**前一日均價**而非昨收，「漲跌幅」語意不同。
+//   · 流動性極低，量價指標（量增倍數、周轉率）拿上市櫃的門檻套用毫無意義。
+//   ⇒ 只供**搜尋與個股查看**，不進任何推薦/排行/漲停榜。
+async function computeEmerging() {
+  const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics', {
+    headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(12000),
+  });
+  if (!r.ok) throw new Error(`ESB status ${r.status}`);
+  const arr = await r.json();
+  if (!Array.isArray(arr) || arr.length === 0) throw new Error('ESB 回空');
+  const out = {};
+  let dataDate = '';
+  for (const x of arr) {
+    const code = String(x.SecuritiesCompanyCode || '').trim();
+    if (!/^\d{4}$/.test(code)) continue;
+    if (!dataDate && x.Date) { const y = rocToYmd(String(x.Date)); if (y) dataDate = `${y.slice(0,4)}-${y.slice(4,6)}-${y.slice(6,8)}`; }
+    // 參考價＝前一日均價（興櫃沒有「昨收」）。成交價缺席時退回均價，再退回參考價。
+    const prev = _num(x.PreviousAveragePrice);
+    const last = _num(x.LatestPrice) || _num(x.Average) || prev;
+    if (!(last > 0)) continue;
+    const chg = prev > 0 ? +(last - prev).toFixed(2) : 0;
+    out[code] = {
+      code, name: String(x.CompanyName || '').trim() || code,
+      price: last, prev, change: chg,
+      changePercent: prev > 0 ? +((chg / prev) * 100).toFixed(2) : 0,
+      high: _num(x.Highest), low: _num(x.Lowest), avg: _num(x.Average),
+      volume: _num(x.TransactionVolume),          // 股
+      bid: _num(x.BuyingPrice), ask: _num(x.SellingPrice),
+      market: 'esb',
+    };
+  }
+  const n = Object.keys(out).length;
+  if (n === 0) throw new Error('ESB 解析後 0 檔');
+  await db.collection('marketSnapshot').doc('emerging').set({
+    quotesJson: JSON.stringify(out), n, date: dataDate || isoDate(taipei()),
+    updatedAt: Date.now(),
+  });
+  log(`✓ 興櫃 ${n} 檔（資料日 ${dataDate || '?'}）`);
+}
+
+async function emergingLoop() {
+  for (;;) {
+    try { await computeEmerging(); } catch (e) { log('✖ 興櫃:', (e.message || '').slice(0, 60)); }
+    const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
+    // 興櫃交易 09:00–15:00（比集中市場晚收）。盤中 3 分鐘、其餘 30 分鐘。
+    const open = isTradingDay(tw) && mins >= 9 * 60 && mins < 15 * 60;
+    await sleep(open ? 180000 : 1800000);
+  }
+}
+if (!ONESHOT) emergingLoop();
+
 async function sectorLoop() {
   for (;;) {
     try { await detectSectorRotation(); } catch (e) { log('✖ sector loop:', e.message); }

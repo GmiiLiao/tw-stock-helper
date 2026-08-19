@@ -39,15 +39,25 @@ export interface StockInfo {
   volume: number;
   value: number;
   transactions: number;
-  market?: 'tse' | 'otc';   // 上市(tse) / 上櫃(otc)
+  market?: 'tse' | 'otc' | 'esb';   // 上市(tse) / 上櫃(otc) / 興櫃(esb)
 }
 
 // ── 市場別標籤：上市 / 上櫃 / ETF（00 開頭 4-6 碼為 ETF）──
 export function marketBadge(s: { code: string; market?: string }): { t: string; c: string } | null {
   if (/^00\d{2,4}$/.test(s.code)) return { t: 'ETF', c: '#a78bfa' };
+  if (s.market === 'esb') return { t: '興', c: '#22d3ee' };
   if (s.market === 'otc') return { t: '櫃', c: '#f59e0b' };
   if (s.market === 'tse') return { t: '市', c: '#38bdf8' };
   return null;
+}
+
+// ── 集中市場普通股（上市＋上櫃，排除 ETF 與興櫃）─────────────────────────
+// 漲跌停榜、漲跌停家數這類「有漲跌停才成立」的統計一律走這道濾網。
+// ⚠ 興櫃**沒有漲跌停**（議價撮合、參考價是前一日均價），而它的代號同樣是
+//   4 碼非 00 開頭（實案 7924 TLC-KY）——舊的 `/^\d{4}$/ && !startsWith('00')`
+//   會把它當普通股收進來，+9.9% 的正常成交就會被報成「漲停」。
+export function isExchangeListed(s: { code: string; market?: string }): boolean {
+  return /^\d{4}$/.test(s.code) && !s.code.startsWith('00') && s.market !== 'esb';
 }
 
 // ── 精確漲跌停判定 ──

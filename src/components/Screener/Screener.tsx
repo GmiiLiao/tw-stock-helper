@@ -676,7 +676,9 @@ export default function Screener() {
 
 
   const filteredStocks = useMemo(() => {
-    let stocks = allStocks.filter(s => s.price > 0 && s.volume > 0);
+    // 興櫃排除：沒有漲跌停、議價撮合、流動性極低，用上市櫃的量價門檻選它毫無意義
+    // （2026-08-19 併入興櫃供搜尋時同步設限）
+    let stocks = allStocks.filter(s => s.price > 0 && s.volume > 0 && s.market !== 'esb');
 
     if (filter.changePercentMin !== '') stocks = stocks.filter(s => s.changePercent >= (filter.changePercentMin as number));
     if (filter.changePercentMax !== '') stocks = stocks.filter(s => s.changePercent <= (filter.changePercentMax as number));

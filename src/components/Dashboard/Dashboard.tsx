@@ -2,7 +2,7 @@
 
 import { useAppStore } from '@/lib/store';
 import type { StockInfo } from '@/lib/twse-api';
-import { formatVolume, formatChangeSign, formatChangePercentSign, getChangeColor, isLimitUp, isLimitDown, marketBadge } from '@/lib/twse-api';
+import { formatVolume, formatChangeSign, formatChangePercentSign, getChangeColor, isLimitUp, isLimitDown, marketBadge, isExchangeListed } from '@/lib/twse-api';
 import PremarketBrief from './PremarketBrief';
 import PremarketHub from './PremarketHub';
 import MarketInsights from './MarketInsights';
@@ -161,7 +161,8 @@ function LimitBoard({ stocks }: { stocks: StockInfo[] }) {
   const byValue = (a: StockInfo, b: StockInfo) => b.value - a.value;
   // 普通股（上市+上櫃，4 碼非 00 開頭）；漲跌停用精確檔位算法（昨收×1.1 向下取檔），
   // 低價股實際漲停 % 可低至 ~9.5%，固定 % 門檻會漏。
-  const isRegular = (s: StockInfo) => /^\d{4}$/.test(s.code) && !s.code.startsWith('00');
+  // 興櫃沒有漲跌停，必須排除（7924 TLC-KY 這類 4 碼非 00 開頭會被舊濾網誤納）
+  const isRegular = (s: StockInfo) => isExchangeListed(s);
   const ups = stocks.filter(s => isRegular(s) && s.price > 0 && isLimitUp(s.price, s.change)).sort(byValue);
   const downs = stocks.filter(s => isRegular(s) && s.price > 0 && isLimitDown(s.price, s.change)).sort(byValue);
   if (!ups.length && !downs.length) return null;
@@ -286,7 +287,8 @@ export default function Dashboard() {
   const tab = (useAppStore(s => s.dashTab) || 'market') as DashTab;
   const setTab = useAppStore(s => s.setDashTab);
 
-  const validStocks = allStocks.filter(s => s.price > 0 && s.volume > 0);
+  // 興櫃不進任何排行/榜單（沒有漲跌停、議價撮合、流動性極低）——只保留搜尋與個股頁
+  const validStocks = allStocks.filter(s => s.price > 0 && s.volume > 0 && s.market !== 'esb');
   const upStocks = validStocks.filter(s => s.change > 0);
   const downStocks = validStocks.filter(s => s.change < 0);
   const flatStocks = validStocks.filter(s => s.change === 0);
@@ -296,7 +298,7 @@ export default function Dashboard() {
   const topVolume = [...validStocks].sort((a, b) => b.volume - a.volume);
 
   // 漲跌停家數：普通股(上市+上櫃)、精確檔位判定（與漲停跌停榜同口徑）
-  const regular = validStocks.filter(s => /^\d{4}$/.test(s.code) && !s.code.startsWith('00'));
+  const regular = validStocks.filter(s => isExchangeListed(s));
   const limitUp = regular.filter(s => isLimitUp(s.price, s.change));
   const limitDown = regular.filter(s => isLimitDown(s.price, s.change));
 

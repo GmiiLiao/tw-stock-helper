@@ -102,6 +102,32 @@ export async function readHotQuotes(): Promise<HotQuotes | null> {
   }
 }
 
+// ── 興櫃（ESB）─────────────────────────────────────────────────────────
+// 由 daemon 寫入 marketSnapshot/emerging，**與主宇宙分開**：興櫃沒有漲跌停、
+// 撮合是議價、參考價是前一日均價，混進主快照會污染所有選股與榜單。
+// 這裡只供「搜尋得到、點得進個股頁」使用（2026-08-19 使用者實報 7924 搜不到）。
+export interface EmergingQuote {
+  code: string; name: string; price: number; prev: number; change: number;
+  changePercent: number; high: number; low: number; avg: number;
+  volume: number; bid: number; ask: number; market: 'esb';
+}
+let _esbCache: { at: number; data: Record<string, EmergingQuote> | null } = { at: 0, data: null };
+
+export async function readEmergingQuotes(): Promise<Record<string, EmergingQuote> | null> {
+  if (Date.now() - _esbCache.at < 60_000) return _esbCache.data;   // 興櫃 3 分鐘才更新，60 秒快取無損
+  const db = getAdminDb();
+  if (!db) return null;
+  try {
+    const snap = await db.collection(COLLECTION).doc('emerging').get();
+    const d = snap.exists ? (snap.data() as { quotesJson?: string }) : null;
+    const data = d?.quotesJson ? (JSON.parse(d.quotesJson) as Record<string, EmergingQuote>) : null;
+    _esbCache = { at: Date.now(), data };
+    return data;
+  } catch {
+    return _esbCache.data;   // stale-if-error：寧可給舊的興櫃清單，也不要讓它從搜尋消失
+  }
+}
+
 /** Fresh = written within `maxAgeMs` (default 5 min) — used to decide overlay. */
 export function isSnapshotFresh(snap: MarketSnapshot | null, maxAgeMs = 5 * 60 * 1000): boolean {
   return !!snap && Date.now() - (snap.sweepAt || 0) < maxAgeMs && Object.keys(snap.quotes || {}).length > 0;
