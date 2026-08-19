@@ -19,7 +19,7 @@ import PushSetup from './PushSetup';
 import ShadowAccount from './ShadowAccount';
 import CashLedger from './CashLedger';
 import { tradeCost, netRealizedPnL, taxRateLabel, isEtf , fmtQty, calcFee, calcTax } from '@/lib/tw-fee';
-import { buildLedger, type Ledger } from '@/lib/portfolio-calc';
+import { buildLedger, periodReturns, type Ledger } from '@/lib/portfolio-calc';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { settleDate, isSettled, tradingDaysUntilSettle } from '@/lib/tw-settlement';
 import { useChipVerdicts, VerdictBadge, VerdictStrip } from '@/components/shared/ChipVerdict';
@@ -939,6 +939,9 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
 function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t: 'trades' | 'analytics') => void }) {
   const { holdings, replaceHoldings, tradeRecords } = useAppStore(useShallow((s) => ({ holdings: s.holdings, replaceHoldings: s.replaceHoldings, tradeRecords: s.tradeRecords })));
 
+  // 期間報酬率：已實現淨損益 ÷ 對應平倉成本（含費稅）。口徑見 portfolio-calc。
+  const rets = useMemo(() => periodReturns(ledger.closed), [ledger]);
+
   // 對帳：手動持倉張數 vs 帳本推算張數（逐 code）
   const diffs = useMemo(() => {
     const manual: Record<string, { lots: number; name: string }> = {};
@@ -997,6 +1000,35 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
           </div>
         ))}
       </div>
+
+      {/* 期間報酬率：月/季/年化/全期間（2026-08-19 使用者需求） */}
+      {ledger.closedCount > 0 && (() => {
+        const fmtPct = (v: number | null) => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+        const clr = (v: number | null) => v == null ? 'var(--text-muted)' : v >= 0 ? 'var(--color-up)' : 'var(--color-down)';
+        const cells = [
+          { label: '本月報酬率', v: rets.month.pct, sub: `${rets.month.count} 筆平倉 · ${rets.month.pnl >= 0 ? '+' : ''}${rets.month.pnl.toLocaleString()} 元` },
+          { label: '本季報酬率', v: rets.quarter.pct, sub: `${rets.quarter.count} 筆平倉 · ${rets.quarter.pnl >= 0 ? '+' : ''}${rets.quarter.pnl.toLocaleString()} 元` },
+          { label: '全期間報酬率', v: rets.all.pct, sub: `${rets.spanDays} 天 · ${rets.all.count} 筆平倉` },
+          { label: '年化報酬率', v: rets.annualizedPct, sub: rets.annualizedPct == null ? '期間未滿 30 天' : '全期間單利換算' },
+        ];
+        return (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(160px, 100%), 1fr))', gap: 10 }}>
+              {cells.map((k, i) => (
+                <div key={i} onClick={() => onGoTab('analytics')} title="點擊查看損益分析"
+                  style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', cursor: 'pointer' }}>
+                  <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{k.label}</div>
+                  <div style={{ fontSize: 'calc(17px * var(--fz))', fontWeight: 700, color: clr(k.v), fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(k.v)}</div>
+                  <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>
+              口徑：期間內平倉的已實現淨損益（含費稅）÷ 該批平倉的對應成本；未實現損益不計入。年化為全期間單利換算。非投資建議。
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 對帳卡：手動持倉 vs 交易紀錄推算 */}
       {diffs.length > 0 && (

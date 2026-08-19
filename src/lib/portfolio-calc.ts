@@ -37,6 +37,7 @@ export interface ClosedTrade {
   proceeds: number;        // 淨收入（可對應部分）
   pnl: number;             // 重算後已實現淨損益
   roi: number;             // pnl / 對應成本 %
+  cost: number;            // 對應成本（matchedCost，期間報酬率的分母來源）
   storedPnL: number | null;// 紀錄當下存的值（可能用了過期的手動持倉價）
   mismatch: boolean;       // |pnl − storedPnL| > 1 → 需要人工核對
   matchedLots: number;     // 真正有成本可對應的張數
@@ -168,7 +169,7 @@ export function buildLedger(records: TradeRecord[]): Ledger {
       id: t.id, code: t.code, name: t.name, date: t.date,
       lots: t.quantity, sellPrice: t.price,
       avgCost: +avgCost.toFixed(4), proceeds: Math.round(proceedsMatched),
-      pnl, roi, storedPnL,
+      pnl, roi, cost: Math.round(matchedCost), storedPnL,
       mismatch: storedPnL != null && Math.abs(pnl - storedPnL) > 1,
       matchedLots, oversoldLots, unit: t.unit,
       holdingDays: led.lastBuyDate ? dayDiff(led.lastBuyDate, t.date) : null,
@@ -243,4 +244,51 @@ export function buildLedger(records: TradeRecord[]): Ledger {
     mismatchCount: allClosed.filter(c => c.mismatch).length,
     warnings: Object.values(byCode).flatMap(l => l.warnings),
   };
+}
+
+// ─── 期間報酬率（2026-08-19）────────────────────────────────────────────
+// 口徑：期間內平倉的已實現淨損益（pnl，含費稅） ÷ 該批平倉的對應成本（cost）。
+// 這是「平倉資金報酬率」，分母是實際投入該批交易的成本，不是總資產——
+// 對高周轉（隔日沖）交易者這是最貼近體感的口徑；沒有每日權益快照，
+// 資產基準的時間加權報酬無法誠實計算，寧缺毋濫。
+// 年化＝全期間報酬率 × 365 ÷ 全期間日曆天數（單利換算；期間 <30 天不年化）。
+export interface PeriodReturn {
+  pnl: number;             // 期間已實現淨損益（元）
+  cost: number;            // 期間平倉對應成本（元）
+  pct: number | null;      // pnl / cost %（無平倉 → null）
+  count: number;           // 期間平倉筆數
+}
+export interface PeriodReturns {
+  month: PeriodReturn;     // 本月（日曆月）
+  quarter: PeriodReturn;   // 本季（日曆季）
+  all: PeriodReturn;       // 全期間（首筆平倉起）
+  annualizedPct: number | null;  // 全期間單利年化 %（期間 <30 天 → null）
+  spanDays: number;        // 首筆平倉 → 今天 的日曆天數
+}
+
+function sumWindow(closed: ClosedTrade[], fromIso: string): PeriodReturn {
+  let pnl = 0, cost = 0, count = 0;
+  for (const c of closed) {
+    if (c.date < fromIso || c.matchedLots <= 0) continue;
+    pnl += c.pnl; cost += c.cost; count++;
+  }
+  return { pnl: Math.round(pnl), cost: Math.round(cost), pct: cost > 0 ? +((pnl / cost) * 100).toFixed(2) : null, count };
+}
+
+export function periodReturns(closed: ClosedTrade[], todayIso?: string): PeriodReturns {
+  const today = todayIso || new Date().toISOString().split('T')[0];
+  const y = +today.slice(0, 4), m = +today.slice(5, 7);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const qStartMonth = m - ((m - 1) % 3);
+  const quarterStart = `${y}-${String(qStartMonth).padStart(2, '0')}-01`;
+  const month = sumWindow(closed, monthStart);
+  const quarter = sumWindow(closed, quarterStart);
+  const all = sumWindow(closed, '0000-00-00');
+  const dates = closed.filter(c => c.matchedLots > 0).map(c => c.date).sort();
+  const first = dates[0] || today;
+  const spanDays = Math.max(1, Math.round((Date.parse(today) - Date.parse(first)) / 86400000));
+  const annualizedPct = all.pct != null && spanDays >= 30
+    ? +((all.pct * 365) / spanDays).toFixed(2)
+    : null;
+  return { month, quarter, all, annualizedPct, spanDays };
 }
