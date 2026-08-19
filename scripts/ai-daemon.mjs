@@ -1266,10 +1266,20 @@ async function misBatch(batch) {
       if (!realTrade && inRegularCont) {
         const _b1 = parseFloat(String(it.b || '').split('_')[0]);
         const _a1 = parseFloat(String(it.a || '').split('_')[0]);
-        const mid = _b1 > 0 && _a1 > 0 ? (_b1 + _a1) / 2 : 0;   // 單邊掛單不收（漲跌停鎖死時另有 z）
+        const mid = _b1 > 0 && _a1 > 0 ? (_b1 + _a1) / 2 : 0;
         if (mid > 0 && !(_up > 0 && mid > _up + 1e-9) && !(_dn > 0 && mid < _dn - 1e-9)) {
           price = +mid.toFixed(2);
           quoteLive = true;
+        }
+        // ── 鎖停單邊書（2026-08-19 使用者實報：首頁漲停榜缺上櫃）──
+        // 漲停鎖死時賣一必空、跌停鎖死時買一必空 ⇒ 上面的雙邊中點永遠不成立；
+        // 而鎖死後成交極少，z 可長時間缺席——冷門股（上櫃尤甚）因此從即時榜單
+        // 消失。鎖死時掛單價不是猜測：買一貼著漲停價（=u）就是市價本身。
+        // 嚴格條件：盤中連續時段＋單邊貼停＋對側全空；hasLive 仍要求今日有量。
+        else if (_up > 0 && _b1 >= _up - 1e-9 && !(_a1 > 0)) {
+          price = _up; quoteLive = true;          // 漲停鎖死
+        } else if (_dn > 0 && _a1 > 0 && _a1 <= _dn + 1e-9 && !(_b1 > 0)) {
+          price = _dn; quoteLive = true;          // 跌停鎖死
         }
       }
       if (price <= 0) {
