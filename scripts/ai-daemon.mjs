@@ -1217,6 +1217,23 @@ const _parseLevels = (priceStr, volStr) => {
   return out;
 };
 
+// ── 台股檔位（tick）──────────────────────────────────────────────────
+// 合法成交價必落在檔位格上：<10→0.01、<50→0.05、<100→0.1、<500→0.5、
+// <1000→1、其餘 5。用途是驗價，不是報價：任何不在格上的「價格」都不可能
+// 成交（2026-08-19 實測全市場 1,057 檔被中點寫成非法價）。
+// ⚠ ETF（受益憑證）走另一套檔位表：未滿 50 元 0.01、50 元以上 0.05——
+//   用個股表去驗 ETF 會把 0050 的 103.55、006207 的 32.69 這種**合法價**
+//   誤判成髒值而丟棄（2026-08-19 實測 80 檔 ETF 全中）。
+const _isEtfCode = c => /^00\d{2,4}$/.test(String(c || ''));
+const _tickOf = (p, isEtf) => isEtf
+  ? (p < 50 ? 0.01 : 0.05)
+  : (p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5);
+const _onTick = (p, code) => {
+  if (!(p > 0)) return false;
+  const t = _tickOf(p, _isEtfCode(code));
+  return Math.abs(p / t - Math.round(p / t)) < 0.02;   // 容忍浮點誤差，不容忍半檔
+};
+
 async function misBatch(batch) {
   const _twNow = taipei();
   const _nowMins = _twNow.getHours() * 60 + _twNow.getMinutes();
@@ -1266,9 +1283,28 @@ async function misBatch(batch) {
       if (!realTrade && inRegularCont) {
         const _b1 = parseFloat(String(it.b || '').split('_')[0]);
         const _a1 = parseFloat(String(it.a || '').split('_')[0]);
-        const mid = _b1 > 0 && _a1 > 0 ? (_b1 + _a1) / 2 : 0;
-        if (mid > 0 && !(_up > 0 && mid > _up + 1e-9) && !(_dn > 0 && mid < _dn - 1e-9)) {
-          price = +mid.toFixed(2);
+        // ── 檔位合法性（2026-08-19 實測 1,057 檔中招）────────────────────
+        // 中點 (b1+a1)/2 幾乎必然落在檔位之間：台泥 24.02，但檔位 0.05 ⇒
+        // 市場上只有 24.00 與 24.05，24.02 是**不可能成交的價格**。
+        // 後果不只是難看：漲停鎖死股會因為「21.48 < 漲停 21.50」被 isLimitUp
+        // 判否而跌出漲停榜（使用者 2026-08-19 回報「漲停榜沒有上櫃」）。
+        // 正解不是把中點四捨五入，而是回到「價格是什麼」的定義：
+        //   上一筆真實成交價若仍落在買一~賣一之間，五檔就沒有推翻它 ⇒ 沿用，
+        //   它本來就是真價、必然合法檔位；只有當書整個移開（prev < b1 或
+        //   prev > a1）才把價格移到最近的那一邊——那才是市場真的動了。
+        // 這樣既保住 5 秒節奏（書一動就跟上），又不再捏造不存在的價格。
+        // ⚠ _prev 必須先驗檔位：8/18~8/19 的舊快照裡存著上一版中點寫下的
+        //   非法價（24.02），restoreLastLive 會把它接回記憶體。若照單全收，
+        //   24.02 永遠落在 [24.00, 24.05] 內 ⇒ 錯價自我延續、永不痊癒。
+        const _prevRaw = _lastLive[code]?.price || 0;
+        const _prev = _prevRaw > 0 && _onTick(_prevRaw, code) ? _prevRaw : 0;
+        let _p = 0;
+        if (_b1 > 0 && _a1 > 0) {
+          if (_prev > 0) _p = _prev >= _b1 && _prev <= _a1 ? _prev : (_prev > _a1 ? _a1 : _b1);
+          else _p = _b1;   // 今日尚無可信真實價（重啟/首輪/舊髒值）→ 取買一，合法檔位且可立即成交
+        }
+        if (_p > 0 && !(_up > 0 && _p > _up + 1e-9) && !(_dn > 0 && _p < _dn - 1e-9)) {
+          price = +_p.toFixed(2);
           quoteLive = true;
         }
         // ── 鎖停單邊書（2026-08-19 使用者實報：首頁漲停榜缺上櫃）──
