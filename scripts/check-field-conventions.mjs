@@ -42,6 +42,9 @@ export const AT_ALLOWLIST = new Set([
 ]);
 // 語意戳補登記（2026-08-12 首掃）：皆為欄位級/項目級時刻，非文件新鮮度
 for (const n of ['quoteAt', 'newestAt', 'auditedAt', 'priceAt', 'swingAt', 'lastAt']) AT_ALLOWLIST.add(n);
+// docUpdatedAt：ai-analysis route 的區域變數，暫存 aiMessages/latest 讀出的 updatedAt。
+// 非 Firestore 欄位（寫入端仍是 updatedAt），故不需進稽核別名清單。
+AT_ALLOWLIST.add('docUpdatedAt');
 
 // 資料日／日期欄位全名冊。⚠ 這不是「只准用 date」——buyDate、pubDate 這類
 // **領域日期**本來就該叫自己的名字。名冊的作用是攔「新名字」：
