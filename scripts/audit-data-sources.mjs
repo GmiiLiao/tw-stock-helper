@@ -45,7 +45,11 @@ const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 const CONTRACTS = [
   // ── 盤中即時（節奏以分鐘計）──
   { c: 'marketIndex',      kind: 'latest',  maxStale: 10 * MIN,  session: 'intraday', dateField: 'tradeDate' },
-  { c: 'marketSnapshot',   kind: 'latest',  maxStale: 10 * MIN,  session: 'intraday', countField: 'quotes' },
+  // markets：市場組成閘門（2026-08-19 新增，第四道）。前三道全綠也擋不住
+  // 「上櫃 903 檔整批消失、只剩上市 1,229 檔」——筆數夠多、很新、日期也對，
+  // 但半個市場不見了。實案：一次 TPEx 抓取失敗 + 快取條件只看 length>0。
+  { c: 'marketSnapshot',   kind: 'latest',  maxStale: 10 * MIN,  session: 'intraday', countField: 'quotes',
+    markets: { field: 'quotesJson', min: { tse: 900, otc: 700 } } },
   { c: 'marketIntraday',   kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'intradayRadar',    kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'limitUpForecast',  kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
@@ -384,6 +388,26 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
       out.notes.push(`筆數 ${out.records} < 下限 ${spec.minRecords}`);
     }
     if (out.records === 0 && !spec.allowEmpty) { out.status = 'EMPTY'; out.notes.push('筆數 0'); }
+    // ── 第四道：市場組成 ────────────────────────────────────────────────
+    // 「總筆數夠」不等於「每個市場都在」。上櫃整批消失時總筆數仍有 1,229，
+    // 前三道閘門全部放行，站上卻已經看不到任何上櫃股（漲停榜、選股、搜尋全缺）。
+    if (spec.markets && data) {
+      try {
+        const raw = data[spec.markets.field];
+        const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (obj && typeof obj === 'object') {
+          const cnt = {};
+          for (const v of Object.values(obj)) { const m = v?.market || 'unknown'; cnt[m] = (cnt[m] || 0) + 1; }
+          out.markets = cnt;
+          for (const [mk, lo] of Object.entries(spec.markets.min)) {
+            if ((cnt[mk] || 0) < lo) {
+              out.status = out.status === 'OK' ? 'MARKET_GAP' : out.status;
+              out.notes.push(`市場 ${mk} 只有 ${cnt[mk] || 0} 檔 < 下限 ${lo}（整個市場可能已從站上消失）`);
+            }
+          }
+        }
+      } catch { out.notes.push('市場組成無法解析'); }
+    }
 
     // 第三道閘門：dataDate 漂移
     if (out.dataDate && spec.session !== 'always') {
