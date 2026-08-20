@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import {
   calculateSMA,
@@ -86,8 +86,41 @@ function OHLCBar(props: { x?: number; y?: number; width?: number; height?: numbe
   return null; // Placeholder — actual chart below
 }
 
+// ── 副圖（量能/籌碼）可切換比對 ──────────────────────────────────────────
+// 2026-08-20 使用者需求：K 線圖下方要能切換「每日量 / 法人 / 千張大戶 / 融資券」
+// 一起對照。資料一律走 /api/stock/chip-series（只讀 Firestore 歸檔，零上游請求）。
+//
+// ⚠ 三種資料的**時間尺度與語意都不同**，不能混為一談：
+//   · 法人＝當日買賣超（張），有正負 → 柱狀
+//   · 融資券＝**餘額**（張）不是買賣超 → 給「日增減」柱狀＋餘額線，兩者並列
+//   · 千張大戶＝集保**週**資料（每週一次）→ 折線，且本站自歸檔首週起才有
+type SubTab = 'vol' | 'inst' | 'margin' | 'holders';
+const SUB_TABS: Array<{ id: SubTab; label: string }> = [
+  { id: 'vol', label: '每日量' },
+  { id: 'inst', label: '法人' },
+  { id: 'margin', label: '融資券' },
+  { id: 'holders', label: '千張大戶' },
+];
+interface ChipDaily { date: string; fgn: number; trust: number; inst: number; mgn: number; shrt: number; mgnChg?: number; shrtChg?: number }
+interface ChipHolder { week: string; ratio: number }
+
 export default function TechnicalChart({ candles, stock, loading }: Props) {
   const { activeIndicators, toggleIndicator } = useAppStore(useShallow((s) => ({ activeIndicators: s.activeIndicators, toggleIndicator: s.toggleIndicator })));
+  const [subTab, setSubTab] = useState<SubTab>('vol');
+  const [chip, setChip] = useState<{ daily: ChipDaily[]; holders: ChipHolder[]; holdersFrom: string | null } | null>(null);
+  const [chipLoading, setChipLoading] = useState(false);
+
+  useEffect(() => {
+    if (!stock?.code) return;
+    let live = true;
+    setChipLoading(true);
+    fetch(`/api/stock/chip-series?code=${stock.code}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (live && d && !d.error) setChip({ daily: d.daily || [], holders: d.holders || [], holdersFrom: d.holdersFrom ?? null }); })
+      .catch(() => { /* 籌碼是加值資訊，失敗不影響 K 線 */ })
+      .finally(() => { if (live) setChipLoading(false); });
+    return () => { live = false; };
+  }, [stock?.code]);
 
   const chartData: ChartData[] = useMemo(() => {
     if (candles.length === 0) return [];
@@ -134,6 +167,26 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       sarUp: ps.rising[i],
     }));
   }, [candles]);
+
+  // 籌碼副圖對齊 K 線：副圖要能跟上面的 K 線逐日對照，x 軸就必須是同一組日子。
+  // ⚠ 只保留**歸檔真的涵蓋到**的區間——K 線可能比籌碼歸檔長，缺的日子若補 0，
+  //   「沒有資料」會被畫成「法人買賣超 0 張」「融資餘額 0 張」，那是假訊息。
+  const chipDaily = useMemo(() => {
+    if (!chip?.daily?.length || candles.length === 0) return [];
+    const byIso: Record<string, ChipDaily> = {};
+    for (const d of chip.daily) byIso[d.date] = d;
+    const firstIso = chip.daily[0].date;
+    const out: Array<ChipDaily & { label: string }> = [];
+    for (const c of candles) {
+      const dt = new Date(c.time * 1000);
+      const iso = format(dt, 'yyyy-MM-dd');
+      if (iso < firstIso) continue;                 // 歸檔尚未涵蓋 → 不畫，不補 0
+      const r = byIso[iso];
+      if (!r) continue;                             // 該日無歸檔（休市/缺漏）→ 跳過
+      out.push({ ...r, label: format(dt, 'MM/dd'), date: format(dt, 'MM/dd') });
+    }
+    return out;
+  }, [chip, candles]);
 
   const INDICATOR_BTNS = [
     { id: 'MA5', label: 'MA5', color: '#f59e0b' },
@@ -314,7 +367,138 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         </ResponsiveContainer>
       </div>
 
+      {/* 副圖切換列：每日量 / 法人 / 融資券 / 千張大戶（2026-08-20） */}
+      <div className={styles.indicatorBar} style={{ marginTop: 4 }}>
+        <span className={styles.indicatorLabel}>副圖：</span>
+        {SUB_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            style={{
+              padding: '3px 12px', marginRight: 6, borderRadius: 999, cursor: 'pointer',
+              fontSize: 'calc(12px * var(--fz))', fontWeight: subTab === t.id ? 700 : 500,
+              background: subTab === t.id ? 'rgba(61,142,248,0.18)' : 'transparent',
+              color: subTab === t.id ? '#3d8ef8' : 'var(--text-muted)',
+              border: `1px solid ${subTab === t.id ? 'rgba(61,142,248,0.5)' : 'var(--border-primary)'}`,
+            }}
+          >{t.label}</button>
+        ))}
+        {chipLoading && <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>載入籌碼…</span>}
+      </div>
+
+      {/* ── 法人：外資／投信當日買賣超（張）──────────────────────────── */}
+      {subTab === 'inst' && (
+        <div className={styles.subChart}>
+          <div className={styles.chartTitle}>
+            三大法人買賣超（張）
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+              <span style={{ color: '#f59e0b' }}>▌</span>外資　<span style={{ color: '#a78bfa' }}>▌</span>投信
+              <span style={{ marginLeft: 8, opacity: 0.75 }}>收盤後歸檔，非盤中即時</span>
+            </span>
+          </div>
+          {chipDaily.length === 0 ? (
+            <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+              {chipLoading ? '載入中…' : '此檔無法人歸檔資料（興櫃與部分新股不在三大法人統計內）'}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={110}>
+              <ComposedChart data={chipDaily} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                <XAxis dataKey="date" hide />
+                <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+                <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
+                <Bar dataKey="fgn" name="外資" fill="#f59e0b" fillOpacity={0.75} isAnimationActive={false} />
+                <Bar dataKey="trust" name="投信" fill="#a78bfa" fillOpacity={0.75} isAnimationActive={false} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(148,163,184,0.12)' }}
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                  labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
+                  formatter={(v, n) => [`${(v as number).toLocaleString()} 張`, n as string]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
+      {/* ── 融資券：餘額是「水位」，日增減才是「動作」──────────────── */}
+      {subTab === 'margin' && (
+        <div className={styles.subChart}>
+          <div className={styles.chartTitle}>
+            融資／融券
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+              <span style={{ color: '#f03e3e' }}>▌</span>融資日增減　<span style={{ color: '#22d3ee' }}>▌</span>融券日增減　
+              <span style={{ color: '#f59e0b' }}>—</span>融資餘額（右軸·張）
+            </span>
+          </div>
+          {chipDaily.length === 0 ? (
+            <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+              {chipLoading ? '載入中…' : '此檔無資券歸檔資料（未開放信用交易的個股沒有融資券）'}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={110}>
+              <ComposedChart data={chipDaily} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                <XAxis dataKey="date" hide />
+                <YAxis yAxisId="chg" tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="bal" orientation="right" tick={{ fill: '#f59e0b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <ReferenceLine yAxisId="chg" y={0} stroke="#64748b" strokeWidth={1} />
+                <Bar yAxisId="chg" dataKey="mgnChg" name="融資日增減" fill="#f03e3e" fillOpacity={0.7} isAnimationActive={false} />
+                <Bar yAxisId="chg" dataKey="shrtChg" name="融券日增減" fill="#22d3ee" fillOpacity={0.7} isAnimationActive={false} />
+                <Line yAxisId="bal" type="monotone" dataKey="mgn" name="融資餘額" stroke="#f59e0b" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(148,163,184,0.12)' }}
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                  labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
+                  formatter={(v, n) => [`${(v as number).toLocaleString()} 張`, n as string]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
+      {/* ── 千張大戶：集保週資料，與日 K 不同尺度，故獨立畫且明說起算日 ── */}
+      {subTab === 'holders' && (
+        <div className={styles.subChart}>
+          <div className={styles.chartTitle}>
+            千張大戶持股比例（%）
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+              集保<b>週</b>資料 · 每週一次
+              {chip?.holdersFrom ? ` · 本站自 ${chip.holdersFrom} 起累積` : ''}
+            </span>
+          </div>
+          {(chip?.holders?.length ?? 0) === 0 ? (
+            <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+              {chipLoading ? '載入中…' : '尚無此檔集保週歸檔資料'}
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={110}>
+                <LineChart data={chip!.holders} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                  <XAxis dataKey="week" tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v as number).toFixed(1)}%`} />
+                  <Line type="monotone" dataKey="ratio" name="千張大戶" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                    labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
+                    formatter={(v) => [`${(v as number).toFixed(2)}%`, '千張大戶']}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+              {(chip?.holders?.length ?? 0) < 8 && (
+                <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#f59e0b', marginTop: 4 }}>
+                  ⚠ 目前僅 {chip!.holders.length} 週，趨勢判讀需要更多週數才有意義（每週新增一點）。
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Volume */}
+      {subTab === 'vol' && (
       <div className={styles.subChart}>
         <div className={styles.chartTitle}>
           成交量
@@ -352,6 +536,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      )}
 
       {/* MACD */}
       {showMACD && (
