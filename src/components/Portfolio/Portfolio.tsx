@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { TradeRecord } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -27,6 +27,9 @@ import WeeklyReport from './WeeklyReport';
 import DefenseBanner from './DefenseBanner';
 import DividendTaxCalc from './DividendTaxCalc';
 import RiskBadge from '@/components/shared/RiskBadge';
+import { useDataUid } from '@/lib/view-as';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import styles from './Portfolio.module.css';
 import PageHelp from '@/components/Help/PageHelp';
 import CardBoundary from '@/components/shared/CardBoundary';
@@ -1154,6 +1157,25 @@ export default function Portfolio() {
   //   ⇒ 三個分頁一律吃同一份 ledger，不要再從 tradeRecords 自己加總損益。
   const cumulativePnL = totalNetPnL + ledger.totalRealized + ledger.totalDividend;
 
+  // ── 佔比的分母只能有一個定義（2026-08-20 使用者實報）───────────────────
+  // 圓餅圖問的是「股票部位怎麼分配」→ 分母＝持股市值；
+  // 再平衡面板問的是「單一個股佔總資產多少」（≤25% 風控線）→ 分母＝持股＋現金。
+  // 兩者都對，但同一頁上同一檔股票出現 42.4% 與 14.4% 兩個「佔比」，
+  // 使用者只會覺得數字不準（實測本帳戶現金佔 66%，兩個分母差 ~3 倍）。
+  // ⇒ 沿用 CLAUDE.md 的「同名必同口徑」：不改任一方的定義，而是**把分母寫在臉上**，
+  //   並在圓餅圖同時給出兩個百分比，讓兩張卡對得起來。
+  const dataUidForCash = useDataUid();
+  const [assetCash, setAssetCash] = useState<number | null>(null);
+  useEffect(() => {
+    if (!dataUidForCash || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
+    const unsub = onSnapshot(
+      doc(db, 'users', dataUidForCash, 'data', 'rebalance'),
+      snap => setAssetCash(snap.exists() ? ((snap.data() as { cash?: number | null }).cash ?? null) : null),
+      () => {},
+    );
+    return () => unsub();
+  }, [dataUidForCash]);
+
   // Pie chart data (by stock position value)
   const pieData = Object.values(
     enriched.reduce((acc, h) => {
@@ -1413,7 +1435,12 @@ export default function Portfolio() {
             {/* Pie Chart */}
             {pieData.length > 0 && (
               <div className={styles.chartCard}>
-                <div className={styles.cardTitle}>持倉比例分布</div>
+                <div className={styles.cardTitle}>
+                  持倉比例分布
+                  <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
+                    分母＝持股市值（不含現金）
+                  </span>
+                </div>
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
                     <Pie
@@ -1431,15 +1458,27 @@ export default function Portfolio() {
                     </Pie>
                     {/* 圓心固定顯示總市值——原本 hover 單塊的無名提示框浮在圓心，
                         被誤讀為總金額（使用者實案：玉山金 7,170 被當成總計） */}
-                    <text x="50%" y="47%" textAnchor="middle" fill="var(--text-muted)" fontSize={11}>持倉總市值</text>
-                    <text x="50%" y="55%" textAnchor="middle" fill="var(--text-primary)" fontSize={16} fontWeight={800}>
+                    <text x="50%" y="43%" textAnchor="middle" fill="var(--text-muted)" fontSize={11}>持倉總市值</text>
+                    <text x="50%" y="52%" textAnchor="middle" fill="var(--text-primary)" fontSize={16} fontWeight={800}>
                       {pieData.reduce((t, d) => t + d.value, 0).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
                     </text>
+                    {assetCash != null && (
+                      <text x="50%" y="62%" textAnchor="middle" fill="var(--text-muted)" fontSize={10}>
+                        另有現金 {assetCash.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
+                      </text>
+                    )}
                     <Tooltip
                       formatter={(v: any, name: any) => {
                         const total = pieData.reduce((t, d) => t + d.value, 0);
                         const pct = total > 0 ? (v / total * 100).toFixed(1) : '0';
-                        return [`${(v as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元（${pct}%）`, name];
+                        // 現金已知時一併給「佔總資產」——這才是再平衡面板用的口徑，
+                        // 兩個數字並列，使用者就不會以為其中一個是錯的。
+                        const totalAll = total + (assetCash ?? 0);
+                        const pctAll = assetCash != null && totalAll > 0 ? (v / totalAll * 100).toFixed(1) : null;
+                        const txt = pctAll != null
+                          ? `${(v as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元（佔持股 ${pct}%・佔總資產 ${pctAll}%）`
+                          : `${(v as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元（佔持股 ${pct}%）`;
+                        return [txt, name];
                       }}
                       contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}

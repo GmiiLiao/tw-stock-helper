@@ -49,7 +49,7 @@ export default function RebalancePanel() {
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>⚖️ 配置漂移檢查</span>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>個股≤{lim.maxStockPct}%·產業≤{lim.maxIndustryPct}%·現金≥{lim.minCashPct}%</span>
+        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>個股≤{lim.maxStockPct}%·產業≤{lim.maxIndustryPct}%·現金≥{lim.minCashPct}%　<b>分母＝總資產（持股＋現金）</b></span>
         <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
           持股市值 {(data.totalStock / 10000).toFixed(0)} 萬{data.cash != null ? ` · 現金 ${(data.cash / 10000).toFixed(0)} 萬（${data.cashPct}%）` : ''}
         </span>
