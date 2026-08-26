@@ -101,7 +101,7 @@ const SUB_TABS: Array<{ id: SubTab; label: string }> = [
   { id: 'margin', label: '融資券' },
   { id: 'holders', label: '千張大戶' },
 ];
-interface ChipDaily { date: string; fgn: number; trust: number; inst: number; mgn: number; shrt: number; mgnChg?: number; shrtChg?: number }
+interface ChipDaily { date: string; fgn: number | null; trust: number | null; inst: number | null; mgn: number | null; shrt: number | null; mgnChg?: number | null; shrtChg?: number | null }
 interface ChipHolder { week: string; ratio: number }
 
 export default function TechnicalChart({ candles, stock, loading }: Props) {
@@ -187,6 +187,11 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
     }
     return out;
   }, [chip, candles]);
+
+  // 各副圖只吃「該欄位真的有歸檔」的日子——資券當日 21:45 才寫入，
+  // 若把缺漏日一起丟給圖表，融資餘額線會在最後一天垂直掉到 0（假訊號）。
+  const instSeries = useMemo(() => chipDaily.filter(d => d.fgn != null), [chipDaily]);
+  const marginSeries = useMemo(() => chipDaily.filter(d => d.mgn != null), [chipDaily]);
 
   const INDICATOR_BTNS = [
     { id: 'MA5', label: 'MA5', color: '#f59e0b' },
@@ -396,13 +401,13 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <span style={{ marginLeft: 8, opacity: 0.75 }}>收盤後歸檔，非盤中即時</span>
             </span>
           </div>
-          {chipDaily.length === 0 ? (
+          {instSeries.length === 0 ? (
             <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
               {chipLoading ? '載入中…' : '此檔無法人歸檔資料（興櫃與部分新股不在三大法人統計內）'}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={110}>
-              <ComposedChart data={chipDaily} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+              <ComposedChart data={instSeries} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <XAxis dataKey="date" hide />
                 <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
                 <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
@@ -431,13 +436,13 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <span style={{ color: '#f59e0b' }}>—</span>融資餘額（右軸·張）
             </span>
           </div>
-          {chipDaily.length === 0 ? (
+          {marginSeries.length === 0 ? (
             <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
               {chipLoading ? '載入中…' : '此檔無資券歸檔資料（未開放信用交易的個股沒有融資券）'}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={110}>
-              <ComposedChart data={chipDaily} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+              <ComposedChart data={marginSeries} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <XAxis dataKey="date" hide />
                 <YAxis yAxisId="chg" tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="bal" orientation="right" tick={{ fill: '#f59e0b', fontSize: 10 }} axisLine={false} tickLine={false} />

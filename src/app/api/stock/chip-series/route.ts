@@ -23,6 +23,7 @@ interface ChipIndex {
   dates: string[];
   idx: Record<string, number>;
   fgn: Int32Array; trust: Int32Array; mgn: Int32Array; shrt: Int32Array;
+  hasInst: boolean[]; hasMargin: boolean[];
   archDate: string | null;
 }
 
@@ -38,6 +39,12 @@ const getChipIndex = memoize('chip-series-index', 3 * 3600_000, async (): Promis
     .reverse();
 
   const dates = docs.map(d => d.date);
+  // ⚠ 逐欄位的「有沒有」必須分開記（2026-08-26 實案）：當日文件是**分批**長出來的
+  //   —— 法人 15:00 後、資券 21:45 才寫。只看「文件存在」就把缺的欄位補 0，
+  //   畫面會出現「融資餘額 0、融券 0」＝全數回補完畢，那是憑空捏造的爆炸性訊號
+  //   （台虹 8039 昨日融資 25,941 今日顯示 0）。缺資料要回 null，不是 0。
+  const hasInst: boolean[] = docs.map(d => !!d.instJson);
+  const hasMargin: boolean[] = docs.map(d => !!d.marginJson);
   const codeSet = new Set<string>();
   const parsed = docs.map(d => {
     let inst: Record<string, number[]> = {}, margin: Record<string, number[]> = {};
@@ -69,7 +76,7 @@ const getChipIndex = memoize('chip-series-index', 3 * 3600_000, async (): Promis
       shrt[i * m + t] = Math.round(v?.[1] ?? 0);
     }
   }
-  return { dates, idx, fgn, trust, mgn, shrt, archDate: dates[dates.length - 1] || null };
+  return { dates, idx, fgn, trust, mgn, shrt, hasInst, hasMargin, archDate: dates[dates.length - 1] || null };
 }, { timeoutMs: 60_000 });
 
 // 千張大戶（週）：tdccArchive 每週一份全市場 15 分級，r[14] 是千張以上占比。
@@ -105,19 +112,21 @@ export async function GET(req: NextRequest) {
     const m = ix.dates.length;
     const daily = i === undefined ? [] : ix.dates.map((d, t) => ({
       date: d,
-      fgn: ix.fgn[i * m + t],       // 外資買賣超（張）
-      trust: ix.trust[i * m + t],   // 投信買賣超（張）
-      inst: ix.fgn[i * m + t] + ix.trust[i * m + t],
-      mgn: ix.mgn[i * m + t],       // 融資餘額（張）
-      shrt: ix.shrt[i * m + t],     // 融券餘額（張）
-    }));
+      // 該日該欄位沒歸檔 → null（「不知道」），絕不可寫 0（「是零」）
+      fgn: ix.hasInst[t] ? ix.fgn[i * m + t] : null,
+      trust: ix.hasInst[t] ? ix.trust[i * m + t] : null,
+      inst: ix.hasInst[t] ? ix.fgn[i * m + t] + ix.trust[i * m + t] : null,
+      mgn: ix.hasMargin[t] ? ix.mgn[i * m + t] : null,     // 融資餘額（張）
+      shrt: ix.hasMargin[t] ? ix.shrt[i * m + t] : null,   // 融券餘額（張）
+    })) as Array<{ date: string; fgn: number | null; trust: number | null; inst: number | null; mgn: number | null; shrt: number | null; mgnChg?: number | null; shrtChg?: number | null }>;
     // 融資券是**餘額**，看趨勢要的是日增減 → 一併給出，前端可直接畫柱狀
     for (let t = daily.length - 1; t > 0; t--) {
-      const p = daily[t - 1] as { mgn: number; shrt: number };
-      (daily[t] as { mgnChg?: number; shrtChg?: number }).mgnChg = daily[t].mgn - p.mgn;
-      (daily[t] as { mgnChg?: number; shrtChg?: number }).shrtChg = daily[t].shrt - p.shrt;
+      const cur = daily[t], prev = daily[t - 1];
+      // 跨過缺漏日就不要硬算增減——那會把「兩天的變化」誤標成「一天的變化」
+      cur.mgnChg = cur.mgn != null && prev.mgn != null ? cur.mgn - prev.mgn : null;
+      cur.shrtChg = cur.shrt != null && prev.shrt != null ? cur.shrt - prev.shrt : null;
     }
-    if (daily[0]) { (daily[0] as { mgnChg?: number; shrtChg?: number }).mgnChg = 0; (daily[0] as { mgnChg?: number; shrtChg?: number }).shrtChg = 0; }
+    if (daily[0]) { daily[0].mgnChg = null; daily[0].shrtChg = null; }
 
     const ratios = td.byCode[code] || [];
     const holders = td.weeks.map((w, t) => ({ week: w, ratio: ratios[t] ?? 0 }))
