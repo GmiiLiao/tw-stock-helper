@@ -2203,6 +2203,9 @@ async function marketSnapshotLoop() {
         }
         await writeSnapshot(quotes, marketNow, 'mixed', true);
         agentTick(quotes, marketNow).catch(() => {});
+        // 大盤脈動（30 秒節流）：只讀 Firestore/記憶體快照，零上游請求，
+        // 不影響「請求數與線上人數脫鉤」的不變式。
+        if (Date.now() - _pulseAt > 30000) { _pulseAt = Date.now(); computeMarketPulse().catch(e => log('✖ 大盤脈動:', e.message)); }
         // 記錄使用者關注個股的分時序列(即時走勢圖用，不依賴延遲的 Yahoo)。
         try {
           const tracked = await getTrackedCodes(new Set(codes.map(c => c.code)));
@@ -4054,6 +4057,24 @@ async function computeSqueezeNewsVerdict() {
   const gLine = ['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
     .filter(k => gToday[k]).map(k => `${k} ${gToday[k].chg >= 0 ? '+' : ''}${gToday[k].chg}%`).join('、');
 
+  // ── 事件日曆併入（2026-08-26 使用者實例：能率亞洲）─────────────────
+  // 使用者問「UDN 那篇能率亞洲的新聞為什麼沒收錄」。查證：該文發布於 08-20，
+  // 距今 6 天，依「當日或 2 日內」規格本就不該收 —— 判別「資訊不足」沒有錯。
+  // **但真正的催化劑不是那篇報導，是它預告的那場法說會（8/26 15:40 真的開了），
+  //   而站上的 catalystCalendar 早就有這筆**。等於資訊一直在系統裡，
+  //   只是新聞判別從來沒去查事件日曆。
+  // ⇒ 法說會/業績發表會/除權息/股東會這類**已排定事件**，對隔日開盤的意義
+  //   往往強過一篇報導，必須併入判別依據。
+  let calMap = {};
+  try {
+    const cal = (await db.collection('catalystCalendar').doc('latest').get()).data();
+    const want = new Set([picks.archDate, picks.targetDate].filter(Boolean));
+    for (const e of (cal?.events || [])) {
+      if (!e.code || !want.has(e.date)) continue;
+      (calMap[e.code] ||= []).push({ date: e.date, title: e.title, type: e.type, impact: e.impact });
+    }
+  } catch { /* 缺日曆不擋 */ }
+
   const out = [];
   for (const it of picks.items.slice(0, 12)) {
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
@@ -4064,9 +4085,15 @@ async function computeSqueezeNewsVerdict() {
     const material = recent.filter(n => !MACHINE_NEWS.test(n.title));
     const withBody = material.filter(n => n.hasBody);
 
-    let verdict = { label: '資訊不足', bullish: false, reason: '近 2 日查無實質新聞（僅有價格報導或無相關報導）', basis: 'none', n: recent.length };
-    if (material.length) {
-      const basis = withBody.length ? 'content' : 'title';
+    const events = calMap[it.code] || [];
+    const evLine = events.length
+      ? events.map(e => `${e.date} ${e.title}${e.impact === 'H' ? '（高影響）' : ''}`).join('；')
+      : '';
+    let verdict = events.length
+      ? { label: '中性', bullish: false, confidence: '低', reason: `近 2 日無實質新聞，但有已排定事件：${evLine}`, basis: 'event', n: recent.length }
+      : { label: '資訊不足', bullish: false, reason: '近 2 日查無實質新聞，亦無已排定事件', basis: 'none', n: recent.length };
+    if (material.length || events.length) {
+      const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
       const src = (withBody.length ? withBody : material).slice(0, 4);
       const body = src.map((n, i) => `【新聞${i + 1}】${n.title}\n${n.content ? n.content.slice(0, 500) : '（無內文，僅標題）'}`).join('\n\n');
       const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
@@ -4082,8 +4109,8 @@ async function computeSqueezeNewsVerdict() {
 6. 不確定就判「中性」，不要為了給答案而美化。
 
 國際盤昨夜：${gLine || '（無資料）'}
-
-${body}
+${evLine ? `\n**已排定事件**（來自交易所行事曆，非傳聞）：${evLine}\n法說會/業績發表會當日或隔日開盤前，市場常對其內容反應；但**內容未知時不可預設為利多**，請判為中性並在風險欄註明「法說內容未知」。\n` : ''}
+${body || '（近 2 日無實質新聞）'}
 
 請用**繁體中文**依此格式回答，不要多餘文字：
 判別: 利多/利空/中性
@@ -4110,6 +4137,7 @@ ${body}
     }
     out.push({
       ...it,
+      events,
       news: {
         checked: recent.length, material: material.length, priceOnly: recent.length - material.length,   // priceOnly 現在的語意＝被剔除的機器速報
         basis: verdict.basis,
@@ -4183,6 +4211,109 @@ function nextTradingDay(fromIso) {
     if (dow !== 0 && dow !== 6 && !TW_HOLIDAYS.has(iso)) return iso;
   }
   return null;
+}
+
+// ── 大盤即時脈動監控（2026-08-26 使用者需求）─────────────────────────
+//
+// 為什麼要監控這個：大盤漲跌與量能**直接決定漲停家數**，也就決定軋空的環境。
+// 實測 246 個交易日：
+//     大盤 ≥ +1.5%   → 漲停均 67.2 檔、跌停 4.1
+//     大盤 +0.5~1.5% → 漲停均 44.1 檔、跌停 2.7
+//     大盤 -0.5~+0.5%→ 漲停均 43.3 檔、跌停 6.7
+//     大盤 -1.5~-0.5%→ 漲停均 35.4 檔、跌停 7.0
+//     大盤 ≤ -1.5%   → 漲停均 27.2 檔、**跌停 35.7（跌停多於漲停）**
+//   量能（vs 20日均全日值）：<0.8x 39~50 檔、1.0~1.2x 48.2、≥1.2x 54.8
+//   最危險組合：跌<-0.5% × 量能<0.9x → 漲停 29.6 / **跌停 30.7**
+//
+// ⚠ 誠實限制：**盤中量能沒有「同時刻」歷史基準**（本站的盤中指數曲線今日才
+//   開始逐日歸檔）。台股量能是 U 型分佈，用全日均量除以已過時間去比會系統性
+//   誤判為縮量。所以現階段：
+//     · 漲跌幅與漲停/跌停家數 → 即時可判，無需基準，直接用
+//     · 成交值 → 只呈現絕對值與「對昨日全日」的比例，**明確標示非同時刻**，
+//       並從今日起累積同時刻曲線，等樣本夠了再啟用量能評級
+const PULSE_LEVELS = [
+  { key: 'strong', min: 1.5, label: '極佳', luExp: 67, ldExp: 4, note: '漲停家數期望最高（實測均 67 檔），軋空環境最有利' },
+  { key: 'good', min: 0.5, label: '偏多', luExp: 44, ldExp: 3, note: '漲停家數略高於平均' },
+  { key: 'flat', min: -0.5, label: '持平', luExp: 43, ldExp: 7, note: '接近長期平均（45 檔）' },
+  { key: 'weak', min: -1.5, label: '偏空', luExp: 35, ldExp: 7, note: '漲停家數下降，軋空成功率降低' },
+  { key: 'bad', min: -99, label: '危險', luExp: 27, ldExp: 36, note: '實測跌停家數(35.7)反超漲停(27.2)——這種盤不宜追軋空' },
+];
+
+async function computeMarketPulse() {
+  const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
+  const marketNow = isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 35;
+  const idx = (await db.collection('marketIndex').doc('latest').get()).data();
+  if (!idx) return;
+  const chg = idx.weightedChangePercent ?? 0;
+  const value = idx.value ?? null;                   // 成交值（億）
+  const lvl = PULSE_LEVELS.find(l => chg >= l.min) || PULSE_LEVELS[PULSE_LEVELS.length - 1];
+
+  // 即時漲停/跌停家數（直接數，不需要任何基準）
+  const quo = (await readSnapshotQuotes())?.quotes || {};
+  const tickOf = p => (p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5);
+  let lu = 0, ld = 0, up = 0, dn = 0, n = 0, liveN = 0;
+  for (const code in quo) {
+    if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+    const q = quo[code];
+    if ((q.market ?? '') === 'esb') continue;         // 興櫃無漲跌停
+    const price = q.price, prev = price - (q.change ?? 0);
+    // 收盤後 live 會是 false，但價格已結算仍可數家數——原本要求 q.live
+    // 導致盤後家數全為 0。改為只要有有效價格就計入，另記是否為即時。
+    if (!(price > 0) || !(prev > 0)) continue;
+    if (q.live) liveN++;
+    n++;
+    if (q.change > 0) up++; else if (q.change < 0) dn++;
+    const rawU = prev * 1.1, tu = tickOf(rawU);
+    if (price >= Math.floor(rawU / tu + 1e-9) * tu - 1e-6 && q.change > 0) lu++;
+    const rawD = prev * 0.9, td2 = tickOf(rawD);
+    if (price <= Math.ceil(rawD / td2 - 1e-9) * td2 + 1e-6 && q.change < 0) ld++;
+  }
+
+  // 昨日全日成交值（僅供對照，**非同時刻**，介面必須標示）
+  let prevVal = null;
+  try {
+    const arch = await readArchive(3, 'closeJson');
+    // ⚠ closeJson 的量是**張**，成交值＝價 × 張 × **1000 股**。
+    //   漏掉這個 ×1000 會少一千倍（實測算出 10 億、實際 9,703 億）——
+    //   CLAUDE.md 明列的經典錯誤，這裡再犯一次。
+    if (arch[0]) { const m = JSON.parse(arch[0].closeJson); let v = 0; for (const c in m) { const r = m[c]; if (r?.[0] > 0 && r?.[1] > 0) v += r[0] * r[1] * 1000; } prevVal = +(v / 1e8).toFixed(0); }
+  } catch { /* 缺就不對照 */ }
+
+  // 警示判定（只在「有實據」的情境才示警，不亂喊）
+  const warns = [];
+  if (chg <= -1.5) warns.push({ level: 'danger', text: `大盤 ${chg.toFixed(2)}%：實測此區間跌停(35.7)反超漲停(27.2)，軋空追價風險高` });
+  else if (chg <= -0.5) warns.push({ level: 'warn', text: `大盤 ${chg.toFixed(2)}%：漲停家數期望降至 ${lvl.luExp} 檔（平均 45），軋空成功率下降` });
+  if (ld > lu && n > 200) warns.push({ level: 'danger', text: `即時跌停(${ld}) 已超過漲停(${lu})——空方主導，建議收手` });
+  if (chg >= 1.5) warns.push({ level: 'good', text: `大盤 +${chg.toFixed(2)}%：實測漲停家數期望 67 檔，軋空環境最有利` });
+
+  const doc = {
+    updatedAt: Date.now(), marketNow,
+    twii: { chg: +chg.toFixed(2), value, prevValue: prevVal, valueVsPrevFullDay: (value != null && prevVal) ? +(value / prevVal).toFixed(2) : null },
+    otc: { chg: idx.otcChangePercent ?? null },
+    counts: { limitUp: lu, limitDown: ld, up, down: dn, counted: n, live: liveN },
+    countsBasis: liveN > n * 0.5 ? 'live' : 'settled',   // 盤中＝即時；盤後＝已結算收盤
+    level: { key: lvl.key, label: lvl.label, luExp: lvl.luExp, ldExp: lvl.ldExp, note: lvl.note,
+      // 實際 vs 期望：偏離本身就是訊息（實際遠低於期望＝盤面比指數更弱）
+      luActualVsExp: lvl.luExp ? +(lu / lvl.luExp).toFixed(2) : null },
+    warns,
+    evidence: { days: 246, avgLimitUp: 45.4, table: PULSE_LEVELS.map(l => ({ label: l.label, min: l.min, luExp: l.luExp, ldExp: l.ldExp })) },
+    volNote: '盤中成交值僅與「昨日全日」對照，**非同時刻基準**——台股量能為 U 型分佈，用全日均量除以已過時間會系統性誤判為縮量。同時刻曲線自 2026-08-26 起累積中。',
+  };
+  await db.collection('marketPulse').doc('latest').set(doc);
+
+  // 盤中狀態轉變才推播（避免同一句話一直洗版）
+  if (marketNow && warns.length) {
+    const top = warns.find(w => w.level === 'danger') || warns[0];
+    await pushAgentMsg({
+      type: 'market', label: '大盤脈動', emoji: top.level === 'danger' ? '🚨' : top.level === 'good' ? '🚀' : '⚠️',
+      text: `${top.text}（即時漲停 ${lu} / 跌停 ${ld}）`,
+      summary: `大盤 ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%·漲停${lu}/跌停${ld}`,
+      severity: top.level === 'danger' ? 'high' : 'normal',
+      dedupeKey: `pulse-${lvl.key}-${ld > lu ? 'inv' : 'norm'}`,
+      cooldownMs: 30 * 60 * 1000,
+    });
+  }
+  return doc;
 }
 
 // ── 軋空推薦每日對答案 × 漏網診斷（2026-08-26 使用者需求）──────────────
@@ -10117,6 +10248,7 @@ async function runJobSet(jobs, tag) {
 let _intradayDate = '';   // 個股5分K歸檔每日一次
 let _asiaAt = 0, _asiaCatchupDate = '';   // 日韓早盤節流與補跑守衛（見 computeAsiaPremarket）
 let _sqRecDate = '';          // 每日 08:00 軋空推薦守衛
+let _pulseAt = 0;             // 大盤脈動節流（30 秒）
 let _globalHistDate = '';     // 國際盤歷史每日更新守衛
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
@@ -10629,6 +10761,7 @@ if (ONESHOT) {
     alerts: () => checkAlerts(),
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
+    marketPulse: () => computeMarketPulse(),          // 大盤即時脈動
     squeezePicks: () => computeSqueezePicks(),        // 手動產出軋空候選(含次交易日模式)
     squeezeReview: () => computeSqueezeReview({ backfillDays: Number(process.argv[process.argv.indexOf('--run') + 2] || 60) }),
     squeezeTraining: () => recordSqueezeTraining(),   // 手動補當日訓練資料

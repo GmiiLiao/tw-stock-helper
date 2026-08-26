@@ -14,8 +14,19 @@ interface Item {
   fgn?: number | null; trust?: number | null; instNet?: number | null;
   fgn5?: number | null; trust5?: number | null; inst5?: number | null; trustStreak?: number;
 }
+interface Pulse {
+  updatedAt: number; marketNow: boolean;
+  twii: { chg: number; value: number | null; prevValue: number | null; valueVsPrevFullDay: number | null };
+  otc: { chg: number | null };
+  counts: { limitUp: number; limitDown: number; up: number; down: number; counted: number; live: number };
+  countsBasis?: string;
+  level: { key: string; label: string; luExp: number; ldExp: number; note: string; luActualVsExp?: number | null };
+  warns: Array<{ level: string; text: string }>;
+  evidence?: { days: number; avgLimitUp: number; table: Array<{ label: string; min: number; luExp: number; ldExp: number }> };
+  volNote?: string;
+}
 interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; basis: string; n?: number; nMaterial?: number }
-interface RecItem extends Item { verdict?: Verdict; primary?: boolean; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
+interface RecItem extends Item { verdict?: Verdict; primary?: boolean; events?: Array<{ date: string; title: string; type?: string; impact?: string }>; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
 interface Rec {
   updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
   modelMain: string | null; modelSqueeze: string | null; modelRunId: string | null;
@@ -40,6 +51,7 @@ const fmtSigned = (v?: number | null) =>
 export default function SqueezePanel() {
   const [d, setD] = useState<Data | null>(null);
   const [rec, setRec] = useState<Rec | null>(null);
+  const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loading, setLoading] = useState(true);
   const navigateTo = useAppStore(s => s.navigateTo);
 
@@ -51,10 +63,17 @@ export default function SqueezePanel() {
         .finally(() => { if (live) setLoading(false); });
       fetch('/api/ai/squeeze-recommend').then(r => (r.ok ? r.json() : null))
         .then(x => { if (live && x && !x.error && x.items) setRec(x); }).catch(() => {});
+      fetch('/api/twse/market-pulse').then(r => (r.ok ? r.json() : null))
+        .then(x => { if (live && x && !x.error && x.level) setPulse(x); }).catch(() => {});
     };
     load();
     const id = setInterval(load, 180_000);
-    return () => { live = false; clearInterval(id); };
+    // 大盤脈動 30 秒一次（daemon 也是 30 秒節流，對齊即可）
+    const idPulse = setInterval(() => {
+      fetch('/api/twse/market-pulse').then(r => (r.ok ? r.json() : null))
+        .then(x => { if (live && x && !x.error && x.level) setPulse(x); }).catch(() => {});
+    }, 30_000);
+    return () => { live = false; clearInterval(id); clearInterval(idPulse); };
   }, []);
 
   const ev = d?.evidence;
@@ -71,6 +90,53 @@ export default function SqueezePanel() {
           </span>
         )}
       </div>
+
+      {/* 大盤脈動：環境決定要不要出手，所以放最上面 */}
+      {pulse && (() => {
+        const p = pulse;
+        const c = p.level.key === 'bad' ? '#ef4444' : p.level.key === 'weak' ? '#f59e0b'
+          : p.level.key === 'strong' ? '#22c55e' : p.level.key === 'good' ? '#4ade80' : 'var(--text-muted)';
+        const danger = p.warns.some(w => w.level === 'danger');
+        return (
+          <div style={{
+            padding: '8px 12px', borderRadius: 8, marginBottom: 8,
+            background: danger ? 'rgba(239,68,68,0.09)' : 'var(--bg-elevated)',
+            border: `1px solid ${danger ? 'rgba(239,68,68,0.5)' : 'var(--border-primary)'}`,
+            fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.6,
+          }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <b>📊 大盤脈動</b>
+              <span>加權 <b style={{ color: p.twii.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                {p.twii.chg >= 0 ? '+' : ''}{p.twii.chg}%</b></span>
+              {p.otc.chg != null && <span style={{ color: 'var(--text-muted)' }}>櫃買 {p.otc.chg >= 0 ? '+' : ''}{p.otc.chg}%</span>}
+              {p.twii.value != null && <span style={{ color: 'var(--text-muted)' }}>
+                成交值 {p.twii.value.toLocaleString()} 億
+                {p.twii.valueVsPrevFullDay != null && <>（昨日全日 {p.twii.valueVsPrevFullDay}x）</>}
+              </span>}
+              <span>漲停 <b style={{ color: 'var(--color-up)' }}>{p.counts.limitUp}</b>
+                ／跌停 <b style={{ color: 'var(--color-down)' }}>{p.counts.limitDown}</b>
+                <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10px * var(--fz))', marginLeft: 3 }}>
+                  {p.countsBasis === 'live' ? '即時' : '已收盤'}
+                </span>
+              </span>
+              <span style={{ padding: '1px 9px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700 }}>
+                軋空環境：{p.level.label}
+              </span>
+            </div>
+            <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+              此漲跌區間實測漲停期望 <b>{p.level.luExp}</b> 檔／跌停 {p.level.ldExp}（長期均 {p.evidence?.avgLimitUp ?? 45} 檔）·
+              {p.level.note}
+              {p.level.luActualVsExp != null && <>　實際/期望 <b style={{ color: p.level.luActualVsExp >= 1 ? 'var(--color-up)' : '#f59e0b' }}>{p.level.luActualVsExp}x</b></>}
+            </div>
+            {p.warns.map((w, i) => (
+              <div key={i} style={{ marginTop: 2, fontWeight: 600, color: w.level === 'danger' ? '#ef4444' : w.level === 'good' ? '#22c55e' : '#f59e0b' }}>
+                {w.level === 'danger' ? '🚨' : w.level === 'good' ? '🚀' : '⚠️'} {w.text}
+              </div>
+            ))}
+            {p.volNote && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10px * var(--fz))', marginTop: 2 }}>{p.volNote}</div>}
+          </div>
+        );
+      })()}
 
       {/* 近期實際戰績——擺在回測數字之前。使用者是隔日沖，會照著明天下單，
           只掛長期期望值而不講當下正在回檔，是不誠實的。 */}
@@ -180,6 +246,11 @@ export default function SqueezePanel() {
                   <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 2 }}>
                     {v?.reason}
                   </div>
+                  {(it.events?.length ?? 0) > 0 && (
+                    <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#38bdf8', marginTop: 1 }}>
+                      📅 已排定事件：{it.events!.map(e => `${e.date.slice(5)} ${e.title}`).join('；')}
+                    </div>
+                  )}
                   {v?.risk && v.risk !== '無' && (
                     <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#f59e0b', marginTop: 1 }}>
                       ⚠ 風險：{v.risk}
@@ -195,7 +266,8 @@ export default function SqueezePanel() {
             })}
           </div>
           <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 5 }}>
-            新聞來源：鉅亨（有內文）＋ Google News（覆蓋廣但只有標題），合併去重後交由本機 AI 判別。
+            判別依據＝新聞（鉅亨有內文＋Google News 標題）<b>＋交易所事件行事曆</b>（法說會/除權息/股東會）。
+            事件是已排定的事實而非傳聞，但<b>法說內容未知時不預設為利多</b>——AI 會判中性並註明。
             程式端<b>只剔除機器自動生成的盤中速報</b>——含「漲停」字眼的題材文若硬剔會連真催化劑一起丟掉
             （實案：今周刊〈台虹…原來和輝達也有關！看懂 PTFE 題材〉標題同時有兩者）。
             價格描述不算利多這條規則交由 AI 執行；抓不到內文會標「僅標題」，不假裝讀過；不確定一律判中性。
