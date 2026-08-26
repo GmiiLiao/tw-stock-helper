@@ -21,14 +21,18 @@ export default function CandidateDock() {
 
   const openDesk = () => { setWarTab('desk'); navigateTo('war'); };
 
-  if (currentPage === 'war' && warTab === 'desk') return null; // 工作台分頁內不重複顯示
-
   // ── 即時報價（2026-08-26 使用者回報「候選便條沒有即時更新」）──────────
   // 原本只讀 store 的 allStocks——那是 Header 每 2 分鐘（盤中）／15 分鐘（休市）
   // 才刷新的重量級全市場清單，於是便條上的價格與左上 5 秒更新的指數有明顯時間差。
   // 改接 useLiveQuotes（快線：自選/持股/瀏覽中的優先股，5 秒節奏），
   // 有即時價就用即時價，沒有才退回 allStocks 快照。
+  // ⚠ Hook 必須在**所有** early return 之前呼叫（Rules of Hooks）——
+  //   放在下面那個 `return null` 之後會讓 hook 呼叫順序隨渲染變動。
   const liveQ = useLiveQuotes(codes, 30);
+
+  const hideInDesk = currentPage === 'war' && warTab === 'desk'; // 工作台分頁內不重複顯示
+  if (hideInDesk) return null;
+
   const rows = codes.map(code => {
     const s = allStocks.find(x => x.code === code);
     const lq = liveQ[code];
