@@ -9,7 +9,8 @@ import { useAppStore } from '@/lib/store';
 interface Item {
   code: string; name: string; price: number; chg: number;
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
-  setup: number | null; band: string;
+  setup: number | null; band: string; weakBand?: boolean;
+  shrtChg?: number | null; lend?: number | null; lendChg?: number | null; trueRatio?: number | null;
 }
 interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; basis: string; n?: number; nMaterial?: number }
 interface RecItem extends Item { verdict?: Verdict; primary?: boolean; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
@@ -24,7 +25,7 @@ interface Data {
   mode?: string; targetDate?: string | null; archDate?: string | null;
   items: Item[]; count: number;
   recent?: { n: number; days: number; avgNextDay: number; winRate: number } | null;
-  evidence?: { base5d: number; baseWin: number; setupOnly: number; setupWin: number; bandOnly: number; bandWin: number; combo: number; comboWin: number; bNoA: number; bNoAWin: number; band20up: number; n: number; days: number };
+  evidence?: { days: number; oosBase: number; oosBaseWin: number; t3: number; t3Win: number; t3n: number; t2: number; t2Win: number; t2n: number; t1: number; t1Win: number; t1n: number; t0: number; t0Win: number; t0n: number; shUp: number; shUpWin: number; shDown: number; shDownWin: number; sblTrue50: number; sblTrue100: number; sblUp: number };
 }
 
 export default function SqueezePanel() {
@@ -91,20 +92,24 @@ export default function SqueezePanel() {
       {/* 實證揭露：邊際效益多小，講在最前面 */}
       {ev && (
         <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.65 }}>
-          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: 3 }}>實測校準（{ev.days} 日 / {ev.n.toLocaleString()} 筆事件·5 日報酬）</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', gap: '1px 10px', marginBottom: 3 }}>
-            <span style={{ color: 'var(--text-muted)' }}>純動能對照（僅漲≥5%）</span><span>+{ev.base5d}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.baseWin}%</span>
-            <span style={{ color: 'var(--text-muted)' }}>A 軋空啟動（昨券增）</span><span>+{ev.setupOnly}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.setupWin}%</span>
-            <span style={{ color: 'var(--text-muted)' }}>B 券資比 10~20%</span><span>+{ev.bandOnly}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.bandWin}%</span>
-            <span style={{ fontWeight: 700, color: '#22c55e' }}>⭐⭐ A∩B（兩者皆成立）</span><span style={{ fontWeight: 700, color: 'var(--color-up)' }}>+{ev.combo}%</span><span style={{ fontWeight: 700 }}>勝率 {ev.comboWin}%</span>
-            <span style={{ color: 'var(--text-muted)' }}>⭐ 僅 B（無 A）</span><span>+{ev.bNoA}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.bNoAWin}%（近段轉弱）</span>
+          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: 3 }}>
+            實測校準（{ev.days} 日 · <b>隔日開盤·可買口徑</b>·樣本外）
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto', gap: '1px 10px', marginBottom: 3 }}>
+            <span style={{ color: 'var(--text-muted)' }}>基準（漲≥5%）</span><span>+{ev.oosBase}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.oosBaseWin}%</span><span />
+            <span style={{ fontWeight: 700, color: '#22c55e' }}>⭐⭐⭐ 券資比 ≥20%</span><span style={{ fontWeight: 700, color: 'var(--color-up)' }}>+{ev.t3}%</span><span style={{ fontWeight: 700 }}>{ev.t3Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t3n}</span>
+            <span>⭐⭐ 券資比 10~15%</span><span>+{ev.t2}%</span><span>{ev.t2Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t2n}</span>
+            <span>⭐ 券資比 5~10%</span><span>+{ev.t1}%</span><span>{ev.t1Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t1n}</span>
+            <span style={{ color: '#f59e0b' }}>⚠ 券資比 15~20%</span><span style={{ color: '#f59e0b' }}>+{ev.t0}%</span><span style={{ color: '#f59e0b' }}>{ev.t0Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t0n}·未過基準</span>
           </div>
           <div style={{ color: 'var(--text-muted)' }}>
-            ⇒ 上表為 <b>5 日</b>報酬。若做<b>隔日沖</b>：定版規則長期隔日 <b>+1.62%／勝率 55%</b>（三段全正），
-            但邊際貢獻僅約 +1.8pp，是<b>傾向</b>不是預測。
-            另外實測：<b>不看價格、只用籌碼（融券暴增／券資比跳進甜蜜點）選股是無效的</b>——
-            隔日 −0.02% ~ +0.57%、勝率 46~48%，全數不如基準；必須有「當日已強漲」的價格確認才成立。
-            反直覺：券資比 <b>≥20% 反而掉到 +{ev.band20up}%</b>（低於純動能）——極高券資比多半是空方看對或避險空單，不會被軋，故本榜刻意排除。
+            全部條件皆已疊「融券日增&gt;0」——實測融券日增&gt;0 為 +{ev.shUp}%/{ev.shUpWin}%，
+            日增&lt;0 只有 +{ev.shDown}%/{ev.shDownWin}%（空單已在回補＝燃料燒完）。
+          </div>
+          <div style={{ color: 'var(--text-muted)' }}>
+            <b>借券賣出刻意不併入券資比</b>：它常是融券的 3~19 倍，直覺以為「加進來才是真空單」，
+            但實測併入後反而變差（真空單比 50~100% 僅 +{ev.sblTrue50}%、100%+ 僅 +{ev.sblTrue100}%、借券增加 +{ev.sblUp}%，皆輸基準）。
+            原因：借券賣出多為法人避險/套利部位，不是方向性看空，不會被軋而恐慌回補。表格仍列出借券供你參考。
           </div>
         </div>
       )}
@@ -192,7 +197,8 @@ export default function SqueezePanel() {
                 <th style={{ padding: '6px 4px' }}>現價</th>
                 <th style={{ padding: '6px 4px' }}>漲幅</th>
                 <th style={{ padding: '6px 4px' }}>券資比</th>
-                <th style={{ padding: '6px 4px' }}>昨券增(張)</th>
+                <th style={{ padding: '6px 4px' }}>融券日增</th>
+                <th style={{ padding: '6px 4px' }}>借券賣出(增減)</th>
                 <th style={{ padding: '6px 4px' }}>融資/融券(張)</th>
                 <th style={{ padding: '6px 4px' }}>量增</th>
               </tr>
@@ -201,9 +207,9 @@ export default function SqueezePanel() {
               {d.items.map(it => (
                 <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
                   <td style={{ padding: '6px 4px', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                    {it.tier === 2 ? '⭐⭐' : '⭐'}
-                    <span style={{ marginLeft: 4, fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>
-                      {it.tier === 2 ? 'A∩B' : '僅B'}
+                    {it.tier === 3 ? '⭐⭐⭐' : it.tier === 2 ? '⭐⭐' : it.tier === 1 ? '⭐' : '⚠'}
+                    <span style={{ marginLeft: 4, fontSize: 'calc(10px * var(--fz))', color: it.weakBand ? '#f59e0b' : 'var(--text-muted)' }}>
+                      {it.band}
                     </span>
                   </td>
                   <td style={{ padding: '6px 4px', textAlign: 'left' }}>
@@ -214,11 +220,17 @@ export default function SqueezePanel() {
                   </td>
                   <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
                   <td style={{ padding: '6px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>
-                  <td style={{ padding: '6px 4px', fontWeight: 700, color: it.tier === 2 ? '#22c55e' : 'var(--text-primary)' }}>
-                    {it.ratio}%<span style={{ marginLeft: 3, fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>{it.band}</span>
+                  <td style={{ padding: '6px 4px', fontWeight: 700, color: it.tier === 3 ? '#22c55e' : it.weakBand ? '#f59e0b' : 'var(--text-primary)' }}>
+                    {it.ratio}%
                   </td>
-                  <td style={{ padding: '6px 4px', color: it.setup != null ? '#22c55e' : 'var(--text-muted)' }}>
-                    {it.setup != null ? `+${it.setup.toLocaleString()}` : '—'}
+                  <td style={{ padding: '6px 4px', color: (it.shrtChg ?? 0) > 0 ? '#22c55e' : 'var(--text-muted)' }}>
+                    {it.shrtChg != null ? `+${it.shrtChg.toLocaleString()}` : '—'}
+                  </td>
+                  <td style={{ padding: '6px 4px', color: 'var(--text-muted)' }}>
+                    {it.lend != null ? it.lend.toLocaleString() : '—'}
+                    {it.lendChg != null && <span style={{ color: it.lendChg < 0 ? '#22c55e' : 'var(--text-muted)', marginLeft: 3, fontSize: 'calc(10px * var(--fz))' }}>
+                      ({it.lendChg >= 0 ? '+' : ''}{it.lendChg})
+                    </span>}
                   </td>
                   <td style={{ padding: '6px 4px', color: 'var(--text-muted)' }}>{it.mgn.toLocaleString()} / {it.shrt.toLocaleString()}</td>
                   <td style={{ padding: '6px 4px' }}>{it.volX}x</td>

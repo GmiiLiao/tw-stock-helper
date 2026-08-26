@@ -4250,13 +4250,51 @@ async function computeSqueezePicks() {
     return k ? s / k : 0;
   };
 
+  // 借券賣出餘額（TWT93U）與前一日，用於方向判定
+  const lendDoc = (await readArchive(10, 'lendingJson'))[0];
+  const lendPrevDoc = (await readArchive(10, 'lendingJson'))[1];
+  const lendMap = lendDoc ? JSON.parse(lendDoc.lendingJson) : {};
+  const lendPrevMap = lendPrevDoc ? JSON.parse(lendPrevDoc.lendingJson) : {};
+  // 前一個有資券的日子（算融券日增）
+  const marginPrevDoc = (await readArchive(10, 'marginJson'))[1];
+  const marginPrev = marginPrevDoc ? JSON.parse(marginPrevDoc.marginJson) : {};
+
   const items = [];
   for (const code in margin) {
     if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
     const [mgn, shrt] = margin[code];
     if (!(mgn > 0) || !(shrt > 0)) continue;
     const ratio = (shrt / mgn) * 100;
-    if (ratio < 10 || ratio >= 20) continue;                    // 實測甜蜜點以外一律不收
+    // ── 上限拿掉，改為 ≥5%（2026-08-26 使用者以 5 檔實例質疑後兩度重測）──
+    //   ① 原本 10~20% 會漏掉券資比 5~10% 的股票，而使用者舉的 5 檔漲停股裡
+    //      有 4 檔落在 5~10%。重測確認 5~10% 有效（樣本外 1.337%/60.0%）。
+    //   ② **更重要的自我修正**：我先前判定「券資比≥20% 反而變差」是用
+    //      **5 日收盤報酬**測的。但使用者是隔日沖——改用**隔日開盤·可買**
+    //      口徑重測，結論完全相反：≥20%×融券日增>0 樣本外 1.85%/68.4%，
+    //      ≥30% 更高達 2.093%/74.4%，是全場最佳。
+    //      經濟意義說得通：軋空是**開盤跳空**現象，不是多日趨勢——空單重壓
+    //      的股票隔天開高最兇，但幾天後可能被基本面拉回（空方本來就看對）。
+    //      教訓：換持有期就可能翻盤，回測口徑必須跟實際執行一致。
+    if (ratio < 5) continue;
+    // ── 融券日增必須為正（⚡軋空 徽章的核心條件，實測有效）─────────────
+    //   融券日增>0  樣本外 1.207%/60.6%（n=4642）✅
+    //   融券日增<0  樣本外 0.817%/52.6%（n=1279）❌ 明顯低於基準
+    //   語意合理：空單還在增加＝燃料還在累積；已在回補＝燃料燒完了。
+    const mPrev = marginPrev[code];
+    const shrtChg = mPrev ? shrt - (mPrev[1] ?? 0) : null;
+    if (!(shrtChg > 0)) continue;
+    // ── 借券方向（重要的反直覺結果）────────────────────────────────
+    //   借券賣出餘額常是融券的 3~19 倍（千附 57 vs 1,075），直覺會以為
+    //   「把借券加進來才是真空單」。**實測完全相反**：
+    //     真空單比(融券+借券)/融資 50~100%  樣本外 1.026%/58.1% ❌輸基準
+    //     真空單比 100%+                   樣本外 0.837%/56.4% ❌
+    //     借券增加                          樣本外 0.874%/55.6% ❌
+    //   原因：借券賣出多為法人避險/套利部位（可轉債、ETF 造市），不是方向性
+    //   看空，不會被軋而恐慌回補。反而**借券減少**（法人在收避險部位）較好：
+    //     券資比10~15% × 借券減  樣本外 1.989%/69.7%（n=66）
+    //   ⇒ 借券**不併入券資比**，只當分級的加分項。
+    const lendNow = lendMap[code], lendPrev2 = lendPrevMap[code];
+    const lendChg = (lendNow != null && lendPrev2 != null) ? lendNow - lendPrev2 : null;
     const q = quo[code];
     const live = q?.live && q.price > 0;
     const price = live ? q.price : (closeMaps[L][code]?.[0] ?? 0);
@@ -4268,17 +4306,28 @@ async function computeSqueezePicks() {
     if (av < 500) continue;
     const todayVol = live ? Math.round((q.volume ?? 0) / 1000) : (closeMaps[L][code]?.[1] ?? 0);
     const setupChg = setupMap[code];                             // 昨日融券增張數（有值＝A 成立）
+    // 分級（隔日開盤·可買口徑·樣本外；皆已疊「漲≥5% × 融券日增>0」）：
+    //   3 = 券資比 ≥20%     1.850%/68.4%（n=95；其中 ≥30% 達 2.093%/74.4%）
+    //   2 = 券資比 10~15%   1.473%/65.0%（n=137）
+    //   1 = 券資比 5~10%    1.337%/60.0%（n=420）
+    //   0 = 券資比 15~20%   0.844%/52.4%（n=63）← **樣本外未過基準**，仍列出
+    //       但標警示。兩側區間都有效卻獨獨這一段凹陷，n 又只有 63，多半是
+    //       雜訊；把中間挖掉是為了讓數字好看的過擬合，不做。誠實標示即可。
+    const tier = ratio >= 20 ? 3 : (ratio >= 15 ? 0 : (ratio >= 10 ? 2 : 1));
     items.push({
       code, name: q?.name || '', price: +price.toFixed(2), chg: +chg.toFixed(2),
       mgn, shrt, ratio: +ratio.toFixed(1),
+      shrtChg, lend: lendNow ?? null, lendChg,
+      trueRatio: lendNow != null ? +(((shrt + lendNow) / mgn) * 100).toFixed(1) : null,  // 僅供顯示參考，不入選股條件
       volX: av > 0 ? +(todayVol / av).toFixed(1) : 0,
-      setup: setupChg != null ? Math.round(setupChg) : null,     // A：昨日融券增（張）
-      tier: setupChg != null ? 2 : 1,                            // 2=⭐⭐(A∩B) 1=⭐(僅B)
-      band: ratio < 15 ? '10~15%' : '15~20%',
+      setup: setupChg != null ? Math.round(setupChg) : null,
+      tier,
+      band: ratio < 10 ? '5~10%' : ratio < 15 ? '10~15%' : ratio < 20 ? '15~20%' : (ratio < 30 ? '20~30%' : '≥30%'),
+      weakBand: ratio >= 15 && ratio < 20,       // 樣本外未過基準的區間，介面要標警示
       live: !!live,
     });
   }
-  items.sort((a, b) => b.tier - a.tier || b.chg - a.chg);
+  items.sort((a, b) => b.tier - a.tier || b.ratio - a.ratio || b.chg - a.chg);
 
   // ── 近期實際戰績（2026-08-26 加）─────────────────────────────────────
   // 只掛 240 日回測數字是不誠實的：使用者是隔日沖，會照著明天下單，
@@ -4323,8 +4372,17 @@ async function computeSqueezePicks() {
     updatedAt: Date.now(),
     priceDate: ascClose[L].date,
     marginDate: marginDoc.date,        // 券資比資料日（t-1）
-    rule: '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10；⭐⭐＝再疊「昨日融券增≥昨量0.5%」(軋空啟動)',
+    rule: '漲≥5% × 券資比≥5% × 融券日增>0 × 20日均量≥500張 × 價>10（借券不併入券資比——實測併入反而變差）',
     evidence: {
+      // 2026-08-26 重測（隔日開盤·可買口徑·樣本外）：
+      oosBase: 1.092, oosBaseWin: 58.5,   // 基準：漲≥5%
+      t3: 1.850, t3Win: 68.4, t3n: 95,    // ⭐⭐⭐ 券資比≥20%
+      t2: 1.473, t2Win: 65.0, t2n: 137,   // ⭐⭐ 券資比10~15%
+      t1: 1.337, t1Win: 60.0, t1n: 420,   // ⭐ 券資比5~10%
+      t0: 0.844, t0Win: 52.4, t0n: 63,    // ⚠ 券資比15~20%（樣本外未過基準）
+      shUp: 1.207, shUpWin: 60.6,         // 融券日增>0
+      shDown: 0.817, shDownWin: 52.6,     // 融券日增<0（明顯較差）
+      sblTrue50: 1.026, sblTrue100: 0.837, sblUp: 0.874,   // 借券併入反而變差的證據
       base5d: 2.04, baseWin: 50,          // 純動能對照（僅漲≥5%）
       setupOnly: 2.28, setupWin: 50,      // A：既有軋空啟動 × 漲≥5%
       bandOnly: 3.45, bandWin: 56,        // B：券資比10~20% × 漲≥5%
