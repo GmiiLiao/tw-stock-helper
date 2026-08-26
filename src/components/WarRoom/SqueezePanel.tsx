@@ -9,8 +9,10 @@ import { useAppStore } from '@/lib/store';
 interface Item {
   code: string; name: string; price: number; chg: number;
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
-  setup: number | null; band: string; weakBand?: boolean;
+  setup: number | null; band: string; weakBand?: boolean; brk20?: boolean; hi20?: number | null;
   shrtChg?: number | null; lend?: number | null; lendChg?: number | null; trueRatio?: number | null;
+  fgn?: number | null; trust?: number | null; instNet?: number | null;
+  fgn5?: number | null; trust5?: number | null; inst5?: number | null; trustStreak?: number;
 }
 interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; basis: string; n?: number; nMaterial?: number }
 interface RecItem extends Item { verdict?: Verdict; primary?: boolean; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
@@ -22,11 +24,18 @@ interface Rec {
 }
 interface Data {
   updatedAt: number; priceDate: string; marginDate: string; rule: string;
-  mode?: string; targetDate?: string | null; archDate?: string | null;
+  mode?: string; targetDate?: string | null; archDate?: string | null; instDate?: string | null;
   items: Item[]; count: number;
   recent?: { n: number; days: number; avgNextDay: number; winRate: number } | null;
   evidence?: { days: number; oosBase: number; oosBaseWin: number; t3: number; t3Win: number; t3n: number; t2: number; t2Win: number; t2n: number; t1: number; t1Win: number; t1n: number; t0: number; t0Win: number; t0n: number; shUp: number; shUpWin: number; shDown: number; shDownWin: number; sblTrue50: number; sblTrue100: number; sblUp: number };
 }
+
+// 台股顏色慣例：增加＝紅、減少＝綠（與國際相反，使用者 2026-08-26 指正）。
+// 全站損益/漲跌已是此慣例，籌碼增減沒有理由用另一套。
+const numColor = (v?: number | null) =>
+  v == null || v === 0 ? 'var(--text-muted)' : v > 0 ? 'var(--color-up)' : 'var(--color-down)';
+const fmtSigned = (v?: number | null) =>
+  v == null ? '—' : `${v > 0 ? '+' : ''}${v.toLocaleString()}`;
 
 export default function SqueezePanel() {
   const [d, setD] = useState<Data | null>(null);
@@ -57,7 +66,7 @@ export default function SqueezePanel() {
           <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
             {d.count} 檔 · 分析資料日 {d.archDate ?? d.priceDate}
             {d.mode === 'nextday'
-              ? <> · <b style={{ color: '#22c55e' }}>適用交易日 {d.targetDate}</b>（TWSE 盤後全資料到齊，同日券資比×同日漲幅，與回測定版同口徑）</>
+              ? <> · <b style={{ color: '#22c55e' }}>適用交易日 {d.targetDate}</b>（TWSE 盤後全資料到齊）{d.instDate ? <> · 法人資料日 {d.instDate}（T86 收盤後才出，非即時）</> : null}</>
               : <> · <b style={{ color: '#f59e0b' }}>盤中即時版（券資比為 {d.marginDate}，t-1）</b>——今晚 21:45 資券公布後才會更新為次交易日清單</>}
           </span>
         )}
@@ -206,6 +215,9 @@ export default function SqueezePanel() {
                 <th style={{ padding: '6px 4px' }}>券資比</th>
                 <th style={{ padding: '6px 4px' }}>融券日增</th>
                 <th style={{ padding: '6px 4px' }}>借券賣出(增減)</th>
+                <th style={{ padding: '6px 4px' }}>外資</th>
+                <th style={{ padding: '6px 4px' }}>投信</th>
+                <th style={{ padding: '6px 4px' }}>法人5日</th>
                 <th style={{ padding: '6px 4px' }}>融資/融券(張)</th>
                 <th style={{ padding: '6px 4px' }}>量增</th>
               </tr>
@@ -214,9 +226,9 @@ export default function SqueezePanel() {
               {d.items.map(it => (
                 <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
                   <td style={{ padding: '6px 4px', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                    {it.tier === 3 ? '⭐⭐⭐' : it.tier === 2 ? '⭐⭐' : it.tier === 1 ? '⭐' : '⚠'}
-                    <span style={{ marginLeft: 4, fontSize: 'calc(10px * var(--fz))', color: it.weakBand ? '#f59e0b' : 'var(--text-muted)' }}>
-                      {it.band}
+                    {it.tier === 4 ? '⭐⭐⭐⭐' : it.tier === 3 ? '⭐⭐⭐' : it.tier === 2 ? '⭐⭐' : it.tier === 1 ? '⭐' : '⚠'}
+                    <span style={{ marginLeft: 4, fontSize: 'calc(10px * var(--fz))', color: it.tier === 4 ? '#22c55e' : it.weakBand ? '#f59e0b' : 'var(--text-muted)' }}>
+                      {it.tier === 4 ? '精選·破高' : it.band}
                     </span>
                   </td>
                   <td style={{ padding: '6px 4px', textAlign: 'left' }}>
@@ -230,15 +242,21 @@ export default function SqueezePanel() {
                   <td style={{ padding: '6px 4px', fontWeight: 700, color: it.tier === 3 ? '#22c55e' : it.weakBand ? '#f59e0b' : 'var(--text-primary)' }}>
                     {it.ratio}%
                   </td>
-                  <td style={{ padding: '6px 4px', color: (it.shrtChg ?? 0) > 0 ? '#22c55e' : 'var(--text-muted)' }}>
-                    {it.shrtChg != null ? `+${it.shrtChg.toLocaleString()}` : '—'}
+                  <td style={{ padding: '6px 4px', color: numColor(it.shrtChg), fontWeight: 600 }}>
+                    {fmtSigned(it.shrtChg)}
                   </td>
                   <td style={{ padding: '6px 4px', color: 'var(--text-muted)' }}>
                     {it.lend != null ? it.lend.toLocaleString() : '—'}
-                    {it.lendChg != null && <span style={{ color: it.lendChg < 0 ? '#22c55e' : 'var(--text-muted)', marginLeft: 3, fontSize: 'calc(10px * var(--fz))' }}>
-                      ({it.lendChg >= 0 ? '+' : ''}{it.lendChg})
+                    {it.lendChg != null && <span style={{ color: numColor(it.lendChg), marginLeft: 3, fontSize: 'calc(10px * var(--fz))' }}>
+                      ({fmtSigned(it.lendChg)})
                     </span>}
                   </td>
+                  <td style={{ padding: '6px 4px', color: numColor(it.fgn) }}>{fmtSigned(it.fgn)}</td>
+                  <td style={{ padding: '6px 4px', color: numColor(it.trust) }}>
+                    {fmtSigned(it.trust)}
+                    {(it.trustStreak ?? 0) >= 3 && <span style={{ marginLeft: 3, fontSize: 'calc(10px * var(--fz))', color: '#f59e0b' }}>連{it.trustStreak}</span>}
+                  </td>
+                  <td style={{ padding: '6px 4px', color: numColor(it.inst5), fontWeight: 600 }}>{fmtSigned(it.inst5)}</td>
                   <td style={{ padding: '6px 4px', color: 'var(--text-muted)' }}>{it.mgn.toLocaleString()} / {it.shrt.toLocaleString()}</td>
                   <td style={{ padding: '6px 4px' }}>{it.volX}x</td>
                 </tr>

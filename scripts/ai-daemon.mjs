@@ -4445,6 +4445,13 @@ async function computeSqueezePicks() {
     for (let i = Math.max(0, L - 19); i <= L; i++) { const v = closeMaps[i][code]?.[1] ?? 0; if (v > 0) { s += v; k++; } }
     return k ? s / k : 0;
   };
+  // 前 20 日收盤高（**排除當日**——含當日會讓「破高」在真正創高那天永遠不成立，
+  // 這個坑 2026-08-26 在 marginSnap 踩過一次，不再犯）
+  const hi20Of = (code) => {
+    let h = 0;
+    for (let q = 1; q <= 20; q++) { const v = closeMaps[L - q]?.[code]?.[0] ?? 0; if (v > h) h = v; }
+    return h;
+  };
 
   // 借券賣出餘額（TWT93U）與前一日，用於方向判定
   const lendDoc = (await readArchive(10, 'lendingJson'))[0];
@@ -4454,6 +4461,14 @@ async function computeSqueezePicks() {
   // 前一個有資券的日子（算融券日增）
   const marginPrevDoc = (await readArchive(10, 'marginJson'))[1];
   const marginPrev = marginPrevDoc ? JSON.parse(marginPrevDoc.marginJson) : {};
+  // 三大法人（使用者 2026-08-26 要求併入榜單）：instJson = [外資, 投信]（張）。
+  // ⚠ 台股**沒有盤中法人資料**，T86 收盤後才出 ⇒ 這裡一律是最近已公布日，
+  //   doc 要把該日期標出來，不可讓人以為是即時。自營商本站未逐日歸檔，故不列。
+  const instDoc = (await readArchive(10, 'instJson'))[0];
+  const instMap = instDoc ? JSON.parse(instDoc.instJson) : {};
+  const instDate = instDoc?.date ?? null;
+  // 法人 5 日累計（連續買超是催化劑的實證足跡，實測投信連買≥3日勝率 64.1%）
+  const instDays = (await readArchive(12, 'instJson')).slice(0, 5).map(a => JSON.parse(a.instJson));
 
   const items = [];
   for (const code in margin) {
@@ -4509,15 +4524,31 @@ async function computeSqueezePicks() {
     //   0 = 券資比 15~20%   0.844%/52.4%（n=63）← **樣本外未過基準**，仍列出
     //       但標警示。兩側區間都有效卻獨獨這一段凹陷，n 又只有 63，多半是
     //       雜訊；把中間挖掉是為了讓數字好看的過擬合，不做。誠實標示即可。
-    const tier = ratio >= 20 ? 3 : (ratio >= 15 ? 0 : (ratio >= 10 ? 2 : 1));
+    // ── 最高級「精選」（2026-08-26 為追求高勝率而設）─────────────────
+    //   券資比≥30% × 突破前20日高：樣本外 2.385%/**勝率75.8%**（n=33），
+    //   三段[1.88/2.27/2.38] 逐段走高。頻率約 0.5 檔/日（兩天才一檔）——
+    //   這就是提高勝率的代價：更嚴的門檻換更少的機會，沒有第三條路。
+    //   ⚠ n=33 偏小，介面須標示；且這是「隔日開盤·可買」口徑。
+    const h20 = hi20Of(code);
+    const brk20 = h20 > 0 && price > h20;
+    const tier = (ratio >= 30 && brk20) ? 4
+      : ratio >= 20 ? 3 : (ratio >= 15 ? 0 : (ratio >= 10 ? 2 : 1));
+    const iv = instMap[code];
+    const fgn = iv ? (iv[0] ?? 0) : null, trust = iv ? (iv[1] ?? 0) : null;
+    let f5 = 0, t5 = 0, tStreak = 0, seen = 0;
+    for (const m of instDays) { const v = m[code]; if (!v) continue; seen++; f5 += v[0] ?? 0; t5 += v[1] ?? 0; }
+    for (const m of instDays) { const v = m[code]; if (v && (v[1] ?? 0) > 0) tStreak++; else break; }
     items.push({
       code, name: q?.name || '', price: +price.toFixed(2), chg: +chg.toFixed(2),
+      fgn, trust, instNet: iv ? (fgn + trust) : null,
+      fgn5: seen ? f5 : null, trust5: seen ? t5 : null, inst5: seen ? f5 + t5 : null,
+      trustStreak: tStreak,
       mgn, shrt, ratio: +ratio.toFixed(1),
       shrtChg, lend: lendNow ?? null, lendChg,
       trueRatio: lendNow != null ? +(((shrt + lendNow) / mgn) * 100).toFixed(1) : null,  // 僅供顯示參考，不入選股條件
       volX: av > 0 ? +(todayVol / av).toFixed(1) : 0,
       setup: setupChg != null ? Math.round(setupChg) : null,
-      tier,
+      tier, brk20, hi20: h20 || null,
       band: ratio < 10 ? '5~10%' : ratio < 15 ? '10~15%' : ratio < 20 ? '15~20%' : (ratio < 30 ? '20~30%' : '≥30%'),
       weakBand: ratio >= 15 && ratio < 20,       // 樣本外未過基準的區間，介面要標警示
       live: !!live,
@@ -4564,14 +4595,17 @@ async function computeSqueezePicks() {
   await db.collection('squeezePicks').doc('latest').set({
     mode, targetDate,               // 這份清單「是給哪一天用的」
     archDate: _archDate,            // 分析所根據的收盤資料日
+    marginDate: marginDoc.date,     // 融資券資料日
+    instDate,                       // 三大法人資料日（T86 收盤後才出，非即時）
     recent,
     updatedAt: Date.now(),
     priceDate: ascClose[L].date,
     marginDate: marginDoc.date,        // 券資比資料日（t-1）
-    rule: '漲≥5% × 券資比≥5% × 融券日增>0 × 20日均量≥500張 × 價>10（借券不併入券資比——實測併入反而變差）',
+    rule: '漲≥5% × 券資比≥5% × 融券日增>0 × 20日均量≥500張 × 價>10；⭐⭐⭐⭐精選＝再疊「券資比≥30% × 突破前20日高」（樣本外勝率75.8%·約0.5檔/日）',
     evidence: {
       // 2026-08-26 重測（隔日開盤·可買口徑·樣本外）：
       oosBase: 1.092, oosBaseWin: 58.5,   // 基準：漲≥5%
+      t4: 2.385, t4Win: 75.8, t4n: 33,    // ⭐⭐⭐⭐ 精選：券資比≥30% × 破高（約 0.5 檔/日）
       t3: 1.850, t3Win: 68.4, t3n: 95,    // ⭐⭐⭐ 券資比≥20%
       t2: 1.473, t2Win: 65.0, t2n: 137,   // ⭐⭐ 券資比10~15%
       t1: 1.337, t1Win: 60.0, t1n: 420,   // ⭐ 券資比5~10%
