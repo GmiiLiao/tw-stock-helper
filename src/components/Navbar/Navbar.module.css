@@ -549,14 +549,15 @@
     align-items: center;
     min-height: 0;
     overflow-y: visible;
-    overflow-x: auto;
+    /* 只剩圖示後可以完整塞下，不再需要水平捲動（捲動列本身也是溢位的來源） */
+    overflow-x: hidden;
     scrollbar-width: none;
   }
   .navItems::-webkit-scrollbar { display: none; }
   .navItem {
     flex-direction: column;
-    gap: 2px;
-    padding: 6px 8px;
+    gap: 0;
+    padding: 8px 4px;
     font-size: calc(12.5px * var(--fz));
     min-width: 0;
     flex: 1;
@@ -570,15 +571,27 @@
     background: rgba(61, 142, 248, 0.12);
   }
   .navIcon {
-    font-size: calc(1.2rem * var(--fz));
+    /* 標籤移除後，圖示可以放大到真正好按的尺寸 */
+    font-size: calc(1.5rem * var(--fz));
     width: auto;
+    line-height: 1;
   }
+  /* ── 手機底部導覽：只留 icon（2026-08-27 使用者指定）─────────────
+     全站字級下限拉到 12.5px 之後，8 個項目的文字標籤在窄螢幕上互相擠壓
+     （實測 393px 寬時被 ellipsis 截成「盤中戰情」→「盤中戰…」），
+     圖示本身已足夠辨識，文字反而製造視覺噪音與溢位。
+     ⚠ 不是 display:none 就好——螢幕閱讀器需要可讀名稱，故改為視覺隱藏
+     但保留在無障礙樹中（sr-only 手法）。 */
   .navLabel {
-    font-size: calc(12.5px * var(--fz));
-    white-space: nowrap;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 56px;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .navBadge { display: none; }
   .activeIndicator { display: none; }

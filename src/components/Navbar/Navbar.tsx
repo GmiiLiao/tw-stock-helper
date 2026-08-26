@@ -42,13 +42,15 @@ export default function Navbar() {
     selectedStock,
     user,
     authLoading,
-    setShowAuthModal
+    setShowAuthModal,
+    setHelpSection
   } = useAppStore(useShallow((s) => ({
     currentPage: s.currentPage,
     pageHistory: s.pageHistory,
     navigateTo: s.navigateTo,
     navigateBack: s.navigateBack,
     selectedStock: s.selectedStock,
+    setHelpSection: s.setHelpSection,
     user: s.user,
     authLoading: s.authLoading,
     setShowAuthModal: s.setShowAuthModal,
@@ -249,7 +251,7 @@ export default function Navbar() {
             <button className={styles.dropdownItem} onClick={() => { navigateTo('help'); setShowUserMenu(false); }}>
               <span>📖 使用說明書</span>
             </button>
-            <button className={styles.dropdownItem} onClick={() => { navigateTo('privacy'); setShowUserMenu(false); }}>
+            <button className={styles.dropdownItem} onClick={() => { setHelpSection('privacy'); navigateTo('help'); setShowUserMenu(false); }}>
               <span>🔒 隱私聲明</span>
             </button>
             <FontScaleRow />
@@ -312,8 +314,8 @@ export default function Navbar() {
                   <span>📖 使用說明書</span>
                 </button>
                 <button
-                  className={`${styles.dropdownItem} ${currentPage === 'privacy' ? styles.dropdownItemActive : ''}`}
-                  onClick={() => { navigateTo('privacy'); setShowUserMenu(false); }}
+                  className={`${styles.dropdownItem} ${currentPage === 'help' ? styles.dropdownItemActive : ''}`}
+                  onClick={() => { setHelpSection('privacy'); navigateTo('help'); setShowUserMenu(false); }}
                 >
                   <span>🔒 隱私聲明</span>
                 </button>

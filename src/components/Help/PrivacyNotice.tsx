@@ -45,12 +45,14 @@ const SECTIONS: { t: string; items: string[] }[] = [
   },
 ];
 
-export function PrivacyPage() {
-  const navigateTo = useAppStore(s => s.navigateTo);
+/** 隱私聲明內文（2026-08-27 起併入使用說明書，故抽成可重用元件）。
+ *  獨立頁 PrivacyPage 保留但只是薄殼——舊連結（同意橫幅、外部書籤）不會壞。 */
+export function PrivacyContent() {
   return (
-    <div style={{ padding: '14px 16px', maxWidth: 780, margin: '0 auto', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.9 }}>
-      <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, marginBottom: 4 }}>🔒 隱私聲明</div>
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 12 }}>更新日期：2026-07-17 · 台股助手 TW Stock Pro</div>
+    <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.9 }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 12 }}>
+        更新日期：2026-07-17 · 台股助手 TW Stock Pro
+      </div>
       {SECTIONS.map(sec => (
         <div key={sec.t} style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>{sec.t}</div>
@@ -60,9 +62,19 @@ export function PrivacyPage() {
       <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         本站為投資分析工具，非證券商亦非投資顧問；所有資料與統計僅供參考，非投資建議。
       </div>
-      <button onClick={() => navigateTo('dashboard')}
+    </div>
+  );
+}
+
+export function PrivacyPage() {
+  const navigateTo = useAppStore(s => s.navigateTo);
+  return (
+    <div style={{ padding: '14px 16px', maxWidth: 780, margin: '0 auto' }}>
+      <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, marginBottom: 4 }}>🔒 隱私聲明</div>
+      <PrivacyContent />
+      <button onClick={() => navigateTo('help')}
         style={{ marginTop: 14, padding: '7px 16px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-secondary)' }}>
-        ← 回市場總覽
+        ← 回使用說明書
       </button>
     </div>
   );

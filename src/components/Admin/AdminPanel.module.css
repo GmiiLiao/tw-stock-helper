@@ -123,6 +123,12 @@
     grid-template-columns: 1fr;
     gap: 12px;
   }
+  /* 字級放大後，20px 內距在 375px 寬的手機上會把卡片內容擠到溢位 */
+  .statCard { padding: 12px; gap: 10px; }
+  .controlPanel, .metricsPanel, .logsPanel { padding: 12px; }
+  .logCard { padding: 10px; }
+  /* 表格類一律可橫向捲動（在容器內捲，不是整頁捲） */
+  .tabContent table { display: block; overflow-x: auto; max-width: 100%; }
 }
 
 .statCard {
@@ -229,6 +235,20 @@
 
 .tabContent {
   animation: fadeIn 0.35s ease-out;
+  /* ── 後台卡片溢位防線（2026-08-27 使用者回報手機上卡片超出畫面）──────
+     根因是 CSS grid/flex 子項的預設 `min-width: auto`：子項不會收縮到比
+     內容的 min-content 更窄。全站字級下限拉到 12.5px 之後，原本剛好塞得下
+     的欄位就開始把格線撐寬，於是整頁出現水平捲動、內容被切掉。
+     min-width:0 讓子項可以正常收縮；overflow-wrap 讓長字串（代號、網址、
+     英數 ID）能斷行而不是把容器頂開。 */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* grid/flex 子項一律允許收縮——這是 min-width:auto 造成溢位的通用解 */
+.tabContent :where(div, section, article, p, span, td, th, li) {
+  min-width: 0;
 }
 
 .searchWrapper {
@@ -685,6 +705,8 @@
 }
 
 .controlPanel, .metricsPanel, .logsPanel {
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);

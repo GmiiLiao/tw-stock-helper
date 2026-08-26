@@ -150,6 +150,8 @@ interface AppState {
   // 頁面內分頁選取：存在 store(非持久化)，讓「進個股→返回」時回到原本的子分頁而非重置
   pickerTab: string;      // 選股頁主分頁(recommend/boards/topic/strategy/screen)
   dashTab: string;        // 市場總覽主分頁(market/index/news)
+  /** 使用說明書要開在哪個章節（隱私聲明由選單深連結進來用） */
+  helpSection: string | null;
   warTab: string;         // 盤中戰情主分頁(radar/risefall/chip/limitup/volsurge/desk)
   recommendTab: string;   // AI 推薦選股的策略子分頁(all/intraday/momentum…)
   trackerGroupId: string; // 即時追蹤的群組分頁
@@ -195,6 +197,7 @@ interface AppState {
   setActiveTab: (tab: string) => void;
   setPickerTab: (tab: string) => void;
   setDashTab: (tab: string) => void;
+  setHelpSection: (v: string | null) => void;
   setWarTab: (tab: string) => void;
   setRecommendTab: (tab: string) => void;
   setTrackerGroupId: (id: string) => void;
@@ -294,6 +297,7 @@ export const useAppStore = create<AppState>()(
       selectedStock: null,
       activeTab: 'overview',
       pickerTab: 'recommend',
+      helpSection: null,
       dashTab: 'market',
       warTab: 'risefall',
       recommendTab: 'all',
@@ -377,6 +381,7 @@ export const useAppStore = create<AppState>()(
       setActiveTab: (tab) => set({ activeTab: tab }),
       setPickerTab: (tab) => set({ pickerTab: tab }),
       setDashTab: (tab) => set({ dashTab: tab }),
+      setHelpSection: (v) => set({ helpSection: v }),
       setWarTab: (tab) => set({ warTab: tab }),
       setRecommendTab: (tab) => set({ recommendTab: tab }),
       setTrackerGroupId: (id) => set({ trackerGroupId: id }),

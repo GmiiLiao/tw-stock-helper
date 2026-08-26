@@ -4,13 +4,14 @@
 // 三部分：① 隔日沖操作流程（使用者投資觀念導入） ② 各頁功能說明
 // ③ 完整術語表（可搜尋）。內容與每頁收合說明同源（help-content.ts）。
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { PrivacyContent } from '@/components/Help/PrivacyNotice';
 import { PAGE_HELP, GLOSSARY, WORKFLOW, ONBOARDING, visibleLines, type FlowStep } from '@/lib/help-content';
 import { useAppStore } from '@/lib/store';
 import { usePremiumAccess } from '@/lib/access';
 
 const PAGE_ORDER = ['dashboard', 'picker', 'war', 'desk', 'tracker', 'portfolio', 'backtest', 'stock'];
-type Section = 'onboard' | 'flow' | 'pages' | 'glossary';
+type Section = 'onboard' | 'flow' | 'pages' | 'glossary' | 'privacy';
 
 // 依權限過濾步驟並重編號（premium 步驟隱藏後序號不跳號）；plus＝高級補充句
 const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
@@ -26,7 +27,12 @@ function stepsFor(steps: FlowStep[], hasPremium: boolean): { t: string; d: strin
 export default function HelpManual() {
   const navigateTo = useAppStore(s => s.navigateTo);
   const hasPremium = usePremiumAccess();
-  const [section, setSection] = useState<Section>('onboard');
+  // 深連結：選單「🔒 隱私聲明」設定 helpSection 後導到本頁，這裡開在該章節。
+  // 用完即清，否則下次從別處進說明書還會停在隱私頁。
+  const deepLink = useAppStore(s2 => s2.helpSection);
+  const setHelpSection = useAppStore(s2 => s2.setHelpSection);
+  const [section, setSection] = useState<Section>((deepLink as Section) || 'onboard');
+  useEffect(() => { if (deepLink) setHelpSection(null); }, [deepLink, setHelpSection]);
   const [q, setQ] = useState('');
   const [openPage, setOpenPage] = useState<string | null>(hasPremium ? 'war' : 'dashboard');
   // 權限一致性（使用者定案）：沒有權限的功能，說明書也不出現
@@ -46,6 +52,7 @@ export default function HelpManual() {
     { key: 'flow', label: '🧭 隔日沖操作流程' },
     { key: 'pages', label: '🗂 各頁功能說明' },
     { key: 'glossary', label: '📚 術語表' },
+    { key: 'privacy', label: '🔒 隱私聲明' },
   ];
 
   return (
@@ -158,6 +165,10 @@ export default function HelpManual() {
           </div>
         </div>
       )}
+
+      {/* 🔒 隱私聲明（2026-08-27 使用者要求：由獨立頁併入說明書）
+          內容單一來源在 PrivacyNotice.tsx，兩處共用，不複製第二份。 */}
+      {section === 'privacy' && <PrivacyContent />}
 
       <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={() => navigateTo('dashboard')}
