@@ -21,8 +21,11 @@ interface Model {
   passedCount?: number; comboCount?: number; survivorCount?: number;
   placebo?: { maxOfRandom: number; meanOfRandom: number; trials: number } | null;
 }
+interface ReviewDay { date: string; targetDate: string; picked: number; hit: number; precision: number | null; avgRet: number | null; buyRate: number | null; successTotal: number; successAll?: number; caught: number; recall: number | null; recallAll?: number | null; missed: number; why: Record<string, number>; missTop: Array<{ code: string; chg: number; ratio: number; shrtChg: number; ret: number; reasons: string[] }>; newsLift?: { bull: { n: number; avg?: number; win?: number }; neutral: { n: number; avg?: number; win?: number }; none: { n: number; avg?: number }; bear: { n: number; avg?: number } } | null }
+interface ReviewSum { days: number; from: string; to: string; totalPicked: number; totalHit: number; precision: number | null; avgRet: number | null; totalSuccess: number; totalSuccessAll?: number; totalCaught: number; recall: number | null; recallAll?: number | null; totalMissed: number; whyAgg: Record<string, number>; daysWithNews?: number; newsLiftAgg?: Record<string, { n: number; avg?: number }>; note?: string }
 interface Data {
   found: boolean; model: Model | null;
+  review?: { summary: ReviewSum | null; daily: ReviewDay[] };
   reports: Array<{ runId: string; updatedAt: number; status: string; period?: { from: string; to: string }; mainName?: string | null; mainOot?: Stat | null; edge?: number | null; sqName?: string | null; sqLift?: number | null; survivorCount?: number | null }>;
   dataset: { days: number; totalRows: number; totalLimitUp: number; recent: Array<{ date: string; n: number; nLimitUp: number; nControl: number }> };
   globalHistory: { days: number | null; updatedAt: number | null; syms: Array<{ sym: string; key: string }> } | null;
@@ -204,6 +207,86 @@ export default function SqueezeModel() {
           </div>
         </div>
       )}
+
+      {/* 每日檢討：命中率 / 召回率 / 漏網診斷 */}
+      {d.review?.summary && (() => {
+        const rv = d.review.summary!;
+        const WHY: Record<string, string> = { chg: '當日漲幅<5%', shrtChg: '融券日增≤0', ratio: '券資比<5%', vol: '20日均量<500張' };
+        return (
+          <div style={{ ...box, borderColor: 'rgba(245,158,11,0.4)' }}>
+            <b>⑦ 每日檢討報表（推薦對答案 × 漏網診斷）</b>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 5 }}>
+              {rv.from} ~ {rv.to}（{rv.days} 個交易日）
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(190px,100%),1fr))', gap: 8, marginBottom: 6 }}>
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>命中率（推薦的隔日開盤上漲）</div>
+                <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color: '#22c55e' }}>{rv.precision}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>{rv.totalHit}/{rv.totalPicked} 檔次 · 平均 {pn(rv.avgRet)}</div>
+              </div>
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>召回率（軋空型機會抓到幾成）</div>
+                <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color: (rv.recall ?? 0) >= 90 ? '#22c55e' : '#f59e0b' }}>{rv.recall}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>{rv.totalCaught}/{rv.totalSuccess} · 漏網 {rv.totalMissed}</div>
+              </div>
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>全部跳空機會涵蓋率</div>
+                <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)' }}>{rv.recallAll ?? '—'}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>母體含非軋空成因，本來就低</div>
+              </div>
+            </div>
+            <div style={{ marginBottom: 6 }}>
+              <b style={{ fontSize: 'calc(12px * var(--fz))' }}>漏網主因（可據以逐日修正）</b>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 3 }}>
+                {Object.entries(rv.whyAgg || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                  <span key={k} style={{ padding: '2px 9px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                    {WHY[k] ?? k} <b>{v}</b> 檔次
+                  </span>
+                ))}
+              </div>
+            </div>
+            {rv.newsLiftAgg && (
+              <div style={{ marginBottom: 6 }}>
+                <b style={{ fontSize: 'calc(12px * var(--fz))' }}>AI 新聞判別加值</b>
+                <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontSize: 'calc(11px * var(--fz))' }}>
+                  （{rv.daysWithNews ?? 0} 個交易日有判別存檔{(rv.daysWithNews ?? 0) < 20 ? '·樣本尚不足以定論' : ''}）
+                </span>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
+                  {(['bull', 'neutral', 'none', 'bear'] as const).map(k => {
+                    const g = rv.newsLiftAgg![k]; const lbl = { bull: '利多', neutral: '中性', none: '資訊不足', bear: '利空' }[k];
+                    return <span key={k} style={{ color: 'var(--text-muted)' }}>{lbl}：{g?.n ? <b style={{ color: (g.avg ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pn(g.avg)}</b> : '—'}（n={g?.n ?? 0}）</span>;
+                  })}
+                </div>
+              </div>
+            )}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 640 }}>
+                <thead><tr>
+                  <th style={{ ...th, textAlign: 'left' }}>資料日→適用日</th><th style={th}>推薦</th><th style={th}>命中</th>
+                  <th style={th}>命中率</th><th style={th}>平均</th><th style={th}>召回</th><th style={{ ...th, textAlign: 'left' }}>最大漏網</th>
+                </tr></thead>
+                <tbody>
+                  {d.review!.daily.slice(0, 12).map(r => (
+                    <tr key={r.date} style={{ borderTop: '1px solid var(--border-primary)' }}>
+                      <td style={{ ...td, textAlign: 'left', whiteSpace: 'nowrap' }}>{r.date.slice(5)}→{r.targetDate.slice(5)}</td>
+                      <td style={td}>{r.picked}</td><td style={td}>{r.hit}</td>
+                      <td style={{ ...td, color: (r.precision ?? 0) >= 60 ? '#22c55e' : 'var(--text-primary)' }}>{r.precision ?? '—'}%</td>
+                      <td style={td}>{pn(r.avgRet)}</td>
+                      <td style={td}>{r.recall ?? '—'}%</td>
+                      <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>
+                        {r.missTop?.[0] ? `${r.missTop[0].code} +${r.missTop[0].ret}%（${r.missTop[0].reasons.join('・')}）` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))', marginTop: 5, lineHeight: 1.7 }}>
+              {rv.note}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 歷史報表 */}
       <div style={box}>

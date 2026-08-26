@@ -4121,7 +4121,10 @@ ${body}
     await sleep(600);
   }
   out.sort((a, b) => (b.primary - a.primary) || (b.tier - a.tier) || (b.chg - a.chg));
-  await db.collection('squeezeRecommend').doc('latest').set({
+  // 逐日存檔：新聞判別的價值不能靠說的，要能對答案。存下「當時的判別」
+  // 才可能在隔日算出「利多組 vs 中性組」的實際差異（使用者 2026-08-26 要求
+  // 累積訓練內容的核心）。latest 供前端讀，日期檔供 squeezeReview 對答案。
+  const recDoc = {
     updatedAt: Date.now(),
     targetDate: picks.targetDate ?? null,       // 這份判別是給哪一個交易日用的
     archDate: picks.archDate ?? null,
@@ -4132,9 +4135,11 @@ ${body}
     global: gToday,
     items: out,
     primaryCount: out.filter(x => x.primary).length,
-    newsSource: '鉅亨網（讀內文）',
-    note: '新聞判別由本機 AI 讀**內文**後給出；價格/行情報導一律不採計為利多。判別僅為加權，非投資建議。',
-  });
+    newsSource: '鉅亨（內文）＋GoogleNews（標題）',
+    note: '新聞判別由本機 AI 讀內文/標題後給出；機器速報不採計。判別僅為加權，非投資建議。',
+  };
+  await db.collection('squeezeRecommend').doc('latest').set(recDoc);
+  if (picks.targetDate) await db.collection('squeezeRecommend').doc(picks.targetDate).set(recDoc);
   log(`✓ 軋空新聞判別（適用 ${picks.targetDate ?? '?'}）：${out.length} 檔，主力推薦 ${out.filter(x => x.primary).length} 檔`);
 }
 
@@ -4178,6 +4183,163 @@ function nextTradingDay(fromIso) {
     if (dow !== 0 && dow !== 6 && !TW_HOLIDAYS.has(iso)) return iso;
   }
   return null;
+}
+
+// ── 軋空推薦每日對答案 × 漏網診斷（2026-08-26 使用者需求）──────────────
+//
+// 誠實前提（寫在最前面，因為它決定整套系統怎麼設計）：
+//   **隔日勝率 9 成做不到**。本站最好的樣本外結果是 68.4%，專業機構的隔日
+//   策略普遍 55~65%。宣稱 90% 隔日勝率的系統不是過擬合就是話術。
+//   可以追求 9 成的是**召回率（漏網率<10%）**：「明日真正軋空的股票，
+//   有多少比例出現在我的候選名單裡」。兩個數字語意完全不同，必須分開報。
+//
+// 每日產出：
+//   ① 命中率（precision）：我推薦的，隔日開盤真的漲的比例
+//   ② 召回率（recall）：隔日真的軋空的，我有抓到的比例  ← 這個追 9 成
+//   ③ 漏網清單 + **逐檔診斷是哪一道濾網擋掉的**（可據以逐日修正）
+const SQ_SUCCESS_OPEN = 3;      // 「隔日真的軋空」的定義：開盤報酬 ≥ +3%
+const SQ_HIT_OPEN = 0;          // 「推薦命中」的定義：開盤報酬 > 0（隔日沖實際可取得）
+
+async function computeSqueezeReview({ backfillDays = 0 } = {}) {
+  const arch = await readArchive(Math.max(40, backfillDays + 30), 'closeJson');
+  const days = arch.slice().reverse().map(a => ({
+    date: a.date,
+    close: JSON.parse(a.closeJson),
+    margin: a.marginJson ? JSON.parse(a.marginJson) : null,
+  }));
+  const T = days.length;
+  if (T < 26) return;
+  const tickOf = p => (p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5);
+  const mgAt = i => { for (let k = i; k >= 0 && k > i - 6; k--) if (days[k].margin) return k; return -1; };
+  const avgVol = (t, c) => { let s2 = 0, k = 0; for (let i = Math.max(0, t - 19); i <= t; i++) { const v = days[i].close[c]?.[1] ?? 0; if (v > 0) { s2 += v; k++; } } return k ? s2 / k : 0; };
+
+  // 重放「當時」的候選（用 t 日收盤後全資料，與線上 nextday 模式同口徑）
+  const replayPicks = (t) => {
+    const m1 = mgAt(t); if (m1 < 0) return null;
+    const m2 = mgAt(m1 - 1); if (m2 < 0) return null;
+    const out = [];
+    for (const code in days[m1].margin) {
+      if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+      const mg = days[m1].margin[code]; if (!mg || !(mg[0] > 0) || !(mg[1] > 0)) continue;
+      const cur = days[t].close[code], p1 = days[t - 1]?.close[code];
+      if (!cur || !p1) continue;
+      const close = cur[0], prev = p1[0];
+      if (!(close > 10) || !(prev > 0)) continue;
+      const chg = ((close - prev) / prev) * 100;
+      const ratio = (mg[1] / mg[0]) * 100;
+      const shrtChg = mg[1] - (days[m2].margin[code]?.[1] ?? 0);
+      const av = avgVol(t, code);
+      const pass = chg >= 5 && ratio >= 5 && shrtChg > 0 && av >= 500;
+      out.push({ code, chg, ratio, shrtChg, av, close, pass });
+    }
+    return out;
+  };
+
+  const reviews = [];
+  const start = Math.max(26, T - 1 - Math.max(1, backfillDays));
+  for (let t = start; t < T - 1; t++) {
+    const all = replayPicks(t); if (!all) continue;
+    const nxt = days[t + 1];
+    const openRet = (o) => { const nx = nxt.close[o.code]; if (!nx) return null; const oo = nx[2]; return oo > 0 ? ((oo - o.close) / o.close) * 100 : null; };
+    const buyable = (o) => { const nx = nxt.close[o.code]; if (!nx) return null; const raw = o.close * 1.1, tk = tickOf(raw); return nx[2] > 0 ? nx[2] < Math.floor(raw / tk + 1e-9) * tk - 1e-6 : null; };
+
+    const picked = all.filter(o => o.pass).map(o => ({ ...o, ret: openRet(o), buy: buyable(o) })).filter(o => o.ret != null);
+    const hit = picked.filter(o => o.ret > SQ_HIT_OPEN);
+    // ⚠ 召回率的母體必須講清楚，否則數字沒有意義（第一版就踩到）：
+    //   母體A「全部機會」＝任何隔日開盤≥+3% 的股票。用軋空濾網去追這個母體，
+    //     召回率必然極低（實測 4.3%）——因為多數跳空與軋空無關（法說、
+    //     題材、大盤整體跳空…）。拿這個數字說「漏網 95%」是誤導。
+    //   母體B「軋空型機會」＝隔日開盤≥+3% **且本來就有空單可軋**
+    //     （券資比≥5%，即這檔股票存在被軋的物理條件）。這才是本策略該負責
+    //     的範圍，也是「漏網率<10%」該追的對象。
+    //   兩個都報，不藏。
+    const universe = all.map(o => ({ ...o, ret: openRet(o) })).filter(o => o.ret != null && o.av >= 500 && o.close > 10);
+    const successAll = universe.filter(o => o.ret >= SQ_SUCCESS_OPEN);
+    const success = successAll.filter(o => o.ratio >= 5);          // 母體B：有空單可軋
+    const caught = success.filter(o => o.pass);
+    const missed = success.filter(o => !o.pass);
+
+    // 逐檔診斷：是哪一道濾網擋掉的（可能多道，記全部）
+    const why = { chg: 0, ratio: 0, shrtChg: 0, vol: 0 };
+    const missDetail = missed.map(o => {
+      const reasons = [];
+      if (!(o.chg >= 5)) { reasons.push('當日漲幅<5%'); why.chg++; }
+      if (!(o.ratio >= 5)) { reasons.push('券資比<5%'); why.ratio++; }
+      if (!(o.shrtChg > 0)) { reasons.push('融券日增≤0'); why.shrtChg++; }
+      if (!(o.av >= 500)) { reasons.push('均量<500張'); why.vol++; }
+      return { code: o.code, chg: +o.chg.toFixed(2), ratio: +o.ratio.toFixed(1), shrtChg: o.shrtChg, ret: +o.ret.toFixed(2), reasons };
+    }).sort((a, b) => b.ret - a.ret);
+
+    // 新聞判別加值：把當日存檔的 AI 判別接回來，看「利多組」是否真的比較好。
+    // 沒有存檔（該日還沒上線判別）就是 null——不可為了有數字而假造。
+    let newsLift = null;
+    try {
+      const rec = (await db.collection('squeezeRecommend').doc(nxt.date).get()).data();
+      if (rec?.items?.length) {
+        const byCode = {};
+        for (const it of rec.items) byCode[it.code] = it.verdict?.label ?? null;
+        const grp = { 利多: [], 中性: [], 資訊不足: [], 利空: [] };
+        for (const o of picked) { const lb = byCode[o.code]; if (lb && grp[lb]) grp[lb].push(o.ret); }
+        const g = (k) => grp[k].length ? { n: grp[k].length, avg: +(grp[k].reduce((a, b) => a + b, 0) / grp[k].length).toFixed(3), win: +(grp[k].filter(v => v > 0).length / grp[k].length * 100).toFixed(1) } : { n: 0 };
+        newsLift = { bull: g('利多'), neutral: g('中性'), none: g('資訊不足'), bear: g('利空') };
+      }
+    } catch { /* 無存檔就是 null */ }
+
+    reviews.push({
+      date: days[t].date, targetDate: nxt.date,
+      newsLift,
+      picked: picked.length,
+      hit: hit.length,
+      precision: picked.length ? +(hit.length / picked.length * 100).toFixed(1) : null,
+      avgRet: picked.length ? +(picked.reduce((s2, o) => s2 + o.ret, 0) / picked.length).toFixed(3) : null,
+      buyRate: picked.length ? +(picked.filter(o => o.buy).length / picked.length * 100).toFixed(1) : null,
+      successTotal: success.length,                 // 母體B：軋空型機會
+      successAll: successAll.length,                // 母體A：全部跳空機會
+      caught: caught.length,
+      recall: success.length ? +(caught.length / success.length * 100).toFixed(1) : null,
+      recallAll: successAll.length ? +(caught.length / successAll.length * 100).toFixed(1) : null,
+      missed: missed.length,
+      why,
+      missTop: missDetail.slice(0, 12),
+    });
+  }
+  if (!reviews.length) { log('  ⚠ 軋空檢討：無可對答案的日子'); return; }
+
+  // 逐日寫入 + 彙總
+  for (const r of reviews) {
+    await db.collection('squeezeReview').doc(r.date).set({ ...r, updatedAt: Date.now() });
+  }
+  const agg = (k) => reviews.map(r => r[k]).filter(v => v != null);
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const summary = {
+    updatedAt: Date.now(),
+    days: reviews.length,
+    from: reviews[0].date, to: reviews[reviews.length - 1].date,
+    totalPicked: sum(reviews.map(r => r.picked)),
+    totalHit: sum(reviews.map(r => r.hit)),
+    precision: sum(reviews.map(r => r.picked)) ? +(sum(reviews.map(r => r.hit)) / sum(reviews.map(r => r.picked)) * 100).toFixed(1) : null,
+    avgRet: agg('avgRet').length ? +(sum(agg('avgRet')) / agg('avgRet').length).toFixed(3) : null,
+    totalSuccess: sum(reviews.map(r => r.successTotal)),
+    totalSuccessAll: sum(reviews.map(r => r.successAll)),
+    recallAll: sum(reviews.map(r => r.successAll)) ? +(sum(reviews.map(r => r.caught)) / sum(reviews.map(r => r.successAll)) * 100).toFixed(1) : null,
+    totalCaught: sum(reviews.map(r => r.caught)),
+    recall: sum(reviews.map(r => r.successTotal)) ? +(sum(reviews.map(r => r.caught)) / sum(reviews.map(r => r.successTotal)) * 100).toFixed(1) : null,
+    totalMissed: sum(reviews.map(r => r.missed)),
+    whyAgg: reviews.reduce((acc, r) => { for (const k in r.why) acc[k] = (acc[k] || 0) + r.why[k]; return acc; }, {}),
+    // 新聞判別加值彙總（只算有存檔判別的日子；天數不足時 n 會很小，介面要標示）
+    newsLiftAgg: (() => {
+      const acc = { bull: [], neutral: [], none: [], bear: [] };
+      for (const r of reviews) { if (!r.newsLift) continue; for (const k in acc) { const g = r.newsLift[k]; if (g?.n) for (let i = 0; i < g.n; i++) acc[k].push(g.avg); } }
+      const f = (a) => a.length ? { n: a.length, avg: +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(3) } : { n: 0 };
+      return { bull: f(acc.bull), neutral: f(acc.neutral), none: f(acc.none), bear: f(acc.bear) };
+    })(),
+    daysWithNews: reviews.filter(r => r.newsLift).length,
+    note: '命中率＝推薦的隔日開盤上漲比例。召回率(母體B)＝「隔日開盤≥+3% 且券資比≥5%(有空單可軋)」中被抓到的比例——這才是本策略該負責的範圍。recallAll(母體A)＝對全部跳空機會的涵蓋率，本來就會低，因為多數跳空與軋空無關。隔日勝率 9 成不可能（最強催化劑代理實測僅 62~64%），可追求 9 成的是召回率。',
+  };
+  await db.collection('squeezeReview').doc('summary').set(summary);
+  log(`✓ 軋空檢討 ${reviews.length} 日：命中率 ${summary.precision}%｜召回率 ${summary.recall}%｜漏網 ${summary.totalMissed} 檔`);
+  log(`   漏網主因：${Object.entries(summary.whyAgg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}=${v}`).join('、')}`);
+  return summary;
 }
 
 // ── 軋空訓練資料：每日漲停股的「當日 × 前一日」完整狀態 ────────────────
@@ -10298,6 +10460,8 @@ async function dailyJobsLoop() {
           // 完整狀態＋國際盤連動存進第二大腦。必須排在資券歸檔之後，否則
           // 融資券欄位是空的（當日 21:45 才回填）。
           try { await recordSqueezeTraining(); } catch (e) { log('✖ 軋空訓練資料:', e.message); }
+          // 逐日對答案＋漏網診斷（使用者要求逐日修正）
+          try { await computeSqueezeReview({ backfillDays: 3 }); } catch (e) { log('✖ 軋空檢討:', e.message); }
         }
         // 16:45 籌碼性格分類（炒作/長期核心，3 年 chipArchive；官方補抓寫完當日 archive 後）
         if (mins >= 16 * 60 + 45 && _characterDate !== today) {
@@ -10432,6 +10596,7 @@ if (ONESHOT) {
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
     squeezePicks: () => computeSqueezePicks(),        // 手動產出軋空候選(含次交易日模式)
+    squeezeReview: () => computeSqueezeReview({ backfillDays: Number(process.argv[process.argv.indexOf('--run') + 2] || 60) }),
     squeezeTraining: () => recordSqueezeTraining(),   // 手動補當日訓練資料
     globalHist: () => updateGlobalHistory(),          // 手動更新國際盤歷史
     squeezeRec: () => computeSqueezeNewsVerdict(),    // 手動產出新聞判別(讀內文+AI)

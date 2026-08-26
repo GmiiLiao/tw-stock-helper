@@ -23,11 +23,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ found: true, report: r }, { headers: { 'Cache-Control': 'no-store' } });
     }
 
-    const [modelSnap, reportsSnap, trainSnap, globalSnap] = await Promise.all([
+    const [modelSnap, reportsSnap, trainSnap, globalSnap, reviewSnap, reviewSum] = await Promise.all([
       db.collection('squeezeModel').doc('latest').get(),
       db.collection('squeezeReport').orderBy('updatedAt', 'desc').limit(20).get(),
       db.collection('squeezeTraining').orderBy('date', 'desc').limit(400).get(),
       db.collection('squeezeTraining').doc('global').get(),
+      db.collection('squeezeReview').orderBy('date', 'desc').limit(30).get(),
+      db.collection('squeezeReview').doc('summary').get(),
     ]);
 
     const model = modelSnap.exists ? modelSnap.data() : null;
@@ -61,6 +63,10 @@ export async function GET(request: Request) {
         recent: dataset.slice(0, 30),
       },
       globalHistory: g ? { days: g.days ?? null, updatedAt: g.updatedAt ?? null, syms: g.syms ?? [] } : null,
+      review: {
+        summary: reviewSum.exists ? reviewSum.data() : null,
+        daily: reviewSnap.docs.filter(x => x.id !== 'summary').map(x => x.data()),
+      },
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
