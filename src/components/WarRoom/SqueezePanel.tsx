@@ -9,11 +9,12 @@ import { useAppStore } from '@/lib/store';
 interface Item {
   code: string; name: string; price: number; chg: number;
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
+  setup: number | null; band: string;
 }
 interface Data {
   updatedAt: number; priceDate: string; marginDate: string; rule: string;
   items: Item[]; count: number;
-  evidence?: { base5d: number; baseWin: number; band1015: number; win1015: number; band1020: number; win1020: number; band20up: number; n: number; days: number };
+  evidence?: { base5d: number; baseWin: number; setupOnly: number; setupWin: number; bandOnly: number; bandWin: number; combo: number; comboWin: number; bNoA: number; bNoAWin: number; band20up: number; n: number; days: number };
 }
 
 export default function SqueezePanel() {
@@ -48,14 +49,16 @@ export default function SqueezePanel() {
       {/* 實證揭露：邊際效益多小，講在最前面 */}
       {ev && (
         <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.65 }}>
-          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: 2 }}>實測校準（{ev.days} 日 / {ev.n.toLocaleString()} 筆事件）</div>
-          <div>
-            券資比 10~15%：5 日 <b style={{ color: 'var(--color-up)' }}>+{ev.band1015}%</b>（勝率 {ev.win1015}%）·
-            15~20%：+{(ev.band1020).toFixed(2)}% 區間整體 ·
-            純動能對照（僅漲≥5%）：+{ev.base5d}%（勝率 {ev.baseWin}%）
+          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: 3 }}>實測校準（{ev.days} 日 / {ev.n.toLocaleString()} 筆事件·5 日報酬）</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', gap: '1px 10px', marginBottom: 3 }}>
+            <span style={{ color: 'var(--text-muted)' }}>純動能對照（僅漲≥5%）</span><span>+{ev.base5d}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.baseWin}%</span>
+            <span style={{ color: 'var(--text-muted)' }}>A 軋空啟動（昨券增）</span><span>+{ev.setupOnly}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.setupWin}%</span>
+            <span style={{ color: 'var(--text-muted)' }}>B 券資比 10~20%</span><span>+{ev.bandOnly}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.bandWin}%</span>
+            <span style={{ fontWeight: 700, color: '#22c55e' }}>⭐⭐ A∩B（兩者皆成立）</span><span style={{ fontWeight: 700, color: 'var(--color-up)' }}>+{ev.combo}%</span><span style={{ fontWeight: 700 }}>勝率 {ev.comboWin}%</span>
+            <span style={{ color: 'var(--text-muted)' }}>⭐ 僅 B（無 A）</span><span>+{ev.bNoA}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.bNoAWin}%（近段轉弱）</span>
           </div>
           <div style={{ color: 'var(--text-muted)' }}>
-            ⇒ 券資比的邊際貢獻約 <b>+1.5pp</b>，是<b>傾向</b>不是預測。
+            ⇒ 相對純動能的邊際貢獻約 <b>+1.8pp</b>，是<b>傾向</b>不是預測。
             反直覺：券資比 <b>≥20% 反而掉到 +{ev.band20up}%</b>（低於純動能）——極高券資比多半是空方看對或避險空單，不會被軋，故本榜刻意排除。
           </div>
         </div>
@@ -78,6 +81,7 @@ export default function SqueezePanel() {
                 <th style={{ padding: '6px 4px' }}>現價</th>
                 <th style={{ padding: '6px 4px' }}>漲幅</th>
                 <th style={{ padding: '6px 4px' }}>券資比</th>
+                <th style={{ padding: '6px 4px' }}>昨券增(張)</th>
                 <th style={{ padding: '6px 4px' }}>融資/融券(張)</th>
                 <th style={{ padding: '6px 4px' }}>量增</th>
               </tr>
@@ -88,7 +92,7 @@ export default function SqueezePanel() {
                   <td style={{ padding: '6px 4px', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     {it.tier === 2 ? '⭐⭐' : '⭐'}
                     <span style={{ marginLeft: 4, fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>
-                      {it.tier === 2 ? '10~15%' : '15~20%'}
+                      {it.tier === 2 ? 'A∩B' : '僅B'}
                     </span>
                   </td>
                   <td style={{ padding: '6px 4px', textAlign: 'left' }}>
@@ -99,7 +103,12 @@ export default function SqueezePanel() {
                   </td>
                   <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
                   <td style={{ padding: '6px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>
-                  <td style={{ padding: '6px 4px', fontWeight: 700, color: it.tier === 2 ? '#22c55e' : 'var(--text-primary)' }}>{it.ratio}%</td>
+                  <td style={{ padding: '6px 4px', fontWeight: 700, color: it.tier === 2 ? '#22c55e' : 'var(--text-primary)' }}>
+                    {it.ratio}%<span style={{ marginLeft: 3, fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>{it.band}</span>
+                  </td>
+                  <td style={{ padding: '6px 4px', color: it.setup != null ? '#22c55e' : 'var(--text-muted)' }}>
+                    {it.setup != null ? `+${it.setup.toLocaleString()}` : '—'}
+                  </td>
                   <td style={{ padding: '6px 4px', color: 'var(--text-muted)' }}>{it.mgn.toLocaleString()} / {it.shrt.toLocaleString()}</td>
                   <td style={{ padding: '6px 4px' }}>{it.volX}x</td>
                 </tr>
@@ -111,6 +120,7 @@ export default function SqueezePanel() {
 
       <div style={{ marginTop: 10, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         規則：{d?.rule || '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10'}。
+        「軋空啟動(A)」沿用站上撿尾盤既有的同名訊號（昨日融券增≥昨量0.5%，2 年稽核），不另立第二套定義。
         券資比＝融券餘額÷融資餘額，取<b>最近已公布</b>的交易日（t-1）；漲幅為當日。
         台股不適用美股常用的 days-to-cover（融券量相對成交量過小，回測樣本近乎 0）。
         <b>非投資建議。</b>

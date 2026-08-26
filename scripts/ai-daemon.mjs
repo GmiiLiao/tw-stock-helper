@@ -3973,6 +3973,20 @@ async function computeSqueezePicks() {
   const L = ascClose.length - 1;
   const closeMaps = ascClose.map(a => JSON.parse(a.closeJson));
   const prevMap = closeMaps[L - 1] || {};
+  // 站上**早就有**一個「軋空啟動」訊號（squeezeSetup：昨日融券增≥昨量0.5%，
+  // 2 年稽核 46.0~47.7%），用在撿尾盤的理由標籤。若這裡再自立一套「軋空」，
+  // 同一個詞在站上就有兩種定義——正是今天早上圓餅圖分母那個坑。
+  // ⇒ 直接合體。實測（240日）：
+  //     純動能漲≥5%        +2.04% 勝率50%
+  //     A 軋空啟動×漲≥5%    +2.28% 勝率50%（單獨用幾乎沒贏基準）
+  //     B 券資比10~20%×漲≥5% +3.45% 勝率56%
+  //     A∩B               +3.81% 勝率56% 三段[2.85/5.16/2.88] ← 最佳且最穩
+  //     B 但無 A           +2.69% 勝率54% 三段[2.83/3.96/0.42] ← 近段塌陷
+  let setupMap = {};
+  try {
+    const sq = (await db.collection('squeezeSetup').doc('latest').get()).data();
+    if (sq?.codesJson) setupMap = JSON.parse(sq.codesJson);
+  } catch { /* 缺 setup 只影響分級，不擋榜 */ }
 
   const avgVol = (code) => {
     let s = 0, k = 0;
@@ -3997,11 +4011,14 @@ async function computeSqueezePicks() {
     const av = avgVol(code);
     if (av < 500) continue;
     const todayVol = live ? Math.round((q.volume ?? 0) / 1000) : (closeMaps[L][code]?.[1] ?? 0);
+    const setupChg = setupMap[code];                             // 昨日融券增張數（有值＝A 成立）
     items.push({
       code, name: q?.name || '', price: +price.toFixed(2), chg: +chg.toFixed(2),
       mgn, shrt, ratio: +ratio.toFixed(1),
       volX: av > 0 ? +(todayVol / av).toFixed(1) : 0,
-      tier: ratio < 15 ? 2 : 1,                                  // 2=⭐⭐(10~15%) 1=⭐(15~20%)
+      setup: setupChg != null ? Math.round(setupChg) : null,     // A：昨日融券增（張）
+      tier: setupChg != null ? 2 : 1,                            // 2=⭐⭐(A∩B) 1=⭐(僅B)
+      band: ratio < 15 ? '10~15%' : '15~20%',
       live: !!live,
     });
   }
@@ -4010,8 +4027,16 @@ async function computeSqueezePicks() {
     updatedAt: Date.now(),
     priceDate: ascClose[L].date,
     marginDate: marginDoc.date,        // 券資比資料日（t-1）
-    rule: '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10',
-    evidence: { base5d: 2.03, baseWin: 50, band1015: 3.72, win1015: 57, band1020: 3.48, win1020: 56, band20up: 1.46, n: 169878, days: 240 },
+    rule: '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10；⭐⭐＝再疊「昨日融券增≥昨量0.5%」(軋空啟動)',
+    evidence: {
+      base5d: 2.04, baseWin: 50,          // 純動能對照（僅漲≥5%）
+      setupOnly: 2.28, setupWin: 50,      // A：既有軋空啟動 × 漲≥5%
+      bandOnly: 3.45, bandWin: 56,        // B：券資比10~20% × 漲≥5%
+      combo: 3.81, comboWin: 56,          // A∩B ← 定版最高級
+      bNoA: 2.69, bNoAWin: 54,            // B 但無 A（近段轉弱 0.42）
+      band20up: 1.46,                     // 券資比≥20% 反而低於純動能
+      n: 170132, days: 240,
+    },
     items: items.slice(0, 40),
     count: items.length,
   });
