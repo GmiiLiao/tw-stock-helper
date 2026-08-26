@@ -14,6 +14,7 @@ interface Item {
 interface Data {
   updatedAt: number; priceDate: string; marginDate: string; rule: string;
   items: Item[]; count: number;
+  recent?: { n: number; days: number; avgNextDay: number; winRate: number } | null;
   evidence?: { base5d: number; baseWin: number; setupOnly: number; setupWin: number; bandOnly: number; bandWin: number; combo: number; comboWin: number; bNoA: number; bNoAWin: number; band20up: number; n: number; days: number };
 }
 
@@ -46,6 +47,32 @@ export default function SqueezePanel() {
         )}
       </div>
 
+      {/* 近期實際戰績——擺在回測數字之前。使用者是隔日沖，會照著明天下單，
+          只掛長期期望值而不講當下正在回檔，是不誠實的。 */}
+      {d?.recent && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 8, marginBottom: 8,
+          background: d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)',
+          border: `1px solid ${d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.4)'}`,
+          fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.65,
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 2, color: d.recent.avgNextDay >= 0 ? '#22c55e' : '#ef4444' }}>
+            近 30 個交易日實際戰績（同一條規則回放）
+          </div>
+          <div>
+            共選出 <b>{d.recent.n}</b> 檔次（{d.recent.days} 個有訊號日）·
+            隔日平均 <b style={{ color: d.recent.avgNextDay >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+              {d.recent.avgNextDay >= 0 ? '+' : ''}{d.recent.avgNextDay}%
+            </b> · 勝率 <b>{d.recent.winRate}%</b>
+          </div>
+          {d.recent.avgNextDay < 0 && (
+            <div style={{ color: '#ef4444', fontWeight: 600 }}>
+              ⚠ 訊號目前處於回檔期：近期隔日報酬為負，與長期期望值（+1.62%／勝率55%）背離。單日離散度很大（實測區間 −8.4% ~ +7.6%），請勿因為看到榜單就加大部位。
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 實證揭露：邊際效益多小，講在最前面 */}
       {ev && (
         <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.65 }}>
@@ -58,7 +85,10 @@ export default function SqueezePanel() {
             <span style={{ color: 'var(--text-muted)' }}>⭐ 僅 B（無 A）</span><span>+{ev.bNoA}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.bNoAWin}%（近段轉弱）</span>
           </div>
           <div style={{ color: 'var(--text-muted)' }}>
-            ⇒ 相對純動能的邊際貢獻約 <b>+1.8pp</b>，是<b>傾向</b>不是預測。
+            ⇒ 上表為 <b>5 日</b>報酬。若做<b>隔日沖</b>：定版規則長期隔日 <b>+1.62%／勝率 55%</b>（三段全正），
+            但邊際貢獻僅約 +1.8pp，是<b>傾向</b>不是預測。
+            另外實測：<b>不看價格、只用籌碼（融券暴增／券資比跳進甜蜜點）選股是無效的</b>——
+            隔日 −0.02% ~ +0.57%、勝率 46~48%，全數不如基準；必須有「當日已強漲」的價格確認才成立。
             反直覺：券資比 <b>≥20% 反而掉到 +{ev.band20up}%</b>（低於純動能）——極高券資比多半是空方看對或避險空單，不會被軋，故本榜刻意排除。
           </div>
         </div>

@@ -4023,7 +4023,45 @@ async function computeSqueezePicks() {
     });
   }
   items.sort((a, b) => b.tier - a.tier || b.chg - a.chg);
+
+  // ── 近期實際戰績（2026-08-26 加）─────────────────────────────────────
+  // 只掛 240 日回測數字是不誠實的：使用者是隔日沖，會照著明天下單，
+  // 而訊號可能正在回檔。這裡用**同一條定版規則**回放最近 30 個交易日的
+  // 收盤後選股與隔日實際報酬，讓「現在的手感」跟「長期期望值」並列。
+  // 實測 2026-08-26：長期隔日 +1.62%/勝率55%，但近 30 日 -0.33%/45%。
+  let recent = null;
+  try {
+    const hist = (await readArchive(70, 'closeJson')).slice().reverse();   // 舊→新
+    const hMaps = hist.map(a => JSON.parse(a.closeJson));
+    const hMg = hist.map(a => (a.marginJson ? JSON.parse(a.marginJson) : null));
+    const H = hist.length;
+    const hAvgVol = (t, code) => { let s = 0, k = 0; for (let i = Math.max(0, t - 19); i <= t; i++) { const v = hMaps[i][code]?.[1] ?? 0; if (v > 0) { s += v; k++; } } return k ? s / k : 0; };
+    let sum = 0, cnt = 0, win = 0, sigDays = 0;
+    for (let t = Math.max(25, H - 31); t < H - 1; t++) {
+      if (!hMg[t]) continue;
+      let dayN = 0;
+      for (const code in hMg[t]) {
+        if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+        const [mg2, sh2] = hMg[t][code];
+        if (!(mg2 > 0) || !(sh2 > 0)) continue;
+        const rt = (sh2 / mg2) * 100;
+        if (rt < 10 || rt >= 20) continue;
+        const p1 = hMaps[t][code]?.[0] ?? 0, p0 = hMaps[t - 1][code]?.[0] ?? 0;
+        if (!(p1 > 10) || !(p0 > 0)) continue;
+        if (((p1 - p0) / p0) * 100 < 5) continue;
+        if (hAvgVol(t, code) < 500) continue;
+        const nx = hMaps[t + 1][code]?.[0] ?? 0;
+        if (!(nx > 0)) continue;
+        const f1 = ((nx - p1) / p1) * 100;
+        sum += f1; cnt++; if (f1 > 0) win++; dayN++;
+      }
+      if (dayN > 0) sigDays++;
+    }
+    if (cnt > 0) recent = { n: cnt, days: sigDays, avgNextDay: +(sum / cnt).toFixed(2), winRate: Math.round((win / cnt) * 100) };
+  } catch { /* 戰績算不出來不擋榜單 */ }
+
   await db.collection('squeezePicks').doc('latest').set({
+    recent,
     updatedAt: Date.now(),
     priceDate: ascClose[L].date,
     marginDate: marginDoc.date,        // 券資比資料日（t-1）
@@ -7942,8 +7980,17 @@ async function computeChipPicks() {
     const maps = arch.map(a => (a.closeJson ? JSON.parse(a.closeJson) : {}));
     c5map = maps[4] || {};   // t-5 收盤（過熱懲罰 ret5 用：今日價/t-5收-1）
     const codes = new Set(); for (const m of maps) for (const k in m) codes.add(k);
+    // ── hi20 必須是「**今天以前**的 20 日高」（2026-08-26 使用者截圖查出）──
+    // 舊版從 k=0 起算，而 15:10 收盤歸檔後 maps[0] 就是**今天**，於是
+    // 「今日收在 20 日新高」時 hi20 恰好等於今日收盤，`price > hi20` 永遠為 false
+    //  ⇒ 🏔破高(+2) 在真正突破的當天反而不觸發，改判成 💪強尾(−2)，
+    //    同一檔股票憑空少 4 分，而且只在**收盤後**發作（盤中 maps[0] 還是昨天，
+    //    所以白天看是對的、晚上規劃隔日單時是錯的，最難察覺的一種）。
+    //    實案：台虹 8039 收 320.5 創高，hi20 也被算成 320.5 → 顯示 💪強尾。
+    const archIsToday = arch[0]?.date === isoDate(taipei());
+    const hiFrom = archIsToday ? 1 : 0;          // 歸檔已含今日 → 從 t-1 起算
     for (const c of codes) {
-      let h = 0; for (let k = 0; k < Math.min(20, maps.length); k++) { const v = maps[k]?.[c]?.[0]; if (v > h) h = v; }
+      let h = 0; for (let k = hiFrom; k < Math.min(20 + hiFrom, maps.length); k++) { const v = maps[k]?.[c]?.[0]; if (v > h) h = v; }
       hi20[c] = h; yVol[c] = maps[0]?.[c]?.[1] || 0;
     }
     // KD(9) 全市場——K>90 極度超買為實證避開訊號（screen-kd 三輪檢定，見 composite-score.ts）。
