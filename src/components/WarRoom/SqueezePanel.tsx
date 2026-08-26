@@ -25,7 +25,7 @@ interface Pulse {
   evidence?: { days: number; avgLimitUp: number; table: Array<{ label: string; min: number; luExp: number; ldExp: number }> };
   volNote?: string;
 }
-interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; basis: string; n?: number; nMaterial?: number }
+interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; basis: string; n?: number; nMaterial?: number; stale?: boolean; ageDays?: number | null }
 interface RecItem extends Item { verdict?: Verdict; primary?: boolean; events?: Array<{ date: string; title: string; type?: string; impact?: string }>; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
 interface Rec {
   updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
@@ -239,7 +239,8 @@ export default function SqueezePanel() {
                       {v?.label ?? '—'}{v?.confidence ? `·信心${v.confidence}` : ''}
                     </span>
                     <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>
-                      依據{v?.basis === 'content' ? '內文' : v?.basis === 'title' ? '僅標題' : '無新聞'}
+                      依據{v?.basis === 'content' ? '內文' : v?.basis === 'title' ? '僅標題' : v?.basis === 'event' ? '排定事件' : '無資料'}
+                      {v?.stale && <span style={{ color: '#f59e0b', marginLeft: 3 }}>⏳{v.ageDays}天前舊聞</span>}
                       {it.news ? `｜2日內 ${it.news.checked} 則（實質 ${it.news.material}／純行情 ${it.news.priceOnly} 不計）` : ''}
                     </span>
                   </div>
@@ -268,6 +269,8 @@ export default function SqueezePanel() {
           <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 5 }}>
             判別依據＝新聞（鉅亨有內文＋Google News 標題）<b>＋交易所事件行事曆</b>（法說會/除權息/股東會）。
             事件是已排定的事實而非傳聞，但<b>法說內容未知時不預設為利多</b>——AI 會判中性並註明。
+            近 2 日查無新聞時<b>自動回退到最近 14 日內的最新報導</b>並標示「⏳N天前舊聞」；
+            舊消息多半已被股價反映，信心上限為「低」且<b>不會升為主力推薦</b>。
             程式端<b>只剔除機器自動生成的盤中速報</b>——含「漲停」字眼的題材文若硬剔會連真催化劑一起丟掉
             （實案：今周刊〈台虹…原來和輝達也有關！看懂 PTFE 題材〉標題同時有兩者）。
             價格描述不算利多這條規則交由 AI 執行；抓不到內文會標「僅標題」，不假裝讀過；不確定一律判中性。

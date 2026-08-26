@@ -4079,8 +4079,21 @@ async function computeSqueezeNewsVerdict() {
   for (const it of picks.items.slice(0, 12)) {
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
     const news = await fetchStockNewsMulti(kw, it.code);
-    const now = Date.now(), TWO_D = 2 * 86400000;
-    const recent = news.filter(n => n.at && now - n.at <= TWO_D);
+    const now = Date.now(), TWO_D = 2 * 86400000, MAX_BACK = 14 * 86400000;
+    let recent = news.filter(n => n.at && now - n.at <= TWO_D);
+    // ── 找不到近 2 日就回退到「最近最新的」（使用者 2026-08-26 指定）────────
+    //   空手判「資訊不足」對使用者沒有幫助；有舊資料總比沒有好。
+    //   但**時效必須誠實標示並降低權重**：6 天前的法說預告與今天的接單公告，
+    //   對隔日開盤的意義完全不同。回退上限 14 天，超過就真的當沒有。
+    let stale = false, ageDays = null;
+    if (recent.length === 0) {
+      const older = news.filter(n => n.at && now - n.at <= MAX_BACK).sort((a, b) => b.at - a.at);
+      if (older.length) {
+        recent = older.slice(0, 6);
+        stale = true;
+        ageDays = +((now - recent[0].at) / 86400000).toFixed(1);
+      }
+    }
     // 只剔機器速報；其餘（含帶「漲停」字眼但可能有題材的）都送 AI 判斷
     const material = recent.filter(n => !MACHINE_NEWS.test(n.title));
     const withBody = material.filter(n => n.hasBody);
@@ -4091,7 +4104,7 @@ async function computeSqueezeNewsVerdict() {
       : '';
     let verdict = events.length
       ? { label: '中性', bullish: false, confidence: '低', reason: `近 2 日無實質新聞，但有已排定事件：${evLine}`, basis: 'event', n: recent.length }
-      : { label: '資訊不足', bullish: false, reason: '近 2 日查無實質新聞，亦無已排定事件', basis: 'none', n: recent.length };
+      : { label: '資訊不足', bullish: false, reason: `近 14 日查無實質新聞，亦無已排定事件`, basis: 'none', n: recent.length };
     if (material.length || events.length) {
       const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
       const src = (withBody.length ? withBody : material).slice(0, 4);
@@ -4109,6 +4122,7 @@ async function computeSqueezeNewsVerdict() {
 6. 不確定就判「中性」，不要為了給答案而美化。
 
 國際盤昨夜：${gLine || '（無資料）'}
+${stale ? `\n⚠ **注意時效**：近 2 日查無新聞，以下是**${ageDays} 天前**的較舊報導。舊消息多半已被股價反映，除非是尚未兌現的重大事件，否則信心最高只能給「低」，並在風險欄註明消息已隔 ${ageDays} 天。\n` : ''}
 ${evLine ? `\n**已排定事件**（來自交易所行事曆，非傳聞）：${evLine}\n法說會/業績發表會當日或隔日開盤前，市場常對其內容反應；但**內容未知時不可預設為利多**，請判為中性並在風險欄註明「法說內容未知」。\n` : ''}
 ${body || '（近 2 日無實質新聞）'}
 
@@ -4130,6 +4144,7 @@ ${body || '（近 2 日無實質新聞）'}
           reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
           risk: mk ? mk[1].trim().slice(0, 70) : null,
           basis, n: recent.length, nMaterial: material.length,
+          stale, ageDays,
         };
       } else {
         verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
@@ -4139,12 +4154,14 @@ ${body || '（近 2 日無實質新聞）'}
       ...it,
       events,
       news: {
+        stale, ageDays,
         checked: recent.length, material: material.length, priceOnly: recent.length - material.length,   // priceOnly 現在的語意＝被剔除的機器速報
         basis: verdict.basis,
         top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at })),
       },
       verdict,                                   // 每一檔都有判別提示（含中性/資訊不足）
-      primary: verdict.bullish && verdict.confidence !== '低',
+      // 主力推薦要求：判利多 × 信心非低 × **非舊消息**（舊消息多半已反映）
+      primary: verdict.bullish && verdict.confidence !== '低' && !stale,
     });
     await sleep(600);
   }
