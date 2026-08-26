@@ -12,7 +12,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
       <body style={{ margin: 0, background: '#0b1220', color: '#e2e8f7', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center' }}>
           <div style={{ fontSize: 'calc(44px * var(--fz))' }}>⚠️</div>
-          <div style={{ fontSize: 'calc(19px * var(--fz))', fontWeight: 900 }}>台股助手暫時無法載入</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900 }}>台股助手暫時無法載入</div>
           <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#dbe4f5', lineHeight: 1.9, maxWidth: 520 }}>
             你的自選、持倉與交易紀錄都存在雲端，沒有遺失。<br />
             先按「重新載入」；若重複發生，按「清除本機暫存並重載」。
@@ -31,7 +31,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             </button>
           </div>
           {error?.digest && (
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#a9b6d6', marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#a9b6d6', marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>
               錯誤代碼 {error.digest}
             </div>
           )}

@@ -60,7 +60,7 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
     return (
       <div style={{ minHeight: '70vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, textAlign: 'center' }}>
         <div style={{ fontSize: 'calc(30px * var(--fz))' }}>🔄</div>
-        <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 800, color: 'var(--text-primary)' }}>正在更新到最新版本…</div>
+        <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: 'var(--text-primary)' }}>正在更新到最新版本…</div>
         <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#dbe4f5' }}>網站剛更新過，這個分頁正在自動重新載入。</div>
       </div>
     );
@@ -85,7 +85,7 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
       justifyContent: 'center', gap: 14, padding: 24, textAlign: 'center',
     }}>
       <div style={{ fontSize: 'calc(40px * var(--fz))' }}>⚠️</div>
-      <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 900, color: 'var(--text-primary)' }}>
+      <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: 'var(--text-primary)' }}>
         {chunk ? '網站已更新，請重新載入' : '這一頁暫時出了問題'}
       </div>
       <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#dbe4f5', lineHeight: 1.9, maxWidth: 520 }}>
@@ -109,17 +109,17 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
           回報時我們也拿不到任何可查的東西，只能靠猜。
           改成：有 digest 就印 digest，沒有就印 message + stack 前幾行，並提供一鍵複製。 */}
       <details style={{ marginTop: 10, maxWidth: 560, width: '100%' }}>
-        <summary style={{ fontSize: 'calc(12px * var(--fz))', color: '#a9b6d6', cursor: 'pointer' }}>
+        <summary style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#a9b6d6', cursor: 'pointer' }}>
           顯示技術細節（回報問題時請附上）
         </summary>
         <pre style={{
           marginTop: 6, padding: 10, borderRadius: 8, textAlign: 'left',
           background: 'rgba(148,163,184,0.10)', color: '#c7d2e5',
-          fontSize: 'calc(11px * var(--fz))', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           maxHeight: 180, overflow: 'auto', fontFamily: "'JetBrains Mono',monospace",
         }}>{detail}</pre>
         <button
-          style={{ ...btn('#334155'), marginTop: 6, fontSize: 'calc(12px * var(--fz))' }}
+          style={{ ...btn('#334155'), marginTop: 6, fontSize: 'calc(12.5px * var(--fz))' }}
           onClick={() => { navigator.clipboard?.writeText(detail).catch(() => {}); }}
         >複製錯誤訊息</button>
       </details>

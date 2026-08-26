@@ -43,7 +43,7 @@
 }
 
 .templatesTitle {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -88,7 +88,7 @@
 }
 
 .templateDesc {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -101,7 +101,7 @@
 }
 
 .filterTitle {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -123,7 +123,7 @@
 }
 
 .filterLabel {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -254,7 +254,7 @@
 }
 
 .summaryLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -333,7 +333,7 @@
   justify-content: center;
   padding: 3px 8px;
   border-radius: 99px;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   text-align: center;
 }
@@ -378,7 +378,7 @@
 }
 
 .compareParamsTitle {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -399,7 +399,7 @@
 }
 
 .paramLabel {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -417,7 +417,7 @@
   background: transparent;
   border: none;
   font-family: inherit;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   padding: 6px 0;
@@ -518,7 +518,7 @@
 .mobileMetaRow {
   display: flex;
   justify-content: space-between;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
 }
 
@@ -541,12 +541,12 @@
 }
 
 .calcLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
 .calcVal {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -579,7 +579,7 @@
   }
 
   .resultCount {
-    font-size: calc(0.8125rem * var(--fz));
+    font-size: calc(12.5px * var(--fz));
   }
 
   .summaryGrid {
@@ -646,7 +646,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: calc(0.8rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   padding-bottom: 8px;
@@ -715,7 +715,7 @@
 }
 
 .selectedListCodes {
-  font-size: calc(0.8rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-left: 8px;
 }
@@ -726,7 +726,7 @@
   background: transparent;
   border: none;
   color: var(--accent-blue);
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   padding: 0 4px;
   outline: none;
@@ -779,7 +779,7 @@
 }
 
 .selectedDrawerCount {
-  font-size: calc(0.8rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
   background: rgba(61, 142, 248, 0.1);
@@ -820,7 +820,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   transition: all 0.2s ease;
   backdrop-filter: blur(4px);
   box-shadow: 0 2px 8px rgba(61, 142, 248, 0.05);
@@ -850,7 +850,7 @@
   background: rgba(0, 0, 0, 0.2);
   padding: 1px 6px;
   border-radius: 99px;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 .tagRemoveBtn {
@@ -929,7 +929,7 @@
   border: none;
   background: transparent;
   color: #e2e8f0;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   outline: none;
   width: 100%;
 }
@@ -981,7 +981,7 @@
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 .searchResult:hover {

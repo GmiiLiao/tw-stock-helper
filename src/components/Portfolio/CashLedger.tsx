@@ -145,9 +145,9 @@ export default function CashLedger() {
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: hasLedger || open ? 10 : 0, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>💰 資金總覽</span>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>只需記入金/出金/股利，買賣現金流自動帶入</span>
-        <button onClick={() => setShowSettings(s => !s)} title="券商手續費設定" style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: 8, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-primary)', cursor: 'pointer' }}>⚙ 費率</button>
-        <button onClick={() => setOpen(o => !o)} style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 12px', borderRadius: 8, background: 'var(--accent-purple,#6366f1)', color: '#fff', border: 'none', cursor: 'pointer' }}>{open ? '取消' : '＋記一筆'}</button>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>只需記入金/出金/股利，買賣現金流自動帶入</span>
+        <button onClick={() => setShowSettings(s => !s)} title="券商手續費設定" style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: 8, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-primary)', cursor: 'pointer' }}>⚙ 費率</button>
+        <button onClick={() => setOpen(o => !o)} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 12px', borderRadius: 8, background: 'var(--accent-purple,#6366f1)', color: '#fff', border: 'none', cursor: 'pointer' }}>{open ? '取消' : '＋記一筆'}</button>
       </div>
 
       {showSettings && (
@@ -155,11 +155,11 @@ export default function CashLedger() {
           <span style={{ color: 'var(--text-secondary)' }}>手續費折讓</span>
           <input className="input" type="number" step="0.01" min="0.01" max="1" value={broker.discount}
             onChange={e => saveBroker({ ...broker, discount: Math.max(0.01, Math.min(1, parseFloat(e.target.value) || 1)) })} style={{ width: 80 }} />
-          <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>1=無折、0.6=6折、0.28=28折</span>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>1=無折、0.6=6折、0.28=28折</span>
           <span style={{ color: 'var(--text-secondary)' }}>最低手續費</span>
           <input className="input" type="number" min="0" value={broker.minFee}
             onChange={e => saveBroker({ ...broker, minFee: Math.max(0, parseInt(e.target.value) || 0) })} style={{ width: 70 }} />
-          <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>元（常見 20；設定後套用到新交易試算）</span>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>元（常見 20；設定後套用到新交易試算）</span>
         </div>
       )}
 
@@ -168,9 +168,9 @@ export default function CashLedger() {
         <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 600, color: '#38bdf8' }}>🏦 銀行餘額（錨點）</span>
         <input className="input" type="number" placeholder="填入交割銀行餘額" value={bankInput}
           onChange={e => setBankInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveBank(); }} style={{ width: 150 }} />
-        <button onClick={saveBank} className="btn" style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 12px', background: '#38bdf8', color: '#062', border: 'none', borderRadius: 8, fontWeight: 700 }}>更新</button>
+        <button onClick={saveBank} className="btn" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 12px', background: '#38bdf8', color: '#062', border: 'none', borderRadius: 8, fontWeight: 700 }}>更新</button>
         {(calc.pendingDeduct > 0 || calc.pendingCredit > 0) && (
-          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
             未交割：待扣款 −{wan(calc.pendingDeduct)} · 待入帳 +{wan(calc.pendingCredit)}
           </span>
         )}
@@ -179,36 +179,36 @@ export default function CashLedger() {
       {bank && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 8, marginBottom: 10 }}>
           <div style={{ padding: '8px 10px', background: 'rgba(34,197,94,0.08)', borderRadius: 8, border: '1px solid rgba(34,197,94,0.25)' }}>
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>💵 剩餘籌碼（交割後可動用）</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>💵 剩餘籌碼（交割後可動用）</div>
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: bank.investable >= 0 ? '#f03e3e' : '#2f9e44', fontFamily: "'JetBrains Mono',monospace" }}>{wan(bank.investable)}</div>
-            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>推算今日餘額 − 待扣 + 待入</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>推算今日餘額 − 待扣 + 待入</div>
           </div>
           <div style={{ padding: '8px 10px', background: 'rgba(56,189,248,0.06)', borderRadius: 8, border: '1px solid rgba(56,189,248,0.2)' }}>
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>🏦 銀行餘額（自動滾動至今日）</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>🏦 銀行餘額（自動滾動至今日）</div>
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: '#38bdf8', fontFamily: "'JetBrains Mono',monospace" }}>{bank.estBank.toLocaleString()}</div>
-            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               {bank.rolledCount > 0
                 ? `錨點 ${bank.anchorDate} 輸入 ${bankBalance?.toLocaleString()}，已滾動 ${bank.rolledCount} 筆交割/流水（${bank.rolledNet >= 0 ? '+' : ''}${bank.rolledNet.toLocaleString()}）`
                 : `錨點 ${bank.anchorDate} 輸入，尚無後續交割`}
             </div>
           </div>
           <div style={{ padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>對帳差異</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>對帳差異</div>
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: Math.abs(bank.diff) < 100 ? '#22c55e' : '#f59e0b', fontFamily: "'JetBrains Mono',monospace" }}>
               {Math.abs(bank.diff) < 100 ? '✓ 相符' : `${bank.diff >= 0 ? '+' : ''}${bank.diff.toLocaleString()} 元`}
             </div>
-            <div style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>預期錨點日（{bank.anchorDate}）{wan(bank.expectedToday)}</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>預期錨點日（{bank.anchorDate}）{wan(bank.expectedToday)}</div>
           </div>
         </div>
       )}
       {bank && Math.abs(bank.diff) >= 100 && (
-        <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: '#f59e0b', marginBottom: 8 }}>⚠ 銀行餘額與紀錄推算差 {bank.diff >= 0 ? '多' : '少'} {Math.abs(bank.diff).toLocaleString()} 元——可能有未記的入金/出金/股利、手續費折讓設定不符、或利息/借券費。</div>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', marginBottom: 8 }}>⚠ 銀行餘額與紀錄推算差 {bank.diff >= 0 ? '多' : '少'} {Math.abs(bank.diff).toLocaleString()} 元——可能有未記的入金/出金/股利、手續費折讓設定不符、或利息/借券費。</div>
       )}
       {calc.schedule.length > 0 && (
-        <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 10, padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 10, padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
           <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text-muted)' }}>📅 未交割排程（T+2）</div>
           {calc.schedule.map(s => (
-            <div key={s.date} style={{ display: 'flex', gap: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12px * var(--fz))' }}>
+            <div key={s.date} style={{ display: 'flex', gap: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))' }}>
               <span>{s.date}</span>
               {s.deduct > 0 && <span style={{ color: '#ef4444' }}>扣款 −{s.deduct.toLocaleString()}</span>}
               {s.credit > 0 && <span style={{ color: '#f03e3e' }}>入帳 +{s.credit.toLocaleString()}</span>}
@@ -224,8 +224,8 @@ export default function CashLedger() {
           </select>
           <input className="input" type="number" min="1" placeholder="金額(元)" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') add(); }} style={{ width: 130 }} />
           <input className="input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ width: 150 }} />
-          <button onClick={add} disabled={!form.amount} className="btn btn-buy" style={{ fontSize: 'calc(12px * var(--fz))' }}>加入</button>
-          {!hasLedger && <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', flexBasis: '100%' }}>首次使用：先記一筆「入金」= 你投入這個帳戶的初始資金總額，之後有入金/出金/股利再各記一筆。</span>}
+          <button onClick={add} disabled={!form.amount} className="btn btn-buy" style={{ fontSize: 'calc(12.5px * var(--fz))' }}>加入</button>
+          {!hasLedger && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flexBasis: '100%' }}>首次使用：先記一筆「入金」= 你投入這個帳戶的初始資金總額，之後有入金/出金/股利再各記一筆。</span>}
         </div>
       )}
 
@@ -241,23 +241,23 @@ export default function CashLedger() {
               { l: '帳戶總報酬', v: `${totalReturnUsed >= 0 ? '+' : ''}${wan(totalReturnUsed)}${retPctUsed != null ? `（${retPctUsed >= 0 ? '+' : ''}${retPctUsed.toFixed(1)}%）` : ''}`, c: totalReturnUsed >= 0 ? 'var(--color-up)' : 'var(--color-down)' },
             ].map(x => (
               <div key={x.l} style={{ padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-                <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{x.l}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{x.l}</div>
                 <div style={{ fontWeight: 800, fontSize: 'calc(0.95rem * var(--fz))', color: x.c, fontFamily: "'JetBrains Mono',monospace" }}>{x.v}</div>
               </div>
             ))}
           </div>
-          {calc.cash < 0 && <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#ef4444', marginBottom: 8 }}>⚠ 現金餘額為負：入金紀錄少於實際（請補記初始入金）。</div>}
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
+          {calc.cash < 0 && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#ef4444', marginBottom: 8 }}>⚠ 現金餘額為負：入金紀錄少於實際（請補記初始入金）。</div>}
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
             自動帶入：買入扣款 −{wan(calc.buys)} · 賣出入帳 +{wan(calc.sells)}｜手動：入金 +{wan(calc.deposits)} · 出金 −{wan(calc.withdraws)} · 股利 +{wan(calc.dividends)}
             {bank && <>｜帳本推算現金 {wan(calc.cash)}（與銀行差 {bank.diff >= 0 ? '+' : ''}{wan(bank.diff)}，上方數字以銀行為準）</>}
           </div>
           <div style={{ maxHeight: 150, overflowY: 'auto' }}>
             {entries.map(e => (
               <div key={e.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'calc(13px * var(--fz))', padding: '4px 0', borderBottom: '1px solid var(--border-primary)' }}>
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{e.date}</span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{e.date}</span>
                 <span style={{ fontWeight: 700, color: TYPES[e.type].c }}>{TYPES[e.type].t}</span>
                 <span style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono',monospace" }}>{TYPES[e.type].sign > 0 ? '+' : '−'}{e.amount.toLocaleString()}</span>
-                <button onClick={() => save(entries.filter(x => x.id !== e.id))} style={{ fontSize: 'calc(11px * var(--fz))', padding: '1px 7px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}>🗑</button>
+                <button onClick={() => save(entries.filter(x => x.id !== e.id))} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 7px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer' }}>🗑</button>
               </div>
             ))}
           </div>

@@ -161,7 +161,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 10, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(11px * var(--fz))', padding: '2px 4px 3px', color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', gap: 10, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', padding: '2px 4px 3px', color: 'var(--text-muted)' }}>
         {MA_DEFS.map((d, di) => {
           const v = maFull[di][legendIdx];
           return (
@@ -173,7 +173,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
               {/* 週期做成色塊標籤，而不是裸數字——「5 488.10」會被誤讀成同一個數字，
                   在報價畫面上讀錯數字比佔空間嚴重得多。 */}
               <span style={{ display: 'inline-block', padding: '0 4px', borderRadius: 3, background: d.color,
-                color: '#0b1220', fontWeight: 900, fontSize: 'calc(9.5px * var(--fz))', lineHeight: '13px' }}>{d.p}</span>
+                color: '#0b1220', fontWeight: 900, fontSize: 'calc(12.5px * var(--fz))', lineHeight: '13px' }}>{d.p}</span>
               <b style={{ color: d.color }}>{v != null ? v.toFixed(2) : '—'}</b>
             </span>
           );
@@ -244,7 +244,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             <span key={`yl${i}`} style={{
               position: 'absolute', left: 0, top: yOf(v), transform: 'translateY(-50%)',
               width: padL - 6, textAlign: 'right', pointerEvents: 'none',
-              fontSize: 'calc(10px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 'calc(12.5px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
             }}>{v.toFixed(v < 50 ? 1 : 0)}</span>
           );
         })}
@@ -254,7 +254,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
           <span style={{
             position: 'absolute', right: 2, top: yOf(view[view.length - 1].c), transform: 'translateY(-50%)',
             padding: '0 4px', borderRadius: 3, background: '#f59e0b', color: '#1a1200',
-            fontSize: 'calc(9.5px * var(--fz))', fontWeight: 900, lineHeight: '14px',
+            fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, lineHeight: '14px',
             fontFamily: "'JetBrains Mono', monospace", pointerEvents: 'none',
           }}>{view[view.length - 1].c.toFixed(2)}</span>
         )}
@@ -263,7 +263,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             position: 'absolute', left: 0, top: yOf(hv.c), transform: 'translateY(-50%)',
             width: padL - 6, textAlign: 'right', padding: '0 3px', borderRadius: 3,
             background: 'rgba(255,255,255,0.9)', color: '#0b1220',
-            fontSize: 'calc(9.5px * var(--fz))', fontWeight: 900, lineHeight: '14px',
+            fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, lineHeight: '14px',
             fontFamily: "'JetBrains Mono', monospace", pointerEvents: 'none',
           }}>{hv.c.toFixed(2)}</span>
         )}
@@ -274,14 +274,14 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
             <span key={`xl${c.t}`} style={{
               position: 'absolute', left: `${(xOf(i) / W) * 100}%`, bottom: 0, transform: 'translateX(-50%)',
               whiteSpace: 'nowrap',
-              fontSize: 'calc(10px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 'calc(12.5px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
             }}>{format(new Date(c.t * 1000), fmt)}</span>
           ) : null))}
         </div>
         {/* 游標數值框：日期/開高低收/量(張) */}
         {hv && (
           <div style={{ position: 'absolute', top: 4, left: hoverIdx! < view.length / 2 ? 'auto' : 8, right: hoverIdx! < view.length / 2 ? 8 : 'auto',
-            background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, padding: '5px 8px', fontSize: 'calc(11px * var(--fz))', color: '#e2e8f0', pointerEvents: 'none', lineHeight: 1.6, whiteSpace: 'nowrap' }}>
+            background: 'rgba(15,23,42,0.92)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, padding: '5px 8px', fontSize: 'calc(12.5px * var(--fz))', color: '#e2e8f0', pointerEvents: 'none', lineHeight: 1.6, whiteSpace: 'nowrap' }}>
             <div style={{ color: '#94a3b8' }}>{format(new Date(hv.t * 1000), hvFmt)}</div>
             <div>開 {hv.o}　高 <span style={{ color: '#f87171' }}>{hv.h}</span>　低 <span style={{ color: '#4ade80' }}>{hv.l}</span></div>
             <div>收 <b style={{ color: hv.c >= hv.o ? '#f87171' : '#4ade80' }}>{hv.c}</b>　量 {(hv.v / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} 張</div>
@@ -295,7 +295,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
           用詞同時縮短：「－ 縮小 / ＋ 放大 / 回到最新 ›」→「－ / ＋ / 最新」，
           說明從「顯示 30 根日K（共 1214）· 滾輪縮放 · 拖曳平移」
           縮成「30/1214 根」——滾輪提示在手機上本來就沒有意義，只在桌機顯示。 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 4, flexWrap: 'wrap', marginTop: 5, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 4, flexWrap: 'wrap', marginTop: 5, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         <button className={styles.periodTab} style={{ flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }} title="縮小（顯示更多根）"
           onClick={() => setSize(s => Math.round(Math.min(n, s * 1.4)))}>－</button>
         <button className={styles.periodTab} style={{ flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }} title="放大（顯示更少根）"
@@ -360,14 +360,14 @@ function InstStrip({ code, changePercent = 0, volume = 0 }: { code: string; chan
   const p = classifyPhase(ef, et, ed, d.streak, changePercent, retail, volLots);
   const tip = `🎯 勝率雷達 — 三大法人籌碼階段（2年×41萬樣本實測隔日勝率·2026-07-19 稽核修正，非保證）\n① 外資布局(連買·投信未跟) 46-47%\n② 投信跟進(A) 50%／三方同買(S) 49%／B+ 47%\n③ 大漲未鎖 42%（二次修正：舊53%為漲停幻覺——81%樣本是買不到的鎖死日；可交易部分實測34-43%屬弱勢群）\n④ 外資賣超·危險 44% 迴避\n\n目前：${p.label}\n${p.action}`;
   return (
-    <div style={{ flex: '1 1 100%', display: 'flex', justifyContent: 'center', gap: 8, rowGap: 3, alignItems: 'center', flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', minWidth: 0, padding: '0 4px' }} title={tip}>
+    <div style={{ flex: '1 1 100%', display: 'flex', justifyContent: 'center', gap: 8, rowGap: 3, alignItems: 'center', flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', minWidth: 0, padding: '0 4px' }} title={tip}>
       {/* ⚠ 徽章本體不可 nowrap（2026-08-11 手機實測溢出 46px）：
           「🚀 投信跟進·強勢加速 · S級 勝率59%」整串 219px，加上 nowrap 就縮不下去，
           在 375px 手機上把整個 <main> 推出去 46px。
           改為允許整體換行、上限 100%；只有「勝率59%」這種**不該被拆開的數值**保留 nowrap。 */}
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxWidth: '100%', fontWeight: 800, padding: '2px 10px', borderRadius: 20, color: p.color, background: p.bg, border: `1px solid ${p.color}55`, lineHeight: 1.5 }}>
         {p.icon} {p.label}
-        {p.win != null && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, whiteSpace: 'nowrap' }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
+        {p.win != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, whiteSpace: 'nowrap' }}>· {p.grade ? `${p.grade}級 ` : ''}勝率{p.win}%</span>}
       </span>
       {/* ⚠ 三大法人數值已移至「籌碼判讀」卡（2026-08-11 使用者指示「可以放到籌碼判讀裡，省下空間」）：
           同一組數字原本在個股頁出現兩次，圖表這裡又要多佔一整行。
@@ -517,7 +517,7 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
           )}
         </div>
         {seriesIncomplete && (
-          <span title="此股分時序列不完整（冷門股 Yahoo 無分時、且是被瀏覽後才納入即時追蹤）——圖只畫已記錄的片段，今日漲跌以權威報價為準" style={{ fontSize: 'calc(0.64rem * var(--fz))', padding: '1px 7px', borderRadius: 999, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap', cursor: 'help' }}>⚠ 分時不完整·以報價為準</span>
+          <span title="此股分時序列不完整（冷門股 Yahoo 無分時、且是被瀏覽後才納入即時追蹤）——圖只畫已記錄的片段，今日漲跌以權威報價為準" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 7px', borderRadius: 999, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap', cursor: 'help' }}>⚠ 分時不完整·以報價為準</span>
         )}
         <InstStrip code={code} changePercent={changePercent} volume={volume} />
         <div className={styles.periodTabs}>
@@ -549,13 +549,13 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
                 <YAxis domain={yDomain as [number, number]} tick={{ fill: '#7e8ba3', fontSize: 10 }} axisLine={false} tickLine={false} orientation="left" tickFormatter={v => v.toFixed(0)} />
                 {/* 量軸（隱藏）：domain 放大 4 倍→量棒只佔圖表下方約 1/4，不干擾價格線 */}
                 <YAxis yAxisId="vol" hide domain={[0, (dMax: number) => (dMax || 1) * 4]} />
-                <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 'calc(11px * var(--fz))', color: '#e2e8f0' }}
+                <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))', color: '#e2e8f0' }}
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 4 }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   formatter={(value: any, nm: any) => (nm === 'close' ? [parseFloat(String(value)).toFixed(2), '成交價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
                 {refPrev !== null && refPrev > 0 && (
                   <ReferenceLine y={refPrev} stroke="#fbbf24" strokeDasharray="5 4" strokeWidth={1.5} ifOverflow="extendDomain"
-                    label={{ value: `平盤 ${refPrev.toFixed(2)}`, position: 'insideTopRight', fill: '#fbbf24', fontSize: 'calc(10px * var(--fz))', fontWeight: 700 }} />
+                    label={{ value: `平盤 ${refPrev.toFixed(2)}`, position: 'insideTopRight', fill: '#fbbf24', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }} />
                 )}
                 <Bar yAxisId="vol" dataKey="volume" name="volume" fill={chartColor} opacity={0.28} isAnimationActive={false} />
                 <Area type="monotone" dataKey="close" name="close" stroke={chartColor} strokeWidth={2} fill={`url(#gradient-${code})`} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: chartColor }} />

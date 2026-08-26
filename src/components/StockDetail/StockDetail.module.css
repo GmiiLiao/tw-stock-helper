@@ -107,7 +107,7 @@
 }
 
 .statKey {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -135,7 +135,7 @@
   /* 手機上三顆按鈕接近整行寬，絕對定位會壓到股號 → 用 padding-top 幫它騰出一整列，
      按鈕仍釘在右上，但不再與內容重疊。 */
   .headerActions { top: 8px; right: 8px; left: 8px; gap: 4px; justify-content: flex-end; }
-  .headerActions :global(.btn) { padding: 4px 8px; font-size: calc(11px * var(--fz)); white-space: nowrap; }
+  .headerActions :global(.btn) { padding: 4px 8px; font-size: calc(12.5px * var(--fz)); white-space: nowrap; }
 }
 
 /* Signal Badge Row */
@@ -193,13 +193,13 @@
 
 .signalStrengthText {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   min-width: 28px;
 }
 
 .loadingText {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -243,7 +243,7 @@
 }
 
 .pnlLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -265,7 +265,7 @@
 }
 
 .pnlSub {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -293,10 +293,10 @@
   flex-wrap: wrap;
 }
 
-.holdingDate { font-size: calc(0.8125rem * var(--fz)); color: var(--text-muted); }
+.holdingDate { font-size: calc(12.5px * var(--fz)); color: var(--text-muted); }
 .holdingQty { font-size: calc(0.875rem * var(--fz)); font-weight: 600; }
-.holdingBuyPrice { font-family: 'JetBrains Mono', monospace; font-size: calc(0.8125rem * var(--fz)); color: var(--text-secondary); }
-.holdingNote { font-size: calc(0.75rem * var(--fz)); color: var(--text-muted); font-style: italic; }
+.holdingBuyPrice { font-family: 'JetBrains Mono', monospace; font-size: calc(12.5px * var(--fz)); color: var(--text-secondary); }
+.holdingNote { font-size: calc(12.5px * var(--fz)); color: var(--text-muted); font-style: italic; }
 
 .holdingPnl {
   font-family: 'JetBrains Mono', monospace;
@@ -309,7 +309,7 @@
 }
 
 .holdingPnlPct {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 /* Modal */
@@ -379,13 +379,13 @@
 }
 
 .formGroup label {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   color: var(--text-secondary);
 }
 
 .inputHelper {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;

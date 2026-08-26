@@ -381,14 +381,14 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             onClick={() => setSubTab(t.id)}
             style={{
               padding: '3px 12px', marginRight: 6, borderRadius: 999, cursor: 'pointer',
-              fontSize: 'calc(12px * var(--fz))', fontWeight: subTab === t.id ? 700 : 500,
+              fontSize: 'calc(12.5px * var(--fz))', fontWeight: subTab === t.id ? 700 : 500,
               background: subTab === t.id ? 'rgba(61,142,248,0.18)' : 'transparent',
               color: subTab === t.id ? '#3d8ef8' : 'var(--text-muted)',
               border: `1px solid ${subTab === t.id ? 'rgba(61,142,248,0.5)' : 'var(--border-primary)'}`,
             }}
           >{t.label}</button>
         ))}
-        {chipLoading && <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>載入籌碼…</span>}
+        {chipLoading && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>載入籌碼…</span>}
       </div>
 
       {/* ── 法人：外資／投信當日買賣超（張）──────────────────────────── */}
@@ -402,7 +402,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             </span>
           </div>
           {instSeries.length === 0 ? (
-            <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '18px 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               {chipLoading ? '載入中…' : '此檔無法人歸檔資料（興櫃與部分新股不在三大法人統計內）'}
             </div>
           ) : (
@@ -437,7 +437,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             </span>
           </div>
           {marginSeries.length === 0 ? (
-            <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '18px 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               {chipLoading ? '載入中…' : '此檔無資券歸檔資料（未開放信用交易的個股沒有融資券）'}
             </div>
           ) : (
@@ -474,7 +474,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             </span>
           </div>
           {(chip?.holders?.length ?? 0) === 0 ? (
-            <div style={{ padding: '18px 4px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+            <div style={{ padding: '18px 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               {chipLoading ? '載入中…' : '尚無此檔集保週歸檔資料'}
             </div>
           ) : (
@@ -493,7 +493,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 </LineChart>
               </ResponsiveContainer>
               {(chip?.holders?.length ?? 0) < 8 && (
-                <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#f59e0b', marginTop: 4 }}>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', marginTop: 4 }}>
                   ⚠ 目前僅 {chip!.holders.length} 週，趨勢判讀需要更多週數才有意義（每週新增一點）。
                 </div>
               )}

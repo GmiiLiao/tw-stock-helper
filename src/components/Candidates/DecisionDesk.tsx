@@ -271,13 +271,13 @@ export default function DecisionDesk() {
   return (
     <div style={{ padding: '14px 16px', maxWidth: 1100, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-        <span style={{ fontSize: 'calc(20px * var(--fz))', fontWeight: 900 }}>🗒️ 決策工作台</span>
+        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900 }}>🗒️ 決策工作台</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>候選逐檔比對籌碼判讀＋勝率＋策略傾向＋預算試算 · 盤中 30 秒即時更新{liveAt ? `（${new Date(liveAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}）` : ''} · 非投資建議</span>
       </div>
       <PageHelp id="desk" />
       {/* 明日作戰四問：使用者核心需求的固定入口（明天買什麼／何時賣／想連抱／何時空手）。
           全部數字來自 audit-weights 2026-08-01 乾淨資料重測，滑鼠停留看完整版。 */}
-      <div title={METRIC_TIPS.明日作戰四問} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0 10px', padding: '8px 12px', borderRadius: 10, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 'calc(12px * var(--fz))', cursor: 'help', lineHeight: 1.7 }}>
+      <div title={METRIC_TIPS.明日作戰四問} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0 10px', padding: '8px 12px', borderRadius: 10, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 'calc(12.5px * var(--fz))', cursor: 'help', lineHeight: 1.7 }}>
         <b style={{ color: '#7dd3fc' }}>🎯 明日作戰四問</b>
         <span>①買什麼：撿尾盤濾網＋🥇A級（唯一費稅後淨正·開賣漲61%）</span>
         <span>②何時賣：隔日沖一律<b>明開盤賣</b></span>
@@ -288,7 +288,7 @@ export default function DecisionDesk() {
 
       {codes.length === 0 ? (
         <div style={{ marginTop: 24, padding: '28px 20px', borderRadius: 14, textAlign: 'center', background: 'var(--bg-elevated)', border: '1px dashed var(--border-primary)', lineHeight: 2 }}>
-          <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 800, marginBottom: 6 }}>候選便條是空的</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, marginBottom: 6 }}>候選便條是空的</div>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)' }}>
             隔日沖選股流程：① 到 <b onClick={goPick} style={{ color: '#7dd3fc', cursor: 'pointer' }}>即時漲跌／法人籌碼</b> 分頁看資料<br />
             ② 看到有興趣的個股按「＋候選」撿進便條<br />
@@ -328,14 +328,14 @@ export default function DecisionDesk() {
             <span style={{ display: 'inline-flex', gap: 4 }}>
               {(['day', 'swing'] as const).map(d => (
                 <button key={d} onClick={() => setTradeDuration(d)}
-                  style={{ padding: '3px 10px', borderRadius: 10, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
+                  style={{ padding: '3px 10px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
                     border: `1px solid ${tradeDuration === d ? 'rgba(246,160,106,0.6)' : 'var(--border-primary)'}`,
                     background: tradeDuration === d ? 'rgba(246,160,106,0.14)' : 'transparent', color: tradeDuration === d ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                   {d === 'day' ? '當沖(稅0.15%)' : '隔日/波段(稅0.3%)'}
                 </button>
               ))}
             </span>
-            <button onClick={clear} style={{ marginLeft: 'auto', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '3px 10px', cursor: 'pointer' }}>清空候選</button>
+            <button onClick={clear} style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '3px 10px', cursor: 'pointer' }}>清空候選</button>
           </div>
 
           <div style={{ display: 'grid', gap: 10 }}>
@@ -349,17 +349,17 @@ export default function DecisionDesk() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px' }}>
                     <span onClick={() => navigateTo('stock', c.code)} style={{ fontWeight: 800, color: '#7dd3fc', cursor: 'pointer' }}>{c.code}</span>
                     <span onClick={() => navigateTo('stock', c.code)} style={{ fontWeight: 700, cursor: 'pointer' }}>{c.name || '—'}</span>
-                    <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                     {c.price > 0 && <span style={{ color: 'var(--text-secondary)' }}>{c.price}</span>}
                     {c.chg != null && <span style={{ fontWeight: 800, color: c.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{c.chg >= 0 ? '+' : ''}{c.chg.toFixed(1)}%</span>}
-                    {c.char?.label && <span style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: c.char.label === '炒作型' ? 'rgba(240,62,62,0.14)' : c.char.label === '長期核心' ? 'rgba(61,142,248,0.14)' : 'rgba(148,163,184,0.12)', color: c.char.label === '炒作型' ? '#f03e3e' : c.char.label === '長期核心' ? '#3d8ef8' : '#94a3b8' }}>{c.char.label}{c.char.spec != null ? ` ${c.char.spec}` : ''}</span>}
+                    {c.char?.label && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: c.char.label === '炒作型' ? 'rgba(240,62,62,0.14)' : c.char.label === '長期核心' ? 'rgba(61,142,248,0.14)' : 'rgba(148,163,184,0.12)', color: c.char.label === '炒作型' ? '#f03e3e' : c.char.label === '長期核心' ? '#3d8ef8' : '#94a3b8' }}>{c.char.label}{c.char.spec != null ? ` ${c.char.spec}` : ''}</span>}
                     {/* 策略傾向 + 勝率 */}
                     <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <span title="綜合評分＝勝率雷達基底＋實證訊號效應量（詳見說明書）" style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 900, padding: '1px 8px', borderRadius: 7, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd' }}>🧬{c.comp.score}</span>
-                      {c.v?.win != null && <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>開賣漲 {c.v.win}%</span>}
+                      <span title="綜合評分＝勝率雷達基底＋實證訊號效應量（詳見說明書）" style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, padding: '1px 8px', borderRadius: 7, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd' }}>🧬{c.comp.score}</span>
+                      {c.v?.win != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>開賣漲 {c.v.win}%</span>}
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, color: stance.c }}>{stance.t}</span>
                       <AddCandidateButton code={c.code} variant="chip" />
-                      <button onClick={() => setOpenCode(open ? null : c.code)} style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '2px 8px', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
+                      <button onClick={() => setOpenCode(open ? null : c.code)} style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '2px 8px', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
                     </span>
                   </div>
                   {/* 判讀理由 + 策略註記 */}
@@ -367,19 +367,19 @@ export default function DecisionDesk() {
                     {c.v ? <VerdictStrip v={c.v} /> : null}
                     {/* 實證訊號徽章＋收位 */}
                     {(c.comp.badges.length > 0 || c.comp.pos != null) && (
-                      <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(11.5px * var(--fz))' }}>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))' }}>
                         {c.comp.badges.map(bd => <span key={bd.t} title={bd.tip} style={{ fontWeight: 800, padding: '1px 8px', borderRadius: 8, background: `${bd.c}1c`, color: bd.c, border: `1px solid ${bd.c}55` }}>{bd.t}</span>)}
                         {c.comp.pos != null && <span style={{ color: 'var(--text-muted)' }}>收位 {Math.round(c.comp.pos * 100)}%</span>}
                       </div>
                     )}
                     {/* 資券借券（t-1）＋三法人 20 日 */}
                     {(c.row || c.char?.f20 != null) && (
-                      <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', padding: '5px 8px', borderRadius: 8, background: 'rgba(167,139,250,0.06)' }}>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', padding: '5px 8px', borderRadius: 8, background: 'rgba(167,139,250,0.06)' }}>
                         {c.row && <>
                           <span style={{ fontWeight: 800, color: '#a78bfa' }}>🧬 資券借券(張)</span>
-                          <span title={METRIC_TIPS.融資} style={{ cursor: 'help' }}>融資 <b>{c.row[0]?.toLocaleString() ?? '—'}</b><b style={{ fontSize: 'calc(10.5px * var(--fz))', color: (c.row[1] ?? 0) > 0 ? '#f03e3e' : (c.row[1] ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({(c.row[1] ?? 0) >= 0 ? '+' : ''}{c.row[1]?.toLocaleString() ?? 0})</b></span>
-                          <span title={METRIC_TIPS.融券} style={{ cursor: 'help' }}>融券 <b>{c.row[2]?.toLocaleString() ?? '—'}</b><b style={{ fontSize: 'calc(10.5px * var(--fz))', color: (c.row[3] ?? 0) > 0 ? '#f03e3e' : (c.row[3] ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({(c.row[3] ?? 0) >= 0 ? '+' : ''}{c.row[3]?.toLocaleString() ?? 0})</b></span>
-                          <span title={METRIC_TIPS.借券} style={{ cursor: 'help' }}>借券 <b>{c.row[4]?.toLocaleString() ?? '—'}</b><b style={{ fontSize: 'calc(10.5px * var(--fz))', color: (c.row[5] ?? 0) > 0 ? '#f03e3e' : (c.row[5] ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({(c.row[5] ?? 0) >= 0 ? '+' : ''}{c.row[5]?.toLocaleString() ?? 0})</b></span>
+                          <span title={METRIC_TIPS.融資} style={{ cursor: 'help' }}>融資 <b>{c.row[0]?.toLocaleString() ?? '—'}</b><b style={{ fontSize: 'calc(12.5px * var(--fz))', color: (c.row[1] ?? 0) > 0 ? '#f03e3e' : (c.row[1] ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({(c.row[1] ?? 0) >= 0 ? '+' : ''}{c.row[1]?.toLocaleString() ?? 0})</b></span>
+                          <span title={METRIC_TIPS.融券} style={{ cursor: 'help' }}>融券 <b>{c.row[2]?.toLocaleString() ?? '—'}</b><b style={{ fontSize: 'calc(12.5px * var(--fz))', color: (c.row[3] ?? 0) > 0 ? '#f03e3e' : (c.row[3] ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({(c.row[3] ?? 0) >= 0 ? '+' : ''}{c.row[3]?.toLocaleString() ?? 0})</b></span>
+                          <span title={METRIC_TIPS.借券} style={{ cursor: 'help' }}>借券 <b>{c.row[4]?.toLocaleString() ?? '—'}</b><b style={{ fontSize: 'calc(12.5px * var(--fz))', color: (c.row[5] ?? 0) > 0 ? '#f03e3e' : (c.row[5] ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>({(c.row[5] ?? 0) >= 0 ? '+' : ''}{c.row[5]?.toLocaleString() ?? 0})</b></span>
                           {(c.row[0] ?? 0) > 0 && c.row[2] != null && <span title={METRIC_TIPS.券資比} style={{ cursor: 'help' }}>券資比 <b>{(((c.row[2] ?? 0) / (c.row[0] ?? 1)) * 100).toFixed(1)}%</b></span>}
                           {c.row[6] != null && <span title={METRIC_TIPS['20日高']} style={{ cursor: 'help' }}>20日高 <b>{c.row[6]}</b>{c.price > (c.row[6] ?? Infinity) ? <b style={{ color: '#f03e3e' }}>（已突破）</b> : null}</span>}
                         </>}
@@ -387,21 +387,21 @@ export default function DecisionDesk() {
                           <span style={{ display: 'inline-flex', gap: 8 }}>
                             <span style={{ fontWeight: 800, color: '#f6a06a' }}>20日</span>
                             {([['外', c.char.f20, c.char.fStreak], ['投', c.char.t20, c.char.tStreak], ['自', c.char.d20, c.char.dStreak]] as [string, number | undefined, number | undefined][]).map(([lb, v0, st]) => (
-                              <span key={lb as string}>{lb}<b style={{ color: (v0 ?? 0) > 0 ? '#f03e3e' : (v0 ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>{(v0 ?? 0) >= 0 ? '+' : ''}{(v0 ?? 0).toLocaleString()}</b>{st != null && Math.abs(st) >= 2 ? <i style={{ fontSize: 'calc(10px * var(--fz))', fontStyle: 'normal', color: st > 0 ? '#f03e3e' : '#2f9e44' }}>({st > 0 ? `連買${st}` : `連賣${-st}`})</i> : null}</span>
+                              <span key={lb as string}>{lb}<b style={{ color: (v0 ?? 0) > 0 ? '#f03e3e' : (v0 ?? 0) < 0 ? '#2f9e44' : 'var(--text-muted)' }}>{(v0 ?? 0) >= 0 ? '+' : ''}{(v0 ?? 0).toLocaleString()}</b>{st != null && Math.abs(st) >= 2 ? <i style={{ fontSize: 'calc(12.5px * var(--fz))', fontStyle: 'normal', color: st > 0 ? '#f03e3e' : '#2f9e44' }}>({st > 0 ? `連買${st}` : `連賣${-st}`})</i> : null}</span>
                             ))}
                           </span>
                         )}
                       </div>
                     )}
                     {/* 榜單出現 */}
-                    <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+                    <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                       <span>🪣 撿尾盤 {boards.tail[c.code] ? <b style={{ color: '#f03e3e' }}>#{boards.tail[c.code].rank}{boards.tail[c.code].grade ? `·${boards.tail[c.code].grade}` : ''}{boards.tail[c.code].score != null ? `(${boards.tail[c.code].score})` : ''}</b> : '未上榜'}</span>
                       <span>🚀 漲停預測 {boards.lu[c.code] ? <b style={{ color: '#fda4af' }}>#{boards.lu[c.code]}</b> : '未上榜'}</span>
                       <span>📡 雷達 {boards.radar[c.code]?.length ? <b style={{ color: '#7dd3fc' }}>{boards.radar[c.code].join('·')}</b> : '未命中'}</span>
                     </div>
                     {/* 事件檢查＋處置＋族群強弱 */}
                     {(eventsBy[c.code]?.length || riskBy[c.code] || indBy[c.code]) && (
-                      <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(11.5px * var(--fz))' }}>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))' }}>
                         {riskBy[c.code] && <span style={{ fontWeight: 800, padding: '1px 8px', borderRadius: 8, background: 'rgba(240,62,62,0.12)', color: '#f87171', border: '1px solid rgba(240,62,62,0.4)' }}>🚨 {riskBy[c.code]}{riskBy[c.code] === '處置中' ? '（約2分鐘分盤撮合·流動性差）' : ''}</span>}
                         {(eventsBy[c.code] || []).map(e => (
                           <span key={e.date + e.title} style={{ fontWeight: 700, padding: '1px 8px', borderRadius: 8, background: 'rgba(245,159,0,0.10)', color: '#f59f00', border: '1px solid rgba(245,159,0,0.4)' }}>📅 {e.date.slice(5)} {e.title}</span>
@@ -414,10 +414,10 @@ export default function DecisionDesk() {
                         })()}
                       </div>
                     )}
-                    <div style={{ marginTop: 6, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>{stance.note}</div>
+                    <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>{stance.note}</div>
                     {/* 預算試算 */}
                     {c.price > 0 && (
-                      <div style={{ marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+                      <div style={{ marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                         <span>可買 <b style={{ color: 'var(--text-primary)' }}>{c.lots > 0 ? `${c.lots} 張` : '預算不足'}</b></span>
                         {c.lots > 0 && <>
                           <span>成本 <b style={{ color: 'var(--text-primary)' }}>{c.cost.toLocaleString()} 元</b></span>
@@ -443,30 +443,30 @@ export default function DecisionDesk() {
                           {/* 📐 持股策略分析（與投組 AI 持倉卡同一套面板；預設收合、首開才取數） */}
                           <div style={{ marginBottom: 6, border: '1px solid var(--border-primary)', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
                             <button onClick={() => toggleStrat(c.code)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '6px 10px', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left', fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, fontFamily: 'inherit' }}>
-                              <span style={{ color: 'var(--text-muted)', fontSize: 'calc(10px * var(--fz))' }}>{stratOpen[c.code] ? '▾' : '▸'}</span>
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '6px 10px', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, fontFamily: 'inherit' }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{stratOpen[c.code] ? '▾' : '▸'}</span>
                               📐 持股策略分析
-                              <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>隔日沖對照 · 持有日獲利 · 相似歷史波段</span>
+                              <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>隔日沖對照 · 持有日獲利 · 相似歷史波段</span>
                             </button>
                             {stratOpen[c.code] && (
                               stratData[c.code] === 'loading' || stratData[c.code] === undefined
-                                ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>計算中…（首次載入需建立全市場相似窗，約 3~5 秒）</div>
+                                ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>計算中…（首次載入需建立全市場相似窗，約 3~5 秒）</div>
                                 : stratData[c.code] === 'none'
-                                  ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>該檔歷史序列不足，無法分析。</div>
+                                  ? <div style={{ padding: '4px 12px 10px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>該檔歷史序列不足，無法分析。</div>
                                   : (() => { const sd = stratData[c.code] as HoldingStrategyResult;
                                       // 候選無買進日：以「操作時間為第 1 日」（heldDays=0＝今天進場）——使用者定案
                                       return <StrategyPanels st={sd.heldDays == null ? { ...sd, heldDays: 0 } : sd} mode="candidate" />; })()
                             )}
                           </div>
                           {/* 均線讀值＋停損/1%風險部位（隔日沖鐵律工具化） */}
-                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', padding: '5px 8px', borderRadius: 8, background: 'rgba(61,142,248,0.06)', marginBottom: 6 }}>
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', padding: '5px 8px', borderRadius: 8, background: 'rgba(61,142,248,0.06)', marginBottom: 6 }}>
                             {candleLoading[c.code] && <span style={{ color: 'var(--text-muted)' }}>載入日K…</span>}
                             {cds && <>
-                              <span>MA5 <b style={{ color: '#f59e0b' }}>{ma5 ?? '—'}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(10.5px * var(--fz))', color: ma5 && c.price >= ma5 ? '#f03e3e' : '#2f9e44' }}>({dev(ma5)})</i></span>
-                              <span>MA20 <b style={{ color: '#3d8ef8' }}>{ma20 ?? '—'}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(10.5px * var(--fz))', color: ma20 && c.price >= ma20 ? '#f03e3e' : '#2f9e44' }}>({dev(ma20)})</i></span>
-                              <span>MA60 <b style={{ color: '#a78bfa' }}>{ma60 ?? '—'}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(10.5px * var(--fz))', color: ma60 && c.price >= ma60 ? '#f03e3e' : '#2f9e44' }}>({dev(ma60)})</i></span>
+                              <span>MA5 <b style={{ color: '#f59e0b' }}>{ma5 ?? '—'}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(12.5px * var(--fz))', color: ma5 && c.price >= ma5 ? '#f03e3e' : '#2f9e44' }}>({dev(ma5)})</i></span>
+                              <span>MA20 <b style={{ color: '#3d8ef8' }}>{ma20 ?? '—'}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(12.5px * var(--fz))', color: ma20 && c.price >= ma20 ? '#f03e3e' : '#2f9e44' }}>({dev(ma20)})</i></span>
+                              <span>MA60 <b style={{ color: '#a78bfa' }}>{ma60 ?? '—'}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(12.5px * var(--fz))', color: ma60 && c.price >= ma60 ? '#f03e3e' : '#2f9e44' }}>({dev(ma60)})</i></span>
                               {ma5 != null && ma20 != null && <span style={{ fontWeight: 800, color: ma5 >= ma20 ? '#f03e3e' : '#2f9e44' }}>{ma5 >= ma20 ? '多頭排列' : '空頭排列'}{ma20 != null && ma60 != null ? (ma5 >= ma20 && ma20 >= ma60 ? '(全)' : '') : ''}</span>}
-                              {stopRef != null && <span>停損參考(前低) <b style={{ color: '#fbbf24' }}>{stopRef}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>(-{c.price > 0 ? ((1 - stopRef / c.price) * 100).toFixed(1) : '—'}%)</i></span>}
+                              {stopRef != null && <span>停損參考(前低) <b style={{ color: '#fbbf24' }}>{stopRef}</b><i style={{ fontStyle: 'normal', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>(-{c.price > 0 ? ((1 - stopRef / c.price) * 100).toFixed(1) : '—'}%)</i></span>}
                               {riskLots != null && <span title={METRIC_TIPS.風險1} style={{ cursor: 'help' }}>1%風險建議 <b style={{ color: '#7dd3fc' }}>{Math.min(riskLots, c.lots) > 0 ? `${Math.min(riskLots, c.lots)} 張` : '不足1張'}</b></span>}
                             </>}
                           </div>
@@ -474,7 +474,7 @@ export default function DecisionDesk() {
                           <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                             {([['live', '📈 即時走勢'], ['kline', '📊 日K·均線']] as const).map(([k2, lb]) => (
                               <button key={k2} onClick={() => setChartMode(m2 => ({ ...m2, [c.code]: k2 }))}
-                                style={{ padding: '3px 12px', borderRadius: 10, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
+                                style={{ padding: '3px 12px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
                                   border: `1px solid ${mode === k2 ? 'rgba(125,211,252,0.55)' : 'var(--border-primary)'}`,
                                   background: mode === k2 ? 'rgba(125,211,252,0.12)' : 'transparent', color: mode === k2 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                                 {lb}
@@ -485,7 +485,7 @@ export default function DecisionDesk() {
                             ? <StockTrendChart code={c.code} name={c.name || c.code} closePrice={c.price} changePercent={c.chg} />
                             : (stockInfo && cds
                               ? <TechnicalChart candles={cds} stock={stockInfo as StockInfo} loading={!!candleLoading[c.code]} />
-                              : <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>{candleLoading[c.code] ? '日K載入中…' : '日K資料暫無法取得。'}</div>)}
+                              : <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>{candleLoading[c.code] ? '日K載入中…' : '日K資料暫無法取得。'}</div>)}
                         </div>
                       );
                     })()}
@@ -495,7 +495,7 @@ export default function DecisionDesk() {
             })}
           </div>
 
-          <div style={{ marginTop: 12, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ marginTop: 12, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
             ⚠ 策略傾向由「回測背書的籌碼判讀（前一交易日 EOD）＋勝率雷達」綜合，非即時保證；勝率為歷史估計。
             試算費率：手續費 0.1425%（未計折讓）、證交稅 {tradeDuration === 'day' ? '0.15%（當沖）' : '0.3%'}。進場鐵律：單筆風險≤1%、破前低停損。非投資建議。
           </div>

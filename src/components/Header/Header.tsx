@@ -169,6 +169,26 @@ export default function Header() {
     return () => { clearTimeout(timeoutId); document.removeEventListener('visibilitychange', onVis); };
   }, [loadMarketIndex]);
 
+  // ── 資料過期防線（2026-08-26 使用者回報「資料都是舊的」）──────────────
+  // 輪詢設計本身是對的（含回前景重排），但只要有一次失敗、或分頁被丟在
+  // 非作用中的視窗很久，畫面就會**靜默地**停在舊資料上——使用者沒有任何
+  // 線索知道自己在看幾小時前的價格。這裡加一個看得見的過期指示：
+  //   盤中 > 3 分鐘、其餘 > 30 分鐘沒更新 → 顯示可點擊的過期提示。
+  const [staleMin, setStaleMin] = useState(0);
+  useEffect(() => {
+    const calc = () => {
+      const t = useAppStore.getState().lastFetchTime;
+      setStaleMin(t ? (Date.now() - t) / 60000 : 0);
+    };
+    calc();
+    const id = setInterval(calc, 20_000);
+    const onVis = () => { if (!document.hidden) calc(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+  const staleLimit = getSession() === 'regular' ? 3 : 30;
+  const isStale = staleMin > staleLimit;
+
   // Poll full stock list (heavy) — dynamic interval recalculated each tick
   useEffect(() => {
     loadAllStocks();
@@ -341,7 +361,7 @@ export default function Header() {
           {/* Data date + source badge */}
           {dataDate && (
             <span style={{
-              fontSize: 'calc(12px * var(--fz))',
+              fontSize: 'calc(12.5px * var(--fz))',
               color: isRealtime ? '#22c55e' : 'var(--text-muted)',
               background: isRealtime ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.08)',
               border: `1px solid ${isRealtime ? 'rgba(34,197,94,0.3)' : 'var(--border-primary)'}`,
@@ -433,6 +453,22 @@ export default function Header() {
           <div className={`${styles.statusDot} ${session !== null && (marketOpen || usOpen) ? styles.open : styles.closed}`} />
           <span>{session === null ? '—' : marketOpen ? '台股盤中' : usOpen ? '美股盤中' : '收盤'}</span>
         </div>
+
+        {/* 資料過期指示：靜默的舊資料比沒有資料更危險，必須看得見 */}
+        {isStale && (
+          <button
+            onClick={loadData}
+            title={`資料已 ${staleMin.toFixed(0)} 分鐘未更新，點擊立即重新載入`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+              padding: '2px 9px', borderRadius: 999, marginRight: 6,
+              background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.5)',
+              color: '#ef4444', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))',
+            }}
+          >
+            ⚠ 資料 {staleMin < 60 ? `${staleMin.toFixed(0)} 分鐘` : `${(staleMin / 60).toFixed(1)} 小時`}未更新
+          </button>
+        )}
 
         {/* Manual refresh button */}
         <button

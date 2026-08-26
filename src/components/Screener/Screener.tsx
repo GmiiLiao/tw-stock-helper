@@ -255,7 +255,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
         boxShadow: '0 24px 64px rgba(0, 0, 0, 0.5)'
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-          <span style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: '#f1f5f9' }}>⚙️ 自選比較組管理</span>
+          <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#f1f5f9' }}>⚙️ 自選比較組管理</span>
           <button
             onClick={onClose}
             style={{
@@ -319,7 +319,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                       <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: group.color, flexShrink: 0 }} />
                       <span style={{ fontWeight: 600, fontSize: 'calc(13px * var(--fz))', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.name}</span>
-                      <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#8b9bb8', background: 'rgba(255, 255, 255, 0.04)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>{group.stocks.length} 檔</span>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#8b9bb8', background: 'rgba(255, 255, 255, 0.04)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>{group.stocks.length} 檔</span>
                     </div>
                     <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                       <button
@@ -789,7 +789,7 @@ export default function Screener() {
           {screenerMode === 'filter' ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
               <div>找到 <strong>{filteredStocks.length}</strong> 支符合條件的股票</div>
-              <div style={{ fontSize: 'calc(0.8rem * var(--fz))', color: selectedCompareCodes.length > 0 ? 'var(--accent-blue)' : 'var(--text-muted)' }}>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: selectedCompareCodes.length > 0 ? 'var(--accent-blue)' : 'var(--text-muted)' }}>
                 已選擇比較：<strong>{selectedCompareCodes.length} / 5</strong> 檔
               </div>
             </div>
@@ -1037,7 +1037,7 @@ export default function Screener() {
                 <button
                   onClick={() => setSelectedCompareCodes([])}
                   className="btn btn-ghost btn-xs"
-                  style={{ color: 'var(--text-muted)', fontSize: 'calc(0.75rem * var(--fz))', padding: '2px 8px', flexShrink: 0 }}
+                  style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', padding: '2px 8px', flexShrink: 0 }}
                 >
                   🧹 清除全部
                 </button>
@@ -1216,7 +1216,7 @@ export default function Screener() {
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <td style={{ color: 'var(--text-muted)', fontSize: 'calc(0.8rem * var(--fz))' }}>{i + 1}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{i + 1}</td>
                           <td style={{ textAlign: 'center' }}>
                             <input
                               type="checkbox"
@@ -1231,7 +1231,7 @@ export default function Screener() {
                             </span>
                           </td>
                           <td>{stock.name}</td>
-                          <td style={{ color: 'var(--text-muted)', fontSize: 'calc(0.8rem * var(--fz))' }}>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
                             {industryInfo.emoji} {industryInfo.name}
                           </td>
                           <td style={{ textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
@@ -1255,7 +1255,7 @@ export default function Screener() {
                             {formatVolume(stock.volume)}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(0.7rem * var(--fz))', padding: '2px 8px' }}>
+                            <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '2px 8px' }}>
                               {aiRating.grade} {aiRating.grade === 'A+' ? '強力買進' : aiRating.grade === 'A' ? '買進' : aiRating.grade === 'B+' ? '觀察' : '中性'}
                             </span>
                           </td>
@@ -1312,7 +1312,7 @@ export default function Screener() {
                         <div className={styles.mobileCardTitle}>
                           <span className={styles.mobileCode}>{stock.code}</span>
                           <span className={styles.mobileName}>{stock.name}</span>
-                          <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(0.65rem * var(--fz))', padding: '1px 6px', marginLeft: '6px' }}>
+                          <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', marginLeft: '6px' }}>
                             {aiRating.grade}
                           </span>
                         </div>
@@ -1331,7 +1331,7 @@ export default function Screener() {
                         </div>
                       </div>
                       <div className={styles.mobileCardActions} onClick={e => e.stopPropagation()}>
-                        <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>排序 #{i + 1}</span>
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>排序 #{i + 1}</span>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <button
                             className={`btn ${selectedCompareCodes.includes(stock.code) ? 'btn-primary' : 'btn-ghost'} btn-xs`}
@@ -1640,7 +1640,7 @@ export default function Screener() {
                             onClick={() => navigateTo('stock', stock.code)}
                             style={{ cursor: 'pointer' }}
                           >
-                            <td style={{ color: 'var(--text-muted)', fontSize: 'calc(0.8rem * var(--fz))' }}>{i + 1}</td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{i + 1}</td>
                             <td>
                               <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--accent-blue)' }}>
                                 {stock.code}
@@ -1668,14 +1668,14 @@ export default function Screener() {
                               {shares > 0 ? `${netProfit >= 0 ? '+' : ''}${Math.round(netProfit).toLocaleString()} 元` : '--'}
                             </td>
                             <td style={{ textAlign: 'center' }}>
-                              <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: 'calc(0.7rem * var(--fz))', padding: '2px 6px' }}>
+                              <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '2px 6px' }}>
                                 {fitBadge.text}
                               </span>
                             </td>
                             <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                               <button
                                 className="btn btn-ghost btn-xs"
-                                style={{ color: 'var(--text-muted)', fontSize: 'calc(0.75rem * var(--fz))' }}
+                                style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}
                                 onClick={() => navigateTo('stock', stock.code)}
                               >
                                 📊 分析
@@ -1793,7 +1793,7 @@ export default function Screener() {
                         </div>
 
                         <div className={styles.mobileCardActions} onClick={e => e.stopPropagation()}>
-                          <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: 'calc(0.7rem * var(--fz))' }}>
+                          <span className={`${styles.aiBadge} ${fitBadge.style}`} style={{ fontSize: 'calc(12.5px * var(--fz))' }}>
                             {fitBadge.text}
                           </span>
                           <button
@@ -1816,7 +1816,7 @@ export default function Screener() {
                   <h3 style={{ margin: 0, fontSize: 'calc(1.1rem * var(--fz))', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
                     🧠 AI 深度分析報告歷史記錄
                   </h3>
-                  <span style={{ fontSize: 'calc(0.8rem * var(--fz))', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                     每 10 分鐘限分析一次
                   </span>
                 </div>
@@ -1865,7 +1865,7 @@ export default function Screener() {
                               <span style={{ fontSize: 'calc(0.85rem * var(--fz))', fontWeight: 600, color: 'var(--text-primary)' }}>
                                 📝 分析記錄 #{currentGroupRecords.length - index}
                               </span>
-                              <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>
+                              <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                                 {new Date(rec.timestamp).toLocaleString('zh-TW')}
                               </span>
                             </div>

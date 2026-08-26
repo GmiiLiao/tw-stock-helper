@@ -45,7 +45,7 @@ export default function ChipDualCard({ code }: { code: string }) {
     <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))' }}>🎯 三大法人籌碼</span>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {sigDate ? `當日 ${sigDate}` : ''}{hasCum ? ` · 累計 ${cum!.startIso}→${cum!.lastIso}（${cum!.days}日）` : ''}
         </span>
       </div>
@@ -59,7 +59,7 @@ export default function ChipDualCard({ code }: { code: string }) {
               return <span key={t} style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '3px 10px', borderRadius: 20, color: m.color, background: m.bg, border: `1px solid ${m.color}55` }}>{m.icon} {m.label}</span>;
             })}
           </div>
-          <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
             {tags.map(t => RULES[t] && <div key={t}>· {RULES[t].desc}</div>)}
           </div>
         </div>
@@ -67,9 +67,9 @@ export default function ChipDualCard({ code }: { code: string }) {
 
       {/* 當日 ｜ 累計 雙欄表 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 'calc(13px * var(--fz))' }}>
-        <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>法人</div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))', textAlign: 'right' }}>當日(張)</div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))', textAlign: 'right' }}>累計(張)</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>法人</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', textAlign: 'right' }}>當日(張)</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', textAlign: 'right' }}>累計(張)</div>
         {rows.map(r => (
           <Fragment key={r.label}>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0' }}>{r.icon} {r.label}</div>
@@ -83,12 +83,12 @@ export default function ChipDualCard({ code }: { code: string }) {
       </div>
 
       {hasDay && (sig!.streak > 0 || sig!.marginChg !== 0) && (
-        <div style={{ marginTop: 6, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {sig!.streak > 0 && <span>外資連買 {sig!.streak} 日　</span>}
           {sig!.marginChg !== 0 && <span>融資{sig!.marginChg > 0 ? '增' : '減'} {Math.abs(Math.round(sig!.marginChg)).toLocaleString()} 張</span>}
         </div>
       )}
-      <div style={{ marginTop: 6, fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+      <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
         當日＝最新 T86 單日買賣超；累計＝自起始日逐日累加（籌碼流向，非絕對總持股）。確定性統計，非投資建議。
       </div>
     </div>

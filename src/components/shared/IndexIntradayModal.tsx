@@ -98,7 +98,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
           {(['tse', 'otc'] as const).map(m => (
             <button key={m} onClick={() => { setMarket(m); setTipIdx(null); }}
-              style={{ padding: '4px 14px', borderRadius: 999, border: '1px solid', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(0.82rem * var(--fz))',
+              style={{ padding: '4px 14px', borderRadius: 999, border: '1px solid', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))',
                 borderColor: market === m ? 'var(--accent-blue)' : 'var(--border-primary)',
                 background: market === m ? 'rgba(59,130,246,0.15)' : 'transparent',
                 color: market === m ? 'var(--accent-blue)' : 'var(--text-secondary)' }}>
@@ -108,12 +108,12 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
           {view && !view.empty && (
             <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))', color: view.chg >= 0 ? up : down }}>
               {view.last[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}
-              <span style={{ fontSize: 'calc(0.8rem * var(--fz))', marginLeft: 8 }}>
+              <span style={{ fontSize: 'calc(12.5px * var(--fz))', marginLeft: 8 }}>
                 {view.chg >= 0 ? '+' : ''}{view.chg.toFixed(2)}（{view.chg >= 0 ? '+' : ''}{((view.chg / view.prev) * 100).toFixed(2)}%）
               </span>
             </span>
           )}
-          <span style={{ marginLeft: 'auto', fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)' }}>
+          <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
             {doc?.date}{view && !view.empty ? ` ・ 成交值累計 ${view.last[2].toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 億` : ''}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 'calc(1.1rem * var(--fz))', lineHeight: 1 }}>✕</button>
@@ -149,19 +149,19 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
               )}
             </svg>
             {/* HTML 標籤層 */}
-            <div style={{ position: 'absolute', left: 2, top: 0, fontSize: 'calc(0.65rem * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{view.hi.toFixed(0)}</div>
-            <div style={{ position: 'absolute', left: 2, top: `${(view.yPrev / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(0.65rem * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{view.prev.toFixed(0)}</div>
-            <div style={{ position: 'absolute', left: 2, top: `${(PH / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(0.65rem * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{view.lo.toFixed(0)}</div>
-            <div style={{ position: 'absolute', right: 2, top: 0, fontSize: 'calc(0.65rem * var(--fz))', color: up, fontFamily: "'JetBrains Mono',monospace" }}>+{(((view.hi - view.prev) / view.prev) * 100).toFixed(1)}%</div>
-            <div style={{ position: 'absolute', right: 2, top: `${(view.yPrev / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(0.65rem * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>0%</div>
-            <div style={{ position: 'absolute', right: 2, top: `${(PH / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(0.65rem * var(--fz))', color: down, fontFamily: "'JetBrains Mono',monospace" }}>−{(((view.prev - view.lo) / view.prev) * 100).toFixed(1)}%</div>
+            <div style={{ position: 'absolute', left: 2, top: 0, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{view.hi.toFixed(0)}</div>
+            <div style={{ position: 'absolute', left: 2, top: `${(view.yPrev / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{view.prev.toFixed(0)}</div>
+            <div style={{ position: 'absolute', left: 2, top: `${(PH / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{view.lo.toFixed(0)}</div>
+            <div style={{ position: 'absolute', right: 2, top: 0, fontSize: 'calc(12.5px * var(--fz))', color: up, fontFamily: "'JetBrains Mono',monospace" }}>+{(((view.hi - view.prev) / view.prev) * 100).toFixed(1)}%</div>
+            <div style={{ position: 'absolute', right: 2, top: `${(view.yPrev / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>0%</div>
+            <div style={{ position: 'absolute', right: 2, top: `${(PH / H) * 100}%`, transform: 'translateY(-100%)', fontSize: 'calc(12.5px * var(--fz))', color: down, fontFamily: "'JetBrains Mono',monospace" }}>−{(((view.prev - view.lo) / view.prev) * 100).toFixed(1)}%</div>
             {['09:00', '10:00', '11:00', '12:00', '13:00'].map((t, i) => (
-              <div key={t} style={{ position: 'absolute', left: `${((i * 60) / 275) * 100}%`, bottom: -2, fontSize: 'calc(0.62rem * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{t}</div>
+              <div key={t} style={{ position: 'absolute', left: `${((i * 60) / 275) * 100}%`, bottom: -2, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{t}</div>
             ))}
             {/* 游標資訊卡 */}
             {tip && (
               <div style={{ position: 'absolute', top: 8, left: view.x(tip[0]) / W > 0.55 ? 8 : undefined, right: view.x(tip[0]) / W > 0.55 ? undefined : 8,
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', fontSize: 'calc(0.74rem * var(--fz))', fontFamily: "'JetBrains Mono',monospace", pointerEvents: 'none' }}>
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono',monospace", pointerEvents: 'none' }}>
                 <div style={{ color: 'var(--text-muted)' }}>時間：{fmtT(tip[0])}</div>
                 <div style={{ color: tip[1] >= view.prev ? up : down }}>成交價：{tip[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}（{tip[1] >= view.prev ? '+' : ''}{(tip[1] - view.prev).toFixed(2)}）</div>
                 <div style={{ color: '#f59e0b' }}>成交值：{tipVol.toFixed(2)} 億</div>
@@ -169,7 +169,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
             )}
           </div>
         )}
-        <div style={{ marginTop: 8, fontSize: 'calc(0.66rem * var(--fz))', color: 'var(--text-muted)' }}>約每分鐘一點・資料源：daemon MIS 指數輪詢・非投資建議</div>
+        <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>約每分鐘一點・資料源：daemon MIS 指數輪詢・非投資建議</div>
       </div>
     </div>
   );

@@ -58,17 +58,17 @@ export default function CustomBacktest() {
   return (
     <div style={{ marginBottom: 18, padding: '16px 18px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>🧪 自訂策略回測（全市場）
-        <span style={{ fontWeight: 400, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>daemon 跑前 100 大個股近一年歷史，約 1-2 分鐘</span>
+        <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>daemon 跑前 100 大個股近一年歷史，約 1-2 分鐘</span>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0' }}>
         <select className="input" value={entry} onChange={e => setEntry(e.target.value)} style={{ width: 210 }}>
           {ENTRIES.map(x => <option key={x.v} value={x.v}>{x.t}</option>)}
         </select>
-        {ENTRIES.find(x => x.v === entry)?.hasN && <label style={{ fontSize: 'calc(12px * var(--fz))' }}>N=<input className="input" type="number" value={n} onChange={e => setN(e.target.value)} style={{ width: 60 }} /></label>}
-        <label style={{ fontSize: 'calc(12px * var(--fz))' }}>停損%<input className="input" type="number" value={stopPct} onChange={e => setStopPct(e.target.value)} style={{ width: 60 }} /></label>
-        <label style={{ fontSize: 'calc(12px * var(--fz))' }}>停利%<input className="input" type="number" value={targetPct} onChange={e => setTargetPct(e.target.value)} style={{ width: 60 }} /></label>
-        <label style={{ fontSize: 'calc(12px * var(--fz))' }}>最長持有<input className="input" type="number" value={maxDays} onChange={e => setMaxDays(e.target.value)} style={{ width: 55 }} />日</label>
-        <label style={{ fontSize: 'calc(12px * var(--fz))', display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={maExit} onChange={e => setMaExit(e.target.checked)} />跌破MA20出場</label>
+        {ENTRIES.find(x => x.v === entry)?.hasN && <label style={{ fontSize: 'calc(12.5px * var(--fz))' }}>N=<input className="input" type="number" value={n} onChange={e => setN(e.target.value)} style={{ width: 60 }} /></label>}
+        <label style={{ fontSize: 'calc(12.5px * var(--fz))' }}>停損%<input className="input" type="number" value={stopPct} onChange={e => setStopPct(e.target.value)} style={{ width: 60 }} /></label>
+        <label style={{ fontSize: 'calc(12.5px * var(--fz))' }}>停利%<input className="input" type="number" value={targetPct} onChange={e => setTargetPct(e.target.value)} style={{ width: 60 }} /></label>
+        <label style={{ fontSize: 'calc(12.5px * var(--fz))' }}>最長持有<input className="input" type="number" value={maxDays} onChange={e => setMaxDays(e.target.value)} style={{ width: 55 }} />日</label>
+        <label style={{ fontSize: 'calc(12.5px * var(--fz))', display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={maExit} onChange={e => setMaExit(e.target.checked)} />跌破MA20出場</label>
         <select className="input" value={universe} onChange={e => setUniverse(e.target.value)} style={{ width: 130 }}>
           <option value="top100">前100大個股</option>
           <option value="watchlist">我的自選</option>
@@ -89,19 +89,19 @@ export default function CustomBacktest() {
               { l: '平均持有', v: `${r.avgDays} 日` },
             ].map(x => (
               <div key={x.l} style={{ padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-                <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{x.l}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{x.l}</div>
                 <div style={{ fontWeight: 800, color: x.c || 'var(--text-primary)', fontFamily: "'JetBrains Mono',monospace" }}>{x.v}</div>
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
             出場分布：{Object.entries(r.exitDist).map(([k, v]) => `${k} ${v}`).join(' · ')}
           </div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
             最佳：{r.best.map(t => `${t.code} +${t.ret}%`).join('、')}<br />
             最差：{r.worst.map(t => `${t.code} ${t.ret}%`).join('、')}
           </div>
-          <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>※ 歷史模擬不代表未來績效；未含滑價，交易成本請自行斟酌約 0.6%/筆。</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>※ 歷史模擬不代表未來績效；未含滑價，交易成本請自行斟酌約 0.6%/筆。</div>
         </div>
       )}
     </div>

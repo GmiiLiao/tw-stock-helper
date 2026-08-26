@@ -120,7 +120,14 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  line-height: 1.5;
+  /* ── 行高 1.5 → 1.38（2026-08-26 全站字級下限拉到 12.5px 的配套）──
+     字級下限由 8.5~12px 統一拉到 12.5px（桌機 ×1.25 ＝ 15.6px），
+     若行高仍維持 1.5，密集表格與卡片會多出可觀的垂直留白。
+     1.38 是「字放大後總行高與原本相近」的值：
+       原本 11px × 1.5  = 16.5px
+       現在 12.5px × 1.38 ≈ 17.3px
+     ⇒ 可讀性提升但版面密度幾乎不變。 */
+  line-height: 1.38;
   min-height: 100vh;
   overflow-x: hidden;
 }
@@ -134,7 +141,7 @@ body {
 /* ===== Typography ===== */
 .font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 
-.text-xs { font-size: calc(0.75rem * var(--fz)); }
+.text-xs { font-size: calc(12.5px * var(--fz)); }
 .text-sm { font-size: calc(0.875rem * var(--fz)); }
 .text-base { font-size: calc(1rem * var(--fz)); }
 .text-lg { font-size: calc(1.125rem * var(--fz)); }
@@ -236,7 +243,7 @@ body {
   box-shadow: 0 0 16px var(--color-down-glow);
 }
 
-.btn-sm { padding: 5px 10px; font-size: calc(0.75rem * var(--fz)); }
+.btn-sm { padding: 5px 10px; font-size: calc(12.5px * var(--fz)); }
 .btn-lg { padding: 12px 24px; font-size: calc(1rem * var(--fz)); }
 
 /* ===== Inputs ===== */
@@ -267,7 +274,7 @@ body {
   gap: 4px;
   padding: 3px 8px;
   border-radius: 20px;
-  font-size: calc(0.7rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -296,7 +303,7 @@ body {
   background: var(--bg-elevated);
   color: var(--text-muted);
   font-weight: 600;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 10px 12px;
@@ -357,7 +364,7 @@ body {
   background: transparent;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -380,7 +387,7 @@ body {
   align-items: center;
   padding: 4px 10px;
   border-radius: 20px;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   background: var(--bg-elevated);
   color: var(--text-secondary);
@@ -479,7 +486,7 @@ body {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-primary);
   white-space: nowrap;
   pointer-events: none;

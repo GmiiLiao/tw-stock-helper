@@ -58,7 +58,7 @@
 }
 
 .indexLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -71,7 +71,7 @@
 }
 
 .indexChange {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   font-family: 'JetBrains Mono', monospace;
   white-space: nowrap;
@@ -88,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
@@ -113,7 +113,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   padding: 3px 8px;
   border-radius: 6px;
   background: rgba(99, 102, 241, 0.1);
@@ -251,7 +251,7 @@
 
 .searchChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.8rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 /* Clock */
@@ -272,7 +272,7 @@
 }
 
 .clockLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -289,9 +289,9 @@
     gap: 10px;
   }
   .indexItem { gap: 4px; }
-  .indexLabel { font-size: calc(0.6875rem * var(--fz)); }
-  .indexValue { font-size: calc(0.8125rem * var(--fz)); }
-  .indexChange { font-size: calc(0.6875rem * var(--fz)); }
+  .indexLabel { font-size: calc(12.5px * var(--fz)); }
+  .indexValue { font-size: calc(12.5px * var(--fz)); }
+  .indexChange { font-size: calc(12.5px * var(--fz)); }
   .indexDivider { height: 16px; }
   /* ⚠ 不要再把搜尋框壓窄（2026-08-11 使用者實機截圖：只剩約 62px、字級 9.75px，
      使用者看不到自己打了什麼，而且窄框會橫向捲動，Android 輸入法重新錨定游標時
@@ -300,8 +300,8 @@
   .searchWrapper { max-width: none; min-width: 150px; }
   .searchInput { padding: 7px 30px 7px 30px; font-size: 16px; }
   .clock { display: none; }
-  .refreshBtn { padding: 2px 6px; font-size: calc(0.625rem * var(--fz)); margin-left: 4px; }
-  .marketStatus { font-size: calc(0.625rem * var(--fz)); gap: 3px; }
+  .refreshBtn { padding: 2px 6px; font-size: calc(12.5px * var(--fz)); margin-left: 4px; }
+  .marketStatus { font-size: calc(12.5px * var(--fz)); gap: 3px; }
   .statusDot { width: 5px; height: 5px; }
 }
 
@@ -313,8 +313,8 @@
     height: calc(44px + var(--safe-top));
   }
   .indexBar { gap: 6px; }
-  .indexValue { font-size: calc(0.75rem * var(--fz)); }
-  .indexChange { font-size: calc(0.625rem * var(--fz)); }
+  .indexValue { font-size: calc(12.5px * var(--fz)); }
+  .indexChange { font-size: calc(12.5px * var(--fz)); }
   /* 480px 以下同理：寧可讓左邊的指數列縮，也不要把搜尋框壓到不能用 */
   .searchWrapper { max-width: none; min-width: 140px; }
   .searchInput { font-size: 16px; }

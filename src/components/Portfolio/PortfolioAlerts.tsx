@@ -101,19 +101,19 @@ export default function PortfolioAlerts() {
               borderRadius: 10, background: `${color}1a`, border: `1px solid ${color}40`,
               cursor: clickable ? 'pointer' : 'default',
             }}>
-            <span style={{ fontSize: 'calc(18px * var(--fz))' }}>{st.icon}</span>
+            <span style={{ fontSize: 'calc(14.5px * var(--fz))' }}>{st.icon}</span>
             <span style={{ flex: 1, fontSize: 'calc(0.86rem * var(--fz))', color: 'var(--text-primary)', fontWeight: 600 }}>{a.message}</span>
             {a.requireAck && a.id && (a.ack
-              ? <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>已確認 ✓</span>
+              ? <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>已確認 ✓</span>
               : <button
                   onClick={e => { e.stopPropagation(); if (a.id) ackAlert(a.id); }}
                   disabled={acking === a.id}
                   style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${color}`, background: color,
-                    color: '#fff', fontSize: 'calc(0.76rem * var(--fz))', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    color: '#fff', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   {acking === a.id ? '…' : '✅ 收到'}
                 </button>)}
-            {clickable && <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color, fontWeight: 700, whiteSpace: 'nowrap' }}>開啟 ›</span>}
-            <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            {clickable && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color, fontWeight: 700, whiteSpace: 'nowrap' }}>開啟 ›</span>}
+            <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               {new Date(a.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>

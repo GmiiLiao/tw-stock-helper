@@ -26,8 +26,8 @@ export default function PeBand({ code }: { code: string }) {
     <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         <span style={{ fontWeight: 700 }}>📐 估值位階（PE Band · 近12月）</span>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>現 PE {d.peNow} · 歷史第 <b style={{ color: zone.c }}>{d.percentile}</b> 百分位</span>
-        <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: zone.c }}>{zone.t}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>現 PE {d.peNow} · 歷史第 <b style={{ color: zone.c }}>{d.percentile}</b> 百分位</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: zone.c }}>{zone.t}</span>
       </div>
       <div style={{ position: 'relative', height: 18, borderRadius: 9, overflow: 'hidden', background: 'linear-gradient(90deg,#f03e3e33,#f59e0b33,#2f9e4433)' }}>
         {[b.p25, b.p50, b.p75].map(v => (
@@ -35,15 +35,15 @@ export default function PeBand({ code }: { code: string }) {
         ))}
         <div style={{ position: 'absolute', top: 1, bottom: 1, left: `calc(${pos}% - 2px)`, width: 4, borderRadius: 2, background: zone.c, boxShadow: `0 0 6px ${zone.c}` }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginTop: 4, fontFamily: "'JetBrains Mono',monospace" }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4, fontFamily: "'JetBrains Mono',monospace" }}>
         <span>PE {b.pMin}</span><span>{b.p25}</span><span>{b.p50}</span><span>{b.p75}</span><span>{b.pMax}</span>
       </div>
       {d.priceAt && (
-        <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)' }}>
+        <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
           以官方 EPS(TTM) {d.eps} 推算：便宜價(P25) <b style={{ color: '#f03e3e' }}>{d.priceAt.p25}</b> · 合理價(P50) <b style={{ color: '#f59e0b' }}>{d.priceAt.p50}</b> · 昂貴價(P75) <b style={{ color: '#2f9e44' }}>{d.priceAt.p75}</b>（現價 {d.price}）
         </div>
       )}
-      <div style={{ marginTop: 6, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>資料：證交所每日本益比 {d.samples} 筆。持股/自選每週更新；僅供估值參考，非投資建議。</div>
+      <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>資料：證交所每日本益比 {d.samples} 筆。持股/自選每週更新；僅供估值參考，非投資建議。</div>
     </div>
   );
 }

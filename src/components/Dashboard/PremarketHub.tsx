@@ -50,7 +50,7 @@ const BIAS: Record<string, { t: string; c: string }> = {
 const ColHead = ({ icon, name, when }: { icon: string; name: string; when: string }) => (
   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6, paddingBottom: 5, borderBottom: '1px solid rgba(148,163,184,0.16)', flexWrap: 'wrap' }}>
     <span style={{ fontWeight: 900, fontSize: 'calc(12.5px * var(--fz))' }}>{icon} {name}</span>
-    <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{when}</span>
+    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{when}</span>
   </div>
 );
 
@@ -199,7 +199,7 @@ export default function PremarketHub() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))', gap: 6 }}>
                 {gm!.markets.map(m => (
                   <div key={m.sym} style={{ textAlign: 'center', padding: '6px 3px', background: 'var(--bg-tertiary)', borderRadius: 7 }}>
-                    <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
                     <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{m.price.toLocaleString()}</div>
                     <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 800, color: col(m.changePct) }}>{sign(m.changePct)}</div>
                   </div>
@@ -230,12 +230,12 @@ export default function PremarketHub() {
                       <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 900, color: col(m!.chg) }}>
                         {m!.dir === 'up' ? '▲' : m!.dir === 'down' ? '▼' : '—'} {sign(m!.chg)}
                       </span>
-                      <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 'auto' }}>{m!.detail}</span>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 'auto' }}>{m!.detail}</span>
                     </div>
                   ))}
                   {asia!.split && <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.5 }}>{asia!.split}</div>}
                   {asia!.delayNote && (
-                    <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: (asia!.delayMin ?? 0) > 45 ? '#fbbf24' : 'var(--text-muted)', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: (asia!.delayMin ?? 0) > 45 ? '#fbbf24' : 'var(--text-muted)', lineHeight: 1.5 }}>
                       {asia!.delayNote}{asia!.slot ? `　·　${asia!.slot} 那一輪` : ''}
                     </div>
                   )}
@@ -246,7 +246,7 @@ export default function PremarketHub() {
                   <div key={x.sym} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 700 }}>{x.name}</span>
                     <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: col(x.total) }}>{sign(x.total)}</span>
-                    <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 'auto' }}>跳空{sign(x.gap)}·開後{sign(x.drift)}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 'auto' }}>跳空{sign(x.gap)}·開後{sign(x.drift)}</span>
                   </div>
                 ))}
               </div>
@@ -260,7 +260,7 @@ export default function PremarketHub() {
                     <div key={s.sector} style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 'calc(13.5px * var(--fz))', padding: '1px 0', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, minWidth: 56 }}>{s.sector}</span>
                       <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: col(s.chg), minWidth: 48, textAlign: 'right' }}>{sign(s.chg)}</span>
-                      <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: '#7dd3fc', marginLeft: 'auto' }}>→ {s.twPeers}</span>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc', marginLeft: 'auto' }}>→ {s.twPeers}</span>
                     </div>
                   ))}
                 </div>

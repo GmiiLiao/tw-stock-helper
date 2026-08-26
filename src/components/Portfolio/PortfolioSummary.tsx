@@ -32,7 +32,7 @@ export default function PortfolioSummary() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontWeight: 700, fontSize: 'calc(0.92rem * var(--fz))' }}>🧑‍💼 個人化每日摘要</span>
-        <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>{data.date}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{data.date}</span>
       </div>
       <div style={{ fontSize: 'calc(0.86rem * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.summary}</div>
     </div>

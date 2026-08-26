@@ -156,10 +156,10 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
                 但文字照樣被塞進 0 寬的盒子 →「委賣 0%」被壓成一字一行糊在條上。
                 低於 18% 就不印文字，數字改由整條的 title 提示提供。 */}
             <div style={{ width: `${bidPct}%`, background: UP, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {bidPct >= 18 && <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>委買 {bidPct.toFixed(0)}%</span>}
+              {bidPct >= 18 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>委買 {bidPct.toFixed(0)}%</span>}
             </div>
             <div style={{ width: `${100 - bidPct}%`, background: DOWN, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {100 - bidPct >= 18 && <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>委賣 {(100 - bidPct).toFixed(0)}%</span>}
+              {100 - bidPct >= 18 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap' }}>委賣 {(100 - bidPct).toFixed(0)}%</span>}
             </div>
           </div>
         </div>
@@ -169,7 +169,7 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
           <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', background: `linear-gradient(90deg, ${DOWN}55, #64748b33 50%, ${UP}55)` }}>
             <div style={{ position: 'absolute', left: `calc(${(pos * 100).toFixed(1)}% - 2px)`, top: 0, bottom: 0, width: 4, background: '#fff', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '0 8px', fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              padding: '0 8px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <span style={{ color: '#bbf7d0' }}>低 {nf(stock.low)}</span>
               <span style={{ color: '#fff' }}>收在區間 {(pos * 100).toFixed(0)}%</span>
               <span style={{ color: '#fecaca' }}>高 {nf(stock.high)}</span>

@@ -51,7 +51,7 @@ export default function HelpManual() {
   return (
     <div style={{ padding: '14px 16px', maxWidth: 900, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-        <span style={{ fontSize: 'calc(20px * var(--fz))', fontWeight: 900 }}>📖 使用說明書</span>
+        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900 }}>📖 使用說明書</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>操作流程 · 各頁說明 · 術語解釋（每頁也有「❔本頁說明」可就地查看）</span>
       </div>
 
@@ -83,7 +83,7 @@ export default function HelpManual() {
               <div style={{ color: 'var(--text-secondary)' }}>{s2.d}</div>
             </div>
           ))}
-          <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
             ⚠ 流程為工具使用順序建議、非投資建議；所有勝率為歷史回測估計非保證，交易風險自負。
           </div>
         </div>
@@ -101,7 +101,7 @@ export default function HelpManual() {
               <div style={{ color: 'var(--text-secondary)' }}>{s.d}</div>
             </div>
           ))}
-          <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
             ⚠ 本流程為工具使用順序建議，非投資建議；所有勝率為歷史回測估計、非未來保證。交易風險自負，進場鐵律：單筆風險≤1%。
           </div>
         </div>
@@ -119,9 +119,9 @@ export default function HelpManual() {
               <div key={pid} style={{ borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', overflow: 'hidden' }}>
                 <div onClick={() => setOpenPage(open ? null : pid)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
                   <span style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))' }}>{c.icon} {c.title}</span>
-                  <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.what}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.what}</span>
                 </div>
                 {open && (
                   <div style={{ padding: '0 14px 12px', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
@@ -130,7 +130,7 @@ export default function HelpManual() {
                     <div style={{ fontWeight: 800, color: '#f6a06a', margin: '8px 0 2px' }}>👁 怎麼判讀</div>
                     {read.map((r, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {r}</div>)}
                     {c.terms.length > 0 && (
-                      <div style={{ marginTop: 8, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+                      <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                         相關術語：{c.terms.join('、')}（見「📚 術語表」）
                       </div>
                     )}
@@ -164,7 +164,7 @@ export default function HelpManual() {
           style={{ padding: '7px 16px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-secondary)' }}>
           ← 回市場總覽
         </button>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>本說明書隨功能更新同步維護。非投資建議。</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>本說明書隨功能更新同步維護。非投資建議。</span>
       </div>
     </div>
   );

@@ -70,7 +70,7 @@
   color: #f87171;
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
 }
 
@@ -81,7 +81,7 @@
 }
 
 .formGroup label {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -111,7 +111,7 @@
 
 .switch {
   text-align: center;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -145,7 +145,7 @@
   align-items: center;
   text-align: center;
   color: var(--text-muted);
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   margin: 4px 0;
 }
 

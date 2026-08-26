@@ -108,7 +108,7 @@
 }
 
 .toastDetail {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   opacity: 0.8;
   line-height: 1.4;
 }

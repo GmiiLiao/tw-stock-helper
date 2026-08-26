@@ -248,7 +248,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
                 <span style={{ display: 'inline-flex', border: '1px solid var(--border-primary)', borderRadius: 6, overflow: 'hidden' }}>
                   {(['lot', 'share'] as const).map(u => (
                     <button key={u} type="button" onClick={() => { localStorage.setItem('tradeUnit', u); setForm(f => ({ ...f, unit: u })); }}
-                      style={{ padding: '2px 10px', fontSize: 'calc(12px * var(--fz))', fontWeight: 700, border: 'none', cursor: 'pointer',
+                      style={{ padding: '2px 10px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, border: 'none', cursor: 'pointer',
                         background: form.unit === u ? 'var(--accent-primary, #3d8ef8)' : 'var(--bg-tertiary)',
                         color: form.unit === u ? '#fff' : 'var(--text-secondary)' }}>
                       {u === 'lot' ? '張' : '股(零股)'}
@@ -296,14 +296,14 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
           {/* Cost Preview */}
           {price > 0 && qty > 0 && (
             <div className={styles.costPreview} style={{ marginTop: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: 'calc(12px * var(--fz))' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: 'calc(12.5px * var(--fz))' }}>
                 <div>成交金額：<strong>{grossAmount.toLocaleString()} 元</strong></div>
                 <div>手續費(0.1425%{broker.discount < 1 ? `×${broker.discount}折讓` : ''})：<strong>{fee.toLocaleString()} 元</strong>{fee === broker.minFee && grossAmount > 0 ? <span style={{ color: 'var(--text-muted)' }}> 最低</span> : null}</div>
                 {form.type === 'sell' && <div>交易稅({taxRateLabel({ dayTrade: form.dayTrade, code: form.code })})：<strong>{tax.toLocaleString()} 元</strong></div>}
                 {form.type !== 'dividend' && <div>交割日(T+2)：<strong>{settleDate(form.date)}</strong></div>}
                 <div style={{ gridColumn: '1/-1', borderTop: '1px solid var(--border-primary)', paddingTop: '8px' }}>
                   {form.type === 'buy' ? '💰 實際支出' : form.type === 'sell' ? '💰 實際收入' : '💰 股利收入'}：
-                  <strong style={{ fontSize: 'calc(15px * var(--fz))', color: form.type === 'sell' ? 'var(--color-up)' : 'var(--text-primary)' }}>
+                  <strong style={{ fontSize: 'calc(14.5px * var(--fz))', color: form.type === 'sell' ? 'var(--color-up)' : 'var(--text-primary)' }}>
                     {' '}{Math.abs(totalAmount).toLocaleString()} 元
                   </strong>
                 </div>
@@ -315,7 +315,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
                   }}>
                     實際獲利（扣雙邊費稅）：{realized.pnl >= 0 ? '+' : ''}{realized.pnl.toLocaleString()} 元
                     <span style={{ fontWeight: 700 }}>（{realized.roi >= 0 ? '+' : ''}{realized.roi}%）</span>
-                    <div style={{ fontSize: 'calc(11px * var(--fz))', marginTop: 4, opacity: 0.85, fontWeight: 400 }}>
+                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginTop: 4, opacity: 0.85, fontWeight: 400 }}>
                       成本均價 {avgCostBasis.toFixed(2)}{basisFromLedger ? '（依交易紀錄加權·含買進費）' : '（依手動持倉·另估買進費）'}｜賣出手續費 −{realized.sellFee.toLocaleString()}｜證交稅 −{realized.tax.toLocaleString()}{!basisFromLedger ? `｜買進手續費 −${realized.buyFee.toLocaleString()}` : ''}
                     </div>
                   </div>
@@ -410,7 +410,7 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
               重算後：{fmtQty(qty)} × {price.toLocaleString()} 元
               {trade.type !== 'dividend' && <>｜手續費 {cost.fee.toLocaleString()}{cost.tax > 0 ? `｜稅 ${cost.tax.toLocaleString()}` : ''}</>}
               ｜{trade.type === 'buy' ? '實際支出' : trade.type === 'sell' ? '實際收入' : '入帳'} <strong>{Math.abs(cost.net).toLocaleString()} 元</strong>
-              <div style={{ fontSize: 'calc(11px * var(--fz))', marginTop: 4, opacity: 0.8 }}>儲存後，此筆與相關賣出的已實現損益會依交易紀錄整體重算。</div>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginTop: 4, opacity: 0.8 }}>儲存後，此筆與相關賣出的已實現損益會依交易紀錄整體重算。</div>
             </div>
           )}
         </div>
@@ -478,7 +478,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                 key={f}
                 onClick={() => setFilter(f)}
                 style={{
-                  padding: '6px 14px', borderRadius: '20px', fontSize: 'calc(12px * var(--fz))', fontWeight: 600,
+                  padding: '6px 14px', borderRadius: '20px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600,
                   background: filter === f ? 'var(--accent-purple, #7c3aed)' : 'var(--bg-tertiary)',
                   color: filter === f ? '#fff' : 'var(--text-secondary)',
                   border: 'none', cursor: 'pointer', transition: 'all 0.15s',
@@ -503,14 +503,14 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
       {filtered.length === 0 ? (
         <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 'calc(48px * var(--fz))', marginBottom: '12px' }}>📝</div>
-          <div style={{ fontSize: 'calc(15px * var(--fz))', marginBottom: '6px' }}>尚未記錄任何交易</div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', opacity: 0.7 }}>點擊「新增交易」開始記錄你的買賣紀錄</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', marginBottom: '6px' }}>尚未記錄任何交易</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', opacity: 0.7 }}>點擊「新增交易」開始記錄你的買賣紀錄</div>
         </div>
       ) : (
         grouped.map(([month, records]) => (
           <div key={month}>
             <div style={{
-              fontSize: 'calc(12px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)',
+              fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)',
               padding: '8px 0', borderBottom: '1px solid var(--border-primary)',
               letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6,
             }}>
@@ -533,11 +533,11 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                         style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', color: 'var(--text-primary)', cursor: 'pointer' }}
                       >{t.code}</span>
                       <span style={{
-                        fontSize: 'calc(12px * var(--fz))', padding: '2px 8px', borderRadius: '4px',
+                        fontSize: 'calc(12.5px * var(--fz))', padding: '2px 8px', borderRadius: '4px',
                         background: cfg.bg, color: cfg.color, fontWeight: 600,
                       }}>{cfg.label}</span>
                     </div>
-                    <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{t.name}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{t.name}</span>
                     <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{t.date}</span>
                   </div>
 
@@ -546,7 +546,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                     <span style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: 'var(--text-primary)' }}>
                       {t.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
-                    <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{fmtQty(t.quantity, t.unit)}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{fmtQty(t.quantity, t.unit)}</span>
                   </div>
 
                   {/* Amount + PnL */}
@@ -557,7 +557,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                       {t.type === 'buy' ? '支出 ' : t.type === 'sell' ? '收入 ' : '入帳 '}{Math.abs(t.totalAmount).toLocaleString()} 元
                     </span>
                     {t.fee > 0 && (
-                      <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                         手續費 {t.fee.toLocaleString()}{t.tax > 0 ? ` + 稅 ${t.tax.toLocaleString()}` : ''}{t.dayTrade ? ' · 當沖' : ''}
                       </span>
                     )}
@@ -579,7 +579,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                       const settled = isSettled(t.date);
                       const dleft = tradingDaysUntilSettle(t.date);
                       return (
-                        <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 600, color: settled ? 'var(--text-muted)' : '#f59e0b' }}>
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: settled ? 'var(--text-muted)' : '#f59e0b' }}>
                           {settled ? `✓ 已交割 ${settleDate(t.date)}` : `⏳ ${settleDate(t.date)} 交割${dleft === 0 ? '(今日)' : `(還 ${dleft} 交易日)`}`}
                         </span>
                       );
@@ -592,7 +592,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                       onClick={() => setEditingTrade(t)}
                       title="修改此筆交易（修錯價/錯量）"
                       style={{
-                        padding: '4px 8px', borderRadius: '6px', fontSize: 'calc(12px * var(--fz))',
+                        padding: '4px 8px', borderRadius: '6px', fontSize: 'calc(12.5px * var(--fz))',
                         background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
                         border: '1px solid var(--border-primary)', cursor: 'pointer',
                       }}
@@ -603,7 +603,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
                           removeTradeRecord(t.id);
                       }}
                       style={{
-                        padding: '4px 8px', borderRadius: '6px', fontSize: 'calc(12px * var(--fz))',
+                        padding: '4px 8px', borderRadius: '6px', fontSize: 'calc(12.5px * var(--fz))',
                         background: 'rgba(239,68,68,0.08)', color: '#ef4444',
                         border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer',
                       }}
@@ -665,8 +665,8 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
     return (
       <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
         <div style={{ fontSize: 'calc(48px * var(--fz))', marginBottom: '12px' }}>📈</div>
-        <div style={{ fontSize: 'calc(15px * var(--fz))', marginBottom: '6px' }}>尚無交易紀錄可供分析</div>
-        <div style={{ fontSize: 'calc(12px * var(--fz))', opacity: 0.7 }}>新增交易紀錄後即可查看損益分析</div>
+        <div style={{ fontSize: 'calc(14.5px * var(--fz))', marginBottom: '6px' }}>尚無交易紀錄可供分析</div>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', opacity: 0.7 }}>新增交易紀錄後即可查看損益分析</div>
       </div>
     );
   }
@@ -677,7 +677,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
       <PortfolioTradeReview ledger={ledger} />
 
       {/* 口徑說明：全部由交易紀錄重算（單位：元／張） */}
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
         📐 本頁全部數字由「交易紀錄」按時間重放重算（加權平均成本·含買進手續費），金額單位＝元、數量單位＝張。
         與紀錄當下存的值不符的筆數會列在下方「資料核對」。
       </div>
@@ -713,13 +713,13 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
                 畫面讀起來是「+12,817 / 已實現÷平倉筆數 / 元」，
                 單位跟它要修飾的數字隔了一行，看起來像多出來的贅字。
                 同一行 + nowrap，數字與單位就不會被拆開。 */}
-            <div style={{ fontSize: 'calc(20px * var(--fz))', fontWeight: 700, color: card.color, fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: card.color, fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
               {card.isMoney
                 ? `${(card.value as number) >= 0 ? '+' : ''}${(card.value as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })}`
                 : card.isPct
                 ? `${(card.value as number).toFixed(1)}%`
                 : card.value.toLocaleString()}
-              {card.isMoney && <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', marginLeft: 4 }}>元</span>}
+              {card.isMoney && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', marginLeft: 4 }}>元</span>}
             </div>
             {card.sub && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.5 }}>{card.sub}</div>}
           </div>
@@ -732,7 +732,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           padding: '16px', borderRadius: '12px',
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 平均獲利 vs 平均虧損（每筆平倉）</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 平均獲利 vs 平均虧損（每筆平倉）</div>
           {/* ⚠ 這三欄必須可換行（2026-08-11 手機回報）：
               原本 flex 不換行、每欄 flex:1，手機上每欄只剩 ~89px，
               但「+276,766 元」要 ~110px → 欄位撐開、「盈虧比」被擠出卡片外被切掉，
@@ -741,21 +741,21 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           <div style={{ display: 'flex', gap: '12px', rowGap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ flex: '1 1 120px', minWidth: 0 }}>
               <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#f03e3e', marginBottom: '4px' }}>平均獲利</div>
-              <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 700, color: '#f03e3e', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#f03e3e', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                 +{ledger.avgWin.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
               </div>
             </div>
             <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)', flexShrink: 0 }} />
             <div style={{ flex: '1 1 120px', minWidth: 0 }}>
               <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#2f9e44', marginBottom: '4px' }}>平均虧損</div>
-              <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 700, color: '#2f9e44', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#2f9e44', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
                 {ledger.avgLoss.toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
               </div>
             </div>
             <div style={{ width: '1px', height: '40px', background: 'var(--border-primary)', flexShrink: 0 }} />
             <div style={{ flex: '1 1 120px', minWidth: 0 }}>
               <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '4px' }}>盈虧比</div>
-              <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>
+              <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>
                 {ledger.avgLoss !== 0 ? Math.abs(ledger.avgWin / ledger.avgLoss).toFixed(2) : '∞'}
               </div>
             </div>
@@ -772,12 +772,12 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#f59e0b', marginBottom: '8px' }}>
             🔎 資料核對（{ledger.mismatchCount} 筆損益不一致{ledger.warnings.length ? `、${ledger.warnings.length} 項帳務警示` : ''}）
           </div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 10 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 10 }}>
             下列賣出「紀錄當下存的損益」與「依交易紀錄重算」不符——多半是當時手動持倉的成本價與交易紀錄脫鉤。
             全站顯示一律以重算為準；若是交易紀錄本身記錯價，請到「交易紀錄」分頁用 ✏️ 修正該筆。
           </div>
           {ledger.closed.filter(c => c.mismatch).map(c => (
-            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid rgba(245,158,11,0.15)', fontSize: 'calc(12px * var(--fz))', flexWrap: 'wrap' }}>
+            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid rgba(245,158,11,0.15)', fontSize: 'calc(12.5px * var(--fz))', flexWrap: 'wrap' }}>
               <span>{c.date} 賣出 <strong>{c.code} {c.name}</strong> {fmtQty(c.lots, c.unit)} @ {c.sellPrice}</span>
               <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                 存檔 {c.storedPnL != null ? (c.storedPnL >= 0 ? '+' : '') + Math.round(c.storedPnL).toLocaleString() : '—'}
@@ -788,7 +788,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
             </div>
           ))}
           {ledger.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', padding: '6px 0' }}>⚠ {w}</div>
+            <div key={i} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', padding: '6px 0' }}>⚠ {w}</div>
           ))}
         </div>
       )}
@@ -799,40 +799,40 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           padding: '16px', borderRadius: '12px',
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '10px' }}>🧾 平倉明細（新→舊·損益含買賣雙邊費稅）</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '10px' }}>🧾 平倉明細（新→舊·損益含買賣雙邊費稅）</div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12px * var(--fz))', minWidth: 560 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 560 }}>
               <thead>
                 <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
-                  <th style={{ textAlign: 'left', padding: '6px 4px' }}>日期</th>
-                  <th style={{ textAlign: 'left', padding: '6px 4px' }}>標的</th>
-                  <th style={{ padding: '6px 4px' }}>張數</th>
-                  <th style={{ padding: '6px 4px' }}>賣價</th>
-                  <th style={{ padding: '6px 4px' }}>成本均價</th>
-                  <th style={{ padding: '6px 4px' }}>損益(元)</th>
-                  <th style={{ padding: '6px 4px' }}>報酬率</th>
-                  <th style={{ padding: '6px 4px' }}>持有</th>
+                  <th style={{ textAlign: 'left', padding: '4px 4px' }}>日期</th>
+                  <th style={{ textAlign: 'left', padding: '4px 4px' }}>標的</th>
+                  <th style={{ padding: '4px 4px' }}>張數</th>
+                  <th style={{ padding: '4px 4px' }}>賣價</th>
+                  <th style={{ padding: '4px 4px' }}>成本均價</th>
+                  <th style={{ padding: '4px 4px' }}>損益(元)</th>
+                  <th style={{ padding: '4px 4px' }}>報酬率</th>
+                  <th style={{ padding: '4px 4px' }}>持有</th>
                 </tr>
               </thead>
               <tbody>
                 {ledger.closed.map(c => (
                   <tr key={c.id} style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
-                    <td style={{ textAlign: 'left', padding: '6px 4px', whiteSpace: 'nowrap' }}>{c.date}</td>
-                    <td style={{ textAlign: 'left', padding: '6px 4px', whiteSpace: 'nowrap' }}>
+                    <td style={{ textAlign: 'left', padding: '4px 4px', whiteSpace: 'nowrap' }}>{c.date}</td>
+                    <td style={{ textAlign: 'left', padding: '4px 4px', whiteSpace: 'nowrap' }}>
                       <strong>{c.code}</strong> <span style={{ color: 'var(--text-muted)' }}>{c.name}</span>
                       {c.dayTrade ? <span style={{ color: '#f59e0b' }}> 沖</span> : ''}
                       {(c.mismatch || c.oversoldLots > 0) && <span style={{ color: '#f59e0b' }}> ⚠</span>}
                     </td>
-                    <td style={{ padding: '6px 4px', whiteSpace: 'nowrap' }}>{fmtQty(c.lots, c.unit)}</td>
-                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.sellPrice.toLocaleString()}</td>
-                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.avgCost > 0 ? c.avgCost.toFixed(2) : '—'}</td>
-                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
+                    <td style={{ padding: '4px 4px', whiteSpace: 'nowrap' }}>{fmtQty(c.lots, c.unit)}</td>
+                    <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.sellPrice.toLocaleString()}</td>
+                    <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono', monospace" }}>{c.avgCost > 0 ? c.avgCost.toFixed(2) : '—'}</td>
+                    <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
                       {c.pnl >= 0 ? '+' : ''}{c.pnl.toLocaleString()}
                     </td>
-                    <td style={{ padding: '6px 4px', fontFamily: "'JetBrains Mono', monospace", color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
+                    <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono', monospace", color: c.pnl >= 0 ? '#f03e3e' : '#2f9e44' }}>
                       {c.avgCost > 0 ? `${c.roi >= 0 ? '+' : ''}${c.roi}%` : '—'}
                     </td>
-                    <td style={{ padding: '6px 4px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                    <td style={{ padding: '4px 4px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
                       {c.holdingDays != null ? `${c.holdingDays} 天` : '—'}
                     </td>
                   </tr>
@@ -849,7 +849,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           padding: '16px', borderRadius: '12px',
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 月度損益走勢</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>📊 月度損益走勢</div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
@@ -872,7 +872,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
               <Tooltip
                 contentStyle={{
                   background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
-                  borderRadius: '8px', fontSize: 'calc(12px * var(--fz))',
+                  borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))',
                 }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v: any, name: any) => [
@@ -897,7 +897,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           padding: '16px', borderRadius: '12px',
           background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
         }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>🏆 個股損益排行（已實現＋股利；不含在倉未實現）</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '12px' }}>🏆 個股損益排行（已實現＋股利；不含在倉未實現）</div>
           {stockRanking.map((s, i) => (
             <div key={s.code} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 2, minWidth: 0,
@@ -912,8 +912,8 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
                 }}>{i + 1}</span>
                 <div>
                   <span style={{ fontWeight: 600, fontSize: 'calc(13px * var(--fz))' }}>{s.code}</span>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginLeft: '6px' }}>{s.name}</span>
-                  {s.openLots > 0.0005 && <span style={{ fontSize: 'calc(11px * var(--fz))', color: '#3d8ef8', marginLeft: '6px' }}>在倉 {fmtQty(s.openLots)}</span>}
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: '6px' }}>{s.name}</span>
+                  {s.openLots > 0.0005 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#3d8ef8', marginLeft: '6px' }}>在倉 {fmtQty(s.openLots)}</span>}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -923,7 +923,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
                 }}>
                   {(s.pnl + s.dividend) >= 0 ? '+' : ''}{(s.pnl + s.dividend).toLocaleString('zh-TW', { maximumFractionDigits: 0 })}
                 </div>
-                <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                   {s.trades} 筆平倉{s.dividend > 0 ? `｜股利 +${s.dividend.toLocaleString()}` : ''}
                 </div>
               </div>
@@ -995,11 +995,11 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
         ].map((k, i) => (
           <div key={i} onClick={() => onGoTab('analytics')} title="點擊查看損益分析"
             style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', cursor: 'pointer' }}>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{k.label}</div>
-            <div style={{ fontSize: 'calc(17px * var(--fz))', fontWeight: 700, color: k.c, fontFamily: "'JetBrains Mono', monospace" }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{k.label}</div>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: k.c, fontFamily: "'JetBrains Mono', monospace" }}>
               {k.txt ?? `${(k.v as number) >= 0 ? '+' : ''}${Math.round(k.v as number).toLocaleString()}`}
             </div>
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{k.sub}</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{k.sub}</div>
           </div>
         ))}
       </div>
@@ -1020,13 +1020,13 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
               {cells.map((k, i) => (
                 <div key={i} onClick={() => onGoTab('analytics')} title="點擊查看損益分析"
                   style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', cursor: 'pointer' }}>
-                  <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{k.label}</div>
-                  <div style={{ fontSize: 'calc(17px * var(--fz))', fontWeight: 700, color: clr(k.v), fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(k.v)}</div>
-                  <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{k.sub}</div>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{k.label}</div>
+                  <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: clr(k.v), fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(k.v)}</div>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{k.sub}</div>
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>
               口徑：期間內平倉的已實現淨損益（含費稅）÷ 該批平倉的對應成本；未實現損益不計入。年化為全期間單利換算。非投資建議。
             </div>
           </div>
@@ -1039,15 +1039,15 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
             <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#f59e0b' }}>⚖️ 持倉對帳：手動持倉與交易紀錄不一致（{diffs.length} 檔）</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-ghost" style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 10px' }} onClick={() => onGoTab('trades')}>檢查交易紀錄</button>
-              <button className="btn btn-buy" style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 10px' }} onClick={rebuild}>依交易紀錄重建持倉</button>
+              <button className="btn btn-ghost" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px' }} onClick={() => onGoTab('trades')}>檢查交易紀錄</button>
+              <button className="btn btn-buy" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px' }} onClick={rebuild}>依交易紀錄重建持倉</button>
             </div>
           </div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 8 }}>
             持倉頁顯示的是「手動持倉」；損益分析以「交易紀錄」為準。兩邊不一致時（漏記/重複記/超賣），下表列出差異。
           </div>
           {diffs.map(d => (
-            <div key={d.code} style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 8, rowGap: 2, minWidth: 0, fontSize: 'calc(12px * var(--fz))', padding: '5px 0', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
+            <div key={d.code} style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 8, rowGap: 2, minWidth: 0, fontSize: 'calc(12.5px * var(--fz))', padding: '5px 0', borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
               <span><strong>{d.code}</strong> {d.name}</span>
               <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                 手動 {fmtQty(d.manualLots)} <span style={{ color: 'var(--text-muted)' }}>vs</span> 交易推算 <strong>{fmtQty(d.ledgerLots)}</strong>
@@ -1204,7 +1204,7 @@ export default function Portfolio() {
           記錄持倉、交易紀錄與損益分析
           {holdings.length > 0 && (
             <span style={{
-              marginLeft: 10, fontSize: 'calc(12px * var(--fz))', fontWeight: 700, padding: '2px 10px', borderRadius: 12,
+              marginLeft: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '2px 10px', borderRadius: 12,
               color: isLive ? '#22c55e' : '#94a3b8',
               background: isLive ? 'rgba(34,197,94,0.12)' : 'rgba(148,163,184,0.1)',
               border: `1px solid ${isLive ? 'rgba(34,197,94,0.3)' : 'var(--border-primary)'}`,
@@ -1265,7 +1265,7 @@ export default function Portfolio() {
                   </span>
                 </div>
               ))}
-              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 8, cursor: 'pointer' }} onClick={() => setActiveTab('analytics')}>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 8, cursor: 'pointer' }} onClick={() => setActiveTab('analytics')}>
                 完整平倉明細與統計 → 損益分析分頁
               </div>
             </div>
@@ -1373,7 +1373,7 @@ export default function Portfolio() {
               background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
             }}>
               <div className={styles.cardTitle} style={{ marginBottom: '4px' }}>📊 持倉水位分析</div>
-              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '16px' }}>
                 平均持有成本 vs 現價 · 報酬率水位（紅=獲利、綠=虧損，中線為損益兩平）
               </div>
 
@@ -1401,12 +1401,12 @@ export default function Portfolio() {
                       onClick={() => navigateTo('stock', g.code)}
                     >
                       <div style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 5 }}>{g.code}<RiskBadge code={g.code} size="xs" /></div>
-                      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                     </div>
                     <div>
                       {/* 要斷就斷在「均價／現價／張數」的邊界，絕不在一個數值中間斷 →
                           整列可 wrap，每一段自己 nowrap。 */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 10, rowGap: 2, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px', minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 10, rowGap: 2, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px', minWidth: 0 }}>
                         <span style={{ whiteSpace: 'nowrap' }}>均價 <strong style={{ color: 'var(--text-secondary)' }}>{g.avgCost.toFixed(2)}</strong></span>
                         <span style={{ whiteSpace: 'nowrap' }}>現價 <strong style={{ color: g.currentPrice >= g.avgCost ? 'var(--color-up)' : 'var(--color-down)' }}>{g.currentPrice.toFixed(2)}</strong></span>
                         <span style={{ whiteSpace: 'nowrap' }}>{g.lots} 張</span>
@@ -1417,7 +1417,7 @@ export default function Portfolio() {
                       <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: g.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                         {g.pnlPct >= 0 ? '+' : ''}{g.pnlPct.toFixed(2)}%
                       </div>
-                      <div style={{ fontSize: 'calc(12px * var(--fz))', color: g.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: g.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                         {g.pnl >= 0 ? '+' : ''}{Math.round(g.pnl).toLocaleString()}
                       </div>
                     </div>
@@ -1437,7 +1437,7 @@ export default function Portfolio() {
               <div className={styles.chartCard}>
                 <div className={styles.cardTitle}>
                   持倉比例分布
-                  <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
+                  <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                     分母＝持股市值（不含現金）
                   </span>
                 </div>
@@ -1480,11 +1480,11 @@ export default function Portfolio() {
                           : `${(v as number).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元（佔持股 ${pct}%）`;
                         return [txt, name];
                       }}
-                      contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12px * var(--fz))' }}
+                      contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                     />
                     <Legend
-                      formatter={(value) => <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-secondary)' }}>{value}</span>}
+                      formatter={(value) => <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -1526,7 +1526,7 @@ export default function Portfolio() {
                           <span className={styles.holdingPnlPct}>
                             ({item.netPnlPct >= 0 ? '+' : ''}{item.netPnlPct.toFixed(2)}%)
                           </span>
-                          <span style={{ display: 'block', fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
+                          <span style={{ display: 'block', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
                             毛 {item.pnl >= 0 ? '+' : ''}{Math.round(item.pnl).toLocaleString()}｜費稅 −{Math.round(item.feeTax).toLocaleString()}
                           </span>
                         </div>
@@ -1613,7 +1613,7 @@ export default function Portfolio() {
               </div>
               {editForm.buyPrice && editForm.quantity && (
                 <div className={styles.costPreview}>
-                  <div style={{ fontSize: 'calc(0.75rem * var(--fz))', marginBottom: '4px', opacity: 0.8 }}>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: '4px', opacity: 0.8 }}>
                     計算公式：單價 ({parseFloat(editForm.buyPrice).toLocaleString()} 元) × {fmtQty(parseFloat(editForm.quantity) || 0)}（{Math.round((parseFloat(editForm.quantity) || 0) * 1000).toLocaleString()} 股）
                   </div>
                   <div>

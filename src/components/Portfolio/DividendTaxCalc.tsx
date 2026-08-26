@@ -34,8 +34,8 @@ export default function DividendTaxCalc() {
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🧾 股利稅負試算</span>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>已婚合併申報 · 合併 8.5% 抵減 vs 28% 分離</span>
-        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>已婚合併申報 · 合併 8.5% 抵減 vs 28% 分離</span>
+        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
       </div>
       {open && (
         <div style={{ marginTop: 10 }}>
@@ -54,7 +54,7 @@ export default function DividendTaxCalc() {
                 {r.better === 'B' ? '✓ ' : ''}B 分離課稅 28%：應納 <b>{r.separate.toLocaleString()}</b> 元
               </div>
               <div style={{ color: 'var(--text-muted)' }}>另二代健保補充保費約 {r.nhi.toLocaleString()} 元（2.11%，按單筆≥2萬就源扣繳估算）</div>
-              <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>※ 法定公式試算，非稅務建議；股利所得為全戶合計，實際以國稅局核定為準。</div>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>※ 法定公式試算，非稅務建議；股利所得為全戶合計，實際以國稅局核定為準。</div>
             </div>
           )}
         </div>

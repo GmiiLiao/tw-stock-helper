@@ -40,11 +40,11 @@ export default function FinHealth({ code, price }: { code: string; price: number
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px', borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', marginBottom: 10 }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 'calc(30px * var(--fz))', fontWeight: 900, color: scoreColor(q.score) }}>{q.score}</div>
-              <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>財務體質分 /100</div>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>財務體質分 /100</div>
             </div>
             <div style={{ flex: 1, minWidth: 220, display: 'grid', gap: 4 }}>
               {([['獲利性', q.profit, 30], ['成長性', q.growth, 30], ['穩定性', q.stable, 20], ['評價', q.valuation, 20]] as const).map(([label, v, max]) => (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'calc(12px * var(--fz))' }}>
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))' }}>
                   <span style={{ minWidth: 44, color: 'var(--text-secondary)' }}>{label}</span>
                   <div style={{ flex: 1, height: 7, borderRadius: 4, background: 'rgba(148,163,184,0.12)', overflow: 'hidden' }}>
                     <div style={{ width: `${v / max * 100}%`, height: '100%', background: scoreColor(q.score) }} />
@@ -69,9 +69,9 @@ export default function FinHealth({ code, price }: { code: string; price: number
         </>
       )}
       {/* 8季單季表 */}
-      <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: 'var(--text-secondary)', margin: '4px 0 6px' }}>單季財報（新→舊·MOPS 官方，累計已換算單季）</div>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-secondary)', margin: '4px 0 6px' }}>單季財報（新→舊·MOPS 官方，累計已換算單季）</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
           <thead>
             <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
               <th style={{ textAlign: 'left', padding: '4px 6px' }}>季度</th>
@@ -98,7 +98,7 @@ export default function FinHealth({ code, price }: { code: string; price: number
           </tbody>
         </table>
       </div>
-      <div style={{ marginTop: 10, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <div style={{ marginTop: 10, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
         ⚠ 體質分已回測（2 個財報事件·公布後20日）：最低分組顯著跑輸、高分組跑贏——價值在「避開爛財報」；本益比實證在短線為反向指標，僅供評價位階參考。已以「重罰低分、輕獎高分」×1.5 併入選股AI排序。季報每季更新。非投資建議。
       </div>
     </div>

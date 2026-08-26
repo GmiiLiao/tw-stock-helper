@@ -13,7 +13,7 @@ export default function OnlyCandidatesToggle({ on, setOn }: { on: boolean; setOn
     <button type="button" disabled={disabled}
       onClick={() => setOn(!on)}
       title={disabled ? '候選便條是空的——先在任一頁按「＋候選」' : '只顯示候選便條內的個股'}
-      style={{ padding: '3px 10px', borderRadius: 13, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, cursor: disabled ? 'not-allowed' : 'pointer',
+      style={{ padding: '3px 10px', borderRadius: 13, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: disabled ? 'not-allowed' : 'pointer',
         border: `1px solid ${on ? 'rgba(245,159,0,0.65)' : 'var(--border-primary)'}`,
         background: on ? 'rgba(245,159,0,0.16)' : 'transparent',
         color: disabled ? 'var(--text-muted)' : on ? '#f59f00' : 'var(--text-muted)', opacity: disabled ? 0.5 : 1 }}>

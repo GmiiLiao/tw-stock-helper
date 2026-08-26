@@ -58,8 +58,8 @@ export default function SqueezeModel() {
   }
   const m = d.model;
   const box: React.CSSProperties = { padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', marginBottom: 12 };
-  const th: React.CSSProperties = { padding: '5px 6px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 600 };
-  const td: React.CSSProperties = { padding: '5px 6px', textAlign: 'right' };
+  const th: React.CSSProperties = { padding: '4px 6px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 600 };
+  const td: React.CSSProperties = { padding: '4px 6px', textAlign: 'right' };
 
   return (
     <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
@@ -165,7 +165,7 @@ export default function SqueezeModel() {
         {d.dataset.recent.length > 0 && (
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {d.dataset.recent.slice(0, 14).map(r => (
-              <span key={r.date} style={{ padding: '2px 8px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: 'calc(11px * var(--fz))' }}>
+              <span key={r.date} style={{ padding: '2px 8px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: 'calc(12.5px * var(--fz))' }}>
                 {r.date.slice(5)} 漲停{r.nLimitUp}/對照{r.nControl}
               </span>
             ))}
@@ -196,7 +196,7 @@ export default function SqueezeModel() {
                     <td style={td}>{s.n}</td>
                     <td style={td}>{s.mean != null ? pn(s.mean) : '—'}</td>
                     <td style={td}>{s.win != null ? `${s.win}%` : '—'}</td>
-                    <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>
+                    <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
                       {s.segs ? s.segs.map(v => (v == null ? '—' : v.toFixed(2))).join(' / ') : '—'}
                     </td>
                     <td style={{ ...td, textAlign: 'center', color: s.pass ? '#22c55e' : '#94a3b8' }}>{s.pass ? '通過' : s.why}</td>
@@ -220,23 +220,23 @@ export default function SqueezeModel() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(190px,100%),1fr))', gap: 8, marginBottom: 6 }}>
               <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>命中率（推薦的隔日開盤上漲）</div>
-                <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color: '#22c55e' }}>{rv.precision}%</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>{rv.totalHit}/{rv.totalPicked} 檔次 · 平均 {pn(rv.avgRet)}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>命中率（推薦的隔日開盤上漲）</div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: '#22c55e' }}>{rv.precision}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{rv.totalHit}/{rv.totalPicked} 檔次 · 平均 {pn(rv.avgRet)}</div>
               </div>
               <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>召回率（軋空型機會抓到幾成）</div>
-                <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color: (rv.recall ?? 0) >= 90 ? '#22c55e' : '#f59e0b' }}>{rv.recall}%</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>{rv.totalCaught}/{rv.totalSuccess} · 漏網 {rv.totalMissed}</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>召回率（軋空型機會抓到幾成）</div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: (rv.recall ?? 0) >= 90 ? '#22c55e' : '#f59e0b' }}>{rv.recall}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{rv.totalCaught}/{rv.totalSuccess} · 漏網 {rv.totalMissed}</div>
               </div>
               <div style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg-tertiary)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>全部跳空機會涵蓋率</div>
-                <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)' }}>{rv.recallAll ?? '—'}%</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))' }}>母體含非軋空成因，本來就低</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>全部跳空機會涵蓋率</div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)' }}>{rv.recallAll ?? '—'}%</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>母體含非軋空成因，本來就低</div>
               </div>
             </div>
             <div style={{ marginBottom: 6 }}>
-              <b style={{ fontSize: 'calc(12px * var(--fz))' }}>漏網主因（可據以逐日修正）</b>
+              <b style={{ fontSize: 'calc(12.5px * var(--fz))' }}>漏網主因（可據以逐日修正）</b>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 3 }}>
                 {Object.entries(rv.whyAgg || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
                   <span key={k} style={{ padding: '2px 9px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
@@ -247,8 +247,8 @@ export default function SqueezeModel() {
             </div>
             {rv.newsLiftAgg && (
               <div style={{ marginBottom: 6 }}>
-                <b style={{ fontSize: 'calc(12px * var(--fz))' }}>AI 新聞判別加值</b>
-                <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontSize: 'calc(11px * var(--fz))' }}>
+                <b style={{ fontSize: 'calc(12.5px * var(--fz))' }}>AI 新聞判別加值</b>
+                <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))' }}>
                   （{rv.daysWithNews ?? 0} 個交易日有判別存檔{(rv.daysWithNews ?? 0) < 20 ? '·樣本尚不足以定論' : ''}）
                 </span>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
@@ -273,7 +273,7 @@ export default function SqueezeModel() {
                       <td style={{ ...td, color: (r.precision ?? 0) >= 60 ? '#22c55e' : 'var(--text-primary)' }}>{r.precision ?? '—'}%</td>
                       <td style={td}>{pn(r.avgRet)}</td>
                       <td style={td}>{r.recall ?? '—'}%</td>
-                      <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>
+                      <td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
                         {r.missTop?.[0] ? `${r.missTop[0].code} +${r.missTop[0].ret}%（${r.missTop[0].reasons.join('・')}）` : '—'}
                       </td>
                     </tr>
@@ -281,7 +281,7 @@ export default function SqueezeModel() {
                 </tbody>
               </table>
             </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(10.5px * var(--fz))', marginTop: 5, lineHeight: 1.7 }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', marginTop: 5, lineHeight: 1.7 }}>
               {rv.note}
             </div>
           </div>
@@ -313,7 +313,7 @@ export default function SqueezeModel() {
         </div>
       </div>
 
-      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))', lineHeight: 1.7 }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7 }}>
         方法論：選因子只用訓練段（前 70%），選定後在完全未參與的樣本外段驗證；
         報酬一律採<b>可買口徑</b>（排除隔日開盤即漲停鎖死、實際買不到者）。
         國際盤採 t 日收盤——美股 t 日盤在台北時間當晚，早於台股 t+1 開盤，不是未來函數。

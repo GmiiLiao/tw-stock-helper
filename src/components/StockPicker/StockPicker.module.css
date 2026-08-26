@@ -50,7 +50,7 @@
 }
 
 .tabHint {
-  font-size: calc(0.7rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-weight: 500;
 }

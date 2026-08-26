@@ -54,7 +54,7 @@
 }
 
 .trackerTitle {
-  font-size: calc(20px * var(--fz));
+  font-size: calc(14.5px * var(--fz));
   font-weight: 700;
   color: #f1f5f9;
   margin: 0;
@@ -81,7 +81,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   color: #94a3b8;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -170,7 +170,7 @@
   padding: 0 5px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.08);
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: #94a3b8;
 }
@@ -184,7 +184,7 @@
   border: 1px dashed rgba(255, 255, 255, 0.15);
   background: transparent;
   color: #8b9bb8;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -281,7 +281,7 @@
 }
 
 .stockCode {
-  font-size: calc(15px * var(--fz));
+  font-size: calc(14.5px * var(--fz));
   font-weight: 700;
   color: #e2e8f0;
   font-variant-numeric: tabular-nums;
@@ -301,7 +301,7 @@
 }
 
 .stockPrice {
-  font-size: calc(15px * var(--fz));
+  font-size: calc(14.5px * var(--fz));
   font-weight: 700;
   color: #e2e8f0;
   min-width: 60px;
@@ -340,7 +340,7 @@
 .bgFlat { background: rgba(255, 255, 255, 0.06); color: #8b9bb8; }
 
 .noData {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: #475569;
 }
 
@@ -361,7 +361,7 @@
 }
 
 .limitTag {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 2px 5px;
   border-radius: 4px;
@@ -495,7 +495,7 @@
   border: 1px solid rgba(239, 68, 68, 0.2);
   background: transparent;
   color: #ef4444;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   cursor: pointer;
   opacity: 0.6;
   transition: opacity 0.2s;
@@ -540,7 +540,7 @@
   border-radius: 9px;
   background: #f03e3e;
   color: white;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
 }
 
@@ -573,7 +573,7 @@
   justify-content: center;
   height: 120px;
   color: #475569;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 .notifItem {
@@ -604,7 +604,7 @@
 .sev-info     { border-left: 2px solid rgba(59, 130, 246, 0.5) !important; padding-left: 8px; }
 
 .notifEmoji {
-  font-size: calc(16px * var(--fz));
+  font-size: calc(14.5px * var(--fz));
   flex-shrink: 0;
   line-height: 1.2;
 }
@@ -615,7 +615,7 @@
 }
 
 .notifMsg {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: #e2e8f0;
   margin-bottom: 2px;
@@ -636,7 +636,7 @@
 }
 
 .notifCode {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: #f03e3e;
   background: rgba(240, 62, 62, 0.1);
@@ -645,7 +645,7 @@
 }
 
 .notifTime {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: #475569;
   font-variant-numeric: tabular-nums;
 }
@@ -689,7 +689,7 @@
 }
 
 .modalTitle {
-  font-size: calc(16px * var(--fz));
+  font-size: calc(14.5px * var(--fz));
   font-weight: 700;
   color: #f1f5f9;
 }
@@ -718,7 +718,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: #8b9bb8;
   text-transform: uppercase;
@@ -987,7 +987,7 @@
   height: 160px;
   gap: 10px;
   color: #8b9bb8;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 .chartSpinner {
@@ -1005,7 +1005,7 @@
   justify-content: center;
   height: 160px;
   color: #8b9bb8;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 .chartStatsPanel {
@@ -1031,14 +1031,14 @@
 }
 
 .statBoxLabel {
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: #8b9bb8;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .statBoxValue {
-  font-size: calc(15px * var(--fz));
+  font-size: calc(14.5px * var(--fz));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1196,7 +1196,7 @@
 .activeGroupCount {
   margin-left: auto;
   flex-shrink: 0;
-  font-size: calc(12px * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: #94a3b8;
   background: rgba(255, 255, 255, 0.06);

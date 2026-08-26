@@ -56,9 +56,9 @@ export default function StockPicker() {
           模式決定評分／榜單／警報／問AI 的口徑，放在選股模型正上方＝
           「先選口徑，再選模型」，順序與實際操作一致。 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '12px 20px 0' }}>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', flexShrink: 0 }}>操作模式</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flexShrink: 0 }}>操作模式</span>
         <ModeSwitcher />
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 0 }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 0 }}>
           切換後評分、榜單、警報與問AI 都會改用該模式的口徑
         </span>
       </div>
@@ -90,7 +90,7 @@ export default function StockPicker() {
             {/* 跨模式口徑警告：本分頁內容是隔日沖的撿尾盤定版濾網，在別的模式
                 進來時必須明說，否則會拿隔日沖清單去做 5 日波段（實測 -0.06%）。 */}
             {mode !== 'nextday' && (
-              <div style={{ margin: '0 0 12px', padding: '9px 12px', borderRadius: 9, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', fontSize: 'calc(12px * var(--fz))', color: '#fbbf24', lineHeight: 1.7 }}>
+              <div style={{ margin: '0 0 12px', padding: '9px 12px', borderRadius: 9, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.7 }}>
                 ⚠ 你目前在 <b>{M.icon}{M.label}模式（{M.horizon}）</b>，但本分頁的策略是<b>隔日沖口徑</b>（今收買→明開賣）的實測結果。
                 兩者持有期不同，<b>數字不可互推</b>——波段起漲訊號拿去隔日沖實測是 -0.06%。要看本模式的清單請切到「📋 訊號榜單」。
               </div>

@@ -63,7 +63,7 @@ export function applyPick<T>(items: T[], ctl: PickCtl, a: PickAccess<T>): { rows
 }
 
 const chip = (on: boolean): React.CSSProperties => ({
-  padding: '3px 10px', borderRadius: 14, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
+  padding: '3px 10px', borderRadius: 14, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
   border: `1px solid ${on ? 'rgba(125,211,252,0.55)' : 'var(--border-primary)'}`,
   background: on ? 'rgba(125,211,252,0.14)' : 'transparent',
   color: on ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -82,22 +82,22 @@ export function PickBar({ ctl, setCtl, showScore = true, priceOnly = false }: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
       {!priceOnly && (
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>排序</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>排序</span>
         <button onClick={() => set({ sorts: [] })} style={chip(ctl.sorts.length === 0)}>綜合強度</button>
         {sorts.map(s => {
           const idx = ctl.sorts.indexOf(s.key);
           const on = idx >= 0;
           return (
             <button key={s.key} onClick={() => toggleSort(s.key)} style={chip(on)}>
-              {s.label}{on && ctl.sorts.length > 1 ? <sup style={{ fontSize: 'calc(8.5px * var(--fz))', marginLeft: 2, color: '#7dd3fc' }}>{idx + 1}</sup> : null}
+              {s.label}{on && ctl.sorts.length > 1 ? <sup style={{ fontSize: 'calc(12.5px * var(--fz))', marginLeft: 2, color: '#7dd3fc' }}>{idx + 1}</sup> : null}
             </button>
           );
         })}
-        {ctl.sorts.length > 1 && <span style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>（數字＝優先序）</span>}
+        {ctl.sorts.length > 1 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>（數字＝優先序）</span>}
       </div>
       )}
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>價格</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 30 }}>價格</span>
         {PRICE_BANDS.map((b, i) => (
           <button key={b.label} onClick={() => set({ band: i })} style={chip(ctl.band === i)}>{b.label}</button>
         ))}
@@ -114,17 +114,17 @@ export function PickMore({ ctl, setCtl, filteredTotal }: {
   const more = filteredTotal - shown;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-      <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>顯示 {shown} / {filteredTotal} 檔</span>
+      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>顯示 {shown} / {filteredTotal} 檔</span>
       {more > 0 && (
         <button onClick={() => setCtl(c => ({ ...c, limit: c.limit + PICK_LIMIT_STEP }))}
-          style={{ padding: '3px 12px', borderRadius: 14, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
+          style={{ padding: '3px 12px', borderRadius: 14, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
             border: '1px solid rgba(125,211,252,0.45)', background: 'rgba(125,211,252,0.10)', color: '#7dd3fc' }}>
           顯示更多 +{Math.min(PICK_LIMIT_STEP, more)}
         </button>
       )}
       {ctl.limit > PICK_LIMIT_STEP && (
         <button onClick={() => setCtl(c => ({ ...c, limit: PICK_LIMIT_STEP }))}
-          style={{ padding: '3px 10px', borderRadius: 14, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 600, cursor: 'pointer',
+          style={{ padding: '3px 10px', borderRadius: 14, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, cursor: 'pointer',
             border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-muted)' }}>
           收合
         </button>

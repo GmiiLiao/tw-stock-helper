@@ -69,7 +69,7 @@
 }
 
 .setupItemLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-bottom: 4px;
 }
@@ -89,14 +89,14 @@
 }
 
 .entryTimingLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
   margin-bottom: 4px;
 }
 
 .entryTimingText {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -125,7 +125,7 @@
 }
 
 .colSubtitle {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-weight: 400;
 }
@@ -170,12 +170,12 @@
 }
 
 .zoneLabel {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
 }
 
 .recommendedTag {
-  font-size: calc(0.6rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;
@@ -193,7 +193,7 @@
 }
 
 .zoneRange {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
 }
@@ -202,7 +202,7 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -213,7 +213,7 @@
 }
 
 .zoneRationale {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -236,7 +236,7 @@
 }
 
 .slLabel {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: #868e96;
 }
@@ -249,13 +249,13 @@
 }
 
 .slPercent {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--color-down);
   font-family: 'JetBrains Mono', monospace;
 }
 
 .slRationale {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -268,7 +268,7 @@
 }
 
 .ladderTitle {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -330,7 +330,7 @@
 }
 
 .levelTag {
-  font-size: calc(0.625rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
@@ -340,7 +340,7 @@
 
 .levelPrice {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -370,7 +370,7 @@
 }
 
 .patternBadge {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 20px;
@@ -398,7 +398,7 @@
 }
 
 .patternDesc {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -406,7 +406,7 @@
 .patternHint {
   display: flex;
   gap: 6px;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   background: rgba(61,142,248,0.04);
   border-left: 2px solid rgba(61,142,248,0.3);
@@ -417,7 +417,7 @@
 
 /* ─── Disclaimer ───────────────────────────────────── */
 .disclaimer {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(245,158,11,0.05);

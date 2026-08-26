@@ -77,7 +77,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   const srRatio = mg && mg > 0 && sh != null ? sh / mg * 100 : null;
 
   const badge = (txt: string, c: string, title: string) => (
-    <span key={txt} title={title} style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: `${c}1f`, color: c, border: `1px solid ${c}55`, whiteSpace: 'nowrap' }}>{txt}</span>
+    <span key={txt} title={title} style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: `${c}1f`, color: c, border: `1px solid ${c}55`, whiteSpace: 'nowrap' }}>{txt}</span>
   );
   // 徽章＝共用 computeComposite 產生（含破高/軋空/強尾/弱尾/接棒/過熱/跟風·全站同語意）
   const badges: React.ReactNode[] = comp.badges.map(b => badge(b.t, b.c, b.tip));
@@ -103,13 +103,13 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
   const hotBuy = liveRsi && liveRsi.r5 > 85;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.25)', fontSize: 'calc(12px * var(--fz))' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 10px', borderRadius: 8, background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.25)', fontSize: 'calc(12.5px * var(--fz))' }}>
       <span style={{ fontWeight: 900, color: '#a78bfa' }} title={`目前口徑：${_M.icon}${_M.label}（${_M.horizon}·${_M.exit.replace(/\*\*/g, '').split('——')[0]}）。本站每個數字都綁在一個口徑上，換模式就換一套實證。`}>
-        🧬 模型判讀 <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, opacity: 0.85 }}>{_M.icon}{_M.label}</span>
+        🧬 模型判讀 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, opacity: 0.85 }}>{_M.icon}{_M.label}</span>
       </span>
       {!_canScore && (
         <span title={`${_M.label}模式尚無經本站關卡驗證的評分模型，因此不顯示分數——顯示了就是憑空捏造。下方徽章仍為各自獨立驗證過的訊號。`}
-          style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>
+          style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>
           本模式無評分模型
         </span>
       )}
@@ -127,7 +127,7 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
 同一個訊號對買方與持有者意義相反，這是本技巧的重點。
 
 此為波段口徑（持有5日），不併入隔日沖綜合評分。非投資建議。`}
-          style={{ cursor: 'help', fontSize: 'calc(11px * var(--fz))', fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: '#fb923c1f', color: '#fb923c', border: '1px solid #fb923c55', whiteSpace: 'nowrap' }}
+          style={{ cursor: 'help', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: '#fb923c1f', color: '#fb923c', border: '1px solid #fb923c55', whiteSpace: 'nowrap' }}
         >
           🌡勿買高點 RSI{liveRsi!.r5}{liveRsi!.r10 > 85 ? `/${liveRsi!.r10}` : ''}
         </span>
@@ -137,16 +137,16 @@ export default function MarginSignals({ code, price, changePercent, high, low, v
           評分 {comp.score}{v?.tier ? `（${v.tier}級${v.win ? ` ${v.win}%` : ''}）` : ''}
         </span>
       )}
-      {charLabel && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, color: charLabel === '炒作型' ? '#f59e0b' : charLabel === '長期核心' ? '#7dd3fc' : 'var(--text-muted)' }}>{charLabel}</span>}
+      {charLabel && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: charLabel === '炒作型' ? '#f59e0b' : charLabel === '長期核心' ? '#7dd3fc' : 'var(--text-muted)' }}>{charLabel}</span>}
       {volX != null && <span title={METRIC_TIPS.量比 ?? '今量/昨量'} style={{ cursor: 'help' }}>量比 <b>{volX.toFixed(1)}</b></span>}
       {pos != null && <span title="收盤位置＝(現價−日低)/(日高−日低)。⚠貼高單獨非優勢（強尾−2），須配20日高突破" style={{ cursor: 'help' }}>收位 <b>{Math.round(pos * 100)}%</b></span>}
       {ret5 != null && <span title={METRIC_TIPS.過熱 ?? '5日累計漲幅'} style={{ cursor: 'help', color: ret5 >= 20 ? '#fb7185' : undefined }}>5日 <b>{ret5 >= 0 ? '+' : ''}{ret5.toFixed(1)}%</b></span>}
-      <span title={METRIC_TIPS.融資} style={{ cursor: 'help' }}>融資 <b>{fmtLots(mg)}</b><b style={{ color: chgColor(mgC), fontSize: 'calc(11px * var(--fz))' }}>{chgTag(mgC)}</b></span>
-      <span title={METRIC_TIPS.融券} style={{ cursor: 'help' }}>融券 <b>{fmtLots(sh)}</b><b style={{ color: chgColor(shC), fontSize: 'calc(11px * var(--fz))' }}>{chgTag(shC)}</b></span>
-      <span title={METRIC_TIPS.借券} style={{ cursor: 'help' }}>借券 <b>{fmtLots(ln)}</b><b style={{ color: chgColor(lnC), fontSize: 'calc(11px * var(--fz))' }}>{chgTag(lnC)}</b></span>
+      <span title={METRIC_TIPS.融資} style={{ cursor: 'help' }}>融資 <b>{fmtLots(mg)}</b><b style={{ color: chgColor(mgC), fontSize: 'calc(12.5px * var(--fz))' }}>{chgTag(mgC)}</b></span>
+      <span title={METRIC_TIPS.融券} style={{ cursor: 'help' }}>融券 <b>{fmtLots(sh)}</b><b style={{ color: chgColor(shC), fontSize: 'calc(12.5px * var(--fz))' }}>{chgTag(shC)}</b></span>
+      <span title={METRIC_TIPS.借券} style={{ cursor: 'help' }}>借券 <b>{fmtLots(ln)}</b><b style={{ color: chgColor(lnC), fontSize: 'calc(12.5px * var(--fz))' }}>{chgTag(lnC)}</b></span>
       {srRatio != null && <span title={METRIC_TIPS.券資比} style={{ cursor: 'help' }}>券資比 <b>{srRatio.toFixed(1)}%</b></span>}
       <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>{badges}</span>
-      <span style={{ fontSize: 'calc(10px * var(--fz))', color: 'var(--text-muted)' }}>t-1({dataDate})·張</span>
+      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>t-1({dataDate})·張</span>
     </div>
   );
 }

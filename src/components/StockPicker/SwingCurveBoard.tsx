@@ -68,14 +68,14 @@ export default function SwingCurveBoard() {
     <div style={{ border: '1px dashed var(--border-primary)', borderRadius: 12, background: 'rgba(148,163,184,0.05)', padding: '12px 14px', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, rowGap: 2, flexWrap: 'wrap', marginBottom: 4, minWidth: 0 }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(0.9rem * var(--fz))', whiteSpace: 'nowrap' }}>🧪 第 2 套預選：PID 斜率曲線</span>
-        <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color: '#fbbf24', whiteSpace: 'nowrap' }}>觀察中·非已驗證訊號</span>
-        {d.date && <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{d.date}·宇宙 {d.universe} 檔</span>}
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', whiteSpace: 'nowrap' }}>觀察中·非已驗證訊號</span>
+        {d.date && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{d.date}·宇宙 {d.universe} 檔</span>}
       </div>
 
       {/* 實記進度：這是本實驗的裁判，放在最上面 */}
       {sb && (
         <div style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 8, fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)', marginBottom: 3 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', columnGap: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 3 }}>
             <span style={{ whiteSpace: 'nowrap' }}>60 日實記進度 {sb.recordedDays}/{sb.targetDays} 日</span>
             <span style={{ whiteSpace: 'nowrap' }}>
               {sb.leader5 ? `5日領先 ${sb.leader5.name} ${sb.leader5.winRate}%` : '5日：樣本未達判定門檻'}
@@ -87,7 +87,7 @@ export default function SwingCurveBoard() {
         </div>
       )}
 
-      <div style={{ fontSize: 'calc(0.68rem * var(--fz))', color: '#fbbf24', lineHeight: 1.65, marginBottom: 8 }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.65, marginBottom: 8 }}>
         {d.note}
       </div>
 
@@ -100,14 +100,14 @@ export default function SwingCurveBoard() {
           return (
             <div key={c.id} style={{ border: '1px solid var(--border-primary)', borderRadius: 9, padding: '8px 9px', background: 'var(--bg-elevated)', minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 2, flexWrap: 'wrap', minWidth: 0 }}>
-                <b style={{ fontSize: 'calc(0.78rem * var(--fz))', color: col, whiteSpace: 'nowrap' }}>曲線{c.id} {c.name}</b>
-                <span style={{ fontSize: 'calc(0.66rem * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                <b style={{ fontSize: 'calc(12.5px * var(--fz))', color: col, whiteSpace: 'nowrap' }}>曲線{c.id} {c.name}</b>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                   一致性 {c.score5}/6·{c.score20}/6
                 </span>
               </div>
               <Spark pts={c.curve} color={col} />
               {c.hist && (
-                <div style={{ fontSize: 'calc(0.67rem * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginTop: 3 }}>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginTop: 3 }}>
                   {/* 成長與回檔成對——單看成長會誤導 */}
                   <div style={{ whiteSpace: 'nowrap' }}>歷史5日 淨{sign(c.hist.net5)}pp 勝{sign(c.hist.win5)}pp</div>
                   <div style={{ whiteSpace: 'nowrap' }}>歷史20日 淨{sign(c.hist.net20)}pp 勝{sign(c.hist.win20)}pp</div>
@@ -125,7 +125,7 @@ export default function SwingCurveBoard() {
                   <div style={{ marginTop: 5, display: 'grid', gap: 1 }}>
                     {picks.picks.slice(0, open === c.id ? 20 : 4).map(p => (
                       <div key={p.code} onClick={() => navigateTo('stock', p.code)}
-                        style={{ display: 'flex', justifyContent: 'space-between', columnGap: 6, cursor: 'pointer', fontSize: 'calc(0.72rem * var(--fz))', minWidth: 0 }}>
+                        style={{ display: 'flex', justifyContent: 'space-between', columnGap: 6, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', minWidth: 0 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <b style={{ color: '#7dd3fc' }}>{p.code}</b> {p.name}
                         </span>
@@ -134,17 +134,17 @@ export default function SwingCurveBoard() {
                     ))}
                   </div>
                   <button onClick={() => setOpen(open === c.id ? null : c.id)}
-                    style={{ marginTop: 4, background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 'calc(0.68rem * var(--fz))' }}>
+                    style={{ marginTop: 4, background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontSize: 'calc(12.5px * var(--fz))' }}>
                     {open === c.id ? '收合 ▴' : `展開全部 ${picks.picks.length} 檔（同型共 ${picks.total} 檔）▾`}
                   </button>
                 </>
-              ) : <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>今日無此型</div>}
+              ) : <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>今日無此型</div>}
             </div>
           );
         })}
       </div>
 
-      <div style={{ fontSize: 'calc(0.66rem * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.65, marginTop: 8 }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.65, marginTop: 8 }}>
         📐 PID＝把 20 日走勢除以該檔自身波動後分解：P 現況（對 5 日均線的偏離）、I 累積、D 斜率、D2 加速度。
         分型中心以 2022-07~2024-03 擬合後凍結，再套用到後續兩窗，避免分型偷看未來。
         「一致性 n/6」＝3 個歷史窗 × {'{'}淨報酬Δ、勝率Δ{'}'} 為正的項數。

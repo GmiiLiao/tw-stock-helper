@@ -67,7 +67,7 @@ function StatusBadges({ code, changePercent, showLimit = true }: { code: string;
   const dispUntil = shortDate(dispEnd.get(code));
   const attUntil = shortDate(attEnd.get(code));
   const tag = (text: string, color: string, bg: string, border?: string) => (
-    <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color, background: bg, border: border ? `1px solid ${border}` : undefined, padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>{text}</span>
+    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color, background: bg, border: border ? `1px solid ${border}` : undefined, padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap' }}>{text}</span>
   );
   return (
     <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -534,8 +534,8 @@ function StockRow({
             title={`開啟 ${stock.code} 個股分析頁`}>
             {stock.code}
           </span>
-          {isAiPick  && <span style={{ fontSize: 'calc(12px * var(--fz))' }}>🤖</span>}
-          {hasAlert  && <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b' }}>🔔</span>}
+          {isAiPick  && <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>🤖</span>}
+          {hasAlert  && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b' }}>🔔</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
           <span className={styles.stockName}
@@ -558,7 +558,7 @@ function StockRow({
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
               <span
                 className={flashClass}
-                style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 700, color: isUp ? 'var(--color-up)' : isDown ? 'var(--color-down)' : '#e2e8f0', padding: '1px 4px' }}
+                style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: isUp ? 'var(--color-up)' : isDown ? 'var(--color-down)' : '#e2e8f0', padding: '1px 4px' }}
               >
                 {quote.price > 0 ? quote.price.toFixed(2) : '--'}
               </span>
@@ -570,7 +570,7 @@ function StockRow({
               </span>
             </div>
             {/* OHLC mini row & Target Price */}
-            <div style={{ display: 'flex', gap: '10px', fontSize: 'calc(12px * var(--fz))', color: '#94a3b8', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '10px', fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8', alignItems: 'center', flexWrap: 'wrap' }}>
               {(quote.open > 0 || quote.high > 0) && (
                 <>
                   <span>開 <b style={{ color: '#94a3b8' }}>{quote.open.toFixed(2)}</b></span>
@@ -589,7 +589,7 @@ function StockRow({
                   <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>
                   <span>評分 <b style={{ color: rating.score >= 75 ? 'var(--color-up)' : rating.score >= 55 ? '#f59e0b' : 'var(--color-down)' }}>{rating.score}</b></span>
                   {SIG_STYLE[rating.signal] && (
-                    <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: SIG_STYLE[rating.signal].b, color: SIG_STYLE[rating.signal].c }}>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: SIG_STYLE[rating.signal].b, color: SIG_STYLE[rating.signal].c }}>
                       {SIG_STYLE[rating.signal].t}
                     </span>
                   )}
@@ -606,7 +606,7 @@ function StockRow({
       <div className={styles.rowVolume} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: '#94a3b8' }}>{volStr}</div>
         {quote?.source === 'mis_realtime' && (
-          <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#22c55e', fontWeight: 700, marginTop: '2px' }}>● 即時</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#22c55e', fontWeight: 700, marginTop: '2px' }}>● 即時</div>
         )}
       </div>
 
@@ -875,7 +875,7 @@ function AiGroupPanel({
       {/* Column header */}
       <div className={styles.aiHeader} style={{
         padding: '8px 16px',
-        fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)',
+        fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
         borderBottom: '1px solid var(--border-primary)',
         letterSpacing: '0.04em',
       }}>
@@ -926,9 +926,9 @@ function AiGroupPanel({
               {/* Stock info */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontWeight: 700, fontSize: 'calc(15px * var(--fz))', color: 'var(--text-primary)' }}>{ai.code}</span>
+                  <span style={{ fontWeight: 700, fontSize: 'calc(14.5px * var(--fz))', color: 'var(--text-primary)' }}>{ai.code}</span>
                   <span style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '2px 6px', borderRadius: '4px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '2px 6px', borderRadius: '4px',
                     background: strategyColor[ai.strategy] + '22',
                     color: strategyColor[ai.strategy],
                     fontWeight: 600,
@@ -952,12 +952,12 @@ function AiGroupPanel({
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                   <span
                     className={flashClass}
-                    style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 700, color: isUp ? 'var(--color-up)' : isDown ? 'var(--color-down)' : 'var(--text-primary)', padding: '2px 4px' }}
+                    style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: isUp ? 'var(--color-up)' : isDown ? 'var(--color-down)' : 'var(--text-primary)', padding: '2px 4px' }}
                   >
                     {price > 0 ? price.toFixed(2) : '--'}
                   </span>
                   {q?.source === 'mis_realtime' && q.tradeTime && (
-                    <span style={{ fontSize: 'calc(11px * var(--fz))', color: '#22c55e', fontWeight: 700 }}>● 即時</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#22c55e', fontWeight: 700 }}>● 即時</span>
                   )}
                 </div>
                 {price > 0 && (
@@ -975,7 +975,7 @@ function AiGroupPanel({
                   </div>
                 )}
                 {/* Open / High / Low mini row & Target Price */}
-                <div style={{ display: 'flex', gap: '8px', fontSize: 'calc(12px * var(--fz))', color: '#94a3b8', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '8px', fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8', alignItems: 'center', flexWrap: 'wrap' }}>
                   {q && (q.high > 0 || q.low > 0) && (
                     <>
                       <span>開 <span style={{ color: 'var(--text-secondary)' }}>{q.open.toFixed(2)}</span></span>
@@ -991,7 +991,7 @@ function AiGroupPanel({
                   )}
                 </div>
                 {ai.buyPoint && (
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#94a3b8' }}>買點 {ai.buyPoint.toFixed(2)} · 賣點 {ai.sellPoint?.toFixed(2) ?? '--'}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8' }}>買點 {ai.buyPoint.toFixed(2)} · 賣點 {ai.sellPoint?.toFixed(2) ?? '--'}</span>
                 )}
               </div>
 
@@ -1005,7 +1005,7 @@ function AiGroupPanel({
                       background: ai.score >= 75 ? 'var(--color-up)' : ai.score >= 55 ? '#f59e0b' : 'var(--color-down)',
                     }} />
                   </div>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', minWidth: '28px' }}>{ai.score}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', minWidth: '28px' }}>{ai.score}</span>
                 </div>
                 {/* Signal badge */}
                 <span style={{
@@ -1114,7 +1114,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '12px 0' }}>
       {/* Header */}
       <div style={{ padding: '0 16px' }}>
-        <div style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
           ⚠️ 風險監控中心
         </div>
         <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: '4px' }}>
@@ -1130,7 +1130,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
         }}>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#ef4444', fontWeight: 600 }}>🔴 處置股票</div>
           <div style={{ fontSize: 'calc(28px * var(--fz))', fontWeight: 800, color: '#ef4444', marginTop: '4px' }}>{disposition.length}</div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>交易限制 · 預收款券</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>交易限制 · 預收款券</div>
         </div>
         <div style={{
           padding: '14px', borderRadius: '12px',
@@ -1138,7 +1138,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
         }}>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#eab308', fontWeight: 600 }}>🟡 注意股票</div>
           <div style={{ fontSize: 'calc(28px * var(--fz))', fontWeight: 800, color: '#eab308', marginTop: '4px' }}>{attention.length}</div>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>交易異常 · 觀察名單</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>交易異常 · 觀察名單</div>
         </div>
       </div>
 
@@ -1194,10 +1194,10 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
                   color: '#fff', minWidth: 0,
                 }}
               >
-                {isUserHolding && <span style={{ position: 'absolute', top: 1, right: 3, fontSize: 'calc(10px * var(--fz))' }}>⚠️</span>}
+                {isUserHolding && <span style={{ position: 'absolute', top: 1, right: 3, fontSize: 'calc(12.5px * var(--fz))' }}>⚠️</span>}
                 <span style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))', fontFamily: "'JetBrains Mono', monospace" }}>{stock.code}</span>
-                <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</span>
-                <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, color: isDisp ? '#ffd6d6' : '#fff3bf' }}>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</span>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: isDisp ? '#ffd6d6' : '#fff3bf' }}>
                   {isDisp ? (until ? `處置至${until}` : '處置') : '注意'}
                 </span>
               </button>
@@ -1208,7 +1208,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
 
       {/* Info Footer */}
       <div style={{
-        padding: '12px 16px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)',
+        padding: '12px 16px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
         borderTop: '1px solid var(--border-primary)', lineHeight: '1.6',
       }}>
         <div><strong>📌 注意股票</strong>：交易量、價格波動等異常，證交所提醒投資人注意交易風險。</div>
@@ -1349,7 +1349,7 @@ function RapidRisePanel({
             key={f.id}
             onClick={() => setFilter(f.id)}
             style={{
-              fontSize: 'calc(12px * var(--fz))', padding: '4px 12px', borderRadius: '999px', cursor: 'pointer',
+              fontSize: 'calc(12.5px * var(--fz))', padding: '4px 12px', borderRadius: '999px', cursor: 'pointer',
               background: filter === f.id ? 'var(--color-up)' : 'var(--bg-secondary)',
               color: filter === f.id ? '#fff' : 'var(--text-muted)',
               border: `1px solid ${filter === f.id ? 'var(--color-up)' : 'var(--border-primary)'}`,
@@ -1404,7 +1404,7 @@ function RapidRisePanel({
                   <span style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', color: 'var(--text-primary)' }}>{s.code}</span>
                   {s.isLimitUp && (
                     <span style={{
-                      fontSize: 'calc(12px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
+                      fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
                       background: 'rgba(239,68,68,0.18)', color: '#ef4444', fontWeight: 700,
                     }}>漲停板</span>
                   )}
@@ -1422,19 +1422,19 @@ function RapidRisePanel({
                       background: s.isLimitUp ? '#ef4444' : s.changePercent >= 5 ? '#f97316' : '#eab308',
                     }} />
                   </div>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>高位報收</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>高位報收</span>
                 </div>
               </div>
 
               {/* Price / change% & Target Price */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: 'var(--color-up)' }}>
+                <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--color-up)' }}>
                   {s.price.toFixed(2)}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--color-up)' }}>+{s.change.toFixed(2)}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--color-up)' }}>+{s.change.toFixed(2)}</span>
                   <span style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '2px 7px', borderRadius: '4px', fontWeight: 700,
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '2px 7px', borderRadius: '4px', fontWeight: 700,
                     background: 'rgba(220,38,38,0.12)', color: 'var(--color-up)',
                   }}>▲{s.changePercent.toFixed(2)}%</span>
                 </div>
@@ -1465,7 +1465,7 @@ function RapidRisePanel({
               {/* Strength / score */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 <span style={{
-                  fontSize: 'calc(12px * var(--fz))', padding: '3px 8px', borderRadius: '6px', fontWeight: 600,
+                  fontSize: 'calc(12.5px * var(--fz))', padding: '3px 8px', borderRadius: '6px', fontWeight: 600,
                   background: strengthBg[s.strength], color: strengthColor[s.strength],
                   width: 'fit-content',
                 }}>{s.strength}</span>
@@ -1654,7 +1654,7 @@ function RapidFallPanel({
         ] as const).map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)}
             style={{
-              fontSize: 'calc(12px * var(--fz))', padding: '4px 12px', borderRadius: '999px', cursor: 'pointer',
+              fontSize: 'calc(12.5px * var(--fz))', padding: '4px 12px', borderRadius: '999px', cursor: 'pointer',
               background: filter === f.id ? '#16a34a' : 'var(--bg-secondary)',
               color: filter === f.id ? '#fff' : 'var(--text-muted)',
               border: `1px solid ${filter === f.id ? '#16a34a' : 'var(--border-primary)'}`,
@@ -1709,13 +1709,13 @@ function RapidFallPanel({
                   <span style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', color: 'var(--text-primary)' }}>{s.code}</span>
                   {s.isLimitDown && (
                     <span style={{
-                      fontSize: 'calc(12px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
+                      fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
                       background: 'rgba(34,197,94,0.18)', color: '#22c55e', fontWeight: 700,
                     }}>跌停板</span>
                   )}
                   {s.alertLevel === 'critical' && !s.isLimitDown && (
                     <span style={{
-                      fontSize: 'calc(12px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
+                      fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
                       background: 'rgba(239,68,68,0.12)', color: '#ef4444', fontWeight: 600,
                     }}>注意</span>
                   )}
@@ -1734,24 +1734,24 @@ function RapidFallPanel({
                       background: s.isLimitDown ? '#22c55e' : s.changePercent <= -5 ? '#16a34a' : '#4ade80',
                     }} />
                   </div>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>跌幅深度</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>跌幅深度</span>
                 </div>
               </div>
 
               {/* Price / change% & Target Price */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: 'var(--color-down)' }}>
+                <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--color-down)' }}>
                   {s.price.toFixed(2)}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--color-down)' }}>{s.change.toFixed(2)}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--color-down)' }}>{s.change.toFixed(2)}</span>
                   <span style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '2px 7px', borderRadius: '4px', fontWeight: 700,
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '2px 7px', borderRadius: '4px', fontWeight: 700,
                     background: 'rgba(34,197,94,0.12)', color: 'var(--color-down)',
                   }}>▼{Math.abs(s.changePercent).toFixed(2)}%</span>
                 </div>
                 {targetPrice !== null && targetPrice !== undefined && (
-                  <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
                     目標 {targetPrice.toFixed(2)}
                   </span>
                 )}
@@ -1767,7 +1767,7 @@ function RapidFallPanel({
                     : s.volume.toFixed(0)}
                 </span>
                 <span style={{
-                  fontSize: 'calc(11px * var(--fz))',
+                  fontSize: 'calc(12.5px * var(--fz))',
                   color: s.volumeRatio >= 3 ? '#22c55e' : s.volumeRatio >= 2 ? '#4ade80' : 'var(--text-muted)',
                 }}>
                   {s.volumeRatio >= 1.5 ? '📢 ' : ''}×{s.volumeRatio.toFixed(1)} 賣壓量
@@ -1777,7 +1777,7 @@ function RapidFallPanel({
               {/* Severity / score */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 <span style={{
-                  fontSize: 'calc(12px * var(--fz))', padding: '3px 8px', borderRadius: '6px', fontWeight: 600,
+                  fontSize: 'calc(12.5px * var(--fz))', padding: '3px 8px', borderRadius: '6px', fontWeight: 600,
                   background: sevBg[s.severity], color: sevColor[s.severity],
                   width: 'fit-content',
                 }}>{s.severity}</span>
@@ -1788,7 +1788,7 @@ function RapidFallPanel({
                       background: s.score >= 70 ? '#22c55e' : s.score >= 50 ? '#4ade80' : '#86efac',
                     }} />
                   </div>
-                  <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{s.score}</span>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{s.score}</span>
                 </div>
               </div>
 
@@ -1797,7 +1797,7 @@ function RapidFallPanel({
                 <button
                   onClick={(e) => { e.stopPropagation(); onViewStock(s.code, s.name); }}
                   style={{
-                    fontSize: 'calc(11px * var(--fz))', padding: '5px 10px', borderRadius: '6px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '5px 10px', borderRadius: '6px',
                     background: 'rgba(34,197,94,0.1)', color: 'var(--color-down)',
                     border: '1px solid rgba(34,197,94,0.3)', cursor: 'pointer',
                     fontWeight: 600, transition: 'all 0.15s',
@@ -1909,7 +1909,7 @@ function InstitutionalPanel({
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '10px 16px', borderBottom: '1px solid var(--border-primary)',
-        fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)',
+        fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
       }}>
         <span>{modeLabel} · TOP {stocks.length}</span>
         <span>📅 資料日期：{formattedDate} · 盤後統計</span>
@@ -1918,7 +1918,7 @@ function InstitutionalPanel({
       {/* Column header */}
       <div style={{
         display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr 70px',
-        padding: '8px 16px', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)',
+        padding: '8px 16px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
         borderBottom: '1px solid var(--border-primary)', letterSpacing: '0.04em',
       }}>
         <span>代號 / 名稱</span>
@@ -1963,7 +1963,7 @@ function InstitutionalPanel({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', color: 'var(--text-primary)' }}>{s.code}</span>
                   <span style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: '4px',
                     background: accentBg, color: accentColor, fontWeight: 600,
                   }}>{isBuy ? '買超' : '賣超'}</span>
                 </div>
@@ -1977,21 +1977,21 @@ function InstitutionalPanel({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 {price > 0 ? (
                   <>
-                    <span style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 700, color: priceColor }}>
+                    <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: priceColor }}>
                       {price.toLocaleString(undefined, { minimumFractionDigits: price < 100 ? 2 : 0, maximumFractionDigits: 2 })}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ fontSize: 'calc(11px * var(--fz))', color: priceColor }}>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: priceColor }}>
                         {chg > 0 ? '+' : ''}{chg.toFixed(2)}
                       </span>
                       <span style={{
-                        fontSize: 'calc(11px * var(--fz))', padding: '1px 5px', borderRadius: '4px', fontWeight: 600,
+                        fontSize: 'calc(12.5px * var(--fz))', padding: '1px 5px', borderRadius: '4px', fontWeight: 600,
                         background: chg > 0 ? 'rgba(220,38,38,0.12)' : chg < 0 ? 'rgba(34,197,94,0.12)' : 'rgba(148,163,184,0.08)',
                         color: priceColor,
                       }}>{chg > 0 ? '▲' : chg < 0 ? '▼' : ''}{Math.abs(chgPct).toFixed(2)}%</span>
                     </div>
                     {targetPrice !== null && targetPrice !== undefined && (
-                      <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
                         目標 {targetPrice.toFixed(2)}
                       </span>
                     )}
@@ -2003,7 +2003,7 @@ function InstitutionalPanel({
 
               {/* Net buy/sell */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <span style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 700, color: netColor }}>
+                <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: netColor }}>
                   {netLots > 0 ? '+' : ''}{fmtLots(netLots)}張
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -2021,7 +2021,7 @@ function InstitutionalPanel({
               </div>
 
               {/* Breakdown */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: 'calc(12px * var(--fz))' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: 'calc(12.5px * var(--fz))' }}>
                 <span style={{ color: s.foreignNetLots > 0 ? '#ef4444' : s.foreignNetLots < 0 ? '#22c55e' : 'var(--text-muted)' }}>
                   外 {s.foreignNetLots > 0 ? '+' : ''}{fmtLots(s.foreignNetLots)}
                 </span>
@@ -2038,7 +2038,7 @@ function InstitutionalPanel({
                 <button
                   onClick={(e) => { e.stopPropagation(); onViewStock(s.code, s.name); }}
                   style={{
-                    fontSize: 'calc(11px * var(--fz))', padding: '5px 10px', borderRadius: '6px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '5px 10px', borderRadius: '6px',
                     background: accentBg, color: accentColor,
                     border: `1px solid ${accentColor}33`, cursor: 'pointer',
                     fontWeight: 600, transition: 'all 0.15s',
@@ -2402,7 +2402,7 @@ export default function WatchlistTracker() {
                 {isRealtime && (
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: '3px',
-                    marginLeft: '6px', fontSize: 'calc(12px * var(--fz))',
+                    marginLeft: '6px', fontSize: 'calc(12.5px * var(--fz))',
                     color: '#22c55e', fontWeight: 700,
                   }}>● 即時</span>
                 )}

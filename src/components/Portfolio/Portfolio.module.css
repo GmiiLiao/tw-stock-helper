@@ -44,7 +44,7 @@
 }
 
 .summaryLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -60,7 +60,7 @@
 }
 
 .summarySub {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
   font-family: 'JetBrains Mono', monospace;
@@ -151,10 +151,10 @@
   flex: 1;
 }
 
-.holdingDate { font-size: calc(0.75rem * var(--fz)); color: var(--text-muted); }
+.holdingDate { font-size: calc(12.5px * var(--fz)); color: var(--text-muted); }
 .holdingQty { font-size: calc(0.875rem * var(--fz)); font-weight: 600; }
-.holdingBuy { font-family: 'JetBrains Mono', monospace; font-size: calc(0.8rem * var(--fz)); color: var(--text-secondary); }
-.holdingCurrent { font-family: 'JetBrains Mono', monospace; font-size: calc(0.8rem * var(--fz)); color: var(--text-secondary); }
+.holdingBuy { font-family: 'JetBrains Mono', monospace; font-size: calc(12.5px * var(--fz)); color: var(--text-secondary); }
+.holdingCurrent { font-family: 'JetBrains Mono', monospace; font-size: calc(12.5px * var(--fz)); color: var(--text-secondary); }
 
 .holdingPnl {
   font-family: 'JetBrains Mono', monospace;
@@ -166,7 +166,7 @@
   flex-shrink: 0;
 }
 
-.holdingPnlPct { font-size: calc(0.75rem * var(--fz)); }
+.holdingPnlPct { font-size: calc(12.5px * var(--fz)); }
 
 .rowActions {
   display: flex;
@@ -276,13 +276,13 @@
 }
 
 .formGroup label {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 500;
   color: var(--text-secondary);
 }
 
 .inputHelper {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;

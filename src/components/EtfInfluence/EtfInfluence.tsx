@@ -43,7 +43,7 @@ function StockEtf({ code }: { code: string }) {
           </div>
         )}
       </div>
-      <div style={{ marginTop: 6, fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>市值權重為近似(未做自由流通調整)，實際以發行商公告為準。非投資建議。</div>
+      <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>市值權重為近似(未做自由流通調整)，實際以發行商公告為準。非投資建議。</div>
     </div>
   );
 }
@@ -56,7 +56,7 @@ function StockEtf({ code }: { code: string }) {
 const slotBox = (title: string, why: string) => (
   <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px dashed rgba(148,163,184,0.28)' }}>
     <div style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))', marginBottom: 4 }}>{title}</div>
-    <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>{why}</div>
+    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>{why}</div>
   </div>
 );
 
@@ -85,7 +85,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
     <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))' }}>🏦 第四法人（ETF）</span>
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>市值型 ETF 被動買賣盤 · 資料日 {d.date}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>市值型 ETF 被動買賣盤 · 資料日 {d.date}</span>
       </div>
 
       {/* 季度調整行事曆 */}
@@ -93,7 +93,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
         <div style={{ padding: '8px 12px', borderRadius: 8, background: d.review.isReviewMonth ? 'rgba(245,159,0,0.12)' : 'rgba(61,142,248,0.08)', marginBottom: 10, fontSize: 'calc(13px * var(--fz))' }}>
           🗓 下次季度成分調整（0050/006208）：<b>{d.review.effIso}</b>（約 {d.review.days} 天後，預估生效日）
           {d.review.isReviewMonth && <b style={{ color: '#f59f00' }}> · 本月為調整月，留意邊緣股異動</b>}
-          <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>確切公布/生效日與成分異動以 FTSE 及發行商官方公告為準。</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>確切公布/生效日與成分異動以 FTSE 及發行商官方公告為準。</div>
         </div>
       )}
 
@@ -112,7 +112,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
                 <b style={{ minWidth: 34, color: e.rank <= 50 ? '#f03e3e' : '#f59f00' }}>#{e.rank}</b>
                 <b style={{ color: '#7dd3fc', minWidth: 96 }}>{e.code} {e.name}</b>
                 <span style={{ color: 'var(--text-muted)' }}>{fmtYi(e.mktCapYi)}</span>
-                <span style={{ color: e.rank <= 50 ? '#f03e3e' : '#f59f00', fontSize: 'calc(11.5px * var(--fz))' }}>{e.side}</span>
+                <span style={{ color: e.rank <= 50 ? '#f03e3e' : '#f59f00', fontSize: 'calc(12.5px * var(--fz))' }}>{e.side}</span>
               </div>
             ))}
           </div>
@@ -147,7 +147,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
         </div>
       )}
 
-      <div style={{ marginTop: 8, fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>{d.note}</div>
+      <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>{d.note}</div>
     </div>
   );
 }

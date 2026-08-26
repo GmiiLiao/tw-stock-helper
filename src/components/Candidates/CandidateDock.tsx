@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useLiveQuotes } from '@/lib/useLiveQuotes';
 
 export default function CandidateDock() {
   const codes = useAppStore(s => s.compareCodes);
@@ -22,9 +23,22 @@ export default function CandidateDock() {
 
   if (currentPage === 'war' && warTab === 'desk') return null; // 工作台分頁內不重複顯示
 
+  // ── 即時報價（2026-08-26 使用者回報「候選便條沒有即時更新」）──────────
+  // 原本只讀 store 的 allStocks——那是 Header 每 2 分鐘（盤中）／15 分鐘（休市）
+  // 才刷新的重量級全市場清單，於是便條上的價格與左上 5 秒更新的指數有明顯時間差。
+  // 改接 useLiveQuotes（快線：自選/持股/瀏覽中的優先股，5 秒節奏），
+  // 有即時價就用即時價，沒有才退回 allStocks 快照。
+  const liveQ = useLiveQuotes(codes, 30);
   const rows = codes.map(code => {
     const s = allStocks.find(x => x.code === code);
-    return { code, name: s?.name, price: s?.price, chg: s?.changePercent };
+    const lq = liveQ[code];
+    return {
+      code,
+      name: lq?.name ?? s?.name,
+      price: lq?.price ?? s?.price,
+      chg: lq?.changePercent ?? s?.changePercent,
+      live: !!lq,
+    };
   });
 
   return (
@@ -34,13 +48,13 @@ export default function CandidateDock() {
           background: 'var(--bg-elevated)', border: '1px solid rgba(245,159,0,0.4)', boxShadow: '0 8px 28px rgba(0,0,0,0.35)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'rgba(245,159,0,0.12)', borderBottom: '1px solid var(--border-primary)' }}>
             <span style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', color: '#f6a06a' }}>🗒️ 候選便條</span>
-            <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)' }}>{codes.length} 檔</span>
-            <button onClick={clear} style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}>清空</button>
+            <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)' }}>{codes.length} 檔</span>
+            <button onClick={clear} style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}>清空</button>
             <button onClick={() => setOpen(false)} title="收合" style={{ fontSize: 'calc(14px * var(--fz))', lineHeight: 1, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}>▾</button>
           </div>
           <div style={{ maxHeight: 300, overflowY: 'auto', padding: '6px 6px' }}>
             {rows.length === 0 && (
-              <div style={{ padding: '10px 8px', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+              <div style={{ padding: '10px 8px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
                 還沒有候選。瀏覽各頁時按 <b style={{ color: '#f59f00' }}>＋候選</b> 把有興趣的個股撿進來，
                 再到各頁開「🗒️ 只看候選」用該頁角度評估，或進決策工作台比對。
               </div>
@@ -72,7 +86,7 @@ export default function CandidateDock() {
           style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 15px', borderRadius: 24, cursor: 'pointer',
             border: '1px solid rgba(245,159,0,0.5)', background: 'var(--bg-elevated)', boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
             fontSize: 'calc(13.5px * var(--fz))', fontWeight: 800, color: '#f6a06a' }}>
-          🗒️ 候選 <span style={{ background: '#f59e0b', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 'calc(12px * var(--fz))' }}>{codes.length}</span>
+          🗒️ 候選 <span style={{ background: '#f59e0b', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 'calc(12.5px * var(--fz))' }}>{codes.length}</span>
         </button>
       )}
     </div>

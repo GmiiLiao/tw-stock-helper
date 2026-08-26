@@ -39,8 +39,8 @@ export default function ShadowAccount() {
     <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: `1px solid ${s.violations.length ? 'rgba(239,68,68,0.4)' : 'var(--border-primary)'}` }}>
       <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 800, fontSize: 'calc(0.95rem * var(--fz))' }}>🪞 影子帳戶</span>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>從你的 {s.pairsAnalyzed} 筆交易學出「實際規則」，對照鐵律抓破戒</span>
-        <span style={{ marginLeft: 'auto', fontSize: 'calc(11.5px * var(--fz))', color: '#7dd3fc', fontWeight: 700 }}>{open ? '收合 ▸' : '展開 ▾'}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>從你的 {s.pairsAnalyzed} 筆交易學出「實際規則」，對照鐵律抓破戒</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc', fontWeight: 700 }}>{open ? '收合 ▸' : '展開 ▾'}</span>
       </div>
       {open && (
         <div style={{ marginTop: 10 }}>
@@ -53,8 +53,8 @@ export default function ShadowAccount() {
               { k: '實際停利位', v: L.avgWinExit != null ? `+${L.avgWinExit}%` : '—', warn: false, note: `勝率 ${L.winRate}%` },
             ].map(x => (
               <div key={x.k} style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
-                <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{x.k} <span style={{ opacity: 0.7 }}>({x.note})</span></div>
-                <div style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 800, color: x.warn ? '#2f9e44' : '#f03e3e' }}>{x.v}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{x.k} <span style={{ opacity: 0.7 }}>({x.note})</span></div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: x.warn ? '#2f9e44' : '#f03e3e' }}>{x.v}</div>
               </div>
             ))}
           </div>
@@ -75,7 +75,7 @@ export default function ShadowAccount() {
               → 差距 <b style={{ color: s.ruleSim.diff > 0 ? '#2f9e44' : '#f03e3e', fontSize: 'calc(14px * var(--fz))' }}>{s.ruleSim.diff > 0 ? `破戒多虧 ${fmt(s.ruleSim.diff)}` : `你贏過鐵律 ${fmt(-s.ruleSim.diff)}`}</b> 元
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>全確定性計算（交易紀錄+官方收盤），每日盤後更新。非投資建議。</div>
+          <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>全確定性計算（交易紀錄+官方收盤），每日盤後更新。非投資建議。</div>
         </div>
       )}
     </div>

@@ -37,7 +37,7 @@ export default function AddCandidateButton({ code, variant = 'chip', className }
     return (
       <button type="button" onClick={onClick} title={on ? '已在候選便條' : '加入候選便條'} aria-pressed={on}
         className={className}
-        style={{ ...base, width: 18, height: 18, borderRadius: 5, fontSize: 'calc(12px * var(--fz))', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        style={{ ...base, width: 18, height: 18, borderRadius: 5, fontSize: 'calc(12.5px * var(--fz))', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
         {on ? '✓' : '＋'}
       </button>
     );
@@ -53,7 +53,7 @@ export default function AddCandidateButton({ code, variant = 'chip', className }
   // chip
   return (
     <button type="button" onClick={onClick} aria-pressed={on} title={on ? '已在候選便條' : '加入候選便條'} className={className}
-      style={{ ...base, padding: '2px 8px', borderRadius: 10, fontSize: 'calc(11px * var(--fz))', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+      style={{ ...base, padding: '2px 8px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
       {on ? '✓候選' : '＋候選'}
     </button>
   );

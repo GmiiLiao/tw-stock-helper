@@ -49,15 +49,15 @@ export function PrivacyPage() {
   const navigateTo = useAppStore(s => s.navigateTo);
   return (
     <div style={{ padding: '14px 16px', maxWidth: 780, margin: '0 auto', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.9 }}>
-      <div style={{ fontSize: 'calc(20px * var(--fz))', fontWeight: 900, marginBottom: 4 }}>🔒 隱私聲明</div>
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 12 }}>更新日期：2026-07-17 · 台股助手 TW Stock Pro</div>
+      <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, marginBottom: 4 }}>🔒 隱私聲明</div>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 12 }}>更新日期：2026-07-17 · 台股助手 TW Stock Pro</div>
       {SECTIONS.map(sec => (
         <div key={sec.t} style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>{sec.t}</div>
           {sec.items.map((it, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {it}</div>)}
         </div>
       ))}
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         本站為投資分析工具，非證券商亦非投資顧問；所有資料與統計僅供參考，非投資建議。
       </div>
       <button onClick={() => navigateTo('dashboard')}

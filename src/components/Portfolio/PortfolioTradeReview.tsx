@@ -46,17 +46,17 @@ export default function PortfolioTradeReview({ ledger }: { ledger?: Ledger }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🎓 AI 交易覆盤</span>
         {data.stats && (
-          <span style={{ fontSize: 'calc(0.74rem * var(--fz))', color: 'var(--text-muted)' }}>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
             勝率 {data.stats.winRate}%（{data.stats.wins}勝/{data.stats.losses}負）
           </span>
         )}
-        <span style={{ fontSize: 'calc(0.72rem * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {new Date(data.generatedAt).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 產出
         </span>
       </div>
       {stale && (
         <div style={{
-          fontSize: 'calc(0.76rem * var(--fz))', lineHeight: 1.6, color: '#f59e0b', marginBottom: 8,
+          fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6, color: '#f59e0b', marginBottom: 8,
           padding: '7px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.08)',
         }}>
           ⚠ 這則覆盤是依<strong>當時的統計</strong>寫的（已實現 {Math.round(stored!).toLocaleString()}），

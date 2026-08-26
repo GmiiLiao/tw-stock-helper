@@ -301,7 +301,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
     return (
       <div style={{ border: '1px solid var(--border-primary)', borderRadius: 10, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '4px 8px',
-          fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)' }}>
+          fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)' }}>
           <span style={{ whiteSpace: 'nowrap' }}>{title}</span>{legend}
         </div>
         <div style={{ position: 'relative', touchAction: 'none', cursor: 'crosshair', userSelect: 'none' }} {...panProps}>
@@ -313,7 +313,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
           {ticks.map(v => (
             <span key={v} style={{ position: 'absolute', left: 0, top: yOf(v), transform: 'translateY(-50%)', width: padL - 6,
               textAlign: 'right', pointerEvents: 'none', whiteSpace: 'nowrap',
-              fontSize: 'calc(10px * var(--fz))', color: '#9fb0c9', fontFamily: 'JetBrains Mono, monospace' }}>{fmtY(v)}</span>
+              fontSize: 'calc(12.5px * var(--fz))', color: '#9fb0c9', fontFamily: 'JetBrains Mono, monospace' }}>{fmtY(v)}</span>
           ))}
           {/* 日期軸只掛在主圖與最末欄：五欄各掛一條會多吃 75px，而 x 是共用的，
               中間三欄照著上下兩條對就讀得到。 */}
@@ -321,7 +321,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
             <div style={{ position: 'absolute', left: 0, right: 0, bottom: -15, height: 15, overflow: 'hidden', pointerEvents: 'none' }}>
               {view.map((b, i) => (i % dateStep === 0 ? (
                 <span key={b.t} style={{ position: 'absolute', left: `${(xOf(i) / W) * 100}%`, bottom: 0, transform: 'translateX(-50%)',
-                  whiteSpace: 'nowrap', fontSize: 'calc(9.5px * var(--fz))', color: '#9fb0c9', fontFamily: 'JetBrains Mono, monospace' }}>
+                  whiteSpace: 'nowrap', fontSize: 'calc(12.5px * var(--fz))', color: '#9fb0c9', fontFamily: 'JetBrains Mono, monospace' }}>
                   {fmtAxisD(b.t, iv, multiYear)}
                 </span>
               ) : null))}
@@ -353,7 +353,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
   const chip = (color: string, label: string, val: string) => (
     <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
       <span style={{ display: 'inline-block', padding: '0 4px', borderRadius: 3, background: color, color: '#0b1220',
-        fontWeight: 900, fontSize: 'calc(9.5px * var(--fz))', lineHeight: '13px' }}>{label}</span>
+        fontWeight: 900, fontSize: 'calc(12.5px * var(--fz))', lineHeight: '13px' }}>{label}</span>
       <b style={{ color, fontFamily: 'JetBrains Mono, monospace' }}>{val}</b>
     </span>
   );
@@ -362,7 +362,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
   return (
     <div ref={wrapRef} style={{ display: 'grid', gap: 6, minWidth: 0 }}>
       {/* 游標讀數：哪一根、開高低收 */}
-      <div style={{ display: 'flex', gap: 8, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(11px * var(--fz))', color: '#dbe4f5', minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: 8, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: '#dbe4f5', minWidth: 0 }}>
         <b style={{ whiteSpace: 'nowrap' }}>{fmtD((hv ?? view[view.length - 1]).t, iv)}{multiYear && iv !== '1mo' ? `（${new Date((hv ?? view[view.length - 1]).t * 1000).getFullYear()}）` : ''}</b>
         {(() => { const b = hv ?? view[view.length - 1]; return (
           <>
@@ -432,7 +432,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
 
       {/* 縮放列：與個股 K 線同一組操作（－／＋／根數／最新 ›） */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 4, flexWrap: 'wrap', marginTop: 2,
-        fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         <button onClick={() => setSize(s => Math.round(Math.min(n, s * 1.4)))} title="縮小（顯示更多根）" style={zoomBtn}>－</button>
         <button onClick={() => setSize(s => Math.round(Math.max(8, s * 0.7)))} title="放大（顯示更少根）" style={zoomBtn}>＋</button>
         <span style={{ whiteSpace: 'nowrap' }}>{view.length}/{n} 根{iv === '1d' ? '日' : iv === '1wk' ? '週' : '月'}K</span>
@@ -446,7 +446,7 @@ function MultiPaneChart({ all, iv, initSize }: { all: Bar[]; iv: string; initSiz
 const zoomBtn: React.CSSProperties = {
   flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px', borderRadius: 7,
   border: '1px solid var(--border-primary)', background: 'var(--bg-elevated)',
-  color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'calc(11.5px * var(--fz))',
+  color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'calc(12.5px * var(--fz))',
 };
 
 // ── 指數分頁 ─────────────────────────────────────────────────────
@@ -515,7 +515,7 @@ export default function IndexAnalysis() {
           <span style={{ whiteSpace: 'nowrap' }}>{name}</span>
           <span style={{ fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtN(last.c)}</span>
           <span style={{ color: chg >= 0 ? UP : DOWN, whiteSpace: 'nowrap' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-          <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 400, color: '#cbd5f5', whiteSpace: 'nowrap' }}>{fmtD(last.t, iv)}</span>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 400, color: '#cbd5f5', whiteSpace: 'nowrap' }}>{fmtD(last.t, iv)}</span>
         </div>
       )}
 
@@ -539,7 +539,7 @@ export default function IndexAnalysis() {
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
         <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 6 }}>📋 歷史資料（近 20 根{INTERVALS.find(i => i.id === iv)?.label}）</div>
-        <div className="mobile-only" style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 4 }}>← 左右滑動可看完 9 個欄位</div>
+        <div className="mobile-only" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 4 }}>← 左右滑動可看完 9 個欄位</div>
         <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {/* ⚠ 這張表**必須**給 td/th padding（2026-08-11 使用者：「歷史資料的數字都粘在一起了，無法判讀」）：
               9 個欄位裡只有「日期」那格寫了 padding，其餘 8 格是 0，
@@ -548,7 +548,7 @@ export default function IndexAnalysis() {
               padding 撐開後整表約需 560px > 手機 335px，所以配 minWidth＋外層 overflowX:auto
               讓它在卡片內橫向捲動——寧可捲，也不要把數字擠在一起。
               nowrap 是同一件事的另一半：絕不在一個數值中間換行。 */}
-          <table className="idxHistTable" style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 'calc(12px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
+          <table className="idxHistTable" style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
             <thead><tr style={{ color: '#cbd5f5', textAlign: 'right' }}>
               <th style={{ textAlign: 'left' }}>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌%</th><th>成交量</th><th>RSI5</th><th>K</th>
             </tr></thead>

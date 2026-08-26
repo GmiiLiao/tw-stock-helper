@@ -52,8 +52,8 @@ export default function PremarketBrief() {
     <div style={{ margin: '0 0 16px', border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-lg)', background: 'linear-gradient(135deg, rgba(201,42,42,0.07), rgba(61,142,248,0.04))', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))' }}>📢 開盤前 AI 策略快報</span>
-        <span style={{ fontSize: 'calc(0.66rem * var(--fz))', fontWeight: 800, padding: '2px 7px', borderRadius: 999, background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>💎 高級會員</span>
-        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.74rem * var(--fz))', color: 'var(--text-muted)' }}>{brief.date}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '2px 7px', borderRadius: 999, background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>💎 高級會員</span>
+        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{brief.date}</span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button onClick={() => setOpen(v => !v)} style={btnStyle}>{open ? '▲ 收合' : '▼ 展開'}</button>
           <button onClick={() => setDismissed(true)} style={btnStyle}>✕</button>
@@ -78,20 +78,20 @@ export default function PremarketBrief() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--accent-blue)' }}>{p.code}</span>
                     <span style={{ fontWeight: 600 }}>{p.name}</span>
-                    <span style={{ fontSize: 'calc(0.68rem * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: `${c}1f`, color: c, border: `1px solid ${c}` }}>{p.signalLabel}</span>
-                    <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.76rem * var(--fz))', color: up ? 'var(--color-up)' : 'var(--color-down)' }}>{p.price}（{up ? '+' : ''}{p.changePercent?.toFixed?.(2)}%）</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: `${c}1f`, color: c, border: `1px solid ${c}` }}>{p.signalLabel}</span>
+                    <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: up ? 'var(--color-up)' : 'var(--color-down)' }}>{p.price}（{up ? '+' : ''}{p.changePercent?.toFixed?.(2)}%）</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 12, fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(0.74rem * var(--fz))', margin: '5px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 12, fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', margin: '5px 0', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ color: 'var(--color-up)' }}>買 {p.buy ?? '—'}</span>
                     <span style={{ color: 'var(--color-down)' }}>目標 {p.target ?? '—'}</span>
                     <span style={{ color: 'var(--text-muted)' }}>損 {p.stop ?? '—'}</span>
                     {p.swingAction && (
-                      <span style={{ fontSize: 'calc(0.68rem * var(--fz))', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: p.chase ? 'rgba(230,119,0,0.15)' : 'rgba(99,102,241,0.12)', color: p.chase ? '#e67700' : '#818cf8' }} title={`波段紀律評分 ${p.swingScore}/100 · 乖離 ${p.swingBias}%`}>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: p.chase ? 'rgba(230,119,0,0.15)' : 'rgba(99,102,241,0.12)', color: p.chase ? '#e67700' : '#818cf8' }} title={`波段紀律評分 ${p.swingScore}/100 · 乖離 ${p.swingBias}%`}>
                         🎯 {p.swingAction}{p.chase ? '·勿追高' : ''}
                       </span>
                     )}
                   </div>
-                  {p.note && <div style={{ fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{p.note}</div>}
+                  {p.note && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{p.note}</div>}
                 </div>
               );
             })}
@@ -105,7 +105,7 @@ export default function PremarketBrief() {
                 {heldCodes.map(code => {
                   const h = holdings[code];
                   return (
-                    <div key={code} style={{ fontSize: 'calc(0.8rem * var(--fz))', color: 'var(--text-secondary)' }}>
+                    <div key={code} style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
                       <span style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--accent-blue)' }}>{code}</span> {h.name}
                       <span style={{ fontWeight: 700, color: 'var(--text-primary)', margin: '0 6px' }}>· {h.action}</span>
                       {h.sellTrigger && <span style={{ color: 'var(--text-muted)' }}>（{h.sellTrigger}）</span>}
@@ -116,7 +116,7 @@ export default function PremarketBrief() {
             </>
           )}
 
-          <div style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6, borderTop: '1px solid var(--border-primary)', paddingTop: 8 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6, borderTop: '1px solid var(--border-primary)', paddingTop: 8 }}>
             {brief.disclaimer}（本地模型 {brief.model}）
           </div>
         </div>
@@ -125,4 +125,4 @@ export default function PremarketBrief() {
   );
 }
 
-const btnStyle: React.CSSProperties = { background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 6, color: 'var(--text-muted)', fontSize: 'calc(0.72rem * var(--fz))', padding: '3px 8px', cursor: 'pointer', fontFamily: 'inherit' };
+const btnStyle: React.CSSProperties = { background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 6, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', padding: '3px 8px', cursor: 'pointer', fontFamily: 'inherit' };

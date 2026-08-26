@@ -19,7 +19,7 @@ const SECTIONS: Section[] = [
       { k: '盤後定價', v: '14:00–14:30', note: '以收盤價成交的補充交易' },
       { k: '整張單位', v: '1 張 = 1,000 股', note: '正常交易最小單位' },
     ],
-    body: <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>週六日、國定假日不交易（農曆年常連休 4–7 天）。<br />🔑 買 1 張 1,000 元的股票需 1,000×1,000＝<b>100 萬元</b>（再加手續費）。</div>,
+    body: <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>週六日、國定假日不交易（農曆年常連休 4–7 天）。<br />🔑 買 1 張 1,000 元的股票需 1,000×1,000＝<b>100 萬元</b>（再加手續費）。</div>,
   },
   {
     id: 'limit', icon: '📊', title: '漲跌幅限制',
@@ -38,7 +38,7 @@ const SECTIONS: Section[] = [
       { k: '手續費（買/賣各一次）', v: '0.1425%', note: '多數券商網路 6 折 ≈ 0.085%' },
       { k: '證券交易稅（賣出）', v: '0.3%', note: 'ETF 為 0.1%，券商自動代扣' },
     ],
-    body: <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>範例（買賣各 10 萬、6 折手續費）：買 85 元 ＋ 賣 85 元 ＋ 交易稅 300 元 ＝ 約 <b>470 元（0.47%）</b>。隔日沖來回成本約 0.4–0.5%，需納入勝率評估。</div>,
+    body: <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>範例（買賣各 10 萬、6 折手續費）：買 85 元 ＋ 賣 85 元 ＋ 交易稅 300 元 ＝ 約 <b>470 元（0.47%）</b>。隔日沖來回成本約 0.4–0.5%，需納入勝率評估。</div>,
   },
   {
     id: 'settle', icon: '🔄', title: '交割制度 T+2',
@@ -57,7 +57,7 @@ const SECTIONS: Section[] = [
       { k: '現金股利', v: '需申報', note: '合併計入(可抵8.5%/上限8萬) 或 分離課稅 28%' },
       { k: '股票股利', v: '需申報', note: '以面值 10 元計' },
     ],
-    body: <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>股利選擇：綜所稅率 &lt;28% 選合併申報較划算；&gt;28% 選分離課稅 28%。<br />🎉 <b>波段/隔日沖的買賣價差獲利，目前完全合法免稅</b>（資本利得停徵）。</div>,
+    body: <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>股利選擇：綜所稅率 &lt;28% 選合併申報較划算；&gt;28% 選分離課稅 28%。<br />🎉 <b>波段/隔日沖的買賣價差獲利，目前完全合法免稅</b>（資本利得停徵）。</div>,
   },
   {
     id: 'watch', icon: '👁', title: '觀察股（注意/處置）',
@@ -104,8 +104,8 @@ export default function TradingRules({ defaultOpen = false }: { defaultOpen?: bo
       <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', cursor: 'pointer' }}>
         <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
         <span style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))' }}>📖 台股交易規則與稅務</span>
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>新手必讀 · 時間/成本/漲跌停/交割/稅務/法規</span>
-        <span style={{ marginLeft: 'auto', fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-secondary)' }}>{open ? '收合' : '展開'}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>新手必讀 · 時間/成本/漲跌停/交割/稅務/法規</span>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{open ? '收合' : '展開'}</span>
       </div>
 
       {open && (
@@ -128,7 +128,7 @@ export default function TradingRules({ defaultOpen = false }: { defaultOpen?: bo
                     <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '5px 8px', borderRadius: 6, background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)', fontSize: 'calc(13px * var(--fz))', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, minWidth: 150 }}>{r.k}</span>
                       <b style={{ color: '#7dd3fc' }}>{r.v}</b>
-                      {r.note && <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{r.note}</span>}
+                      {r.note && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{r.note}</span>}
                     </div>
                   ))}
                 </div>
@@ -137,7 +137,7 @@ export default function TradingRules({ defaultOpen = false }: { defaultOpen?: bo
             </div>
           ))}
 
-          <div style={{ marginTop: 10, fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div style={{ marginTop: 10, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             教育整理，以證交所／財政部最新公告為準，非投資、稅務或法律建議。
           </div>
         </div>

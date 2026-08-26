@@ -39,7 +39,7 @@
 }
 
 .strengthLabel {
-  font-size: calc(0.7rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-bottom: 4px;
   text-align: right;
@@ -104,7 +104,7 @@
 
 .indLabel {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   width: 64px;
   flex-shrink: 0;
@@ -118,7 +118,7 @@
 }
 
 .indState {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   min-width: 28px;
   text-align: center;
@@ -141,7 +141,7 @@
 }
 
 .riskLabel {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
 }
 
@@ -152,7 +152,7 @@
 }
 
 .disclaimer {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   line-height: 1.5;
   padding: 8px 10px;

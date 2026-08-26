@@ -72,7 +72,7 @@ export default function StockAsk({ code, name }: { code: string; name: string })
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {suggestions.map(s => (
-          <button key={s} onClick={() => setQ(s)} style={{ fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: 14, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{s}</button>
+          <button key={s} onClick={() => setQ(s)} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: 14, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{s}</button>
         ))}
       </div>
 

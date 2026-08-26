@@ -39,8 +39,8 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
       <div style={{ flex: '1 1 280px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
           <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 800, color: meta.head }}>{meta.title}</span>
-          <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{meta.sub}</span>
-          <button onClick={() => toggle(meta.ek)} aria-label="說明" style={{ width: 17, height: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === meta.ek ? '#3d8ef8' : 'transparent', color: open === meta.ek ? '#fff' : 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))', lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{meta.sub}</span>
+          <button onClick={() => toggle(meta.ek)} aria-label="說明" style={{ width: 17, height: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === meta.ek ? '#3d8ef8' : 'transparent', color: open === meta.ek ? '#fff' : 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
         </div>
         {open === meta.ek && (
           <div style={{ margin: '2px 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
@@ -57,13 +57,13 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
             //        ＋兩個指標 nowrap 且 flexShrink:0（自己絕不被壓）
             //        ＋股名 flex:1 minWidth:0（真的擠不下時由它讓位）
             <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
-              <span style={{ color: 'var(--text-muted)', width: 16, fontSize: 'calc(11px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
+              <span style={{ color: 'var(--text-muted)', width: 16, fontSize: 'calc(12.5px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
               <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
-              <span style={{ fontSize: 'calc(12px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
-              <span style={{ fontSize: 'calc(12px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: it.pricePct >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.pricePct)}%</b></span>
+              <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
+              <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: it.pricePct >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.pricePct)}%</b></span>
             </div>
           ))}
-          {!items.length && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', padding: '4px 8px' }}>今日無明顯{side === 'acc' ? '吸貨' : '出貨'}背離</div>}
+          {!items.length && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '4px 8px' }}>今日無明顯{side === 'acc' ? '吸貨' : '出貨'}背離</div>}
         </div>
       </div>
     );
@@ -71,7 +71,7 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
 
   return (
     <div>
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>近 {d.win} 日（{d.startDate} → {d.endDate}）· 法人淨額 ≥800張、股價變動 ≥2% 才列入 · 領先反轉的預警訊號，非投資建議</div>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>近 {d.win} 日（{d.startDate} → {d.endDate}）· 法人淨額 ≥800張、股價變動 ≥2% 才列入 · 領先反轉的預警訊號，非投資建議</div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         {col('acc')}
         {col('dist')}

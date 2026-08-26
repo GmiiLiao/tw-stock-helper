@@ -28,7 +28,7 @@
 .section { display: flex; flex-direction: column; gap: 10px; }
 
 .sectionTitle {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -40,7 +40,7 @@
 }
 
 .sectionBadge {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   padding: 2px 8px;
   background: var(--bg-elevated);
@@ -55,14 +55,14 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--color-up);
   text-transform: none;
   letter-spacing: 0;
 }
 
 .industryTag {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   padding: 2px 8px;
   background: rgba(61,142,248,0.1);
@@ -87,7 +87,7 @@
 }
 
 .momentumTag {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 4px 14px;
   border-radius: 20px;
@@ -127,12 +127,12 @@
 }
 
 .gaugeLevel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
 }
 
 .gaugeLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -171,7 +171,7 @@
 }
 
 .reasonStrength {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 20px;
@@ -180,7 +180,7 @@
 }
 
 .reasonDetail {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -217,7 +217,7 @@
 }
 
 .newsTypeBadge {
-  font-size: calc(0.625rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 4px;
@@ -228,7 +228,7 @@
 }
 
 .newsDate {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -241,7 +241,7 @@
 }
 
 .newsSource {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -275,7 +275,7 @@
 }
 
 .horizonPeriod {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -294,7 +294,7 @@
 }
 
 .sentimentLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   min-width: 68px;
   flex-shrink: 0;
@@ -316,7 +316,7 @@
 
 .sentimentValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   min-width: 36px;
   text-align: right;
@@ -340,7 +340,7 @@
 }
 
 .consensusLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
@@ -358,7 +358,7 @@
 }
 
 .catalystsTitle, .risksTitle {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
 }
@@ -373,7 +373,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.45;
 }
@@ -397,7 +397,7 @@
 }
 
 .industryDesc {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(61,142,248,0.04);
@@ -408,7 +408,7 @@
 
 /* Disclaimer */
 .disclaimer {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   padding: 8px 12px;
   background: rgba(245,158,11,0.04);
@@ -419,7 +419,7 @@
 
 /* ─── Extra Badges ───────────────────────────────────── */
 .scaleBadge {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 2px 8px;
   background: var(--bg-elevated);
@@ -430,7 +430,7 @@
 }
 
 .timeBadge {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   padding: 3px 10px;
   background: rgba(230,119,0,0.1);
@@ -493,7 +493,7 @@
 
 .companyCodeTag {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--accent-blue);
   padding: 2px 8px;
@@ -507,7 +507,7 @@
 }
 
 .companyAge {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   padding: 2px 7px;
   background: var(--bg-card);
@@ -521,7 +521,7 @@
 }
 
 .capitalLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-bottom: 2px;
 }
@@ -537,7 +537,7 @@
 .businessSection { display: flex; flex-direction: column; gap: 6px; }
 
 .businessLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -556,7 +556,7 @@
 .productsList { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .productTag {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   padding: 4px 10px;
   background: rgba(201,42,42,0.07);
@@ -583,12 +583,12 @@
 .infoWide { grid-column: 1 / -1; }
 
 .infoLabel {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
 .infoValue {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-primary);
   line-height: 1.4;
 }
@@ -624,7 +624,7 @@
 }
 
 .recText {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -648,7 +648,7 @@
 }
 
 .priceOverLabel {
-  font-size: calc(0.625rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -664,7 +664,7 @@
 .orderLevelsSection { display: flex; flex-direction: column; gap: 8px; }
 
 .orderLevelsTitle {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
 }
@@ -691,7 +691,7 @@
 }
 
 .orderStyleBadge {
-  font-size: calc(0.625rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 4px;
@@ -715,7 +715,7 @@
 }
 
 .orderLevelRationale {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -732,13 +732,13 @@
 }
 
 .auctionTitle {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: var(--accent-blue);
 }
 
 .auctionText {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -755,7 +755,7 @@
 }
 
 .dtNoteLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   color: #f59e0b;
   flex-shrink: 0;
@@ -763,13 +763,13 @@
 }
 
 .dtNoteText {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .preMarketWarning {
-  font-size: calc(0.6875rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   padding: 6px 10px;
   background: rgba(134,142,150,0.06);

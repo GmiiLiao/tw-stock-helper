@@ -358,18 +358,18 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                   <div className={styles.reasonsSection}>
                     <div className={styles.detailTitle}>🎯 波段訊號（不追高紀律）</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                      <span style={{ fontSize: 'calc(0.72rem * var(--fz))', fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: `${col}1f`, color: col, border: `1px solid ${col}` }}>{swingSig.actionLabel}</span>
-                      <span style={{ fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-secondary)' }}>紀律評分 {swingSig.score}/100 · {swingSig.trend} · 乖離 {swingSig.biasPct >= 0 ? '+' : ''}{swingSig.biasPct}%</span>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: `${col}1f`, color: col, border: `1px solid ${col}` }}>{swingSig.actionLabel}</span>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>紀律評分 {swingSig.score}/100 · {swingSig.trend} · 乖離 {swingSig.biasPct >= 0 ? '+' : ''}{swingSig.biasPct}%</span>
                     </div>
-                    {swingSig.chase && <div style={{ marginTop: 4, fontSize: 'calc(0.78rem * var(--fz))', color: '#e67700', fontWeight: 600 }}>🚫 乖離過大，嚴禁追高 — 等回測均線再進場（提升勝率）</div>}
-                    <div style={{ marginTop: 4, fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>趨勢{swingSig.components.trend}·乖離{swingSig.components.bias}·量價{swingSig.components.volume}·均線{swingSig.components.ma}·MACD{swingSig.components.macd}·RSI{swingSig.components.rsi}</div>
+                    {swingSig.chase && <div style={{ marginTop: 4, fontSize: 'calc(12.5px * var(--fz))', color: '#e67700', fontWeight: 600 }}>🚫 乖離過大，嚴禁追高 — 等回測均線再進場（提升勝率）</div>}
+                    <div style={{ marginTop: 4, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>趨勢{swingSig.components.trend}·乖離{swingSig.components.bias}·量價{swingSig.components.volume}·均線{swingSig.components.ma}·MACD{swingSig.components.macd}·RSI{swingSig.components.rsi}</div>
                   </div>
                 );
               })()}
 
               {/* Reasons */}
               <div className={styles.reasonsSection}>
-                <div className={styles.detailTitle}>✅ 推薦理由 {enrichLoading && <span style={{ fontSize: 'calc(0.7rem * var(--fz))', color: 'var(--text-muted)' }}>· 載入基本面…</span>}</div>
+                <div className={styles.detailTitle}>✅ 推薦理由 {enrichLoading && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>· 載入基本面…</span>}</div>
                 <div className={styles.reasonsList}>
                   {view.reasons.map((r, i) => (
                     <div key={i} className={styles.reasonItem}>{r}</div>
@@ -385,7 +385,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                     {fundamentals.valuation && (
                       <div className={styles.factorRow}>
                         <span className={styles.factorLabel}>估值</span>
-                        <span style={{ fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-secondary)' }}>
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
                           PER {fundamentals.valuation.pe ?? '—'} · 殖利率 {fundamentals.valuation.dividendYield ?? '—'}% · PBR {fundamentals.valuation.pb ?? '—'}
                         </span>
                       </div>
@@ -393,7 +393,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                     {fundamentals.institutional && (
                       <div className={styles.factorRow}>
                         <span className={styles.factorLabel}>法人</span>
-                        <span style={{ fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-secondary)' }}>
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
                           外資 {fundamentals.institutional.foreignNetLots.toLocaleString()} 張 · 投信 {fundamentals.institutional.trustNetLots.toLocaleString()} 張 · 合計 {fundamentals.institutional.totalNetLots.toLocaleString()} 張
                         </span>
                       </div>
@@ -401,7 +401,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                     {fundamentals.margin && (
                       <div className={styles.factorRow}>
                         <span className={styles.factorLabel}>融資</span>
-                        <span style={{ fontSize: 'calc(0.78rem * var(--fz))', color: 'var(--text-secondary)' }}>
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
                           餘額 {fundamentals.margin.balance.toLocaleString()} 張 · 使用率 {fundamentals.margin.utilization}% · 日增減 {fundamentals.margin.changePct}%
                         </span>
                       </div>
@@ -725,7 +725,7 @@ export default function AIRecommend() {
       {scoreboard && Object.keys(scoreboard.agg || {}).length > 0 && (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ fontWeight: 700, fontSize: 'calc(0.9rem * var(--fz))', marginBottom: 4 }}>🏅 AI 推薦成績
-            <span style={{ fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>
+            <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>
               每檔推薦於 5/10/20 個交易日後以官方收盤結算
             </span>
           </div>
@@ -736,7 +736,7 @@ export default function AIRecommend() {
               ⇒ 今天之後的推薦與 08-04 以前**不是同一個系統**。
               把兩者平均在一起，使用者會把已汰換評分器的 -2.12pp
               讀成「現行推薦很爛」。所以分開顯示，而且**現行口徑放前面**。 */}
-          <div style={{ padding: '8px 12px', borderRadius: 9, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 'calc(11.5px * var(--fz))', lineHeight: 1.8, marginBottom: 10 }}>
+          <div style={{ padding: '8px 12px', borderRadius: 9, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, marginBottom: 10 }}>
             <b style={{ color: 'var(--text-primary)' }}>🆕 現行口徑（{scoreboard.calib ?? 'v2'}）成績：累積中</b>
             {scoreboard.calibFrom && <span style={{ color: 'var(--text-muted)' }}>——自 {scoreboard.calibFrom} 起共 {scoreboard.recordsV2 ?? 0} 個交易日，第 5 個交易日後出現第一筆。</span>}
             <br />
@@ -747,19 +747,19 @@ export default function AIRecommend() {
             </span>
           </div>
 
-          <div style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>
             📜 舊口徑歷史成績（{scoreboard.from} ~ 2026-08-04 · {scoreboard.records} 個交易日 · <span style={{ color: '#fbbf24' }}>系統已汰換</span>）
           </div>
-          <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 8 }}>
             <b style={{ color: '#7dd3fc' }}>先看超額，不要只看勝率。</b>
             超額＝推薦均報 −「同期可交易宇宙等權」基準。<b>絕對報酬主要由市況決定</b>——
             空頭段裡任何只做多的清單都會是負的；超額才是「選得準不準」。
             基準口徑與本站回測平台一致：4 碼普通股、量 ≥300 張、<b>剔除進場日漲停</b>（收盤價買不到）。
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: 'calc(12px * var(--fz))', minWidth: 620 }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 620 }}>
               <thead>
-                <tr style={{ color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>
+                <tr style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
                   <th style={{ textAlign: 'left', padding: '4px 8px' }}>榜單</th>
                   {[5, 10, 20].map(h => <th key={h} style={{ textAlign: 'right', padding: '4px 10px' }}>{h} 日超額</th>)}
                   <th style={{ textAlign: 'left', padding: '4px 10px' }}>絕對報酬（勝率／均報／同期基準）</th>
@@ -780,11 +780,11 @@ export default function AIRecommend() {
                             <b style={{ fontSize: 'calc(13px * var(--fz))', color: r.excess > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                               {r.excess > 0 ? '+' : ''}{r.excess}pp
                             </b>
-                            {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 'calc(10px * var(--fz))', color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
+                            {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
                           </td>
                         );
                       })}
-                      <td style={{ padding: '5px 10px', color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '5px 10px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap' }}>
                         {[5, 10, 20].map(h => {
                           const r = g?.[`d${h}`];
                           if (!r) return null;
@@ -805,7 +805,7 @@ export default function AIRecommend() {
             const t = scoreboard.agg.top20?.d5;
             if (!t || !t.skipped) return null;
             return (
-              <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#fbbf24', lineHeight: 1.7, marginTop: 8 }}>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.7, marginTop: 8 }}>
                 ⚠ <b>可交易性</b>：TOP20 的 5 日樣本中有 <b>{t.skipped}/{t.n}（{Math.round(t.skipped / t.n * 100)}%）</b>
                 在推薦當日就漲停——<b>收盤價買不到</b>。五大因子把「今日漲幅」與「漲停分析」算成加分，
                 所以榜首天生偏向當天最強、也最買不到的那幾檔。
@@ -813,7 +813,7 @@ export default function AIRecommend() {
               </div>
             );
           })()}
-          <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.7 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.7 }}>
             均報為未扣費稅的價差；來回成本 {scoreboard.cost ?? 0.4425}%（手續費×2＋證交稅）需自行扣除。
             歷史績效不代表未來；本記分板是**誠實揭露**，不是推薦保證。非投資建議。
           </div>
@@ -831,7 +831,7 @@ export default function AIRecommend() {
              位置——**分桶邊界的巧合**，不是 regime 效應。提示已撤。
           但拆解同時給了一個**更強**的正面結論：超額不挑市況。這才是該講的。 */}
       {scoreboard && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.28)', fontSize: 'calc(12px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.28)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
           📐 <b style={{ color: 'var(--text-primary)' }}>這張榜的超額不挑市況</b>——
           把交易日依當日大盤中位數漲幅分成六桶後，本榜前 5 名相對同桶基準的超額
           在第三獨立窗幾乎是常數（中跌 <b>+0.259</b>／小跌 <b>+0.263</b>／小漲 <b>+0.259</b> pp）。
@@ -918,7 +918,7 @@ export default function AIRecommend() {
           ) : (
             <div className={styles.cardList} id="ai-recommendations-list">
               {activeTab === 'intraday' && (
-                <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', padding: '2px 4px 8px' }}>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '2px 4px 8px' }}>
                   ⚡ 即時榜單（每 60 秒更新）：量比×動能×高點位置×跳空×昨日體質。
                   {intraday ? `監測 ${intraday.universe} 檔上攻中個股` : '載入中…'}
                   {intraday && !intraday.marketOpen ? '（非交易時段，顯示最後一次盤中結果）' : ''}

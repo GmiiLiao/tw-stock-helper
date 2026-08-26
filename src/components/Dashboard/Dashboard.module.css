@@ -35,7 +35,7 @@
 }
 
 .statLabel {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-weight: 500;
   text-transform: uppercase;
@@ -55,7 +55,7 @@
 }
 
 .statSub {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -99,14 +99,14 @@
 }
 
 .sectionSub {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
 }
 
 .sectionBadge {
   background: var(--accent-blue-glow);
   color: var(--accent-blue);
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 12px;
@@ -156,7 +156,7 @@
 }
 
 .watchName {
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -178,7 +178,7 @@
 
 .watchChange {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
 }
 
 .removeBtn {
@@ -228,14 +228,14 @@
 }
 
 .heatCode {
-  font-size: calc(0.82rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-primary);
 }
 
 .heatName {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -244,7 +244,7 @@
 }
 
 .heatChange {
-  font-size: calc(0.82rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
 }
@@ -259,7 +259,7 @@
   grid-template-columns: 24px 56px 1fr 80px 80px 72px;
   gap: 8px;
   padding: 8px 14px;
-  font-size: calc(0.7rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -283,7 +283,7 @@
 .moversRow:hover { background: var(--bg-card-hover); }
 
 .rankNum {
-  font-size: calc(0.75rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-weight: 600;
   text-align: center;
@@ -291,7 +291,7 @@
 
 .moversCode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.8125rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   font-weight: 600;
   color: var(--accent-blue);
 }
@@ -319,7 +319,7 @@
 }
 
 .moversVol {
-  font-size: calc(0.8rem * var(--fz));
+  font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   text-align: right;
 }
@@ -336,12 +336,12 @@
   .moversRow {
     grid-template-columns: 20px 48px 1fr 58px 58px 60px;
     gap: 6px;
-    font-size: calc(0.82rem * var(--fz));
+    font-size: calc(12.5px * var(--fz));
   }
   /* 手機熱力圖 3 欄，磚內文字才有可讀空間（原 5 欄擠壓） */
   .heatmap { grid-template-columns: repeat(3, 1fr); }
   .heatCode, .heatChange { font-size: calc(0.9rem * var(--fz)); }
-  .heatName { font-size: calc(0.8rem * var(--fz)); }
+  .heatName { font-size: calc(12.5px * var(--fz)); }
 }
 
 @media (max-width: 480px) {
@@ -357,7 +357,7 @@
   .moversRow {
     grid-template-columns: 18px 44px 1fr 48px 52px 50px;
     gap: 4px;
-    font-size: calc(0.78rem * var(--fz));
+    font-size: calc(12.5px * var(--fz));
   }
 }
 

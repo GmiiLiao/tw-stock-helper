@@ -49,7 +49,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
     <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))' }}>🧭 產業風向</span>
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           加權分＝漲跌×家數×籌碼；資金流向＝與昨日比（加碼/減碼） · 官方 33 產業分類 · {data.marketOpen ? '盤中即時' : '收盤定案'}
         </span>
       </div>
@@ -58,13 +58,13 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
       {(inflow.length > 0 || outflow.length > 0) && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
           <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(240,62,62,0.08)' }}>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: '#f03e3e', marginBottom: 3 }}>💰 資金流入（加碼）</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#f03e3e', marginBottom: 3 }}>💰 資金流入（加碼）</div>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
               {inflow.length ? inflow.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#f03e3e' }}>▲{s.delta}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </div>
           </div>
           <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(47,158,68,0.08)' }}>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: '#2f9e44', marginBottom: 3 }}>📉 資金流出（減碼）</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#2f9e44', marginBottom: 3 }}>📉 資金流出（減碼）</div>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
               {outflow.length ? outflow.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#2f9e44' }}>▼{Math.abs(s.delta || 0)}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </div>
@@ -80,7 +80,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
             <div key={s.industry} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.08)' : 'transparent' }}>
               <div onClick={() => setOpenInd(o => (o === s.industry ? null : s.industry))}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13px * var(--fz))', cursor: 'pointer', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
                 <span style={{ fontWeight: 700, minWidth: 92 }}>{s.industry}</span>
                 {/* 加權分條 */}
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -90,8 +90,8 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
                   <b style={{ color: scoreColor(s.windScore), minWidth: 34 }}>{s.windScore}</b>
                 </span>
                 <span style={{ color: s.avgChg >= 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700, minWidth: 54 }}>{s.avgChg >= 0 ? '+' : ''}{s.avgChg}%</span>
-                <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{s.up}漲/{s.down}跌</span>
-                {s.netInst ? <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: s.netInst > 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700 }}>昨法人{s.netInst > 0 ? '+' : ''}{s.netInst.toLocaleString()}</span> : null}
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{s.up}漲/{s.down}跌</span>
+                {s.netInst ? <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: s.netInst > 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700 }}>昨法人{s.netInst > 0 ? '+' : ''}{s.netInst.toLocaleString()}</span> : null}
                 <span style={{ marginLeft: 'auto' }}>{deltaTag(s.delta)}</span>
               </div>
               {open && (
@@ -101,7 +101,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
                     <span key={l.code} onClick={() => navigateTo('stock', l.code)} style={{ cursor: 'pointer' }}>
                       <b style={{ color: '#7dd3fc' }}>{l.code} {l.name}</b>
                       <span style={{ color: l.cp >= 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4 }}>{l.cp >= 0 ? '+' : ''}{l.cp}%</span>
-                      {l.netInst ? <span style={{ color: l.netInst > 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4, fontSize: 'calc(11px * var(--fz))' }}>法人{l.netInst > 0 ? '+' : ''}{l.netInst}</span> : null}
+                      {l.netInst ? <span style={{ color: l.netInst > 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))' }}>法人{l.netInst > 0 ? '+' : ''}{l.netInst}</span> : null}
                     </span>
                   ))}
                 </div>
@@ -110,7 +110,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
           );
         })}
       </div>
-      <div style={{ marginTop: 6, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
+      <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         法人為昨日外資+投信(當日 T86 需 15:00 後)。加權分/資金流向為確定性統計，非投資建議。
       </div>
     </div>

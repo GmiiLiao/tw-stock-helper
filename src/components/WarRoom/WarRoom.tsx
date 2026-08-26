@@ -235,7 +235,7 @@ export default function WarRoom() {
               <div style={{ width: `${100 - upPct - dnPct}%`, background: '#64748b' }} />
               <div style={{ width: `${dnPct}%`, background: '#2f9e44' }} />
             </div>
-            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>
               上漲佔比 {breadth.upRatio}%{breadth.up < breadth.down ? ' · 賣壓偏重，起漲股恐易回落，進場更保守' : breadth.up > breadth.down * 1.5 ? ' · 買氣熱絡，追蹤起漲股勝率較高' : ''}
             </div>
           </div>
@@ -256,7 +256,7 @@ export default function WarRoom() {
         <div style={{ flex: '1 1 640px', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.06)', border: '1px solid rgba(61,142,248,0.25)' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#7dd3fc' }}>📡 盤中雷達</span>
-            <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               開關篩選策略 · 命中≥2策略＝⭐共識(金框優先){staleMs > 150000 ? ' · ⏸ 非盤中(最後一次結果)' : ''}
             </span>
           </div>
@@ -269,13 +269,13 @@ export default function WarRoom() {
               const on = !!toggles[k];
               return (
                 <button key={k} onClick={() => flipToggle(k)} title={m?.note || ''}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 16, fontSize: 'calc(12px * var(--fz))', fontWeight: 700, cursor: 'pointer',
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 16, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, cursor: 'pointer',
                     border: `1px solid ${on ? 'rgba(125,211,252,0.55)' : 'var(--border-primary)'}`,
                     background: on ? 'rgba(125,211,252,0.12)' : 'transparent',
                     color: on ? 'var(--text-primary)' : 'var(--text-muted)', opacity: on ? 1 : 0.6 }}>
                   <span>{m?.icon || '·'} {m?.name || k}</span>
-                  {m.total != null ? <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: on ? '#7dd3fc' : 'var(--text-muted)' }}>{m.total}</span> : null}
-                  <span style={{ fontSize: 'calc(10px * var(--fz))', color: on ? '#22c55e' : 'var(--text-muted)' }}>{on ? 'ON' : 'OFF'}</span>
+                  {m.total != null ? <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: on ? '#7dd3fc' : 'var(--text-muted)' }}>{m.total}</span> : null}
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: on ? '#22c55e' : 'var(--text-muted)' }}>{on ? 'ON' : 'OFF'}</span>
                 </button>
               );
             })}
@@ -319,40 +319,40 @@ export default function WarRoom() {
                       background: open ? 'rgba(61,142,248,0.10)' : consensus ? 'rgba(251,191,36,0.08)' : 'rgba(148,163,184,0.06)',
                       border: open ? '1px solid rgba(61,142,248,0.35)' : consensus ? '1px solid rgba(251,191,36,0.45)' : '1px solid transparent' }}>
                       <div onClick={() => toggleOpen(it)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap', cursor: 'pointer' }}>
-                        <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
-                        {consensus && <span style={{ fontSize: 'calc(12px * var(--fz))' }}>⭐</span>}
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+                        {consensus && <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>⭐</span>}
                         <span style={{ fontWeight: 800, minWidth: 42 }}>{it.code}</span>
                         <span style={{ fontWeight: 600, minWidth: 68 }}>{it.name}</span>
-                        <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                         <span style={{ color: 'var(--text-secondary)' }}>{it.price}</span>
                         <span style={{ fontWeight: 800, color: '#f03e3e' }}>+{it.chg}%</span>
-                        <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#fbbf24', fontWeight: 700 }}>量能 {it.volX}x</span>
-                        {it.score != null && <span style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: it.score >= 80 ? '#f03e3e' : it.score >= 60 ? '#fbbf24' : 'var(--text-muted)' }}>評分 {it.score}</span>}
+                        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', fontWeight: 700 }}>量能 {it.volX}x</span>
+                        {it.score != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: it.score >= 80 ? '#f03e3e' : it.score >= 60 ? '#fbbf24' : 'var(--text-muted)' }}>評分 {it.score}</span>}
                         {/* 昨日法人籌碼(可目測) */}
                         {(it.yForeign || it.yTrust) ? (
-                          <span style={{ fontSize: 'calc(11.5px * var(--fz))', display: 'inline-flex', gap: 6 }}>
+                          <span style={{ fontSize: 'calc(12.5px * var(--fz))', display: 'inline-flex', gap: 6 }}>
                             {it.yForeign ? <span style={{ color: it.yForeign > 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700 }}>外資{it.yForeign > 0 ? '+' : ''}{it.yForeign.toLocaleString()}</span> : null}
                             {it.yTrust ? <span style={{ color: it.yTrust > 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700 }}>投信{it.yTrust > 0 ? '+' : ''}{it.yTrust.toLocaleString()}</span> : null}
                           </span>
                         ) : null}
-                        {it.toHi5 != null && <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: it.toHi5 >= 0 ? '#f03e3e' : 'var(--text-secondary)' }}>{it.toHi5 >= 0 ? `破5日高+${it.toHi5}%` : `距5日高${it.toHi5}%`}</span>}
+                        {it.toHi5 != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: it.toHi5 >= 0 ? '#f03e3e' : 'var(--text-secondary)' }}>{it.toHi5 >= 0 ? `破5日高+${it.toHi5}%` : `距5日高${it.toHi5}%`}</span>}
                         {/* 命中策略徽章 */}
                         <span style={{ display: 'inline-flex', gap: 3 }}>
-                          {it.hitOn.map(k => <span key={k} title={(radar?.strategies?.[k] || STRAT_FALLBACK[k])?.name} style={{ fontSize: 'calc(11px * var(--fz))' }}>{(radar?.strategies?.[k] || STRAT_FALLBACK[k])?.icon}</span>)}
+                          {it.hitOn.map(k => <span key={k} title={(radar?.strategies?.[k] || STRAT_FALLBACK[k])?.name} style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{(radar?.strategies?.[k] || STRAT_FALLBACK[k])?.icon}</span>)}
                         </span>
-                        {isNew && <span style={{ fontSize: 'calc(10.5px * var(--fz))', fontWeight: 800, color: '#22c55e', background: 'rgba(34,197,94,0.15)', padding: '1px 6px', borderRadius: 5 }}>NEW</span>}
-                        <span style={{ marginLeft: 'auto', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>上榜 {mins} 分</span>
+                        {isNew && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#22c55e', background: 'rgba(34,197,94,0.15)', padding: '1px 6px', borderRadius: 5 }}>NEW</span>}
+                        <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>上榜 {mins} 分</span>
                       </div>
                       {open && (
                         <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
                           {/* 目測判斷資訊列 */}
-                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))', marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
                             <span>訊號 <b style={{ color: it.signal === 'STRONG_BUY' || it.signal === 'BUY' ? '#f03e3e' : it.signal === 'SELL' ? '#2f9e44' : '#fbbf24' }}>{it.signal || '—'}</b></span>
                             <span>開盤 <b style={{ color: it.gap >= 0 ? '#f03e3e' : '#2f9e44' }}>{it.gap >= 0 ? '跳空+' : ''}{it.gap}%</b></span>
                             <span>日內位置 <b>{it.pos >= 0.85 ? '收最高附近' : it.pos >= 0.6 ? '偏高檔' : it.pos >= 0.4 ? '中段' : '偏低檔'}（{Math.round(it.pos * 100)}%）</b></span>
                             {it.maRel != null && <span>距5日線 <b style={{ color: it.maRel >= 0 ? '#f03e3e' : '#2f9e44' }}>{it.maRel >= 0 ? '+' : ''}{it.maRel}%</b></span>}
                           </div>
-                          <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 4 }}>
                             命中：{it.hitOn.map(k => `${(radar?.strategies?.[k] || STRAT_FALLBACK[k])?.icon} ${(radar?.strategies?.[k] || STRAT_FALLBACK[k])?.name}`).join('、')}
                           </div>
                           <StockTrendChart code={it.code} name={it.name} closePrice={it.price} />
@@ -367,7 +367,7 @@ export default function WarRoom() {
               </>
             );
           })()}
-          <div style={{ marginTop: 8, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
             ⚠ 盤中偵測為即時掃描、未經隔日回測驗證（點開關可看各策略條件）；進場鐵律：單筆風險≤1%、11:30 前未走強收盤前先出、隔日 9:00–9:05 必出。非投資建議。
           </div>
         </div>
@@ -376,31 +376,31 @@ export default function WarRoom() {
         <div style={{ flex: '0 1 300px', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 800, fontSize: 'calc(13.5px * var(--fz))' }}>👁 備選區</span>
-            <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>掉榜自動保留 · 點選過📌釘住整日</span>
+            <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>掉榜自動保留 · 點選過📌釘住整日</span>
           </div>
           {/* 設定：TTL / 上限 */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
             <span>未釘住保留</span>
-            <select value={ttlMin} onChange={e => saveCfg(+e.target.value, benchMax)} style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 'calc(11px * var(--fz))', padding: '2px 4px' }}>
+            <select value={ttlMin} onChange={e => saveCfg(+e.target.value, benchMax)} style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 'calc(12.5px * var(--fz))', padding: '2px 4px' }}>
               {[15, 30, 60].map(v => <option key={v} value={v}>{v} 分</option>)}
             </select>
             <span>上限</span>
-            <select value={benchMax} onChange={e => saveCfg(ttlMin, +e.target.value)} style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 'calc(11px * var(--fz))', padding: '2px 4px' }}>
+            <select value={benchMax} onChange={e => saveCfg(ttlMin, +e.target.value)} style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 'calc(12.5px * var(--fz))', padding: '2px 4px' }}>
               {[8, 12, 20].map(v => <option key={v} value={v}>{v} 檔</option>)}
             </select>
           </div>
           {bench.length === 0 ? (
-            <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', padding: '8px 0' }}>尚無備選。主榜掉出的股票會自動出現在這裡續盯。</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '8px 0' }}>尚無備選。主榜掉出的股票會自動出現在這裡續盯。</div>
           ) : (
             <div style={{ display: 'grid', gap: 4 }}>
               {[...bench].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.addedAt - a.addedAt).map(b => (
                 <div key={b.code} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 8, background: b.pinned ? 'rgba(251,191,36,0.08)' : 'rgba(148,163,184,0.06)', fontSize: 'calc(12.5px * var(--fz))' }}>
-                  <span onClick={() => benchPin(b.code)} title={b.pinned ? '取消釘住' : '釘住(不會被自動排除)'} style={{ cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', opacity: b.pinned ? 1 : 0.35 }}>📌</span>
+                  <span onClick={() => benchPin(b.code)} title={b.pinned ? '取消釘住' : '釘住(不會被自動排除)'} style={{ cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', opacity: b.pinned ? 1 : 0.35 }}>📌</span>
                   <span onClick={() => navigateTo('stock', b.code)} style={{ fontWeight: 800, cursor: 'pointer', color: '#7dd3fc' }}>{b.code}</span>
                   <span onClick={() => navigateTo('stock', b.code)} style={{ fontWeight: 600, cursor: 'pointer' }}>{b.name}</span>
                   <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>{b.lastPrice}</span>
                   <span style={{ fontWeight: 700, color: b.lastChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{b.lastChg >= 0 ? '+' : ''}{b.lastChg?.toFixed?.(1) ?? b.lastChg}%</span>
-                  <span onClick={() => benchRemove(b.code)} title="移除" style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(11px * var(--fz))' }}>✕</span>
+                  <span onClick={() => benchRemove(b.code)} title="移除" style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>✕</span>
                 </div>
               ))}
             </div>

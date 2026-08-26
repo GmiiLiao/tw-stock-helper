@@ -50,9 +50,9 @@ export default function PortfolioRisk() {
 
   const cell = (label: string, value: string, sub: string, color: string) => (
     <div style={{ flex: 1, minWidth: 120, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-      <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#cbd5f5' }}>{label}</div>
-      <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 800, color, fontFamily: "'JetBrains Mono',monospace" }}>{value}</div>
-      <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#cbd5f5' }}>{sub}</div>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>{label}</div>
+      <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color, fontFamily: "'JetBrains Mono',monospace" }}>{value}</div>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>{sub}</div>
     </div>
   );
 
@@ -71,7 +71,7 @@ export default function PortfolioRisk() {
         </div>
       )}
       {d.highestPair && (
-        <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#cbd5f5', marginBottom: 6 }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', marginBottom: 6 }}>
           最高連動：{nameOf(d.highestPair.a)} ↔ {nameOf(d.highestPair.b)}（相關 {d.highestPair.corr}）{d.highestPair.corr > 0.7 ? '— 走勢高度同步，分散效果有限' : ''}
         </div>
       )}

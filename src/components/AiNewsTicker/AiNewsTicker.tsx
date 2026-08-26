@@ -312,7 +312,7 @@ export default function AiNewsTicker() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className={styles.panelTitle}>AI 監控子代理</span>
                 <span style={{
-                  fontSize: 'calc(12px * var(--fz))', fontWeight: 700, padding: '2px 6px', borderRadius: '999px',
+                  fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '2px 6px', borderRadius: '999px',
                   background: agentActive ? 'rgba(34,197,94,0.15)' : 'rgba(100,116,139,0.15)',
                   color: agentActive ? '#22c55e' : '#8b9bb8',
                 }}>

@@ -379,7 +379,7 @@ export default function StockDetail() {
           <div className={styles.stockCode}>{stock.code}</div>
           <div className={styles.stockName}>
             {stock.name}
-            {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 6, fontSize: 'calc(11px * var(--fz))', fontWeight: 800, verticalAlign: 'middle', color: b.c, border: `1px solid ${b.c}66`, borderRadius: 5, padding: '0 5px' }}>{b.t === '市' ? '上市' : b.t === '櫃' ? '上櫃' : b.t}</span> : null; })()}
+            {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, verticalAlign: 'middle', color: b.c, border: `1px solid ${b.c}66`, borderRadius: 5, padding: '0 5px' }}>{b.t === '市' ? '上市' : b.t === '櫃' ? '上櫃' : b.t}</span> : null; })()}
             <span style={{ marginLeft: 6, verticalAlign: 'middle' }}><RiskBadge code={stock.code} /></span>
           </div>
         </div>
@@ -610,7 +610,7 @@ export default function StockDetail() {
               <PreTradeCheck code={stock.code} price={parseFloat(holdingForm.buyPrice) || stock.price} qty={parseFloat(holdingForm.quantity || '0')} />
               {holdingForm.buyPrice && holdingForm.quantity && (
                 <div className={styles.costPreview}>
-                  <div style={{ fontSize: 'calc(0.75rem * var(--fz))', marginBottom: '4px', opacity: 0.8 }}>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: '4px', opacity: 0.8 }}>
                     計算公式：單價 ({parseFloat(holdingForm.buyPrice).toLocaleString()} 元) × {fmtQty(parseFloat(holdingForm.quantity) || 0)}（{Math.round((parseFloat(holdingForm.quantity) || 0) * 1000).toLocaleString()} 股）
                   </div>
                   <div>
@@ -717,7 +717,7 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
             {ind.emoji}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 'calc(18px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
               {cp.fullName || stockName}
             </div>
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: '3px' }}>
@@ -764,7 +764,7 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
           <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {cp.keyProducts.map((p, i) => (
               <span key={i} style={{
-                fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
+                fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
                 background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
                 border: '1px solid var(--border-primary)',
               }}>{p}</span>
@@ -814,7 +814,7 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
         background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
         borderRadius: '10px', padding: '14px 16px',
       }}>
-        <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
           {ind.emoji} 產業說明
         </div>
         <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.65 }}>
@@ -828,7 +828,7 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
         borderRadius: '10px', padding: '14px 16px',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
             🏦 法人看好度
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -878,7 +878,7 @@ function EarningsCallCard({ code }: { code: string }) {
   if (!d) return null;
   return (
     <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)' }}>
-      <div style={{ fontWeight: 800, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 6 }}>🎤 法說會前瞻 <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>（{d.date} 召開 · AI 質化推測，非數字預測）</span></div>
+      <div style={{ fontWeight: 800, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 6 }}>🎤 法說會前瞻 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>（{d.date} 召開 · AI 質化推測，非數字預測）</span></div>
       <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.9, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{d.preview}</div>
     </div>
   );
@@ -985,12 +985,12 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '2px' }}>當日行情評估</div>
             <div style={{
-              display: 'inline-block', fontSize: 'calc(15px * var(--fz))', fontWeight: 800, padding: '4px 14px',
+              display: 'inline-block', fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, padding: '4px 14px',
               borderRadius: '8px', background: analysisBg, color: analysisColor,
             }}>{analysisLabel}</div>
           </div>
           <div style={{
-            fontSize: 'calc(20px * var(--fz))', fontWeight: 800,
+            fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800,
             color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)',
             fontFamily: "'JetBrains Mono', monospace",
           }}>
@@ -1017,7 +1017,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           }}>
             <div style={{ fontSize: 'calc(16px * var(--fz))', marginBottom: '4px' }}>{emoji}</div>
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '4px', lineHeight: 1.3 }}>{label}</div>
-            <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 700, color }}>{value}</div>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color }}>{value}</div>
           </div>
         ))}
       </div>
@@ -1029,14 +1029,14 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           borderRadius: '10px', padding: '14px', textAlign: 'center',
         }}>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#818cf8', fontWeight: 600, marginBottom: '6px' }}>📊 振幅</div>
-          <div style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: '#a5b4fc' }}>{amplitude.toFixed(2)}%</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#a5b4fc' }}>{amplitude.toFixed(2)}%</div>
         </div>
         <div style={{
           background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
           borderRadius: '10px', padding: '14px', textAlign: 'center',
         }}>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#fbbf24', fontWeight: 600, marginBottom: '6px' }}>📦 成交量</div>
-          <div style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: '#fbbf24' }}>{(stock.volume / 1000).toFixed(0)} 張</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#fbbf24' }}>{(stock.volume / 1000).toFixed(0)} 張</div>
         </div>
         <div style={{
           background: changePct >= 0 ? 'rgba(220,38,38,0.08)' : 'rgba(34,197,94,0.08)',
@@ -1044,7 +1044,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           borderRadius: '10px', padding: '14px', textAlign: 'center',
         }}>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 600, marginBottom: '6px' }}>💰 漲跌</div>
-          <div style={{ fontSize: 'calc(16px * var(--fz))', fontWeight: 700, color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
             {change >= 0 ? '+' : ''}{change.toFixed(2)}
           </div>
         </div>
@@ -1058,7 +1058,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
         }}>
           <div style={{
             padding: '12px 16px', borderBottom: '1px solid var(--border-primary)',
-            fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em',
+            fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em',
           }}>
             📋 關鍵價位參考
           </div>
@@ -1073,15 +1073,15 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
                 <div style={{
                   minWidth: '80px', textAlign: 'center', padding: '4px 8px',
                   borderRadius: '6px', background: st.bg, color: st.color,
-                  fontSize: 'calc(12px * var(--fz))', fontWeight: 600, flexShrink: 0,
+                  fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, flexShrink: 0,
                 }}>
                   {level.label}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 700, color: st.color, marginBottom: '4px' }}>
+                  <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: st.color, marginBottom: '4px' }}>
                     {level.price.toFixed(2)} 元
                   </div>
-                  <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                     {level.rationale}
                   </div>
                 </div>
@@ -1098,7 +1098,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
             background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
             borderRadius: '10px', padding: '14px 16px',
           }}>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '10px' }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '10px' }}>
               📊 技術面支撐 / 壓力位
             </div>
             <div style={{ marginBottom: '8px' }}>
@@ -1106,7 +1106,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {pp.resistance.map((r, i) => (
                   <span key={i} style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
                     background: `${STRENGTH_COLOR[r.strength]}18`,
                     color: STRENGTH_COLOR[r.strength],
                     border: `1px solid ${STRENGTH_COLOR[r.strength]}44`,
@@ -1122,7 +1122,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {pp.support.map((s, i) => (
                   <span key={i} style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
                     background: `${STRENGTH_COLOR[s.strength]}18`,
                     color: STRENGTH_COLOR[s.strength],
                     border: `1px solid ${STRENGTH_COLOR[s.strength]}44`,
@@ -1250,14 +1250,14 @@ function StrategyTab({ trendData, loading, stockName }: {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '2px' }}>明日開盤建議</div>
             <div style={{
-              display: 'inline-block', fontSize: 'calc(15px * var(--fz))', fontWeight: 800, padding: '4px 14px',
+              display: 'inline-block', fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, padding: '4px 14px',
               borderRadius: '8px', background: rec.bg, color: rec.color,
             }}>{rec.label}</div>
           </div>
           {/* ⚠ 不可 nowrap：optimalOrderTime 是後端組出來的字串，
               長度不固定（例如「09:05–09:15 分批進場」），nowrap 會直接把整頁推寬。 */}
           <div style={{
-            fontSize: 'calc(12px * var(--fz))', padding: '6px 12px', borderRadius: '999px',
+            fontSize: 'calc(12.5px * var(--fz))', padding: '6px 12px', borderRadius: '999px',
             background: 'rgba(251,146,60,0.15)', color: '#fb923c',
             border: '1px solid rgba(251,146,60,0.3)', fontWeight: 600, maxWidth: '100%', lineHeight: 1.5,
           }}>
@@ -1286,7 +1286,7 @@ function StrategyTab({ trendData, loading, stockName }: {
           }}>
             <div style={{ fontSize: 'calc(16px * var(--fz))', marginBottom: '4px' }}>{emoji}</div>
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '4px', lineHeight: 1.3 }}>{label}</div>
-            <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 700, color }}>{value}</div>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color }}>{value}</div>
           </div>
         ))}
       </div>
@@ -1299,7 +1299,7 @@ function StrategyTab({ trendData, loading, stockName }: {
         }}>
           <div style={{
             padding: '12px 16px', borderBottom: '1px solid var(--border-primary)',
-            fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em',
+            fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em',
           }}>
             📋 委買掛單策略
           </div>
@@ -1314,15 +1314,15 @@ function StrategyTab({ trendData, loading, stockName }: {
                 <div style={{
                   minWidth: '80px', textAlign: 'center', padding: '4px 8px',
                   borderRadius: '6px', background: st.bg, color: st.color,
-                  fontSize: 'calc(12px * var(--fz))', fontWeight: 600, flexShrink: 0,
+                  fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, flexShrink: 0,
                 }}>
                   {level.label}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 700, color: st.color, marginBottom: '4px' }}>
+                  <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: st.color, marginBottom: '4px' }}>
                     {level.price.toFixed(2)} 元
                   </div>
-                  <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                     {level.rationale}
                   </div>
                 </div>
@@ -1339,7 +1339,7 @@ function StrategyTab({ trendData, loading, stockName }: {
           borderRadius: '10px', padding: '14px 16px',
           borderLeft: '3px solid #6366f1',
         }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#818cf8', marginBottom: '6px' }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#818cf8', marginBottom: '6px' }}>
             🔔 競價策略
           </div>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.65 }}>
@@ -1352,7 +1352,7 @@ function StrategyTab({ trendData, loading, stockName }: {
       {pp && pp.nextDayHigh.price > 0 && (
         <>
           <div style={{
-            fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
+            fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
             letterSpacing: '0.08em', padding: '4px 0 0',
             borderTop: '1px solid var(--border-primary)', paddingTop: '12px',
           }}>
@@ -1375,8 +1375,8 @@ function StrategyTab({ trendData, loading, stockName }: {
               <div key={label} style={{
                 background: bg, border: `1px solid ${border}`, borderRadius: '10px', padding: '14px',
               }}>
-                <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: '8px' }}>{icon} {label}</div>
-                <div style={{ fontSize: 'calc(22px * var(--fz))', fontWeight: 800, color, marginBottom: '6px' }}>{price.toFixed(2)}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '8px' }}>{icon} {label}</div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color, marginBottom: '6px' }}>{price.toFixed(2)}</div>
                 <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: '8px' }}>{basis}</div>
                 <div style={{ height: '4px', borderRadius: '999px', background: 'var(--bg-tertiary)' }}>
                   <div style={{ height: '100%', width: `${confidence}%`, borderRadius: '999px', background: color }} />
@@ -1483,7 +1483,7 @@ function NewsTab({ stockCode, stockName, industry, industryEmoji }: {
             </div>
           )}
           {sources.length > 0 && (
-            <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: '2px' }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: '2px' }}>
               來源：{sources.join('、')}
             </div>
           )}
@@ -1519,7 +1519,7 @@ function NewsTab({ stockCode, stockName, industry, industryEmoji }: {
       {filtered.length === 0 ? (
         <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
           <div style={{ fontSize: 'calc(48px * var(--fz))', marginBottom: '12px' }}>📭</div>
-          <div style={{ fontSize: 'calc(15px * var(--fz))', marginBottom: '6px' }}>暫無相關新聞</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', marginBottom: '6px' }}>暫無相關新聞</div>
           <div style={{ fontSize: 'calc(13px * var(--fz))', opacity: 0.7 }}>
             目前無法取得 {stockName} 的{filter === 'industry' ? '產業' : ''}新聞資料
           </div>
@@ -1555,12 +1555,12 @@ function NewsTab({ stockCode, stockName, industry, industryEmoji }: {
                 {/* Top Row: Category + Time */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{
-                    fontSize: 'calc(12px * var(--fz))', padding: '2px 8px', borderRadius: '4px',
+                    fontSize: 'calc(12.5px * var(--fz))', padding: '2px 8px', borderRadius: '4px',
                     background: cfg.bg, color: cfg.color, fontWeight: 600,
                   }}>
                     {cfg.emoji} {cfg.label}
                   </span>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                     {formatTimeAgo(item.time)}
                   </span>
                 </div>
@@ -1587,11 +1587,11 @@ function NewsTab({ stockCode, stockName, industry, industryEmoji }: {
 
                 {/* Source + Link */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                     📡 {item.source}
                   </span>
                   {item.url && (
-                    <span style={{ fontSize: 'calc(12px * var(--fz))', color: cfg.color, fontWeight: 600 }}>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: cfg.color, fontWeight: 600 }}>
                       閱讀全文 →
                     </span>
                   )}

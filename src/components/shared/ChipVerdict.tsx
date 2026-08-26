@@ -69,7 +69,7 @@ export function VerdictStrip({ v }: { v?: Verdict | null }) {
           正確做法是「每一個不該被拆開的小段各自 nowrap，段與段之間可以換行」——
           與量價背離、籌碼風向那幾處同一條規矩：要斷就在整段邊界斷，不在數值中間斷。 */}
       <span style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', gap: '0 6px', justifyContent: 'flex-end',
-        fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', minWidth: 0 }}>
+        fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', minWidth: 0 }}>
         <span style={{ whiteSpace: 'nowrap' }}>{tierDisplay(v.tier) || `${v.tier}級`}</span>
         {/* ⚠ 只在理由句沒提過時才印（2026-08-11 使用者圈出重複）：
             理由句常已含「未倒貨(0%)」，右側又印一次「· 倒貨0%」＝同一個數字出現兩次。

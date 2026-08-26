@@ -48,13 +48,13 @@ export default function VolSurgePanel() {
     <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(168,139,250,0.05)', border: '1px solid rgba(168,139,250,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
         <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#c4b5fd' }}>⚡ 盤中爆量</span>
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           量能異常·<b style={{ color: '#c4b5fd' }}>非三大法人</b>（官方法人 15:00 後公布）{!isTwTradingHours() ? ' · ⏸ 非盤中(最後結果)' : data?.updatedAt ? ` · ${new Date(data.updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : ''}
         </span>
       </div>
       {/* 命中率：只追蹤 dir==='up' 的爆量（向上才是進場候選） */}
       <HitRate list="volSurge" label="盤中爆量(向上)" />
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
         單位時間量能暴增（上市≥500張級／上櫃依比例）。即時行情只有累計量、看不到單筆與交易人身分——這是<b>量能異常</b>、不是法人買賣；方向僅以當下漲跌描述。大量來源含隔日沖大戶/主力/中實戶。作官方資料校正前的參考。
       </div>
 
@@ -77,20 +77,20 @@ export default function VolSurgePanel() {
                 <div key={p.code} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.06)', border: open ? '1px solid rgba(61,142,248,0.35)' : '1px solid transparent', ...(candSet.has(p.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.7)' } : {}) }}>
                   <div onClick={() => setOpenCode(c => c === p.code ? null : p.code)}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap', cursor: 'pointer' }}>
-                    <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
                     <span onClick={e => e.stopPropagation()}><AddCandidateButton code={p.code} variant="icon" /></span>
-                    <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 900, padding: '1px 6px', borderRadius: 6, background: `${dc}22`, color: dc }}>{p.dir === 'up' ? '急拉' : '急殺'}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, padding: '1px 6px', borderRadius: 6, background: `${dc}22`, color: dc }}>{p.dir === 'up' ? '急拉' : '急殺'}</span>
                     <span style={{ fontWeight: 800, minWidth: 42 }}>{p.code}</span>
                     <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
-                    <span style={{ fontSize: 'calc(10px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                     <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
                     <span style={{ fontWeight: 800, color: dc }}>{p.chg >= 0 ? '+' : ''}{p.chg}%</span>
-                    <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: '#c4b5fd' }}>爆量 +{p.surgeLots.toLocaleString()} 張</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>{p.rateX}x 常態/分{p.volX != null ? ` · 今日量比 ${p.volX}x` : ''}</span>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#c4b5fd' }}>爆量 +{p.surgeLots.toLocaleString()} 張</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{p.rateX}x 常態/分{p.volX != null ? ` · 今日量比 ${p.volX}x` : ''}</span>
                   </div>
                   {open && (
                     <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
-                      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6 }}>
                         本區間量能暴增 <b style={{ color: '#c4b5fd' }}>{p.surgeLots.toLocaleString()} 張</b>（達常態每分量 {p.rateX} 倍）。⚠ 量能異常非法人，來源可能是大戶/主力/隔日沖。
                       </div>
                       <StockTrendChart code={p.code} name={p.name} closePrice={p.price} changePercent={p.chg} />
