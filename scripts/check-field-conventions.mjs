@@ -65,6 +65,10 @@ export const DATE_ALLOWLIST = new Set([
   'marginDate',  // 券資比資料日（最近已公布交易日，t-1）
   'priceDate',   // （已登記於上）軋空推薦沿用
   'oosFrom',     // 樣本外起始日（squeezeModel：此日之後完全未參與選模）
+  // targetDate：這份清單「適用於哪一個交易日」。刻意與 archDate（分析所根據的
+  // 收盤資料日）分開命名——盤後產出的次交易日清單，兩者必然差一天，
+  // 混用就會把「8/26 的資料」講成「8/26 的推薦」。
+  'targetDate',
   // 領域日期（交易/公司/新聞/處置）
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',

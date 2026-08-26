@@ -11,8 +11,17 @@ interface Item {
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
   setup: number | null; band: string;
 }
+interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; basis: string; n?: number; nMaterial?: number }
+interface RecItem extends Item { verdict?: Verdict; primary?: boolean; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
+interface Rec {
+  updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
+  modelMain: string | null; modelSqueeze: string | null; modelRunId: string | null;
+  items: RecItem[]; primaryCount: number; newsSource?: string;
+  global?: Record<string, { chg?: number | null; date?: string }>;
+}
 interface Data {
   updatedAt: number; priceDate: string; marginDate: string; rule: string;
+  mode?: string; targetDate?: string | null; archDate?: string | null;
   items: Item[]; count: number;
   recent?: { n: number; days: number; avgNextDay: number; winRate: number } | null;
   evidence?: { base5d: number; baseWin: number; setupOnly: number; setupWin: number; bandOnly: number; bandWin: number; combo: number; comboWin: number; bNoA: number; bNoAWin: number; band20up: number; n: number; days: number };
@@ -20,16 +29,19 @@ interface Data {
 
 export default function SqueezePanel() {
   const [d, setD] = useState<Data | null>(null);
+  const [rec, setRec] = useState<Rec | null>(null);
   const [loading, setLoading] = useState(true);
   const navigateTo = useAppStore(s => s.navigateTo);
 
   useEffect(() => {
     let live = true;
-    const load = () => fetch('/api/ai/squeeze-picks')
-      .then(r => (r.ok ? r.json() : null))
-      .then(x => { if (live && x && !x.error) setD(x); })
-      .catch(() => {})
-      .finally(() => { if (live) setLoading(false); });
+    const load = () => {
+      fetch('/api/ai/squeeze-picks').then(r => (r.ok ? r.json() : null))
+        .then(x => { if (live && x && !x.error) setD(x); }).catch(() => {})
+        .finally(() => { if (live) setLoading(false); });
+      fetch('/api/ai/squeeze-recommend').then(r => (r.ok ? r.json() : null))
+        .then(x => { if (live && x && !x.error && x.items) setRec(x); }).catch(() => {});
+    };
     load();
     const id = setInterval(load, 180_000);
     return () => { live = false; clearInterval(id); };
@@ -42,7 +54,10 @@ export default function SqueezePanel() {
         <h2 style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 800, margin: 0 }}>🩳 軋空候選</h2>
         {d && (
           <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
-            {d.count} 檔 · 漲幅資料日 {d.priceDate} · <b>券資比資料日 {d.marginDate}</b>（融資券當日 21:45 才公布）
+            {d.count} 檔 · 分析資料日 {d.archDate ?? d.priceDate}
+            {d.mode === 'nextday'
+              ? <> · <b style={{ color: '#22c55e' }}>適用交易日 {d.targetDate}</b>（TWSE 盤後全資料到齊，同日券資比×同日漲幅，與回測定版同口徑）</>
+              : <> · <b style={{ color: '#f59e0b' }}>盤中即時版（券資比為 {d.marginDate}，t-1）</b>——今晚 21:45 資券公布後才會更新為次交易日清單</>}
           </span>
         )}
       </div>
@@ -98,6 +113,72 @@ export default function SqueezePanel() {
       {d && d.items.length === 0 && (
         <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
           今日無符合條件的個股。條件嚴格是刻意的——放寬到「券資比越高越好」實測反而更差。
+        </div>
+      )}
+
+      {/* AI 新聞判別（開盤前 1 小時產出）——每一檔都有判別提示，含中性與資訊不足 */}
+      {rec && rec.items.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+            <b style={{ fontSize: 'calc(13px * var(--fz))' }}>🤖 開盤前新聞判別</b>
+            <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
+              適用 <b>{rec.targetDate ?? '—'}</b> · 主力推薦 {rec.primaryCount} 檔 · 來源 {rec.newsSource ?? '—'} ·
+              {rec.modelMain ? <> 模型 <code>{rec.modelMain}</code></> : ' 尚無模型'}
+            </span>
+          </div>
+          {rec.global && Object.keys(rec.global).length > 0 && (
+            <div style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
+              昨夜國際盤：{['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
+                .filter(k => rec.global?.[k]).map(k => {
+                  const v = rec.global![k].chg;
+                  return <span key={k} style={{ marginRight: 8, color: (v ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                    {k} {(v ?? 0) >= 0 ? '+' : ''}{v}%
+                  </span>;
+                })}
+            </div>
+          )}
+          <div style={{ display: 'grid', gap: 6 }}>
+            {rec.items.map(it => {
+              const v = it.verdict;
+              const c = v?.label === '利多' ? '#22c55e' : v?.label === '利空' ? '#ef4444' : v?.label === '中性' ? '#94a3b8' : '#64748b';
+              return (
+                <div key={it.code} style={{
+                  padding: '7px 11px', borderRadius: 8,
+                  background: it.primary ? 'rgba(34,197,94,0.08)' : 'var(--bg-elevated)',
+                  border: `1px solid ${it.primary ? 'rgba(34,197,94,0.45)' : 'var(--border-primary)'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    {it.primary && <span style={{ fontWeight: 800, color: '#22c55e' }}>★ 主力推薦</span>}
+                    <button onClick={() => navigateTo('stock', it.code)}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
+                      {it.code} {it.name}
+                    </button>
+                    <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
+                    <span style={{ color: 'var(--text-muted)' }}>券資比 {it.ratio}%</span>
+                    <span style={{ padding: '1px 8px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700, fontSize: 'calc(11px * var(--fz))' }}>
+                      {v?.label ?? '—'}{v?.confidence ? `·信心${v.confidence}` : ''}
+                    </span>
+                    <span style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)' }}>
+                      依據{v?.basis === 'content' ? '內文' : v?.basis === 'title' ? '僅標題' : '無新聞'}
+                      {it.news ? `｜2日內 ${it.news.checked} 則（實質 ${it.news.material}／純行情 ${it.news.priceOnly} 不計）` : ''}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {v?.reason}
+                  </div>
+                  {it.news?.top?.slice(0, 2).map((n, i) => (
+                    <div key={i} style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 1 }}>
+                      · {n.link ? <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>{n.title}</a> : n.title}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 5 }}>
+            判別由本機 AI 讀新聞<b>內文</b>後給出；「股價上漲/漲停/爆量」等行情報導一律不採計為利多（那是結果不是原因）。
+            抓不到內文時會標「僅標題」，不假裝讀過。AI 不確定一律判中性。
+          </div>
         </div>
       )}
 

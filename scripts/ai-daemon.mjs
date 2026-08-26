@@ -3980,66 +3980,128 @@ const BULLISH_KW = ['漲價', '調漲', '報價上揚', '大單', '訂單', '接
 const PRICE_TALK_KW = ['漲停', '跌停', '飆', '天價', '成交王', '盤後日記', '爆量', '狂飆', '暴漲', '走勢', '技術面'];
 const BEARISH_KW = ['下修', '調降', '減產', '砍單', '虧損', '衰退', '認列', '罰款', '召回', '停產', '訴訟'];
 
-async function computeSqueezeRecommend() {
-  const model = (await db.collection('squeezeModel').doc('latest').get()).data();
-  const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
-  if (!picks?.items?.length) { log('  ⚠ 軋空推薦：今日無候選'); return; }
+// 鉅亨網個股新聞（**有真正的內文**）。Google News RSS 走不通——它的連結是 JS
+// 轉址、伺服器端抓回來只有 11 個字「Google News」，且 article id 已加密無法解出
+// 原始網址（2026-08-26 實測兩條路都試過）。鉅亨提供 JSON API 與 128~900 字內文，
+// 是台灣主要財經媒體，適合當「讀內容再判斷」的來源。
+async function fetchCnyesNews(keyword, cap = 6) {
+  try {
+    const url = `https://api.cnyes.com/media/api/v1/search/news?q=${encodeURIComponent(keyword)}&limit=${cap * 2}`;
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return [];
+    const j = await r.json();
+    const raw = j?.items?.data || j?.data?.items || j?.items || [];
+    const arr = Array.isArray(raw) ? raw : (raw.data || []);
+    const strip = t => String(t || '').replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    return arr.slice(0, cap).map(it => ({
+      title: strip(it.title || it.name),
+      content: strip(it.content || it.summary || it.abstract).slice(0, 900),
+      at: it.publishAt ? it.publishAt * 1000 : 0,
+      link: it.newsId ? `https://news.cnyes.com/news/id/${it.newsId}` : '',
+    })).filter(x => x.title);
+  } catch { return []; }
+}
 
-  // 國際盤（美股昨夜已收）：主模型若含國際因子，這裡要能取到
+// ── 次交易日開盤前 1 小時：讀新聞**內文**，由 AI 判別利多與否 ────────────
+// 使用者指定（2026-08-26）：次日開盤前 1 小時核對國際新聞內容，需要仔細閱讀
+// 內容並經 AI 判別是否利多，**每一檔都要出判別提示**（不是只標記有利多的）。
+//
+// 誠實界線：
+//   · 判別依據一律標明是「內文」還是「僅標題」——抓不到內文時不可假裝讀過。
+//   · 盤中速報/漲停飆漲這類**價格報導不是利多**（結果不能拿來解釋原因），
+//     prompt 明講，並在程式端再擋一次。
+//   · AI 無法判定就回「中性/資訊不足」，不可為了湊出推薦而美化。
+async function computeSqueezeNewsVerdict() {
+  const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
+  if (!picks?.items?.length) { log('  ⚠ 新聞判別：無候選'); return; }
+  const model = (await db.collection('squeezeModel').doc('latest').get()).data();
+
+  // 國際盤（美股昨夜已收，此時最完整）
   let gToday = {};
   try {
     const g = (await db.collection('squeezeTraining').doc('global').get()).data();
     const hist = g?.histJson ? JSON.parse(g.histJson) : {};
-    const dates = Object.keys(hist.sox || {}).sort();
-    const last = dates[dates.length - 1];
     for (const k in hist) { const ds = Object.keys(hist[k]).sort(); const d2 = ds[ds.length - 1]; if (d2) gToday[k] = { date: d2, ...hist[k][d2] }; }
-    gToday._asOf = last;
-  } catch { /* 缺國際盤只影響加權 */ }
+  } catch { /* 缺國際盤只影響背景說明 */ }
+  const gLine = ['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
+    .filter(k => gToday[k]).map(k => `${k} ${gToday[k].chg >= 0 ? '+' : ''}${gToday[k].chg}%`).join('、');
 
+  const PRICE_ONLY = /盤中速報|漲速|急拉|跳空|漲停|跌停|飆|天價|成交王|收紅|收黑|技術面|走勢/;
   const out = [];
   for (const it of picks.items.slice(0, 12)) {
-    // 新聞：當日或 2 日內
-    let news = [];
-    // ⚠ 查詢字串不可加「股」——實測 `台虹 股` 回 0 筆、`台虹` 回 8 筆（Google News
-    //   對多詞 AND 太嚴）。用股名查，無股名才退回代號。
-    const qName = (it.name || '').replace(/[*＊]/g, '').trim();
-    try { news = await fetchGoogleNewsRss(qName || it.code, 10); } catch { news = []; }
+    const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
+    const news = await fetchCnyesNews(kw, 6);
     const now = Date.now(), TWO_D = 2 * 86400000;
     const recent = news.filter(n => n.at && now - n.at <= TWO_D);
-    const nameKey = (it.name || '').replace(/[*\-].*$/, '');
-    const relevant = recent.filter(n => n.title && (n.title.includes(nameKey) || n.title.includes(it.code)));
-    const bull = relevant.filter(n => {
-      const hasFund = BULLISH_KW.some(k => n.title.includes(k));
-      if (!hasFund) return false;
-      // 標題若同時是價格報導，要求基本面詞「不只是順帶提及」——這裡採保守做法：
-      // 純價格詞出現時一律不計為利多，寧可漏抓也不要把行情文當成催化劑。
-      return !PRICE_TALK_KW.some(k => n.title.includes(k));
-    });
-    const priceTalk = relevant.filter(n => PRICE_TALK_KW.some(k => n.title.includes(k))).length;
-    const bear = relevant.filter(n => BEARISH_KW.some(k => n.title.includes(k)));
+    // 濾掉純價格報導後才是「可能的催化劑」
+    const material = recent.filter(n => !PRICE_ONLY.test(n.title));
+    const withBody = material.filter(n => n.content && n.content.length >= 60);
+
+    let verdict = { label: '資訊不足', bullish: false, reason: '近 2 日查無實質新聞（僅有價格報導或無相關報導）', basis: 'none', n: recent.length };
+    if (material.length) {
+      const basis = withBody.length ? 'content' : 'title';
+      const src = (withBody.length ? withBody : material).slice(0, 4);
+      const body = src.map((n, i) => `【新聞${i + 1}】${n.title}\n${n.content ? n.content.slice(0, 500) : '（無內文，僅標題）'}`).join('\n\n');
+      const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
+
+嚴格規則：
+1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
+2. 只有會改變公司價值或營運預期的事才算利多：接單、擴產、漲價、認證、法說釋出優於預期、併購、得標、新產品量產、外資調升目標價等。
+3. 若新聞只是重複報導股價表現、或內容與該公司無關，請判為「中性」。
+4. 不確定就判「中性」，不要為了給答案而美化。
+
+國際盤昨夜：${gLine || '（無資料）'}
+
+${body}
+
+請用**繁體中文**依此格式回答，不要多餘文字：
+判別: 利多/利空/中性
+信心: 高/中/低
+理由: （一句話，40 字內，須指出是哪一則新聞的什麼事實）`;
+      const ans = await askOllama(prompt, { priority: 1 });
+      if (ans) {
+        const mv = ans.match(/判別\s*[:：]\s*(利多|利空|中性)/);
+        const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
+        const mr = ans.match(/理由\s*[:：]\s*(.+)/);
+        const label = mv ? mv[1] : '中性';
+        verdict = {
+          label, bullish: label === '利多',
+          confidence: mc ? mc[1] : '低',
+          reason: mr ? mr[1].trim().slice(0, 60) : ans.slice(0, 60),
+          basis, n: recent.length, nMaterial: material.length,
+        };
+      } else {
+        verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
+      }
+    }
     out.push({
       ...it,
-      news: { checked: recent.length, relevant: relevant.length, bull: bull.length, bear: bear.length, priceTalk,
-        topBull: bull.slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at })),
-        topBear: bear.slice(0, 2).map(n => ({ title: n.title, link: n.link, at: n.at })) },
-      // 主力推薦＝模型候選 ∩ 2日內有實質利多 ∩ 無明顯利空
-      primary: bull.length > 0 && bear.length === 0,
+      news: {
+        checked: recent.length, material: material.length, priceOnly: recent.length - material.length,
+        basis: verdict.basis,
+        top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at })),
+      },
+      verdict,                                   // 每一檔都有判別提示（含中性/資訊不足）
+      primary: verdict.bullish && verdict.confidence !== '低',
     });
-    await sleep(400);
+    await sleep(600);
   }
   out.sort((a, b) => (b.primary - a.primary) || (b.tier - a.tier) || (b.chg - a.chg));
   await db.collection('squeezeRecommend').doc('latest').set({
     updatedAt: Date.now(),
-    priceDate: picks.priceDate, marginDate: picks.marginDate,
+    targetDate: picks.targetDate ?? null,       // 這份判別是給哪一個交易日用的
+    archDate: picks.archDate ?? null,
+    mode: picks.mode ?? null,
     modelRunId: model?.runId ?? null,
     modelMain: model?.main?.name ?? null,
     modelSqueeze: model?.squeezeProb?.name ?? null,
     global: gToday,
     items: out,
     primaryCount: out.filter(x => x.primary).length,
-    note: '新聞比對僅為加權（RSS 標題，非基本面判讀）；找不到利多就標「無」，不以空話填充。非投資建議。',
+    newsSource: '鉅亨網（讀內文）',
+    note: '新聞判別由本機 AI 讀**內文**後給出；價格/行情報導一律不採計為利多。判別僅為加權，非投資建議。',
   });
-  log(`✓ 軋空推薦：候選 ${out.length} 檔，其中主力推薦 ${out.filter(x => x.primary).length} 檔`);
+  log(`✓ 軋空新聞判別（適用 ${picks.targetDate ?? '?'}）：${out.length} 檔，主力推薦 ${out.filter(x => x.primary).length} 檔`);
 }
 
 // ── 國際盤日線歷史：每日合併更新（軋空訓練與判讀的共同底料）──────────
@@ -4066,6 +4128,22 @@ async function updateGlobalHistory() {
   const days = Object.keys(hist.sox || {}).length;
   await ref.set({ histJson: JSON.stringify(hist), updatedAt: Date.now(), days }, { merge: true });
   log(`✓ 國際盤歷史更新：新增 ${added} 筆，累計 ${days} 日`);
+}
+
+// 次一交易日（跳過週末與休市日）。找不到就回 null，寧可標「未知」也不要猜。
+// ⚠ 全程用 UTC 算術：taipei() 不吃參數（它永遠回「現在」），而 new Date(局部字串)
+//   的 getDay() 會隨機器時區漂移。日期推進這種事不可以依賴機器設定。
+function nextTradingDay(fromIso) {
+  const [y, m, d] = fromIso.split('-').map(Number);
+  let ms = Date.UTC(y, m - 1, d);
+  for (let i = 1; i <= 12; i++) {
+    ms += 86400000;
+    const dt = new Date(ms);
+    const iso = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    const dow = dt.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !TW_HOLIDAYS.has(iso)) return iso;
+  }
+  return null;
 }
 
 // ── 軋空訓練資料：每日漲停股的「當日 × 前一日」完整狀態 ────────────────
@@ -4136,6 +4214,16 @@ async function computeSqueezePicks() {
   const ascClose = arch.slice().reverse();                      // 舊→新
   const marginDoc = (await readArchive(10, 'marginJson'))[0];    // 最近一個有資券的日子
   if (!marginDoc) { log('✖ 軋空候選：無資券歸檔'); return; }
+  // ── 兩種模式，日期一定要標清楚（使用者指定 2026-08-26）──────────────
+  //   nextday：TWSE 盤後全部資料到齊（收盤 15:10 + 法人 16:30 + 資券 21:45），
+  //            此時 closeJson 與 marginJson **同為今日** ⇒ 口徑與回測定版一致
+  //            （同日券資比×同日漲幅，樣本外 +3.48% vs 落後口徑 +3.26%），
+  //            產出的是「**次一交易日**」的候選清單。
+  //   intraday：盤中即時版，券資比只能用 t-1，標的是今天。
+  const _archDate = ascClose[ascClose.length - 1].date;
+  const fullData = marginDoc.date === _archDate;                // 資券已補到最新歸檔日
+  const mode = fullData ? 'nextday' : 'intraday';
+  const targetDate = fullData ? nextTradingDay(_archDate) : _archDate;
   const margin = JSON.parse(marginDoc.marginJson);
   const quo = (await readSnapshotQuotes())?.quotes || {};
   const L = ascClose.length - 1;
@@ -4229,6 +4317,8 @@ async function computeSqueezePicks() {
   } catch { /* 戰績算不出來不擋榜單 */ }
 
   await db.collection('squeezePicks').doc('latest').set({
+    mode, targetDate,               // 這份清單「是給哪一天用的」
+    archDate: _archDate,            // 分析所根據的收盤資料日
     recent,
     updatedAt: Date.now(),
     priceDate: ascClose[L].date,
@@ -4246,7 +4336,7 @@ async function computeSqueezePicks() {
     items: items.slice(0, 40),
     count: items.length,
   });
-  log(`✓ 軋空候選 ${items.length} 檔（券資比日 ${marginDoc.date}）`);
+  log(`✓ 軋空候選 ${items.length} 檔｜模式 ${mode}｜資料日 ${_archDate}｜適用交易日 ${targetDate}`);
 }
 
 async function sectorLoop() {
@@ -9772,10 +9862,10 @@ async function dailyJobsLoop() {
   for (;;) {
     try {
       const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
-      // 隔日軋空推薦（交易日 08:00，美股昨夜已收）
+      // 開盤前 1 小時（08:00）核對新聞內容並由 AI 判別（使用者指定）
       if (isTradingDay(tw) && mins >= 8 * 60 && mins < 9 * 60 && _sqRecDate !== today) {
         _sqRecDate = today;
-        try { await computeSqueezeRecommend(); } catch (e) { log('✖ 軋空推薦:', (e.message || '').slice(0, 60)); }
+        try { await computeSqueezeNewsVerdict(); } catch (e) { log('✖ 軋空新聞判別:', (e.message || '').slice(0, 60)); }
       }
       // 國際盤歷史每日更新（06:00：美股前一夜 04:00 已收，資料齊全）
       if (mins >= 6 * 60 && _globalHistDate !== today) {
@@ -10249,9 +10339,10 @@ if (ONESHOT) {
     alerts: () => checkAlerts(),
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
+    squeezePicks: () => computeSqueezePicks(),        // 手動產出軋空候選(含次交易日模式)
     squeezeTraining: () => recordSqueezeTraining(),   // 手動補當日訓練資料
     globalHist: () => updateGlobalHistory(),          // 手動更新國際盤歷史
-    squeezeRec: () => computeSqueezeRecommend(),      // 手動產出軋空推薦(含新聞比對)
+    squeezeRec: () => computeSqueezeNewsVerdict(),    // 手動產出新聞判別(讀內文+AI)
     revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
