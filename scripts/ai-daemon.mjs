@@ -3934,6 +3934,90 @@ async function emergingLoop() {
 }
 if (!ONESHOT) emergingLoop();
 
+// ════════════════════════════════════════════════════════════
+// 軋空候選（2026-08-26 使用者需求：列出有軋空條件的股票，如台虹）
+//
+// ⚠ 這條規則是**實測校準**的，不是照抄坊間說法。240 個交易日、169,878 筆
+//   事件（價>10、20日均量≥500張）回測，關鍵發現與直覺相反：
+//   · 「券資比越高越會軋」是**錯的**。疊在漲≥5% 上：
+//       純動能對照(漲≥5%)      5日 +2.03%  勝率50%
+//       券資比 10~15%          5日 +3.72%  勝率57%  三段[2.75/4.59/3.27] ← 最佳
+//       券資比 10~20%          5日 +3.48%  勝率56%
+//       券資比 ≥15%            5日 +2.09%  勝率51%
+//       券資比 ≥20%            5日 +1.46%  勝率49%  ← 反而低於純動能
+//     推測：極高券資比多半是空方看對（基本面轉壞）或可轉債/避險空單，不會被軋。
+//   · 單看券資比≥30%（不疊漲幅）前後半不一致(1.54 vs -0.41)，不可用。
+//   · 「回補天數(days-to-cover)≥3」在台股樣本幾乎為 0（融券量相對成交量太小），
+//     這個美股常用指標在台股不適用，已捨棄。
+//   ⇒ 定版：漲≥5% × 券資比 10~20%，其中 10~15% 標 ⭐⭐、15~20% 標 ⭐。
+//     邊際效益僅約 +1.7pp（相對純動能），**這是傾向不是預測**，文案不可誇大。
+//
+// PIT 誠實：融資券當日 21:45 才公布 ⇒ 券資比一律用**最近一個已歸檔日**（t-1），
+// 漲幅用今日（盤中即時價）。兩者資料日都要標出來，不可混為一談。
+const SQUEEZE_SKILL = `【軋空候選·實測校準版(本站回測·非投資建議)】
+定版條件：當日漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10。
+實測(240日/16.9萬筆)：5日淨均 +3.48%、勝率56%；其中券資比10~15%最強(+3.72%/57%)。
+純動能對照(僅漲≥5%)為 +2.03%/50% ⇒ 券資比的邊際貢獻約 +1.5~1.7pp，是傾向非預測。
+反直覺：券資比≥20% 反而掉到 +1.46%(低於純動能)——極高券資比多為空方看對或避險空單。
+台股不適用 days-to-cover(融券量相對成交量過小，樣本近乎 0)。
+券資比為 t-1(資券21:45才公布)，漲幅為當日。`;
+
+async function computeSqueezePicks() {
+  const arch = await readArchive(30, 'closeJson');
+  if (arch.length < 21) return;
+  const ascClose = arch.slice().reverse();                      // 舊→新
+  const marginDoc = (await readArchive(10, 'marginJson'))[0];    // 最近一個有資券的日子
+  if (!marginDoc) { log('✖ 軋空候選：無資券歸檔'); return; }
+  const margin = JSON.parse(marginDoc.marginJson);
+  const quo = (await readSnapshotQuotes())?.quotes || {};
+  const L = ascClose.length - 1;
+  const closeMaps = ascClose.map(a => JSON.parse(a.closeJson));
+  const prevMap = closeMaps[L - 1] || {};
+
+  const avgVol = (code) => {
+    let s = 0, k = 0;
+    for (let i = Math.max(0, L - 19); i <= L; i++) { const v = closeMaps[i][code]?.[1] ?? 0; if (v > 0) { s += v; k++; } }
+    return k ? s / k : 0;
+  };
+
+  const items = [];
+  for (const code in margin) {
+    if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+    const [mgn, shrt] = margin[code];
+    if (!(mgn > 0) || !(shrt > 0)) continue;
+    const ratio = (shrt / mgn) * 100;
+    if (ratio < 10 || ratio >= 20) continue;                    // 實測甜蜜點以外一律不收
+    const q = quo[code];
+    const live = q?.live && q.price > 0;
+    const price = live ? q.price : (closeMaps[L][code]?.[0] ?? 0);
+    const prev = live ? (q.price - q.change) : (prevMap[code]?.[0] ?? 0);
+    if (!(price > 10) || !(prev > 0)) continue;
+    const chg = ((price - prev) / prev) * 100;
+    if (chg < 5) continue;
+    const av = avgVol(code);
+    if (av < 500) continue;
+    const todayVol = live ? Math.round((q.volume ?? 0) / 1000) : (closeMaps[L][code]?.[1] ?? 0);
+    items.push({
+      code, name: q?.name || '', price: +price.toFixed(2), chg: +chg.toFixed(2),
+      mgn, shrt, ratio: +ratio.toFixed(1),
+      volX: av > 0 ? +(todayVol / av).toFixed(1) : 0,
+      tier: ratio < 15 ? 2 : 1,                                  // 2=⭐⭐(10~15%) 1=⭐(15~20%)
+      live: !!live,
+    });
+  }
+  items.sort((a, b) => b.tier - a.tier || b.chg - a.chg);
+  await db.collection('squeezePicks').doc('latest').set({
+    updatedAt: Date.now(),
+    priceDate: ascClose[L].date,
+    marginDate: marginDoc.date,        // 券資比資料日（t-1）
+    rule: '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10',
+    evidence: { base5d: 2.03, baseWin: 50, band1015: 3.72, win1015: 57, band1020: 3.48, win1020: 56, band20up: 1.46, n: 169878, days: 240 },
+    items: items.slice(0, 40),
+    count: items.length,
+  });
+  log(`✓ 軋空候選 ${items.length} 檔（券資比日 ${marginDoc.date}）`);
+}
+
 async function sectorLoop() {
   for (;;) {
     try { await detectSectorRotation(); } catch (e) { log('✖ sector loop:', e.message); }
@@ -3944,6 +4028,7 @@ async function sectorLoop() {
     try { await computeTopicPicks(); } catch (e) { log('✖ topic picks:', e.message); }
     try { await computeSwingPicks(); } catch (e) { log('✖ swing picks:', e.message); }
     try { await computeStrengthPicks(); } catch (e) { log('✖ strength picks:', e.message); }
+    try { await computeSqueezePicks(); } catch (e) { log('✖ 軋空候選:', e.message); }
     try { await computeGlobalMarkets(); } catch (e) { log('✖ global markets:', e.message); }
     try { await computeMarketHealth(); } catch (e) { log('✖ market health:', e.message); }
     const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
