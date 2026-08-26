@@ -63,6 +63,8 @@ export const DATE_ALLOWLIST = new Set([
   // 日子」分開標——融資券當日 21:45 才公布，混為一談就會把 t-1 的券資比說成今日。
   'priceDate',   // 漲幅資料日（當日/盤中即時）
   'marginDate',  // 券資比資料日（最近已公布交易日，t-1）
+  'priceDate',   // （已登記於上）軋空推薦沿用
+  'oosFrom',     // 樣本外起始日（squeezeModel：此日之後完全未參與選模）
   // 領域日期（交易/公司/新聞/處置）
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',

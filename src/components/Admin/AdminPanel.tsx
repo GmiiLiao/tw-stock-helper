@@ -8,6 +8,7 @@ import styles from './AdminPanel.module.css';
 
 import OpsPanel from './OpsPanel';
 import SwingLab from './SwingLab';
+import SqueezeModel from './SqueezeModel';
 import ViewAsPanel from './ViewAsPanel';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -58,7 +59,7 @@ export default function AdminPanel() {
   const isAdmin = user && (user.level === 'superadmin' || user.level === 'admin' || (adminEmail && user.email === adminEmail));
 
   // Tabs state
-  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'logs' | 'ops' | 'viewas' | 'lab'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'logs' | 'ops' | 'viewas' | 'lab' | 'sqmodel'>('users');
 
   // Real-time data states
   const [users, setUsers] = useState<UserDoc[]>([]);
@@ -490,7 +491,20 @@ export default function AdminPanel() {
             >
               🧪 技巧實驗室
             </button>
+            <button
+              className={`${styles.tabBtn} ${activeTab === 'sqmodel' ? styles.tabBtnActive : ''}`}
+              onClick={() => setActiveTab('sqmodel')}
+            >
+              🧠 軋空判讀模型
+            </button>
           </div>
+
+          {/* ── TAB: 🧠 軋空判讀模型（主/分支模型狀態·訓練資料·歷史報表）── */}
+          {activeTab === 'sqmodel' && (
+            <div className={styles.tabContent}>
+              <SqueezeModel />
+            </div>
+          )}
 
           {/* ── TAB: 🧪 波段技巧實驗室（回測實證視覺驗證·pass 才生成 skill）── */}
           {activeTab === 'lab' && (
