@@ -58,6 +58,9 @@ const CONTRACTS = [
   { c: 'intradayRadar',    kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'limitUpForecast',  kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'volSurge',         kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
+  // 軋空候選（2026-08-26）：允許 0 檔——條件嚴格，沒有符合的日子是正常結果，
+  // 不可因為空榜就判定資料壞掉（allowEmpty）。
+  { c: 'squeezePicks',     kind: 'latest',  maxStale: 40 * MIN,  session: 'intraday', allowEmpty: true },
 
   // ── 每日收盤後（節奏以日計）──
   { c: 'chipArchive',      kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'closeJson' },

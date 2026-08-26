@@ -59,6 +59,10 @@ export const DATE_ALLOWLIST = new Set([
   'flowDate', 'feedDate', 'adjDate', 'instDate', 'marginDate', 'latestReportDate',
   'archDate',   // 記憶體快取鍵：持股策略 ctx 以最新歸檔日為代（非 Firestore 欄位）
   'anchorDate', // 銀行餘額錨點日（tw-settlement rollBankToToday 回傳值，非 Firestore 欄位）
+  // squeezePicks/latest 的兩個資料日：軋空榜刻意把「漲幅的日子」與「券資比的
+  // 日子」分開標——融資券當日 21:45 才公布，混為一談就會把 t-1 的券資比說成今日。
+  'priceDate',   // 漲幅資料日（當日/盤中即時）
+  'marginDate',  // 券資比資料日（最近已公布交易日，t-1）
   // 領域日期（交易/公司/新聞/處置）
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',
