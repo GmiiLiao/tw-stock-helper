@@ -4,7 +4,7 @@
   align-items: center;
   justify-content: center;
   min-height: calc(100vh - var(--header-height) - 40px);
-  padding: 24px;
+  padding: 16px;
 }
 
 .restrictedCard {
@@ -57,9 +57,14 @@
 }
 
 /* ── Main Dashboard ── */
+/* ── 後台版面密度（2026-08-27 使用者：內容寬度太大、文字太小、留白太多）──
+   後台是資料密集的管理介面，與行銷頁不同——過寬的內距與過窄的內容欄
+   會逼出橫向捲動又同時留下大片空白。
+   · max-width 1200 → 1440：大螢幕上讓表格真正用到可用寬度
+   · padding 24 → 16（手機 10）：把留白還給內容 */
 .adminDashboard {
-  padding: 24px;
-  max-width: 1200px;
+  padding: 16px;
+  max-width: 1440px;
   margin: 0 auto;
   animation: fadeIn 0.4s ease-out;
 }
@@ -98,14 +103,14 @@
 }
 
 .badgeGold {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 700;
   color: #fbbf24;
   text-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
 }
 
 .adminEmail {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-primary);
   font-family: 'JetBrains Mono', monospace;
 }
@@ -114,7 +119,7 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -123,10 +128,12 @@
     grid-template-columns: 1fr;
     gap: 12px;
   }
-  /* 字級放大後，20px 內距在 375px 寬的手機上會把卡片內容擠到溢位 */
-  .statCard { padding: 12px; gap: 10px; }
-  .controlPanel, .metricsPanel, .logsPanel { padding: 12px; }
-  .logCard { padding: 10px; }
+  /* 字級放大後，內距在 375px 寬的手機上會把卡片內容擠到溢位 */
+  .adminDashboard { padding: 10px; }
+  .statCard { padding: 10px; gap: 8px; }
+  .controlPanel, .metricsPanel, .logsPanel { padding: 10px; }
+  .logCard { padding: 9px; }
+  .logsList { gap: 8px; }
   /* 表格類一律可橫向捲動（在容器內捲，不是整頁捲） */
   .tabContent table { display: block; overflow-x: auto; max-width: 100%; }
 }
@@ -135,7 +142,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 14px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -166,7 +173,7 @@
 }
 
 .statLabel {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
 }
 
@@ -181,7 +188,7 @@
 .layoutGrid {
   display: grid;
   grid-template-columns: 1fr 380px;
-  gap: 24px;
+  gap: 14px;
 }
 
 @media (max-width: 1024px) {
@@ -195,7 +202,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   height: fit-content;
@@ -297,7 +304,7 @@
 
 .usersTable th {
   padding: 12px;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -330,7 +337,7 @@
 .tagAdmin {
   background: rgba(245, 158, 11, 0.15);
   color: #fbbf24;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 4px;
@@ -343,7 +350,7 @@
 
 .userUidCol code {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   background: rgba(255, 255, 255, 0.04);
   padding: 2px 6px;
   border-radius: 4px;
@@ -351,7 +358,7 @@
 }
 
 .userTimeCol {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
 }
 
@@ -365,7 +372,7 @@
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   padding: 4px 10px;
   cursor: pointer;
   outline: none;
@@ -398,7 +405,7 @@
 }
 
 .statSub {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-muted);
   margin-top: 3px;
   display: block;
@@ -410,7 +417,7 @@
 .analyticsGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
+  gap: 14px;
 }
 
 @media (max-width: 768px) {
@@ -423,7 +430,7 @@
   background: rgba(255, 255, 255, 0.01);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 14px;
 }
 
 .analyticsSection h3 {
@@ -451,7 +458,7 @@
 .barLabel {
   display: flex;
   justify-content: space-between;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -532,7 +539,7 @@
 }
 
 .leaderboardCount {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -615,7 +622,7 @@
 }
 
 .logUserEmail {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -624,7 +631,7 @@
 }
 
 .logUserTime {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
   margin-top: 2px;
@@ -635,7 +642,7 @@
 }
 
 .actionBadge {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 4px;
@@ -674,7 +681,7 @@
 }
 
 .logDetailsCol {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.4;
   font-weight: 500;
@@ -701,7 +708,7 @@
 .cardSidebar {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
 }
 
 .controlPanel, .metricsPanel, .logsPanel {
@@ -710,7 +717,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 14px;
 }
 
 .controlPanel h3, .metricsPanel h3, .logsPanel h3 {
@@ -781,12 +788,12 @@
 
 .statusText {
   font-weight: 600;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
 }
 
 .toggleBtn {
   font-family: inherit;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 700;
   border: 1px solid;
   padding: 8px 12px;
@@ -823,7 +830,7 @@
 
 .heartbeatValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
 }
 
@@ -839,7 +846,7 @@
 .metricLabel {
   display: flex;
   justify-content: space-between;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
   margin-bottom: 6px;
   font-weight: 500;
@@ -874,7 +881,7 @@
   background: transparent;
   border: 1px solid var(--border-primary);
   color: var(--text-secondary);
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -907,9 +914,9 @@
 
 .emptyLogs {
   text-align: center;
-  padding: 30px;
+  padding: 18px;
   color: var(--text-muted);
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
 }
 
 .logCard {
@@ -933,19 +940,19 @@
 }
 
 .logTag {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .logTime {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
 }
 
 .logText {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 8px;
@@ -961,7 +968,7 @@
   background: rgba(61, 142, 248, 0.1);
   color: var(--accent-blue);
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   padding: 1px 6px;
   border-radius: 4px;
   border: 1px solid rgba(61, 142, 248, 0.2);
@@ -1003,7 +1010,7 @@
 
 .triggerBtn {
   font-family: inherit;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13.5px * var(--fz));
   font-weight: 700;
   border: 1px solid rgba(61, 142, 248, 0.3);
   padding: 8px 12px;

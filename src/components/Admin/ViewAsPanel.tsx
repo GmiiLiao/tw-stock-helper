@@ -88,25 +88,25 @@ export default function ViewAsPanel() {
             <button key={l.id}
               onClick={() => enterViewAs({ level: l.id })}
               style={{
-                padding: '6px 14px', borderRadius: 999, cursor: 'pointer', fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))',
+                padding: '6px 14px', borderRadius: 999, cursor: 'pointer', fontWeight: 800, fontSize: 'calc(13.5px * var(--fz))',
                 border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
               }}>
               以 {l.label} 檢視
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', marginTop: 8 }}>
+        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#cbd5f5', marginTop: 8 }}>
           用途：確認高級功能對非會員確實隱藏、且對會員確實開放。
         </div>
       </div>
 
       <div style={box}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>② 會員模擬（載入該會員的實際資料·唯讀）</div>
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', marginBottom: 8 }}>
+        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#cbd5f5', marginBottom: 8 }}>
           ⚠️ 持股 <b>0 或 1 檔</b>的帳號是最容易出事的邊界情境（已標紅），排查白畫面類問題請優先選它們。
         </div>
         <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(13.5px * var(--fz))' }}>
             <thead><tr style={{ color: '#cbd5f5', textAlign: 'left' }}>
               <th style={{ padding: '4px 6px' }}>會員</th><th>等級</th><th>持股</th><th>交易</th><th>最後登入</th><th></th>
             </tr></thead>
@@ -127,7 +127,7 @@ export default function ViewAsPanel() {
                     <td style={{ textAlign: 'right' }}>
                       <button onClick={() => simulateMember(m)} disabled={busy === m.uid}
                         style={{
-                          padding: '4px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800,
+                          padding: '4px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 'calc(13.5px * var(--fz))', fontWeight: 800,
                           border: '1px solid #f97316', background: 'transparent', color: '#f97316',
                         }}>
                         {busy === m.uid ? '載入中…' : '以此身分檢視'}
@@ -144,13 +144,13 @@ export default function ViewAsPanel() {
       {diag && (
         <div style={box}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>🩺 {diag.email} 的資料健檢</div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#cbd5f5', marginBottom: 8 }}>
             「缺欄位」代表 daemon 只寫了一半——前端若沒防護就會在這裡崩潰（2026-08-06 白畫面事故的成因）。
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {diag.rows.map(r => (
               <span key={r.doc} style={{
-                padding: '3px 9px', borderRadius: 999, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700,
+                padding: '3px 9px', borderRadius: 999, fontSize: 'calc(13.5px * var(--fz))', fontWeight: 700,
                 background: !r.exists ? 'var(--bg-tertiary)' : r.missing.length ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.13)',
                 color: !r.exists ? '#cbd5f5' : r.missing.length ? '#ef4444' : '#22c55e',
                 border: `1px solid ${!r.exists ? 'var(--border-primary)' : r.missing.length ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.35)'}`,

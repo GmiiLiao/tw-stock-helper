@@ -87,7 +87,7 @@ export default function ViewAsBanner() {
         style={{
           marginLeft: 'auto', padding: '5px 14px', borderRadius: 8, cursor: 'pointer',
           border: '1px solid rgba(255,255,255,0.6)', background: '#fff', color: '#7c2d12',
-          fontWeight: 900, fontSize: 'calc(12.5px * var(--fz))',
+          fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))',
         }}>
         結束模擬並回到我的帳號
       </button>

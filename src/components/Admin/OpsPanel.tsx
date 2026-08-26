@@ -58,7 +58,7 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
   const h: React.CSSProperties = { fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', marginBottom: 8 };
 
   return (
-    <div style={{ display: 'grid', gap: 12, fontSize: 'calc(12.5px * var(--fz))' }}>
+    <div style={{ display: 'grid', gap: 12, fontSize: 'calc(13.5px * var(--fz))' }}>
       {/* 撿尾盤實盤前追蹤（live out-of-sample·對照歷史回測） */}
       <div style={card}>
         <div style={h}>🪣 撿尾盤實盤前追蹤（每日 13:50 存證 → 次日對答案·滾動累積）</div>
@@ -100,7 +100,7 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
             <div key={d} title={`${d}：${dau[d]} 人`} style={{ flex: 1, background: 'rgba(125,211,252,0.55)', borderRadius: 3, height: `${dau[d] / maxDau * 100}%`, minHeight: 3 }} />
           ))}
         </div>
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 3 }}>{dauDays[0]} → {dauDays[dauDays.length - 1]}（樣本小時留存僅供參考）</div>
+        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 3 }}>{dauDays[0]} → {dauDays[dauDays.length - 1]}（樣本小時留存僅供參考）</div>
       </div>
 
       {/* 功能歸因勝率 */}
@@ -110,7 +110,7 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
           <div style={{ color: 'var(--text-muted)' }}>樣本累積中——部署後的每筆「買入」都會自動快照當下榜單與足跡，賣出結算後在此呈現。這是「從使用者決策學習提高勝率」的核心資料。</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
+            <thead><tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))' }}>
               <th style={{ padding: '3px 6px' }}>功能來源</th><th>樣本</th><th>勝率</th><th>總損益</th><th>平均/筆</th>
             </tr></thead>
             <tbody>
@@ -133,7 +133,7 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
         <div style={h}>👤 使用者交易績效（僅管理員可見；對外一律匿名彙總）</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', whiteSpace: 'nowrap' }}>
-            <thead><tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
+            <thead><tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))' }}>
               <th style={{ padding: '3px 6px' }}>用戶</th><th>交易</th><th>結算</th><th>勝率</th><th>金額勝率</th><th>淨損益</th><th>賺賠比</th><th>期望/筆</th><th>連敗</th><th>持有中位</th><th>隔日沖%</th>
             </tr></thead>
             <tbody>
@@ -167,7 +167,7 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
         </div>
       </div>
 
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)' }}>
         彙總由常駐服務每日 17:00 後更新；財務明細僅本人與管理員可見，對外展示一律匿名彙總（見隱私聲明）。
       </div>
     </div>

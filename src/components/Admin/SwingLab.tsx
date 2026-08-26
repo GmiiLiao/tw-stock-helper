@@ -41,11 +41,11 @@ function Curve({ pts }: { pts: Array<[string, number]> }) {
         <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke="var(--text-muted)" strokeDasharray="4 4" strokeWidth="1" vectorEffect="non-scaling-stroke" opacity="0.6" />
         <path d={d} fill="none" stroke={up ? '#f03e3e' : '#2f9e44'} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
       </svg>
-      <span style={{ position: 'absolute', left: 6, top: 2, fontSize: 10, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{pts[0][0]}</span>
-      <span style={{ position: 'absolute', right: 6, top: 2, fontSize: 10, color: up ? '#f03e3e' : '#2f9e44', fontFamily: "'JetBrains Mono',monospace" }}>
+      <span style={{ position: 'absolute', left: 6, top: 2, fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{pts[0][0]}</span>
+      <span style={{ position: 'absolute', right: 6, top: 2, fontSize: 'calc(13.5px * var(--fz))', color: up ? '#f03e3e' : '#2f9e44', fontFamily: "'JetBrains Mono',monospace" }}>
         累計 {pts[pts.length - 1][1] >= 0 ? '+' : ''}{pts[pts.length - 1][1]}%（逐筆淨%加總）
       </span>
-      <span style={{ position: 'absolute', right: 6, bottom: 2, fontSize: 10, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{pts[pts.length - 1][0]}</span>
+      <span style={{ position: 'absolute', right: 6, bottom: 2, fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{pts[pts.length - 1][0]}</span>
     </div>
   );
 }
@@ -73,7 +73,7 @@ export default function SwingLab() {
 
   const B = rep.baseline;
   return (
-    <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7 }}>
+    <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.7 }}>
       <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)', marginBottom: 12 }}>
         <b>🧪 波段技巧實驗室</b>——技巧先過回測、視覺驗證後才生成 skill。資料至 <b>{rep.date}</b>；
         主窗＝近 480 交易日（{rep.mainStart} 起）拆前後半、OOT＝更早獨立年段；全部扣費稅 0.4425%、排除漲停日、量≥300 張、同碼不重疊持倉。
@@ -89,12 +89,12 @@ export default function SwingLab() {
           <div key={t.id} style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-card)', border: `1px solid ${t.verdict === 'pass' ? 'rgba(34,197,94,0.45)' : 'var(--border-primary)'}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <b style={{ fontSize: 'calc(0.9rem * var(--fz))' }}>{t.name}</b>
-              <span style={{ padding: '2px 10px', borderRadius: 999, fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: v.c, border: `1px solid ${v.c}`, background: `${v.c}14` }}>{v.t}</span>
+              <span style={{ padding: '2px 10px', borderRadius: 999, fontWeight: 800, fontSize: 'calc(13.5px * var(--fz))', color: v.c, border: `1px solid ${v.c}`, background: `${v.c}14` }}>{v.t}</span>
             </div>
             <div style={{ color: 'var(--text-muted)', margin: '2px 0 8px' }}>{t.desc}</div>
 
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap' }}>
+              <table style={{ borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(13.5px * var(--fz))', whiteSpace: 'nowrap' }}>
                 <thead><tr style={{ color: 'var(--text-muted)' }}>
                   {['窗', 'n', '淨均%', '淨中位%', '勝率%', '均持有(日)', 'P10/P90'].map(h => <th key={h} style={{ padding: '2px 12px', textAlign: 'right', borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}
                 </tr></thead>
@@ -118,15 +118,15 @@ export default function SwingLab() {
 
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
               {t.years.map(yr => (
-                <span key={yr.y} style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--bg-secondary)', fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))' }}>
+                <span key={yr.y} style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--bg-secondary)', fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(13.5px * var(--fz))' }}>
                   {yr.y}：<b style={{ color: cellC(yr.netAvg) }}>{fmt(yr.netAvg)}%</b> <span style={{ color: 'var(--text-muted)' }}>勝{yr.winRate}%·n{yr.n}</span>
                 </span>
               ))}
             </div>
 
             <details style={{ marginTop: 8 }}>
-              <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>最近 15 筆成交（抽查用）</summary>
-              <div style={{ overflowX: 'auto', marginTop: 4, fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))' }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))' }}>最近 15 筆成交（抽查用）</summary>
+              <div style={{ overflowX: 'auto', marginTop: 4, fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(13.5px * var(--fz))' }}>
                 {t.recent.map((r, i) => (
                   <div key={i} style={{ display: 'flex', gap: 14, whiteSpace: 'nowrap' }}>
                     <span>{r.code}</span><span>{r.dEntry} → {r.dExit}</span><span>{r.held}日</span>
@@ -138,7 +138,7 @@ export default function SwingLab() {
           </div>
         );
       })}
-      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))' }}>
         ⚠ 只有標 ✅ 的技巧會被做成 skill 上線；❌ 者記錄在案避免重測。事件驅動回測·出場依規則逐日跟蹤·非投資建議。
       </div>
     </div>
