@@ -12,7 +12,7 @@ interface Item {
   setup: number | null; band: string; weakBand?: boolean;
   shrtChg?: number | null; lend?: number | null; lendChg?: number | null; trueRatio?: number | null;
 }
-interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; basis: string; n?: number; nMaterial?: number }
+interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; basis: string; n?: number; nMaterial?: number }
 interface RecItem extends Item { verdict?: Verdict; primary?: boolean; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
 interface Rec {
   updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
@@ -171,6 +171,11 @@ export default function SqueezePanel() {
                   <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 2 }}>
                     {v?.reason}
                   </div>
+                  {v?.risk && v.risk !== '無' && (
+                    <div style={{ fontSize: 'calc(11px * var(--fz))', color: '#f59e0b', marginTop: 1 }}>
+                      ⚠ 風險：{v.risk}
+                    </div>
+                  )}
                   {it.news?.top?.slice(0, 2).map((n, i) => (
                     <div key={i} style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 1 }}>
                       · {n.link ? <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>{n.title}</a> : n.title}
@@ -181,8 +186,10 @@ export default function SqueezePanel() {
             })}
           </div>
           <div style={{ fontSize: 'calc(10.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 5 }}>
-            判別由本機 AI 讀新聞<b>內文</b>後給出；「股價上漲/漲停/爆量」等行情報導一律不採計為利多（那是結果不是原因）。
-            抓不到內文時會標「僅標題」，不假裝讀過。AI 不確定一律判中性。
+            新聞來源：鉅亨（有內文）＋ Google News（覆蓋廣但只有標題），合併去重後交由本機 AI 判別。
+            程式端<b>只剔除機器自動生成的盤中速報</b>——含「漲停」字眼的題材文若硬剔會連真催化劑一起丟掉
+            （實案：今周刊〈台虹…原來和輝達也有關！看懂 PTFE 題材〉標題同時有兩者）。
+            價格描述不算利多這條規則交由 AI 執行；抓不到內文會標「僅標題」，不假裝讀過；不確定一律判中性。
           </div>
         </div>
       )}

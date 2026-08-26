@@ -3976,8 +3976,13 @@ const SQUEEZE_SKILL = `【軋空候選·實測校準版(本站回測·非投資�
 const BULLISH_KW = ['漲價', '調漲', '報價上揚', '大單', '訂單', '接單', '出貨', '擴產', '產能',
   '法說', '營收創', '獲利', '轉盈', '認證', '通過', '合作', '簽約',
   '得標', '併購', '取得', '上調', '調升', '目標價', '評等', '新產品', '量產', '投片', '打入'];
-// 純價格/行情報導：即使含利多詞也不採計（除非同時有上面的基本面詞）
-const PRICE_TALK_KW = ['漲停', '跌停', '飆', '天價', '成交王', '盤後日記', '爆量', '狂飆', '暴漲', '走勢', '技術面'];
+// ⚠ 2026-08-26 修正：原本把「漲停/飆/爆量」一律硬剔，**過度殺傷**。
+//   實案：今周刊〈台虹做什麼的？漲停鎖死1.5萬張搶買，原來和輝達也有關！看懂
+//   PTFE題材多猛〉——標題同時有「漲停鎖死」與「和輝達有關/PTFE題材」，
+//   舊規則會因為前者剔掉整則，於是**真正的催化劑被自己的濾網丟掉**。
+//   ⇒ 只硬剔「機器自動生成的價格速報」（那是真的沒有資訊），其餘一律送進
+//     AI，由它依「價格描述不算利多」的規則判斷。判別力放在 AI 不放在正則。
+const MACHINE_NEWS = /盤中速報|收盤速報|漲速|自動生成|快訊[:：]?\s*股價/;
 const BEARISH_KW = ['下修', '調降', '減產', '砍單', '虧損', '衰退', '認列', '罰款', '召回', '停產', '訴訟'];
 
 // 鉅亨網個股新聞（**有真正的內文**）。Google News RSS 走不通——它的連結是 JS
@@ -4011,6 +4016,29 @@ async function fetchCnyesNews(keyword, cap = 6) {
 //   · 盤中速報/漲停飆漲這類**價格報導不是利多**（結果不能拿來解釋原因），
 //     prompt 明講，並在程式端再擋一次。
 //   · AI 無法判定就回「中性/資訊不足」，不可為了湊出推薦而美化。
+// 多來源新聞彙整（2026-08-26 使用者實例後補）：
+//   鉅亨 API  → 有內文，但**覆蓋不足**：實測台虹當日 5 則全是盤中速報，
+//               PTFE/輝達 這個真正的題材一則都沒有 ⇒ 單一來源＝系統性盲點。
+//   Google News → 覆蓋廣（各媒體都收），但**只拿得到標題**（連結是 JS 轉址、
+//               id 已加密，內文抓不到，兩條路都實測過）。
+//   ⇒ 兩者合併，並據實標示每一則是「有內文」還是「僅標題」。
+async function fetchStockNewsMulti(keyword, code) {
+  const out = [];
+  try {
+    for (const n of await fetchCnyesNews(keyword, 6)) out.push({ ...n, src: '鉅亨', hasBody: !!(n.content && n.content.length >= 60) });
+  } catch { /* 單一來源失敗不擋 */ }
+  await sleep(500);
+  try {
+    for (const n of await fetchGoogleNewsRss(keyword, 8)) {
+      // 去重：標題前 16 字相同視為同一則
+      const key = n.title.replace(/\s/g, '').slice(0, 16);
+      if (out.some(x => x.title.replace(/\s/g, '').slice(0, 16) === key)) continue;
+      out.push({ title: n.title, content: '', at: n.at, link: n.link, src: n.src || 'GoogleNews', hasBody: false });
+    }
+  } catch { /* 同上 */ }
+  return out;
+}
+
 async function computeSqueezeNewsVerdict() {
   const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
   if (!picks?.items?.length) { log('  ⚠ 新聞判別：無候選'); return; }
@@ -4026,16 +4054,15 @@ async function computeSqueezeNewsVerdict() {
   const gLine = ['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
     .filter(k => gToday[k]).map(k => `${k} ${gToday[k].chg >= 0 ? '+' : ''}${gToday[k].chg}%`).join('、');
 
-  const PRICE_ONLY = /盤中速報|漲速|急拉|跳空|漲停|跌停|飆|天價|成交王|收紅|收黑|技術面|走勢/;
   const out = [];
   for (const it of picks.items.slice(0, 12)) {
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
-    const news = await fetchCnyesNews(kw, 6);
+    const news = await fetchStockNewsMulti(kw, it.code);
     const now = Date.now(), TWO_D = 2 * 86400000;
     const recent = news.filter(n => n.at && now - n.at <= TWO_D);
-    // 濾掉純價格報導後才是「可能的催化劑」
-    const material = recent.filter(n => !PRICE_ONLY.test(n.title));
-    const withBody = material.filter(n => n.content && n.content.length >= 60);
+    // 只剔機器速報；其餘（含帶「漲停」字眼但可能有題材的）都送 AI 判斷
+    const material = recent.filter(n => !MACHINE_NEWS.test(n.title));
+    const withBody = material.filter(n => n.hasBody);
 
     let verdict = { label: '資訊不足', bullish: false, reason: '近 2 日查無實質新聞（僅有價格報導或無相關報導）', basis: 'none', n: recent.length };
     if (material.length) {
@@ -4048,7 +4075,11 @@ async function computeSqueezeNewsVerdict() {
 1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
 2. 只有會改變公司價值或營運預期的事才算利多：接單、擴產、漲價、認證、法說釋出優於預期、併購、得標、新產品量產、外資調升目標價等。
 3. 若新聞只是重複報導股價表現、或內容與該公司無關，請判為「中性」。
-4. 不確定就判「中性」，不要為了給答案而美化。
+4. **區分「已確認事實」與「傳聞/市場預期/可能」**：若題材只是「有可能」「市場預期」
+   「送樣認證中」，信心最高只能給「中」，並在風險欄指出不確定性與量產時程。
+5. 標題同時有行情字眼（漲停、爆量）與題材字眼（供應鏈、認證、訂單）時，
+   請看**題材**判斷，不要因為有行情字眼就判中性。
+6. 不確定就判「中性」，不要為了給答案而美化。
 
 國際盤昨夜：${gLine || '（無資料）'}
 
@@ -4057,17 +4088,20 @@ ${body}
 請用**繁體中文**依此格式回答，不要多餘文字：
 判別: 利多/利空/中性
 信心: 高/中/低
-理由: （一句話，40 字內，須指出是哪一則新聞的什麼事實）`;
+理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
+風險: （一句話，50 字內，指出這個判斷最大的不確定性；無明顯風險寫「無」）`;
       const ans = await askOllama(prompt, { priority: 1 });
       if (ans) {
         const mv = ans.match(/判別\s*[:：]\s*(利多|利空|中性)/);
         const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
         const mr = ans.match(/理由\s*[:：]\s*(.+)/);
+        const mk = ans.match(/風險\s*[:：]\s*(.+)/);
         const label = mv ? mv[1] : '中性';
         verdict = {
           label, bullish: label === '利多',
           confidence: mc ? mc[1] : '低',
-          reason: mr ? mr[1].trim().slice(0, 60) : ans.slice(0, 60),
+          reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
+          risk: mk ? mk[1].trim().slice(0, 70) : null,
           basis, n: recent.length, nMaterial: material.length,
         };
       } else {
@@ -4077,7 +4111,7 @@ ${body}
     out.push({
       ...it,
       news: {
-        checked: recent.length, material: material.length, priceOnly: recent.length - material.length,
+        checked: recent.length, material: material.length, priceOnly: recent.length - material.length,   // priceOnly 現在的語意＝被剔除的機器速報
         basis: verdict.basis,
         top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at })),
       },
