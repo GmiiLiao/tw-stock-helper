@@ -5,6 +5,8 @@ import { auth } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 import { MarketPatternHint } from '@/components/MarketPattern/MarketPatternBanner';
 import RiskBadge from '@/components/shared/RiskBadge';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 選股策略分頁：實測驗證的隔日沖策略 → 每日候選清單 ──
 // 回測依據：近一年、前 100 大成交值個股、訊號日收盤買 → 次日收盤賣。
@@ -64,6 +66,7 @@ const PREMIUM = ['premium', 'admin', 'superadmin'];
 const TRIAL_DAYS = 14; // 新註冊會員免費體驗天數（依 Firebase Auth 註冊時間，不可竄改）
 
 export default function StrategyPicks() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   // 本分頁是**隔日沖口徑**（撿尾盤定版濾網·明開賣）。使用者在別的模式進來時
   //   必須明說，否則會拿隔日沖的清單去做 5 日波段（實測 -0.06%）。
   const navigateTo = useAppStore(st => st.navigateTo);
@@ -163,7 +166,7 @@ export default function StrategyPicks() {
             {multi.map(([code, v]) => (
               <div key={code} onClick={() => navigateTo('stock', code)}
                 style={{ cursor: 'pointer', padding: '6px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)' }}>
-                <b style={{ color: '#fbbf24' }}>{code} {v.name}</b>
+                <b style={{ color: '#fbbf24' }}>{code} {v.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginLeft: 6 }}>
                   評分 {v.score ?? '—'} · {v.keys.map(k => d.stats[k]?.icon + d.stats[k]?.name).join('＋')}
                 </span>

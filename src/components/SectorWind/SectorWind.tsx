@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 🧭 產業風向偵測：加權分 + 資金流向(加碼/減碼) ──────────────
 // 讓看盤快速感知「錢往哪個族群跑」。加權分＝漲跌×家數廣度×籌碼傾向；
@@ -18,6 +20,7 @@ const isTwTradingHours = () => {
 };
 
 export default function SectorWind({ compact = false }: { compact?: boolean }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   const [data, setData] = useState<WindData | null>(null);
   const [openInd, setOpenInd] = useState<string | null>(null);
@@ -100,6 +103,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
                   {s.leaders.map(l => (
                     <span key={l.code} onClick={() => navigateTo('stock', l.code)} style={{ cursor: 'pointer' }}>
                       <b style={{ color: '#7dd3fc' }}>{l.code} {l.name}</b>
+                      {(() => { const st = statusOf(dt, l.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                       <span style={{ color: l.cp >= 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4 }}>{l.cp >= 0 ? '+' : ''}{l.cp}%</span>
                       {l.netInst ? <span style={{ color: l.netInst > 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))' }}>法人{l.netInst > 0 ? '+' : ''}{l.netInst}</span> : null}
                     </span>

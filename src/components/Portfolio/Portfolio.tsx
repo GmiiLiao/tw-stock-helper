@@ -34,6 +34,8 @@ import styles from './Portfolio.module.css';
 import PageHelp from '@/components/Help/PageHelp';
 import CardBoundary from '@/components/shared/CardBoundary';
 import { useShallow } from 'zustand/react/shallow';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 const COLORS = ['#3d8ef8', '#22c55e', '#f59e0b', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
 
@@ -1063,6 +1065,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
 // ─── Main Portfolio Component ────────────────────────────────────────────
 
 export default function Portfolio() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const { holdings, allStocks, tradeRecords, removeHolding, updateHolding, navigateTo } = useAppStore(useShallow((s) => ({ holdings: s.holdings, allStocks: s.allStocks, tradeRecords: s.tradeRecords, removeHolding: s.removeHolding, updateHolding: s.updateHolding, navigateTo: s.navigateTo })));
   const [broker] = useBrokerSettings();
   const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'analytics'>('overview');
@@ -1503,6 +1506,8 @@ export default function Portfolio() {
                     >
                       <span className={styles.groupCode}>{group.code}</span>
                       <span className={styles.groupName}>{group.name}</span>
+                      {/* 持股頁標當沖資格：想當沖手上部位時，這裡是最後一道提醒 */}
+                      {(() => { const st = statusOf(dt, group.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                       <VerdictBadge v={verdicts[group.code]} compact />
                       <div className={styles.groupBar} style={{ background: COLORS[gi % COLORS.length] }} />
                     </div>

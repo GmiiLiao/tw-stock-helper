@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark, dayTradeTintOf } from '@/components/shared/DayTradeBadge';
 
 // ── 🧭 籌碼風向：當日/5日/20日 三大法人淨買賣加權（多按鈕點開說明）──────
 // 用逐日 T86(含自營)累加各時間框，看法人資金往哪流、哪些股/族群被加碼減碼。
@@ -36,6 +38,7 @@ const fmt = (n: number) => (n > 0 ? '+' : '') + Math.round(n).toLocaleString();
 const col = (n: number) => (n > 0 ? '#f03e3e' : n < 0 ? '#2f9e44' : 'var(--text-muted)');
 
 export default function ChipWind({ compact = false, bare = false }: { compact?: boolean; bare?: boolean }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   const [data, setData] = useState<WindData | null>(null);
   const [tf, setTf] = useState<'d1' | 'd5' | 'd20'>('d5');
@@ -153,7 +156,7 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
           //   於是「外+53,049/投+1,800/自+55,156」被拆成三行糊在一起。
           //   規則同前：要斷就在整段邊界斷，絕不在數值中間斷。
           //   ⇒ 整列可 wrap；數值與明細 nowrap 且不被壓；股名 flex:1 讓位。
-          <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--fz))', background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
+          <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--fz))', background: dayTradeTintOf(dt, it.code) ?? (i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)') }}>
             <span style={{ color: 'var(--text-muted)', width: 18, fontSize: 'calc(12.5px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
             <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
             <b style={{ color: col(it.net), textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmt(it.net)}</b>

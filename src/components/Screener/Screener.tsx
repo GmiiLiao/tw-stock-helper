@@ -7,6 +7,8 @@ import { formatVolume, formatChangePercentSign } from '@/lib/twse-api';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import styles from './Screener.module.css';
 import { useShallow } from 'zustand/react/shallow';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 interface ScreenerFilter {
   changePercentMin: number | '';
@@ -351,6 +353,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function Screener() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const {
     allStocks,
     navigateTo,
@@ -1312,6 +1315,7 @@ export default function Screener() {
                         <div className={styles.mobileCardTitle}>
                           <span className={styles.mobileCode}>{stock.code}</span>
                           <span className={styles.mobileName}>{stock.name}</span>
+                          {(() => { const st = statusOf(dt, stock.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                           <span className={`${styles.aiBadge} ${aiBadgeStyle}`} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', marginLeft: '6px' }}>
                             {aiRating.grade}
                           </span>

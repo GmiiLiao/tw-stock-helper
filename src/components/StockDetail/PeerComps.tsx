@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark, dayTradeTintOf } from '@/components/shared/DayTradeBadge';
 
 // ── 同業比較（financial-services comps-analysis 台股化）──
 // daemon 每日算好 peerComps/latest；此處只呈現：同產業 PE/PB/殖利率/營收YoY/評分/RS。
@@ -17,6 +19,7 @@ const SIG: Record<string, { t: string; c: string }> = {
 const num = (v: number | null, digits = 1) => (v == null ? '—' : v.toFixed(digits));
 
 export default function PeerComps({ code }: { code: string }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(st => st.navigateTo);
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,9 +90,10 @@ export default function PeerComps({ code }: { code: string }) {
               const self = p.code === code;
               return (
                 <tr key={p.code} onClick={() => !self && navigateTo('stock', p.code)}
-                  style={{ cursor: self ? 'default' : 'pointer', background: self ? 'rgba(56,189,248,0.10)' : undefined, borderBottom: '1px solid var(--border-primary)' }}>
+                  style={{ cursor: self ? 'default' : 'pointer', background: self ? 'rgba(56,189,248,0.10)' : dayTradeTintOf(dt, p.code), borderBottom: '1px solid var(--border-primary)' }}>
                   <td style={{ padding: '7px 8px', fontWeight: self ? 800 : 600 }}>
                     <span style={{ color: '#e2e8f0' }}>{p.code}</span> <span style={{ color: '#7dd3fc' }}>{p.name}</span>{self ? ' ◄' : ''}
+                    {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                   </td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', fontFamily: "'JetBrains Mono',monospace" }}>{p.price ?? '—'}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', color: (p.changePct ?? 0) > 0 ? 'var(--color-up)' : (p.changePct ?? 0) < 0 ? 'var(--color-down)' : 'var(--color-flat)' }}>{p.changePct == null ? '—' : `${p.changePct > 0 ? '+' : ''}${p.changePct}%`}</td>
