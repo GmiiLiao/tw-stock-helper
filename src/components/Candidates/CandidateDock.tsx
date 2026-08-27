@@ -7,6 +7,8 @@
 import { useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
+import { useDayTradeCodes } from '@/lib/useDayTradeCodes';
+import { dayTradeTintOf } from '@/components/shared/DayTradeBadge';
 
 export default function CandidateDock() {
   const codes = useAppStore(s => s.compareCodes);
@@ -29,6 +31,9 @@ export default function CandidateDock() {
   // ⚠ Hook 必須在**所有** early return 之前呼叫（Rules of Hooks）——
   //   放在下面那個 `return null` 之後會讓 hook 呼叫順序隨渲染變動。
   const liveQ = useLiveQuotes(codes, 30);
+  //   同理，當沖資格名單這支也必須在 early return 之前——這支元件已經因為同一條
+  //   規則被擋過一次（2026-08-26 useLiveQuotes），ESLint 這次又當場攔下。
+  const dt = useDayTradeCodes();
 
   const hideInDesk = currentPage === 'war' && warTab === 'desk'; // 工作台分頁內不重複顯示
   if (hideInDesk) return null;
@@ -65,7 +70,7 @@ export default function CandidateDock() {
             )}
             {rows.map(r => (
               <div key={r.code} onClick={() => navigateTo('stock', r.code)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 7px', borderRadius: 8, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 7px', borderRadius: 8, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', background: dayTradeTintOf(dt, r.code) }}>
                 <span style={{ fontWeight: 800, minWidth: 40, color: '#7dd3fc' }}>{r.code}</span>
                 <span style={{ fontWeight: 600, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name || '—'}</span>
                 {r.price != null && <span style={{ color: 'var(--text-secondary)' }}>{r.price}</span>}

@@ -19,6 +19,8 @@ import { logActivity } from '@/lib/activity-logger';
 import { computeComposite } from '@/lib/composite-score';
 import OrderBookDepth from '@/components/shared/OrderBookDepth';
 import { METRIC_TIPS } from '@/lib/metric-tips';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 interface CharRow { label?: string; spec?: number; corr?: number; f20?: number; t20?: number; d20?: number; fStreak?: number; tStreak?: number; dStreak?: number }
 
@@ -34,6 +36,7 @@ function overnightStance(v?: Verdict | null): { t: string; c: string; note: stri
 }
 
 export default function DecisionDesk() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const codes = useAppStore(s => s.compareCodes);
   const allStocks = useAppStore(s => s.allStocks);
   const clear = useAppStore(s => s.clearCandidates);
@@ -349,6 +352,7 @@ export default function DecisionDesk() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px' }}>
                     <span onClick={() => navigateTo('stock', c.code)} style={{ fontWeight: 800, color: '#7dd3fc', cursor: 'pointer' }}>{c.code}</span>
                     <span onClick={() => navigateTo('stock', c.code)} style={{ fontWeight: 700, cursor: 'pointer' }}>{c.name || '—'}</span>
+                    {(() => { const st = statusOf(dt, c.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                     {c.price > 0 && <span style={{ color: 'var(--text-secondary)' }}>{c.price}</span>}
                     {c.chg != null && <span style={{ fontWeight: 800, color: c.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{c.chg >= 0 ? '+' : ''}{c.chg.toFixed(1)}%</span>}

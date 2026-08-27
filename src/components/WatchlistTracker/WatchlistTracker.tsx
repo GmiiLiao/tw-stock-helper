@@ -9,6 +9,8 @@ import StockAIEval from './StockAIEval';
 import { getTargetPrice } from '@/lib/scoring';
 import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBanner';
 import PageHelp from '@/components/Help/PageHelp';
+import { useDayTradeStatus } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ─── Shared status badges (漲跌停 / 注意 / 處置) ───────────────────────────────
 // Risk codes (注意/處置) + disposition period fetched once at module level.
@@ -57,13 +59,14 @@ function shortDate(d?: string): string {
  *  showLimit=false for panels that already render their own 漲跌停 badge. */
 function StatusBadges({ code, changePercent, showLimit = true }: { code: string; changePercent?: number | null; showLimit?: boolean }) {
   const { attention, disposition, dispEnd, attEnd } = useRiskCodes();
+  const dtSt = useDayTradeStatus(code);   // 當沖資格（null = 名單未載入，不渲染）
   const pct = changePercent ?? 0;
   const limitUp = showLimit && pct >= 9.9;
   const limitDown = showLimit && pct <= -9.9;
   const nearUp = showLimit && pct >= 7 && pct < 9.9;
   const isDisp = disposition.has(code);
   const isAtt = attention.has(code) && !isDisp;
-  if (!limitUp && !limitDown && !nearUp && !isDisp && !isAtt) return null;
+  if (!limitUp && !limitDown && !nearUp && !isDisp && !isAtt && dtSt == null) return null;
   const dispUntil = shortDate(dispEnd.get(code));
   const attUntil = shortDate(attEnd.get(code));
   const tag = (text: string, color: string, bg: string, border?: string) => (
@@ -76,6 +79,7 @@ function StatusBadges({ code, changePercent, showLimit = true }: { code: string;
       {nearUp && tag('近漲停', '#e67700', 'rgba(230,119,0,0.15)')}
       {isDisp && tag(dispUntil ? `🔴 處置至 ${dispUntil}` : '🔴 處置', '#ef4444', 'rgba(239,68,68,0.18)', 'rgba(239,68,68,0.35)')}
       {isAtt && tag(attUntil ? `🟡 注意至 ${attUntil}` : '🟡 注意', '#eab308', 'rgba(234,179,8,0.18)', 'rgba(234,179,8,0.35)')}
+      {dtSt != null && <DayTradeMark status={dtSt} size="xs" />}
     </span>
   );
 }

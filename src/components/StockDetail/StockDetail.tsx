@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
 import { shouldPollNow } from '@/lib/market-clock';
 import { fmtQty } from '@/lib/tw-fee';
 import { useAppStore } from '@/lib/store';
@@ -36,6 +36,7 @@ import TechnicalChart from './TechnicalChart';
 import StockTrendChart from '../WatchlistTracker/StockTrendChart';
 import StockAsk from './StockAsk';
 import RiskBadge from '@/components/shared/RiskBadge';
+import DayTradeBadge from '@/components/shared/DayTradeBadge';
 import { useChipVerdicts, VerdictStrip } from '@/components/shared/ChipVerdict';
 import MarginSignals from '@/components/shared/MarginSignals';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
@@ -66,6 +67,17 @@ interface TrendApiResponse {
     ceo: string;
     spokesperson: string;
     address: string;
+    phone: string;
+    website: string;
+    email: string;
+    fax: string;
+    spokespersonTitle: string;
+    deputySpokesperson: string;
+    englishName: string;
+    taxId: string;
+    transferAgent: string;
+    transferAgentPhone: string;
+    accountingFirm: string;
     foundedDate: string;
     listedDate: string;
     capitalAmount: string;
@@ -381,6 +393,7 @@ export default function StockDetail() {
             {stock.name}
             {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, verticalAlign: 'middle', color: b.c, border: `1px solid ${b.c}66`, borderRadius: 5, padding: '0 5px' }}>{b.t === '市' ? '上市' : b.t === '櫃' ? '上櫃' : b.t}</span> : null; })()}
             <span style={{ marginLeft: 6, verticalAlign: 'middle' }}><RiskBadge code={stock.code} /></span>
+            <span style={{ marginLeft: 6, verticalAlign: 'middle' }}><DayTradeBadge code={stock.code} /></span>
           </div>
         </div>
 
@@ -794,20 +807,39 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
         ))}
       </div>
 
-      {/* Address */}
-      {cp.address && cp.address !== '--' && (
-        <div style={{
-          background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
-          borderRadius: '10px', padding: '12px 14px',
-          display: 'flex', gap: '10px', alignItems: 'flex-start',
-        }}>
-          <span style={{ fontSize: 'calc(18px * var(--fz))', flexShrink: 0 }}>📍</span>
-          <div>
-            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '4px' }}>公司地址</div>
-            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-primary)', lineHeight: 1.5 }}>{cp.address}</div>
+      {/* 聯絡與登記資料（2026-08-27 使用者要求「公司資料處理完整」）
+          交易所 t187ap03 本來就有這些欄位，過去整批沒被帶進來，個股頁只有半套。
+          ⚠ 一律「有值才渲染」——來源沒有就不要顯示佔位符，更不要編造。 */}
+      {(() => {
+        const rows: Array<[string, React.ReactNode]> = [];
+        if (cp.address && cp.address !== '--') rows.push(['公司地址', cp.address]);
+        if (cp.phone && cp.phone !== '--') rows.push(['總機電話', <a key="p" href={`tel:${cp.phone.replace(/[^\d+]/g, '')}`} style={{ color: '#7dd3fc' }}>{cp.phone}</a>]);
+        if (cp.fax) rows.push(['傳真', cp.fax]);
+        if (cp.website) rows.push(['公司網址', <a key="w" href={cp.website} target="_blank" rel="noopener noreferrer" style={{ color: '#7dd3fc', wordBreak: 'break-all' }}>{cp.website.replace(/^https?:\/\//, '').replace(/\/$/, '')} ↗</a>]);
+        if (cp.email) rows.push(['電子信箱', <a key="e" href={`mailto:${cp.email}`} style={{ color: '#7dd3fc', wordBreak: 'break-all' }}>{cp.email}</a>]);
+        const spk = [cp.spokesperson !== '未知' && cp.spokesperson !== '--' ? cp.spokesperson : '', cp.spokespersonTitle].filter(Boolean).join('・');
+        if (spk) rows.push(['發言人', cp.deputySpokesperson ? `${spk}（代理：${cp.deputySpokesperson}）` : spk]);
+        if (cp.englishName) rows.push(['英文簡稱', cp.englishName]);
+        if (cp.taxId) rows.push(['統一編號', cp.taxId]);
+        if (cp.transferAgent) rows.push(['股票過戶機構', cp.transferAgentPhone ? `${cp.transferAgent}（${cp.transferAgentPhone}）` : cp.transferAgent]);
+        if (cp.accountingFirm) rows.push(['簽證會計師', cp.accountingFirm]);
+        if (!rows.length) return null;
+        return (
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', borderRadius: '10px', padding: '12px 14px' }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: '0.05em' }}>
+              📍 聯絡與登記資料
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '5px 12px', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.5 }}>
+              {rows.map(([k, v]) => (
+                <Fragment key={k}>
+                  <div style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{k}</div>
+                  <div style={{ color: 'var(--text-primary)', minWidth: 0, overflowWrap: 'anywhere' }}>{v}</div>
+                </Fragment>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Industry description */}
       <div style={{

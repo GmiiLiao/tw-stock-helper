@@ -5,6 +5,8 @@
 // 若做成「軋空預測神器」的口吻，使用者會照著重押，那是我們造成的傷害。
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 interface Item {
   code: string; name: string; price: number; chg: number;
@@ -49,6 +51,7 @@ const fmtSigned = (v?: number | null) =>
   v == null ? '—' : `${v > 0 ? '+' : ''}${v.toLocaleString()}`;
 
 export default function SqueezePanel() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<Data | null>(null);
   const [rec, setRec] = useState<Rec | null>(null);
   const [pulse, setPulse] = useState<Pulse | null>(null);
@@ -233,6 +236,7 @@ export default function SqueezePanel() {
                       style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
                       {it.code} {it.name}
                     </button>
+                    {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
                     <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
                     <span style={{ color: 'var(--text-muted)' }}>券資比 {it.ratio}%</span>
                     <span style={{ padding: '1px 8px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' }}>
@@ -316,6 +320,7 @@ export default function SqueezePanel() {
                       style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
                       {it.code} {it.name}
                     </button>
+                    {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
                   </td>
                   <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
                   <td style={{ padding: '4px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>

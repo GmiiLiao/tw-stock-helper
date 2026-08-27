@@ -59,6 +59,12 @@ export async function GET(request: NextRequest) {
       ? await companyOtcRes.value.json()
       : [];
 
+    // 來源的「沒有」有三種寫法：空字串、全形破折號「－」、只有空白。統一成 ''。
+    const z = (v: unknown): string => {
+      const t = String(v ?? '').replace(/[\s\u3000]+/g, ' ').trim();
+      return /^[－—–-]*$/.test(t) ? '' : t;
+    };
+
     const mappedOtcCompanies: CompanyInfo[] = otcCompaniesRaw.map(item => ({
       '公司代號': item.SecuritiesCompanyCode ?? '',
       '公司名稱': item.CompanyName ?? '',
@@ -72,6 +78,18 @@ export async function GET(request: NextRequest) {
       '住址': item.Address ?? '',
       '總機電話': item.Telephone ?? '',
       '發言人': item.Spokesman ?? '',
+      // ⚠ TPEx 的值尾端常帶**全形空白**（實測 WebAddress、Symbol 都有），
+      //   不 trim 掉會讓 https 網址變成壞連結、英文簡稱多一格。
+      '發言人職稱': z(item.TitleOfSpokesman),
+      '代理發言人': z(item.DeputySpokesperson),
+      '網址': z(item.WebAddress),
+      '電子郵件信箱': z(item.EmailAddress),
+      '傳真機號碼': z(item.Fax),
+      '英文簡稱': z(item.Symbol),
+      '營利事業統一編號': z(item['UnifiedBusinessNo.']),
+      '股票過戶機構': z(item.StockTransferAgent),
+      '過戶電話': z(item.StockTransferAgentTelephone),
+      '簽證會計師事務所': z(item.AccountingFirm),
     }));
 
     const allCompanies = [...listedCompanies, ...mappedOtcCompanies];
@@ -171,6 +189,18 @@ interface CompanyInfo {
   '住址': string;
   '總機電話': string;
   '發言人': string;
+  // 以下為 2026-08-27 補齊：t187ap03 兩個市場都有，過去整批被丟掉，
+  // 於是個股頁的「公司資料」長期只有半套（使用者要求處理完整）。
+  '發言人職稱': string;
+  '代理發言人': string;
+  '網址': string;
+  '電子郵件信箱': string;
+  '傳真機號碼': string;
+  '英文簡稱': string;
+  '營利事業統一編號': string;
+  '股票過戶機構': string;
+  '過戶電話': string;
+  '簽證會計師事務所': string;
 }
 
 type AnnouncementRow = (string | number)[];
@@ -904,6 +934,16 @@ export interface CompanyProfile {
   spokesperson: string;
   address: string;
   phone: string;
+  website: string;                // 官網（空字串＝來源未提供，不要編造）
+  email: string;
+  fax: string;
+  spokespersonTitle: string;
+  deputySpokesperson: string;
+  englishName: string;
+  taxId: string;
+  transferAgent: string;
+  transferAgentPhone: string;
+  accountingFirm: string;
   foundedDate: string;
   listedDate: string;
   capitalAmount: string;
@@ -916,6 +956,13 @@ export interface CompanyProfile {
   ageYears: number;
   listingAgeYears: number;
 }
+
+// 與上面的 z() 同義；buildCompanyProfile 是獨立函式，不共用區塊層變數
+// （CLAUDE.md 記過 dSlash 跨區塊引用被吞成一行警告的教訓）。
+const clean = (v: unknown): string => {
+  const t = String(v ?? '').replace(/[\s\u3000]+/g, ' ').trim();
+  return /^[－—–-]*$/.test(t) ? '' : t;
+};
 
 function buildCompanyProfile(
   code: string,
@@ -932,6 +979,16 @@ function buildCompanyProfile(
     spokesperson: '未知',
     address: '--',
     phone: '--',
+    website: '',
+    email: '',
+    fax: '',
+    spokespersonTitle: '',
+    deputySpokesperson: '',
+    englishName: '',
+    taxId: '',
+    transferAgent: '',
+    transferAgentPhone: '',
+    accountingFirm: '',
     foundedDate: '--',
     listedDate: '--',
     capitalAmount: '--',
@@ -997,6 +1054,18 @@ function buildCompanyProfile(
     spokesperson: raw['發言人'] || '--',
     address: raw['住址'] || '--',
     phone: raw['總機電話'] || '--',
+    // ⚠ 只接受 http(s) 開頭的值：來源偶有「－」或空白佔位，直接丟給 <a href> 會產生壞連結
+    // ⚠ 只接受 http(s) 開頭：來源偶有「－」或空白佔位，丟給 <a href> 會產生壞連結
+    website: /^https?:\/\//i.test(clean(raw['網址'])) ? clean(raw['網址']) : '',
+    email: clean(raw['電子郵件信箱']),
+    fax: clean(raw['傳真機號碼']),
+    spokespersonTitle: clean(raw['發言人職稱']),
+    deputySpokesperson: clean(raw['代理發言人']),
+    englishName: clean(raw['英文簡稱']),
+    taxId: clean(raw['營利事業統一編號']),
+    transferAgent: clean(raw['股票過戶機構']),
+    transferAgentPhone: clean(raw['過戶電話']),
+    accountingFirm: clean(raw['簽證會計師事務所']),
     foundedDate: founded.display,
     listedDate: listed.display,
     capitalAmount: capitalBillion > 0 ? `${capitalBillion} 億元` : '--',

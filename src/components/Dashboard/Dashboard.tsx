@@ -18,6 +18,7 @@ import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import styles from './Dashboard.module.css';
 import PageHelp from '@/components/Help/PageHelp';
 import { useShallow } from 'zustand/react/shallow';
+import { useDayTradeCodes, statusOf, DT_STYLE } from '@/lib/useDayTradeCodes';
 
 function StatCard({
   label,
@@ -157,6 +158,8 @@ function TopMoversTable({ title, stocks, type }: { title: string; stocks: StockI
 
 // 漲停/跌停全列表 — 熱力圖同款緊湊格狀排版，全部顯示不截斷。
 function LimitBoard({ stocks }: { stocks: StockInfo[] }) {
+  // 漲停榜是當沖最常下手的地方：追進去卻不能當沖，就只能被迫留倉。
+  const dt = useDayTradeCodes();
   const navigateTo = useAppStore((s) => s.navigateTo);
   const byValue = (a: StockInfo, b: StockInfo) => b.value - a.value;
   // 普通股（上市+上櫃，4 碼非 00 開頭）；漲跌停用精確檔位算法（昨收×1.1 向下取檔），
@@ -174,6 +177,11 @@ function LimitBoard({ stocks }: { stocks: StockInfo[] }) {
         style={{ background: up ? 'rgba(201,42,42,0.6)' : 'rgba(30,126,52,0.6)', position: 'relative' }}
         onClick={() => navigateTo('stock', s.code)} title={`${s.code} ${s.name} ${s.price}（${badge?.t === '櫃' ? '上櫃' : badge?.t === '市' ? '上市' : badge?.t || ''}）`}>
         {badge && <span style={{ position: 'absolute', top: 2, right: 3, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: badge.c, opacity: 0.95 }}>{badge.t}</span>}
+        {(() => { const st = statusOf(dt, s.code); return st == null ? null : (
+          <span title={DT_STYLE[st].title}
+            style={{ position: 'absolute', top: 2, left: 3, fontSize: 'calc(12.5px * var(--fz))', opacity: st === 1 ? 0.55 : 1 }}>
+            {DT_STYLE[st].short}
+          </span>); })()}
         <span className={styles.heatCode}>{s.code}</span>
         <span className={styles.heatName}>{s.name}</span>
         <span className={styles.heatChange} style={{ color: up ? '#ffb3b3' : '#9fe8ac' }}>

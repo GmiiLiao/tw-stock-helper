@@ -11,6 +11,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { isForeground } from '@/lib/market-clock';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 interface QItem {
   code: string; name: string; limitPrice: number | null;
@@ -19,6 +21,7 @@ interface QItem {
 interface QData { updatedAt: number; date: string; inWindow: boolean; windowEnd: string; n: number; items: QItem[] }
 
 export default function LimitQueueAlert() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<QData | null>(null);
   const [dismissed, setDismissed] = useState<string>('');
   const navigateTo = useAppStore(s => s.navigateTo);
@@ -100,6 +103,9 @@ export default function LimitQueueAlert() {
                 color: '#fff', fontWeight: 700, fontSize: 'calc(13.5px * var(--fz))',
               }}>
               {it.code} {it.name}
+              {/* 搶漲停排隊是當沖情境的最前線——這裡標示最重要：追進去卻不能當沖，
+                  就只能留倉過夜，風險完全不同。 */}
+              {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
               <span style={{ marginLeft: 4, fontWeight: 400, opacity: 0.9 }}>
                 委買 {it.queueLots.toLocaleString()} 張＠{it.limitPrice}
               </span>
