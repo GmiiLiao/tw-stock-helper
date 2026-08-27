@@ -138,8 +138,15 @@
   .controlPanel, .metricsPanel, .logsPanel { padding: 10px; }
   .logCard { padding: 9px; }
   .logsList { gap: 8px; }
-  /* 表格類一律可橫向捲動（在容器內捲，不是整頁捲） */
-  .tabContent table { display: block; overflow-x: auto; max-width: 100%; }
+  /* 表格類一律可橫向捲動（在容器內捲，不是整頁捲）。
+     display:block 讓 <table> 自己成為捲動容器；內部 thead/tbody 仍會生成匿名
+     表格盒，欄位照樣對齊。
+     min-width 必須歸零（inline style 只能用 !important 壓過）：SqueezeModel 幾張
+     表在 TSX 內寫死 minWidth 560~640px，而它們外層又各自包了一個 overflowX:auto
+     的 div ⇒ 手機上變成「外層捲到 640、表格自己再捲到 996」的兩層捲動，
+     使用者得捲兩次才看得到最後一欄（2026-08-27 本機 375px 預覽實測）。
+     歸零後表格盒＝容器寬，外層那層不再需要捲，只剩表格這一層。 */
+  .tabContent table { display: block; overflow-x: auto; max-width: 100%; min-width: 0 !important; }
 }
 
 .statCard {
@@ -268,6 +275,28 @@
 /* grid/flex 子項一律允許收縮——這是 min-width:auto 造成溢位的通用解 */
 .tabContent :where(div, section, article, p, span, td, th, li) {
   min-width: 0;
+}
+
+/* ⚠ 表格數字絕不可斷行（2026-08-27 本機 375px 預覽抓到）：
+   上面的 overflow-wrap:anywhere 是為了讓長字串（網址/ID）不要頂開容器，
+   但它會連數字一起斷——實測「+1.50%」被折成「+1.5」與「0%」兩行，
+   讀起來像另一個數字，是會誤導判讀的顯示錯誤。
+   只解除「詞中任意斷點」，**不要**改成 white-space:nowrap：
+   nowrap 會讓每一格都變成不可斷的整體，用戶管理／身分模擬那兩張表的 email
+   欄（AdminPanel.tsx:554、ViewAsPanel.tsx:118，兩者都沒有 overflowX 外框）
+   在桌機會被單一長 email 頂寬。數字本來就沒有空白，關掉 anywhere 就不會斷；
+   中文仍照 word-break:normal 逐字換行，所以長描述欄不受影響。
+   ⚠ 兩個屬性都要關：`.tabContent` 的 `word-break: break-word` 是舊別名，
+   等效於 overflow-wrap:anywhere 且由 word-break 這條路徑生效，只改
+   overflow-wrap 壓不住它（實測數字照樣被折）。 */
+.tabContent table :where(td, th) {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+/* email 是唯一真的需要詞中斷點的欄位（無空白、可能很長）——單獨開回來 */
+.tabContent table .userEmailCol {
+  overflow-wrap: anywhere;
 }
 
 .searchWrapper {
