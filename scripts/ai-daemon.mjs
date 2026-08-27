@@ -4403,7 +4403,15 @@ ${body || '（近 2 日無實質新聞）'}
     note: '新聞判別由本機 AI 讀內文/標題後給出；機器速報不採計。判別僅為加權，非投資建議。',
   };
   await db.collection('squeezeRecommend').doc('latest').set(recDoc);
-  if (picks.targetDate) await db.collection('squeezeRecommend').doc(picks.targetDate).set(recDoc);
+  // ⚠ **手動重跑不得覆蓋當日存檔**（2026-08-27 我自己踩到）：
+  //   doc(targetDate) 是 squeezeReview 的 newsLift 用來對答案的「事前判別」存檔。
+  //   我為了測試新聞內文改動，用 `--run squeezeRec` 重跑了數次——那時
+  //   squeezePicks 已切回**盤中模式**（候選是「今天已經漲的股票」），
+  //   於是當日存檔被換成一批**因為漲才入選**的股票，newsLift 變成循環論證。
+  //   累積型資料被污染不會自己消失（CLAUDE.md 記過同型）⇒ 只有排程跑才寫日期檔，
+  //   手動 CLI 一律只更新 latest。
+  if (picks.targetDate && !ONESHOT) await db.collection('squeezeRecommend').doc(picks.targetDate).set(recDoc);
+  else if (picks.targetDate) log(`  · 手動執行：只更新 latest，不覆蓋 ${picks.targetDate} 的事前判別存檔`);
   log(`✓ 軋空新聞判別（適用 ${picks.targetDate ?? '?'}）：${out.length} 檔，主力推薦 ${out.filter(x => x.primary).length} 檔`);
 }
 
