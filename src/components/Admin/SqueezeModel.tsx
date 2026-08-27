@@ -6,6 +6,7 @@
 //   ② 分支模型（各族群）狀態——哪一族還有效、哪一族失效了
 //   ③ 訓練資料集累積與歷史報表，可回查每一次訓練的變因實驗
 import { useEffect, useState } from 'react';
+import { auth } from '@/lib/firebase';
 
 interface Stat { n?: number; mean?: number | null; win?: number | null; buyRate?: number | null; nBuyable?: number; meanBuyable?: number | null; winBuyable?: number | null; limitUpRate?: number; squeezeRate?: number }
 interface Branch { group: string; name?: string; pass?: boolean; why?: string; train?: { mean: number; win: number; n: number; segs: (number | null)[] }; oot?: Stat }
@@ -40,9 +41,25 @@ export default function SqueezeModel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/admin/squeeze-model', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : r.json().then(j => Promise.reject(j.error || r.status))))
-      .then(setD).catch(e => setErr(String(e))).finally(() => setLoading(false));
+    // ⚠ /api/admin/* 走 requireAdmin，必須帶 Firebase ID token
+    //   （2026-08-27：漏了這一步，畫面直接顯示「Missing bearer token」）。
+    //   作法與 SwingLab 一致，不要各自發明第二種寫法。
+    (async () => {
+      try {
+        const token = (await auth.currentUser?.getIdToken()) ?? '';
+        const r = await fetch('/api/admin/squeeze-model', {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await r.json();
+        if (!r.ok) setErr(j.error || `HTTP ${r.status}`);
+        else setD(j);
+      } catch (e) {
+        setErr(String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   if (loading) return <div style={{ color: 'var(--text-muted)' }}>載入模型狀態…</div>;
