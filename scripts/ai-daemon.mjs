@@ -7245,30 +7245,92 @@ async function checkAnomalies(quotes, trackedCodes) {
 
 // ── 41) 當沖比率出貨警示（>40% 隔日賣壓）───────────────────────
 const _dtAlerted = new Set(); let _dtDay = '';
+// ⚠ TWTB4U 有**兩種形狀**，而且兩種都自稱 stat=OK（2026-08-27 查證）：
+//   ① 資格清單（當日沖銷交易標的）——盤前就發布，fields 只有 3 欄
+//      ［證券代號・證券名稱・暫停現股賣出後現款買進當沖註記］
+//   ② 加上統計——當日傍晚才補上，多出［當日沖銷交易成交股數・買進金額・賣出金額］
+// 舊版用「筆數 > 10」挑表，兩種都通過；接著讀 r[3]，形狀①是 undefined，
+// `_i(undefined)` 給 0 ⇒ 全數被 `dt > 0` 濾掉 ⇒ items 空 ⇒ **靜默 return**：
+// 沒有日誌、沒有告警、也不會補抓，漏掉的那天永遠不會回來。
+// 實測日誌：08-13~16、08-18~25 整段空白，全靠 30 小時後的稽核 DATE_DRIFT 才發現。
+// 這是 CLAUDE.md 記過的同一型（端點身分沒驗證＋給缺席欄位捏預設值）。
+// ⇒ ① 驗**欄位名**不是筆數；② 統計未發布就往回找最近有統計的交易日補上；
+//    ③ date 填**來源自報的資料日**；④ 每條早退路徑都要留下日誌。
+const DT_VOL_FIELD = '當日沖銷交易成交股數';
+async function fetchDayTradeRows(ymd) {
+  try {
+    const r = await fetch(`https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U?date=${ymd}&selectType=All&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' } });
+    if (!r.ok) return { err: `HTTP ${r.status}` };
+    const j = await r.json();
+    if (String(j?.stat || '') !== 'OK') return { err: `stat=${j?.stat || '?'}` };
+    // 回音驗證：當沖比率是「撿尾盤」濾網的輸入，拿到別天的等於用錯濾網
+    if (String(j?.date || '') !== ymd) return { err: `回音 ${j?.date || '—'}≠${ymd}` };
+    const tb = (j.tables || []).find(t => (t.fields || []).includes(DT_VOL_FIELD));
+    if (!tb) return { err: '統計未發布(僅資格清單)' };
+    return { rows: tb.data || [], col: tb.fields.indexOf(DT_VOL_FIELD) };
+  } catch (e) { return { err: String(e?.message || e).slice(0, 40) }; }
+}
+// 由 fromIso 起（含當日）往回列出交易日。用 UTC 整數日運算，與機器時區脫鉤
+// ——跟 nextTradingDay 同一套寫法，避免 taipei() 的本地欄位在跨日相減時漂移。
+function prevTradingIsos(fromIso, n) {
+  const [y, m, d] = fromIso.split('-').map(Number);
+  let ms = Date.UTC(y, m - 1, d);
+  const out = [];
+  for (let i = 0; i < 20 && out.length < n; i++, ms -= 86400000) {
+    const dt = new Date(ms);
+    const iso = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    const dow = dt.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !TW_HOLIDAYS.has(iso)) out.push(iso);
+  }
+  return out;
+}
 async function computeDayTradeRatio() {
   const tw = taipei();
-  let rows = [];
-  try {
-    const r = await fetch(`https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U?date=${ymd8(tw)}&selectType=All&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' } });
-    if (r.ok) { const j = await r.json();
-      // 回音驗證：當沖比率是「撿尾盤」濾網的輸入，拿到別天的等於用錯濾網
-      if (String(j?.date || '') !== ymd8(tw)) log(`  ⚠ TWTB4U 回音 ${j?.date} ≠ 期望 ${ymd8(tw)}，略過`);
-      else { const tb = j.tables ? j.tables.find(t => (t.data || []).length > 10) : j; rows = tb?.data || j.data || []; } }
-  } catch { /* skip */ }
-  if (!rows.length) return;
-  const csv = await fetchCloseCsvFull(); const volOf = {}; for (const c of csv) volOf[c.code] = c.vol;
+  const todayIso = isoDate(tw);
+
+  let hit = null; const tried = [];
+  for (const iso of prevTradingIsos(todayIso, 5)) {
+    const got = await fetchDayTradeRows(iso.replace(/-/g, ''));
+    if (got.rows) { hit = { iso, ...got }; break; }
+    tried.push(`${iso.slice(5)}:${got.err}`);
+  }
+  if (!hit) { log(`⚠ 當沖比率：近 5 個交易日都取不到統計（${tried.join('・')}）`); return; }
+
+  // 不要用舊資料蓋掉新的（回溯補抓時才會踩到）
+  const cur = (await db.collection('dayTradeRatio').doc('latest').get()).data();
+  if (cur?.date && cur.date > hit.iso) { log(`  · 當沖比率：現有 ${cur.date} 較 ${hit.iso} 新，不覆蓋`); return; }
+
+  // 分母＝當日全市場成交量（股）。STOCK_DAY_ALL **沒有 date 參數**、只給最新一天，
+  // 所以只有它自報的資料日 == 統計日時才能用；補抓舊日子一律走自家歸檔。
+  // ⚠ closeJson 的量是**張**，TWTB4U 是**股**，換算差 1000 倍。
+  let volOf = null, volSrc = '';
+  const csv = await fetchCloseCsvFull();
+  if (csv.length && csv.dataDate === hit.iso.replace(/-/g, '')) {
+    volOf = {}; for (const c of csv) volOf[c.code] = c.vol; volSrc = 'STOCK_DAY_ALL';
+  } else {
+    const a = (await db.collection('chipArchive').doc(hit.iso).get()).data();
+    if (a?.closeJson) {
+      const m = JSON.parse(a.closeJson); volOf = {};
+      for (const c in m) { const v = m[c]?.[1]; if (v > 0) volOf[c] = v * 1000; }
+      volSrc = `歸檔${hit.iso}`;
+    }
+  }
+  if (!volOf) { log(`⚠ 當沖比率：${hit.iso} 取不到當日成交量（CSV 資料日 ${csv.dataDate || '—'}、歸檔無 closeJson），略過`); return; }
+
   const items = [];
-  for (const r of rows) {
+  for (const r of hit.rows) {
     const code = (r[0] || '').trim(); if (!/^\d{4}$/.test(code)) continue;
-    const dt = _i(r[3]); const vol = volOf[code] || 0;
+    const dt = _i(r[hit.col]); const vol = volOf[code] || 0;
     if (dt > 0 && vol > 0) items.push({ code, name: (r[1] || '').trim(), ratio: +((dt / vol) * 100).toFixed(1) });
   }
-  if (!items.length) return;
+  if (!items.length) { log(`⚠ 當沖比率：${hit.iso} 有統計欄位(${hit.rows.length} 列)但配不到成交量（來源 ${volSrc}），略過`); return; }
   const high = items.filter(x => x.ratio >= 40).sort((a, b) => b.ratio - a.ratio);
-  await db.collection('dayTradeRatio').doc('latest').set({ updatedAt: Date.now(), date: isoDate(tw), count: items.length, high: high.slice(0, 50) });
-  log(`✓ 當沖比率：${items.length} 檔，高當沖(≥40%) ${high.length} 檔`);
-  // 持股/自選高當沖警報
-  const today = isoDate(tw);
+  await db.collection('dayTradeRatio').doc('latest').set({ updatedAt: Date.now(), date: hit.iso, count: items.length, high: high.slice(0, 50) });
+  log(`✓ 當沖比率：${items.length} 檔，高當沖(≥40%) ${high.length} 檔（資料日 ${hit.iso}・量源 ${volSrc}${hit.iso === todayIso ? '' : '・回溯補抓'}）`);
+
+  // 持股/自選高當沖警報——只在資料日就是今天時發，補抓舊日子不該吵使用者
+  if (hit.iso !== todayIso) return;
+  const today = todayIso;
   if (_dtDay !== today) { _dtAlerted.clear(); _dtDay = today; }
   const highSet = new Map(high.map(x => [x.code, x.ratio]));
   const usersSnap = await db.collection('users').get();
@@ -10894,6 +10956,7 @@ if (ONESHOT) {
     userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
     stressTest: () => computeStressTest(),
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
+    dayTradeRatio: () => computeDayTradeRatio(),  // 當沖比率（統計傍晚才發布·會自動回溯補抓最近有統計的交易日）
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }
