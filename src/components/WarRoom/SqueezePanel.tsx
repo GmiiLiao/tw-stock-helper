@@ -25,7 +25,7 @@ interface Pulse {
   evidence?: { days: number; avgLimitUp: number; table: Array<{ label: string; min: number; luExp: number; ldExp: number }> };
   volNote?: string;
 }
-interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; basis: string; n?: number; nMaterial?: number; stale?: boolean; ageDays?: number | null }
+interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; chain?: string | null; basis: string; n?: number; nMaterial?: number; stale?: boolean; ageDays?: number | null }
 interface RecItem extends Item { verdict?: Verdict; primary?: boolean; events?: Array<{ date: string; title: string; type?: string; impact?: string }>; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
 interface Rec {
   updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
@@ -250,6 +250,11 @@ export default function SqueezePanel() {
                   {(it.events?.length ?? 0) > 0 && (
                     <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#38bdf8', marginTop: 1 }}>
                       📅 已排定事件：{it.events!.map(e => `${e.date.slice(5)} ${e.title}`).join('；')}
+                    </div>
+                  )}
+                  {v?.chain && (
+                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#a78bfa', marginTop: 1 }}>
+                      🔗 連動：{v.chain}
                     </div>
                   )}
                   {v?.risk && v.risk !== '無' && (

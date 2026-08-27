@@ -4024,12 +4024,34 @@ async function fetchCnyesNews(keyword, cap = 6) {
     const arr = Array.isArray(raw) ? raw : (raw.data || []);
     const strip = t => String(t || '').replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
     return arr.slice(0, cap).map(it => ({
+      id: it.newsId || 0,
       title: strip(it.title || it.name),
       content: strip(it.content || it.summary || it.abstract).slice(0, 900),
       at: it.publishAt ? it.publishAt * 1000 : 0,
       link: it.newsId ? `https://news.cnyes.com/news/id/${it.newsId}` : '',
     })).filter(x => x.title);
   } catch { return []; }
+}
+
+// 鉅亨的**內文只在網頁上**（2026-08-27 三條路都實測）：
+//   api/v1/news/{id}     → HTTP 200 但 items 是空物件（0 字）
+//   api/v1/newspage/{id} → 404
+//   news.cnyes.com/news/id/{id} → <article> 有完整內文（實測 1,071 字）✓
+// 搜尋 API 的 content 欄只有 20~160 字摘要，達不到 hasBody 的 60 字門檻 ⇒
+// 08-27 的 12 檔判別有 11 檔 basis=title，等於沒讀新聞就下多空判斷。
+async function fetchCnyesBody(newsId) {
+  try {
+    const r = await fetch(`https://news.cnyes.com/news/id/${newsId}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) return '';
+    const m = (await r.text()).match(/<article[\s\S]*?<\/article>/);
+    if (!m) return '';
+    return m[0]
+      .replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<style[\s\S]*?<\/style>/g, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 1600);
+  } catch { return ''; }
 }
 
 // ── 次交易日開盤前 1 小時：讀新聞**內文**，由 AI 判別利多與否 ────────────
@@ -4050,7 +4072,19 @@ async function fetchCnyesNews(keyword, cap = 6) {
 async function fetchStockNewsMulti(keyword, code) {
   const out = [];
   try {
-    for (const n of await fetchCnyesNews(keyword, 6)) out.push({ ...n, src: '鉅亨', hasBody: !!(n.content && n.content.length >= 60) });
+    // 逐則補抓內文。只補**非機器稿**：盤中速報是價格報導，讀了也不會變成題材，
+    // 而每則內文是一次 ~190KB 的網頁請求，不該浪費在必定被濾掉的稿子上。
+    // 每檔最多補 3 則、間隔 300ms（每日 08:00 跑一次，量級可接受）。
+    let got = 0;
+    for (const n of await fetchCnyesNews(keyword, 6)) {
+      let content = n.content || '';
+      if (n.id && got < 3 && !MACHINE_NEWS.test(n.title)) {
+        const body = await fetchCnyesBody(n.id);
+        if (body.length >= 60) { content = body; got++; }
+        await sleep(300);
+      }
+      out.push({ ...n, content, src: '鉅亨', hasBody: content.length >= 60 });
+    }
   } catch { /* 單一來源失敗不擋 */ }
   await sleep(500);
   try {
@@ -4127,10 +4161,26 @@ async function computeSqueezeNewsVerdict() {
     let verdict = events.length
       ? { label: '中性', bullish: false, confidence: '低', reason: `近 2 日無實質新聞，但有已排定事件：${evLine}`, basis: 'event', n: recent.length }
       : { label: '資訊不足', bullish: false, reason: `近 14 日查無實質新聞，亦無已排定事件`, basis: 'none', n: recent.length };
-    if (material.length || events.length) {
+    // ⚠ 沒有內文就**不下多空判斷**（使用者指示 2026-08-27）：
+    //   實測 08-27 開盤前 12 檔，11 檔 basis=title。判「利多」的 3 檔當日
+    //   0/3 漲≥5%、平均 +1.45%；反而判「中性」的前鼎 +9.83%、力旺 +9.96%、
+    //   聯一光 +10.00%——只憑標題的判別**與結果反向**，輸出它比不輸出更糟，
+    //   還會讓使用者以為系統讀過新聞。標題照樣列給使用者自己看，但 label
+    //   一律「資訊不足」，不主張多空。有排定事件時仍走 AI（basis=event）。
+    // ⚠ 不可加 `&& !events.length`：實測凱美(2375) 有排定事件就繞過這道閘門，
+    //   結果 basis=title 卻judged「利多/高」——正是這條規則要擋的東西。
+    //   事件本身在 UI 另有「📅 已排定事件」欄位，不會因此消失。
+    if (material.length && !withBody.length) {
+      verdict = {
+        label: '資訊不足', bullish: false, confidence: '低',
+        reason: `找到 ${material.length} 則相關新聞但都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
+        basis: 'title', n: recent.length, nMaterial: material.length, stale, ageDays,
+      };
+    } else if (material.length || events.length) {
       const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
       const src = (withBody.length ? withBody : material).slice(0, 4);
-      const body = src.map((n, i) => `【新聞${i + 1}】${n.title}\n${n.content ? n.content.slice(0, 500) : '（無內文，僅標題）'}`).join('\n\n');
+      // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
+      const body = src.map((n, i) => `【新聞${i + 1}】${n.title}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`).join('\n\n');
       const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
 
 嚴格規則：
@@ -4142,6 +4192,11 @@ async function computeSqueezeNewsVerdict() {
 5. 標題同時有行情字眼（漲停、爆量）與題材字眼（供應鏈、認證、訂單）時，
    請看**題材**判斷，不要因為有行情字眼就判中性。
 6. 不確定就判「中性」，不要為了給答案而美化。
+7. **要考慮國際局勢與產業鏈上下游連動**，不要只看這家公司自己的消息。例如：產油國
+   增減產 → 油價 → 航運與石化同步受影響；記憶體/晶圓報價 → IC 設計·封測·設備；
+   運價 → 貨櫃·散裝；匯率 → 出口電子；費半與美系同業財報 → 台系供應鏈。
+   若判斷用到這類傳導，**必須在「連動」欄寫出路徑**（誰的什麼事 → 影響什麼 →
+   為何影響到這一檔），並註明這是**推論**不是已確認事實；推論性的連動信心最高給「中」。
 
 國際盤昨夜：${gLine || '（無資料）'}
 ${stale ? `\n⚠ **注意時效**：近 2 日查無新聞，以下是**${ageDays} 天前**的較舊報導。舊消息多半已被股價反映，除非是尚未兌現的重大事件，否則信心最高只能給「低」，並在風險欄註明消息已隔 ${ageDays} 天。\n` : ''}
@@ -4152,6 +4207,7 @@ ${body || '（近 2 日無實質新聞）'}
 判別: 利多/利空/中性
 信心: 高/中/低
 理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
+連動: （一句話，60 字內，國際局勢或產業鏈的傳導路徑；沒有用到寫「無」）
 風險: （一句話，50 字內，指出這個判斷最大的不確定性；無明顯風險寫「無」）`;
       const ans = await askOllama(prompt, { priority: 1 });
       if (ans) {
@@ -4159,12 +4215,17 @@ ${body || '（近 2 日無實質新聞）'}
         const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
         const mr = ans.match(/理由\s*[:：]\s*(.+)/);
         const mk = ans.match(/風險\s*[:：]\s*(.+)/);
+        const ml = ans.match(/連動\s*[:：]\s*(.+)/);
         const label = mv ? mv[1] : '中性';
         verdict = {
           label, bullish: label === '利多',
           confidence: mc ? mc[1] : '低',
           reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
           risk: mk ? mk[1].trim().slice(0, 70) : null,
+          // 本地模型會吐 LaTeX（實測 `$\rightarrow$`），顯示前正規化成箭頭
+          chain: ml && !/^無$/.test(ml[1].trim())
+            ? ml[1].trim().replace(/\$?\\(?:rightarrow|to|Rightarrow)\$?/g, '→').replace(/\s*->\s*/g, ' → ').replace(/\s+/g, ' ').slice(0, 80)
+            : null,   // 國際局勢／產業鏈傳導路徑
           basis, n: recent.length, nMaterial: material.length,
           stale, ageDays,
         };
