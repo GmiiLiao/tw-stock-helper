@@ -93,6 +93,7 @@
 
 .adminBadge {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   background: var(--bg-card);
@@ -130,6 +131,9 @@
   }
   /* 字級放大後，內距在 375px 寬的手機上會把卡片內容擠到溢位 */
   .adminDashboard { padding: 10px; }
+  .tabBar { gap: 6px; margin-bottom: 10px; }
+  .tabBtn { padding: 6px 10px; font-size: calc(13.5px * var(--fz)); }
+  .header { margin-bottom: 12px; gap: 10px; }
   .statCard { padding: 10px; gap: 8px; }
   .controlPanel, .metricsPanel, .logsPanel { padding: 10px; }
   .logCard { padding: 9px; }
@@ -208,11 +212,16 @@
   height: fit-content;
 }
 
+/* ── 分頁列（2026-08-27 使用者截圖：分頁文字被壓成直排一字一行）──────
+   根因：flex 容器沒有 flex-wrap，子項也沒有 flex-shrink:0/nowrap，
+   於是 6 個分頁在 375px 寬被壓到約 1 個字寬、文字直排，整頁還跟著溢位。
+   ⇒ 比照首頁 .dashTabs 的既有作法：**換行而不是壓縮**。 */
 .tabBar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   border-bottom: 1px solid var(--border-primary);
-  margin-bottom: 20px;
+  margin-bottom: 14px;
   padding-bottom: 8px;
 }
 
@@ -223,7 +232,10 @@
   font-family: inherit;
   font-size: calc(0.9375rem * var(--fz));
   font-weight: 600;
-  padding: 8px 16px;
+  /* 保持自然寬度：不可被壓縮、不可斷字 */
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 8px 14px;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s;
@@ -330,6 +342,7 @@
 .userNameCol {
   font-weight: 600;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -485,6 +498,7 @@
 
 .leaderboardRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   padding: 8px 12px;
@@ -547,6 +561,7 @@
 /* ── TAB 3: Full Activity Logs List ── */
 .logsHeaderRow {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
@@ -639,6 +654,7 @@
 
 .logActionWrapper {
   display: flex;
+  flex-wrap: wrap;
 }
 
 .actionBadge {
@@ -739,6 +755,7 @@
 
 .statusRow {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   font-size: calc(0.875rem * var(--fz));
@@ -845,6 +862,7 @@
 
 .metricLabel {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   font-size: calc(13.5px * var(--fz));
   color: var(--text-secondary);
@@ -868,6 +886,7 @@
 /* ── Agent Push Logs UI ── */
 .logsHeader {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
@@ -934,6 +953,7 @@
 
 .logMeta {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
