@@ -116,6 +116,14 @@ const CONTRACTS = [
   { c: 'squeezeSetup',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'washoutMonitor',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'institutionalStreaks', kind: 'latest', maxStale: 30 * HOUR, session: 'daily' },
+  // 當沖資格名單（2026-08-27 新增·全站合規標示的唯一來源）。
+  // ⚠ 這條**必須**在稽核裡：名單若沒更新，站上會拿昨天的資格標今天的股票，
+  //   使用者照著標示去當沖就可能違規——而且畫面看起來完全正常。
+  //   與 dayTradeRatio 不同，資格清單**盤前就發布**，所以沒有 publishHour。
+  //   count 用 codesJson 的鍵數（實測 2,077 檔，含 ETF）；掉到 1,500 以下代表
+  //   多半只抓到單一市場（daemon 端已有兩市場閘門，這裡是第二道）。
+  { c: 'dayTradeEligible', kind: 'latest', maxStale: 30 * HOUR, session: 'daily',
+    minRecords: 1500, countField: 'codesJson' },
   // publishHour：TWSE 當日「傍晚才上架」的兩支。實測首次抓到的時刻分別是
   // 20:17／20:20／20:43（當沖統計），資券依 CLAUDE.md 為 21:45；各留餘裕。
   { c: 'dayTradeRatio',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 21 },
