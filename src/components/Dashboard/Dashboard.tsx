@@ -224,6 +224,7 @@ function MarketHeatmap({ stocks }: { stocks: StockInfo[] }) {
     .slice(0, 30);
 
   const navigateTo = useAppStore((s) => s.navigateTo);
+  const dt = useDayTradeCodes();
 
   return (
     <div className={styles.sectionCard}>
@@ -259,10 +260,15 @@ function MarketHeatmap({ stocks }: { stocks: StockInfo[] }) {
               key={stock.code}
               id={`heatmap-${stock.code}`}
               className={styles.heatmapCell}
-              style={{ background: bg }}
+              style={{ background: bg, position: 'relative' }}
               onClick={() => { navigateTo('stock', stock.code); }}
               title={`${stock.code} ${stock.name}`}
             >
+              {(() => { const st = statusOf(dt, stock.code); return st == null ? null : (
+                <span title={DT_STYLE[st].title}
+                  style={{ position: 'absolute', top: 2, left: 3, fontSize: 'calc(12.5px * var(--fz))', opacity: st === 1 ? 0.55 : 1 }}>
+                  {DT_STYLE[st].short}
+                </span>); })()}
               <span className={styles.heatCode}>{stock.code}</span>
               <span className={styles.heatName}>{stock.name}</span>
               <span className={styles.heatChange} style={{ color: fg }}>
