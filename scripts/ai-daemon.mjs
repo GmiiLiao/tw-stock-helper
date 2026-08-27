@@ -1312,10 +1312,18 @@ async function misBatch(batch) {
         // 而鎖死後成交極少，z 可長時間缺席——冷門股（上櫃尤甚）因此從即時榜單
         // 消失。鎖死時掛單價不是猜測：買一貼著漲停價（=u）就是市價本身。
         // 嚴格條件：盤中連續時段＋單邊貼停＋對側全空；hasLive 仍要求今日有量。
-        else if (_up > 0 && _b1 >= _up - 1e-9 && !(_a1 > 0)) {
-          price = _up; quoteLive = true;          // 漲停鎖死
-        } else if (_dn > 0 && _a1 > 0 && _a1 <= _dn + 1e-9 && !(_b1 > 0)) {
-          price = _dn; quoteLive = true;          // 跌停鎖死
+        // ⚠ 必須加驗「當日最高/最低是否真的到過停板」（2026-08-27 迴歸修正）
+        //   單邊貼停的書況不只出現在鎖死，**開盤後的巨量買單排隊也是同一個形態**
+        //   ——買一掛在漲停價、賣一全空，但股票根本還沒在漲停價成交過。
+        //   昨天只看書況就採用停板價，於是 09:01~09:17 產生一批假漲停：
+        //   實案 6890 來億-KY 今日最高 183、漲停價 192.5，卻被記成 09:01 鎖停；
+        //   當日漲停順序流 72 檔裡有 14 檔是這樣來的。
+        //   真鎖死的充分條件是**它已經在停板價成交過**，即 h 已等於漲停價
+        //   （跌停同理 l 等於跌停價）。h/l 由成交更新，掛單不會動到它。
+        else if (_up > 0 && _b1 >= _up - 1e-9 && !(_a1 > 0) && _hi > 0 && _hi >= _up - 1e-9) {
+          price = _up; quoteLive = true;          // 漲停鎖死（且確實成交過）
+        } else if (_dn > 0 && _a1 > 0 && _a1 <= _dn + 1e-9 && !(_b1 > 0) && _lo > 0 && _lo <= _dn + 1e-9) {
+          price = _dn; quoteLive = true;          // 跌停鎖死（且確實成交過）
         }
       }
       if (price <= 0) {
@@ -9204,7 +9212,20 @@ async function computeLimitUpForecast() {
   }
   if (mode === 'live') {
     const hhmm = `${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`;
-    for (const c of luSets[t]) if (!_luFlow.seen.has(c)) _luFlow.seen.set(c, { code: c, name: nameOfQ(c), time: hhmm, ind: indMap[c] || null });
+    // 第二道防線（2026-08-27）：即使上游報價出錯，也不把「今日最高從未到過
+    // 漲停價」的股票記進順序流。luSets 是用即時價算的，報價一旦失真就會污染
+    // 這份逐分累積的清單，而它**寫進去就不會自己消失**（seen 是累積的）。
+    for (const c of luSets[t]) {
+      if (_luFlow.seen.has(c)) continue;
+      const q = quo[c];
+      const prevC = prev.close[c]?.[0];
+      if (q && prevC > 0) {
+        const raw = prevC * 1.1, tk = luTick(raw), limitP = Math.floor(raw / tk + 1e-9) * tk;
+        const hi = q.high || 0;
+        if (!(hi > 0 && hi >= limitP - 1e-6)) continue;   // 今日最高沒到過漲停 → 不記
+      }
+      _luFlow.seen.set(c, { code: c, name: nameOfQ(c), time: hhmm, ind: indMap[c] || null });
+    }
   }
   const flow = [..._luFlow.seen.values()].sort((a, b) => a.time.localeCompare(b.time));
   let igniting = []; // 最近30分鎖停族群＝此刻正在發動
