@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 第二大腦衍生洞察（常駐 daemon 計算 → Firestore → GET 端點）──
 // 產業輪動 / 法人連買 / 回測勝率 / RS選股 / 當沖隔日沖 / 外資期貨 / AI盤後總結
@@ -39,6 +41,7 @@ const sign = (v: number) => (v >= 0 ? '+' : '');
 const col = (v: number) => (v > 0 ? up : v < 0 ? down : 'var(--color-flat)');
 
 export default function MarketInsights() {
+  const dtElig = useDayTradeCodes();   // 當沖「資格」——注意本檔已有 dt（當沖比率 state），不可撞名
   const [inst, setInst] = useState<{ foreign: Streak[]; trust: Streak[]; latestDate?: string } | null>(null);
   const [bt, setBt] = useState<Backtest | null>(null);
   const [taifex, setTaifex] = useState<Taifex | null>(null);
@@ -132,7 +135,7 @@ export default function MarketInsights() {
             <div style={title}>🌉 ADR 溢價 <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>開盤先行指標</span></div>
             {adr.map(x => (
               <div key={x.code} onClick={() => navigateTo('stock', x.code)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 'calc(12.5px * var(--fz))', padding: '5px 0', cursor: 'pointer' }}>
-                <span style={{ color: 'var(--text-secondary)' }}><b style={{ color: '#e2e8f0' }}>{x.code}</b> {x.name}</span>
+                <span style={{ color: 'var(--text-secondary)' }}><b style={{ color: '#e2e8f0' }}>{x.code}</b> {x.name}</span> {(() => { const st = statusOf(dtElig, x.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                 <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{x.implied} vs {x.twPrice}</span>
                 <span style={{ fontWeight: 800, color: x.premium > 0 ? 'var(--color-up)' : 'var(--color-down)', fontFamily: "'JetBrains Mono',monospace" }}>{x.premium > 0 ? '+' : ''}{x.premium}%</span>
               </div>

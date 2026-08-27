@@ -7,6 +7,7 @@ import BuySellPanel from './BuySellPanel';
 import TrendPanel from './TrendPanel';
 import RiskBadge from '@/components/shared/RiskBadge';
 import { useShallow } from 'zustand/react/shallow';
+import DayTradeBadge from '@/components/shared/DayTradeBadge';
 
 interface BuyZone {
   label: string;
@@ -217,6 +218,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
             <span className={styles.stockCode}>{stock.code}</span>
             <span className={styles.stockName}>{stock.name}</span>
             <RiskBadge code={stock.code} size="xs" />
+            <DayTradeBadge code={stock.code} size="xs" />
             <span
               className={styles.gradeBadge}
               style={{ background: `${gradeColor}18`, color: gradeColor, borderColor: gradeColor }}

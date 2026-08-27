@@ -5,6 +5,8 @@ import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 投資論點追蹤（thesis-tracker）──
 // daemon 依當時數據預填草稿（零幻覺），此處讓使用者檢視/修改論點與信心度；
@@ -18,6 +20,7 @@ const CONV: Record<string, { t: string; c: string }> = {
 };
 
 export default function ThesisCards() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const user = useAppStore(st => st.user);
   const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const navigateTo = useAppStore(st => st.navigateTo);
@@ -51,7 +54,7 @@ export default function ThesisCards() {
         return (
           <div key={code} style={{ padding: '10px 0', borderBottom: '1px solid var(--border-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <b style={{ cursor: 'pointer', color: '#7dd3fc' }} onClick={() => navigateTo('stock', code)}>{code} {t.name}</b>
+              <b style={{ cursor: 'pointer', color: '#7dd3fc' }} onClick={() => navigateTo('stock', code)}>{code} {t.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: t.intact ? 'rgba(240,62,62,0.12)' : 'rgba(47,158,68,0.12)', color: t.intact ? '#f03e3e' : '#2f9e44' }}>
                 {t.intact ? `論點成立 ${okN}/${(t.pillars || []).length}` : `⚠ 論點轉弱 ${okN}/${(t.pillars || []).length}`}
               </span>

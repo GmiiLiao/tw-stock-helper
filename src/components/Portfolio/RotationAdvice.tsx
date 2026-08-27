@@ -5,6 +5,8 @@ import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 汰弱留強輪動建議：持股評分 vs 全市場百分位，弱勢持股顯示機會成本 ──
 
@@ -13,6 +15,7 @@ interface Alt { code: string; name: string; score: number; signal: string }
 interface Doc { updatedAt: number; topAvg: number; items: Item[]; alternatives: Alt[] }
 
 export default function RotationAdvice() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const user = useAppStore(st => st.user);
   const dataUid = useDataUid();   // 模擬中＝被模擬者的 uid
   const navigateTo = useAppStore(st => st.navigateTo);
@@ -35,7 +38,7 @@ export default function RotationAdvice() {
       {data.items.map(i => (
         <div key={i.code} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 'calc(13px * var(--fz))' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <b style={{ color: '#7dd3fc', cursor: 'pointer' }} onClick={() => navigateTo('stock', i.code)}>{i.code} {i.name}</b>
+            <b style={{ color: '#7dd3fc', cursor: 'pointer' }} onClick={() => navigateTo('stock', i.code)}>{i.code} {i.name}</b> {(() => { const st = statusOf(dt, i.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
             <span>評分 <b style={{ color: i.weak ? '#f97316' : '#fbbf24' }}>{i.score ?? '—'}</b></span>
             {i.percentile != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>市場前 {100 - i.percentile}%</span>}
             {i.weak && <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#f97316' }}>⚠ 弱勢</span>}

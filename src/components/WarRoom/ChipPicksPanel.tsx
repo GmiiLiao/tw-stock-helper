@@ -13,6 +13,8 @@ import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { computeComposite, type SignalBadge } from '@/lib/composite-score';
 import { METRIC_TIPS } from '@/lib/metric-tips';
 import HitRate from '@/components/shared/HitRate';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 interface Pick {
   code: string; name: string; market: string; price: number | null; chg: number;
@@ -115,6 +117,9 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
   sort: CharSort; setSort: (s: CharSort) => void; limit: number; setLimit: (n: number) => void;
   onlyCand: boolean; candSet: Set<string>;
 }) {
+  // ⚠ 這是獨立子元件，ChipPicksPanel 的 dt 不在此作用域；且下方緊接兩個
+  //   early return，hook 必須在它們之前（Rules of Hooks）。
+  const dt = useDayTradeCodes();
   const RESERVED = '⏳ 多模態預留：目前分類服務「隔日沖」；未來當沖／長期／波段模式將沿用同一分類、套用各自權重。';
   if (!charData) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '14px 4px' }}>載入完整總表…</div>;
   if (!charData.found) {
@@ -223,6 +228,7 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
                 ...(candSet.has(r.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.7)' } : {}) }}>
               <span onClick={e => e.stopPropagation()}><AddCandidateButton code={r.code} variant="icon" /></span>
               <span style={{ fontWeight: 800, minWidth: 42, color: '#7dd3fc' }}>{r.code}</span>
+              {(() => { const st = statusOf(dt, r.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
               <span style={{ fontWeight: 600, minWidth: 60 }}>{st?.name || '—'}</span>
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
               {st?.price != null && <span style={{ color: 'var(--text-secondary)', minWidth: 40 }}>{st.price}</span>}
@@ -264,6 +270,7 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
 }
 
 export default function ChipPicksPanel() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [data, setData] = useState<ChipPicks | null>(null);
   const [view, setView] = useState<View>('graded');
   const [openCode, setOpenCode] = useState<string | null>(null);

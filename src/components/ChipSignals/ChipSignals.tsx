@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 🎯 三大法人籌碼訊號（四準則判讀）──────────────────────────────
 // ① 外資單日買超≥5000張=隔日支撐 ② 三方同向買超=強烈多頭
@@ -72,6 +74,7 @@ const slotBox = (title: string, why: string) => (
 );
 
 export default function ChipSignals({ code, compact = false, slot = false }: { code?: string; compact?: boolean; slot?: boolean }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   const allStocks = useAppStore(s => s.allStocks);
   const [data, setData] = useState<MarketData | null>(null);
@@ -110,6 +113,7 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
           <span style={{ position: 'absolute', top: 3, right: 5, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: otc ? '#f59e0b' : '#3d8ef8' }}>{otc ? '櫃' : '市'}</span>
         )}
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, lineHeight: 1.3 }}>{it.code}</div>
+              {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
         {price != null && chg != null ? (
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: cc, fontFamily: 'JetBrains Mono, monospace' }}>

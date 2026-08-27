@@ -5,6 +5,7 @@ import { useDataUid, canWriteUserData } from '@/lib/view-as';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import DayTradeBadge from '@/components/shared/DayTradeBadge';
 
 // ── 自動停損/停利提醒：訂閱 users/{uid}/data/alerts(常駐 daemon 觸價寫入) ──
 
@@ -102,6 +103,7 @@ export default function PortfolioAlerts() {
               cursor: clickable ? 'pointer' : 'default',
             }}>
             <span style={{ fontSize: 'calc(14.5px * var(--fz))' }}>{st.icon}</span>
+            <DayTradeBadge code={a.code} size="xs" />
             <span style={{ flex: 1, fontSize: 'calc(0.86rem * var(--fz))', color: 'var(--text-primary)', fontWeight: 600 }}>{a.message}</span>
             {a.requireAck && a.id && (a.ack
               ? <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>已確認 ✓</span>

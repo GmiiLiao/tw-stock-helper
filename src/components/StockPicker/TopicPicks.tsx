@@ -16,6 +16,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 const UP = '#f03e3e', DOWN = '#2f9e44';
 
@@ -23,6 +25,7 @@ interface TopicItem { code: string; name: string; price: number; chg: number | n
 interface TopicData { found: boolean; date?: string; dataDate?: string | null; mode?: string; updatedAt?: number; instDate?: string | null; instSameDay?: boolean; hotSectors?: { ind: string; n: number }[]; oversold?: TopicItem[]; overheat?: TopicItem[]; breakdown?: TopicItem[]; evidence?: Record<string, string> }
 
 function TopicRow({ it }: { it: TopicItem }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
@@ -30,6 +33,7 @@ function TopicRow({ it }: { it: TopicItem }) {
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', padding: 0 }}>
         {it.code} {it.name}
       </button>
+      {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
       {it.triple && <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 8, background: 'rgba(240,62,62,0.18)', color: '#ff8787', fontWeight: 800 }} title="三重確認：RSI5<20 × 法人t-1買超 × 量比>1.5（網格唯一最強組合·5日淨均+1.11%·淨勝55%·兩窗同向）">⭐三重確認</span>}
       {it.dualRsi && <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 8, background: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontWeight: 800 }} title="RSI5與RSI10同時<10（影片定義的稀有極端超跌·樣本小存證觀察）">⚡雙RSI&lt;10</span>}
       {it.deathX && <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 8, background: 'rgba(47,158,68,0.15)', color: '#69db7c', fontWeight: 800 }} title="RSI5於70以上下穿RSI10（高檔死亡交叉·RSI八命題唯一過關·隔日Δ-0.11/-0.18兩窗穩）">💀高檔死叉</span>}

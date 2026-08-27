@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import DayTradeBadge from '@/components/shared/DayTradeBadge';
 
 // ── 🏦 第四法人：ETF 被動買賣盤影響 ──────────────────────────────
 // 市值型 ETF(0050/006208) 追蹤市值前50 → 成分/權重、邊緣候選股、
@@ -135,7 +136,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
           <div style={{ color: '#f03e3e', fontWeight: 700 }}>溢價 &gt;1%（申購熱潮，資金流入其成份股）</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
             {d.premiumHot.length ? d.premiumHot.map(x => (
-              <span key={x.code} onClick={() => jump(x.code)} style={{ cursor: 'pointer' }}><b style={{ color: '#7dd3fc' }}>{x.code} {x.name}</b> <span style={{ color: '#f03e3e' }}>+{x.premium}%</span></span>
+              <span key={x.code} onClick={() => jump(x.code)} style={{ cursor: 'pointer' }}><b style={{ color: '#7dd3fc' }}>{x.code} {x.name}</b> <DayTradeBadge code={x.code} size="xs" /> <DayTradeBadge code={x.code} size="xs" /> <DayTradeBadge code={x.code} size="xs" /> <DayTradeBadge code={x.code} size="xs" /> <DayTradeBadge code={x.code} size="xs" /> <span style={{ color: '#f03e3e' }}>+{x.premium}%</span></span>
             )) : <span style={{ color: 'var(--text-muted)' }}>今日無明顯溢價</span>}
           </div>
           <div style={{ color: '#2f9e44', fontWeight: 700 }}>折價 &lt;-1%（贖回/賣壓）</div>

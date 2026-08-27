@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 🔀 量價背離：法人籌碼 vs 股價方向（吸貨/出貨候選）──────────────
 // 吸貨＝法人5日買超但股價跌（主力低接洗盤）；出貨＝法人賣超但股價漲（趁高減碼）。
@@ -17,6 +19,7 @@ const EXPLAIN: Record<string, { title: string; text: string }> = {
 const fmt = (n: number) => (n > 0 ? '+' : '') + Math.round(n).toLocaleString();
 
 export default function ChipDivergence({ compact = false }: { compact?: boolean }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   const [d, setD] = useState<DivData | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -59,6 +62,7 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
             <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', background: i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)' }}>
               <span style={{ color: 'var(--text-muted)', width: 16, fontSize: 'calc(12.5px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
               <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
+              {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: it.pricePct >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.pricePct)}%</b></span>
             </div>

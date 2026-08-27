@@ -1233,7 +1233,7 @@ export default function Screener() {
                               {stock.code}
                             </span>
                           </td>
-                          <td>{stock.name}</td>
+                          <td>{stock.name} {(() => { const st = statusOf(dt, stock.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}</td>
                           <td style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
                             {industryInfo.emoji} {industryInfo.name}
                           </td>
@@ -1650,7 +1650,7 @@ export default function Screener() {
                                 {stock.code}
                               </span>
                             </td>
-                            <td>{stock.name}</td>
+                            <td>{stock.name} {(() => { const st = statusOf(dt, stock.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}</td>
                             <td style={{ textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
                               {stock.price.toFixed(2)}
                             </td>
@@ -1762,6 +1762,7 @@ export default function Screener() {
                           <div className={styles.mobileCardTitle}>
                             <span className={styles.mobileCode}>{stock.code}</span>
                             <span className={styles.mobileName}>{stock.name}</span>
+                          {(() => { const st = statusOf(dt, stock.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                           </div>
                           <span className={`badge ${isUp ? 'badge-up' : 'badge-down'}`}>
                             {formatChangePercentSign(stock.changePercent)}

@@ -7,6 +7,7 @@ import type { StockInfo } from '@/lib/twse-api';
 import { getSession, isForeground, isMarketOpen as isMarketOpenClock, msToNextReveal } from '@/lib/market-clock';
 import styles from './Header.module.css';
 import { useShallow } from 'zustand/react/shallow';
+import DayTradeBadge from '@/components/shared/DayTradeBadge';
 
 /** Convert ROC date string '1150610' → '2026/06/10' */
 function rocToWestern(roc: string): string {
@@ -533,6 +534,7 @@ export default function Header() {
                 <div className={styles.searchItemInfo}>
                   <span className={styles.searchCode}>{stock.code}</span>
                   <span className={styles.searchName}>{stock.name}</span>
+                  <DayTradeBadge code={stock.code} size="xs" />
                 </div>
                 <div className={styles.searchItemPrice}>
                   <span className={styles.searchPrice}>{stock.price.toFixed(2)}</span>

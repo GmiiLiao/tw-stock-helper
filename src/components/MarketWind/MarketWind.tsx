@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import SectorWind from '@/components/SectorWind/SectorWind';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 🌪 風向 2.0：強勢股統計 → 題材供應鏈 → 驅動力歸因 ──────────────
 // 第1層 大盤走向（結構/全面行情）；第2層 題材鏈聚集度＋上下游驗證
@@ -41,6 +43,7 @@ const chainBadge = (s: string) => {
 };
 
 export default function MarketWind({ compact = false, bare = false }: { compact?: boolean; bare?: boolean }) {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   const [data, setData] = useState<WindData | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -132,7 +135,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                     <span style={{ color: 'var(--text-muted)' }}>領漲：</span>
                     {t.leaders.map(l => (
                       <span key={l.code} onClick={e => { e.stopPropagation(); navigateTo('stock', l.code); }} style={{ cursor: 'pointer' }}>
-                        <b style={{ color: '#7dd3fc' }}>{l.code} {l.name}</b>
+                        <b style={{ color: '#7dd3fc' }}>{l.code} {l.name}</b> {(() => { const st = statusOf(dt, l.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                         <span style={{ color: '#f03e3e', marginLeft: 4 }}>+{l.cp}%{l.limitUp ? '🔒' : ''}</span>
                         {l.volX > 0 && <span style={{ color: 'var(--text-muted)', marginLeft: 3, fontSize: 'calc(12.5px * var(--fz))' }}>{l.volX}x量</span>}
                       </span>

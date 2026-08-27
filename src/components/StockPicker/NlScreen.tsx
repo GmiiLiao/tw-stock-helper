@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // ── 自然語言選股：使用者用白話描述條件 → daemon 用 LLM 轉成篩選條件 + 套用全市場
 //    評分/RS/殖利率/新高/外資連買/月營收 → 回傳符合清單。 ──
@@ -31,6 +33,7 @@ const EXAMPLES = [
 ];
 
 export default function NlScreen() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const user = useAppStore(st => st.user);
   const navigateTo = useAppStore(st => st.navigateTo);
   const isPremium = !!user && PREMIUM.includes(user.level);
@@ -133,7 +136,7 @@ export default function NlScreen() {
               <div key={r.code} onClick={() => navigateTo('stock', r.code)} style={{ cursor: 'pointer', padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-primary)' }}>
-                    <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span>
+                    <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span> {(() => { const st = statusOf(dt, r.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                   </div>
                   <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
                     評分 <b style={{ color: '#fbbf24' }}>{r.score}</b>

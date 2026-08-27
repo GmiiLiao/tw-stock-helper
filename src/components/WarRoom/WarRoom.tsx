@@ -18,6 +18,8 @@ import { useAppStore } from '@/lib/store';
 import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
+import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
 const TRIAL_DAYS = 14; // 與選股策略一致
@@ -53,6 +55,7 @@ const isTwTradingHours = () => {
 const todayTw = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 
 export default function WarRoom() {
+  const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const user = useAppStore(st => st.user);
   const navigateTo = useAppStore(st => st.navigateTo);
   const [radar, setRadar] = useState<RadarData | null>(null);
@@ -398,6 +401,7 @@ export default function WarRoom() {
                   <span onClick={() => benchPin(b.code)} title={b.pinned ? '取消釘住' : '釘住(不會被自動排除)'} style={{ cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', opacity: b.pinned ? 1 : 0.35 }}>📌</span>
                   <span onClick={() => navigateTo('stock', b.code)} style={{ fontWeight: 800, cursor: 'pointer', color: '#7dd3fc' }}>{b.code}</span>
                   <span onClick={() => navigateTo('stock', b.code)} style={{ fontWeight: 600, cursor: 'pointer' }}>{b.name}</span>
+              {(() => { const st = statusOf(dt, b.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                   <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>{b.lastPrice}</span>
                   <span style={{ fontWeight: 700, color: b.lastChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{b.lastChg >= 0 ? '+' : ''}{b.lastChg?.toFixed?.(1) ?? b.lastChg}%</span>
                   <span onClick={() => benchRemove(b.code)} title="移除" style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>✕</span>
