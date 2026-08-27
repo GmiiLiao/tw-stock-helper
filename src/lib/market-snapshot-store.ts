@@ -21,6 +21,11 @@ export interface SnapQuote {
   // quote is the latest TWSE close (seed) — NEVER present it as 即時.
   live?: boolean;
   liveAt?: number;       // epoch ms of the MIS tick (only when live)
+  // 買一貼漲停 × 賣一全空 × 當日最高尚未觸及漲停 ＝**排隊搶漲停**（尚未成交上去）。
+  // 刻意與「已漲停」分開：這批可能排到一半就散掉，混為一談會誤導。
+  queueUp?: boolean;
+  queueLots?: number;    // 買一委買張數
+  limitPrice?: number;
 }
 
 export interface MarketSnapshot {

@@ -12,6 +12,7 @@ import AlertEngine from '@/components/AlertEngine/AlertEngine';
 import AuthModal from '@/components/Auth/AuthModal';
 import CandidateDock from '@/components/Candidates/CandidateDock';
 import { PrivacyPage, ConsentBanner } from '@/components/Help/PrivacyNotice';
+import LimitQueueAlert from '@/components/shared/LimitQueueAlert';
 import styles from './page.module.css';
 
 // ── Code splitting ────────────────────────────────────────────
@@ -122,6 +123,9 @@ export default function App() {
           {currentPage === 'privacy'   && <PrivacyPage />}
         </main>
       </div>
+
+      {/* 🚨 搶漲停排隊警示（09:15 前·全頁浮動反底色閃爍） */}
+      <LimitQueueAlert />
 
       {/* 候選便條（跨頁選股工作流）：全頁浮動，帶著候選走 */}
       <CandidateDock />

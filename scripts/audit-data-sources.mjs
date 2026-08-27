@@ -64,6 +64,10 @@ const CONTRACTS = [
   // 開盤前新聞判別（每交易日 08:00 由本機 AI 產出）：盤中查它會是「今早那份」，
   // 故放寬到 20 小時；空榜正常（沒有候選就沒有判別）。
   { c: 'squeezeRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  // 搶漲停排隊（09:00~09:15 才有意義）：盤中每分更新，其餘時間停留在早上那份，
+  // 故 maxStale 放寬到 20 小時；空榜是常態（多數日子沒有這種書況）。
+  { c: 'limitQueue',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  { c: 'marketPulse',      kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   // 軋空判讀模型：每週二/五訓練 ⇒ 最長間隔 4 天，設 5 天為陳舊上限。
   { c: 'squeezeModel',     kind: 'latest',  maxStale: 5 * DAY,   session: 'always', allowEmpty: true },
 

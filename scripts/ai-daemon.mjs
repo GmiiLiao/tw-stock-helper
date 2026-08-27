@@ -1331,6 +1331,16 @@ async function misBatch(batch) {
         const a1 = parseFloat(String(it.a || '').split('_')[0]);
         price = b1 > 0 ? b1 : (a1 > 0 ? a1 : 0);
       }
+      // ── 排隊搶漲停（2026-08-27 使用者需求）────────────────────────────
+      // 上面那個「已成交過才算鎖停」的判準，把另一種書況篩了出來：
+      //   買一貼在漲停價 × 賣一全空 × **當日最高還沒到過漲停**
+      // ＝ 大量買單正在排隊搶漲停，但還沒真的成交上去。
+      // 它不是鎖停（所以不能當成漲停價），但**本身就是強烈的攻擊訊號**，
+      // 尤其開盤前十幾分鐘出現時。獨立成 queueUp 欄位，不污染價格。
+      const _qb1 = parseFloat(String(it.b || '').split('_')[0]);
+      const _qa1 = parseFloat(String(it.a || '').split('_')[0]);
+      const _qVol = parseFloat(String(it.g || '').split('_')[0]) || 0;   // 買一委買張數
+      const queueUp = _up > 0 && _qb1 >= _up - 1e-9 && !(_qa1 > 0) && !(_hi > 0 && _hi >= _up - 1e-9);
       const volLots = _num(it.v);           // MIS v 單位=張
       const vol = volLots * 1000;            // 統一為「股」，與種子(STOCK_DAY_ALL)一致
       // 只有「真成交價 + 當日有量」才算即時真實價（開盤前試撮 v=0 不覆蓋昨收）。
@@ -1342,6 +1352,8 @@ async function misBatch(batch) {
         changePercent: hasLive && prev > 0 ? +((change / prev) * 100).toFixed(2) : 0,
         open: _num(it.o), high: _num(it.h), low: _num(it.l),
         volume: vol, value: Math.round(price * vol), hasLive, realTrade,
+        // 只在成立時帶欄位——2,000 檔的快照不該為了少數幾檔多背 false
+        ...(queueUp ? { queueUp: true, queueLots: Math.round(_qVol), limitPrice: _up } : {}),
         bid: _parseLevels(it.b, it.g), ask: _parseLevels(it.a, it.f), // 五檔委買委賣（僅供當下參考，不歸檔）
       };
     }
@@ -2214,6 +2226,8 @@ async function marketSnapshotLoop() {
         // 大盤脈動（30 秒節流）：只讀 Firestore/記憶體快照，零上游請求，
         // 不影響「請求數與線上人數脫鉤」的不變式。
         if (Date.now() - _pulseAt > 30000) { _pulseAt = Date.now(); computeMarketPulse().catch(e => log('✖ 大盤脈動:', e.message)); }
+        // 搶漲停排隊（09:15 前）：quotes 就在手上，零額外上游請求
+        computeLimitQueue(quotes).catch(e => log('✖ 搶漲停排隊:', e.message));
         // 記錄使用者關注個股的分時序列(即時走勢圖用，不依賴延遲的 Yahoo)。
         try {
           const tracked = await getTrackedCodes(new Set(codes.map(c => c.code)));
@@ -4236,6 +4250,69 @@ function nextTradingDay(fromIso) {
     if (dow !== 0 && dow !== 6 && !TW_HOLIDAYS.has(iso)) return iso;
   }
   return null;
+}
+
+// ── 開盤搶漲停排隊警示（2026-08-27 使用者需求）─────────────────────────
+// 偵測「買一貼漲停 × 賣一全空 × 當日最高尚未觸及漲停」＝大量買單正在排隊
+// 搶漲停但還沒成交上去。這是攻擊訊號，出現在**開盤後十幾分鐘**最有意義：
+// 此時價格還沒鎖死，理論上仍追得到；一旦真的鎖上就買不到了。
+//
+// ⚠ 用詞紀律：這是「排隊搶漲停」不是「已漲停」。介面與推播都不可寫成漲停，
+//   否則使用者會以為已成局——它可能排到一半就散掉。
+const QUEUE_WINDOW_END = 9 * 60 + 15;      // 使用者指定：09:15 前
+let _queueSeen = { date: '', codes: new Set() };
+
+async function computeLimitQueue(quotes) {
+  const tw = taipei();
+  const mins = tw.getHours() * 60 + tw.getMinutes();
+  const today = isoDate(tw);
+  const inWindow = isTradingDay(tw) && mins >= 9 * 60 && mins < QUEUE_WINDOW_END;
+  if (_queueSeen.date !== today) _queueSeen = { date: today, codes: new Set() };
+
+  const items = [];
+  for (const code in quotes) {
+    const q = quotes[code];
+    if (!q?.queueUp) continue;
+    if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+    if ((q.market ?? '') === 'esb') continue;               // 興櫃無漲跌停
+    items.push({
+      code, name: q.name || code,
+      limitPrice: q.limitPrice ?? null,
+      queueLots: q.queueLots ?? 0,
+      price: q.price, chg: q.changePercent ?? 0,
+      volume: Math.round((q.volume || 0) / 1000),            // 張
+      market: q.market ?? null,
+    });
+  }
+  items.sort((a, b) => b.queueLots - a.queueLots);
+
+  await db.collection('limitQueue').doc('latest').set({
+    updatedAt: Date.now(), date: today,
+    inWindow, windowEnd: '09:15',
+    n: items.length,
+    items: items.slice(0, 30),
+    note: '買一貼漲停×賣一全空×當日最高尚未觸及漲停＝**排隊搶漲停**（尚未成交上去，不是已漲停）。',
+  });
+
+  // 推播：只在 09:15 前、且是「今天第一次看到這檔排隊」時發，避免整個早盤洗版
+  if (inWindow && items.length) {
+    const fresh = items.filter(x => !_queueSeen.codes.has(x.code));
+    for (const x of fresh) _queueSeen.codes.add(x.code);
+    if (fresh.length) {
+      const top = fresh.slice(0, 5);
+      await pushAgentMsg({
+        type: 'queue', label: '搶漲停排隊', emoji: '🚨',
+        text: `${top.map(x => `${x.code} ${x.name}（委買 ${x.queueLots.toLocaleString()} 張掛在漲停 ${x.limitPrice}）`).join('、')}${fresh.length > top.length ? ` 等 ${fresh.length} 檔` : ''}——買單排隊搶漲停，**尚未成交上去**，鎖上就買不到了。`,
+        summary: `${fresh.length} 檔排隊搶漲停（${tw.getHours()}:${String(tw.getMinutes()).padStart(2, '0')}）`,
+        severity: 'high',
+        stocks: top.map(x => x.code),
+        dedupeKey: `queue-${today}-${fresh.map(x => x.code).join('-').slice(0, 40)}`,
+        cooldownMs: 60 * 1000,
+      });
+      log(`🚨 搶漲停排隊 ${fresh.length} 檔：${top.map(x => `${x.code}(${x.queueLots}張)`).join(' ')}`);
+    }
+  }
+  return items.length;
 }
 
 // ── 大盤即時脈動監控（2026-08-26 使用者需求）─────────────────────────
@@ -10800,6 +10877,7 @@ if (ONESHOT) {
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),
     marketPulse: () => computeMarketPulse(),          // 大盤即時脈動
+    limitQueue: async () => computeLimitQueue((await readSnapshotQuotes())?.quotes || {}),
     squeezePicks: () => computeSqueezePicks(),        // 手動產出軋空候選(含次交易日模式)
     squeezeReview: () => computeSqueezeReview({ backfillDays: Number(process.argv[process.argv.indexOf('--run') + 2] || 60) }),
     squeezeTraining: () => recordSqueezeTraining(),   // 手動補當日訓練資料
