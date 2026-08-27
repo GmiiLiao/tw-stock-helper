@@ -4054,6 +4054,106 @@ async function fetchCnyesBody(newsId) {
   } catch { return ''; }
 }
 
+// ── 跨站補內文（使用者指示 2026-08-27）────────────────────────────────
+// 「新聞無法看到內文，就找其它網站相同類似標題來識讀內文，不可用無法取得內文來塞」
+//
+// 為什麼需要：鉅亨對冷門股常常只有「盤中速報」機器稿（實測前鼎 20 則全是），
+// Google News 覆蓋廣但**只給標題**（連結是加密轉址，內文抓不到，兩條路都試過）。
+// 於是拿 Google News 的標題去搜同一則報導在**別的媒體**的版本，那邊抓得到內文。
+// 實測：「前鼎 光通訊 訂單」→ 工商時報 724 字（矽光子/800G 送樣）——正是鉅亨
+// 完全沒有的題材；「弘塑、辛耘接單看到2030年」→ 自由時報 1,012 字。
+const ALT_NEWS_DOMAINS = /(^|\.)(ltn\.com\.tw|udn\.com|ctee\.com\.tw|technews\.tw|moneydj\.com|cnyes\.com|wealth\.com\.tw|businesstoday\.com\.tw|chinatimes\.com|nownews\.com|ettoday\.net)$/i;
+
+const _stripHtml = h => h
+  .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/gi, ' ')
+  .replace(/\s+/g, ' ').trim();
+
+function extractArticleBody(html) {
+  for (const re of [/<article[\s\S]*?<\/article>/i, /<div[^>]+class="[^"]*(?:article|content|story|post)[^"]*"[\s\S]*?<\/div>/i]) {
+    const m = html.match(re);
+    if (m) { const t = _stripHtml(m[0]); if (t.length >= 200) return t; }
+  }
+  // 退而求其次：把夠長的 <p> 串起來（純導覽列的 <p> 通常很短，會被濾掉）
+  return [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)].map(m => _stripHtml(m[1])).filter(t => t.length > 25).join(' ').slice(0, 2200);
+}
+
+// Yahoo 逐檔新聞頁——跨站補內文的**主力**（2026-08-27 實測後改為優先）。
+// 為什麼不是用搜尋引擎當主力：DuckDuckGo 在連續查詢後會直接回 0 筆
+// （實測同一組查詢前一分鐘還有結果、之後全空），把判別品質綁在會擋機器人的
+// 第三方搜尋上並不可靠。Yahoo 這支是**per-stock 端點**，不需要搜尋，
+// 冷門股也有（實測前鼎 34 篇、金居 40 篇、亞泰金屬 40 篇，皆含實質內容）。
+const _YH_BOILER = /加入為 Google 偏好來源|另開新視窗|將 Yahoo (?:加入|設為)[^。]{0,30}|Yahoo 奇摩股市|延伸閱讀|更多內容|文章.{0,4}來源/g;
+
+async function fetchYahooStockBodies(code, name, cap = 2) {
+  if (!/^\d{4,6}[A-Z]?$/.test(String(code || ''))) return [];
+  const UA = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' };
+  let links = [];
+  for (const sfx of ['TW', 'TWO']) {
+    try {
+      const r = await fetch(`https://tw.stock.yahoo.com/quote/${code}.${sfx}/news`, { headers: UA, signal: AbortSignal.timeout(12000) });
+      if (!r.ok) continue;
+      const t = await r.text();
+      // 去重要把 query string 砍掉——同一篇會以帶參數/不帶參數兩種形式出現
+      links = [...new Set([...t.matchAll(/https:\/\/tw\.stock\.yahoo\.com\/news\/[^"'\\ ]{20,}/g)]
+        .map(m => m[0].split('?')[0]))];
+      if (links.length) break;
+    } catch { /* 換另一個後綴 */ }
+    await sleep(300);
+  }
+  if (!links.length) return [];
+  // 題材稿優先於【公告】：公告有價值（營收/財報）但題材才解釋隔日走勢
+  links.sort((a, b) => (/%E5%85%AC%E5%91%8A/.test(a) ? 1 : 0) - (/%E5%85%AC%E5%91%8A/.test(b) ? 1 : 0));
+  const out = [];
+  for (const l of links) {
+    if (out.length >= cap) break;
+    try {
+      await sleep(400);
+      const r = await fetch(l, { headers: UA, signal: AbortSignal.timeout(12000) });
+      if (!r.ok) continue;
+      const html = await r.text();
+      const m = html.match(/<article[\s\S]*?<\/article>/i);
+      if (!m) continue;
+      const body = _stripHtml(m[0]).replace(_YH_BOILER, ' ').replace(/\s+/g, ' ').trim();
+      if (body.length < 200 || (name && !body.includes(name))) continue;
+      let title = '';
+      try { title = decodeURIComponent(l.split('/news/')[1] || '').replace(/-\d{6,}.*$/, '').replace(/-/g, ' ').trim(); } catch { /* slug 解碼失敗就留空 */ }
+      out.push({ title: title || `${name} 相關報導`, body: body.slice(0, 1600), host: 'tw.stock.yahoo.com', url: l });
+    } catch { /* 換下一篇 */ }
+  }
+  return out;
+}
+
+// name 是品質閘門：抽出來的字裡**必須出現公司名**，否則多半抓到的是側邊欄
+// 導覽連結（實測鉅亨頁面就會給出 610 字的標題湯，看起來很像內文）。
+async function fetchBodyByTitle(title, name) {
+  const q = String(title || '').replace(/[｜|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!q) return null;
+  let urls = [];
+  try {
+    const r = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) return null;
+    const t = await r.text();
+    urls = [...new Set([...t.matchAll(/uddg=([^&"]+)/g)].map(m => { try { return decodeURIComponent(m[1]); } catch { return ''; } })
+      .filter(u => { try { return ALT_NEWS_DOMAINS.test(new URL(u).hostname); } catch { return false; } }))];
+  } catch { return null; }
+  for (const u of urls.slice(0, 3)) {
+    try {
+      await sleep(400);
+      const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' }, signal: AbortSignal.timeout(12000) });
+      if (!r.ok) continue;
+      const body = extractArticleBody(await r.text());
+      if (body.length >= 200 && (!name || body.includes(name))) {
+        return { body: body.slice(0, 1600), host: new URL(u).hostname.replace(/^www\./, ''), url: u };
+      }
+    } catch { /* 換下一個 */ }
+  }
+  return null;
+}
+
 // ── 次交易日開盤前 1 小時：讀新聞**內文**，由 AI 判別利多與否 ────────────
 // 使用者指定（2026-08-26）：次日開盤前 1 小時核對國際新聞內容，需要仔細閱讀
 // 內容並經 AI 判別是否利多，**每一檔都要出判別提示**（不是只標記有利多的）。
@@ -4095,6 +4195,42 @@ async function fetchStockNewsMulti(keyword, code) {
       out.push({ title: n.title, content: '', at: n.at, link: n.link, src: n.src || 'GoogleNews', hasBody: false });
     }
   } catch { /* 同上 */ }
+
+  // ── 跨站補內文（使用者指示 2026-08-27：不可用「無法取得內文」搪塞）────────
+  // 到這裡若一則有內文的實質新聞都沒有，就拿標題去別的媒體找同一則報導。
+  // 只補到 2 則就停：判別 prompt 最多吃 4 則，再多是浪費請求。
+  try {
+    if (!out.some(x => x.hasBody && !MACHINE_NEWS.test(x.title))) {
+      let filled = 0;
+      for (const n of out) {
+        if (filled >= 2) break;
+        if (n.hasBody || MACHINE_NEWS.test(n.title)) continue;
+        // DDG 是機會主義的：命中就賺到（能拿到「同一則報導」的原始媒體版本），
+        // 被擋就回 null，由下面的 Yahoo 逐檔端點接手，不影響最終覆蓋率。
+        const alt = await fetchBodyByTitle(n.title, keyword);
+        if (alt) {
+          n.content = alt.body; n.hasBody = true;
+          n.bodyFrom = alt.host;              // 誠實標示內文來自哪個站
+          if (!n.link) n.link = alt.url;
+          filled++;
+        }
+        await sleep(400);
+      }
+      // 最後手段：連標題都搜不到（冷門股的 Google News 標題本身就是機器稿，
+      // 拿去搜當然搜不到題材——實測前鼎就是這種）。改用「公司名＋代號」直接搜，
+      // 至少讓 AI 有題材面的東西可讀。
+      // ⚠ 這種取得的報導**不保證是近兩日**，必須標記，讓 prompt 與畫面都說清楚，
+      //   否則就變成拿舊聞當今天的利多——那正是「不可用無法取得內文來塞」的反面。
+      if (!filled) {
+        for (const y of await fetchYahooStockBodies(code, keyword, 2)) {
+          out.push({ title: y.title, content: y.body, at: Date.now(), link: y.url,
+            src: y.host, hasBody: true, bodyFrom: y.host, bodyGeneric: true });
+          filled++;
+        }
+      }
+      if (filled) log(`    ↳ ${keyword}：跨站補到 ${filled} 則內文`);
+    }
+  } catch { /* 補不到就是補不到，不擋主流程 */ }
   return out;
 }
 
@@ -4173,14 +4309,14 @@ async function computeSqueezeNewsVerdict() {
     if (material.length && !withBody.length) {
       verdict = {
         label: '資訊不足', bullish: false, confidence: '低',
-        reason: `找到 ${material.length} 則相關新聞但都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
+        reason: `找到 ${material.length} 則相關新聞，鉅亨與跨站搜尋都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
         basis: 'title', n: recent.length, nMaterial: material.length, stale, ageDays,
       };
     } else if (material.length || events.length) {
       const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
       const src = (withBody.length ? withBody : material).slice(0, 4);
       // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
-      const body = src.map((n, i) => `【新聞${i + 1}】${n.title}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`).join('\n\n');
+      const body = src.map((n, i) => `【新聞${i + 1}】${n.title}${n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : ''}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`).join('\n\n');
       const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
 
 嚴格規則：
@@ -4240,7 +4376,7 @@ ${body || '（近 2 日無實質新聞）'}
         stale, ageDays,
         checked: recent.length, material: material.length, priceOnly: recent.length - material.length,   // priceOnly 現在的語意＝被剔除的機器速報
         basis: verdict.basis,
-        top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at })),
+        top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at, from: n.bodyFrom || n.src || '', generic: !!n.bodyGeneric })),
       },
       verdict,                                   // 每一檔都有判別提示（含中性/資訊不足）
       // 主力推薦要求：判利多 × 信心非低 × **非舊消息**（舊消息多半已反映）
@@ -7418,6 +7554,75 @@ async function computeDayTradeRatio() {
   }
 }
 
+// ── 41b) 當沖資格名單（全站合規標示的唯一來源·2026-08-27 使用者要求）────
+// 目的：使用者若對「不可現股當沖」的股票做當沖，會構成**違規**（券商會擋、
+// 但下單前不知道等於白做工，且處置股誤觸更麻煩）。站上任何顯示個股的地方
+// 都要能立刻看出可不可以當沖。
+//
+// 權威來源就是交易所每日公布的「當日沖銷交易標的」，**盤前就發布**：
+//   上市 TWSE  rwd/zh/dayTrading/TWTB4U  → tables 內含「證券代號」那張
+//   上櫃 TPEx  openapi/v1/tpex_securities → 逐檔含暫停註記
+// ⚠ 這兩份**同時也是 computeDayTradeRatio 的資格清單那一形狀**，但用途完全不同：
+//   那邊要的是「當日沖銷交易成交股數」統計（傍晚才出），這邊只要資格，盤前即可。
+//   不要因為看到同一個 URL 就把兩者合併——它們的可用時刻差 12 小時。
+//
+// 狀態定義（與 chipArchive.dtOtcEligibleJson 既有語意一致，不另創第二套）：
+//   1 = 可現股當沖（先買後賣、先賣後買皆可）
+//   2 = 有「暫停現股賣出後現款買進」註記 ⇒ **只能先買後賣**
+//   不在名單內 = 不可現股當沖（處置股即屬此類，交易所已從名單移除，
+//               實測 1435 中福不在名單中，與「處置股禁止當沖」相符）
+//
+// ⚠ **抓不到就不要寫**：若只拿到半邊（例如上櫃掛掉），整份名單會讓 700 多檔
+//   上櫃股在畫面上變成「不可當沖」——這是會讓使用者錯過交易的假警報，
+//   比沒有標示更糟。故兩個市場都必須有貢獻才寫入（同 loadCodes 的教訓）。
+async function computeDayTradeEligible() {
+  const tw = taipei();
+  const ymd = ymd8(tw);
+  const roc = String(tw.getFullYear() - 1911) + ymd.slice(4);
+  const get = async (url) => {
+    try {
+      const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(15000) });
+      return r.ok ? await r.json() : null;
+    } catch { return null; }
+  };
+
+  const map = {};
+  let tseN = 0, otcN = 0, srcDate = '';
+
+  const j = await get(`https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4U?date=${ymd}&selectType=All&response=json`);
+  if (String(j?.date || '') === ymd) {
+    const tb = (j.tables || []).find(t => (t.fields || []).includes('證券代號'));
+    for (const r of (tb?.data || [])) {
+      const c = String(r[0] || '').trim();
+      if (!/^\d{4,6}[A-Z]?$/.test(c)) continue;
+      map[c] = String(r[2] || '').trim() ? 2 : 1; tseN++;
+    }
+    if (tseN) srcDate = isoDate(tw);
+  } else if (j) log(`  ⚠ 當沖資格：TWTB4U 回音 ${j?.date} ≠ ${ymd}`);
+
+  await sleep(800);
+  const secs = await get('https://www.tpex.org.tw/openapi/v1/tpex_securities');
+  if (Array.isArray(secs) && secs.length > 100) {
+    const d0 = String(secs[0]?.['資料日期'] || '');
+    if (d0 && d0 !== roc) log(`  ⚠ 當沖資格：上櫃回音 ${d0} ≠ ${roc}`);
+    else for (const x of secs) {
+      const c = String(x['證券代號'] || '').trim();
+      if (!/^\d{4,6}[A-Z]?$/.test(c)) continue;
+      map[c] = String(x['暫停現股賣出後現款買進當沖註記'] || '').trim() ? 2 : 1; otcN++;
+    }
+  }
+
+  if (!tseN || !otcN) { log(`⚠ 當沖資格：上市 ${tseN}／上櫃 ${otcN}，缺一邊不寫入（避免整市場被誤標為不可當沖）`); return; }
+  const only2 = Object.values(map).filter(v => v === 2).length;
+  await db.collection('dayTradeEligible').doc('latest').set({
+    updatedAt: Date.now(), date: srcDate || isoDate(tw),
+    tseCount: tseN, otcCount: otcN, count: Object.keys(map).length, restricted: only2,
+    codesJson: JSON.stringify(map),
+    note: '1=可現股當沖；2=暫停先賣後買（僅能先買後賣）；不在名單=不可現股當沖。另需本人已開立當沖資格。',
+  });
+  log(`✓ 當沖資格：${Object.keys(map).length} 檔可當沖（上市 ${tseN}／上櫃 ${otcN}），其中僅先買後賣 ${only2} 檔`);
+}
+
 // ── 42) ETF 折溢價監控（官方 all_etf 淨值 vs 市價）──────────────
 const _etfAlerted = new Set(); let _etfDay = '';
 async function computeEtfPremium() {
@@ -10471,7 +10676,7 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
   }
@@ -10486,6 +10691,7 @@ async function runJobSet(jobs, tag) {
 let _intradayDate = '';   // 個股5分K歸檔每日一次
 let _asiaAt = 0, _asiaCatchupDate = '';   // 日韓早盤節流與補跑守衛（見 computeAsiaPremarket）
 let _sqRecDate = '';          // 每日 08:00 軋空推薦守衛
+let _dtEligDate = '';   // 當沖資格名單當日是否已抓（盤前 07:30 起）
 let _pulseAt = 0;             // 大盤脈動節流（30 秒）
 let _globalHistDate = '';     // 國際盤歷史每日更新守衛
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
@@ -10521,6 +10727,12 @@ async function dailyJobsLoop() {
     try {
       const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
       // 開盤前 1 小時（08:00）核對新聞內容並由 AI 判別（使用者指定）
+      // 當沖資格名單盤前就發布，而它必須在 09:00 開盤前到位（使用者要靠它避免違規），
+      // 所以不能只靠 15:10 的每日 job——那是收盤後，整個交易日都拿昨天的名單。
+      if (isTradingDay(tw) && mins >= 7 * 60 + 30 && _dtEligDate !== today) {
+        _dtEligDate = today;
+        try { await computeDayTradeEligible(); } catch (e) { log('✖ 當沖資格:', (e.message || '').slice(0, 60)); }
+      }
       if (isTradingDay(tw) && mins >= 8 * 60 && mins < 9 * 60 && _sqRecDate !== today) {
         _sqRecDate = today;
         try { await computeSqueezeNewsVerdict(); } catch (e) { log('✖ 軋空新聞判別:', (e.message || '').slice(0, 60)); }
@@ -11017,6 +11229,7 @@ if (ONESHOT) {
     userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
     stressTest: () => computeStressTest(),
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
+    dayTradeEligible: () => computeDayTradeEligible(),  // 當沖資格名單（盤前可跑）
     dayTradeRatio: () => computeDayTradeRatio(),  // 當沖比率（統計傍晚才發布·會自動回溯補抓最近有統計的交易日）
   };
   const fn = JOBS[ONESHOT];
