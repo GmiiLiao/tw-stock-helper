@@ -116,8 +116,10 @@ const CONTRACTS = [
   { c: 'squeezeSetup',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'washoutMonitor',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'institutionalStreaks', kind: 'latest', maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'dayTradeRatio',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'marginShort',      kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  // publishHour：TWSE 當日「傍晚才上架」的兩支。實測首次抓到的時刻分別是
+  // 20:17／20:20／20:43（當沖統計），資券依 CLAUDE.md 為 21:45；各留餘裕。
+  { c: 'dayTradeRatio',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 21 },
+  { c: 'marginShort',      kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'taifexPositions',  kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'bookDepth',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'volAvg20',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
@@ -427,9 +429,21 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
 
     // 第三道閘門：dataDate 漂移
     if (out.dataDate && spec.session !== 'always') {
-      if (out.dataDate < ltd) {
+      // ⚠ 傍晚才公布的來源，在公布時刻前「落後一天」是正常的，不是故障
+      //   （2026-08-27）：當沖統計約 20:00、資券 21:45 才上架，而稽核固定
+      //   16:10 跑 ⇒ 這兩個來源**每天下午都紅**。常態紅燈的代價是分不出
+      //   「還沒公布」與「真的壞了」——dayTradeRatio 實際上從 08-17 起斷了
+      //   8 天沒人察覺，正是被自己的常態紅燈蓋過去。公布時刻前把期待值退一個
+      //   交易日，紅燈才重新有訊息量。同一招 probeFresh 已經在用（publishHour）。
+      const tNow = taipeiNow();
+      const beforePub = spec.publishHour != null && ltd === isoOf(tNow)
+        && (tNow.getHours() + tNow.getMinutes() / 60) < spec.publishHour;
+      const expect = beforePub ? prevTradingDay(ltd) : ltd;
+      if (out.dataDate < expect) {
         out.status = 'DATE_DRIFT';
-        out.notes.push(`資料日 ${out.dataDate} < 最近交易日 ${ltd}`);
+        out.notes.push(`資料日 ${out.dataDate} < 期待 ${expect}${beforePub ? `（${spec.publishHour}:00 前以前一交易日為準）` : ''}`);
+      } else if (beforePub) {
+        out.notes.push(`今日 ${spec.publishHour}:00 後才公布，現以 ${expect} 為準`);
       }
     }
     if (!out.dataDate && spec.session === 'daily') out.notes.push('無資料日欄位（無法偵測日期漂移）');
@@ -451,7 +465,11 @@ const ARCHIVE_FIELDS = [
   { f: 'instJson',     label: '法人',  min: 1500, publishHour: 15.5, sample: ['2330', '6274'] },  // 上市+上櫃各一
   { f: 'marginJson',   label: '資券',  min: 1500, publishHour: 21.5, sample: ['2330', '6274'] },
   { f: 'lendingJson',  label: '借券',  min: 1000, publishHour: 21.5 },
-  { f: 'dayTradeJson', label: '當沖',  min:  500, publishHour: 16 },
+  // ⚠ 16 是錯的（2026-08-27 更正）：TWTB4U 的**資格清單**盤前就有，但
+  //   「當日沖銷交易成交股數」統計要到傍晚才上架——實測首次抓到是 20:17／
+  //   20:20／20:43。設 16 等於每天 16:00~20:20 之間必報 MISSING，紅燈變常態、
+  //   蓋掉真正的斷檔（dayTradeRatio 就這樣斷了 8 天沒被看見）。
+  { f: 'dayTradeJson', label: '當沖',  min:  500, publishHour: 21 },
 ];
 
 async function auditArchiveFields(db, tpeNow) {
