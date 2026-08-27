@@ -7612,7 +7612,7 @@ async function computeDayTradeEligible() {
     }
   }
 
-  if (!tseN || !otcN) { log(`⚠ 當沖資格：上市 ${tseN}／上櫃 ${otcN}，缺一邊不寫入（避免整市場被誤標為不可當沖）`); return; }
+  if (!tseN || !otcN) { log(`⚠ 當沖資格：上市 ${tseN}／上櫃 ${otcN}，缺一邊不寫入（避免整市場被誤標為不可當沖）`); return false; }
   const only2 = Object.values(map).filter(v => v === 2).length;
   await db.collection('dayTradeEligible').doc('latest').set({
     updatedAt: Date.now(), date: srcDate || isoDate(tw),
@@ -7621,6 +7621,7 @@ async function computeDayTradeEligible() {
     note: '1=可現股當沖；2=暫停先賣後買（僅能先買後賣）；不在名單=不可現股當沖。另需本人已開立當沖資格。',
   });
   log(`✓ 當沖資格：${Object.keys(map).length} 檔可當沖（上市 ${tseN}／上櫃 ${otcN}），其中僅先買後賣 ${only2} 檔`);
+  return true;
 }
 
 // ── 42) ETF 折溢價監控（官方 all_etf 淨值 vs 市價）──────────────
@@ -10730,17 +10731,25 @@ async function dailyJobsLoop() {
       // 當沖資格名單盤前就發布，而它必須在 09:00 開盤前到位（使用者要靠它避免違規），
       // 所以不能只靠 15:10 的每日 job——那是收盤後，整個交易日都拿昨天的名單。
       if (isTradingDay(tw) && mins >= 7 * 60 + 30 && _dtEligDate !== today) {
-        _dtEligDate = today;
-        try { await computeDayTradeEligible(); } catch (e) { log('✖ 當沖資格:', (e.message || '').slice(0, 60)); }
+        // ⚠ **成功才標記今日已跑**。原本先標記再呼叫，等於「這天只嘗試一次」：
+        //   07:30 那一次遇到上游抖動就整個交易日拿昨天的資格標今天的股票，
+        //   而稽核要 16:10 才會發現——盤都收了。這正是 dayTradeRatio 斷 8 天
+        //   的同型錯誤（單次嘗試、失敗不重試、靜默）。
+        //   dailyJobsLoop 每輪都會再進來，所以失敗自然會在下一輪重試。
+        try { if (await computeDayTradeEligible()) _dtEligDate = today; }
+        catch (e) { log('✖ 當沖資格（將於下一輪重試）:', (e.message || '').slice(0, 60)); }
       }
       if (isTradingDay(tw) && mins >= 8 * 60 && mins < 9 * 60 && _sqRecDate !== today) {
-        _sqRecDate = today;
-        try { await computeSqueezeNewsVerdict(); } catch (e) { log('✖ 軋空新聞判別:', (e.message || '').slice(0, 60)); }
+        // 同上：成功才標記。失敗時 08:00~09:00 這個窗內還會再試。
+        try { await computeSqueezeNewsVerdict(); _sqRecDate = today; }
+        catch (e) { log('✖ 軋空新聞判別（窗內將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 國際盤歷史每日更新（06:00：美股前一夜 04:00 已收，資料齊全）
       if (mins >= 6 * 60 && _globalHistDate !== today) {
-        _globalHistDate = today;
-        try { await updateGlobalHistory(); } catch (e) { log('✖ 國際盤歷史:', (e.message || '').slice(0, 60)); }
+        // 成功才標記（同 07:30 當沖資格）：這是軋空模型國際因子的原料，
+        // 06:00 那一次失敗就整天沒有，而它每天只跑一次。
+        try { await updateGlobalHistory(); _globalHistDate = today; }
+        catch (e) { log('✖ 國際盤歷史（將於下一輪重試）:', (e.message || '').slice(0, 60)); }
       }
       // 軋空判讀模型訓練：**每週二、五 01:00 後**（使用者指定）。
       // 選這兩天是因為它們各自落在「週一收盤後」與「週四收盤後」，能把最近
@@ -11089,8 +11098,12 @@ async function dailyJobsLoop() {
       // 16:45 上櫃檔補跑：TPEx 官方日檔約 16:00 後發布——15:10 歸檔/策略榜若因日期
       // 不合致跳過上櫃（otcPending），此時重跑合併，並讓依賴收盤的預測用上完整資料。
       if (mins >= 16 * 60 + 45 && _otcFixDate !== today) {
-        _otcFixDate = today;
-        try { await archiveOtcIndex(); } catch (e) { log('✖ 櫃買指數歸檔:', e.message); }
+        // 只在**上櫃來源真的抓到**時才標記今日已補：TPEx 抖一下就整天缺上櫃，
+        // 是 CLAUDE.md 記載過的痛點。後面兩個是依賴它的重算，本來就冪等，
+        // 重試不會造成重複資料。
+        let otcOk = false;
+        try { await archiveOtcIndex(); otcOk = true; } catch (e) { log('✖ 櫃買指數歸檔（將於下一輪重試）:', e.message); }
+        if (otcOk) _otcFixDate = today;
         try { await archiveChipDaily(); } catch (e) { log('✖ otc補跑 archive:', e.message); }
         try { await computeStrategyPicks(); } catch (e) { log('✖ otc補跑 strategyPicks:', e.message); }
         try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
