@@ -57,7 +57,12 @@ const CONTRACTS = [
   { c: 'marketIntraday',   kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'intradayRadar',    kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'limitUpForecast',  kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
-  { c: 'volSurge',         kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
+  // allowEmpty（2026-08-27）：computeVolSurge 是**盤中限定**（09:00~13:35 之外
+  // 直接 return 不寫入），所以收盤後那份就停在最後一次計算的結果——當時沒有爆量
+  // 就是 0 檔，於是**每天傍晚到隔天開盤都會紅**。這正是今天早上修 dayTradeRatio
+  // 時記下的那類：長紅的告警等於沒有告警，會把真正的斷檔蓋掉。
+  // 空榜是合法的市場狀態（盤中沒有爆量就是沒有），不該當成故障。
+  { c: 'volSurge',         kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday', allowEmpty: true },
   // 軋空候選（2026-08-26）：允許 0 檔——條件嚴格，沒有符合的日子是正常結果，
   // 不可因為空榜就判定資料壞掉（allowEmpty）。
   { c: 'squeezePicks',     kind: 'latest',  maxStale: 40 * MIN,  session: 'intraday', allowEmpty: true },
