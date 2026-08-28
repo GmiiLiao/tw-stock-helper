@@ -7587,6 +7587,7 @@ async function computeDayTradeEligible() {
   const tw = taipei();
   const ymd = ymd8(tw);
   const roc = String(tw.getFullYear() - 1911) + ymd.slice(4);
+  const iso4 = ymd.slice(0, 4), iso4m = ymd.slice(4, 6), iso4d = ymd.slice(6, 8);
   const get = async (url) => {
     try {
       const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(15000) });
@@ -7609,14 +7610,35 @@ async function computeDayTradeEligible() {
   } else if (j) log(`  ⚠ 當沖資格：TWTB4U 回音 ${j?.date} ≠ ${ymd}`);
 
   await sleep(800);
-  const secs = await get('https://www.tpex.org.tw/openapi/v1/tpex_securities');
-  if (Array.isArray(secs) && secs.length > 100) {
-    const d0 = String(secs[0]?.['資料日期'] || '');
-    if (d0 && d0 !== roc) log(`  ⚠ 當沖資格：上櫃回音 ${d0} ≠ ${roc}`);
-    else for (const x of secs) {
-      const c = String(x['證券代號'] || '').trim();
+  // ⚠ 上櫃**必須用可指定日期的 www 端點當 PRIMARY**（2026-08-28 實跑抓到）：
+  //   openapi/v1/tpex_securities 是**傍晚才更新的鏡像**——08-28 下午 14:10 查
+  //   它仍自報 1150827。盤前 07:30 用它，回音檢查必然不符，於是當天重試 144 次
+  //   全失敗、站上整天掛著昨天的資格名單。
+  //   這正是 CLAUDE.md 開宗明義那條：「要當日資料就用可指定日期的端點當
+  //   PRIMARY，openapi 只當 FALLBACK」——我第一版直接踩了。
+  //   www/zh-tw/intraday/list?date=YYYY/MM/DD 實測 date 回音正確、844 列、
+  //   欄位與 openapi 版完全一致。
+  const dSlash = `${iso4}/${iso4m}/${iso4d}`;
+  const prim = await get(`https://www.tpex.org.tw/www/zh-tw/intraday/list?date=${dSlash}&type=Daily&response=json`);
+  const ptb = (prim?.tables || []).find(t => (t.fields || []).includes('證券代號'));
+  if (String(prim?.date || '') === ymd && ptb?.data?.length) {
+    for (const r of ptb.data) {
+      const c = String(r[0] || '').trim();
       if (!/^\d{4,6}[A-Z]?$/.test(c)) continue;
-      map[c] = String(x['暫停現股賣出後現款買進當沖註記'] || '').trim() ? 2 : 1; otcN++;
+      map[c] = String(r[2] || '').trim() ? 2 : 1; otcN++;
+    }
+  } else {
+    if (prim) log(`  ⚠ 當沖資格：上櫃主來源回音 ${prim?.date || '—'} ≠ ${ymd}，改用 openapi 後備`);
+    await sleep(500);
+    const secs = await get('https://www.tpex.org.tw/openapi/v1/tpex_securities');
+    if (Array.isArray(secs) && secs.length > 100) {
+      const d0 = String(secs[0]?.['資料日期'] || '');
+      if (d0 && d0 !== roc) log(`  ⚠ 當沖資格：上櫃後備回音 ${d0} ≠ ${roc}`);
+      else for (const x of secs) {
+        const c = String(x['證券代號'] || '').trim();
+        if (!/^\d{4,6}[A-Z]?$/.test(c)) continue;
+        map[c] = String(x['暫停現股賣出後現款買進當沖註記'] || '').trim() ? 2 : 1; otcN++;
+      }
     }
   }
 
