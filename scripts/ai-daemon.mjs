@@ -4078,6 +4078,113 @@ function extractArticleBody(html) {
   return [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)].map(m => _stripHtml(m[1])).filter(t => t.length > 25).join(' ').slice(0, 2200);
 }
 
+// ── 新聞來源優先序（使用者指定 2026-08-28）────────────────────────────
+//   ① 工商時報・經濟日報（優先）② Yahoo／Google／MSN（輔助）③ 其他財經網
+// 實測（2026-08-28）：
+//   · 經濟日報 money.udn.com/search/result/1001/{kw} 可直接搜尋，穩定、有內文
+//     有日期——昇達科抓到 1,306 字「馬斯克太空 AI 布局…昇達科提前迎大單」。
+//   · 工商時報 www.ctee.com.tw 的 /search 與 /wp-json 都回 **403**（擋 bot），
+//     但**文章頁抓得到**（實測 724 字），故改用 DDG `site:ctee.com.tw` 定位。
+//   · MSN 的搜尋路徑回 **404**、內容重度 JS 與個人化 ⇒ **不納入**，不假裝它能用。
+// ── 當前市場主旋律（使用者指定 2026-08-28）──────────────────────────
+// 用途有兩層：① **選稿**——同樣抓到 5 則，優先把命中主旋律的餵給 AI；
+//             ② **判別**——prompt 要求 AI 對這些題材追出傳導路徑到這一檔。
+// 這不是「看到關鍵字就利多」：命中只代表**值得細看**，是否構成利多仍由內文決定
+// （例如「戰爭」對航運是運價利多、對觀光是利空，方向必須從內文讀出來）。
+const HOT_THEMES = [
+  '戰爭', '地緣', '關稅', '制裁', '石油', '油價', 'OPEC', '通膨', '通澎', '升息', '降息', 'CPI', '聯準會', 'Fed',
+  'AI', '人工智慧', '算力', '資料中心', '半導體', '晶圓', '先進封裝', 'CoWoS', 'HBM',
+  '光通訊', 'CPO', '矽光子', '記憶體', 'DRAM', 'NAND', '電力', '電網', '儲能', '重電',
+  '機器人', '人形機器人', '無人機', '太空', '衛星', '低軌衛星', 'LEO',
+];
+const HOT_PEOPLE = ['川普', 'Trump', '馬斯克', 'Musk', '黃仁勳', '黃仁勛', 'Huang', '蘇姿丰', 'Su', '鮑爾', 'Powell'];
+const _HOT_RE = new RegExp(`(${[...HOT_THEMES, ...HOT_PEOPLE].join('|')})`, 'i');
+/** 一則新聞命中哪些主旋律（去重、最多 6 個） */
+function hotHits(text) {
+  const t = String(text || '');
+  return [...new Set([...HOT_THEMES, ...HOT_PEOPLE].filter(k => t.includes(k)))].slice(0, 6);
+}
+
+const _NEWS_NOISE = /本文共\d+字|(?:',\s*'\s*)+|加入為 Google 偏好來源|另開新視窗|將 Yahoo (?:加入|設為)[^。]{0,30}|延伸閱讀|更多內容/g;
+const _cleanBody = t => String(t || '').replace(_NEWS_NOISE, ' ').replace(/\s+/g, ' ').trim();
+
+// 沒有發布時間就無法判斷時效，而「兩個月前的舊文被當成今天的利多」是最糟的錯
+// （實測前鼎在經濟日報命中的兩篇都是 6 月的）。四種寫法依序試。
+function extractPublishedAt(html) {
+  const pats = [
+    /"datePublished"\s*:\s*"([^"]{10,40})"/,
+    /property="article:published_time"\s+content="([^"]{10,40})"/,
+    /<time[^>]+datetime="([^"]{10,40})"/,
+    /(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/,
+  ];
+  for (const re of pats) {
+    const m = html.match(re);
+    if (!m) continue;
+    const v = m.length > 2 ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+08:00` : m[1];
+    const t = Date.parse(v);
+    if (Number.isFinite(t) && t > 0) return t;
+  }
+  return 0;
+}
+
+const _NEWS_UA = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', 'Accept-Language': 'zh-TW,zh;q=0.9' };
+
+async function fetchArticleAt(url, name) {
+  try {
+    const r = await fetch(url, { headers: _NEWS_UA, signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return null;
+    const html = await r.text();
+    const body = _cleanBody(extractArticleBody(html));
+    // 品質閘門：抽出來的字必須含公司名，否則多半抓到側邊欄的標題湯
+    if (body.length < 200 || (name && !body.includes(name))) return null;
+    const title = _cleanBody((html.match(/<title>([^<]{4,120})</) || [])[1] || '').split(/[|｜-]/)[0].trim();
+    return { title: title || `${name} 相關報導`, body: body.slice(0, 1600), at: extractPublishedAt(html), url, host: new URL(url).hostname.replace(/^www\./, '') };
+  } catch { return null; }
+}
+
+/** ① 經濟日報（優先來源·可直接搜尋） */
+async function fetchUdnMoney(keyword, cap = 3) {
+  const out = [];
+  try {
+    const r = await fetch(`https://money.udn.com/search/result/1001/${encodeURIComponent(keyword)}`, { headers: _NEWS_UA, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return out;
+    const links = [...new Set([...(await r.text()).matchAll(/https:\/\/money\.udn\.com\/money\/story\/\d+\/\d+/g)].map(m => m[0]))];
+    // ⚠ 先多抓幾篇再**依發布時間由新到舊**取 cap 篇：搜尋結果不保證依日期排序，
+    //   直接取前 N 篇會拿到幾個月前的舊文（實測前鼎命中的兩篇都是 6 月的），
+    //   而舊聞會被時效過濾掉，等於白抓。
+    const got = [];
+    for (const u of links.slice(0, cap + 3)) {
+      await sleep(400);
+      const a = await fetchArticleAt(u, keyword);
+      if (a) got.push(a);
+    }
+    got.sort((x, y) => (y.at || 0) - (x.at || 0));
+    out.push(...got.slice(0, cap));
+  } catch { /* 單一來源失敗不擋 */ }
+  return out;
+}
+
+/** ① 工商時報（優先來源·站內搜尋擋 bot，改由 DDG 定位文章頁） */
+async function fetchCtee(keyword, cap = 2) {
+  const out = [];
+  try {
+    const r = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(`site:ctee.com.tw ${keyword}`)}`, { headers: _NEWS_UA, signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return out;
+    const links = [...new Set([...(await r.text()).matchAll(/uddg=([^&"]+)/g)]
+      .map(m => { try { return decodeURIComponent(m[1]); } catch { return ''; } })
+      .filter(u => /ctee\.com\.tw\/(news|newspaper)\//.test(u)))];
+    const got = [];
+    for (const u of links.slice(0, cap + 2)) {
+      await sleep(400);
+      const a = await fetchArticleAt(u, keyword);
+      if (a) got.push(a);
+    }
+    got.sort((x, y) => (y.at || 0) - (x.at || 0));   // 同上：新的優先
+    out.push(...got.slice(0, cap));
+  } catch { /* DDG 被擋就算了，經濟日報那條仍在 */ }
+  return out;
+}
+
 // Yahoo 逐檔新聞頁——跨站補內文的**主力**（2026-08-27 實測後改為優先）。
 // 為什麼不是用搜尋引擎當主力：DuckDuckGo 在連續查詢後會直接回 0 筆
 // （實測同一組查詢前一分鐘還有結果、之後全空），把判別品質綁在會擋機器人的
@@ -4171,66 +4278,79 @@ async function fetchBodyByTitle(title, name) {
 //   ⇒ 兩者合併，並據實標示每一則是「有內文」還是「僅標題」。
 async function fetchStockNewsMulti(keyword, code) {
   const out = [];
-  try {
-    // 逐則補抓內文。只補**非機器稿**：盤中速報是價格報導，讀了也不會變成題材，
-    // 而每則內文是一次 ~190KB 的網頁請求，不該浪費在必定被濾掉的稿子上。
-    // 每檔最多補 3 則、間隔 300ms（每日 08:00 跑一次，量級可接受）。
-    let got = 0;
-    for (const n of await fetchCnyesNews(keyword, 6)) {
-      let content = n.content || '';
-      if (n.id && got < 3 && !MACHINE_NEWS.test(n.title)) {
-        const body = await fetchCnyesBody(n.id);
-        if (body.length >= 60) { content = body; got++; }
-        await sleep(300);
+  const push = (a, src) => out.push({
+    title: a.title, content: a.body, at: a.at || Date.now(), link: a.url,
+    src, hasBody: true, bodyFrom: a.host, bodyGeneric: !a.at,   // 抓不到日期就標記，時效不明
+  });
+  const bodies = () => out.filter(x => x.hasBody).length;
+  const dedupKey = t => String(t || '').replace(/\s/g, '').slice(0, 16);
+
+  // ── ① 優先來源：經濟日報・工商時報（使用者指定 2026-08-28）──────────
+  try { for (const a of await fetchUdnMoney(keyword, 3)) push(a, '經濟日報'); } catch { /* 單一來源失敗不擋 */ }
+  await sleep(300);
+  try { for (const a of await fetchCtee(keyword, 2)) push(a, '工商時報'); } catch { /* 同上 */ }
+
+  // ── ② 輔助：Yahoo 逐檔新聞（per-stock 端點，冷門股也有）────────────
+  //    只在優先來源沒湊到 2 則內文時才打——省請求，也避免 prompt 灌太多則。
+  if (bodies() < 2) {
+    try {
+      for (const y of await fetchYahooStockBodies(code, keyword, 2)) {
+        push({ title: y.title, body: y.body, at: 0, url: y.url, host: y.host }, 'Yahoo');
       }
-      out.push({ ...n, content, src: '鉅亨', hasBody: content.length >= 60 });
-    }
-  } catch { /* 單一來源失敗不擋 */ }
-  await sleep(500);
+    } catch { /* 同上 */ }
+  }
+
+  // ── ② 輔助：Google News（只有標題，但覆蓋最廣，用來看有沒有漏掉的題材）──
+  await sleep(300);
   try {
     for (const n of await fetchGoogleNewsRss(keyword, 8)) {
-      // 去重：標題前 16 字相同視為同一則
-      const key = n.title.replace(/\s/g, '').slice(0, 16);
-      if (out.some(x => x.title.replace(/\s/g, '').slice(0, 16) === key)) continue;
+      if (out.some(x => dedupKey(x.title) === dedupKey(n.title))) continue;
       out.push({ title: n.title, content: '', at: n.at, link: n.link, src: n.src || 'GoogleNews', hasBody: false });
     }
   } catch { /* 同上 */ }
 
-  // ── 跨站補內文（使用者指示 2026-08-27：不可用「無法取得內文」搪塞）────────
-  // 到這裡若一則有內文的實質新聞都沒有，就拿標題去別的媒體找同一則報導。
-  // 只補到 2 則就停：判別 prompt 最多吃 4 則，再多是浪費請求。
+  // ── ③ 其他財經網：鉅亨（有內文，但冷門股常只有盤中速報機器稿）──────
+  if (bodies() < 2) {
+    await sleep(300);
+    try {
+      let got = 0;
+      for (const n of await fetchCnyesNews(keyword, 6)) {
+        let content = n.content || '';
+        if (n.id && got < 2 && !MACHINE_NEWS.test(n.title)) {
+          const b = await fetchCnyesBody(n.id);
+          if (b.length >= 60) { content = _cleanBody(b); got++; }
+          await sleep(300);
+        }
+        if (out.some(x => dedupKey(x.title) === dedupKey(n.title))) continue;
+        out.push({ ...n, content, src: '鉅亨', hasBody: content.length >= 60,
+          bodyFrom: content.length >= 60 ? 'news.cnyes.com' : undefined });
+      }
+    } catch { /* 同上 */ }
+  }
+
+  // ── ③ 最後手段：以標題到白名單財經網找同一則報導 ────────────────────
+  //    使用者指示：不可用「無法取得內文」搪塞。
   try {
     if (!out.some(x => x.hasBody && !MACHINE_NEWS.test(x.title))) {
       let filled = 0;
       for (const n of out) {
         if (filled >= 2) break;
         if (n.hasBody || MACHINE_NEWS.test(n.title)) continue;
-        // DDG 是機會主義的：命中就賺到（能拿到「同一則報導」的原始媒體版本），
-        // 被擋就回 null，由下面的 Yahoo 逐檔端點接手，不影響最終覆蓋率。
         const alt = await fetchBodyByTitle(n.title, keyword);
         if (alt) {
-          n.content = alt.body; n.hasBody = true;
-          n.bodyFrom = alt.host;              // 誠實標示內文來自哪個站
+          n.content = _cleanBody(alt.body); n.hasBody = true; n.bodyFrom = alt.host;
           if (!n.link) n.link = alt.url;
           filled++;
         }
         await sleep(400);
       }
-      // 最後手段：連標題都搜不到（冷門股的 Google News 標題本身就是機器稿，
-      // 拿去搜當然搜不到題材——實測前鼎就是這種）。改用「公司名＋代號」直接搜，
-      // 至少讓 AI 有題材面的東西可讀。
-      // ⚠ 這種取得的報導**不保證是近兩日**，必須標記，讓 prompt 與畫面都說清楚，
-      //   否則就變成拿舊聞當今天的利多——那正是「不可用無法取得內文來塞」的反面。
-      if (!filled) {
-        for (const y of await fetchYahooStockBodies(code, keyword, 2)) {
-          out.push({ title: y.title, content: y.body, at: Date.now(), link: y.url,
-            src: y.host, hasBody: true, bodyFrom: y.host, bodyGeneric: true });
-          filled++;
-        }
-      }
-      if (filled) log(`    ↳ ${keyword}：跨站補到 ${filled} 則內文`);
     }
-  } catch { /* 補不到就是補不到，不擋主流程 */ }
+  } catch { /* 同上 */ }
+
+  if (bodies()) {
+    const srcs = [...new Set(out.filter(x => x.hasBody).map(x => x.src))];
+    log(`    ↳ ${keyword}：內文 ${bodies()} 則（${srcs.join('・')}）`);
+  }
   return out;
 }
 
@@ -4268,6 +4388,13 @@ async function computeSqueezeNewsVerdict() {
   } catch { /* 缺日曆不擋 */ }
 
   const out = [];
+  // 產業別＝連動判斷的**事實錨點**（使用者要求「加強產業鏈關連性與正確性」
+  // 2026-08-28）。沒有它，AI 只能從新聞猜這檔屬於哪條鏈，於是產出「聽起來
+  // 合理但沒根據」的傳導路徑（實測：揚明光被說成蘋果鏈、上詮被說成 PCB）。
+  // getIndustryMap 走官方 t187ap03 且每日快取，不會增加上游請求。
+  let indMap = {};
+  try { indMap = await getIndustryMap(); } catch { /* 沒有產業別只是少一個錨，不擋 */ }
+
   for (const it of picks.items.slice(0, 12)) {
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
     const news = await fetchStockNewsMulti(kw, it.code);
@@ -4278,12 +4405,22 @@ async function computeSqueezeNewsVerdict() {
     //   但**時效必須誠實標示並降低權重**：6 天前的法說預告與今天的接單公告，
     //   對隔日開盤的意義完全不同。回退上限 14 天，超過就真的當沒有。
     let stale = false, ageDays = null;
-    if (recent.length === 0) {
-      const older = news.filter(n => n.at && now - n.at <= MAX_BACK).sort((a, b) => b.at - a.at);
+    // ⚠ 回退條件不能只看「近兩日完全沒新聞」（2026-08-28 實測抓到）：
+    //   信昌電近兩日有 7 則 Google News **標題**，所以 recent 非空，於是 14 日內
+    //   那幾則**有內文**的經濟日報報導（9 天前）永遠不會被拉進來，最後落到
+    //   「資訊不足」——但我們手上其實是有內容的，這正是使用者說的「不可用
+    //   無法取得內文來塞」。
+    //   ⇒ 改成：近兩日**沒有任何含內文的實質報導**時，就把 14 日內有內文的
+    //     補進來並標記 stale（prompt 已有時效警語與信心上限）。
+    const hasRecentBody = recent.some(n => n.hasBody && !MACHINE_NEWS.test(n.title));
+    if (recent.length === 0 || !hasRecentBody) {
+      const older = news
+        .filter(n => n.at && now - n.at <= MAX_BACK && (recent.length === 0 || (n.hasBody && !MACHINE_NEWS.test(n.title))))
+        .sort((a, b) => b.at - a.at);
       if (older.length) {
-        recent = older.slice(0, 6);
+        recent = recent.length === 0 ? older.slice(0, 6) : [...recent, ...older.slice(0, 3)];
         stale = true;
-        ageDays = +((now - recent[0].at) / 86400000).toFixed(1);
+        ageDays = +((now - older[0].at) / 86400000).toFixed(1);
       }
     }
     // 只剔機器速報；其餘（含帶「漲停」字眼但可能有題材的）都送 AI 判斷
@@ -4307,17 +4444,43 @@ async function computeSqueezeNewsVerdict() {
     //   結果 basis=title 卻judged「利多/高」——正是這條規則要擋的東西。
     //   事件本身在 UI 另有「📅 已排定事件」欄位，不會因此消失。
     if (material.length && !withBody.length) {
+      // ⚠ 理由要說**真正的原因**。抓到內文但因為太舊被時效過濾掉，卻寫成
+      //   「取不到內文」是在說謊——2026-08-28 實測：日誌明明記著「內文 3 則
+      //   （經濟日報）」，判別卻宣稱取不到。分成兩種情況據實描述。
+      const oldBodies = news.filter(n2 => n2.hasBody && !MACHINE_NEWS.test(n2.title) && n2.at);
+      const newestOld = oldBodies.length ? Math.max(...oldBodies.map(n2 => n2.at)) : 0;
+      const oldDays = newestOld ? Math.round((now - newestOld) / 86400000) : 0;
       verdict = {
         label: '資訊不足', bullish: false, confidence: '低',
-        reason: `找到 ${material.length} 則相關新聞，鉅亨與跨站搜尋都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
+        reason: newestOld
+          ? `有 ${oldBodies.length} 則含內文的報導，但最新一則已是 ${oldDays} 天前（超過 14 日時效上限），不足以支撐隔日判斷；近兩日只有 ${material.length} 則標題級新聞`
+          : `找到 ${material.length} 則相關新聞，優先來源（經濟日報/工商時報）與輔助來源都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
         basis: 'title', n: recent.length, nMaterial: material.length, stale, ageDays,
+        staleBodyDays: oldDays || null,
       };
     } else if (material.length || events.length) {
       const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
-      const src = (withBody.length ? withBody : material).slice(0, 4);
+      // 選稿也要有敏感度（使用者指定 2026-08-28）：同樣是 5 則，優先餵命中
+      // 當前市場主旋律的那幾則——AI 只讀 4 則，挑錯就等於沒讀到關鍵新聞。
+      const pool = (withBody.length ? withBody : material);
+      const src = pool.slice().sort((a, b) =>
+        hotHits(`${b.title} ${b.content || ''}`).length - hotHits(`${a.title} ${a.content || ''}`).length
+      ).slice(0, 4);
       // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
-      const body = src.map((n, i) => `【新聞${i + 1}】${n.title}${n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : ''}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`).join('\n\n');
+      const body = src.map((n, i) => {
+        const hot = hotHits(`${n.title} ${n.content || ''}`);
+        const from = n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : '';
+        return `【新聞${i + 1}】${n.title}${from}${hot.length ? `\n〔命中主旋律：${hot.join('、')}〕` : ''}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`;
+      }).join('\n\n');
+      // 「本檔有沒有真的被寫到」是正確性的第一道關卡：只在標題出現、內文
+      // 通篇在講別家公司的，多半是順帶提及，不足以支撐多空判斷。
+      const mentions = src.reduce((n2, x) => n2 + ((`${x.title} ${x.content || ''}`).split(it.name).length - 1), 0);
+      const indName = indMap[it.code] || '';
       const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
+
+【已知事實（請以此為錨，不要臆測這家公司做什麼）】
+· ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
+· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
 
 嚴格規則：
 1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
@@ -4333,6 +4496,20 @@ async function computeSqueezeNewsVerdict() {
    運價 → 貨櫃·散裝；匯率 → 出口電子；費半與美系同業財報 → 台系供應鏈。
    若判斷用到這類傳導，**必須在「連動」欄寫出路徑**（誰的什麼事 → 影響什麼 →
    為何影響到這一檔），並註明這是**推論**不是已確認事實；推論性的連動信心最高給「中」。
+8. **當前市場主旋律要特別敏感**：戰爭與地緣衝突、石油與油價、美國通膨與利率、
+   AI 與算力、半導體與先進封裝、光通訊(CPO/矽光子)、記憶體、電力與電網、機器人、
+   無人機、太空與低軌衛星；關鍵人物：川普、馬斯克、黃仁勳、蘇姿丰、鮑爾。
+   新聞若牽涉這些，請**明確判斷它對這一檔是利多還是利空**，不要因為是宏觀題材
+   就含糊帶過。⚠ 但**命中關鍵字不等於利多**——同一件事對不同產業方向相反
+   （例：戰爭推升運價利多航運、卻壓抑觀光；油價上漲利多油氣、卻墊高塑化成本）。
+   方向必須從**內文**讀出來，讀不出來就判中性。
+9. **連動要正確，不可硬扯**（這條優先於第 7、8 點）：
+   · 傳導路徑必須與上面「官方產業別」相容。產業別對不上就不要編一條鏈出來，
+     寧可寫「無」——錯的連動比沒有連動更糟，它會讓人以為有根據。
+   · 路徑要寫清楚**這一檔在鏈上的位置**（上游材料／中游製造／下游應用／設備商），
+     不能只寫「受惠 AI 需求」這種對半導體全體都成立的話。
+   · 新聞裡沒提到這家公司卻要主張連動時，必須在「連動」欄開頭寫「推論：」，
+     且信心最高只能給「低」。
 
 國際盤昨夜：${gLine || '（無資料）'}
 ${stale ? `\n⚠ **注意時效**：近 2 日查無新聞，以下是**${ageDays} 天前**的較舊報導。舊消息多半已被股價反映，除非是尚未兌現的重大事件，否則信心最高只能給「低」，並在風險欄註明消息已隔 ${ageDays} 天。\n` : ''}
@@ -4355,9 +4532,14 @@ ${body || '（近 2 日無實質新聞）'}
         const label = mv ? mv[1] : '中性';
         verdict = {
           label, bullish: label === '利多',
-          confidence: mc ? mc[1] : '低',
+          // ⚠ 時效上限用**程式強制**，不能只寫在 prompt 裡：本地模型不一定照做
+          //   （2026-08-28 實測：精材拿 13.6 天前的舊聞卻給「高」信心，而 prompt
+          //   明寫「舊聞信心最高只能給低」）。規則要能被違反就等於沒有規則。
+          confidence: stale ? '低' : (mc ? mc[1] : '低'),
           reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
-          risk: mk ? mk[1].trim().slice(0, 70) : null,
+          risk: stale
+            ? `消息已隔 ${ageDays} 天，多半已反映在股價${mk ? `；${mk[1].trim().slice(0, 44)}` : ''}`
+            : (mk ? mk[1].trim().slice(0, 70) : null),
           // 本地模型會吐 LaTeX（實測 `$\rightarrow$`），顯示前正規化成箭頭
           chain: ml && !/^無$/.test(ml[1].trim())
             ? ml[1].trim().replace(/\$?\\(?:rightarrow|to|Rightarrow)\$?/g, '→').replace(/\s*->\s*/g, ' → ').replace(/\s+/g, ' ').slice(0, 80)
