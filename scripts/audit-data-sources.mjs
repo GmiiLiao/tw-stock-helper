@@ -69,6 +69,9 @@ const CONTRACTS = [
   // 開盤前新聞判別（每交易日 08:00 由本機 AI 產出）：盤中查它會是「今早那份」，
   // 故放寬到 20 小時；空榜正常（沒有候選就沒有判別）。
   { c: 'squeezeRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  // 漲停預測的新聞判別（2026-08-28 接上）：與 squeezeRecommend 同節奏，
+  // 每交易日 08:00 由本機 AI 產出，盤中查它會是「今早那份」故放寬到 20 小時。
+  { c: 'limitUpRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   // 搶漲停排隊（09:00~09:15 才有意義）：盤中每分更新，其餘時間停留在早上那份，
   // 故 maxStale 放寬到 20 小時；空榜是常態（多數日子沒有這種書況）。
   { c: 'limitQueue',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
@@ -264,6 +267,17 @@ async function probeFresh(ltd) {
 // 前一交易日（只扣週末；臨時休市由呼叫端的 ltd 已處理過，這裡僅供「未公布」時退一格）
 const isoDate = d => d.toISOString().slice(0, 10);
 
+// 這個來源「幾點才算當日完整」。預設 16.75（2026-08-28 實測後由 15.5 上修）：
+// 每日管線不是 15:10 就結束——法人 T86 15:00~16:00、官方補抓 16:30、
+// **上櫃 16:45 才併入**。設 15.5 會讓依賴後段的來源在 15:30~16:45 集體報紅
+// （實測 7 個）。代價是「15:10 就該完成的來源若壞了，晚 95 分鐘才被發現」，
+// 但那些資料本來也要等後段補齊才會被消費，不影響任何決策。
+// ⚠ 日期閘門與筆數閘門**必須共用這一份**——第一版兩處各寫一份，改了一邊
+//   另一邊照樣誤報。
+function publishHourOf(spec) {
+  return spec.publishHour != null ? spec.publishHour : (spec.session === 'daily' ? 16.75 : null);
+}
+
 function prevTradingDay(iso) {
   const d = new Date(iso + 'T00:00:00Z');
   do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
@@ -420,8 +434,11 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
     //   （15:10 上市收盤、16:45 上櫃併入、21:45 資券）。14:57 去看 chipArchive
     //   只有上市那半 1,091 檔 ⇒ 每天下午都會報 THIN，又是一個常態假警報。
     //   當日文件尚未完成時只記事實、不判 THIN；隔天它還是不足才算異常。
+    // ⚠ 只能有**一份** pubHour 定義：第一版在這裡又寫了一份 15.5，而日期閘門
+    //   那份已改成 16.75 ⇒ 兩道閘門用不同的時刻，筆數閘門照樣誤報（實測）。
+    //   共用 publishHourOf()。
     const _tN = taipeiNow();
-    const _pubH = spec.publishHour != null ? spec.publishHour : (spec.session === 'daily' ? 15.5 : null);
+    const _pubH = publishHourOf(spec);
     const _partialToday = _pubH != null && out.dataDate === isoOf(_tN)
       && (_tN.getHours() + _tN.getMinutes() / 60) < _pubH;
     if (spec.minRecords != null && out.records != null && out.records < spec.minRecords) {
@@ -469,7 +486,7 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
       // （2026-08-28 14:57 實測：14 個異常，全部是「資料日昨天 < 期待今天」），
       // 而假警報會訓練人忽略紅燈——dayTradeRatio 斷 8 天就是這樣被蓋住的。
       // 晚於 15:30 才發布的來源（當沖統計 21、資券 22）自己覆寫這個預設。
-      const pubHour = spec.publishHour != null ? spec.publishHour : (spec.session === 'daily' ? 15.5 : null);
+      const pubHour = publishHourOf(spec);
       const beforePub = pubHour != null && ltd === isoOf(tNow)
         && (tNow.getHours() + tNow.getMinutes() / 60) < pubHour;
       const expect = beforePub ? prevTradingDay(ltd) : ltd;
@@ -498,7 +515,9 @@ const ARCHIVE_FIELDS = [
   // ⚠ 14.5 太早（2026-08-28 更正）：15:10 只寫上市，**上櫃要 16:45 才併入**
   //   ⇒ 14:30~16:45 之間一定只有 1,0xx 檔，每天報 THIN。改 17。
   { f: 'closeJson',    label: '收盤',  min: 1500, publishHour: 17 },
-  { f: 'instJson',     label: '法人',  min: 1500, publishHour: 15.5, sample: ['2330', '6274'] },  // 上市+上櫃各一
+  // ⚠ 15.5 太早（2026-08-28 15:45 實測仍只有 792/1867）：T86 實際 15:00~16:00
+  //   才發完，自家的官方補抓也排在 16:30。與外部探針法人T86 的 16 一致，設 16.5。
+  { f: 'instJson',     label: '法人',  min: 1500, publishHour: 16.5, sample: ['2330', '6274'] },  // 上市+上櫃各一
   { f: 'marginJson',   label: '資券',  min: 1500, publishHour: 21.5, sample: ['2330', '6274'] },
   { f: 'lendingJson',  label: '借券',  min: 1000, publishHour: 21.5 },
   // ⚠ 16 是錯的（2026-08-27 更正）：TWTB4U 的**資格清單**盤前就有，但

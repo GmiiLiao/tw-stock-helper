@@ -4354,6 +4354,269 @@ async function fetchStockNewsMulti(keyword, code) {
   return out;
 }
 
+// ── 每檔的新聞判別核心（軋空與漲停預測共用·2026-08-28 抽出）──────────
+// ⚠ **不可以複製第二份**：這段裡有使用者逐條指定的規則（讀完內文、產業鏈
+//   連動、主旋律敏感度、舊聞信心上限、無內文不判多空…）。複製出去必然各自
+//   漂移——CLAUDE.md 記過注意股/處置股被複製三份的教訓。
+// 回傳判別與佐證，呼叫端自行決定組裝與存檔方式。
+async function judgeOneStock(it, ctx) {
+  const { calMap = {}, gLine = '', indMap = {} } = ctx || {};
+    const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
+  const news = await fetchStockNewsMulti(kw, it.code);
+  // ⚠ 新聞視窗要跨過**非交易日**（使用者指示 2026-08-28）：
+  //   固定 48 小時在週一早上只涵蓋「週六 08:00 ~ 週一 08:00」——**週四、
+  //   週五的新聞整批漏掉**，而那正是企業發佈消息最密集的兩天。連假更慘。
+  //   ⇒ 改成回溯到「前兩個**交易日**的起點」，中間的週末與假日自動被包進來：
+  //     週一 → 從上週四 00:00 起算（涵蓋 四/五/六/日）；
+  //     一般日 → 從前天 00:00 起算，與原本的 2 日相當。
+  const now = Date.now();
+  const _winStart = (() => {
+    const tw2 = taipei();
+    const back = prevTradingIsos(isoDate(tw2), 3);      // [今日, 前一交易日, 前兩交易日]
+    const from = back[2] || back[1] || back[0];
+    const [yy, mm, dd] = from.split('-').map(Number);
+    // 以台北 00:00 為界；轉成毫秒時扣掉 +08:00 時差
+    return Date.UTC(yy, mm - 1, dd) - 8 * 3600000;
+  })();
+  const TWO_D = Math.max(2 * 86400000, now - _winStart);
+  const MAX_BACK = 14 * 86400000;
+  let recent = news.filter(n => n.at && now - n.at <= TWO_D);
+  // ── 找不到近 2 日就回退到「最近最新的」（使用者 2026-08-26 指定）────────
+  //   空手判「資訊不足」對使用者沒有幫助；有舊資料總比沒有好。
+  //   但**時效必須誠實標示並降低權重**：6 天前的法說預告與今天的接單公告，
+  //   對隔日開盤的意義完全不同。回退上限 14 天，超過就真的當沒有。
+  let stale = false, ageDays = null;
+  // ⚠ 回退條件不能只看「近兩日完全沒新聞」（2026-08-28 實測抓到）：
+  //   信昌電近兩日有 7 則 Google News **標題**，所以 recent 非空，於是 14 日內
+  //   那幾則**有內文**的經濟日報報導（9 天前）永遠不會被拉進來，最後落到
+  //   「資訊不足」——但我們手上其實是有內容的，這正是使用者說的「不可用
+  //   無法取得內文來塞」。
+  //   ⇒ 改成：近兩日**沒有任何含內文的實質報導**時，就把 14 日內有內文的
+  //     補進來並標記 stale（prompt 已有時效警語與信心上限）。
+  const hasRecentBody = recent.some(n => n.hasBody && !MACHINE_NEWS.test(n.title));
+  if (recent.length === 0 || !hasRecentBody) {
+    const older = news
+      .filter(n => n.at && now - n.at <= MAX_BACK && (recent.length === 0 || (n.hasBody && !MACHINE_NEWS.test(n.title))))
+      .sort((a, b) => b.at - a.at);
+    if (older.length) {
+      recent = recent.length === 0 ? older.slice(0, 6) : [...recent, ...older.slice(0, 3)];
+      stale = true;
+      ageDays = +((now - older[0].at) / 86400000).toFixed(1);
+    }
+  }
+  // 只剔機器速報；其餘（含帶「漲停」字眼但可能有題材的）都送 AI 判斷
+  const material = recent.filter(n => !MACHINE_NEWS.test(n.title));
+  const withBody = material.filter(n => n.hasBody);
+
+  const events = calMap[it.code] || [];
+  const evLine = events.length
+    ? events.map(e => `${e.date} ${e.title}${e.impact === 'H' ? '（高影響）' : ''}`).join('；')
+    : '';
+  let verdict = events.length
+    ? { label: '中性', bullish: false, confidence: '低', reason: `近 2 日無實質新聞，但有已排定事件：${evLine}`, basis: 'event', n: recent.length }
+    : { label: '資訊不足', bullish: false, reason: `近 14 日查無實質新聞，亦無已排定事件`, basis: 'none', n: recent.length };
+  // ⚠ 沒有內文就**不下多空判斷**（使用者指示 2026-08-27）：
+  //   實測 08-27 開盤前 12 檔，11 檔 basis=title。判「利多」的 3 檔當日
+  //   0/3 漲≥5%、平均 +1.45%；反而判「中性」的前鼎 +9.83%、力旺 +9.96%、
+  //   聯一光 +10.00%——只憑標題的判別**與結果反向**，輸出它比不輸出更糟，
+  //   還會讓使用者以為系統讀過新聞。標題照樣列給使用者自己看，但 label
+  //   一律「資訊不足」，不主張多空。有排定事件時仍走 AI（basis=event）。
+  // ⚠ 不可加 `&& !events.length`：實測凱美(2375) 有排定事件就繞過這道閘門，
+  //   結果 basis=title 卻judged「利多/高」——正是這條規則要擋的東西。
+  //   事件本身在 UI 另有「📅 已排定事件」欄位，不會因此消失。
+  if (material.length && !withBody.length) {
+    // ⚠ 理由要說**真正的原因**。抓到內文但因為太舊被時效過濾掉，卻寫成
+    //   「取不到內文」是在說謊——2026-08-28 實測：日誌明明記著「內文 3 則
+    //   （經濟日報）」，判別卻宣稱取不到。分成兩種情況據實描述。
+    const oldBodies = news.filter(n2 => n2.hasBody && !MACHINE_NEWS.test(n2.title) && n2.at);
+    const newestOld = oldBodies.length ? Math.max(...oldBodies.map(n2 => n2.at)) : 0;
+    const oldDays = newestOld ? Math.round((now - newestOld) / 86400000) : 0;
+    verdict = {
+      label: '資訊不足', bullish: false, confidence: '低',
+      reason: newestOld
+        ? `有 ${oldBodies.length} 則含內文的報導，但最新一則已是 ${oldDays} 天前（超過 14 日時效上限），不足以支撐隔日判斷；近兩日只有 ${material.length} 則標題級新聞`
+        : `找到 ${material.length} 則相關新聞，優先來源（經濟日報/工商時報）與輔助來源都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
+      basis: 'title', n: recent.length, nMaterial: material.length, stale, ageDays,
+      staleBodyDays: oldDays || null,
+    };
+  } else if (material.length || events.length) {
+    const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
+    // 選稿也要有敏感度（使用者指定 2026-08-28）：同樣是 5 則，優先餵命中
+    // 當前市場主旋律的那幾則——AI 只讀 4 則，挑錯就等於沒讀到關鍵新聞。
+    const pool = (withBody.length ? withBody : material);
+    const src = pool.slice().sort((a, b) =>
+      hotHits(`${b.title} ${b.content || ''}`).length - hotHits(`${a.title} ${a.content || ''}`).length
+    ).slice(0, 4);
+    // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
+    const body = src.map((n, i) => {
+      const hot = hotHits(`${n.title} ${n.content || ''}`);
+      const from = n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : '';
+      return `【新聞${i + 1}】${n.title}${from}${hot.length ? `\n〔命中主旋律：${hot.join('、')}〕` : ''}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`;
+    }).join('\n\n');
+    // 「本檔有沒有真的被寫到」是正確性的第一道關卡：只在標題出現、內文
+    // 通篇在講別家公司的，多半是順帶提及，不足以支撐多空判斷。
+    const mentions = src.reduce((n2, x) => n2 + ((`${x.title} ${x.content || ''}`).split(it.name).length - 1), 0);
+    const indName = indMap[it.code] || '';
+    const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
+
+【已知事實（請以此為錨，不要臆測這家公司做什麼）】
+· ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
+· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
+
+嚴格規則：
+1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
+2. 只有會改變公司價值或營運預期的事才算利多：接單、擴產、漲價、認證、法說釋出優於預期、併購、得標、新產品量產、外資調升目標價等。
+3. 若新聞只是重複報導股價表現、或內容與該公司無關，請判為「中性」。
+4. **區分「已確認事實」與「傳聞/市場預期/可能」**：若題材只是「有可能」「市場預期」
+   「送樣認證中」，信心最高只能給「中」，並在風險欄指出不確定性與量產時程。
+5. 標題同時有行情字眼（漲停、爆量）與題材字眼（供應鏈、認證、訂單）時，
+   請看**題材**判斷，不要因為有行情字眼就判中性。
+6. 不確定就判「中性」，不要為了給答案而美化。
+7. **要考慮國際局勢與產業鏈上下游連動**，不要只看這家公司自己的消息。例如：產油國
+   增減產 → 油價 → 航運與石化同步受影響；記憶體/晶圓報價 → IC 設計·封測·設備；
+   運價 → 貨櫃·散裝；匯率 → 出口電子；費半與美系同業財報 → 台系供應鏈。
+   若判斷用到這類傳導，**必須在「連動」欄寫出路徑**（誰的什麼事 → 影響什麼 →
+   為何影響到這一檔），並註明這是**推論**不是已確認事實；推論性的連動信心最高給「中」。
+8. **當前市場主旋律要特別敏感**：戰爭與地緣衝突、石油與油價、美國通膨與利率、
+   AI 與算力、半導體與先進封裝、光通訊(CPO/矽光子)、記憶體、電力與電網、機器人、
+   無人機、太空與低軌衛星；關鍵人物：川普、馬斯克、黃仁勳、蘇姿丰、鮑爾。
+   新聞若牽涉這些，請**明確判斷它對這一檔是利多還是利空**，不要因為是宏觀題材
+   就含糊帶過。⚠ 但**命中關鍵字不等於利多**——同一件事對不同產業方向相反
+   （例：戰爭推升運價利多航運、卻壓抑觀光；油價上漲利多油氣、卻墊高塑化成本）。
+   方向必須從**內文**讀出來，讀不出來就判中性。
+9. **連動要正確，不可硬扯**（這條優先於第 7、8 點）：
+   · 傳導路徑必須與上面「官方產業別」相容。產業別對不上就不要編一條鏈出來，
+   寧可寫「無」——錯的連動比沒有連動更糟，它會讓人以為有根據。
+   · 路徑要寫清楚**這一檔在鏈上的位置**（上游材料／中游製造／下游應用／設備商），
+   不能只寫「受惠 AI 需求」這種對半導體全體都成立的話。
+   · 新聞裡沒提到這家公司卻要主張連動時，必須在「連動」欄開頭寫「推論：」，
+   且信心最高只能給「低」。
+
+國際盤昨夜：${gLine || '（無資料）'}
+${stale ? `\n⚠ **注意時效**：近 2 日查無新聞，以下是**${ageDays} 天前**的較舊報導。舊消息多半已被股價反映，除非是尚未兌現的重大事件，否則信心最高只能給「低」，並在風險欄註明消息已隔 ${ageDays} 天。\n` : ''}
+${evLine ? `\n**已排定事件**（來自交易所行事曆，非傳聞）：${evLine}\n法說會/業績發表會當日或隔日開盤前，市場常對其內容反應；但**內容未知時不可預設為利多**，請判為中性並在風險欄註明「法說內容未知」。\n` : ''}
+${body || '（近 2 日無實質新聞）'}
+
+請用**繁體中文**依此格式回答，不要多餘文字：
+判別: 利多/利空/中性
+信心: 高/中/低
+理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
+連動: （一句話，60 字內，國際局勢或產業鏈的傳導路徑；沒有用到寫「無」）
+風險: （一句話，50 字內，指出這個判斷最大的不確定性；無明顯風險寫「無」）`;
+    const ans = await askOllama(prompt, { priority: 1 });
+    if (ans) {
+      const mv = ans.match(/判別\s*[:：]\s*(利多|利空|中性)/);
+      const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
+      const mr = ans.match(/理由\s*[:：]\s*(.+)/);
+      const mk = ans.match(/風險\s*[:：]\s*(.+)/);
+      const ml = ans.match(/連動\s*[:：]\s*(.+)/);
+      const label = mv ? mv[1] : '中性';
+      verdict = {
+        label, bullish: label === '利多',
+        // ⚠ 時效上限用**程式強制**，不能只寫在 prompt 裡：本地模型不一定照做
+        //   （2026-08-28 實測：精材拿 13.6 天前的舊聞卻給「高」信心，而 prompt
+        //   明寫「舊聞信心最高只能給低」）。規則要能被違反就等於沒有規則。
+        confidence: stale ? '低' : (mc ? mc[1] : '低'),
+        reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
+        risk: stale
+          ? `消息已隔 ${ageDays} 天，多半已反映在股價${mk ? `；${mk[1].trim().slice(0, 44)}` : ''}`
+          : (mk ? mk[1].trim().slice(0, 70) : null),
+        // 本地模型會吐 LaTeX（實測 `$\rightarrow$`），顯示前正規化成箭頭
+        chain: ml && !/^無$/.test(ml[1].trim())
+          ? ml[1].trim().replace(/\$?\\(?:rightarrow|to|Rightarrow)\$?/g, '→').replace(/\s*->\s*/g, ' → ').replace(/\s+/g, ' ').slice(0, 80)
+          : null,   // 國際局勢／產業鏈傳導路徑
+        basis, n: recent.length, nMaterial: material.length,
+        stale, ageDays,
+      };
+    } else {
+      verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
+    }
+  }
+  return { verdict, events, stale, ageDays, recent, material, withBody };
+}
+
+// 新聞判別的共用背景：國際盤、事件日曆、官方產業別。
+// 抽出來的理由同 judgeOneStock——複製第二份必然漂移。
+// wantDates：要納入事件日曆的日子（通常是「資料日」與「適用交易日」）。
+async function newsJudgeContext(wantDates = []) {
+  let gToday = {};
+  try {
+    const g = (await db.collection('squeezeTraining').doc('global').get()).data();
+    const hist = g?.histJson ? JSON.parse(g.histJson) : {};
+    for (const k in hist) { const ds = Object.keys(hist[k]).sort(); const d2 = ds[ds.length - 1]; if (d2) gToday[k] = hist[k][d2]; }
+  } catch { /* 缺國際盤只影響背景說明 */ }
+  const gLine = ['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
+    .filter(k => gToday[k]).map(k => `${k} ${gToday[k].chg >= 0 ? '+' : ''}${gToday[k].chg}%`).join('、');
+
+  let calMap = {};
+  try {
+    const cal = (await db.collection('catalystCalendar').doc('latest').get()).data();
+    const want = new Set(wantDates.filter(Boolean));
+    for (const e of (cal?.events || [])) {
+      if (!e.code || !want.has(e.date)) continue;
+      (calMap[e.code] ||= []).push({ date: e.date, title: e.title, type: e.type, impact: e.impact });
+    }
+  } catch { /* 缺日曆不擋 */ }
+
+  let indMap = {};
+  try { indMap = await getIndustryMap(); } catch { /* 沒有產業別只是少一個錨 */ }
+
+  return { gToday, gLine, calMap, indMap };
+}
+
+// ── 漲停預測的新聞判別（2026-08-28）──────────────────────────────────
+// 為什麼做這個：漲停預測是站上唯一**沒有**新聞 AI 識讀的預測線。同日的實驗
+// 證明了純籌碼＋動能的重新工程化拿不到任何增益（候選模型 vs 線上模型
+// 31 日對決 107/930 vs 107/930，差距 0.00pp）——線上模型已經把那類資訊用盡。
+// ⇒ 剩下唯一沒被利用的資訊就是新聞內容，這是最後一個可測的槓桿。
+//
+// ⚠ **不宣稱它會有效**。軋空那邊的證據是：只憑標題的判別與結果反向；讀完
+//   內文的版本從 08-27 才開始累積，newsLift 目前 n=3 完全不能下結論。
+//   正確做法是先接上、逐日存檔、由檢討報表算 newsLift 對答案，累積數週再說。
+async function computeLimitUpNewsVerdict() {
+  const fc = (await db.collection('limitUpForecast').doc('latest').get()).data();
+  const list = (fc?.aList || []).slice(0, 20);
+  if (!list.length) { log('  ⚠ 漲停新聞判別：無候選'); return; }
+  const targetDate = fc.dataDate ? nextTradingDay(fc.dataDate) : null;
+
+  const ctx = await newsJudgeContext([fc.dataDate, targetDate]);
+  const out = [];
+  for (const it of list) {
+    const { verdict, events, stale, ageDays, recent, material, withBody } = await judgeOneStock(it, ctx);
+    out.push({
+      code: it.code, name: it.name, price: it.price, chg: it.chg,
+      score: it.score, reasons: it.reasons, volX: it.volX, luCnt5: it.luCnt5,
+      events,
+      news: {
+        stale, ageDays,
+        checked: recent.length, material: material.length, priceOnly: recent.length - material.length,
+        basis: verdict.basis,
+        top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at, from: n.bodyFrom || n.src || '', generic: !!n.bodyGeneric })),
+      },
+      verdict,
+      primary: verdict.bullish && verdict.confidence !== '低' && !stale,
+    });
+    await sleep(600);
+  }
+  const doc = {
+    updatedAt: Date.now(),
+    dataDate: fc.dataDate ?? null,
+    targetDate,                                  // 這份判別是給哪一個交易日用的
+    global: ctx.gToday,
+    items: out,
+    primaryCount: out.filter(x => x.primary).length,
+    withContent: out.filter(x => x.verdict?.basis === 'content').length,
+    note: '漲停預測的新聞判別。與軋空判別共用同一套規則（讀完內文、產業鏈連動、'
+        + '主旋律敏感度、舊聞信心上限、無內文不判多空）。**尚未證明能提升命中率**，'
+        + 'newsLift 需累積數週才有結論；在那之前不應據此加權。',
+  };
+  await db.collection('limitUpRecommend').doc('latest').set(doc);
+  // 手動重跑不得覆蓋當日存檔（同 squeezeRec：日期檔是對答案用的事前判別）
+  if (targetDate && !ONESHOT) await db.collection('limitUpRecommend').doc(targetDate).set(doc);
+  else if (targetDate) log(`  · 手動執行：只更新 latest，不覆蓋 ${targetDate} 的事前判別存檔`);
+  log(`✓ 漲停新聞判別（適用 ${targetDate ?? '?'}）：${out.length} 檔，讀到內文 ${doc.withContent} 檔，主力推薦 ${doc.primaryCount} 檔`);
+}
+
 async function computeSqueezeNewsVerdict() {
   const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
   if (!picks?.items?.length) { log('  ⚠ 新聞判別：無候選'); return; }
@@ -4395,178 +4658,10 @@ async function computeSqueezeNewsVerdict() {
   let indMap = {};
   try { indMap = await getIndustryMap(); } catch { /* 沒有產業別只是少一個錨，不擋 */ }
 
+
   for (const it of picks.items.slice(0, 12)) {
-    const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
-    const news = await fetchStockNewsMulti(kw, it.code);
-    // ⚠ 新聞視窗要跨過**非交易日**（使用者指示 2026-08-28）：
-    //   固定 48 小時在週一早上只涵蓋「週六 08:00 ~ 週一 08:00」——**週四、
-    //   週五的新聞整批漏掉**，而那正是企業發佈消息最密集的兩天。連假更慘。
-    //   ⇒ 改成回溯到「前兩個**交易日**的起點」，中間的週末與假日自動被包進來：
-    //     週一 → 從上週四 00:00 起算（涵蓋 四/五/六/日）；
-    //     一般日 → 從前天 00:00 起算，與原本的 2 日相當。
-    const now = Date.now();
-    const _winStart = (() => {
-      const tw2 = taipei();
-      const back = prevTradingIsos(isoDate(tw2), 3);      // [今日, 前一交易日, 前兩交易日]
-      const from = back[2] || back[1] || back[0];
-      const [yy, mm, dd] = from.split('-').map(Number);
-      // 以台北 00:00 為界；轉成毫秒時扣掉 +08:00 時差
-      return Date.UTC(yy, mm - 1, dd) - 8 * 3600000;
-    })();
-    const TWO_D = Math.max(2 * 86400000, now - _winStart);
-    const MAX_BACK = 14 * 86400000;
-    let recent = news.filter(n => n.at && now - n.at <= TWO_D);
-    // ── 找不到近 2 日就回退到「最近最新的」（使用者 2026-08-26 指定）────────
-    //   空手判「資訊不足」對使用者沒有幫助；有舊資料總比沒有好。
-    //   但**時效必須誠實標示並降低權重**：6 天前的法說預告與今天的接單公告，
-    //   對隔日開盤的意義完全不同。回退上限 14 天，超過就真的當沒有。
-    let stale = false, ageDays = null;
-    // ⚠ 回退條件不能只看「近兩日完全沒新聞」（2026-08-28 實測抓到）：
-    //   信昌電近兩日有 7 則 Google News **標題**，所以 recent 非空，於是 14 日內
-    //   那幾則**有內文**的經濟日報報導（9 天前）永遠不會被拉進來，最後落到
-    //   「資訊不足」——但我們手上其實是有內容的，這正是使用者說的「不可用
-    //   無法取得內文來塞」。
-    //   ⇒ 改成：近兩日**沒有任何含內文的實質報導**時，就把 14 日內有內文的
-    //     補進來並標記 stale（prompt 已有時效警語與信心上限）。
-    const hasRecentBody = recent.some(n => n.hasBody && !MACHINE_NEWS.test(n.title));
-    if (recent.length === 0 || !hasRecentBody) {
-      const older = news
-        .filter(n => n.at && now - n.at <= MAX_BACK && (recent.length === 0 || (n.hasBody && !MACHINE_NEWS.test(n.title))))
-        .sort((a, b) => b.at - a.at);
-      if (older.length) {
-        recent = recent.length === 0 ? older.slice(0, 6) : [...recent, ...older.slice(0, 3)];
-        stale = true;
-        ageDays = +((now - older[0].at) / 86400000).toFixed(1);
-      }
-    }
-    // 只剔機器速報；其餘（含帶「漲停」字眼但可能有題材的）都送 AI 判斷
-    const material = recent.filter(n => !MACHINE_NEWS.test(n.title));
-    const withBody = material.filter(n => n.hasBody);
-
-    const events = calMap[it.code] || [];
-    const evLine = events.length
-      ? events.map(e => `${e.date} ${e.title}${e.impact === 'H' ? '（高影響）' : ''}`).join('；')
-      : '';
-    let verdict = events.length
-      ? { label: '中性', bullish: false, confidence: '低', reason: `近 2 日無實質新聞，但有已排定事件：${evLine}`, basis: 'event', n: recent.length }
-      : { label: '資訊不足', bullish: false, reason: `近 14 日查無實質新聞，亦無已排定事件`, basis: 'none', n: recent.length };
-    // ⚠ 沒有內文就**不下多空判斷**（使用者指示 2026-08-27）：
-    //   實測 08-27 開盤前 12 檔，11 檔 basis=title。判「利多」的 3 檔當日
-    //   0/3 漲≥5%、平均 +1.45%；反而判「中性」的前鼎 +9.83%、力旺 +9.96%、
-    //   聯一光 +10.00%——只憑標題的判別**與結果反向**，輸出它比不輸出更糟，
-    //   還會讓使用者以為系統讀過新聞。標題照樣列給使用者自己看，但 label
-    //   一律「資訊不足」，不主張多空。有排定事件時仍走 AI（basis=event）。
-    // ⚠ 不可加 `&& !events.length`：實測凱美(2375) 有排定事件就繞過這道閘門，
-    //   結果 basis=title 卻judged「利多/高」——正是這條規則要擋的東西。
-    //   事件本身在 UI 另有「📅 已排定事件」欄位，不會因此消失。
-    if (material.length && !withBody.length) {
-      // ⚠ 理由要說**真正的原因**。抓到內文但因為太舊被時效過濾掉，卻寫成
-      //   「取不到內文」是在說謊——2026-08-28 實測：日誌明明記著「內文 3 則
-      //   （經濟日報）」，判別卻宣稱取不到。分成兩種情況據實描述。
-      const oldBodies = news.filter(n2 => n2.hasBody && !MACHINE_NEWS.test(n2.title) && n2.at);
-      const newestOld = oldBodies.length ? Math.max(...oldBodies.map(n2 => n2.at)) : 0;
-      const oldDays = newestOld ? Math.round((now - newestOld) / 86400000) : 0;
-      verdict = {
-        label: '資訊不足', bullish: false, confidence: '低',
-        reason: newestOld
-          ? `有 ${oldBodies.length} 則含內文的報導，但最新一則已是 ${oldDays} 天前（超過 14 日時效上限），不足以支撐隔日判斷；近兩日只有 ${material.length} 則標題級新聞`
-          : `找到 ${material.length} 則相關新聞，優先來源（經濟日報/工商時報）與輔助來源都取不到內文，依規定不做多空判斷（標題列於下方供自行研判）`,
-        basis: 'title', n: recent.length, nMaterial: material.length, stale, ageDays,
-        staleBodyDays: oldDays || null,
-      };
-    } else if (material.length || events.length) {
-      const basis = withBody.length ? 'content' : (material.length ? 'title' : 'event');
-      // 選稿也要有敏感度（使用者指定 2026-08-28）：同樣是 5 則，優先餵命中
-      // 當前市場主旋律的那幾則——AI 只讀 4 則，挑錯就等於沒讀到關鍵新聞。
-      const pool = (withBody.length ? withBody : material);
-      const src = pool.slice().sort((a, b) =>
-        hotHits(`${b.title} ${b.content || ''}`).length - hotHits(`${a.title} ${a.content || ''}`).length
-      ).slice(0, 4);
-      // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
-      const body = src.map((n, i) => {
-        const hot = hotHits(`${n.title} ${n.content || ''}`);
-        const from = n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : '';
-        return `【新聞${i + 1}】${n.title}${from}${hot.length ? `\n〔命中主旋律：${hot.join('、')}〕` : ''}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`;
-      }).join('\n\n');
-      // 「本檔有沒有真的被寫到」是正確性的第一道關卡：只在標題出現、內文
-      // 通篇在講別家公司的，多半是順帶提及，不足以支撐多空判斷。
-      const mentions = src.reduce((n2, x) => n2 + ((`${x.title} ${x.content || ''}`).split(it.name).length - 1), 0);
-      const indName = indMap[it.code] || '';
-      const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
-
-【已知事實（請以此為錨，不要臆測這家公司做什麼）】
-· ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
-· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
-
-嚴格規則：
-1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
-2. 只有會改變公司價值或營運預期的事才算利多：接單、擴產、漲價、認證、法說釋出優於預期、併購、得標、新產品量產、外資調升目標價等。
-3. 若新聞只是重複報導股價表現、或內容與該公司無關，請判為「中性」。
-4. **區分「已確認事實」與「傳聞/市場預期/可能」**：若題材只是「有可能」「市場預期」
-   「送樣認證中」，信心最高只能給「中」，並在風險欄指出不確定性與量產時程。
-5. 標題同時有行情字眼（漲停、爆量）與題材字眼（供應鏈、認證、訂單）時，
-   請看**題材**判斷，不要因為有行情字眼就判中性。
-6. 不確定就判「中性」，不要為了給答案而美化。
-7. **要考慮國際局勢與產業鏈上下游連動**，不要只看這家公司自己的消息。例如：產油國
-   增減產 → 油價 → 航運與石化同步受影響；記憶體/晶圓報價 → IC 設計·封測·設備；
-   運價 → 貨櫃·散裝；匯率 → 出口電子；費半與美系同業財報 → 台系供應鏈。
-   若判斷用到這類傳導，**必須在「連動」欄寫出路徑**（誰的什麼事 → 影響什麼 →
-   為何影響到這一檔），並註明這是**推論**不是已確認事實；推論性的連動信心最高給「中」。
-8. **當前市場主旋律要特別敏感**：戰爭與地緣衝突、石油與油價、美國通膨與利率、
-   AI 與算力、半導體與先進封裝、光通訊(CPO/矽光子)、記憶體、電力與電網、機器人、
-   無人機、太空與低軌衛星；關鍵人物：川普、馬斯克、黃仁勳、蘇姿丰、鮑爾。
-   新聞若牽涉這些，請**明確判斷它對這一檔是利多還是利空**，不要因為是宏觀題材
-   就含糊帶過。⚠ 但**命中關鍵字不等於利多**——同一件事對不同產業方向相反
-   （例：戰爭推升運價利多航運、卻壓抑觀光；油價上漲利多油氣、卻墊高塑化成本）。
-   方向必須從**內文**讀出來，讀不出來就判中性。
-9. **連動要正確，不可硬扯**（這條優先於第 7、8 點）：
-   · 傳導路徑必須與上面「官方產業別」相容。產業別對不上就不要編一條鏈出來，
-     寧可寫「無」——錯的連動比沒有連動更糟，它會讓人以為有根據。
-   · 路徑要寫清楚**這一檔在鏈上的位置**（上游材料／中游製造／下游應用／設備商），
-     不能只寫「受惠 AI 需求」這種對半導體全體都成立的話。
-   · 新聞裡沒提到這家公司卻要主張連動時，必須在「連動」欄開頭寫「推論：」，
-     且信心最高只能給「低」。
-
-國際盤昨夜：${gLine || '（無資料）'}
-${stale ? `\n⚠ **注意時效**：近 2 日查無新聞，以下是**${ageDays} 天前**的較舊報導。舊消息多半已被股價反映，除非是尚未兌現的重大事件，否則信心最高只能給「低」，並在風險欄註明消息已隔 ${ageDays} 天。\n` : ''}
-${evLine ? `\n**已排定事件**（來自交易所行事曆，非傳聞）：${evLine}\n法說會/業績發表會當日或隔日開盤前，市場常對其內容反應；但**內容未知時不可預設為利多**，請判為中性並在風險欄註明「法說內容未知」。\n` : ''}
-${body || '（近 2 日無實質新聞）'}
-
-請用**繁體中文**依此格式回答，不要多餘文字：
-判別: 利多/利空/中性
-信心: 高/中/低
-理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
-連動: （一句話，60 字內，國際局勢或產業鏈的傳導路徑；沒有用到寫「無」）
-風險: （一句話，50 字內，指出這個判斷最大的不確定性；無明顯風險寫「無」）`;
-      const ans = await askOllama(prompt, { priority: 1 });
-      if (ans) {
-        const mv = ans.match(/判別\s*[:：]\s*(利多|利空|中性)/);
-        const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
-        const mr = ans.match(/理由\s*[:：]\s*(.+)/);
-        const mk = ans.match(/風險\s*[:：]\s*(.+)/);
-        const ml = ans.match(/連動\s*[:：]\s*(.+)/);
-        const label = mv ? mv[1] : '中性';
-        verdict = {
-          label, bullish: label === '利多',
-          // ⚠ 時效上限用**程式強制**，不能只寫在 prompt 裡：本地模型不一定照做
-          //   （2026-08-28 實測：精材拿 13.6 天前的舊聞卻給「高」信心，而 prompt
-          //   明寫「舊聞信心最高只能給低」）。規則要能被違反就等於沒有規則。
-          confidence: stale ? '低' : (mc ? mc[1] : '低'),
-          reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
-          risk: stale
-            ? `消息已隔 ${ageDays} 天，多半已反映在股價${mk ? `；${mk[1].trim().slice(0, 44)}` : ''}`
-            : (mk ? mk[1].trim().slice(0, 70) : null),
-          // 本地模型會吐 LaTeX（實測 `$\rightarrow$`），顯示前正規化成箭頭
-          chain: ml && !/^無$/.test(ml[1].trim())
-            ? ml[1].trim().replace(/\$?\\(?:rightarrow|to|Rightarrow)\$?/g, '→').replace(/\s*->\s*/g, ' → ').replace(/\s+/g, ' ').slice(0, 80)
-            : null,   // 國際局勢／產業鏈傳導路徑
-          basis, n: recent.length, nMaterial: material.length,
-          stale, ageDays,
-        };
-      } else {
-        verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
-      }
-    }
+    const { verdict, events, stale, ageDays, recent, material, withBody } =
+      await judgeOneStock(it, { calMap, gLine, indMap });
     out.push({
       ...it,
       events,
@@ -10016,11 +10111,32 @@ async function computeLimitUpForecast() {
         // 漏網原因統計（模型改進的依據）
         const missTally = {};
         for (const m of missed) { const k = m.tag.replace(/\(.*\)/, ''); missTally[k] = (missTally[k] || 0) + 1; }
+        // ── 新聞判別加值（2026-08-28 接上）──────────────────────────
+        // 漲停預測是站上最後一條沒有新聞 AI 的預測線。同日的正面對決證明
+        // 純籌碼＋動能已無增益（107/930 vs 107/930），所以新聞是唯一剩下的
+        // 槓桿——但**是不是真的有用，只能靠這個數字回答**。
+        // 沒有存檔就是 null，不為了有數字而假造（同 squeezeReview 的規矩）。
+        let newsLift = null;
+        try {
+          const rec = (await db.collection('limitUpRecommend').doc(dataDate).get()).data();
+          if (rec?.items?.length) {
+            const byCode = {};
+            for (const x of rec.items) byCode[x.code] = x.verdict?.label ?? null;
+            const grp = { 利多: [], 中性: [], 資訊不足: [], 利空: [] };
+            for (const c of pd.codes) { const lb = byCode[c]; if (lb && grp[lb]) grp[lb].push(actual.has(c) ? 1 : 0); }
+            const g = k => grp[k].length
+              ? { n: grp[k].length, hitRate: +(grp[k].reduce((a, b) => a + b, 0) / grp[k].length * 100).toFixed(1) }
+              : { n: 0 };
+            newsLift = { bull: g('利多'), neutral: g('中性'), none: g('資訊不足'), bear: g('利空') };
+          }
+        } catch { /* 無存檔就是 null */ }
+
         const review = {
           date: dataDate, predDate: pd.dataDate, at: Date.now(),
           hit10: hit(10), hit30: hit(30), actualLU: actual.size,
           hits: pd.codes.filter(c => actual.has(c)).map(c => ({ code: c, name: nameOfQ(c) })),
           failed, missed: missed.sort((a, b) => (b.lu60 || 0) - (a.lu60 || 0)).slice(0, 40), missTally,
+          newsLift,
         };
         await db.collection('limitUpForecast').doc(`review-${dataDate}`).set(review);
         scoreboard.lastReview = review;
@@ -10992,6 +11108,10 @@ async function dailyJobsLoop() {
         // 同上：成功才標記。失敗時 08:00~09:00 這個窗內還會再試。
         try { await computeSqueezeNewsVerdict(); _sqRecDate = today; }
         catch (e) { log('✖ 軋空新聞判別（窗內將重試）:', (e.message || '').slice(0, 60)); }
+        // 漲停預測的新聞判別接在後面（共用同一套抓取與判別，成本同量級）。
+        // 分開 try：軋空那條失敗不該連帶讓漲停這條也沒有。
+        try { await computeLimitUpNewsVerdict(); }
+        catch (e) { log('✖ 漲停新聞判別:', (e.message || '').slice(0, 60)); }
       }
       // 國際盤歷史每日更新（06:00：美股前一夜 04:00 已收，資料齊全）
       if (mins >= 6 * 60 && _globalHistDate !== today) {
@@ -11479,7 +11599,8 @@ if (ONESHOT) {
     squeezeReview: () => computeSqueezeReview({ backfillDays: Number(process.argv[process.argv.indexOf('--run') + 2] || 60) }),
     squeezeTraining: () => recordSqueezeTraining(),   // 手動補當日訓練資料
     globalHist: () => updateGlobalHistory(),          // 手動更新國際盤歷史
-    squeezeRec: () => computeSqueezeNewsVerdict(),    // 手動產出新聞判別(讀內文+AI)
+    squeezeRec: () => computeSqueezeNewsVerdict(),
+    limitUpRec: () => computeLimitUpNewsVerdict(),   // 漲停預測的新聞判別    // 手動產出新聞判別(讀內文+AI)
     revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
