@@ -4398,7 +4398,23 @@ async function computeSqueezeNewsVerdict() {
   for (const it of picks.items.slice(0, 12)) {
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
     const news = await fetchStockNewsMulti(kw, it.code);
-    const now = Date.now(), TWO_D = 2 * 86400000, MAX_BACK = 14 * 86400000;
+    // ⚠ 新聞視窗要跨過**非交易日**（使用者指示 2026-08-28）：
+    //   固定 48 小時在週一早上只涵蓋「週六 08:00 ~ 週一 08:00」——**週四、
+    //   週五的新聞整批漏掉**，而那正是企業發佈消息最密集的兩天。連假更慘。
+    //   ⇒ 改成回溯到「前兩個**交易日**的起點」，中間的週末與假日自動被包進來：
+    //     週一 → 從上週四 00:00 起算（涵蓋 四/五/六/日）；
+    //     一般日 → 從前天 00:00 起算，與原本的 2 日相當。
+    const now = Date.now();
+    const _winStart = (() => {
+      const tw2 = taipei();
+      const back = prevTradingIsos(isoDate(tw2), 3);      // [今日, 前一交易日, 前兩交易日]
+      const from = back[2] || back[1] || back[0];
+      const [yy, mm, dd] = from.split('-').map(Number);
+      // 以台北 00:00 為界；轉成毫秒時扣掉 +08:00 時差
+      return Date.UTC(yy, mm - 1, dd) - 8 * 3600000;
+    })();
+    const TWO_D = Math.max(2 * 86400000, now - _winStart);
+    const MAX_BACK = 14 * 86400000;
     let recent = news.filter(n => n.at && now - n.at <= TWO_D);
     // ── 找不到近 2 日就回退到「最近最新的」（使用者 2026-08-26 指定）────────
     //   空手判「資訊不足」對使用者沒有幫助；有舊資料總比沒有好。
