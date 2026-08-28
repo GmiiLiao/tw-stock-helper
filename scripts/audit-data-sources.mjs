@@ -191,7 +191,9 @@ const FRESH_PROBES = [
   // forward：「當日可借券」公布的是**下一個交易時段**的額度，傍晚就滾動 ——
   //          資料日 >= 最近交易日即為健康，用 === 會每晚誤報。
   { name: '借券(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?date=${d}&response=json`,                  from: 'title', mode: 'forward' },
-  { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field', publishHour: 15 },
+  // publishHour 15 太緊（2026-08-28 15:00 實測仍未發布）：T86 實際落在 15:00~16:00，
+  // 設在邊界等於每天有一段必紅。自家的官方補抓也是排 16:30，改 16 與之一致。
+  { name: '法人T86(rwd)',  url: d => `https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=${d}&selectType=ALL`,               from: 'field', publishHour: 16 },
   { name: '指數(rwd)',     url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`,        from: 'field' },
   // ⚠ BWIBBU_ALL 的 rwd：**讀 date 欄，不要讀 title**（2026-08-11 實證，過程記錄如下）。
   //   這支端點有兩個怪癖，兩個都會誤導人：
@@ -414,9 +416,20 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
       }
     }
 
+    // ⚠ 筆數閘門也要看發布時刻：dated 類的當日文件是**分批長出來的**
+    //   （15:10 上市收盤、16:45 上櫃併入、21:45 資券）。14:57 去看 chipArchive
+    //   只有上市那半 1,091 檔 ⇒ 每天下午都會報 THIN，又是一個常態假警報。
+    //   當日文件尚未完成時只記事實、不判 THIN；隔天它還是不足才算異常。
+    const _tN = taipeiNow();
+    const _pubH = spec.publishHour != null ? spec.publishHour : (spec.session === 'daily' ? 15.5 : null);
+    const _partialToday = _pubH != null && out.dataDate === isoOf(_tN)
+      && (_tN.getHours() + _tN.getMinutes() / 60) < _pubH;
     if (spec.minRecords != null && out.records != null && out.records < spec.minRecords) {
-      out.status = out.status === 'OK' ? 'THIN' : out.status;
-      out.notes.push(`筆數 ${out.records} < 下限 ${spec.minRecords}`);
+      if (_partialToday) out.notes.push(`當日文件尚在寫入（${out.records} 筆，${_pubH}:00 後才完整）`);
+      else {
+        out.status = out.status === 'OK' ? 'THIN' : out.status;
+        out.notes.push(`筆數 ${out.records} < 下限 ${spec.minRecords}`);
+      }
     }
     if (out.records === 0 && !spec.allowEmpty) { out.status = 'EMPTY'; out.notes.push('筆數 0'); }
     // ── 第四道：市場組成 ────────────────────────────────────────────────
@@ -449,14 +462,22 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
       //   8 天沒人察覺，正是被自己的常態紅燈蓋過去。公布時刻前把期待值退一個
       //   交易日，紅燈才重新有訊息量。同一招 probeFresh 已經在用（publishHour）。
       const tNow = taipeiNow();
-      const beforePub = spec.publishHour != null && ltd === isoOf(tNow)
-        && (tNow.getHours() + tNow.getMinutes() / 60) < spec.publishHour;
+      // session:'daily' 的定義就是「每日**收盤後**更新」，而自家的每日歸檔跑在
+      // 15:10（官方補抓 16:30、資券 21:45）。所以 13:30 收盤到 15:10 之間，
+      // 這些來源**理應**還是昨天的——那不是故障。
+      // 不給預設值的話，每天這 100 分鐘手動跑稽核會看到十幾個假警報
+      // （2026-08-28 14:57 實測：14 個異常，全部是「資料日昨天 < 期待今天」），
+      // 而假警報會訓練人忽略紅燈——dayTradeRatio 斷 8 天就是這樣被蓋住的。
+      // 晚於 15:30 才發布的來源（當沖統計 21、資券 22）自己覆寫這個預設。
+      const pubHour = spec.publishHour != null ? spec.publishHour : (spec.session === 'daily' ? 15.5 : null);
+      const beforePub = pubHour != null && ltd === isoOf(tNow)
+        && (tNow.getHours() + tNow.getMinutes() / 60) < pubHour;
       const expect = beforePub ? prevTradingDay(ltd) : ltd;
       if (out.dataDate < expect) {
         out.status = 'DATE_DRIFT';
-        out.notes.push(`資料日 ${out.dataDate} < 期待 ${expect}${beforePub ? `（${spec.publishHour}:00 前以前一交易日為準）` : ''}`);
+        out.notes.push(`資料日 ${out.dataDate} < 期待 ${expect}${beforePub ? `（${pubHour}:00 前以前一交易日為準）` : ''}`);
       } else if (beforePub) {
-        out.notes.push(`今日 ${spec.publishHour}:00 後才公布，現以 ${expect} 為準`);
+        out.notes.push(`今日 ${pubHour}:00 後才公布，現以 ${expect} 為準`);
       }
     }
     if (!out.dataDate && spec.session === 'daily') out.notes.push('無資料日欄位（無法偵測日期漂移）');
@@ -474,7 +495,9 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
 //   稽核全程顯示 ✅——**資料源在契約表裡不等於它受保護，受保護的只有你真的去數的那個欄位**。
 // 每個欄位另帶 publishHour（收盤後才出）與 sample（必須存在的代表股，用來抓「只有半個市場」）。
 const ARCHIVE_FIELDS = [
-  { f: 'closeJson',    label: '收盤',  min: 1500, publishHour: 14.5 },
+  // ⚠ 14.5 太早（2026-08-28 更正）：15:10 只寫上市，**上櫃要 16:45 才併入**
+  //   ⇒ 14:30~16:45 之間一定只有 1,0xx 檔，每天報 THIN。改 17。
+  { f: 'closeJson',    label: '收盤',  min: 1500, publishHour: 17 },
   { f: 'instJson',     label: '法人',  min: 1500, publishHour: 15.5, sample: ['2330', '6274'] },  // 上市+上櫃各一
   { f: 'marginJson',   label: '資券',  min: 1500, publishHour: 21.5, sample: ['2330', '6274'] },
   { f: 'lendingJson',  label: '借券',  min: 1000, publishHour: 21.5 },
