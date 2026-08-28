@@ -4970,10 +4970,31 @@ async function computeSqueezeReview({ backfillDays = 0 } = {}) {
       return { bull: f(acc.bull), neutral: f(acc.neutral), none: f(acc.none), bear: f(acc.bear) };
     })(),
     daysWithNews: reviews.filter(r => r.newsLift).length,
+    // ── 漏網特徵分佈（使用者要求「需記錄」·2026-08-28）────────────────
+    // 原本漏網只逐日存 missTop，沒有累積視角，於是「是不是有沒察覺到的觸發
+    // 條件」只能靠翻每天的報表用肉眼找。這裡把漏網依特徵分桶累積起來。
+    // ⚠ 這是**觀察用的描述統計，不是結論**。要判斷某個桶值不值得成為新規則，
+    //   一律回去跑 scripts/squeeze-gate-lab.mjs（372 日 OOT ＋ 安慰劑）。
+    //   2026-08-28 已測過一輪：放寬漲幅明確有害、放寬融券日增幾乎是平的、
+    //   五個隔離組單獨成線全部不成立（最像「軋空前夜」的 X2b 樣本外是負的）。
+    missPatterns: (() => {
+      const all = reviews.flatMap(r => r.missTop || []);
+      const bucket = (label, f) => { const g = all.filter(f); return { label, n: g.length, avgRet: g.length ? +(g.reduce((a, b) => a + (b.ret || 0), 0) / g.length).toFixed(2) : null }; };
+      return {
+        total: all.length,
+        byRatio: [bucket('券資比 5~10%', x => x.ratio >= 5 && x.ratio < 10), bucket('10~20%', x => x.ratio >= 10 && x.ratio < 20), bucket('20~30%', x => x.ratio >= 20 && x.ratio < 30), bucket('≥30%', x => x.ratio >= 30)],
+        byShrt: [bucket('融券日增 >0', x => x.shrtChg > 0), bucket('=0', x => x.shrtChg === 0), bucket('<0（空單回補）', x => x.shrtChg < 0)],
+        byChg: [bucket('當日漲 <0%', x => x.chg < 0), bucket('0~3%', x => x.chg >= 0 && x.chg < 3), bucket('3~5%', x => x.chg >= 3 && x.chg < 5), bucket('≥5%', x => x.chg >= 5)],
+        note: '描述統計，供觀察；要改規則請跑 squeeze-gate-lab（OOT＋安慰劑）',
+      };
+    })(),
     note: '命中率＝推薦的隔日開盤上漲比例。召回率(母體B)＝「隔日開盤≥+3% 且券資比≥5%(有空單可軋)」中被抓到的比例——這才是本策略該負責的範圍。recallAll(母體A)＝對全部跳空機會的涵蓋率，本來就會低，因為多數跳空與軋空無關。隔日勝率 9 成不可能（最強催化劑代理實測僅 62~64%），可追求 9 成的是召回率。',
   };
   await db.collection('squeezeReview').doc('summary').set(summary);
   log(`✓ 軋空檢討 ${reviews.length} 日：命中率 ${summary.precision}%｜召回率 ${summary.recall}%｜漏網 ${summary.totalMissed} 檔`);
+  { const mp = summary.missPatterns;
+    const top = a => a.filter(x => x.n).sort((x, y) => y.n - x.n).slice(0, 2).map(x => `${x.label}×${x.n}`).join('、');
+    if (mp.total) log(`   漏網分佈：券資比[${top(mp.byRatio)}]｜融券[${top(mp.byShrt)}]｜漲幅[${top(mp.byChg)}]`); }
   log(`   漏網主因：${Object.entries(summary.whyAgg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}=${v}`).join('、')}`);
   return summary;
 }
