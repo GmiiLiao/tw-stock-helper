@@ -4696,6 +4696,7 @@ const NEWS_SWEEP_FEEDS = [
   ['財政部',   null],
   ['經濟部',   null],
 ];
+const NEWS_SWEEP_MAX_AGE_MS = 4 * 86400000;   // 4 天：足以跨過週末
 const NEWS_SWEEP_SITE = { 工商時報: 'ctee.com.tw', MoneyDJ: 'moneydj.com', 財政部: 'mof.gov.tw', 經濟部: 'moea.gov.tw' };
 
 // 來源名會被誤認成股票（實測「工商時報」→ 認出「時報」）⇒ 比對前先剝掉尾巴
@@ -4713,6 +4714,8 @@ const NAME_TRAP_PREFIX = '東西南北中大小新舊上下前後內外全泛環
 async function sweepNewsSources() {
   const out = [];
   const seen = new Set();
+  const now = Date.now();
+  let dropOld = 0, dropNoDate = 0;
   await Promise.all(NEWS_SWEEP_FEEDS.map(async ([src, url]) => {
     const u = url || `https://news.google.com/rss/search?q=${encodeURIComponent('site:' + NEWS_SWEEP_SITE[src])}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
     try {
@@ -4730,10 +4733,20 @@ async function sweepNewsSources() {
         if (seen.has(key)) continue;          // 同一則被多來源收錄只留一份
         seen.add(key);
         const pub = pick('pubDate');
-        out.push({ src, title, link: pick('link'), at: pub ? new Date(pub).getTime() : 0 });
+        const at = pub ? new Date(pub).getTime() : 0;
+        // ⚠ **必須擋年齡**（2026-08-29 實測）：政府來源經 Google News 回來的
+        //   幾乎都是陳年法規文件——財政部中位年齡 **1166 天**（96% 超過 3 天）、
+        //   經濟部中位 4.9 天、最舊到 7730 天（21 年前）。工商時報也混進一則 6239 天的。
+        //   不擋的話，三年前稅務函釋裡提到的股票會被當成「今天有新聞」進入宇宙。
+        //   窗口取 4 天：足以跨過週末（週五的新聞在週一仍然有效）。
+        if (!at) { dropNoDate++; continue; }        // 無日期＝無法驗證新鮮度，寧可不要
+        if (now - at > NEWS_SWEEP_MAX_AGE_MS) { dropOld++; continue; }
+        out.push({ src, title, link: pick('link'), at });
       }
     } catch (e) { log(`  ↳ 來源掃描 ${src} 失敗: ${(e.message || '').slice(0, 40)}`); }
   }));
+  // 據實記錄丟掉了多少，否則「宇宙變小」會查不出原因
+  if (dropOld || dropNoDate) log(`  ↳ 來源掃描濾除：過舊 ${dropOld} 則、無日期 ${dropNoDate} 則`);
   return out;
 }
 
