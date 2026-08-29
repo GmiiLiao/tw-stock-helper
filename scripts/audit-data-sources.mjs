@@ -77,7 +77,11 @@ const CONTRACTS = [
   // 新聞內文判別（2026-08-29 上線）：盤後 23:00 + 晨間 07:00 兩趟。
   // session:'always'——非交易日也跑（週末新聞正是週一開盤要用的），
   // 所以不吃 offHoursMs 放寬也不會誤報。26h 上限＝容忍一趟失敗。
-  { c: 'newsVerdict',      kind: 'latest',  maxStale: 26 * HOUR, session: 'always' },
+  // minRecords=40：覆蓋率崩塌是**靜默**的——來源掃描若某天只認出 5 檔，
+  // 文件照樣寫入、時間戳很新，稽核只看新鮮度就完全看不出來。
+  // 實測正常覆蓋約 110 檔；40 是「明顯不對」的門檻，不是目標值。
+  { c: 'newsVerdict',      kind: 'latest',  maxStale: 26 * HOUR, session: 'always',
+    minRecords: 40, countField: 'verdictJson' },
   // 對答案（15:30，交易日）：這是 ±20 係數唯一的驗證來源，斷了就等於失去監督。
   { c: 'newsVerdictReview', kind: 'latest', maxStale: 26 * HOUR, session: 'daily',
     docId: 'summary', allowEmpty: true },

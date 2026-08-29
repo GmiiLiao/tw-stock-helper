@@ -4403,6 +4403,36 @@ async function fetchStockNewsMulti(keyword, code) {
 //   連動、主旋律敏感度、舊聞信心上限、無內文不判多空…）。複製出去必然各自
 //   漂移——CLAUDE.md 記過注意股/處置股被複製三份的教訓。
 // 回傳判別與佐證，呼叫端自行決定組裝與存檔方式。
+// 名稱延伸表：找出「本檔名稱 + 下一個字」會變成另一檔股票的那些字。
+// 用途：計算「被指名提及幾次」時，必須排除「南亞**科**」這種
+//   ——它是另一家公司，不是本檔的提及。
+// ⚠ 不能用「後面接中文就不算」：那會誤殺「南亞今日」「台聚集團」這種正常用法
+//   （同一個教訓在標題認股那邊已經踩過一次，見 NAME_TRAP_PREFIX 的註解）。
+// 硬負面事件的關鍵詞。⚠ 它**不決定多空方向**——方向一律由 AI 讀完內文判斷
+// （使用者硬規定：禁止用標題/關鍵字調分）。它只負責把事件挑出來寫進提示，
+// 因為實測發現模型會被公司的「營運正常」聲明帶走：
+//   3037 欣興遭檢調搜索 → 判中性，理由是「公司多次強調營運正常」。
+//   提示詞裡已寫「否認不能中和」，模型讀了卻沒照做 ⇒ 只寫在提示裡不夠。
+const HARD_NEGATIVE = /檢調|搜索|搜查|約談|起訴|羈押|背信|掏空|訴訟|求償|裁罰|罰鍰|停工|停產|火災|爆炸|下修|財測下修|認列(虧損|減損)|虧損擴大|減資|保留意見|列為(全額交割|處置)|禁止|召回|抽單|砍單|流標|解約/;
+
+let _nameIdxCache = null;
+async function nameIndex() {
+  if (_nameIdxCache) return _nameIdxCache;
+  try {
+    const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+    const q = snap?.quotesJson ? JSON.parse(snap.quotesJson) : {};
+    _nameIdxCache = Object.values(q).map(x => x?.name).filter(n => n && n.length >= 2);
+  } catch { _nameIdxCache = []; }
+  return _nameIdxCache;
+}
+function extensionCharsOf(name, allNames) {
+  const out = new Set();
+  for (const n of allNames) {
+    if (n !== name && n.startsWith(name) && n.length > name.length) out.add(n[name.length]);
+  }
+  return out;
+}
+
 async function judgeOneStock(it, ctx, opts = {}) {
   const { calMap = {}, gLine = '', indMap = {} } = ctx || {};
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
@@ -4508,18 +4538,53 @@ async function judgeOneStock(it, ctx, opts = {}) {
     }).join('\n\n');
     // 「本檔有沒有真的被寫到」是正確性的第一道關卡：只在標題出現、內文
     // 通篇在講別家公司的，多半是順帶提及，不足以支撐多空判斷。
-    const mentions = src.reduce((n2, x) => n2 + ((`${x.title} ${x.content || ''}`).split(it.name).length - 1), 0);
+    // ⚠ 提及次數不可用單純子字串計數（2026-08-29 實測抓到）：
+    //   「南亞科」含有「南亞」⇒ 1303 南亞被算成有 N 次提及，
+    //   判別因此拿**別家公司**的新聞當自家消息，還判成利多。
+    //   排除會延伸成另一檔股票名的那些出現位置。
+    const _allNames = await nameIndex();
+    const _ext = extensionCharsOf(it.name, _allNames);
+    const countMentions = (text) => {
+      let n2 = 0, i = text.indexOf(it.name);
+      while (i >= 0) {
+        const next = text[i + it.name.length] || '';
+        if (!_ext.has(next)) n2++;
+        i = text.indexOf(it.name, i + 1);
+      }
+      return n2;
+    };
+    const mentions = src.reduce((n2, x) => n2 + countMentions(`${x.title} ${x.content || ''}`), 0);
+    // 只挑出「與本檔同時出現」的負面事件，避免把同業的壞消息算到自己頭上
+    const negHits = [...new Set(src.flatMap(x => {
+      const t = `${x.title} ${x.content || ''}`;
+      if (!countMentions(t)) return [];
+      const m = t.match(HARD_NEGATIVE);
+      return m ? [m[0]] : [];
+    }))].slice(0, 4);
     const indName = indMap[it.code] || '';
     const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
 
 【已知事實（請以此為錨，不要臆測這家公司做什麼）】
 · ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
-${opts.coMentionNote ? `· ${opts.coMentionNote}\n` : ''}· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
+${negHits.length ? `· ⚠ 內文中偵測到可能的負面事件字眼：${negHits.join('、')}。\n  請**正面回答**它對本檔是否構成實質風險；公司發重訊聲明「營運正常/無重大影響」是當事人說法，**不足以把它中和成中性**。若確實與本檔無關（例如是同業或客戶的事）才可判中性。\n` : ''}${opts.coMentionNote ? `· ${opts.coMentionNote}\n` : ''}· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
 
 嚴格規則：
 1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
 2. 只有會改變**這家公司自己**的價值或營運預期的事才算利多：它接到訂單、它擴產、它的產品漲價、它取得認證、它法說優於預期、它併購或得標、它新產品量產。⚠ 主詞很重要：**同業**擴產（供給增加）、**原料**漲價（下游成本上升）、**客戶**轉單給別人，對本檔都是**利空**而不是利多。判斷前先確認這件事的主詞是誰、本檔站在哪一邊。
 3. 若新聞只是重複報導股價表現、或內容與該公司無關，請判為「中性」。
+   ⚠ 實測違規案例（2026-08-29）：「被列為熱門零股、市場關注度提升」被判成利多。
+   那是**關注度描述**，不是營運事實——這類一律中性。同類還有：入選各種榜單、
+   成交量排行、被納入某某概念股清單、股東人數變化、當沖比率高。
+   同樣不算利多的還有：ESG/永續/綠建築認證、得獎、公益活動、企業形象、
+   人事調整（非核心經營層）、單純的展會參展——除非文中明確連結到訂單或營收。
+3b. **利空是正常且必要的結論**（實測 111 檔判出 0 則利空，明顯失衡）。
+   下列一律優先考慮利空：檢調搜索/調查、訴訟或求償、主管機關裁罰、
+   下修財測或營收年減、客戶抽單或流失、訂單被競爭者取得、停工/減產/火災、
+   認列虧損或減損、庫存過高、大股東或董監持股大減、減資彌補虧損、
+   會計師出具保留意見、下游砍價、原料成本大漲（對下游）。
+3c. **公司否認不能把利空變成中性**。「營運正常、無重大影響」是當事人說法，
+   不是事實查核。實測案例：某檔遭檢調搜索、公司聲明營運正常 ⇒ 被判中性。
+   正確做法：事件本身是實質風險就判利空，並在理由裡註明公司已否認。
 4. **區分「已確認事實」與「傳聞/市場預期/可能」**：若題材只是「有可能」「市場預期」
    「送樣認證中」，信心最高只能給「中」，並在風險欄指出不確定性與量產時程。
 5. 標題同時有行情字眼（漲停、爆量）與題材字眼（供應鏈、認證、訂單）時，
@@ -4581,6 +4646,40 @@ ${body || '（近 2 日無實質新聞）'}
         basis, n: recent.length, nMaterial: material.length,
         stale, ageDays,
       };
+
+    // ══ 法律事件的方向由規則決定，不交給模型（使用者 2026-08-29 明令）══
+    //   「公司被搜索就應為利空，在法律判定前均屬利空」。
+    // 為什麼要寫成程式：提示詞已寫過兩版「公司否認不能中和利空」，
+    //   模型讀了仍判中性——3037 欣興遭檢調搜索被判「中性/高」，
+    //   理由是「公司多次聲明營運正常」。**而該檔當日開→收 −7.50%**，
+    //   模型錯、規則對。這是「規則只寫在提示裡就會失效」的又一例。
+    // ⚠ 分工要清楚：**AI 仍負責讀內文認定事實**（被搜索的是不是本檔自己），
+    //   規則只決定**方向**。這沒有違反「禁止用標題關鍵字調分」——
+    //   關鍵字只用來觸發提問，主體認定由 AI 讀內文回答。
+    if (verdict && negHits.length && verdict.label !== '利空') {
+      const LEGAL = /檢調|搜索|搜查|約談|起訴|羈押|背信|掏空|調查/;
+      if (negHits.some(h => LEGAL.test(h))) {
+        const subjQ = `以下是 ${it.code} ${it.name} 的相關報導。\n`
+          + src.slice(0, 6).map(x => `【${x.title}】${(x.content || '').slice(0, 400)}`).join('\n')
+          + `\n\n只回答一個問題：這些報導中的檢調搜索／調查／起訴，`
+          + `**對象是不是 ${it.name} 這家公司本身（含其子公司或負責人）**？`
+          + `若對象是同業、客戶、供應商或其他公司，就不是。\n`
+          + `只回：「是」或「否」，再用一句話說明對象是誰。`;
+        try {
+          const a2 = await askOllama(subjQ, { priority: 1 });
+          if (/^\s*是/.test(a2 || '')) {
+            verdict = {
+              ...verdict,
+              label: '利空', bullish: false,
+              confidence: verdict.confidence === '低' ? '中' : verdict.confidence,
+              reason: `【規則】公司涉檢調搜索/調查，法律判定前一律視為利空。`
+                + `AI 原判「${verdict.label}」：${(verdict.reason || '').slice(0, 40)}`,
+              ruleOverride: 'legal-event',
+            };
+          }
+        } catch { /* 二次提問失敗就維持原判，不猜 */ }
+      }
+    }
     } else {
       verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
     }
@@ -5033,9 +5132,17 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       failed++;
       log(`✖ 新聞判別 ${code}:`, (e.message || '').slice(0, 50));
     }
+    if ((judged + skipped) % 20 === 0) {
+      try { await flush(false); } catch (e) { log('  ↳ 分段存檔失敗（續跑）:', (e.message || '').slice(0, 40)); }
+    }
     await new Promise(r2 => setTimeout(r2, NEWS_VERDICT_GAP_MS));
   }
 
+  // ⚠ **分段存檔**（2026-08-29 加）：這個 job 要跑 40 分鐘，原本只在最後才寫入，
+  //   一被中斷就整批丟失（我自己今天丟過兩次）。而它的產出會影響評分，
+  //   半途中斷等於「使用者今天沒有新聞判別」卻無人知曉。
+  //   每 20 檔存一次：中斷時已完成的部分仍然可用，重跑也能從既有進度繼續。
+  const flush = async (final) => {
   await ref.set({
     date: today,
     // ⚠ dataDate 在本專案的定義是「**資料自身**的日期」（漂移偵測用），
@@ -5060,8 +5167,12 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     covered: Object.keys(verdicts).length,
     verdictJson: JSON.stringify(verdicts),
   });
-  log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
-      `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔`);
+    if (final) {
+      log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
+          `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔`);
+    }
+  };
+  await flush(true);
   return true;
 }
 
@@ -12121,6 +12232,19 @@ if (ONESHOT) {
     newsVerdictEvening: () => computeNewsVerdictBatch('evening'),
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
+    // 驗證用：NV_CODES=3037,1303 單獨判別指定個股，不寫入正式存檔
+    newsVerdictProbe: async () => {
+      const codes = String(process.env.NV_CODES || '').split(',').map(x => x.trim()).filter(Boolean);
+      if (!codes.length) { log('請設 NV_CODES=代號,代號'); return; }
+      const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+      const q = JSON.parse(snap.quotesJson || '{}');
+      const ctx = await newsJudgeContext([isoDate(taipei())]);
+      for (const c of codes) {
+        const r = await judgeOneStock({ code: c, name: q[c]?.name || c }, ctx, {});
+        const v = r?.verdict;
+        log(`  ▸ ${c} ${q[c]?.name || ''} → ${v ? `${v.label}/${v.confidence}` : '(無)'} | ${(v?.reason || '').slice(0, 78)}`);
+      }
+    },
     asia: () => computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') }),
     chipPicks: () => computeChipPicks(),
     alerts: () => checkAlerts(),
