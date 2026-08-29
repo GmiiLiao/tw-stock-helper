@@ -978,6 +978,18 @@ async function boardDataDate(tw, marketOpen) {
   return await dataDate();
 }
 
+// 「這批資料代表哪一天」——自己判斷盤中與否，呼叫端不必傳。
+// 2026-08-29 新增：站上有 8 個 collection 把 `date` 寫成日曆今天，於是週六的文件
+// 自稱資料日 2026-08-29（不可能的日期），稽核第三道閘門也因此對它們全盲。
+// 不動既有的 `date`（有些消費端把它當「產生日」用），改為**另外補 dataDate**；
+// 稽核的欄位優先序已改成 dataDate 優先。
+async function currentDataDate() {
+  const tw = taipei();
+  const mins = tw.getHours() * 60 + tw.getMinutes();
+  const open = isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 30;
+  return await boardDataDate(tw, open);
+}
+
 let _dataDateCache = { at: 0, d: null };
 async function dataDate() {
   if (_dataDateCache.d && Date.now() - _dataDateCache.at < 10 * 60000) return _dataDateCache.d;
@@ -1533,7 +1545,7 @@ async function writeSnapshot(quotes, marketOpen, source, sweeping = marketOpen) 
   const flowOut = {};
   for (const c in _flow.by) { const e = _flow.by[c]; if (e.in + e.out + e.mid > 0) flowOut[c] = [e.in, e.out, e.mid, e.since]; }
   try { await db.collection('marketSnapshot').doc('flow').set({ date: _flow.date, n: Object.keys(flowOut).length, byCodeJson: JSON.stringify(flowOut), at: Date.now() }); } catch { /* optional */ }
-  try { await db.collection('marketSnapshot').doc('latest').set({ quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()), seedDateTse: _codesCloseDate || null, seedDateOtc: _otcCloseDate || null }); }
+  try { await db.collection('marketSnapshot').doc('latest').set({ dataDate: await boardDataDate(taipei(), marketOpen), quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()), seedDateTse: _codesCloseDate || null, seedDateOtc: _otcCloseDate || null }); }
   catch (e) { log('  ✖ snapshot write', (e.message || '').slice(0, 60)); }
   try { mkdirSync(MARKET_DIR, { recursive: true }); writeFileSync(join(MARKET_DIR, 'snapshot.json'), JSON.stringify({ count, liveCount, sweepAt, marketOpen, source, quotes }, null, 2)); } catch { /* ignore */ }
 }
@@ -2659,7 +2671,7 @@ async function publishDailyPost() {
   L.push('');
   L.push('※ 本貼文由程式依證交所實際數據自動產生，未經 AI 改寫、非投資建議。');
   const post = L.join('\n');
-  await db.collection('dailyPost').doc('latest').set({ date: isoDate(taipei()), generatedAt: Date.now(), model: 'template(zero-hallucination)', post, breadth: { up, down } });
+  await db.collection('dailyPost').doc('latest').set({ dataDate: await currentDataDate(), date: isoDate(taipei()), generatedAt: Date.now(), model: 'template(zero-hallucination)', post, breadth: { up, down } });
   log(`✓ 盤後總結(套版,零幻覺)`);
 }
 
@@ -3325,7 +3337,7 @@ async function computeMarketHealth() {
   let health = upRatio * 0.5 + Math.max(0, Math.min(50, (limitUp - limitDown) * 5 + 25)) * 0.25 + Math.min(100, newHigh * 4) * 0.25;
   health = Math.round(Math.max(0, Math.min(100, health)));
   const mood = health >= 65 ? '偏多／強勢' : health >= 45 ? '中性／震盪' : '偏空／弱勢';
-  await db.collection('marketHealth').doc('latest').set({ updatedAt: Date.now(), date: isoDate(taipei()), health, mood, up, down, flat, limitUp, limitDown, upRatio: +upRatio.toFixed(1), newHigh });
+  await db.collection('marketHealth').doc('latest').set({ dataDate: await currentDataDate(), updatedAt: Date.now(), date: isoDate(taipei()), health, mood, up, down, flat, limitUp, limitDown, upRatio: +upRatio.toFixed(1), newHigh });
   log(`✓ 大盤健康度：${health}/100 ${mood}（漲${up}/跌${down}）`);
 }
 
@@ -8000,7 +8012,7 @@ async function computeEtfPremium() {
   }
   if (!items.length) return;
   const sorted = [...items].sort((a, b) => b.premium - a.premium);
-  await db.collection('etfPremium').doc('latest').set({ updatedAt: Date.now(), date: isoDate(taipei()), count: items.length, premiumTop: sorted.slice(0, 10), discountTop: sorted.slice(-10).reverse() });
+  await db.collection('etfPremium').doc('latest').set({ dataDate: await currentDataDate(), updatedAt: Date.now(), date: isoDate(taipei()), count: items.length, premiumTop: sorted.slice(0, 10), discountTop: sorted.slice(-10).reverse() });
   log(`✓ ETF 折溢價：${items.length} 檔，最高溢價 ${sorted[0]?.code} ${sorted[0]?.premium}%`);
   // 持股/自選 ETF 偏離 ≥1% 警報
   const today = isoDate(taipei());
@@ -9748,7 +9760,7 @@ async function computeNewsDaily() {
     await sleep(250);
   }
   if (titles > 0) {
-    await db.collection('newsDaily').doc(today).set({ date: today, at: Date.now(), titles, mentionsJson: JSON.stringify(mentions) });
+    await db.collection('newsDaily').doc(today).set({ dataDate: await currentDataDate(), date: today, at: Date.now(), titles, mentionsJson: JSON.stringify(mentions) });
     log(`✓ 新聞庫 ${today}：${titles} 則、提及 ${Object.keys(mentions).length} 檔`);
   }
   _newsDailyAt = Date.now();
@@ -10468,6 +10480,7 @@ async function computeEtfInfluence() {
   for (const e of edge) byCode[e.code] = { ...(byCode[e.code] || { mktRank: e.rank, mktCapYi: e.mktCapYi }), edge: e.side };
 
   await db.collection('etfInfluence').doc('latest').set({
+    dataDate: await currentDataDate(),
     updatedAt: Date.now(), date: isoDate(tw), marketOpen: !!snap.marketOpen,
     bigcapEtfs: BIGCAP_ETFS, hidivEtfs: HIDIV_ETFS,
     review, constituents, edge, premiumHot, discountCold, byCode,
@@ -10756,6 +10769,7 @@ ${evid}`;
   }
 
   const payload = {
+    dataDate: await currentDataDate(),   // 資料日（≠ 產生日）
     updatedAt: Date.now(), date: today, marketOpen,
     direction: { label: dirLabel, up, down, flat, strongCount: strongN, topShare, breadth: +breadth.toFixed(2) },
     themes: themes.slice(0, 14),
@@ -10872,7 +10886,7 @@ async function computeSectorWind() {
 
   // 保留今日的「昨日基準分」供同日多次更新算穩定 delta
   const baseScore = prevIsToday ? (prev?.baseScore || {}) : Object.fromEntries((prev?.sectors || []).map(p => [p.industry, p.windScore]));
-  const payload = { updatedAt: Date.now(), date: today, marketOpen: snap.marketOpen, sectors, baseScore };
+  const payload = { updatedAt: Date.now(), dataDate: await currentDataDate(), date: today, marketOpen: snap.marketOpen, sectors, baseScore };
   await db.collection('sectorWind').doc('latest').set(payload);
   // 每日定案(收盤後)存歷史(第二大腦)
   if (isTradingDay(tw) && (tw.getHours() * 60 + tw.getMinutes()) >= 13 * 60 + 40) {

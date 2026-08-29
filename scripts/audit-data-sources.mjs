@@ -378,8 +378,13 @@ function pickCount(d, countField) {
 function pickDataDate(d, dateField) {
   // 別名：專案裡同一個語意用過 5 種欄位名。改稽核器認得它們，
   // 比改欄位名去破壞既有消費端划算（wm-data-accuracy「三層 fallback 身分」）。
+  // ⚠ 優先序 2026-08-29 訂正：**dataDate 要排在 date 之前**。
+  //   `date` 是通用名，daemon 裡有 12 個 collection 拿它當「產生日」寫成
+  //   isoDate(taipei())；`dataDate` 才是專門用 boardDataDate() 算出來的資料日。
+  //   舊順序讓 date 蓋過 dataDate ⇒ 那些來源的第三道閘門**永遠比對到今天、
+  //   永遠通過**，等於對它們全盲（實測週六有 7 個來源自稱資料日 2026-08-29）。
   const raw = dateField ? d?.[dateField]
-    : (d?.date ?? d?.dataDate ?? d?.tradeDate ?? d?.lastDate ?? d?.latestDate ?? d?.endDate);
+    : (d?.dataDate ?? d?.date ?? d?.tradeDate ?? d?.lastDate ?? d?.latestDate ?? d?.endDate);
   if (!raw) return null;
   const s = String(raw);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -448,7 +453,17 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
         out.notes.push(`筆數 ${out.records} < 下限 ${spec.minRecords}`);
       }
     }
-    if (out.records === 0 && !spec.allowEmpty) { out.status = 'EMPTY'; out.notes.push('筆數 0'); }
+    // 空榜有兩種，必須分開（2026-08-29）：
+    //   · **濾網成立但當日沒有標的**——doc 自己寫了原因（gate/reason），是正常結果
+    //     （實例：swingPicks 的 `gate: '✅今日為空頭日…此訊號的有效市況'`）
+    //   · **計算失敗或來源斷掉**——什麼都沒說，那才是故障
+    // 比在契約表逐條加 allowEmpty 好：規則變成「空榜必須自己解釋」，
+    // 而不是由稽核設定去猜哪些榜可以空。
+    const emptyReason = data?.gate || data?.reason || data?.emptyReason || null;
+    if (out.records === 0 && !spec.allowEmpty) {
+      if (emptyReason) out.notes.push(`空榜（已說明）：${String(emptyReason).slice(0, 60)}`);
+      else { out.status = 'EMPTY'; out.notes.push('筆數 0（且未說明原因）'); }
+    }
     // ── 第四道：市場組成 ────────────────────────────────────────────────
     // 「總筆數夠」不等於「每個市場都在」。上櫃整批消失時總筆數仍有 1,229，
     // 前三道閘門全部放行，站上卻已經看不到任何上櫃股（漲停榜、選股、搜尋全缺）。
@@ -490,7 +505,13 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
       const beforePub = pubHour != null && ltd === isoOf(tNow)
         && (tNow.getHours() + tNow.getMinutes() / 60) < pubHour;
       const expect = beforePub ? prevTradingDay(ltd) : ltd;
-      if (out.dataDate < expect) {
+      // ⚠ 閘門原本只擋「太舊」，於是**資料日晚於最近交易日反而通過**——
+      //   那是不可能的日期（實測週六有 4 個來源自稱資料日 2026-08-29），
+      //   而且正是「拿日曆今天當資料日」的特徵。兩個方向都要擋。
+      if (out.dataDate > ltd) {
+        out.status = 'DATE_DRIFT';
+        out.notes.push(`資料日 ${out.dataDate} **晚於**最近交易日 ${ltd}——不可能的日期，多半是拿日曆今天當資料日`);
+      } else if (out.dataDate < expect) {
         out.status = 'DATE_DRIFT';
         out.notes.push(`資料日 ${out.dataDate} < 期待 ${expect}${beforePub ? `（${pubHour}:00 前以前一交易日為準）` : ''}`);
       } else if (beforePub) {
