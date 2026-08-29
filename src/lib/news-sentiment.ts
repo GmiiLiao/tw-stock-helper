@@ -40,7 +40,8 @@ export interface NewsSentiment {
   bear: number;            // # active bearish items
   total: number;           // # de-duped items considered
   label: string;           // 偏多 / 偏空 / 中性 / 未判別
-  gradedCount: number;     // 真正參與調分的則數（＝有 AI 內文判別的）
+  storyCount: number;      // 併群後的故事數（標題相似者併為一則）
+  gradedCount: number;     // 真正參與調分的故事數（＝有 AI 內文判別的）
   items: ScoredNewsItem[];
 }
 
@@ -73,6 +74,24 @@ const toDate = (iso?: string): string => {
   return isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const normTitle = (t: string) => t.replace(/[\s\p{P}]/gu, '').slice(0, 24);
+// 相似度用**完整**正規化標題（normTitle 截 24 字是給精確去重用的）。
+const normFull = (t: string) => t.replace(/[\s\p{P}]/gu, '');
+// 中文標題相似度：字元 bigram 的 Dice 係數。
+// 為什麼不用「完全相同」：同一則故事被各家改寫標題重發，正規化後仍然不同
+//   （實測 2330：「台積電8月分紅開獎 工程師年薪上看600萬」與
+//     「台積電8月分紅開獎！工程師年薪上看600萬元」是兩筆），
+//   於是同一件事被重複計分——聚合又是累加不是平均，直接放大槓桿。
+const bigrams = (t: string) => {
+  const x = normFull(t); const out = new Set<string>();
+  for (let i = 0; i < x.length - 1; i++) out.add(x.slice(i, i + 2));
+  return out;
+};
+const dice = (a: Set<string>, b: Set<string>) => {
+  if (!a.size || !b.size) return 0;
+  let inter = 0; for (const g of a) if (b.has(g)) inter++;
+  return (2 * inter) / (a.size + b.size);
+};
+const SIM_THRESHOLD = 0.6;   // 實測門檻：同故事改寫 ≥0.6，不同故事 <0.4
 
 /** Approx calendar days for a validity expressed in trading days (×1.4 for weekends). */
 const calDays = (tradingDays: number) => Math.ceil(tradingDays * 1.4);
@@ -119,13 +138,46 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   //   2330 +18 → 100 分 STRONG_BUY，全部出自標題關鍵字。
   //   ⚠ 聚合是 sum/4 的**累加**不是平均 ⇒ 餵進來的新聞越多槓桿越大，
   //     任何擴大新聞來源的改動都會 silently 放大它。這道閘門必須寫在程式裡。
+  // ── 同故事分群 → **群內先取平均**，再以「一則故事」的身分參與聚合 ──
+  //   （使用者 2026-08-29 指示：標題類似的新聞，判定用平均分後再聚合）
+  //   同一則故事被各家改寫標題重發是常態，逐篇累加等於同一件事重複計分；
+  //   聚合又是 sum/4 的累加不是平均 ⇒ 來源越多、槓桿越大。
+  //   實測 2330：分紅那則有 2 種寫法、永續報告書那則有 2 種寫法，
+  //   Dice 相似度 0.974 / 0.745，都會被併成一群。
+  //   ⚠ 誠實的限制：用詞幾乎不重疊的重改寫（如「台積Q2分紅360億」⇄
+  //     「台積電第2季員工酬勞約360億元創高」，Dice 僅 0.211）標題比對抓不到。
+  //     不為了它降門檻——那會把不相干的新聞併成一群。要抓它得比對內文。
   const active = scored.filter(s => s.weight > 0 && s.sentiment !== 0);
-  const graded = active.filter(s => s.verdictBasis === 'content');
-  const sum = graded.reduce((a, s) => a + s.effective, 0);
+  const clusters: ScoredNewsItem[][] = [];
+  const grams = new Map<ScoredNewsItem, Set<string>>();
+  for (const it of active) {
+    const g = bigrams(it.title);
+    grams.set(it, g);
+    const hit = clusters.find(c => dice(grams.get(c[0])!, g) >= SIM_THRESHOLD);
+    if (hit) hit.push(it); else clusters.push([it]);
+  }
+  // 一群 = 一則故事。群內取平均，權重取**最新**那篇（故事的新鮮度以最新一次發佈為準）。
+  const stories = clusters.map(c => {
+    // 有內文判別的成員存在時，平均只取那些——否則等於讓標題判斷混進計分。
+    const withContent = c.filter(x => x.verdictBasis === 'content');
+    const base = withContent.length ? withContent : c;
+    const sentiment = base.reduce((a, x) => a + x.sentiment, 0) / base.length;
+    const weight = Math.max(...c.map(x => x.weight));
+    return {
+      sentiment,
+      weight,
+      effective: parseFloat((sentiment * weight).toFixed(2)),
+      verdictBasis: withContent.length ? 'content' as const : 'title' as const,
+      size: c.length,
+    };
+  });
+  const graded = stories.filter(x => x.verdictBasis === 'content');
+  const sum = graded.reduce((a, x) => a + x.effective, 0);
   const newsScore = Math.max(-1, Math.min(1, sum / 4));
   const adjustment = Math.round(newsScore * 20);
-  const bull = active.filter(s => s.sentiment > 0).length;
-  const bear = active.filter(s => s.sentiment < 0).length;
+  // 口徑：bull/bear 改算**故事數**而非篇數，否則同一件事會被數很多次。
+  const bull = stories.filter(x => x.sentiment > 0).length;
+  const bear = stories.filter(x => x.sentiment < 0).length;
   // 沒有任何內文判別時要**據實說「未判別」**，不可留白讓人以為新聞已納入評估。
   const label = graded.length === 0
     ? '未判別（尚無AI內文判別，不計分）'
@@ -134,7 +186,8 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   return {
     newsScore: parseFloat(newsScore.toFixed(2)),
     adjustment, bull, bear, total: scored.length, label,
-    gradedCount: graded.length,      // 真正參與調分的則數（＝有內文判別的）
+    storyCount: stories.length,      // 併群後的**故事數**（同故事只算一則）
+    gradedCount: graded.length,      // 真正參與調分的故事數（＝有內文判別的）
     items: scored.sort((a, b) => Math.abs(b.effective) - Math.abs(a.effective)).slice(0, 12),
   };
 }
