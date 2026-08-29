@@ -40,6 +40,7 @@ export interface NewsSentiment {
   bear: number;            // # active bearish items
   total: number;           // # de-duped items considered
   label: string;           // 偏多 / 偏空 / 中性 / 未判別
+  ratedCount: number;      // 有多空傾向的篇數（中性者不進分群）
   storyCount: number;      // 併群後的故事數（標題相似者併為一則）
   gradedCount: number;     // 真正參與調分的故事數（＝有 AI 內文判別的）
   items: ScoredNewsItem[];
@@ -186,6 +187,11 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   return {
     newsScore: parseFloat(newsScore.toFixed(2)),
     adjustment, bull, bear, total: scored.length, label,
+    // ⚠ total − storyCount 不可解讀為「重複稿數」：中間還隔著一道
+    //   「中性不進分群」的過濾。兩個原因混成一個數字就會誤導
+    //   （實測 2891/6526：25 篇全判中性 ⇒ storyCount 0，不是 25 篇重複）。
+    //   所以中間這層必須顯式揭露。
+    ratedCount: active.length,       // 有多空傾向的篇數
     storyCount: stories.length,      // 併群後的**故事數**（同故事只算一則）
     gradedCount: graded.length,      // 真正參與調分的故事數（＝有內文判別的）
     items: scored.sort((a, b) => Math.abs(b.effective) - Math.abs(a.effective)).slice(0, 12),
