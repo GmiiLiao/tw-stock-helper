@@ -4689,6 +4689,72 @@ async function newsVerdictUniverse(n = NEWS_VERDICT_N) {
   return rows.slice(0, n);
 }
 
+// ══ 新聞判別的對答案（newsLift）══════════════════════════════════
+// 為什麼一定要有這個：±20 的調分是評分器裡最大的單一槓桿，而現在的係數
+//   是**設計值不是量出來的**。2026-08-29 把它從「標題關鍵字」換成
+//   「AI 讀完內文」，理由是前者被證實與結果反向；但「讀內文比較好」
+//   本身也還沒有樣本外證據。沒有這個對答案機制，它會永遠停在「看起來合理」。
+//
+// 口徑（寫死在這裡，避免日後漂移）：
+//   判別在**開盤前**就已存在（盤後趟前一晚、晨間趟當日 07:00），
+//   所以可據以在開盤進場 ⇒ 標的＝**適用交易日的開盤→收盤報酬**。
+//   用 doc 的 targetTradingDate 對齊，不是產生日（generatedOn）。
+async function computeNewsVerdictReview(days = 40) {
+  const arch = await readArchive(days + 2, 'closeJson');
+  if (arch.length < 2) return false;
+  const byDate = {};
+  for (const a of arch) byDate[a.date] = JSON.parse(a.closeJson || '{}');
+
+  const snap = await db.collection('newsVerdict')
+    .orderBy('targetTradingDate', 'desc').limit(days).get();
+
+  const groups = { 利多: [], 利空: [], 中性: [] };
+  let usedDays = 0;
+  for (const d of snap.docs) {
+    const x = d.data();
+    const day = x.targetTradingDate;
+    if (!day || !byDate[day]) continue;          // 該交易日還沒收盤／無存檔 ⇒ 跳過
+    const v = x.verdictJson ? JSON.parse(x.verdictJson) : {};
+    let used = 0;
+    for (const code in v) {
+      const row = byDate[day][code];
+      if (!Array.isArray(row)) continue;
+      const close = +row[0], open = +row[2];
+      if (!(open > 0) || !(close > 0)) continue;  // 缺 OHLC 就跳過，不用收盤頂替
+      const label = v[code].label;
+      if (!groups[label]) continue;
+      groups[label].push({ day, code, ret: (close - open) / open * 100, conf: v[code].confidence });
+      used++;
+    }
+    if (used) usedDays++;
+  }
+
+  const stat = arr => {
+    if (!arr.length) return { n: 0, mean: null, win: null };
+    const mean = arr.reduce((a, x) => a + x.ret, 0) / arr.length;
+    const win = arr.filter(x => x.ret > 0).length / arr.length * 100;
+    return { n: arr.length, mean: +mean.toFixed(3), win: +win.toFixed(1) };
+  };
+  const bull = stat(groups.利多), bear = stat(groups.利空), neu = stat(groups.中性);
+  // newsLift ＝ 判利多組相對中性組的超額。中性組是這條策略的對照組。
+  const lift = (bull.mean != null && neu.mean != null) ? +(bull.mean - neu.mean).toFixed(3) : null;
+
+  await db.collection('newsVerdictReview').doc('summary').set({
+    updatedAt: Date.now(),
+    basis: '適用交易日的開盤→收盤報酬(%)；判別於開盤前既有，故可據以進場',
+    days: usedDays,
+    bull, bear, neutral: neu,
+    newsLift: lift,
+    // ⚠ 樣本不足時**不給結論**，也不要讓下游誤以為已驗證
+    conclusive: !!(bull.n >= 200 && neu.n >= 200 && usedDays >= 15),
+    note: '樣本未達門檻前不得據此調整係數。非投資建議。',
+  });
+  log(`✓ 新聞判別對答案：利多 n=${bull.n} 均值 ${bull.mean}%｜中性 n=${neu.n} 均值 ${neu.mean}%｜` +
+      `利空 n=${bear.n} 均值 ${bear.mean}%｜newsLift ${lift}％（${usedDays} 個交易日）` +
+      `${(bull.n >= 200 && neu.n >= 200 && usedDays >= 15) ? '' : ' ← 樣本不足，尚不能下結論'}`);
+  return true;
+}
+
 // pass: 'evening'（盤後）| 'morning'（國際與晨間，只處理新標題）
 // deadlineMins: 台北時間的分鐘數死線，超過就停（晨間那趟必須讓位給 08:00）
 // 這批判別是**給哪一個交易日用的**（＝存檔的鍵）。
@@ -4775,9 +4841,13 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
 
   await ref.set({
     date: today,
-    dataDate: today,
+    // ⚠ dataDate 在本專案的定義是「**資料自身**的日期」（漂移偵測用），
+    //   不是「適用日」。塞未來的適用交易日進去是誤用——今天沒被抓到只是
+    //   因為漂移閘門不套用 session:'always'，哪天標籤改成 daily 就會無故報錯。
+    //   新聞資料來自產生當下 ⇒ dataDate = generatedOn。
+    dataDate: isoDate(tw),
     targetTradingDate: today,        // 這批判別適用的交易日（＝doc 鍵）
-    generatedOn: isoDate(tw),        // 實際產生的日曆日（可能早一天）
+    generatedOn: isoDate(tw),        // 實際產生的日曆日（可能早於適用日一天）
     updatedAt: Date.now(),
     lastPass: pass,
     universeSize: universe.length,
@@ -11298,6 +11368,7 @@ let _pulseAt = 0;             // 大盤脈動節流（30 秒）
 let _globalHistDate = '';     // 國際盤歷史每日更新守衛
 let _nvEveDate = '';          // 新聞內文判別·盤後那趟（23:00）
 let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:00 死線）
+let _nvReviewDate = '';       // 新聞判別對答案（15:30）
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
 // 日韓早盤固定時刻（台北時間·分鐘）。08:30 為使用者指定必跑；09:00 後為盤中追蹤。
@@ -11366,6 +11437,11 @@ async function dailyJobsLoop() {
       if (isTradingDay(tw) && mins >= 7 * 60 && mins < 8 * 60 && _nvMornDate !== today) {
         try { if (await computeNewsVerdictBatch('morning', 8 * 60)) _nvMornDate = today; }
         catch (e) { log('✖ 新聞判別·晨間（窗內將重試）:', (e.message || '').slice(0, 60)); }
+      }
+      // 新聞判別對答案（15:30：當日 OHLC 已入 chipArchive）
+      if (isTradingDay(tw) && mins >= 15 * 60 + 30 && _nvReviewDate !== today) {
+        try { if (await computeNewsVerdictReview()) _nvReviewDate = today; }
+        catch (e) { log('✖ 新聞判別對答案（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 國際盤歷史每日更新（06:00：美股前一夜 04:00 已收，資料齊全）
       if (mins >= 6 * 60 && _globalHistDate !== today) {
@@ -11846,6 +11922,7 @@ if (ONESHOT) {
     // 測試用：NV_LIMIT 可縮小宇宙，避免驗證一次就跑滿 150 檔。
     newsVerdictEvening: () => computeNewsVerdictBatch('evening'),
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
+    newsVerdictReview: () => computeNewsVerdictReview(),
     asia: () => computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') }),
     chipPicks: () => computeChipPicks(),
     alerts: () => checkAlerts(),

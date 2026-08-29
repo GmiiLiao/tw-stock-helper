@@ -74,6 +74,13 @@ const CONTRACTS = [
   { c: 'limitUpRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   // 搶漲停排隊（09:00~09:15 才有意義）：盤中每分更新，其餘時間停留在早上那份，
   // 故 maxStale 放寬到 20 小時；空榜是常態（多數日子沒有這種書況）。
+  // 新聞內文判別（2026-08-29 上線）：盤後 23:00 + 晨間 07:00 兩趟。
+  // session:'always'——非交易日也跑（週末新聞正是週一開盤要用的），
+  // 所以不吃 offHoursMs 放寬也不會誤報。26h 上限＝容忍一趟失敗。
+  { c: 'newsVerdict',      kind: 'latest',  maxStale: 26 * HOUR, session: 'always' },
+  // 對答案（15:30，交易日）：這是 ±20 係數唯一的驗證來源，斷了就等於失去監督。
+  { c: 'newsVerdictReview', kind: 'latest', maxStale: 26 * HOUR, session: 'daily',
+    docId: 'summary', allowEmpty: true },
   { c: 'limitQueue',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   { c: 'marketPulse',      kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   // 軋空判讀模型：每週二/五訓練 ⇒ 最長間隔 4 天，設 5 天為陳舊上限。
