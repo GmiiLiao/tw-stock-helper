@@ -190,9 +190,19 @@ export function enrichScoredStock(
     stock.score = newScore;
     stock.grade = gradeFromScore(newScore);
     if (newsSentiment.adjustment > 0) {
-      stock.reasons = [`📰 新聞面偏多（${newsSentiment.bull} 則利多，+${newsSentiment.adjustment} 分）`, ...stock.reasons].slice(0, 9);
+      // 把 AI 的判別理由帶出來——只寫「+N 分」等於要使用者盲信分數。
+      // 沒有理由時退回原本的措辭，不編造。
+      stock.reasons = [
+        newsSentiment.verdictReason
+          ? `📰 新聞面偏多（AI讀內文：${newsSentiment.verdictReason}）+${newsSentiment.adjustment} 分`
+          : `📰 新聞面偏多（${newsSentiment.bull} 則利多，+${newsSentiment.adjustment} 分）`,
+        ...stock.reasons].slice(0, 9);
     } else {
-      stock.risks = [`📰 新聞面偏空（${newsSentiment.bear} 則利空，${newsSentiment.adjustment} 分）`, ...stock.risks].slice(0, 9);
+      stock.risks = [
+        newsSentiment.verdictReason
+          ? `📰 新聞面偏空（AI讀內文：${newsSentiment.verdictReason}）${newsSentiment.adjustment} 分`
+          : `📰 新聞面偏空（${newsSentiment.bear} 則利空，${newsSentiment.adjustment} 分）`,
+        ...stock.risks].slice(0, 9);
       // Strongly negative news caps an over-optimistic buy signal.
       if (newsSentiment.adjustment <= -10 && (stock.signal === 'STRONG_BUY' || stock.signal === 'BUY')) {
         stock.signal = 'WATCH';

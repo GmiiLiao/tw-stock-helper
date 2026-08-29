@@ -19,6 +19,11 @@ export interface NewsLite {
   verdict?: '利多' | '利空' | '中性';
   verdictBasis?: 'content' | 'title';
   verdictConfidence?: '高' | '中' | '低';
+  // 判別**產出的時間**。時效衰減要用它，不能用被掛上的那則新聞的時間：
+  // 判別若掛在比它更新的新聞上，等於讓一個沒看過那則新聞的判別
+  // 拿到滿分新鮮度。用判別自己的時間才誠實。
+  verdictAt?: string;
+  verdictReason?: string;   // AI 讀完內文後給的理由——這是內文判別最有價值的產出，要讓使用者看到
 }
 
 export interface ScoredNewsItem {
@@ -42,6 +47,7 @@ export interface NewsSentiment {
   total: number;           // # de-duped items considered
   label: string;           // 偏多 / 偏空 / 中性 / 未判別
   judgedByAI: boolean;     // 是否已有 AI 內文判別（判為中性也算判過）
+  verdictReason?: string;  // AI 的判別理由（有才給，不編造）
   ratedCount: number;      // 有多空傾向的篇數（中性者不進分群）
   storyCount: number;      // 併群後的故事數（標題相似者併為一則）
   gradedCount: number;     // 真正參與調分的故事數（＝有 AI 內文判別的）
@@ -109,7 +115,10 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
 
   for (const it of items || []) {
     if (!it?.title) continue;
-    const date = toDate(it.time);
+    // 有 AI 判別時用判別產出時間算衰減（理由見 NewsLite.verdictAt）
+    const date = toDate(
+      it.verdictBasis === 'content' && it.verdictAt ? it.verdictAt : it.time
+    );
     // Dedup: same date + same (normalised) content counted once.
     const key = `${date}|${normTitle(it.title)}`;
     if (seen.has(key)) continue;
@@ -211,6 +220,8 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     //   （實測 2891/6526：25 篇全判中性 ⇒ storyCount 0，不是 25 篇重複）。
     //   所以中間這層必須顯式揭露。
     judgedByAI,                      // 是否已有 AI 內文判別（中性也算判過）
+    // 只在真的有理由時才給——沒有就留 undefined，讓下游顯示原本的文字，不編造
+    verdictReason: (items || []).find(x => x?.verdictBasis === 'content' && x?.verdictReason)?.verdictReason,
     ratedCount: active.length,       // 有多空傾向的篇數
     storyCount: stories.length,      // 併群後的**故事數**（同故事只算一則）
     gradedCount: graded.length,      // 真正參與調分的故事數（＝有內文判別的）
