@@ -4992,7 +4992,12 @@ async function computeNewsVerdictReview(days = 40) {
   log(`✓ 新聞判別對答案：利多 n=${bull.n} 均值 ${bull.mean}%｜中性 n=${neu.n} 均值 ${neu.mean}%｜` +
       `利空 n=${bear.n} 均值 ${bear.mean}%｜newsLift ${lift}％（${usedDays} 個交易日）` +
       `${(bull.n >= 200 && neu.n >= 200 && usedDays >= 15) ? '' : ' ← 樣本不足，尚不能下結論'}`);
-  return true;
+  // ⚠ 找不到任何可對答案的交易日時**不可回報成功**：
+  //   排程是「成功才標記今日已跑」，回 true 等於這天不再重試。
+  //   15:30 跑時若當日 chipArchive 還沒寫入（歸檔在 15:10，偶爾延遲），
+  //   就會整天算不到 newsLift 而且無人知曉——這正是 dayTradeRatio
+  //   斷 8 天的同型錯誤（單次嘗試、失敗不重試、靜默）。
+  return usedDays > 0;
 }
 
 // pass: 'evening'（盤後）| 'morning'（國際與晨間，只處理新標題）
