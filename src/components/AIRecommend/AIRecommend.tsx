@@ -63,6 +63,9 @@ interface ScoredStock {
   strategy: 'momentum' | 'growth' | 'defensive' | 'value';
   reasons: string[];
   risks: string[];
+  // AI 內文判別（daemon 來源監看管線）。僅供呈現，**不影響排序**
+  // ——係數尚未經 newsLift 驗證，不讓未驗證的訊號決定「推薦什麼」。
+  newsVerdict?: { label: string; confidence: string; reason: string } | null;
   factors: {
     momentum: number;
     volume: number;
@@ -370,6 +373,27 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
               })()}
 
               {/* Reasons */}
+              {/* AI 讀完內文的多空判別。標明「不影響排序」——使用者若不知道
+                  這件事，看到「利多」卻沒排前面會以為排序壞了。 */}
+              {view.newsVerdict && (
+                <div className={styles.reasonsSection}>
+                  <div className={styles.detailTitle}>
+                    📰 新聞判別（AI 讀完內文）
+                    <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
+                      　僅供參考，尚未納入排序
+                    </span>
+                  </div>
+                  <div className={styles.reasonItem}>
+                    <b style={{
+                      color: view.newsVerdict.label === '利多' ? 'var(--color-up)'
+                        : view.newsVerdict.label === '利空' ? 'var(--color-down)' : 'var(--text-muted)',
+                    }}>{view.newsVerdict.label}</b>
+                    <span style={{ color: 'var(--text-muted)' }}>（信心{view.newsVerdict.confidence}）</span>
+                    {view.newsVerdict.reason ? `：${view.newsVerdict.reason}` : ''}
+                  </div>
+                </div>
+              )}
+
               <div className={styles.reasonsSection}>
                 <div className={styles.detailTitle}>✅ 推薦理由 {enrichLoading && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>· 載入基本面…</span>}</div>
                 <div className={styles.reasonsList}>

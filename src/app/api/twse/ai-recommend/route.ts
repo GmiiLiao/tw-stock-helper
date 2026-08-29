@@ -4,6 +4,7 @@ import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/s
 import { getInstWeights } from '@/lib/inst-weight-server';
 import { getFinWeights } from '@/lib/fin-server';
 import { getRecommendAdj } from '@/lib/recommend-adj-server';
+import { getAdminDb } from '@/lib/firebase-admin';
 
 export const runtime = 'nodejs'; // firebase-admin（法人加權）需 Node runtime
 
@@ -32,6 +33,21 @@ export async function GET(request: NextRequest) {
     const ADJ = adj ?? { map: {} as Record<string, { a: number; w: string[] }>, weight: 3, date: null, bearDay: null, mktChg: null };
     const dataDate = rawData[0]?.Date ?? 'unknown';
 
+    // AI 內文判別（daemon 的來源監看管線產出）。一次讀取供整份榜單使用。
+    // ⚠ **刻意不進排序鍵**：±20 這個係數是設計值不是量出來的，
+    //   newsLift 還沒累積出樣本外證據（見 docs/EXPERIMENTS.md 待驗證表）。
+    //   把未驗證的訊號放進「推薦什麼」，就是今天剛修掉的錯誤換個位置重演
+    //   ——標題關鍵字那版正是這樣拿到 ±20 實權的。
+    //   所以先只做**可見**：使用者看得到哪些推薦有新聞背書、理由是什麼，
+    //   排序仍只靠已驗證的因子。等 newsLift 有結論再談要不要進排序。
+    let nvMap: Record<string, { label: string; confidence: string; reason: string }> = {};
+    try {
+      const db = getAdminDb();
+      const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
+      const j = snap?.data()?.verdictJson;
+      if (j) nvMap = JSON.parse(j);
+    } catch { /* 判別讀不到就不顯示，不影響榜單 */ }
+
     const stocks = rawData.filter(isRegularStock).map(d => parseStock(d));
     // 每檔附 instW/finW（透明呈現）；排序鍵 = 技術評分 + (法人加權+財報加權)×1.5
     const scored = stocks.map(s => {
@@ -40,7 +56,11 @@ export async function GET(request: NextRequest) {
       const a = ADJ.map[r.code];
       return { ...r, instW: iw.map[r.code] ?? 0, finW: f?.w ?? 0, finScore: f?.s ?? null, pe: f?.pe ?? null,
         // 已驗證訊號修正量與其理由（透明呈現：使用者看得到為什麼被加/扣）
-        adj: a?.a ?? 0, adjWhy: a?.w ?? [] };
+        adj: a?.a ?? 0, adjWhy: a?.w ?? [],
+        // 新聞判別（僅供呈現，不影響排序——理由見上方註解）
+        newsVerdict: nvMap[r.code]
+          ? { label: nvMap[r.code].label, confidence: nvMap[r.code].confidence, reason: nvMap[r.code].reason }
+          : null };
     });
     // ── 排序鍵（2026-08-05 依對決結果定版）────────────────────────
     // 五大因子(修正後) + 法人/財報加權 + **已驗證訊號 × 3**。
