@@ -4944,7 +4944,7 @@ async function newsVerdictUniverse(n = NEWS_VERDICT_N) {
 // 口徑（寫死在這裡，避免日後漂移）：
 //   判別在**開盤前**就已存在（盤後趟前一晚、晨間趟當日 07:00），
 //   所以可據以在開盤進場 ⇒ 標的＝**適用交易日的開盤→收盤報酬**。
-//   用 doc 的 targetTradingDate 對齊，不是產生日（generatedOn）。
+//   用 doc 的 targetDate 對齊，不是產生日（generatedOn）。
 async function computeNewsVerdictReview(days = 40) {
   const arch = await readArchive(days + 2, 'closeJson');
   if (arch.length < 2) return false;
@@ -4952,13 +4952,13 @@ async function computeNewsVerdictReview(days = 40) {
   for (const a of arch) byDate[a.date] = JSON.parse(a.closeJson || '{}');
 
   const snap = await db.collection('newsVerdict')
-    .orderBy('targetTradingDate', 'desc').limit(days).get();
+    .orderBy('targetDate', 'desc').limit(days).get();
 
   const groups = { 利多: [], 利空: [], 中性: [] };
   let usedDays = 0;
   for (const d of snap.docs) {
     const x = d.data();
-    const day = x.targetTradingDate;
+    const day = x.targetDate;
     if (!day || !byDate[day]) continue;          // 該交易日還沒收盤／無存檔 ⇒ 跳過
     const v = x.verdictJson ? JSON.parse(x.verdictJson) : {};
     let used = 0;
@@ -5109,7 +5109,9 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     //   因為漂移閘門不套用 session:'always'，哪天標籤改成 daily 就會無故報錯。
     //   新聞資料來自產生當下 ⇒ dataDate = generatedOn。
     dataDate: isoDate(tw),
-    targetTradingDate: today,        // 這批判別適用的交易日（＝doc 鍵）
+    // 沿用既有的 targetDate 慣例（名冊裡已定義為「這份清單適用於哪一個交易日」，
+    // 刻意與資料日分開）。另立 targetTradingDate 只會製造同義詞漂移。
+    targetDate: today,               // 這批判別適用的交易日（＝doc 鍵）
     generatedOn: isoDate(tw),        // 實際產生的日曆日（可能早於適用日一天）
     updatedAt: Date.now(),
     lastPass: pass,
@@ -5121,7 +5123,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
   }, { merge: true });
   await db.collection('newsVerdict').doc('latest').set({
-    date: today, targetTradingDate: today, generatedOn: isoDate(tw),
+    date: today, targetDate: today, generatedOn: isoDate(tw),
     updatedAt: Date.now(), lastPass: pass,
     covered: Object.keys(verdicts).length,
     verdictJson: JSON.stringify(verdicts),

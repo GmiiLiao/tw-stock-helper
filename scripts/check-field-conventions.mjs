@@ -33,6 +33,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const AT_ALLOWLIST = new Set([
   // 文件級新鮮度戳（canonical：updatedAt；抓取類可另附 fetchedAt）
   'updatedAt', 'fetchedAt', 'generatedAt', 'createdAt', 'archivedAt', 'topupAt',
+  // verdictAt：AI 新聞判別**產出的時間**。與被判別新聞的發佈時間分開——
+  // 時效衰減必須用它，用新聞時間會讓舊判別搭上新新聞的新鮮度。
+  'verdictAt',
   // 語意戳（事件時刻，不作為文件新鮮度依據）
   'addedAt', 'answeredAt', 'liveAt', 'bankAt', 'firstAt', 'finishedAt', 'savedAt',
   'linkedAt', 'sweepAt', 'stressAt', 'tradingModeAt', 'privacyAckAt',
