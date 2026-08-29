@@ -4647,7 +4647,10 @@ async function newsJudgeContext(wantDates = []) {
 //   （使用者明令：只用標題絕對禁止調分）。沒判到的股票就據實顯示
 //   「未判別」，**不捏造中性值**。
 // ══════════════════════════════════════════════════════════════════
-const NEWS_VERDICT_N = +(process.env.NV_LIMIT || 150);   // 依成交金額取前 N 檔（NV_LIMIT 供驗證縮小用）
+const NEWS_VERDICT_N = +(process.env.NV_LIMIT || 150);    // 退回用的成交金額宇宙大小
+// 安全上限（防暴走），不是刻意設限：使用者 2026-08-29 明確要求不限前 150 檔。
+// 實測來源掃描一次約 110 檔，400 有充分餘裕；真的爆量時按專屬報導優先截斷。
+const NEWS_VERDICT_CAP = +(process.env.NV_CAP || 400);
 const NEWS_VERDICT_GAP_MS = 1200;    // 每檔之間的間隔，避免對上游造成突發負載
 
 const _normT = t => String(t || '').replace(/[\s\p{P}]/gu, '');
@@ -4671,6 +4674,126 @@ const titleSeen = (title, seen) => {
   const g = _bigrams(title);
   return seen.some(s => _dice(_bigrams(s), g) >= TITLE_SIM);
 };
+
+// ══════════════════════════════════════════════════════════════════
+// 來源監看式宇宙（使用者 2026-08-29 指示）
+//
+// 原本是「拿成交金額前 150 檔，逐檔問有沒有新聞」——問法是反的：
+//   ① 問 150 次，其中大半根本沒有新聞（純浪費）
+//   ② 有大新聞的中小型股因為排不進前 150，**永遠看不到**
+//   ③ 150 檔 × 每檔 6 次查詢 ≈ 900 次上游請求
+// 改成「先問一次今天哪些股票在新聞裡」，宇宙自然＝真的有新聞可判的股票，
+// 也自然不受 150 限制。實測：5 次抓取 → 305 則標題 → 110 檔。
+//
+// ⚠ 工商時報直接抓 RSS 是 403，必須走 Google News 的 site: 查詢（實測 100 則）。
+// ══════════════════════════════════════════════════════════════════
+const NEWS_SWEEP_FEEDS = [
+  ['經濟日報', 'https://money.udn.com/rssfeed/news/1001/5591?ch=money'],
+  ['經濟日報', 'https://money.udn.com/rssfeed/news/1001/5590?ch=money'],
+  ['鉅亨網',   'https://news.cnyes.com/rss/v1/news/category/tw_stock'],
+  ['工商時報', null],   // null ⇒ 走 Google News site: 查詢（直接抓 403）
+  ['MoneyDJ',  null],
+  ['財政部',   null],
+  ['經濟部',   null],
+];
+const NEWS_SWEEP_SITE = { 工商時報: 'ctee.com.tw', MoneyDJ: 'moneydj.com', 財政部: 'mof.gov.tw', 經濟部: 'moea.gov.tw' };
+
+// 來源名會被誤認成股票（實測「工商時報」→ 認出「時報」）⇒ 比對前先剝掉尾巴
+const stripNewsSuffix = t => String(t || '')
+  .replace(/\s*[-|–—]\s*(證券|日報|產業|商情|新聞|熱門股|台股)\s*[-|–—]\s*.*$/, '')
+  .replace(/\s*[-|–—]\s*(工商時報|經濟日報|MoneyDJ|鉅亨網|自由財經|中央社|Yahoo奇摩股市)\s*$/, '')
+  .replace(/\s*\|\s*[^|]{2,12}\s*\|\s*[^|]{2,12}\s*$/, '');
+
+// 方位／範圍字開頭的複合詞會把兩字公司名包進去（實測「東南亞」→ 認出「南亞」）。
+// ⚠ 只擋這一類。曾試過「後面接中文就否決」，結果誤殺「台聚集團」的台聚、
+//   「華夏強攻」的華夏——中文公司名後面本來就常接動詞名詞，那條規則在中文行不通
+//   （實測宇宙從 110 掉到 70，全是誤殺）。
+const NAME_TRAP_PREFIX = '東西南北中大小新舊上下前後內外全泛環跨';
+
+async function sweepNewsSources() {
+  const out = [];
+  const seen = new Set();
+  await Promise.all(NEWS_SWEEP_FEEDS.map(async ([src, url]) => {
+    const u = url || `https://news.google.com/rss/search?q=${encodeURIComponent('site:' + NEWS_SWEEP_SITE[src])}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
+    try {
+      const r = await fetch(u, { headers: _NEWS_UA, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) { log(`  ↳ 來源掃描 ${src} HTTP ${r.status}`); return; }
+      const xml = await r.text();
+      for (const m of xml.matchAll(/<item[\s>][\s\S]*?<\/item>/g)) {
+        const it = m[0];
+        const pick = tag => {
+          const g = it.match(new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${tag}>`));
+          return g ? g[1].trim() : '';
+        };
+        const title = pick('title'); if (!title) continue;
+        const key = stripNewsSuffix(title).slice(0, 30);
+        if (seen.has(key)) continue;          // 同一則被多來源收錄只留一份
+        seen.add(key);
+        const pub = pick('pubDate');
+        out.push({ src, title, link: pick('link'), at: pub ? new Date(pub).getTime() : 0 });
+      }
+    } catch (e) { log(`  ↳ 來源掃描 ${src} 失敗: ${(e.message || '').slice(0, 40)}`); }
+  }));
+  return out;
+}
+
+// 從標題認出個股。長名優先，避免「大立」吃掉「大立光」。
+function extractCodesFromTitle(rawTitle, nameList, quotes) {
+  const t = stripNewsSuffix(rawTitle);
+  const taken = [];
+  const out = new Set();
+  for (const m of t.matchAll(/[（(]\s*([1-9]\d{3})\s*[）)]/g)) if (quotes[m[1]]) out.add(m[1]);
+  for (const [code, nm] of nameList) {
+    let i = t.indexOf(nm);
+    while (i >= 0) {
+      if (!taken.some(([a, b]) => i < b && i + nm.length > a)) {
+        const before = i > 0 ? t[i - 1] : '';
+        // 三字以上的名稱幾乎不會被包進更長的詞，只有兩字名要擋
+        if (nm.length >= 3 || !(before && NAME_TRAP_PREFIX.includes(before))) {
+          taken.push([i, i + nm.length]);
+          out.add(code);
+        }
+      }
+      i = t.indexOf(nm, i + 1);
+    }
+  }
+  return [...out];
+}
+
+// 來源監看式宇宙：回傳 [{code, name, articles:[{title,link,src,at,coMentions}]}]
+// coMentions＝這篇文章同時提到幾檔。使用者 2026-08-29 提醒「一篇有多檔」——
+//   一篇「概念股清單」列 20 檔若照單全收，等於 20 檔各拿一次利多，
+//   那是重複計分換個形式重演。所以把它記下來交給判別階段揭露。
+async function newsDrivenUniverse() {
+  const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+  if (!snap?.quotesJson) return [];
+  const quotes = JSON.parse(snap.quotesJson);
+  const nameList = Object.entries(quotes)
+    .filter(([, v]) => v?.name && v.name.length >= 2)
+    .map(([c, v]) => [c, v.name])
+    .sort((a, b) => b[1].length - a[1].length);
+
+  const articles = await sweepNewsSources();
+  const byCode = new Map();
+  let withStock = 0;
+  for (const a of articles) {
+    const codes = extractCodesFromTitle(a.title, nameList, quotes);
+    if (!codes.length) continue;
+    withStock++;
+    for (const c of codes) {
+      if (!byCode.has(c)) byCode.set(c, { code: c, name: quotes[c].name, articles: [] });
+      byCode.get(c).articles.push({ ...a, coMentions: codes.length });
+    }
+  }
+  const rows = [...byCode.values()];
+  // 排序：專屬報導（coMentions 少）且篇數多的優先——被順帶提及的排後面，
+  // 這樣遇到死線截斷時，被砍掉的是最邊緣的。
+  rows.sort((x, y) =>
+    y.articles.length - x.articles.length ||
+    Math.min(...x.articles.map(a => a.coMentions)) - Math.min(...y.articles.map(a => a.coMentions)));
+  log(`  ↳ 來源掃描：${articles.length} 則標題 → ${withStock} 篇認出個股 → 宇宙 ${rows.length} 檔`);
+  return rows;
+}
 
 // 判別宇宙＝成交金額前 N 檔（取自 chipArchive，PIT 安全）。
 // 用成交金額而非漲幅：使用者會看的是熱門股，而漲幅榜每天洗牌，
@@ -4806,8 +4929,21 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     }
   }
 
-  const universe = await newsVerdictUniverse();
-  if (!universe.length) { log('✖ 新聞判別：宇宙為空（chipArchive 無 closeJson），不寫入'); return false; }
+  // 來源監看式宇宙（使用者 2026-08-29 改用）：宇宙＝真的有新聞的股票，不受前 150 限制。
+  // 掃不到時退回成交金額前 N 檔——寧可判錯宇宙也不要整條管線靜默停擺。
+  let universe = await newsDrivenUniverse();
+  let universeFrom = 'news';
+  if (!universe.length) {
+    universe = await newsVerdictUniverse();
+    universeFrom = 'turnover-fallback';
+    log('  ↳ ⚠ 來源掃描無結果，退回成交金額宇宙');
+  }
+  if (!universe.length) { log('✖ 新聞判別：宇宙為空，不寫入'); return false; }
+  // NEWS_VERDICT_N 現在是**安全上限**而非目標值（防暴走，不是刻意設限）。
+  if (universe.length > NEWS_VERDICT_CAP) {
+    log(`  ↳ 宇宙 ${universe.length} 檔 > 上限 ${NEWS_VERDICT_CAP}，截斷（已按專屬報導優先排序，被砍的是最邊緣的）`);
+    universe = universe.slice(0, NEWS_VERDICT_CAP);
+  }
 
   const ctx = await newsJudgeContext([today]);
   let judged = 0, skipped = 0, failed = 0, stopped = false;
@@ -4832,6 +4968,11 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       verdicts[code] = {
         label: v.label, confidence: v.confidence, reason: v.reason,
         basis: v.basis, n: v.n, pass, at: Date.now(),
+        // 使用者 2026-08-29 提醒「一篇有多檔」：把該股在來源文章裡的處境記下來。
+        // minCo=1 代表有專屬報導；minCo 大代表只在多檔清單裡被順帶提及，
+        // 後續要不要因此降權，等 newsLift 分組看得出差異再決定——現在先留證據。
+        articles: (u.articles || []).length || null,
+        minCoMentions: (u.articles || []).length ? Math.min(...u.articles.map(a => a.coMentions)) : null,
       };
       // 記下這輪看過的標題，供下一趟（與明日晨間）跳過
       const titles = (r.allTitles || []).slice(0, 60);
@@ -4856,6 +4997,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     updatedAt: Date.now(),
     lastPass: pass,
     universeSize: universe.length,
+    universeFrom,                    // news ＝來源監看；turnover-fallback ＝掃描失敗退回
     judged, skipped, failed, stopped,
     verdictJson: JSON.stringify(verdicts),
     seenJson: JSON.stringify(seenAll),
