@@ -162,6 +162,26 @@ export interface StockRating {
 
 // ─── Parser ──────────────────────────────────────────────────
 
+/**
+ * 收盤在日內區間的位置（0~1）。**全站唯一實作，不要再複製第 N 份。**
+ *
+ * 三種情況必須分清楚（2026-08-29 反向掃描後訂定）：
+ *   · 來源沒給高低                → null（真的沒資料）
+ *   · 有高低且 range > 0          → (close - low) / range
+ *   · 有高低但 range = 0（全日單一價位，**漲停/跌停鎖死最常見**）
+ *       → 資料是完整的，用相對昨收定方向：鎖漲停 1、鎖跌停 0、真平盤 null
+ *
+ * ⚠ 舊版全站六處都寫 `range > 0 ? ... : 0.5`。0.5 有兩個獨立的害處：
+ *   ① 讓「沒資料」看起來像「位於中間」，而 0.5 會落進評分的中性格子；
+ *   ② 讓鎖死股（最強勢的那批）的「收在日高」訊號**永遠不觸發**。
+ */
+export function closePositionOf(close: number, high: number, low: number, prevClose: number): number | null {
+  if (!(high > 0) || !(low > 0) || high < low) return null;
+  const range = high - low;
+  if (range > 0) return (close - low) / range;
+  return close > prevClose ? 1 : close < prevClose ? 0 : null;
+}
+
 export function parseStock(d: StockDayData): ParsedStock {
   const close = parseFloat(d.ClosingPrice) || 0;
   const change = parseFloat(d.Change) || 0;
@@ -188,11 +208,7 @@ export function parseStock(d: StockDayData): ParsedStock {
   //      → 資料是完整的，位置也明確：收在唯一價位＝區間的頂也是底。
   //      用「相對昨收」定方向：鎖在漲停＝1、鎖在跌停＝0、真平盤才是未定義。
   //   把 ② 也判成 null 會讓「收在日高」這類訊號對**最強勢的鎖死股永遠不觸發**。
-  const closePosition = !hasOhlc ? null
-    : range > 0 ? (close - rawLow) / range
-    : close > prevClose ? 1
-    : close < prevClose ? 0
-    : null;
+  const closePosition = closePositionOf(close, rawHigh, rawLow, prevClose);
 
   return {
     code: d.Code, name: d.Name,

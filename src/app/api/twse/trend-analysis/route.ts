@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { closePositionOf } from '@/lib/scoring-server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
@@ -301,7 +302,7 @@ function buildTrendAnalysis(
   const volume = parseInt(stock.TradeVolume?.replace(/,/g, '') || '0');
   const value = parseInt(stock.TradeValue?.replace(/,/g, '') || '0');
   const range = high - low;
-  const closePos = range > 0 ? (close - low) / range : 0.5;
+  const closePos = closePositionOf(close, high, low, prevClose);
   const isGap = open > prevClose * 1.01;
 
   // ── Primary Trend Reason (Momentum) ──
@@ -351,19 +352,19 @@ function buildTrendAnalysis(
   }
 
   // ── Intraday Pattern ──
-  if (closePos >= 0.85) {
+  if (closePos != null && closePos >= 0.85) {
     reasons.push({
       icon: '💪',
       title: '收盤守高位 — 多頭氣勢完整',
-      detail: `今日股價收在日內高點附近（收盤位置 ${(closePos * 100).toFixed(0)}%），上影線極短，表示盤中雖有獲利回吐賣壓，但均被強力承接。結構性買盤支撐明顯，短線多方佔優。`,
+      detail: `今日股價收在日內高點附近（收盤位置 ${((closePos ?? 0) * 100).toFixed(0)}%），上影線極短，表示盤中雖有獲利回吐賣壓，但均被強力承接。結構性買盤支撐明顯，短線多方佔優。`,
       strength: 'moderate',
       category: 'technical',
     });
-  } else if (closePos <= 0.25) {
+  } else if (closePos != null && closePos <= 0.25) {
     reasons.push({
       icon: '⚠️',
       title: '收盤接近低點 — 注意賣壓風險',
-      detail: `今日雖上漲，但收盤位置偏低（${(closePos * 100).toFixed(0)}%），出現長上影線，尾盤賣壓明顯，短線可能需要震盪整理後才能再攻。`,
+      detail: `今日雖上漲，但收盤位置偏低（${((closePos ?? 0) * 100).toFixed(0)}%），出現長上影線，尾盤賣壓明顯，短線可能需要震盪整理後才能再攻。`,
       strength: 'weak',
       category: 'technical',
     });
@@ -428,7 +429,7 @@ function buildTrendAnalysis(
   let momentum: TrendAnalysis['momentum'] = 'neutral';
   let momentumScore = 50;
   if (chgPct >= 7) { momentum = 'strong_bull'; momentumScore = 90; }
-  else if (chgPct >= 3 && closePos >= 0.7) { momentum = 'bull'; momentumScore = 75; }
+  else if (chgPct >= 3 && closePos != null && closePos >= 0.7) { momentum = 'bull'; momentumScore = 75; }
   else if (chgPct >= 1) { momentum = 'mild_bull'; momentumScore = 62; }
   else if (chgPct >= -1) { momentum = 'neutral'; momentumScore = 50; }
   else { momentum = 'bear'; momentumScore = 30; }
@@ -772,7 +773,7 @@ function buildPreMarketRecommendation(
   const high = parseFloat(stock.HighestPrice) || close;
   const low  = parseFloat(stock.LowestPrice)  || close;
   const open = parseFloat(stock.OpeningPrice) || close;
-  const closePos = (high - low) > 0 ? (close - low) / (high - low) : 0.5;
+  const closePos = closePositionOf(close, high, low, prevClose);
   const isLimitUp = chgPct >= 9.9;
 
   // Taiwan daily limit is ±10%
@@ -823,7 +824,7 @@ function buildPreMarketRecommendation(
       style: 'conservative',
       riskLevel: 'low',
     });
-  } else if (chgPct >= 3 && closePos >= 0.7) {
+  } else if (chgPct >= 3 && closePos != null && closePos >= 0.7) {
     // Strong bull: slight pullback is buying opportunity
     const stdBuy  = parseFloat((close * 0.99).toFixed(2));
     const cnsvBuy = parseFloat((close * 0.975).toFixed(2));
@@ -1214,8 +1215,9 @@ function buildPricePrediction(stock: StockDayItem | null): PricePrediction {
 
   // 今日位置評估（收盤在日內高低點中的位置）
   const range = high - low;
-  const closePos = range > 0 ? (close - low) / range : 0.5;
-  const pricePositionScore = Math.round(closePos * 100);
+  const closePos = closePositionOf(close, high, low, prevClose);
+  // 缺高低時無法評此項，給中性 50 而不是 0——0 會被讀成「位置極差」（2026-08-29）
+  const pricePositionScore = closePos == null ? 50 : Math.round(closePos * 100);
   let positionDescription: string;
   if (pricePositionScore >= 80) positionDescription = '收盤守高位，多頭氣勢完整，明日延續機率高';
   else if (pricePositionScore >= 60) positionDescription = '收盤偏高，量價配合良好，短線偏多';

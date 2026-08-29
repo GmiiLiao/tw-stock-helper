@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { closePositionOf } from '@/lib/scoring-server';
 import { getStockDayAllDataInternal, isMarketOpen } from '@/lib/twse-api-server';
 import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/scoring-server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -65,7 +66,7 @@ export async function GET() {
       const volRatio = yValue > 0 ? todayValue / (yValue * progress) : 0;
       const volPart = Math.min(volRatio / 2.5, 1) * 30;
       const momPart = (chg <= 6 ? chg / 6 : Math.max((8.5 - chg) / 2.5, 0.4)) * 25; // 甜蜜區 3~7 峰值 6（2年實測）
-      const pos = high > low ? (price - low) / (high - low) : 0.5;
+      const pos = closePositionOf(price, high, low, prevClose);
       const posPart = 0; // 2年稽核：貼高加分反向（pos 越高隔日越差），廢除
       const gapPart = open > prevClose && prevClose > 0 ? 10 : 0;
       // 體質分：用昨日收盤資料完整評分（僅對候選算，控制成本）
@@ -77,8 +78,8 @@ export async function GET() {
       const reasons: string[] = [];
       if (volRatio >= 1.5) reasons.push(`📦 量比 ${volRatio.toFixed(1)} 倍（較昨日同時段放量）`);
       if (chg >= 1) reasons.push(`⚡ 盤中上攻 +${chg.toFixed(2)}%，距漲停仍有空間`);
-      if (pos >= 0.9) reasons.push('⚠️ 極度貼高（收位≥90%）——2年實測明開賣淨-0.36%/筆·開高率僅46%（貼高慣性反向，勿因強勢加碼）');
-      else if (pos >= 0.7) reasons.push('📈 現價貼近今日高點（提示：2年實測貼高組隔日偏弱，此項已不加分）');
+      if (pos != null && pos >= 0.9) reasons.push('⚠️ 極度貼高（收位≥90%）——2年實測明開賣淨-0.36%/筆·開高率僅46%（貼高慣性反向，勿因強勢加碼）');
+      else if (pos != null && pos >= 0.7) reasons.push('📈 現價貼近今日高點（提示：2年實測貼高組隔日偏弱，此項已不加分）');
       if (gapPart) reasons.push('🔴 開盤站上昨收（跳空開高）');
       if (baseScore >= 60) reasons.push(`🤖 昨日完整評分 ${baseScore} 分，體質穩健`);
 
@@ -87,7 +88,7 @@ export async function GET() {
       if (isSqueeze) reasons.unshift(`⚡ 軋空啟動：昨日融券增 ${squeezeSet[d.Code].toLocaleString()} 張＋今日強漲（2年實測 46.0-47.7%·淨+0.33~0.48%/筆 vs 基準）`);
 
       // 收位提示（2026-07-19 稽核：舊「弱尾盤-0.5%/筆」為 120 日舊值且方向不穩，改為兩口徑實測提示）
-      if (pos <= 0.2) reasons.push(`💡 收位 ${Math.round(pos * 100)}%（回落收低）——2年實測此組明開賣唯一淨正(+0.05%)·開高率65%（V型買回效應）；惟屬逆勢接法，僅適合明開即賣的紀律者`);
+      if (pos != null && pos <= 0.2) reasons.push(`💡 收位 ${Math.round(pos * 100)}%（回落收低）——2年實測此組明開賣唯一淨正(+0.05%)·開高率65%（V型買回效應）；惟屬逆勢接法，僅適合明開即賣的紀律者`);
 
       // 四大法人加權（t-1）：三方同買/連買/外資大買加分、外資賣超重罰
       const instW = iw.map[d.Code] ?? 0;
@@ -103,7 +104,7 @@ export async function GET() {
         reasons: reasons.length ? reasons : full.reasons,
         instW,
         squeeze: isSqueeze,
-        _intraday: { volRatio: +volRatio.toFixed(2), position: +pos.toFixed(2), baseScore },
+        _intraday: { volRatio: +volRatio.toFixed(2), position: pos == null ? null : +pos.toFixed(2), baseScore },
       };
     })
       .sort((a, b) => (b.score + b.instW * 1.5) - (a.score + a.instW * 1.5))
