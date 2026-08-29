@@ -18,6 +18,7 @@ export interface NewsLite {
   title: string; time?: string; source?: string; url?: string;
   verdict?: '利多' | '利空' | '中性';
   verdictBasis?: 'content' | 'title';
+  verdictConfidence?: '高' | '中' | '低';
 }
 
 export interface ScoredNewsItem {
@@ -40,6 +41,7 @@ export interface NewsSentiment {
   bear: number;            // # active bearish items
   total: number;           // # de-duped items considered
   label: string;           // 偏多 / 偏空 / 中性 / 未判別
+  judgedByAI: boolean;     // 是否已有 AI 內文判別（判為中性也算判過）
   ratedCount: number;      // 有多空傾向的篇數（中性者不進分群）
   storyCount: number;      // 併群後的故事數（標題相似者併為一則）
   gradedCount: number;     // 真正參與調分的故事數（＝有 AI 內文判別的）
@@ -113,7 +115,21 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const { sentiment, kind, validDays } = classify(it.title);
+    // ⚠ 有 AI 內文判別時，**幅度也必須來自它**，不能只把 basis 標成 content
+    //   卻仍用標題關鍵字算大小——那等於換個名義違反同一條規則。
+    //   信心度直接縮放幅度：判別自己說「低」的時候就不該有滿分的影響力。
+    const cls = classify(it.title);
+    const useAI = it.verdictBasis === 'content' && !!it.verdict;
+    const confK = it.verdictConfidence === '高' ? 1 : it.verdictConfidence === '中' ? 0.7 : 0.4;
+    const sentiment = useAI
+      ? (it.verdict === '利多' ? 2 : it.verdict === '利空' ? -2 : 0) * confK
+      : cls.sentiment;
+    const kind: 'bull' | 'bear' | 'neutral' = useAI
+      ? (sentiment > 0 ? 'bull' : sentiment < 0 ? 'bear' : 'neutral')
+      : cls.kind;
+    // 有效期仍依新聞**類型**判定（基本面 10 日／法說 5 日／其他 2 日），
+    // 這與判別方向無關，沿用 classify 的結果。
+    const validDays = cls.validDays;
     // Time-decay weight: linear from 1 (fresh) → 0 at expiry; expired = 0.
     let weight = 1;
     if (date) {
@@ -148,6 +164,9 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   //   ⚠ 誠實的限制：用詞幾乎不重疊的重改寫（如「台積Q2分紅360億」⇄
   //     「台積電第2季員工酬勞約360億元創高」，Dice 僅 0.211）標題比對抓不到。
   //     不為了它降門檻——那會把不相干的新聞併成一群。要抓它得比對內文。
+  // ⚠ 「AI 判為中性」≠「還沒判別」。中性的 sentiment 是 0，會被 active 濾掉，
+  //   若只看 gradedCount 就會誤報成「未判別」——那是把兩個不同狀態說成同一個。
+  const judgedByAI = scored.some(s => s.verdictBasis === 'content');
   const active = scored.filter(s => s.weight > 0 && s.sentiment !== 0);
   const clusters: ScoredNewsItem[][] = [];
   const grams = new Map<ScoredNewsItem, Set<string>>();
@@ -181,7 +200,7 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   const bear = stories.filter(x => x.sentiment < 0).length;
   // 沒有任何內文判別時要**據實說「未判別」**，不可留白讓人以為新聞已納入評估。
   const label = graded.length === 0
-    ? '未判別（尚無AI內文判別，不計分）'
+    ? (judgedByAI ? 'AI內文判別為中性（不影響評分）' : '未判別（尚無AI內文判別，不計分）')
     : newsScore > 0.15 ? '偏多' : newsScore < -0.15 ? '偏空' : '中性';
 
   return {
@@ -191,6 +210,7 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     //   「中性不進分群」的過濾。兩個原因混成一個數字就會誤導
     //   （實測 2891/6526：25 篇全判中性 ⇒ storyCount 0，不是 25 篇重複）。
     //   所以中間這層必須顯式揭露。
+    judgedByAI,                      // 是否已有 AI 內文判別（中性也算判過）
     ratedCount: active.length,       // 有多空傾向的篇數
     storyCount: stories.length,      // 併群後的**故事數**（同故事只算一則）
     gradedCount: graded.length,      // 真正參與調分的故事數（＝有內文判別的）

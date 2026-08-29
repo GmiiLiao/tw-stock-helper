@@ -11,6 +11,7 @@ import { readStockAI } from '@/lib/daemon-store';
 import { fetchDailyHistory, yearsAgoUnix } from '@/lib/history-fetch';
 import { getFundamentalSignals } from '@/lib/fundamentals-server';
 import { getStockNews } from '@/lib/news-server';
+import { getAdminDb } from '@/lib/firebase-admin';
 import { enrichScoredStock } from '@/lib/analysis-enrich';
 import { readMarketSnapshot } from '@/lib/market-snapshot-store';
 import type { NewsLite } from '@/lib/news-sentiment';
@@ -82,6 +83,35 @@ export async function GET(request: NextRequest) {
       if (!news || news.length === 0) {
         const ai = await readStockAI(code).catch(() => null);
         if (ai?.news?.length) news = ai.news;
+      }
+
+      // ── 掛上 AI 內文判別（使用者 2026-08-29 明令：只有它能影響分數）──
+      //   判別由 daemon 的分流管線產出（盤後 23:00 + 晨間 07:00），
+      //   網站端只讀 Firestore，不自己打上游（架構不變式）。
+      //   查無判別時**什麼都不掛**，下游會據實顯示「未判別」——不捏造中性值。
+      if (news && news.length) {
+        try {
+          const db = getAdminDb();
+          const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
+          const v = snap?.data();
+          const map = v?.verdictJson ? JSON.parse(v.verdictJson) : null;
+          const mine = map?.[code];
+          if (mine?.label) {
+            // ⚠ 判別是**個股層級**（AI 已經讀完多則內文後才給一個結論），
+            //   若掛到每一則新聞上，聚合時就會被故事數乘一次
+            //   ——4 則故事各帶 +2 ⇒ sum/4 直接夾到上限吃滿 20 分，
+            //   等於把剛修掉的「重複計分」從另一道門放回來。
+            //   所以只掛在**最新的一則**上，讓它以「一則故事」的身分貢獻一次。
+            const newest = news.reduce((a, b) =>
+              new Date(b.time || 0).getTime() > new Date(a.time || 0).getTime() ? b : a);
+            news = news.map(n => (n === newest ? {
+              ...n,
+              verdict: mine.label as '利多' | '利空' | '中性',
+              verdictBasis: 'content' as const,
+              verdictConfidence: mine.confidence as '高' | '中' | '低',
+            } : n));
+          }
+        } catch { /* 判別讀不到就維持未判別，不影響評分 */ }
       }
 
       // 盤中即時價（含 5 秒快線覆蓋）：乖離/追高/趨勢位置判定用今日，

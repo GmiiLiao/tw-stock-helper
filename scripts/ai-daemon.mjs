@@ -4403,10 +4403,19 @@ async function fetchStockNewsMulti(keyword, code) {
 //   連動、主旋律敏感度、舊聞信心上限、無內文不判多空…）。複製出去必然各自
 //   漂移——CLAUDE.md 記過注意股/處置股被複製三份的教訓。
 // 回傳判別與佐證，呼叫端自行決定組裝與存檔方式。
-async function judgeOneStock(it, ctx) {
+async function judgeOneStock(it, ctx, opts = {}) {
   const { calMap = {}, gLine = '', indMap = {} } = ctx || {};
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
   const news = await fetchStockNewsMulti(kw, it.code);
+  // 分流管線的省錢閘門（使用者 2026-08-29）：晨間那趟只處理「標題沒判過的」。
+  //   多數晨間稿是盤後稿的改寫，沒有新標題就代表沒有新資訊 ⇒ 沿用既有判別、
+  //   不花這一次 AI。這是 150 檔能在 08:00 前跑完的關鍵。
+  // ⚠ 判斷「有沒有新東西」用全部抓到的新聞，但真的要判時仍以完整視窗為上下文，
+  //   不只拿增量去判——否則判別會失去脈絡。
+  if (opts.seenTitles && opts.seenTitles.length) {
+    const fresh = news.filter(n => n.title && !titleSeen(n.title, opts.seenTitles));
+    if (!fresh.length) return { skipped: true, reason: 'no-new-titles', recent: [] };
+  }
   // ⚠ 新聞視窗要跨過**非交易日**（使用者指示 2026-08-28）：
   //   固定 48 小時在週一早上只涵蓋「週六 08:00 ~ 週一 08:00」——**週四、
   //   週五的新聞整批漏掉**，而那正是企業發佈消息最密集的兩天。連假更慘。
@@ -4617,6 +4626,157 @@ async function newsJudgeContext(wantDates = []) {
 // ⚠ **不宣稱它會有效**。軋空那邊的證據是：只憑標題的判別與結果反向；讀完
 //   內文的版本從 08-27 才開始累積，newsLift 目前 n=3 完全不能下結論。
 //   正確做法是先接上、逐日存檔、由檢討報表算 newsLift 對答案，累積數週再說。
+// ══════════════════════════════════════════════════════════════════
+// 新聞內文判別管線（使用者 2026-08-29 指定的分流作法）
+//
+// 為什麼要分兩趟：
+//   ① 台灣盤後新聞在**當日 24:00 前**陸續出齊
+//   ② 國際與晨間新聞要到**隔日 06:00~07:00** 才到
+//   一趟跑不完 150 檔，而且不論排在哪個時點都會錯過另一批。
+//
+// 晨間那趟**先過濾已判過的標題**，只在真的有新內容時才花一次 AI。
+//   多數晨間稿是盤後稿的改寫（實測同故事 Dice 0.7~0.97），
+//   過濾掉之後 150 檔才跑得完 08:00 的死線。
+//
+// ⚠ 這條管線是「新聞能不能影響分數」的唯一合法來源
+//   （使用者明令：只用標題絕對禁止調分）。沒判到的股票就據實顯示
+//   「未判別」，**不捏造中性值**。
+// ══════════════════════════════════════════════════════════════════
+const NEWS_VERDICT_N = +(process.env.NV_LIMIT || 150);   // 依成交金額取前 N 檔（NV_LIMIT 供驗證縮小用）
+const NEWS_VERDICT_GAP_MS = 1200;    // 每檔之間的間隔，避免對上游造成突發負載
+
+const _normT = t => String(t || '').replace(/[\s\p{P}]/gu, '');
+const _bigrams = t => {
+  const x = _normT(t), o = new Set();
+  for (let i = 0; i < x.length - 1; i++) o.add(x.slice(i, i + 2));
+  return o;
+};
+const _dice = (a, b) => {
+  if (!a.size || !b.size) return 0;
+  let i = 0; for (const g of a) if (b.has(g)) i++;
+  return (2 * i) / (a.size + b.size);
+};
+// ⚠ 門檻與 src/lib/news-sentiment.ts 的 SIM_THRESHOLD 必須一致（0.6，
+//   已用真實標題校準：同故事改寫 0.745~0.974、不同故事 0.000）。
+//   兩份實作是不得已——daemon 是 .mjs、網站是 .ts，跨執行環境無法共用；
+//   **改門檻時兩邊都要改**，這行註解就是提醒。
+const TITLE_SIM = 0.6;
+const titleSeen = (title, seen) => {
+  if (!seen || !seen.length) return false;
+  const g = _bigrams(title);
+  return seen.some(s => _dice(_bigrams(s), g) >= TITLE_SIM);
+};
+
+// 判別宇宙＝成交金額前 N 檔（取自 chipArchive，PIT 安全）。
+// 用成交金額而非漲幅：使用者會看的是熱門股，而漲幅榜每天洗牌，
+// 用它當宇宙會讓「昨天判過的標題」幾乎無法複用，晨間那趟就跑不完。
+async function newsVerdictUniverse(n = NEWS_VERDICT_N) {
+  // 用 marketSnapshot 而非 chipArchive：它同時有 name 與 value（成交金額），
+  // 一次讀取就解決「排序」與「名稱」兩件事（名稱是 judgeOneStock 的搜尋關鍵字，
+  // 沒有名稱只用代號會抓不到新聞）。
+  const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+  if (!snap?.quotesJson) return [];
+  const q = JSON.parse(snap.quotesJson);
+  const rows = [];
+  for (const code in q) {
+    const x = q[code];
+    if (!x || !x.name) continue;
+    const v = +x.value || (+x.price || 0) * (+x.volume || 0);
+    if (!(v > 0)) continue;
+    rows.push({ code, name: x.name, value: v });
+  }
+  rows.sort((a, b) => b.value - a.value);
+  return rows.slice(0, n);
+}
+
+// pass: 'evening'（盤後）| 'morning'（國際與晨間，只處理新標題）
+// deadlineMins: 台北時間的分鐘數死線，超過就停（晨間那趟必須讓位給 08:00）
+async function computeNewsVerdictBatch(pass, deadlineMins = null) {
+  const tw = taipei();
+  const today = isoDate(tw);
+  const ref = db.collection('newsVerdict').doc(today);
+  const prev = (await ref.get()).data() || {};
+  let verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
+  let seenAll = prev.seenJson ? JSON.parse(prev.seenJson) : {};
+
+  // ⚠ **日界問題**（差點漏掉）：晨間那趟在隔日 07:00 跑，doc(today) 是全新的，
+  //   seen 為空 ⇒ 什麼都跳不掉，省錢設計整個失效；而且前一晚判過的股票
+  //   在新文件裡會變成「沒有判別」，等於每天早上把昨晚的成果丟掉。
+  //   使用者的規格就寫明了「有前日盤後相同標題新聞就略過」——必須承接前一日。
+  //   只承接**前一個日曆日**，再舊的不承接：判別會過期，
+  //   拿一週前的判別去影響今天的分數比沒有判別更糟。
+  if (!Object.keys(seenAll).length || !Object.keys(verdicts).length) {
+    const yIso = isoDate(new Date(tw.getTime() - 86400000));
+    const y = (await db.collection('newsVerdict').doc(yIso).get()).data();
+    if (y) {
+      const yv = y.verdictJson ? JSON.parse(y.verdictJson) : {};
+      const ys = y.seenJson ? JSON.parse(y.seenJson) : {};
+      // 承接的判別標記來源日，讓下游看得出它不是今天新判的
+      for (const c in yv) if (!verdicts[c]) verdicts[c] = { ...yv[c], carriedFrom: yIso };
+      for (const c in ys) if (!seenAll[c]) seenAll[c] = ys[c];
+      log(`  ↳ 承接前一日(${yIso})：判別 ${Object.keys(yv).length} 檔、已見標題 ${Object.keys(ys).length} 檔`);
+    }
+  }
+
+  const universe = await newsVerdictUniverse();
+  if (!universe.length) { log('✖ 新聞判別：宇宙為空（chipArchive 無 closeJson），不寫入'); return false; }
+
+  const ctx = await newsJudgeContext([today]);
+  let judged = 0, skipped = 0, failed = 0, stopped = false;
+
+  for (const u of universe) {
+    const code = u.code;
+    if (deadlineMins != null) {
+      const t2 = taipei();
+      if (t2.getHours() * 60 + t2.getMinutes() >= deadlineMins) { stopped = true; break; }
+    }
+    const seen = seenAll[code] || [];
+    try {
+      const r = await judgeOneStock(
+        { code, name: u.name || code },
+        ctx,
+        // 晨間那趟才過濾已判標題；盤後那趟是當日第一次，全部都要判。
+        pass === 'morning' ? { seenTitles: seen } : {}
+      );
+      if (r && r.skipped) { skipped++; continue; }
+      const v = r && r.verdict;
+      if (!v) { failed++; continue; }
+      verdicts[code] = {
+        label: v.label, confidence: v.confidence, reason: v.reason,
+        basis: v.basis, n: v.n, pass, at: Date.now(),
+      };
+      // 記下這輪看過的標題，供下一趟（與明日晨間）跳過
+      const titles = (r.recent || []).map(x => x.title).filter(Boolean).slice(0, 40);
+      seenAll[code] = [...new Set([...seen, ...titles])].slice(-60);
+      judged++;
+    } catch (e) {
+      failed++;
+      log(`✖ 新聞判別 ${code}:`, (e.message || '').slice(0, 50));
+    }
+    await new Promise(r2 => setTimeout(r2, NEWS_VERDICT_GAP_MS));
+  }
+
+  await ref.set({
+    date: today,
+    dataDate: today,
+    updatedAt: Date.now(),
+    lastPass: pass,
+    universeSize: universe.length,
+    judged, skipped, failed, stopped,
+    verdictJson: JSON.stringify(verdicts),
+    seenJson: JSON.stringify(seenAll),
+    note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
+  }, { merge: true });
+  await db.collection('newsVerdict').doc('latest').set({
+    date: today, updatedAt: Date.now(), lastPass: pass,
+    covered: Object.keys(verdicts).length,
+    verdictJson: JSON.stringify(verdicts),
+  });
+  log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
+      `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔`);
+  return true;
+}
+
 async function computeLimitUpNewsVerdict() {
   resetNewsSrcUsed();   // 每輪重算，避免標籤累積上一輪的來源
   const fc = (await db.collection('limitUpForecast').doc('latest').get()).data();
@@ -11116,6 +11276,8 @@ let _sqRecDate = '';          // 每日 08:00 軋空推薦守衛
 let _dtEligDate = '';   // 當沖資格名單當日是否已抓（盤前 07:30 起）
 let _pulseAt = 0;             // 大盤脈動節流（30 秒）
 let _globalHistDate = '';     // 國際盤歷史每日更新守衛
+let _nvEveDate = '';          // 新聞內文判別·盤後那趟（23:00）
+let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:00 死線）
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
 // 日韓早盤固定時刻（台北時間·分鐘）。08:30 為使用者指定必跑；09:00 後為盤中追蹤。
@@ -11168,6 +11330,22 @@ async function dailyJobsLoop() {
         // 分開 try：軋空那條失敗不該連帶讓漲停這條也沒有。
         try { await computeLimitUpNewsVerdict(); }
         catch (e) { log('✖ 漲停新聞判別:', (e.message || '').slice(0, 60)); }
+      }
+      // ── 新聞內文判別管線（使用者 2026-08-29 指定分流）──
+      // 盤後那趟 23:00：台灣盤後新聞於 24:00 前陸續出齊。
+      //   不放更早：18:00 跑會漏掉晚間才發的重訊與外電。
+      //   非交易日也跑——週末的新聞正是週一開盤要用的（使用者 08-28 指示）。
+      if (mins >= 23 * 60 && _nvEveDate !== today) {
+        // 成功才標記（與當沖資格同一課：先標記等於這天只嘗試一次）
+        try { if (await computeNewsVerdictBatch('evening')) _nvEveDate = today; }
+        catch (e) { log('✖ 新聞判別·盤後（將重試）:', (e.message || '').slice(0, 60)); }
+      }
+      // 晨間那趟 07:00：國際與晨間新聞 06:00~07:00 到齊。
+      //   **死線 08:00** ——08:00 是軋空/漲停判別的窗口，不能讓這條佔住。
+      //   靠「跳過已判過的標題」把 150 檔壓進這一小時（多數晨間稿是盤後稿改寫）。
+      if (isTradingDay(tw) && mins >= 7 * 60 && mins < 8 * 60 && _nvMornDate !== today) {
+        try { if (await computeNewsVerdictBatch('morning', 8 * 60)) _nvMornDate = today; }
+        catch (e) { log('✖ 新聞判別·晨間（窗內將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 國際盤歷史每日更新（06:00：美股前一夜 04:00 已收，資料齊全）
       if (mins >= 6 * 60 && _globalHistDate !== today) {
@@ -11644,6 +11822,10 @@ if (!ONESHOT) questionLoop();
 //   asiaBoth    先 chipPicks 再 alerts（RSI 警報需要 marginSnap 先更新）
 if (ONESHOT) {
   const JOBS = {
+    // 新聞內文判別管線。第二個參數是死線（台北分鐘數），單次執行不設。
+    // 測試用：NV_LIMIT 可縮小宇宙，避免驗證一次就跑滿 150 檔。
+    newsVerdictEvening: () => computeNewsVerdictBatch('evening'),
+    newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     asia: () => computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') }),
     chipPicks: () => computeChipPicks(),
     alerts: () => checkAlerts(),
