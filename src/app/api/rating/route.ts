@@ -109,6 +109,7 @@ export async function GET(request: NextRequest) {
               verdict: mine.label as '利多' | '利空' | '中性',
               verdictBasis: 'content' as const,
               verdictConfidence: mine.confidence as '高' | '中' | '低',
+              verdictStrength: mine.strength as '極強' | '強' | '中' | '弱' | undefined,
               // 衰減用判別產出時間，不是這則新聞的時間（見 NewsLite.verdictAt）
               verdictAt: mine.at ? new Date(mine.at).toISOString() : undefined,
               verdictReason: mine.reason || undefined,

@@ -22,6 +22,10 @@ export interface NewsLite {
   verdict?: '利多' | '利空' | '中性' | '資訊不足';
   verdictBasis?: 'content' | 'title';
   verdictConfidence?: '高' | '中' | '低';
+  // 強度＝AI 預期的市場反應大小，與信心是兩件事（信心＝對判斷本身的確定度）。
+  // 使用者 2026-08-29：固定幅度無法跨個股排序——「營收年增 200%」與
+  // 「年增 5%」的市場反應本來就不同，判別必須帶出量級。
+  verdictStrength?: '極強' | '強' | '中' | '弱';
   // 判別**產出的時間**。時效衰減要用它，不能用被掛上的那則新聞的時間：
   // 判別若掛在比它更新的新聞上，等於讓一個沒看過那則新聞的判別
   // 拿到滿分新鮮度。用判別自己的時間才誠實。
@@ -135,8 +139,14 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     const cls = classify(it.title);
     const useAI = it.verdictBasis === 'content' && !!it.verdict;
     const confK = it.verdictConfidence === '高' ? 1 : it.verdictConfidence === '中' ? 0.7 : 0.4;
+    // 強度決定幅度、信心決定折扣。兩者相乘後的可用範圍是 0.24 ~ 3.0（12 倍），
+    // 舊版只有 0.8 ~ 2.0（2.5 倍）——那個範圍不足以區分「營收年增 200%」
+    // 與「取得一張認證」，也就無法用來跨個股排高低。
+    const strK = it.verdictStrength === '極強' ? 3
+      : it.verdictStrength === '強' ? 2
+      : it.verdictStrength === '弱' ? 0.6 : 1.2;   // 缺值保守取「中」
     const sentiment = useAI
-      ? (it.verdict === '利多' ? 2 : it.verdict === '利空' ? -2 : 0) * confK
+      ? (it.verdict === '利多' ? 1 : it.verdict === '利空' ? -1 : 0) * strK * confK
       : cls.sentiment;
     const kind: 'bull' | 'bear' | 'neutral' = useAI
       ? (sentiment > 0 ? 'bull' : sentiment < 0 ? 'bear' : 'neutral')

@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     //   但那等於新聞的工作完全不影響「推薦什麼」——使用者最初的抱怨正是這個。
     //   仍保留 newsLift 對答案機制持續量測，係數之後依證據調整。
     // ⚠ 只有 AI **讀完內文**的判別能進來（使用者硬規定），標題關鍵字一律不得調分。
-    let nvMap: Record<string, { label: string; confidence: string; reason: string; at?: number }> = {};
+    let nvMap: Record<string, { label: string; confidence: string; strength?: string; reason: string; at?: number }> = {};
     try {
       const db = getAdminDb();
       const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
@@ -60,14 +60,16 @@ export async function GET(request: NextRequest) {
     // 時效衰減 3 日歸零：榜單沒有個股頁那套有效期機制，
     //   不衰減的話五天前的利多會一直用滿分推它上榜。
     const NEWS_W = 4;
-    const newsAdjOf = (v?: { label: string; confidence: string; at?: number } | null) => {
+    const newsAdjOf = (v?: { label: string; confidence: string; strength?: string; at?: number } | null) => {
       if (!v?.label || v.label === '中性') return 0;
       const dir = v.label === '利多' ? 1 : v.label === '利空' ? -1 : 0;
       if (!dir) return 0;
       const conf = v.confidence === '高' ? 1 : v.confidence === '中' ? 0.7 : 0.4;
+      // 強度／1.2 ⇒ 以「中」為基準的相對倍率，讓 NEWS_W 的語意維持不變
+      const str = (v.strength === '極強' ? 3 : v.strength === '強' ? 2 : v.strength === '弱' ? 0.6 : 1.2) / 1.2;
       const ageD = v.at ? (Date.now() - v.at) / 86400000 : 99;
       const decay = ageD >= 3 ? 0 : 1 - ageD / 3;
-      return +(dir * conf * decay * NEWS_W).toFixed(2);
+      return +(dir * conf * str * decay * NEWS_W).toFixed(2);
     };
 
     const stocks = rawData.filter(isRegularStock).map(d => parseStock(d));

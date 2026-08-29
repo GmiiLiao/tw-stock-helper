@@ -4568,7 +4568,15 @@ async function judgeOneStock(it, ctx, opts = {}) {
       return m ? [m[0]] : [];
     }))].slice(0, 4);
     const indName = indMap[it.code] || '';
-    const prompt = `你是台股研究員。以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
+    const prompt = `你同時扮演兩個角色，兩者都要用上（使用者 2026-08-29 指定）：
+【經濟學家】看**事實與傳導**：供需、成本結構、產能與價格、產業週期位置、
+  上下游傳導路徑、這件事對營收/毛利/獲利的量級與時間落點、是一次性或結構性。
+【股市分析師】看**市場如何定價**：這件事市場知道了沒、已反映多少、
+  與市場既有預期的落差、對評價（本益比/淨值比）的意涵、籌碼與情緒面的放大或折抵。
+兩個角色的結論不一致時要說出來，並以「市場會如何反應」為最終依歸
+——這份判別的用途是預期市場反應，不是評價公司好壞。
+
+以下是 ${it.code} ${it.name} 近兩日的新聞。請判斷這些新聞對「隔日股價」是否構成**實質利多**。
 
 【已知事實（請以此為錨，不要臆測這家公司做什麼）】
 · ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
@@ -4621,8 +4629,38 @@ ${stale ? `\n⚠ **注意時效**：近 2 日查無新聞，以下是**${ageDays
 ${evLine ? `\n**已排定事件**（來自交易所行事曆，非傳聞）：${evLine}\n法說會/業績發表會當日或隔日開盤前，市場常對其內容反應；但**內容未知時不可預設為利多**，請判為中性並在風險欄註明「法說內容未知」。\n` : ''}
 ${body || '（近 2 日無實質新聞）'}
 
+**強度＝你預期市場會有多大反應**（使用者指定的用途：判別要能跨個股比較高低）。
+不是「這件事好不好」，而是「這件事會讓股價動多少」。
+
+⚠ **強度不可由關鍵字直接對應**（使用者 2026-08-29 明令）。
+必須走完下列推理，強度是**推理與挑戰之後**的結論：
+
+① 先從內文找出**最關鍵的那一句**（不是標題，是文中真正承載事實的那句）。
+② 【經濟學家】推它的**影響路徑與量級**：
+   這件事透過什麼機制影響營收／毛利／獲利／評價？影響多大、多快、持續多久？
+   是一次性還是結構性？佔本業比重多少？
+③ 【股市分析師】問**市場是否已經知道**：已被預期或已反映的消息，即使事件本身很大，
+   對隔日股價的**增量**反應也小。反之，未被預期的小事也可能有大反應。
+④ 提出**挑戰**：由另一個角色反駁前一個角色——
+   經濟學家說好，分析師就問「這已經在價格裡了嗎」；
+   分析師說會漲，經濟學家就問「基本面撐得住嗎、是不是一次性」。
+   最可能推翻你這個判斷的反方論點是什麼？
+   （例：數字漂亮但來自一次性業外、擴產但客戶未確定、
+     搜索但標的是子公司且金額小、成長但基期極低）
+⑤ 經過④之後才給強度。若挑戰站得住腳，就必須調降強度或改判中性。
+
+同樣是「營收成長」，年增 200% 與年增 5% 的強度必須不同——
+但那是因為②的量級不同，不是因為看到「200%」這個字串。
+
+⚠ 強度與信心是兩件事：信心＝你對判斷本身有多確定；強度＝事件本身多大。
+
 請用**繁體中文**依此格式回答，不要多餘文字：
 判別: 利多/利空/中性
+關鍵句: （引用內文最關鍵的一句，30 字內；沒有可引用的寫「無」）
+影響路徑: （這句話透過什麼機制影響營收/獲利/評價，含量級，50 字內）
+已被預期: 是/否/不確定
+挑戰: （最可能推翻上述判斷的反方論點，40 字內；想不到寫「無」）
+強度: 極強/強/中/弱   ← 必須是經過上面「挑戰」之後的定案
 信心: 高/中/低
 理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
 連動: （一句話，60 字內，國際局勢或產業鏈的傳導路徑；沒有用到寫「無」）
@@ -4630,6 +4668,11 @@ ${body || '（近 2 日無實質新聞）'}
     const ans = await askOllama(prompt, { priority: 1 });
     if (ans) {
       const mv = ans.match(/判別\s*[:：]\s*(利多|利空|中性)/);
+      const ms = ans.match(/強度\s*[:：]\s*(極強|強|中|弱)/);
+      const mkey = ans.match(/關鍵句\s*[:：]\s*(.+)/);
+      const mpath = ans.match(/影響路徑\s*[:：]\s*(.+)/);
+      const mprc = ans.match(/已被預期\s*[:：]\s*(是|否|不確定)/);
+      const mchal = ans.match(/挑戰\s*[:：]\s*(.+)/);
       const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
       const mr = ans.match(/理由\s*[:：]\s*(.+)/);
       const mk = ans.match(/風險\s*[:：]\s*(.+)/);
@@ -4641,6 +4684,14 @@ ${body || '（近 2 日無實質新聞）'}
         //   （2026-08-28 實測：精材拿 13.6 天前的舊聞卻給「高」信心，而 prompt
         //   明寫「舊聞信心最高只能給低」）。規則要能被違反就等於沒有規則。
         confidence: stale ? '低' : (mc ? mc[1] : '低'),
+        // 強度＝預期的市場反應大小（與信心是兩件事）。缺值保守取「中」。
+        strength: ms ? ms[1] : '中',
+        // 推理鏈存下來——強度是怎麼推出來的必須可稽核，
+        // 否則無從分辨「有推理」與「照關鍵字對應」。
+        keyQuote: mkey ? mkey[1].trim().slice(0, 40) : null,
+        impactPath: mpath ? mpath[1].trim().slice(0, 60) : null,
+        priced: mprc ? mprc[1] : null,
+        challenge: mchal ? mchal[1].trim().slice(0, 50) : null,
         reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
         risk: stale
           ? `消息已隔 ${ageDays} 天，多半已反映在股價${mk ? `；${mk[1].trim().slice(0, 44)}` : ''}`
@@ -5177,7 +5228,9 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       const v = r && r.verdict;
       if (!v) { failed++; continue; }
       verdicts[code] = {
-        label: v.label, confidence: v.confidence, reason: v.reason,
+        label: v.label, confidence: v.confidence, strength: v.strength || '中', reason: v.reason,
+        keyQuote: v.keyQuote || null, impactPath: v.impactPath || null,
+        priced: v.priced || null, challenge: v.challenge || null,
         basis: v.basis, n: v.n, pass, at: Date.now(),
         // 使用者 2026-08-29 提醒「一篇有多檔」：把該股在來源文章裡的處境記下來。
         // minCo=1 代表有專屬報導；minCo 大代表只在多檔清單裡被順帶提及，
@@ -12272,7 +12325,12 @@ if (ONESHOT) {
       for (const c of codes) {
         const r = await judgeOneStock({ code: c, name: q[c]?.name || c }, ctx, {});
         const v = r?.verdict;
-        log(`  ▸ ${c} ${q[c]?.name || ''} → ${v ? `${v.label}/${v.confidence}` : '(無)'} | ${(v?.reason || '').slice(0, 78)}`);
+        log(`  ▸ ${c} ${q[c]?.name || ''} → ${v ? `${v.label}·強度${v.strength}·信心${v.confidence}·已預期${v.priced || '?'}` : '(無)'}`);
+        if (v) {
+          log(`      關鍵句: ${(v.keyQuote || '—').slice(0, 46)}`);
+          log(`      影響路徑: ${(v.impactPath || '—').slice(0, 54)}`);
+          log(`      挑戰: ${(v.challenge || '—').slice(0, 50)}`);
+        }
       }
     },
     asia: () => computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') }),
