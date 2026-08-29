@@ -1433,14 +1433,14 @@ async function getAllMarketCodes(force = false) {
         if (!closeDate) closeDate = rocToYmd(f[0]); // 首欄為資料日期(民國) → 用於判斷是否今日結算價
         const code = (f[1] || '').trim();
         // 普通股(4碼) + ETF(00開頭4-6碼)——使用者需要追蹤全部上市櫃與 ETF
-        if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) tseRows.push({ code, name: (f[2] || '').trim(), market: 'tse', close: _num(f[8]), change: _num((f[9] || '').replace('+', '')), vol: _num(f[3]) });
+        if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) tseRows.push({ code, name: (f[2] || '').trim(), market: 'tse', close: _num(f[8]), change: _num((f[9] || '').replace('+', '')), vol: _num(f[3]), open: _num(f[5]), high: _num(f[6]), low: _num(f[7]) });
       }
     }
   } catch { /* fall through to openapi */ }
   if (tseRows.length === 0) {
     try {
       const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (r.ok) for (const x of await r.json()) if (/^\d{4}$/.test(x.Code) || /^00\d{2,4}$/.test(x.Code)) tseRows.push({ code: x.Code, name: x.Name, market: 'tse', close: _num(x.ClosingPrice), change: _num(x.Change), vol: _num(x.TradeVolume) });
+      if (r.ok) for (const x of await r.json()) if (/^\d{4}$/.test(x.Code) || /^00\d{2,4}$/.test(x.Code)) tseRows.push({ code: x.Code, name: x.Name, market: 'tse', close: _num(x.ClosingPrice), change: _num(x.Change), vol: _num(x.TradeVolume), open: _num(x.OpeningPrice), high: _num(x.HighestPrice), low: _num(x.LowestPrice) });
     } catch { /* tse */ }
   }
   for (const c of tseRows) codes.push(c);
@@ -1457,7 +1457,7 @@ async function getAllMarketCodes(force = false) {
     if (r.ok) for (const x of await r.json()) {
       const code = x.SecuritiesCompanyCode || x.Code || '';
       if (!otcDate && x.Date) otcDate = rocToYmd(String(x.Date));
-      if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) otcRows.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares) });
+      if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) otcRows.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares), open: _num(x.Open), high: _num(x.High), low: _num(x.Low) });
     }
   } catch (e) { log(`  ⚠ 上櫃 openapi 鏡像抓取失敗：${(e.message || '').slice(0, 60)}`); }
   if (closeDate && otcDate && otcDate < closeDate) {
@@ -1488,6 +1488,24 @@ async function getAllMarketCodes(force = false) {
   _otcCloseDate = otcDate;
   // 只有「兩個市場都在」才可以覆蓋快取：任何一邊整批消失都視為抓取失敗，
   // 保留舊快取而不是把殘缺宇宙固化下來。
+  // ⚠ **種子的開高低只有在資料日就是今天時才能用**（2026-08-29 使用者回報
+  //   「開高低怎麼都一樣」時修）。盤中的種子是**昨天**的收盤檔，把它的高低
+  //   當成今天顯示，比顯示 0 更糟——那是拿昨天的區間冒充今天的。
+  //   （這正是 CLAUDE.md「種子帶的是昨日漲跌」那條的同一個坑，只是換成 OHLC。）
+  //   收盤後種子換成今日檔，那時才放行。
+  {
+    // 種子的 OHLC 與種子的 close 是**同一天、同一列**，所以只要整份報價都來自
+    // 種子（收盤後、週末、非交易日），顯示它就是正確的——畫面本來就是那一天的盤。
+    // 危險只發生在**盤中**：價格會被今日即時價蓋掉，而種子 OHLC 仍是昨天的，
+    // 兩者混在一起就變成「今天的價、昨天的高低」。
+    // （同 CLAUDE.md「種子帶的是昨日漲跌，盤中一律歸零顯示平盤」那條的處理。）
+    const _tw = taipei();
+    const _mins = _tw.getHours() * 60 + _tw.getMinutes();
+    const _liveWindow = isTradingDay(_tw) && _mins >= 9 * 60 && _mins < 13 * 60 + 35;
+    if (_liveWindow && closeDate !== ymd8(_tw)) {
+      for (const c of codes) { c.open = 0; c.high = 0; c.low = 0; }
+    }
+  }
   const hasTse = codes.some(c => c.market === 'tse');
   const hasOtc = codes.some(c => c.market === 'otc');
   if (codes.length > 0 && hasTse && hasOtc) {
@@ -1502,7 +1520,7 @@ async function getAllMarketCodes(force = false) {
 }
 
 // seed = latest TWSE close. live:false means "this is close, NOT realtime".
-const seedQuote = c => ({ code: c.code, name: c.name, market: c.market || null, price: c.close, change: c.change, changePercent: (c.close - c.change) > 0 ? +((c.change / (c.close - c.change)) * 100).toFixed(2) : 0, volume: c.vol, value: Math.round(c.close * c.vol), open: 0, high: 0, low: 0, live: false });
+const seedQuote = c => ({ code: c.code, name: c.name, market: c.market || null, price: c.close, change: c.change, changePercent: (c.close - c.change) > 0 ? +((c.change / (c.close - c.change)) * 100).toFixed(2) : 0, volume: c.vol, value: Math.round(c.close * c.vol), open: c.open || 0, high: c.high || 0, low: c.low || 0, live: false });
 
 async function writeSnapshot(quotes, marketOpen, source, sweeping = marketOpen) {
   const arr = Object.values(quotes);

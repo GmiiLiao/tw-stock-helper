@@ -567,8 +567,9 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
       raw.push({
         _market: 'otc', Date: '', Code: q.code, Name: q.name || q.code,
         TradeVolume: String(q.volume ?? 0), TradeValue: '0',
-        OpeningPrice: String(q.open ?? q.price), HighestPrice: String(q.high ?? q.price),
-        LowestPrice: String(q.low ?? q.price), ClosingPrice: String(q.price),
+        // 同上：缺就給 '0'，不要拿現價冒充（下游自己判斷 0 = 無資料）
+        OpeningPrice: String(q.open > 0 ? q.open : 0), HighestPrice: String(q.high > 0 ? q.high : 0),
+        LowestPrice: String(q.low > 0 ? q.low : 0), ClosingPrice: String(q.price),
         Change: String(q.change ?? 0), Transaction: '0',
       } as unknown as StockDayData);
       added++;
@@ -1087,9 +1088,15 @@ export async function getMisQuoteDataInternal(codes: string[]): Promise<MisQuote
         const live = !!q.live;
         hit.push({
           code, name: q.name, price: q.price,
-          open: (live ? q.open : 0) || q.price,
-          high: (live ? q.high : 0) || q.price,
-          low:  (live ? q.low : 0) || q.price,
+          // ⚠ 不可以用 `|| q.price` 補值（2026-08-29 使用者回報「開高低怎麼都一樣」）：
+          //   快照缺 OHLC 時它會把三個欄位全填成現價，畫面上就變成
+          //   「開 77.70 高 77.70 低 77.70」——看起來像真的，其實是捏的。
+          //   CLAUDE.md 明訂「不要給資料欄位捏造預設值；缺關鍵欄位就跳過或明說」。
+          //   也不再用 `live ? ... : 0` 丟掉種子值：daemon 端已加資料日閘門，
+          //   種子帶的 OHLC 只有在「資料日就是今天」時才存在，可以直接採用。
+          open: q.open > 0 ? q.open : 0,
+          high: q.high > 0 ? q.high : 0,
+          low: q.low > 0 ? q.low : 0,
           prevClose: q.price - q.change,
           change: q.change, changePercent: q.changePercent,
           volume: q.volume,

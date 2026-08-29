@@ -577,9 +577,9 @@ function StockRow({
             <div style={{ display: 'flex', gap: '10px', fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8', alignItems: 'center', flexWrap: 'wrap' }}>
               {(quote.open > 0 || quote.high > 0) && (
                 <>
-                  <span>開 <b style={{ color: '#94a3b8' }}>{quote.open.toFixed(2)}</b></span>
-                  <span>高 <b style={{ color: '#ef4444' }}>{quote.high.toFixed(2)}</b></span>
-                  <span>低 <b style={{ color: '#3b82f6' }}>{quote.low.toFixed(2)}</b></span>
+                  <span>開 <b style={{ color: '#94a3b8' }}>{quote.open > 0 ? quote.open.toFixed(2) : '—'}</b></span>
+                  <span>高 <b style={{ color: '#ef4444' }}>{quote.high > 0 ? quote.high.toFixed(2) : '—'}</b></span>
+                  <span>低 <b style={{ color: '#3b82f6' }}>{quote.low > 0 ? quote.low.toFixed(2) : '—'}</b></span>
                 </>
               )}
               {targetPrice !== null && targetPrice !== undefined && (
@@ -982,9 +982,9 @@ function AiGroupPanel({
                 <div style={{ display: 'flex', gap: '8px', fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8', alignItems: 'center', flexWrap: 'wrap' }}>
                   {q && (q.high > 0 || q.low > 0) && (
                     <>
-                      <span>開 <span style={{ color: 'var(--text-secondary)' }}>{q.open.toFixed(2)}</span></span>
-                      <span>高 <span style={{ color: 'var(--color-up)' }}>{q.high.toFixed(2)}</span></span>
-                      <span>低 <span style={{ color: 'var(--color-down)' }}>{q.low.toFixed(2)}</span></span>
+                      <span>開 <span style={{ color: 'var(--text-secondary)' }}>{q.open > 0 ? q.open.toFixed(2) : '—'}</span></span>
+                      <span>高 <span style={{ color: 'var(--color-up)' }}>{q.high > 0 ? q.high.toFixed(2) : '—'}</span></span>
+                      <span>低 <span style={{ color: 'var(--color-down)' }}>{q.low > 0 ? q.low.toFixed(2) : '—'}</span></span>
                     </>
                   )}
                   {targetPrice !== null && targetPrice !== undefined && (
