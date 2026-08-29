@@ -4691,9 +4691,24 @@ async function newsVerdictUniverse(n = NEWS_VERDICT_N) {
 
 // pass: 'evening'（盤後）| 'morning'（國際與晨間，只處理新標題）
 // deadlineMins: 台北時間的分鐘數死線，超過就停（晨間那趟必須讓位給 08:00）
+// 這批判別是**給哪一個交易日用的**（＝存檔的鍵）。
+//   盤後趟 23:00 → 下一個交易日（週五晚上判的是給週一用的）
+//   晨間趟 07:00 → 當日（若當日是交易日；09:00 開盤前完成）
+// ⚠ 一定要用適用交易日而不是日曆日（2026-08-29 設計時修正）：
+//   否則週五晚與週一早這兩趟**同樣是給週一用的判別會落在兩個不同的 doc**，
+//   將來要算 newsLift 對答案時根本無法確定「這批是給哪天用的」，
+//   驗證會從一開始就失效。順帶：兩趟寫同一個 doc 之後，
+//   晨間趟自然讀得到盤後趟的 seen 清單，跨日承接的特例也就不需要了。
+function newsVerdictTargetIso(pass, tw) {
+  if (pass === 'morning' && isTradingDay(tw)) return isoDate(tw);
+  const d = new Date(tw.getTime());
+  do { d.setDate(d.getDate() + 1); } while (!isTradingDay(d));
+  return isoDate(d);
+}
+
 async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   const tw = taipei();
-  const today = isoDate(tw);
+  const today = newsVerdictTargetIso(pass, tw);   // ＝適用交易日
   const ref = db.collection('newsVerdict').doc(today);
   const prev = (await ref.get()).data() || {};
   let verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
@@ -4702,11 +4717,13 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   // ⚠ **日界問題**（差點漏掉）：晨間那趟在隔日 07:00 跑，doc(today) 是全新的，
   //   seen 為空 ⇒ 什麼都跳不掉，省錢設計整個失效；而且前一晚判過的股票
   //   在新文件裡會變成「沒有判別」，等於每天早上把昨晚的成果丟掉。
-  //   使用者的規格就寫明了「有前日盤後相同標題新聞就略過」——必須承接前一日。
-  //   只承接**前一個日曆日**，再舊的不承接：判別會過期，
+  //   使用者的規格就寫明了「有前日盤後相同標題新聞就略過」。
+  //   改用適用交易日為鍵之後，同一天的兩趟已經共用一個 doc，
+  //   這裡只剩「跨交易日」的承接（例如週一早上想跳過上週五就判過的標題）。
+  //   只承接**前一個交易日**，再舊的不承接：判別會過期，
   //   拿一週前的判別去影響今天的分數比沒有判別更糟。
   if (!Object.keys(seenAll).length || !Object.keys(verdicts).length) {
-    const yIso = isoDate(new Date(tw.getTime() - 86400000));
+    const yIso = prevTradingIsos(today, 2)[1] || isoDate(new Date(tw.getTime() - 86400000));
     const y = (await db.collection('newsVerdict').doc(yIso).get()).data();
     if (y) {
       const yv = y.verdictJson ? JSON.parse(y.verdictJson) : {};
@@ -4759,6 +4776,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   await ref.set({
     date: today,
     dataDate: today,
+    targetTradingDate: today,        // 這批判別適用的交易日（＝doc 鍵）
+    generatedOn: isoDate(tw),        // 實際產生的日曆日（可能早一天）
     updatedAt: Date.now(),
     lastPass: pass,
     universeSize: universe.length,
@@ -4768,7 +4787,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
   }, { merge: true });
   await db.collection('newsVerdict').doc('latest').set({
-    date: today, updatedAt: Date.now(), lastPass: pass,
+    date: today, targetTradingDate: today, generatedOn: isoDate(tw),
+    updatedAt: Date.now(), lastPass: pass,
     covered: Object.keys(verdicts).length,
     verdictJson: JSON.stringify(verdicts),
   });
