@@ -66,6 +66,7 @@ interface ScoredStock {
   // AI 內文判別（daemon 來源監看管線）。僅供呈現，**不影響排序**
   // ——係數尚未經 newsLift 驗證，不讓未驗證的訊號決定「推薦什麼」。
   newsVerdict?: { label: string; confidence: string; reason: string } | null;
+  newsAdj?: number;
   factors: {
     momentum: number;
     volume: number;
@@ -380,7 +381,8 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                   <div className={styles.detailTitle}>
                     📰 新聞判別（AI 讀完內文）
                     <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
-                      　僅供參考，尚未納入排序
+                      {/* 透明呈現：把它對排序的實際影響寫出來，不讓使用者猜 */}
+                      {view.newsAdj ? `　排序${view.newsAdj > 0 ? '+' : ''}${view.newsAdj} 分` : '　中性·不影響排序'}
                     </span>
                   </div>
                   <div className={styles.reasonItem}>
