@@ -185,7 +185,7 @@ async function fetchGoogleNewsRSS(query: string, category: NewsItem['category'],
           time: item.pubDate || new Date().toISOString(),
           url: item.link || '',
           category,
-          snippet: item.description || undefined,
+          snippet: usefulSnippet(item.title, item.description),
         });
       }
     });
@@ -248,6 +248,18 @@ function extractTag(xml: string, tag: string): string {
   if (cdata) return cdata[1].trim();
   const m = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i').exec(xml);
   return m ? m[1].trim() : '';
+}
+
+// Google News RSS 的 description 多半只是「標題＋來源名」再印一次，
+// 直接顯示會變成同一句話上下兩行（2026-08-29 使用者截圖回報「重複了，只要一列就好」）。
+// 正規化後若兩者互相包含就不給摘要——讓畫面只留標題那一列。
+// 只在**確實多出內容**時才顯示摘要。
+function usefulSnippet(title: string, desc?: string): string | undefined {
+  if (!desc) return undefined;
+  const norm = (t: string) => t.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+  const [nt, nd] = [norm(title), norm(desc)];
+  if (!nd || nt.includes(nd) || nd.includes(nt)) return undefined;
+  return desc;
 }
 
 function decodeHTMLEntities(str: string): string {
