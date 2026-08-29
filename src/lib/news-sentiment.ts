@@ -175,7 +175,11 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   //     不為了它降門檻——那會把不相干的新聞併成一群。要抓它得比對內文。
   // ⚠ 「AI 判為中性」≠「還沒判別」。中性的 sentiment 是 0，會被 active 濾掉，
   //   若只看 gradedCount 就會誤報成「未判別」——那是把兩個不同狀態說成同一個。
-  const judgedByAI = scored.some(s => s.verdictBasis === 'content');
+  // ⚠ 要加 weight > 0：判別過期（超過有效期、權重衰減到 0）之後，
+  //   若仍回報 judgedByAI=true，畫面會說「AI內文判別為中性」，
+  //   但真相是**判別已失效**。兩者對使用者的意義完全不同。
+  //   （daemon 掛掉時 latest 會一直供舊判別，這道檢查是最後一層保護。）
+  const judgedByAI = scored.some(s => s.verdictBasis === 'content' && s.weight > 0);
   const active = scored.filter(s => s.weight > 0 && s.sentiment !== 0);
   const clusters: ScoredNewsItem[][] = [];
   const grams = new Map<ScoredNewsItem, Set<string>>();
