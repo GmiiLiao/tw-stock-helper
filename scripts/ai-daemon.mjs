@@ -4306,9 +4306,23 @@ async function fetchBodyByTitle(title, name) {
 //   Google News → 覆蓋廣（各媒體都收），但**只拿得到標題**（連結是 JS 轉址、
 //               id 已加密，內文抓不到，兩條路都實測過）。
 //   ⇒ 兩者合併，並據實標示每一則是「有內文」還是「僅標題」。
+// 本輪實際取得新聞的來源（不是「宣稱會用」的來源）。
+// 寫死標籤會過期，也會說謊——2026-08-29 使用者截圖抓到畫面仍寫
+// 「鉅亨（內文）＋GoogleNews（標題）」，但 fetchStockNewsMulti 早已改成
+// 經濟日報／工商時報優先。改成據實回報：某來源當天掛掉就不會被列出。
+const _newsSrcUsed = new Set();
+const NEWS_SRC_ORDER = ['工商時報', '經濟日報', 'Yahoo', 'GoogleNews', '鉅亨', '跨站比對'];
+function resetNewsSrcUsed() { _newsSrcUsed.clear(); }
+function newsSourceLabel() {
+  const used = NEWS_SRC_ORDER.filter(k => _newsSrcUsed.has(k));
+  const extra = [..._newsSrcUsed].filter(k => !NEWS_SRC_ORDER.includes(k));
+  const all = [...used, ...extra];
+  return all.length ? all.join('＋') : '（本輪未取得任何新聞）';
+}
+
 async function fetchStockNewsMulti(keyword, code) {
   const out = [];
-  const push = (a, src) => out.push({
+  const push = (a, src) => (_newsSrcUsed.add(src), out).push({
     title: a.title, content: a.body, at: a.at || Date.now(), link: a.url,
     src, hasBody: true, bodyFrom: a.host, bodyGeneric: !a.at,   // 抓不到日期就標記，時效不明
   });
@@ -4604,6 +4618,7 @@ async function newsJudgeContext(wantDates = []) {
 //   內文的版本從 08-27 才開始累積，newsLift 目前 n=3 完全不能下結論。
 //   正確做法是先接上、逐日存檔、由檢討報表算 newsLift 對答案，累積數週再說。
 async function computeLimitUpNewsVerdict() {
+  resetNewsSrcUsed();   // 每輪重算，避免標籤累積上一輪的來源
   const fc = (await db.collection('limitUpForecast').doc('latest').get()).data();
   const list = (fc?.aList || []).slice(0, 20);
   if (!list.length) { log('  ⚠ 漲停新聞判別：無候選'); return; }
@@ -4648,6 +4663,7 @@ async function computeLimitUpNewsVerdict() {
 }
 
 async function computeSqueezeNewsVerdict() {
+  resetNewsSrcUsed();   // 每輪重算，避免標籤累積上一輪的來源
   const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
   if (!picks?.items?.length) { log('  ⚠ 新聞判別：無候選'); return; }
   const model = (await db.collection('squeezeModel').doc('latest').get()).data();
@@ -4722,7 +4738,7 @@ async function computeSqueezeNewsVerdict() {
     global: gToday,
     items: out,
     primaryCount: out.filter(x => x.primary).length,
-    newsSource: '鉅亨（內文）＋GoogleNews（標題）',
+    newsSource: newsSourceLabel(),   // 據實回報本輪真正取到新聞的來源（優先序：工商／經濟 → Yahoo／Google → 鉅亨）
     note: '新聞判別由本機 AI 讀內文/標題後給出；機器速報不採計。判別僅為加權，非投資建議。',
   };
   await db.collection('squeezeRecommend').doc('latest').set(recDoc);
@@ -5594,7 +5610,15 @@ async function fetchGoogleNewsRss(query, cap = 8) {
     const xml = await r.text();
     const items = [];
     const re = /<item>([\s\S]*?)<\/item>/g; let m;
-    const unesc = s => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    // 與 src/lib/news-server.ts 的 decodeHTMLEntities 同一課：
+    //   ① 實體表要含 &nbsp; 與數值實體，否則畫面直接印出「&nbsp;」「&#8230;」；
+    //   ② 解碼會把 &lt;a…&gt; 還原成真標籤，**解完必須再去一次標籤**，
+    //      否則等於自己把 HTML 放進標題（2026-08-29 個股新聞就是這樣漏到畫面上的）。
+    const unesc = s => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
     while ((m = re.exec(xml)) && items.length < cap) {
       const block = m[1];
       const pick = tag => { const mm = block.match(new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${tag}>`)); return mm ? mm[1].trim() : ''; };

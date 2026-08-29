@@ -21,6 +21,25 @@ const PAID_DOMAINS = [
   'businessweekly.com.tw', 'wealth.com.tw', 'cw.com.tw', 'mirrormedia.mg', 'stormmedia.com', 'magazine.businessweekly',
 ];
 
+// 來源優先序（使用者指定 2026-08-29）：**工商時報／經濟日報優先**，
+// 其餘財經網次之，Google News 等聚合來源墊底。
+// ⚠ 只把它們寫進 FREE_SOURCES 的 site: 過濾是不夠的——那只決定「查哪些站」，
+//   回傳順序仍是 Google 的相關性排序（實測 6226 光鼎的清單 MoneyDJ 排最前面）。
+//   要真的優先，必須在**結果端**依來源重新排序。
+export const SOURCE_RANK: Record<string, number> = {
+  工商時報: 0, 工商: 0, ctee: 0,
+  經濟日報: 1, udn: 1,
+  鉅亨網: 2, 鉅亨: 2, cnyes: 2,
+  MoneyDJ: 3, moneydj: 3,
+  自由財經: 4, 自由時報: 4,
+  中央社: 5, 中央通訊: 5,
+};
+export function sourceRank(src?: string): number {
+  const t = String(src || '');
+  for (const k in SOURCE_RANK) if (t.includes(k)) return SOURCE_RANK[k];
+  return 9;   // 未知／聚合來源墊底
+}
+
 export const FREE_SOURCES = [
   { label: '經濟日報', site: 'money.udn.com' },
   { label: '工商時報', site: 'ctee.com.tw' },
@@ -39,6 +58,9 @@ export const POLICY_SOURCES = [
 const ALLOW_KEYWORDS = [
   '經濟日報', '工商時報', '工商', '鉅亨', 'MoneyDJ', 'moneydj', '自由財經', '自由時報', '自由',
   '中央社', '中央通訊', '經濟部', '國發會', '國家發展', '國科會', '國家科學', '金管會', '證交所',
+  // 輔助來源（使用者指定 2026-08-29：工商／經濟優先，其後才用 moneydj／yahoo／google）。
+  // 這是**嚴格白名單**，沒列進來的來源會被整個濾掉——Yahoo 先前就是這樣消失的。
+  'yahoo', 'Yahoo奇摩', '奇摩',
 ];
 
 // Per-code in-memory cache (TTL 5 min) — dedupes Google News RSS hits across
@@ -82,12 +104,30 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
     console.error('[news-server] MOPS fetch error:', e);
   }
 
-  const siteFilter = FREE_SOURCES.map(s => `site:${s.site}`).join(' OR ');
-  const stockQuery = stockName ? `${stockName} ${code} (${siteFilter})` : `${code} 股票 (${siteFilter})`;
-  await fetchGoogleNewsRSS(stockQuery, 'company', allNews, `stock-${code}`);
+  // ⚠ **優先來源必須單獨查，不能併進 site: A OR B 的大查詢**（2026-08-29 實測）：
+  //   「台積電 2330 (site:money.udn.com OR site:ctee.com.tw OR …四站)」→ 工商 0 則、經濟日報 0 則，
+  //   全被自由財經／MoneyDJ 吃掉；但單獨問 site:money.udn.com 有 6 則、site:ctee.com.tw 有 6 則。
+  //   Google News 對 OR 的站台**不會平均分配**，只挑它自己排名高的。
+  //   ⇒ 使用者要的「工商／經濟優先」若只靠結果端排序是做不到的——它們根本沒進結果集。
+  //   這也與 daemon 的 fetchStockNewsMulti 一致（那邊本來就分開打 fetchCtee / fetchUdnMoney）。
+  const PRIORITY = FREE_SOURCES.slice(0, 2);          // 工商時報、經濟日報
+  const REST = FREE_SOURCES.slice(2);                 // 鉅亨／MoneyDJ／自由／中央社
+  const siteFilter = REST.map(s => `site:${s.site}`).join(' OR ');
+  const subject = stockName ? `${stockName} ${code}` : `${code} 股票`;
+
+  // 併發打，避免多兩次 RSS 就把回應時間拉成三倍（單執行緒下 push/去重仍是原子的）。
+  await Promise.all([
+    ...PRIORITY.map(src =>
+      fetchGoogleNewsRSS(`${subject} site:${src.site}`, 'company', allNews, `stock-${code}-${src.site}`)),
+    fetchGoogleNewsRSS(`${subject} (${siteFilter})`, 'company', allNews, `stock-${code}`),
+  ]);
 
   if (industry) {
-    await fetchGoogleNewsRSS(`${industry} 產業 台股 (${siteFilter})`, 'industry', allNews, `ind-${industry}`);
+    await Promise.all([
+      ...PRIORITY.map(src =>
+        fetchGoogleNewsRSS(`${industry} 產業 台股 site:${src.site}`, 'industry', allNews, `ind-${industry}-${src.site}`)),
+      fetchGoogleNewsRSS(`${industry} 產業 台股 (${siteFilter})`, 'industry', allNews, `ind-${industry}`),
+    ]);
     const policyFilter = POLICY_SOURCES.map(s => `site:${s.site}`).join(' OR ');
     await fetchGoogleNewsRSS(`${industry} (${policyFilter})`, 'policy', allNews, 'policy');
   }
@@ -99,7 +139,21 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
     return ALLOW_KEYWORDS.some(k => src.includes(k.toLowerCase()));
   };
   const filtered = allNews.filter(n => isAllowed(n) && !PAID_DOMAINS.some(d => n.url.includes(d)));
-  filtered.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  // 排序＝「鮮度層 → 來源優先序 → 時間」三層（使用者指定 2026-08-29）。
+  // 為什麼不是純粹按來源排：股票新聞的時效性是硬需求，
+  //   若只看來源，三天前的工商時報會壓在今天的即時新聞上面，那是另一種錯。
+  // 為什麼不是純粹按時間（舊版）：那等於來源優先序完全沒作用，
+  //   實測 6226 光鼎的清單 MoneyDJ 排在工商／經濟前面，正是使用者截圖回報的問題。
+  // 折衷：先分鮮度層（當日／3日內／更舊），**層內**才讓工商／經濟優先。
+  const freshTier = (t: string) => {
+    const ageH = (Date.now() - new Date(t).getTime()) / 36e5;
+    return !isFinite(ageH) ? 2 : ageH <= 24 ? 0 : ageH <= 72 ? 1 : 2;
+  };
+  filtered.sort((a, b) =>
+    freshTier(a.time) - freshTier(b.time) ||
+    sourceRank(a.source) - sourceRank(b.source) ||
+    new Date(b.time).getTime() - new Date(a.time).getTime()
+  );
   const result = filtered.slice(0, 25);
   // Cache non-empty results only (don't cache a rate-limited empty fetch).
   if (result.length > 0) _newsCache.set(cacheKey, { at: Date.now(), items: result });
@@ -175,7 +229,15 @@ function parseRSSItems(xml: string): Array<{ title: string; link: string; pubDat
       link: extractTag(content, 'link'),
       pubDate: (() => { const p = extractTag(content, 'pubDate'); return p ? new Date(p).toISOString() : ''; })(),
       source: decodeHTMLEntities(extractTag(content, 'source')),
-      description: decodeHTMLEntities(extractTag(content, 'description').replace(/<[^>]*>/g, '').slice(0, 200)),
+      // ⚠ 順序不可顛倒（2026-08-29 使用者截圖回報「畫面出現 <a href=...」）：
+      //   Google News RSS 的 description 是**HTML 逃脫過的**（&lt;a href=...&gt;），
+      //   舊版先 replace(/<[^>]*>/) 再 decode ⇒ 去標籤時還沒有真正的「<」，
+      //   等 decode 完標籤**又長回來**，原封不動印到畫面上。
+      //   必須：先解碼 → 再去標籤 → 再解一次（有些來源雙重編碼）→ 收斂空白。
+      description: decodeHTMLEntities(
+        decodeHTMLEntities(extractTag(content, 'description'))
+          .replace(/<[^>]*>/g, ' ')
+      ).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200),
     });
   }
   return items;
@@ -190,5 +252,10 @@ function extractTag(xml: string, tag: string): string {
 
 function decodeHTMLEntities(str: string): string {
   return str.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'").replace(/&#x2F;/g, '/');
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'").replace(/&#x2F;/g, '/')
+    // 實測 Google News RSS 的 description 尾巴帶 &nbsp;&nbsp;（2026-08-29 抓 6226 光鼎驗證），
+    // 舊表沒有它 ⇒ 畫面直接印出「&nbsp;」。連同數值實體一起補，避免下一個漏網實體。
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
 }
