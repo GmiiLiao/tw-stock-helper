@@ -71,6 +71,20 @@ grep -nE "catch \{\s*\}|catch \(\w*\) \{\s*\}" scripts/ai-daemon.mjs
 
 **2026-08-29 結果：乾淨**（341 個 catch 沒有一個是空的，全都有註解或 log）。
 
+**2026-08-29 補充（非空的 catch 也會出事）**：`catch` 有 log 不代表安全。
+分段存檔的 `flush` 因 TDZ（`const` 宣告在使用它的迴圈之後）每次呼叫都拋錯，
+catch 把它吞成一行「分段存檔失敗（續跑）」——**功能看似存在、實際從未執行**，
+而它正是為了避免 40 分鐘的工作被中斷而加的。是 grep log 才發現的。
+
+```bash
+# const/let 宣告在使用它的迴圈或 callback 之後（tsc 抓不到 callback 內的 TDZ）
+grep -nE "^\s+(const|let) [a-zA-Z]+ = (async )?\(" scripts/*.mjs src/**/*.ts
+```
+
+**判準**：① 失敗次數要進**最終摘要**，不能只留在 catch 裡的單行 log；
+② 同型錯誤同日發生兩次（`newsAdjOf`、`flush`）⇒ 宣告順序要當成檢查項，
+不能倚賴 tsc。
+
 ### F. 同名不同口徑（毛/淨、含費/不含費）
 
 ```bash

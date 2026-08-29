@@ -5077,6 +5077,51 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
 
   const ctx = await newsJudgeContext([today]);
   let judged = 0, skipped = 0, failed = 0, stopped = false;
+  // 分段存檔的失敗次數要出現在**最終摘要**裡。上一版只在 catch 裡 log 一行，
+  // 結果 flush 因 TDZ 每次都失敗、分段存檔從未真正執行，而我是靠 grep 才發現的。
+  // 設計缺陷被 catch 吞成一行小 log ⇒ 功能看似存在、實際從未運作。
+  let flushFail = 0;
+
+  // ⚠ **必須宣告在迴圈之前**：const 有 TDZ，寫在迴圈後面的話
+  //   迴圈內的 flush(false) 每次都會拋 Cannot access before initialization，
+  //   而 catch 把它吞成一行 log ⇒ 分段存檔**看似存在、實際從未執行**。
+  //   我今天在 ai-recommend 的 newsAdjOf 已經犯過一次同樣的錯。
+  // ⚠ **分段存檔**（2026-08-29 加）：這個 job 要跑 40 分鐘，原本只在最後才寫入，
+  //   一被中斷就整批丟失（我自己今天丟過兩次）。而它的產出會影響評分，
+  //   半途中斷等於「使用者今天沒有新聞判別」卻無人知曉。
+  //   每 20 檔存一次：中斷時已完成的部分仍然可用，重跑也能從既有進度繼續。
+  const flush = async (final) => {
+  await ref.set({
+    date: today,
+    // ⚠ dataDate 在本專案的定義是「**資料自身**的日期」（漂移偵測用），
+    //   不是「適用日」。塞未來的適用交易日進去是誤用——今天沒被抓到只是
+    //   因為漂移閘門不套用 session:'always'，哪天標籤改成 daily 就會無故報錯。
+    //   新聞資料來自產生當下 ⇒ dataDate = generatedOn。
+    dataDate: isoDate(tw),
+    targetTradingDate: today,        // 這批判別適用的交易日（＝doc 鍵）
+    generatedOn: isoDate(tw),        // 實際產生的日曆日（可能早於適用日一天）
+    updatedAt: Date.now(),
+    lastPass: pass,
+    universeSize: universe.length,
+    universeFrom,                    // news ＝來源監看；turnover-fallback ＝掃描失敗退回
+    judged, skipped, failed, stopped,
+    verdictJson: JSON.stringify(verdicts),
+    seenJson: JSON.stringify(seenAll),
+    note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
+  }, { merge: true });
+  await db.collection('newsVerdict').doc('latest').set({
+    date: today, targetTradingDate: today, generatedOn: isoDate(tw),
+    updatedAt: Date.now(), lastPass: pass,
+    covered: Object.keys(verdicts).length,
+    verdictJson: JSON.stringify(verdicts),
+  });
+    if (final) {
+      log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
+          `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔` +
+          `${flushFail ? `　⚠ 分段存檔失敗 ${flushFail} 次（中斷會丟失進度）` : ''}`);
+    }
+  };
+
 
   for (const u of universe) {
     const code = u.code;
@@ -5133,45 +5178,12 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       log(`✖ 新聞判別 ${code}:`, (e.message || '').slice(0, 50));
     }
     if ((judged + skipped) % 20 === 0) {
-      try { await flush(false); } catch (e) { log('  ↳ 分段存檔失敗（續跑）:', (e.message || '').slice(0, 40)); }
+      try { await flush(false); }
+      catch (e) { flushFail++; log('  ↳ 分段存檔失敗（續跑）:', (e.message || '').slice(0, 40)); }
     }
     await new Promise(r2 => setTimeout(r2, NEWS_VERDICT_GAP_MS));
   }
 
-  // ⚠ **分段存檔**（2026-08-29 加）：這個 job 要跑 40 分鐘，原本只在最後才寫入，
-  //   一被中斷就整批丟失（我自己今天丟過兩次）。而它的產出會影響評分，
-  //   半途中斷等於「使用者今天沒有新聞判別」卻無人知曉。
-  //   每 20 檔存一次：中斷時已完成的部分仍然可用，重跑也能從既有進度繼續。
-  const flush = async (final) => {
-  await ref.set({
-    date: today,
-    // ⚠ dataDate 在本專案的定義是「**資料自身**的日期」（漂移偵測用），
-    //   不是「適用日」。塞未來的適用交易日進去是誤用——今天沒被抓到只是
-    //   因為漂移閘門不套用 session:'always'，哪天標籤改成 daily 就會無故報錯。
-    //   新聞資料來自產生當下 ⇒ dataDate = generatedOn。
-    dataDate: isoDate(tw),
-    targetTradingDate: today,        // 這批判別適用的交易日（＝doc 鍵）
-    generatedOn: isoDate(tw),        // 實際產生的日曆日（可能早於適用日一天）
-    updatedAt: Date.now(),
-    lastPass: pass,
-    universeSize: universe.length,
-    universeFrom,                    // news ＝來源監看；turnover-fallback ＝掃描失敗退回
-    judged, skipped, failed, stopped,
-    verdictJson: JSON.stringify(verdicts),
-    seenJson: JSON.stringify(seenAll),
-    note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
-  }, { merge: true });
-  await db.collection('newsVerdict').doc('latest').set({
-    date: today, targetTradingDate: today, generatedOn: isoDate(tw),
-    updatedAt: Date.now(), lastPass: pass,
-    covered: Object.keys(verdicts).length,
-    verdictJson: JSON.stringify(verdicts),
-  });
-    if (final) {
-      log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
-          `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔`);
-    }
-  };
   await flush(true);
   return true;
 }
