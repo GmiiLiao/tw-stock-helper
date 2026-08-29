@@ -4613,6 +4613,25 @@ async function judgeOneStock(it, ctx, opts = {}) {
       return m ? [m[0]] : [];
     }))].slice(0, 4);
     const indName = indMap[it.code] || '';
+    // ══ D 拒答門檻（防幻想管線第 1 關，使用者 2026-08-29 指定順序 D→C→C→A）══
+    //   問題需要的資料我有沒有？沒有就不進入生成，避免模型硬答。
+    //   ⚠ 寫在程式裡而非提示詞：提示詞已寫過「提及 0 次就判資訊不足」，
+    //     但模型仍會硬掰（1303 南亞拿南亞科的新聞判利多就是這樣來的）。
+    const hasBodyEvidence = _picked.some(x => x.hasBody);
+    if (!hasBodyEvidence || mentions === 0) {
+      return {
+        verdict: {
+          label: '資訊不足', bullish: false, confidence: '低', strength: '弱',
+          reason: !hasBodyEvidence
+            ? '取得的報導均無內文，無法據以判斷'
+            : `${_picked.length} 則報導中本檔一次都沒有被指名提及，這些報導不是在講它`,
+          basis, n: recent.length, gate: 'D-拒答門檻',
+        },
+        events, stale, ageDays, recent, material, withBody,
+        allTitles: news.map(n => n.title).filter(Boolean),
+      };
+    }
+
     const prompt = `你同時扮演四個角色，四者都要用上（使用者 2026-08-29 指定）：
 【全球經濟分析師】利率通膨、匯率、景氣循環位置、主要經濟體政策、資金流向。
 【股市產業分析師】產業供需與價格週期、公司在產業中的位置、營收獲利結構、
@@ -4769,7 +4788,17 @@ ${body || '（近 2 日無實質新聞）'}
         + `【股市產業分析師】從「市場是否早已知道並反映」「與既有預期的落差」反駁\n`
         + `【戰略分析師】從地緣政治/政策法規/競爭對手反制反駁\n`
         + `【供應鏈分析師】從客戶集中度/產能交期/替代與轉單風險反駁\n\n`
-        + `然後綜合這些挑戰給出**定案**。挑戰若站得住腳，**必須**調降強度或改判中性。\n`
+        + `然後綜合這些挑戰給出**定案**。\n`
+        + `⚠ **綜合時的權重（使用者 2026-08-29 指定）**：\n`
+        + `  【股市產業分析師】的意見在**方向**上權重最高——這份判別的用途是\n`
+        + `  「預期市場會如何反應」，而它是四個角色中最貼近市場定價的。\n`
+        + `  其他三位的挑戰若與它衝突，除非指出**明確的事實錯誤**\n`
+        + `  （原文沒這回事、講的是別家公司、數字錯誤），否則**不應推翻方向**，\n`
+        + `  只能用來調降強度或信心。\n`
+        + `  ⚠ 「不確定性」「尚待觀察」「量產時程未定」這類**本來就存在的風險**，\n`
+        + `  不是推翻方向的理由——任何題材都有不確定性，用它否定一切等於\n`
+        + `  永遠只能判中性，那樣這份判別就沒有任何價值。\n`
+        + `  只有當挑戰足以讓「市場不會照這個方向反應」時，才改判中性。\n`
         + `⚠ 不要為了與初判一致而敷衍——維持初判也要說明四個挑戰為何都不成立。\n\n`
         + `依此格式回答，不要多餘文字：\n`
         + `挑戰經濟: （一句話或「無」）\n挑戰產業: （一句話或「無」）\n`
@@ -4801,6 +4830,111 @@ ${body || '（近 2 日無實質新聞）'}
           }
         }
       } catch { /* 挑戰失敗就沿用初判，不猜 */ }
+    }
+
+    // ══ A 數字校驗（純程式、零成本；在 C 之後各跑一次）══
+    //   把判別文字裡的數字逐一比對原文，對不上就是**捏造的數字**
+    //   ——傷害最大的一類幻想（假營收、假成長率、假目標價）。
+    //   ⚠ 只擋數字；無數字的敘述性幻想由 C 自檢負責。
+    const corpusNums = _picked.map(x => `${x.title} ${x.content || ''}`).join(' ').replace(/[,，]/g, '');
+    const verifyNums = (v, tag) => {
+      if (!v) return v;
+      const nums = [...new Set(
+        [v.reason, v.impactPath, v.keyQuote].filter(Boolean).join(' ').replace(/[,，]/g, '')
+          .match(/\d+(?:\.\d+)?\s*(?:%|％|倍|億|萬|元|奈米)/g) || []
+      )];
+      const bad = nums.filter(n => {
+        const key = n.replace(/\s+/g, '');
+        return !corpusNums.includes(key) && !corpusNums.includes(key.replace(/％/, '%'));
+      });
+      if (!bad.length) return v;
+      log(`  ↳ ⚠ ${it.code} 數字校驗(${tag})未過：${bad.slice(0, 3).join('、')}（已降信心）`);
+      return {
+        ...v,
+        // 數字錯不代表方向錯，所以不刪判別；但要據實標示並降信心
+        // ——會引用不實數字的模型，其他陳述也不該被完全採信。
+        confidence: v.confidence === '高' ? '中' : '低',
+        unverifiedNums: [...new Set([...(v.unverifiedNums || []), ...bad])].slice(0, 4),
+        reason: `${v.reason || ''}〔⚠ 數字未查證：${bad.slice(0, 3).join('、')}〕`.slice(0, 110),
+      };
+    };
+
+    // ══ C→A→C→A（使用者 2026-08-29 指定順序 D C A C A）══
+    //   兩輪的**目的不同**，這是關鍵：
+    //     第一輪 C：只查「方向」有沒有依據 → 定案利多/利空/中性
+    //     第二輪 C：方向定了之後，只查「強度」合不合理 → 定案權重
+    //   混在一起問，模型會用強度來遷就方向（或反之），兩者都不可靠。
+    //   每輪 C 之後緊接 A 做數字校驗，避免修正過程中引入新的假數字。
+    // ⚠ 只對**會影響評分**的判別跑。中性與資訊不足權重為 0，
+    //   驗它不會改變任何結果，卻要多花呼叫——成本要花在有用的地方。
+    const askJSON = async (prompt) => {
+      try { return await askOllama(prompt, { priority: 1 }); } catch { return null; }
+    };
+    const evidence = _picked.map(x => `《${x.title}》${(x.content || '').slice(0, 500)}`).join('\n');
+
+    // ── 第一輪 C：查方向 ──
+    if (verdict && (verdict.label === '利多' || verdict.label === '利空')) {
+      const p1 = `以下是對 ${it.code} ${it.name} 的判別方向，以及所依據的新聞原文。\n`
+        + `**只檢查方向**（利多/利空/中性），這一輪不要動強度。\n`
+        + `逐條檢查判別中的每一項陳述，在原文裡找得到依據嗎？找不到的情況包括：\n`
+        + `原文根本沒說、原文說的是**別家公司**、把「可能/預期」寫成已發生的事實、\n`
+        + `數字是你自己推算的。\n\n`
+        + `【方向】${verdict.label}\n【關鍵句】${verdict.keyQuote || '（無）'}\n`
+        + `【影響路徑】${verdict.impactPath || '（無）'}\n【理由】${verdict.reason || ''}\n\n`
+        + `【新聞原文】\n${evidence}\n\n`
+        + `⚠ 找不到依據的陳述**必須刪除**，不可改寫成更模糊的說法保留。\n`
+        + `刪除後若證據不足以支撐原方向，就改判「中性」。\n\n`
+        + `格式：\n無依據: （逐條列出；全部有依據寫「無」）\n`
+        + `定案方向: 利多/利空/中性\n定案信心: 高/中/低\n`
+        + `定案理由: （只保留原文找得到依據的部分，50 字內）`;
+      const r1 = await askJSON(p1);
+      if (r1) {
+        const g = (re) => { const m = r1.match(re); return m ? m[1].trim() : null; };
+        const nl = g(/定案方向\s*[:：]\s*(利多|利空|中性)/);
+        const un = g(/無依據\s*[:：]\s*(.+)/);
+        if (nl) {
+          if (nl !== verdict.label) log(`  ↳ ${it.code} 方向自檢改判 ${verdict.label}→${nl}`);
+          verdict = {
+            ...verdict, label: nl, bullish: nl === '利多',
+            confidence: g(/定案信心\s*[:：]\s*(高|中|低)/) || verdict.confidence,
+            reason: g(/定案理由\s*[:：]\s*(.+)/)?.slice(0, 70) || verdict.reason,
+            dirChecked: true,
+            unsupported: un && un !== '無' ? [`方向: ${un.slice(0, 60)}`] : [],
+          };
+        }
+      }
+      verdict = verifyNums(verdict, '方向');
+    }
+
+    // ── 第二輪 C：方向已定，只查強度（＝權重）──
+    if (verdict && (verdict.label === '利多' || verdict.label === '利空')) {
+      const p2 = `${it.code} ${it.name} 的方向已定案為【${verdict.label}】，**不要再改方向**。\n`
+        + `這一輪只決定**強度**，也就是你預期市場會有多大反應。\n\n`
+        + `【目前強度】${verdict.strength}\n【理由】${verdict.reason || ''}\n\n`
+        + `【新聞原文】\n${evidence}\n\n`
+        + `請依原文事實檢查強度是否合理：\n`
+        + `· 事件的量級在原文裡有沒有具體支撐（金額、比率、佔營收比重、客戶名稱）？\n`
+        + `  只有形容詞（「大幅」「強勁」）而無具體數字時，強度**不得超過「中」**。\n`
+        + `· 這件事影響的是一次性項目還是持續性的營運？一次性者強度上限「中」。\n`
+        + `· 市場是否已知並反映？已反映者即使事件大，隔日增量反應也小，須調降。\n`
+        + `· 極強只保留給：原文有具體數字且量級極大（如營收獲利年增數倍）、\n`
+        + `  或明確的重大法律/監管事件。找不到這種依據就不要給極強。\n\n`
+        + `格式：\n強度依據: （原文中支撐這個強度的具體事實；沒有寫「無具體數字」）\n`
+        + `定案強度: 極強/強/中/弱\n強度說明: （為何是這個強度，40 字內）`;
+      const r2 = await askJSON(p2);
+      if (r2) {
+        const g = (re) => { const m = r2.match(re); return m ? m[1].trim() : null; };
+        const ns = g(/定案強度\s*[:：]\s*(極強|強|中|弱)/);
+        if (ns) {
+          if (ns !== verdict.strength) log(`  ↳ ${it.code} 強度自檢調整 ${verdict.strength}→${ns}`);
+          verdict = {
+            ...verdict, strength: ns, strengthChecked: true,
+            strengthBasis: g(/強度依據\s*[:：]\s*(.+)/)?.slice(0, 50) || null,
+            strengthNote: g(/強度說明\s*[:：]\s*(.+)/)?.slice(0, 50) || null,
+          };
+        }
+      }
+      verdict = verifyNums(verdict, '強度');
     }
 
     // ══ 法律事件的方向由規則決定，不交給模型（使用者 2026-08-29 明令）══
@@ -5346,6 +5480,9 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         keyQuote: v.keyQuote || null, impactPath: v.impactPath || null,
         priced: v.priced || null, challenge: v.challenge || null,
         challenged: !!v.challenged, revision: v.revision || null,
+        gate: v.gate || null, unverifiedNums: v.unverifiedNums || null,
+        dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
+        strengthBasis: v.strengthBasis || null, unsupported: v.unsupported || null,
         basis: v.basis, n: v.n, pass, at: Date.now(),
         // 使用者 2026-08-29 提醒「一篇有多檔」：把該股在來源文章裡的處境記下來。
         // minCo=1 代表有專屬報導；minCo 大代表只在多檔清單裡被順帶提及，
@@ -12450,7 +12587,10 @@ if (ONESHOT) {
           log(`      關鍵句: ${(v.keyQuote || '—').slice(0, 46)}`);
           log(`      影響路徑: ${(v.impactPath || '—').slice(0, 54)}`);
           log(`      初判挑戰: ${(v.challenge || '—').slice(0, 44)}`);
-          log(`      ▸多輪挑戰: ${v.challenged ? '已執行' : '**未執行**'} | 修正: ${(v.revision || '—').slice(0, 46)}`);
+          log(`      ▸挑戰${v.challenged ? '✓' : '✗'} 方向自檢${v.dirChecked ? '✓' : '✗'} 強度自檢${v.strengthChecked ? '✓' : '✗'} | 閘門 ${v.gate || '通過'}`);
+          if (v.strengthBasis) log(`        強度依據: ${String(v.strengthBasis).slice(0, 52)}`);
+          if (v.unsupported?.length) v.unsupported.forEach(u => log(`        ✂ 刪除無依據: ${String(u).slice(0, 56)}`));
+          if (v.unverifiedNums?.length) log(`        ⚠ 數字未查證: ${v.unverifiedNums.join('、')}`);
           if (v.challenges) for (const k in v.challenges) if (v.challenges[k] && v.challenges[k] !== '無')
             log(`        [${k}] ${String(v.challenges[k]).slice(0, 52)}`);
         }
