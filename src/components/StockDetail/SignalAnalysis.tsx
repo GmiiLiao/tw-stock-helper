@@ -73,7 +73,14 @@ export default function SignalAnalysis({ code, name, price }: { code: string; na
         </div>
         <div style={{ width: 1, height: 36, background: 'var(--border-primary)' }} />
         <div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>AI 評分</div>
+          {/* ⚠ 標明口徑（2026-08-29）：這個分數與榜單頁**本來就不同**
+              （實測 2330 榜單 81／此處 84、2454 榜單 82／此處 88），
+              因為榜單要掃兩千多檔、無法逐檔抓日線與財報與新聞，只跑技術面快篩。
+              不說出來的話，使用者看到兩個數字只會覺得程式壞了，也不知道該信哪個。 */}
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}
+               title="個股頁的評分含日線技術面、財報與（若已判別）新聞加權；榜單頁為全市場快篩，僅技術面，兩者本來就會有差距。">
+            AI 評分<span style={{ opacity: .6 }}>（深度）</span>
+          </div>
           <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800 }}>{st.score} <span style={{ fontSize: 'calc(14px * var(--fz))', color: 'var(--text-muted)' }}>{st.grade}</span></div>
         </div>
         {sw && <>
