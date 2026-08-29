@@ -311,6 +311,7 @@ const poll = async () => {
 | `docs/SECURITY-2026-07-31.md` | 第二輪安全稽核：uid 仍可偽造、DELETE 零授權、推送零授權、timing-safe |
 | `docs/REPO-LAYOUT.md` | 兩個 git repo 的歸屬與規則 |
 | `docs/EXPERIMENTS.md` | **模型實驗紀錄（含負面結果）**——重跑前先看，避免重做已證偽的假設 |
+| `docs/DATA-INTEGRITY-SCAN.md` | **反向糾錯掃描**——六個故障族的特徵與 grep 指令，可重跑；含「查過且乾淨」的紀錄 |
 
 `.backup_before_opt/` 是 Cowork 最佳化前的檔案快照；**現在專案已有 git，回滾請用 git**，
 那個目錄留著只是保險，確認穩定後可刪。
