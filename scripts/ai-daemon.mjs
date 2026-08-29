@@ -5190,7 +5190,9 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   }
 
   await flush(true);
-  return true;
+  // 同上：全部失敗（judged=0 且 skipped=0）不可回報成功，否則整天不再重試。
+  // ⚠ 晨間趟「全部沿用」是**正常成功**（judged=0、skipped=N），不能一起擋掉。
+  return (judged + skipped) > 0;
 }
 
 async function computeLimitUpNewsVerdict() {
