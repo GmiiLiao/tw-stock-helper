@@ -4422,7 +4422,13 @@ async function nameIndex() {
     const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
     const q = snap?.quotesJson ? JSON.parse(snap.quotesJson) : {};
     _nameIdxCache = Object.values(q).map(x => x?.name).filter(n => n && n.length >= 2);
-  } catch { _nameIdxCache = []; }
+  } catch (e) {
+    // ⚠ **失敗不可快取**：快取空陣列等於整輪都拿不到名稱延伸表，
+    //   「南亞科」又會被算成「南亞」的提及，而且不會自己恢復——
+    //   靜默劣化回原本的 bug。留 null 讓下一檔重試，並據實告警。
+    log('  ↳ ⚠ 名稱索引讀取失敗，提及計數暫時無法排除相似名稱:', (e.message || '').slice(0, 40));
+    return [];
+  }
   return _nameIdxCache;
 }
 function extensionCharsOf(name, allNames) {
