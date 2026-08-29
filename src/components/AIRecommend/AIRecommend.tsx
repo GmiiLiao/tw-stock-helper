@@ -65,7 +65,7 @@ interface ScoredStock {
   risks: string[];
   // AI 內文判別（daemon 來源監看管線）。僅供呈現，**不影響排序**
   // ——係數尚未經 newsLift 驗證，不讓未驗證的訊號決定「推薦什麼」。
-  newsVerdict?: { label: string; confidence: string; reason: string } | null;
+  newsVerdict?: { label: string; confidence: string; strength?: string | null; reason: string; challenged?: boolean; revision?: string | null } | null;
   newsAdj?: number;
   factors: {
     momentum: number;
@@ -394,8 +394,18 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                       color: view.newsVerdict.label === '利多' ? 'var(--color-up)'
                         : view.newsVerdict.label === '利空' ? 'var(--color-down)' : 'var(--text-muted)',
                     }}>{view.newsVerdict.label}</b>
+                    {view.newsVerdict.strength && (
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        {' '}強度{view.newsVerdict.strength}
+                      </span>
+                    )}
                     <span style={{ color: 'var(--text-muted)' }}>（信心{view.newsVerdict.confidence}）</span>
                     {view.newsVerdict.reason ? `：${view.newsVerdict.reason}` : ''}
+                    {view.newsVerdict.revision && (
+                      <div style={{ marginTop: 3, color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>
+                        🔍 四角色挑戰後：{view.newsVerdict.revision}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     //   但那等於新聞的工作完全不影響「推薦什麼」——使用者最初的抱怨正是這個。
     //   仍保留 newsLift 對答案機制持續量測，係數之後依證據調整。
     // ⚠ 只有 AI **讀完內文**的判別能進來（使用者硬規定），標題關鍵字一律不得調分。
-    let nvMap: Record<string, { label: string; confidence: string; strength?: string; reason: string; at?: number }> = {};
+    let nvMap: Record<string, { label: string; confidence: string; strength?: string; reason: string; revision?: string; challenged?: boolean; at?: number }> = {};
     try {
       const db = getAdminDb();
       const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
@@ -83,7 +83,17 @@ export async function GET(request: NextRequest) {
         adj: a?.a ?? 0, adjWhy: a?.w ?? [],
         // 新聞判別與它對排序的實際加減分（透明呈現：使用者看得到為什麼被加/扣）
         newsVerdict: nvMap[r.code]
-          ? { label: nvMap[r.code].label, confidence: nvMap[r.code].confidence, reason: nvMap[r.code].reason }
+          ? {
+              label: nvMap[r.code].label, confidence: nvMap[r.code].confidence,
+              // 強度＝預期的市場反應大小。只顯示利多/利空看不出量級，
+              // 而量級正是這份判別能用來跨個股比較的原因。
+              strength: nvMap[r.code].strength ?? null,
+              reason: nvMap[r.code].reason,
+              // 挑戰是否執行過與修正說明——讓使用者看得出這是「多輪挑戰後的定案」
+              // 還是「一次性判斷」，也才分得出模型有沒有敷衍。
+              challenged: !!nvMap[r.code].challenged,
+              revision: nvMap[r.code].revision ?? null,
+            }
           : null,
         newsAdj: newsAdjOf(nvMap[r.code]) };
     });
