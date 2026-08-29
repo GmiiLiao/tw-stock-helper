@@ -4514,7 +4514,7 @@ async function judgeOneStock(it, ctx, opts = {}) {
 
 【已知事實（請以此為錨，不要臆測這家公司做什麼）】
 · ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
-· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
+${opts.coMentionNote ? `· ${opts.coMentionNote}\n` : ''}· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
 
 嚴格規則：
 1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
@@ -4930,7 +4930,11 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   }
 
   // 來源監看式宇宙（使用者 2026-08-29 改用）：宇宙＝真的有新聞的股票，不受前 150 限制。
-  // 掃不到時退回成交金額前 N 檔——寧可判錯宇宙也不要整條管線靜默停擺。
+  // 掃不到時退回成交金額前 N 檔——但要誠實說清楚：**這不是真正的備援**。
+  // 兩條路都要靠 marketSnapshot 取得代號↔名稱對照（沒有名稱就沒有搜尋
+  // 關鍵字，也無法從標題認出個股），所以 marketSnapshot 掛掉時兩條都會空。
+  // 它只擋「來源網站集體失效」這一種情況。真正的保護是 marketSnapshot
+  // 本身已納入稽核；別誤以為這裡有雙保險。
   let universe = await newsDrivenUniverse();
   let universeFrom = 'news';
   if (!universe.length) {
@@ -4950,6 +4954,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
 
   for (const u of universe) {
     const code = u.code;
+    const minCo = (u.articles || []).length ? Math.min(...u.articles.map(a => a.coMentions)) : 1;
     if (deadlineMins != null) {
       const t2 = taipei();
       if (t2.getHours() * 60 + t2.getMinutes() >= deadlineMins) { stopped = true; break; }
@@ -4960,7 +4965,16 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         { code, name: u.name || code },
         ctx,
         // 晨間那趟才過濾已判標題；盤後那趟是當日第一次，全部都要判。
-        pass === 'morning' ? { seenTitles: seen } : {}
+        // 使用者 2026-08-29 提醒「一篇有多檔」：把該股在來源報導裡的處境
+        // 明講給判別者，讓它自己分辨「專屬報導」與「族群清單裡被順帶提及」。
+        // 只在確實偏向清單式報導時才講——沒事加一句反而是誘導。
+        {
+          ...(pass === 'morning' ? { seenTitles: seen } : {}),
+          ...(minCo >= 4 ? {
+            coMentionNote: `本檔在來源報導中**沒有專屬報導**：最集中的一篇也同時提到 ${minCo} 檔`
+              + `（族群/清單式報導），請留意它可能只是被順帶提及，這種情況多半應判「中性」`,
+          } : {}),
+        }
       );
       if (r && r.skipped) { skipped++; continue; }
       const v = r && r.verdict;
