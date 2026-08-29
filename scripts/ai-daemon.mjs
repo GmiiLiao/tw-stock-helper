@@ -4456,8 +4456,14 @@ async function judgeOneStock(it, ctx, opts = {}) {
   // ⚠ 判斷「有沒有新東西」用全部抓到的新聞，但真的要判時仍以完整視窗為上下文，
   //   不只拿增量去判——否則判別會失去脈絡。
   if (opts.seenTitles && opts.seenTitles.length) {
-    const fresh = news.filter(n => n.title && !titleSeen(n.title, opts.seenTitles));
-    if (!fresh.length) return { skipped: true, reason: 'no-new-titles', recent: [], allTitles: news.map(n => n.title).filter(Boolean) };
+    // ⚠ 條件必須是「沒有新的**有內文**文章」，不是「一則新標題都沒有」
+    //   （2026-08-29 實測：後者跳過率 0/90，設計完全落空）。
+    //   每檔會抓 10~15 則，其中多數是 Google News 的純標題，
+    //   而它每次回傳的組合都在變 ⇒「零新標題」實務上永遠不成立。
+    //   判別是靠有內文的文章驅動的：沒有新的內文＝沒有新資訊可判，
+    //   重判只是把同一批內文再讀一次。
+    const freshBody = news.filter(n => n.title && n.hasBody && !titleSeen(n.title, opts.seenTitles));
+    if (!freshBody.length) return { skipped: true, reason: 'no-new-body', recent: [], allTitles: news.map(n => n.title).filter(Boolean) };
   }
   // ⚠ 新聞視窗要跨過**非交易日**（使用者指示 2026-08-28）：
   //   固定 48 小時在週一早上只涵蓋「週六 08:00 ~ 週一 08:00」——**週四、
@@ -4542,9 +4548,25 @@ async function judgeOneStock(it, ctx, opts = {}) {
     const pool = (withBody.length ? withBody : material);
     const src = pool.slice().sort((a, b) =>
       hotHits(`${b.title} ${b.content || ''}`).length - hotHits(`${a.title} ${a.content || ''}`).length
-    ).slice(0, 4);
+    );
+
+    // 同一則故事最多引用 3 篇（使用者 2026-08-29 指定）。
+    // 同一件事被各家改寫標題重發是常態；不設上限的話，4 個名額會被
+    // 同一則故事的改寫稿佔滿，判別看不到其他題材，等於用重複資訊做判斷。
+    // 相似度用與別處相同的 Dice 0.6（改門檻要三處一起改：
+    //   news-sentiment.ts 的 SIM_THRESHOLD、本檔的 TITLE_SIM、這裡）。
+    const _groups = [];
+    const _picked = [];
+    for (const n of src) {
+      const g = _bigrams(n.title || '');
+      let grp = _groups.find(x => _dice(x.g, g) >= TITLE_SIM);
+      if (!grp) { grp = { g, n: 0 }; _groups.push(grp); }
+      if (grp.n >= 3) continue;          // 同故事已引用 3 篇
+      grp.n++; _picked.push(n);
+      if (_picked.length >= 4) break;
+    }
     // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
-    const body = src.map((n, i) => {
+    const body = _picked.map((n, i) => {
       const hot = hotHits(`${n.title} ${n.content || ''}`);
       const from = n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : '';
       return `【新聞${i + 1}】${n.title}${from}${hot.length ? `\n〔命中主旋律：${hot.join('、')}〕` : ''}\n${n.content ? n.content.slice(0, 1200) : '（無內文，僅標題）'}`;
@@ -4566,9 +4588,13 @@ async function judgeOneStock(it, ctx, opts = {}) {
       }
       return n2;
     };
-    const mentions = src.reduce((n2, x) => n2 + countMentions(`${x.title} ${x.content || ''}`), 0);
+    // ⚠ 這三處都要用 _picked（實際餵給判別的那幾篇），不能用 src（完整池）：
+    //   提示詞寫的是「本檔在**以下新聞**中被指名提及 N 次」，
+    //   若統計範圍比判別看到的還大，模型會拿到對不上的數字；
+    //   負面事件同理——挑出判別根本沒看到的事件會讓它無從回答。
+    const mentions = _picked.reduce((n2, x) => n2 + countMentions(`${x.title} ${x.content || ''}`), 0);
     // 只挑出「與本檔同時出現」的負面事件，避免把同業的壞消息算到自己頭上
-    const negHits = [...new Set(src.flatMap(x => {
+    const negHits = [...new Set(_picked.flatMap(x => {
       const t = `${x.title} ${x.content || ''}`;
       if (!countMentions(t)) return [];
       const m = t.match(HARD_NEGATIVE);
@@ -4778,7 +4804,7 @@ ${body || '（近 2 日無實質新聞）'}
       const LEGAL = /檢調|搜索|搜查|約談|起訴|羈押|背信|掏空|調查/;
       if (negHits.some(h => LEGAL.test(h))) {
         const subjQ = `以下是 ${it.code} ${it.name} 的相關報導。\n`
-          + src.slice(0, 6).map(x => `【${x.title}】${(x.content || '').slice(0, 400)}`).join('\n')
+          + _picked.map(x => `【${x.title}】${(x.content || '').slice(0, 400)}`).join('\n')
           + `\n\n只回答一個問題：這些報導中的檢調搜索／調查／起訴，`
           + `**對象是不是 ${it.name} 這家公司本身（含其子公司或負責人）**？`
           + `若對象是同業、客戶、供應商或其他公司，就不是。\n`

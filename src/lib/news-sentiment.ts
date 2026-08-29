@@ -209,18 +209,25 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     if (hit) hit.push(it); else clusters.push([it]);
   }
   // 一群 = 一則故事。群內取平均，權重取**最新**那篇（故事的新鮮度以最新一次發佈為準）。
-  const stories = clusters.map(c => {
+  // 同一事件最多採計 3 篇（使用者 2026-08-29 指定），取**最新的 3 篇**。
+  // 一群＝一個事件，這 3 篇合起來只產出**一個**結果與權重，不是三份貢獻。
+  // 為什麼要設上限而不是全取平均：某些事件會被十幾家改寫轉發，
+  // 全取平均等於讓「被轉發次數」影響結果，那是媒體行為不是事件本身。
+  const STORY_MAX = 3;
+  const stories = clusters.map(cRaw => {
+    const c = cRaw.slice().sort((a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, STORY_MAX);
     // 有內文判別的成員存在時，平均只取那些——否則等於讓標題判斷混進計分。
     const withContent = c.filter(x => x.verdictBasis === 'content');
     const base = withContent.length ? withContent : c;
     const sentiment = base.reduce((a, x) => a + x.sentiment, 0) / base.length;
-    const weight = Math.max(...c.map(x => x.weight));
+    const weight = Math.max(...c.map(x => x.weight));   // 取這 3 篇裡最新的權重
     return {
       sentiment,
       weight,
       effective: parseFloat((sentiment * weight).toFixed(2)),
       verdictBasis: withContent.length ? 'content' as const : 'title' as const,
-      size: c.length,
+      size: cRaw.length,        // 原始篇數（揭露被轉發幾次），採計則以 c 為準
     };
   });
   const graded = stories.filter(x => x.verdictBasis === 'content');
