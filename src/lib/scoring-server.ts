@@ -54,7 +54,10 @@ export interface ParsedStock {
   price: number; open: number; high: number; low: number; close: number;
   change: number; changePercent: number;
   volume: number; value: number; transactions: number;
-  prevClose: number; range: number; closePosition: number;
+  prevClose: number; range: number;
+  /** 收盤在日內區間的位置 0~1。**null = 來源沒給高低**，不是「位於中間」——
+   *  用到它的規則必須顯式檢查非 null（見 parseStock 的說明）。 */
+  closePosition: number | null;
 }
 
 export interface BuyZone {
@@ -162,13 +165,34 @@ export interface StockRating {
 export function parseStock(d: StockDayData): ParsedStock {
   const close = parseFloat(d.ClosingPrice) || 0;
   const change = parseFloat(d.Change) || 0;
-  const open = parseFloat(d.OpeningPrice) || close;
   const prevClose = close - change;
   const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
-  const high = parseFloat(d.HighestPrice) || close;
-  const low = parseFloat(d.LowestPrice) || close;
-  const range = high - low;
-  const closePosition = range > 0 ? (close - low) / range : 0.5;
+  // ⚠ 2026-08-29 反向掃描抓到：舊版 `parseFloat(d.HighestPrice) || close` 在
+  //   來源缺 OHLC 時把三者都填成收盤 ⇒ range = 0 ⇒ closePosition **恆為 0.5**，
+  //   而下面兩條評分規則的條件是 `>= 0.75` 與 `>= 0.8`——**永遠不成立，等於死規則**。
+  //   （根因是快照沒帶 OHLC，已於 c00b3a0 修好；但這裡的 fallback 本身就是
+  //     藏住它的東西：資料再壞一次，兩條規則又會安靜地失效。）
+  //   ⇒ 價格欄位維持退回收盤（顯示不能破），但 closePosition 改為 null，
+  //     用到它的規則必須顯式要求非 null。
+  const rawOpen = parseFloat(d.OpeningPrice) || 0;
+  const rawHigh = parseFloat(d.HighestPrice) || 0;
+  const rawLow = parseFloat(d.LowestPrice) || 0;
+  const hasOhlc = rawHigh > 0 && rawLow > 0 && rawHigh >= rawLow;
+  const open = rawOpen > 0 ? rawOpen : close;
+  const high = hasOhlc ? rawHigh : close;
+  const low = hasOhlc ? rawLow : close;
+  const range = hasOhlc ? rawHigh - rawLow : 0;
+  // ⚠ 要分清楚**兩種不同的「算不出來」**（2026-08-29 訂正）：
+  //   ① 來源沒給高低 → 真的沒資料 → null
+  //   ② 有高低但 range = 0（全日只成交在一個價位，**漲停/跌停鎖死最常見**）
+  //      → 資料是完整的，位置也明確：收在唯一價位＝區間的頂也是底。
+  //      用「相對昨收」定方向：鎖在漲停＝1、鎖在跌停＝0、真平盤才是未定義。
+  //   把 ② 也判成 null 會讓「收在日高」這類訊號對**最強勢的鎖死股永遠不觸發**。
+  const closePosition = !hasOhlc ? null
+    : range > 0 ? (close - rawLow) / range
+    : close > prevClose ? 1
+    : close < prevClose ? 0
+    : null;
 
   return {
     code: d.Code, name: d.Name,
@@ -205,7 +229,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   }
 
   // 2. 跳空高開強收
-  if (s.open > s.prevClose * 1.01 && s.closePosition >= 0.75 && chg > 0) {
+  if (s.open > s.prevClose * 1.01 && s.closePosition != null && s.closePosition >= 0.75 && chg > 0) {
     const gapPct = ((s.open / s.prevClose) - 1) * 100;
     patterns.push({
       name: '跳空高開強收',
@@ -228,7 +252,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   }
 
   // 4. 量縮近漲停
-  if (chg >= 7 && chg < 9.9 && s.closePosition >= 0.8) {
+  if (chg >= 7 && chg < 9.9 && s.closePosition != null && s.closePosition >= 0.8) {
     patterns.push({
       name: '強攻接近漲停',
       type: 'bullish',
@@ -261,7 +285,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   }
 
   // 7. 高開低走
-  if (s.open > s.prevClose * 1.02 && s.closePosition < 0.4 && isGreen) {
+  if (s.open > s.prevClose * 1.02 && s.closePosition != null && s.closePosition < 0.4 && isGreen) {
     patterns.push({
       name: '高開低走警示',
       type: 'bearish',
@@ -272,7 +296,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   }
 
   // 8. 法人資金型態
-  if (s.value > 2_000_000_000 && chg > 1 && s.closePosition > 0.6) {
+  if (s.value > 2_000_000_000 && chg > 1 && s.closePosition != null && s.closePosition > 0.6) {
     patterns.push({
       name: '法人資金推升',
       type: 'bullish',
@@ -298,7 +322,7 @@ export function calculateBuyZones(s: ParsedStock, patterns: PatternSignal[]): Bu
   const zones: BuyZone[] = [];
 
   // ── Zone 1: 積極追買 ──
-  if (chg > 5 && s.closePosition > 0.8) {
+  if (chg > 5 && s.closePosition != null && s.closePosition > 0.8) {
     const entry = p;
     const entryMax = p * 1.012;
     zones.push({
@@ -500,13 +524,20 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
     riskWarnings.push({
       type: 'disposition',
       label: '🔴 處置股票',
-      reason: info?.reason || '已被列為處置股票',
+      // ⚠ 不可以給 reason 寫死的 fallback（2026-08-29 反向掃描抓到）：
+      //   risk-stocks-source.ts:23 記載的注意股事故就是這個——當初修了四處
+      //   `|| '列為注意股票'`，**漏掉這第五處**。缺事由就明說來源沒提供。
+      reason: info?.reason || '（交易所未提供處置事由）',
       severity: 'critical',
-      source: info?.source || 'TWSE',
+      // 上櫃處置股的 source 是 TPEx，寫死 'TWSE' 會標錯交易所
+      source: info?.source || '交易所',
       measures: info?.measures,
       period: info?.startDate && info?.endDate ? `${info.startDate} ~ ${info.endDate}` : undefined,
     });
-    risks.push(`🔴 處置股票：${info?.reason || '交易受限，需預收款券'}`);
+    // ⚠ 更嚴重：`'交易受限，需預收款券'` 是**編造具體的交易限制**。
+    //   預收款券是**第二次處置**才有的措施，第一次處置是人工管制撮合。
+    //   不知道事由時說出一個具體限制，比不說更糟。
+    risks.push(`🔴 處置股票${info?.reason ? `：${info.reason}` : '（交易所未提供事由，實際限制以券商公告為準）'}`);
     if (info?.measures) risks.push(`📋 處置措施：${info.measures}`);
   }
 
@@ -515,11 +546,11 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
     riskWarnings.push({
       type: 'attention',
       label: '🟡 注意股票',
-      reason: info?.reason || '已被列為注意股票',
+      reason: info?.reason || '（交易所未提供注意事由）',   // 同上：不捏造事由
       severity: 'warning',
-      source: info?.source || 'TWSE',
+      source: info?.source || '交易所',   // 上櫃是 TPEx，寫死 TWSE 會標錯
     });
-    risks.push(`🟡 注意股票：${info?.reason || '交易異常，已列入注意'}`);
+    risks.push(`🟡 注意股票${info?.reason ? `：${info.reason}` : '（交易所未提供事由）'}`);
   }
 
   // ── Factor 1: 動能（20）── 2026-08-05 依 bt-core 四窗檢定重訂 ────────
@@ -569,7 +600,12 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   // ⇒ 只能把單獨的「貼日高」降為中性偏低，並如實寫成風險而不是優點。
   let trendScore = 0;
   const cp = s.closePosition;
-  if (cp >= 0.85)      { trendScore = 8;  risks.push('⚠️ 收在日高附近——四窗實測此組隔日最差（淨勝 33%，五組最低）；除非同時突破 20 日新高，否則不是優勢'); }
+  // ⚠ cp 為 null 代表**來源沒給高低**，不是「位於中間」（2026-08-29 反向掃描抓到）。
+  //   舊版把缺漏填成 0.5，正好落進 `>= 0.50 → 14` 這一格 ⇒ 所有缺 OHLC 的股票
+  //   都被指派了一個「四窗實測導出」的分數，而那個實測的前提根本不存在。
+  //   無資訊時給中性分是對的，但**必須讓人看得見它沒被量到**。
+  if (cp == null) { trendScore = 14; risks.push('ℹ️ 收盤位置無法判定（來源未給高低，或全日僅一個價位且收平盤），此項以中性計'); }
+  else if (cp >= 0.85)      { trendScore = 8;  risks.push('⚠️ 收在日高附近——四窗實測此組隔日最差（淨勝 33%，五組最低）；除非同時突破 20 日新高，否則不是優勢'); }
   else if (cp >= 0.70) { trendScore = 12; }
   else if (cp >= 0.50) { trendScore = 14; }
   else if (cp >= 0.30) { trendScore = 15; }
@@ -625,7 +661,7 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
 
   // Strategy classification
   let strategy: ScoredStock['strategy'] = 'momentum';
-  if (chg > 0 && val > 1_000_000_000 && cp > 0.7)           strategy = 'growth';
+  if (chg > 0 && val > 1_000_000_000 && cp != null && cp > 0.7) strategy = 'growth';
   else if (chg >= 0 && chg < 3 && val > 500_000_000)         strategy = 'defensive';
   else if (s.price < 50 && chg > 2)                           strategy = 'value';
 

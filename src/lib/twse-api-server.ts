@@ -594,8 +594,13 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
         rows.push({
           Date: '', Code: q.code, Name: q.name,
           TradeVolume: String(q.volume ?? 0), TradeValue: '0',
-          OpeningPrice: String(q.avg || q.price), HighestPrice: String(q.high || q.price),
-          LowestPrice: String(q.low || q.price), ClosingPrice: String(q.price),
+          // ⚠ 第三處同型捏值（2026-08-29 反向掃描抓到）。原本更糟：**拿均價當開盤價**
+          //   （`q.avg || q.price`）——那是兩個不同的量。興櫃本來就常沒有 OHLC，
+          //   缺就給 0，讓下游自己判斷「來源未提供」。
+          //   興櫃這個來源**根本沒有開盤價欄位**（EmergingQuote 只有 avg/high/low），
+          //   舊版才會拿均價頂。沒有就是沒有，給 0。
+          OpeningPrice: '0', HighestPrice: String(q.high > 0 ? q.high : 0),
+          LowestPrice: String(q.low > 0 ? q.low : 0), ClosingPrice: String(q.price),
           Change: String(q.change ?? 0), Transaction: '0',
           _source: 'esb', _changePercent: String(q.changePercent ?? 0),
           _prevClose: String(q.prev ?? 0), _market: 'esb',
