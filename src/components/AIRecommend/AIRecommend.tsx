@@ -65,7 +65,7 @@ interface ScoredStock {
   risks: string[];
   // AI 內文判別（daemon 來源監看管線）。僅供呈現，**不影響排序**
   // ——係數尚未經 newsLift 驗證，不讓未驗證的訊號決定「推薦什麼」。
-  newsVerdict?: { label: string; confidence: string; strength?: string | null; reason: string; challenged?: boolean; revision?: string | null } | null;
+  newsVerdict?: { label: string; confidence: string; strength?: string | null; reason: string; challenged?: boolean; revision?: string | null; strengthBasis?: string | null; checked?: boolean; unverifiedNums?: string[] | null } | null;
   newsAdj?: number;
   factors: {
     momentum: number;
@@ -401,6 +401,16 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                     )}
                     <span style={{ color: 'var(--text-muted)' }}>（信心{view.newsVerdict.confidence}）</span>
                     {view.newsVerdict.reason ? `：${view.newsVerdict.reason}` : ''}
+                    {view.newsVerdict.strengthBasis && (
+                      <div style={{ marginTop: 3, color: 'var(--text-secondary)', fontSize: 'calc(11.5px * var(--fz))' }}>
+                        📌 強度依據：{view.newsVerdict.strengthBasis}
+                      </div>
+                    )}
+                    {view.newsVerdict.unverifiedNums?.length ? (
+                      <div style={{ marginTop: 3, color: 'var(--color-warn, #fbbf24)', fontSize: 'calc(11.5px * var(--fz))' }}>
+                        ⚠ 下列數字未能在原文查證：{view.newsVerdict.unverifiedNums.join('、')}
+                      </div>
+                    ) : null}
                     {view.newsVerdict.revision && (
                       <div style={{ marginTop: 3, color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>
                         🔍 四角色挑戰後：{view.newsVerdict.revision}

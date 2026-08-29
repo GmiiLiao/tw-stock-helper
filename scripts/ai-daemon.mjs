@@ -4906,6 +4906,64 @@ ${body || '（近 2 日無實質新聞）'}
       verdict = verifyNums(verdict, '方向');
     }
 
+    // ══ E 引用強制（使用者 2026-08-29 加入，順序 D C A E C A）══
+    //   要求逐字引用原文支撐每一項主張，**程式端逐句驗證引文是否真的存在**。
+    //   這是整條管線裡唯一「語意層但程式可驗證」的約束：
+    //     A 只擋得住數字，C 是模型自己查自己（可能同樣幻想），
+    //     E 則把主張綁到「原文裡確實存在的那句話」，引不出來就是編的。
+    //   引不出任何有效引文 ⇒ 理由整段不可信 ⇒ 改判中性。
+    if (verdict && (verdict.label === '利多' || verdict.label === '利空')) {
+      const norm = t => String(t || '').replace(/[\s「」『』"'“”，,。．.、；;：:！!？?（）()]/g, '');
+      const corpusE = norm(_picked.map(x => `${x.title} ${x.content || ''}`).join(' '));
+      const pE = `以下是你對 ${it.code} ${it.name} 的判別理由。\n`
+        + `請為其中的**每一項主張**，從新聞原文中**逐字引用**支撐它的句子。\n`
+        + `⚠ 必須一字不差地照抄原文，不可改寫、不可拼接不同句子、不可自己加字。\n`
+        + `引不出原文句子的主張，就是沒有依據的。\n\n`
+        + `【判別理由】${verdict.reason || ''}\n`
+        + `【強度依據】${verdict.impactPath || ''}\n\n`
+        + `【新聞原文】\n${evidence}\n\n`
+        + `格式（最多 3 條引用）：\n`
+        + `引用1: 「逐字照抄的原文句子」\n引用2: 「…」\n引用3: 「…」\n`
+        + `無法引用: （列出理由中找不到原文支撐的主張；全部都引得出來寫「無」）\n`
+        + `淨化理由: （**只保留**上述引用能支撐的內容，50 字內）`;
+      const rE = await askJSON(pE);
+      if (rE) {
+        // 主要解析：「引用N: …」。
+        let quotes = [...rE.matchAll(/引用\d\s*[:：]\s*[「"']?(.+?)[」"']?\s*$/gm)]
+          .map(m => m[1].trim()).filter(q => q && q !== '無' && q.length >= 6);
+        // ⚠ 後備解析：模型不照格式時（換行、改標籤、只用引號）不能當成「引不出來」
+        //   ——那會把有依據的判別誤殺成中性。改抓回應中所有引號片段再驗證；
+        //   驗證仍然是程式做的，所以放寬解析不會放寬把關。
+        if (!quotes.length) {
+          quotes = [...rE.matchAll(/[「『"“]([^」』"”]{8,80})[」』"”]/g)]
+            .map(m => m[1].trim()).filter(q => q && q !== '無');
+        }
+        const verified = quotes.filter(q => corpusE.includes(norm(q)));
+        const failed = quotes.length - verified.length;
+        const cleaned = (rE.match(/淨化理由\s*[:：]\s*(.+)/) || [])[1]?.trim();
+        if (!verified.length) {
+          // 一條有效引文都拿不出來 ⇒ 這個判別沒有原文根據
+          log(`  ↳ ${it.code} 引用強制未過（${quotes.length} 條引用全部對不上原文）→ 改判中性`);
+          verdict = {
+            ...verdict, label: '中性', bullish: false, strength: '弱', confidence: '低',
+            reason: '引用強制未過：無法從原文逐字引出支撐此判別的句子',
+            quoteVerified: 0, quoteFailed: failed, gate: 'E-引用強制',
+          };
+        } else {
+          verdict = {
+            ...verdict,
+            reason: (cleaned || verdict.reason || '').slice(0, 70),
+            quotes: verified.slice(0, 3).map(q => q.slice(0, 60)),
+            quoteVerified: verified.length, quoteFailed: failed,
+            // 有引文對不上＝模型至少編了一句，其他陳述也不該完全採信
+            confidence: failed > 0 ? (verdict.confidence === '高' ? '中' : '低') : verdict.confidence,
+          };
+          if (failed) log(`  ↳ ${it.code} 引用強制：${verified.length} 條通過、${failed} 條對不上原文（已降信心）`);
+        }
+      }
+      verdict = verifyNums(verdict, '引用後');
+    }
+
     // ── 第二輪 C：方向已定，只查強度（＝權重）──
     if (verdict && (verdict.label === '利多' || verdict.label === '利空')) {
       const p2 = `${it.code} ${it.name} 的方向已定案為【${verdict.label}】，**不要再改方向**。\n`
@@ -4935,6 +4993,13 @@ ${body || '（近 2 日無實質新聞）'}
         }
       }
       verdict = verifyNums(verdict, '強度');
+    }
+
+    // 中性／資訊不足沒有方向，強度就沒有意義。不歸零的話畫面會出現
+    // 「中性·強度強」這種自相矛盾的組合（強度是初判留下的，
+    // 而中性判別不會走到第二輪 C 去修它）。
+    if (verdict && (verdict.label === '中性' || verdict.label === '資訊不足')) {
+      verdict = { ...verdict, strength: '弱' };
     }
 
     // ══ 法律事件的方向由規則決定，不交給模型（使用者 2026-08-29 明令）══
@@ -5482,6 +5547,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         challenged: !!v.challenged, revision: v.revision || null,
         gate: v.gate || null, unverifiedNums: v.unverifiedNums || null,
         dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
+        quotes: v.quotes || null, quoteVerified: v.quoteVerified ?? null, quoteFailed: v.quoteFailed ?? null,
         strengthBasis: v.strengthBasis || null, unsupported: v.unsupported || null,
         basis: v.basis, n: v.n, pass, at: Date.now(),
         // 使用者 2026-08-29 提醒「一篇有多檔」：把該股在來源文章裡的處境記下來。
@@ -12587,7 +12653,8 @@ if (ONESHOT) {
           log(`      關鍵句: ${(v.keyQuote || '—').slice(0, 46)}`);
           log(`      影響路徑: ${(v.impactPath || '—').slice(0, 54)}`);
           log(`      初判挑戰: ${(v.challenge || '—').slice(0, 44)}`);
-          log(`      ▸挑戰${v.challenged ? '✓' : '✗'} 方向自檢${v.dirChecked ? '✓' : '✗'} 強度自檢${v.strengthChecked ? '✓' : '✗'} | 閘門 ${v.gate || '通過'}`);
+          log(`      ▸挑戰${v.challenged ? '✓' : '✗'} 方向${v.dirChecked ? '✓' : '✗'} 引用${v.quoteVerified != null ? `${v.quoteVerified}通過/${v.quoteFailed}失敗` : '✗'} 強度${v.strengthChecked ? '✓' : '✗'} | 閘門 ${v.gate || '通過'}`);
+          if (v.quotes?.length) v.quotes.forEach(q => log(`        ❝ ${String(q).slice(0, 54)}`));
           if (v.strengthBasis) log(`        強度依據: ${String(v.strengthBasis).slice(0, 52)}`);
           if (v.unsupported?.length) v.unsupported.forEach(u => log(`        ✂ 刪除無依據: ${String(u).slice(0, 56)}`));
           if (v.unverifiedNums?.length) log(`        ⚠ 數字未查證: ${v.unverifiedNums.join('、')}`);

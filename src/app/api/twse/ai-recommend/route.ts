@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     //   但那等於新聞的工作完全不影響「推薦什麼」——使用者最初的抱怨正是這個。
     //   仍保留 newsLift 對答案機制持續量測，係數之後依證據調整。
     // ⚠ 只有 AI **讀完內文**的判別能進來（使用者硬規定），標題關鍵字一律不得調分。
-    let nvMap: Record<string, { label: string; confidence: string; strength?: string; reason: string; revision?: string; challenged?: boolean; at?: number }> = {};
+    let nvMap: Record<string, { label: string; confidence: string; strength?: string; reason: string; revision?: string; challenged?: boolean; strengthBasis?: string; dirChecked?: boolean; strengthChecked?: boolean; unverifiedNums?: string[]; at?: number }> = {};
     try {
       const db = getAdminDb();
       const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
@@ -93,6 +93,12 @@ export async function GET(request: NextRequest) {
               // 還是「一次性判斷」，也才分得出模型有沒有敷衍。
               challenged: !!nvMap[r.code].challenged,
               revision: nvMap[r.code].revision ?? null,
+              // 強度依據＝原文中支撐這個權重的具體事實。
+              // 只看「強度：強」使用者無從判斷可不可信，看到依據才能自己評估。
+              strengthBasis: nvMap[r.code].strengthBasis ?? null,
+              // 防幻想管線走過哪幾關——沒走完的判別可信度本來就較低
+              checked: !!nvMap[r.code].dirChecked && !!nvMap[r.code].strengthChecked,
+              unverifiedNums: nvMap[r.code].unverifiedNums ?? null,
             }
           : null,
         newsAdj: newsAdjOf(nvMap[r.code]) };
