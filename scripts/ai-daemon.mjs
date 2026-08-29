@@ -4678,8 +4678,11 @@ ${body || '（近 2 日無實質新聞）'}
               ...verdict,
               label: '利空', bullish: false,
               confidence: verdict.confidence === '低' ? '中' : verdict.confidence,
-              reason: `【規則】公司涉檢調搜索/調查，法律判定前一律視為利空。`
-                + `AI 原判「${verdict.label}」：${(verdict.reason || '').slice(0, 40)}`,
+              // ⚠ 長度要控制：原版拼出來超過 100 字，畫面截斷在句中
+              //   （「…但此為公司」）反而讓資訊不完整。壓縮但兩項關鍵資訊都留：
+              //   ①這是規則覆寫不是 AI 判的 ②AI 原本判什麼。
+              reason: `【規則】涉檢調搜索，法律判定前視為利空（AI 原判${verdict.label}：`
+                + `${(verdict.reason || '').replace(/[。\n].*$/, '').slice(0, 24)}）`,
               ruleOverride: 'legal-event',
             };
           }
