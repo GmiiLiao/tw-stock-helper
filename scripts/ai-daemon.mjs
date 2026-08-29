@@ -4414,7 +4414,7 @@ async function judgeOneStock(it, ctx, opts = {}) {
   //   不只拿增量去判——否則判別會失去脈絡。
   if (opts.seenTitles && opts.seenTitles.length) {
     const fresh = news.filter(n => n.title && !titleSeen(n.title, opts.seenTitles));
-    if (!fresh.length) return { skipped: true, reason: 'no-new-titles', recent: [] };
+    if (!fresh.length) return { skipped: true, reason: 'no-new-titles', recent: [], allTitles: news.map(n => n.title).filter(Boolean) };
   }
   // ⚠ 新聞視窗要跨過**非交易日**（使用者指示 2026-08-28）：
   //   固定 48 小時在週一早上只涵蓋「週六 08:00 ~ 週一 08:00」——**週四、
@@ -4585,7 +4585,12 @@ ${body || '（近 2 日無實質新聞）'}
       verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
     }
   }
-  return { verdict, events, stale, ageDays, recent, material, withBody };
+  // allTitles＝這次**抓到的全部**標題。分流管線的 seen 必須記這個，
+  // 不能只記 recent：跳過判斷是拿全部抓到的新聞去比對，
+  // 若 seen 只有近期視窗內的，視窗外的文章永遠看起來是新的 ⇒ 幾乎跳不掉。
+  // （2026-08-29 實測：只記 recent 時 25 檔只跳過 5 檔，設計預期落空。）
+  const allTitles = news.map(n => n.title).filter(Boolean);
+  return { verdict, events, stale, ageDays, recent, material, withBody, allTitles };
 }
 
 // 新聞判別的共用背景：國際盤、事件日曆、官方產業別。
@@ -4829,8 +4834,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         basis: v.basis, n: v.n, pass, at: Date.now(),
       };
       // 記下這輪看過的標題，供下一趟（與明日晨間）跳過
-      const titles = (r.recent || []).map(x => x.title).filter(Boolean).slice(0, 40);
-      seenAll[code] = [...new Set([...seen, ...titles])].slice(-60);
+      const titles = (r.allTitles || []).slice(0, 60);
+      seenAll[code] = [...new Set([...seen, ...titles])].slice(-90);
       judged++;
     } catch (e) {
       failed++;
