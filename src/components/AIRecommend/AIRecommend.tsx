@@ -382,7 +382,11 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                     📰 新聞判別（AI 讀完內文）
                     <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
                       {/* 透明呈現：把它對排序的實際影響寫出來，不讓使用者猜 */}
-                      {view.newsAdj ? `　排序${view.newsAdj > 0 ? '+' : ''}${view.newsAdj} 分` : '　中性·不影響排序'}
+                      {/* 目前不納入排序（等 newsLift 驗證），但把「若納入會是幾分」
+                          寫出來，使用者才知道這個訊號的份量，也才看得出將來的變化 */}
+                      {view.newsAdj
+                        ? `　尚未納入排序（若納入約${view.newsAdj > 0 ? '+' : ''}${view.newsAdj} 分）`
+                        : '　中性'}
                     </span>
                   </div>
                   <div className={styles.reasonItem}>

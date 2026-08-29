@@ -90,8 +90,13 @@ export async function GET(request: NextRequest) {
     // ×3 是實測選出來的：×6 在主窗反而較差（Δ+0.233 vs ×3 的 +0.249）。
     // 對決全表見 recommend-adj-server.ts 檔頭與 model-core。
     const W = ADJ.weight ?? 3;
-    const key = (x: { score: number; instW: number; finW: number; adj: number; newsAdj?: number }) =>
-      x.score + (x.instW + x.finW) * 1.5 + x.adj * W + (x.newsAdj ?? 0);
+    const key = (x: { score: number; instW: number; finW: number; adj: number }) =>
+      // ⚠ newsAdj **刻意不加進來**（使用者 2026-08-29 決定：先看 newsLift 再決定）。
+      //   它仍會算出來並回傳，讓使用者看得到「若納入會加減幾分」，
+      //   但排序目前只用已驗證的因子。
+      //   實測背景：前 20 名排序鍵只跨 9.3 分 ⇒ 每 1 分約等於 3 個名次，
+      //   4 分就能移動 13 個名次。未驗證的訊號不該有這種份量。
+      x.score + (x.instW + x.finW) * 1.5 + x.adj * W;
     const rank = (a: Parameters<typeof key>[0], b: Parameters<typeof key>[0]) => key(b) - key(a);
 
 
