@@ -661,6 +661,24 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
 
   score = momentumScore + volumeScore + trendScore + stabilityScore + valueScore;
 
+  // ── 同分打破器（使用者 2026-08-29 指示：評分要能到 0.01 間距）──
+  // 問題：五大因子是**分級給分**（成交值 51 億與 5000 億同樣拿 20 分），
+  //   連續資訊整批丟掉 ⇒ 前 20 名排序鍵只跨 9.5 分、相鄰名次中位差 0.50 分，
+  //   任何新訊號只要幾分就會大幅重排（新聞判別 +4 就能讓某檔跳 12 個名次）。
+  // ⚠ 但**分級的門檻與級距是回測定版的**（見各因子註解裡的「實測」字樣），
+  //   改動它們等於換掉模型。所以不動級距，改把丟掉的連續資訊
+  //   當成**嚴格小於 1** 的小數加回去：
+  //   分級和永遠是整數，相鄰整數差 ≥ 1 ⇒ 這個小數**永遠不可能翻轉**
+  //   不同分級之間的順序，只在**同分時**決定先後。模型不變，解析度變細。
+  const frac01 = (x: number, lo: number, hi: number) =>
+    !isFinite(x) ? 0.5 : Math.max(0, Math.min(1, (x - lo) / (hi - lo)));
+  const tie =
+    0.40 * frac01(Math.log10(Math.max(val, 1)), 7, 10.5) +   // 成交值（對數：跨 3.5 個數量級）
+    0.30 * frac01(chg, -3, 8.5) +                            // 當日漲幅
+    0.30 * (s.closePosition ?? 0.5);                         // 收盤位置（無資料時中性，與 trendScore 同一來源）
+  // 收斂到 0.01（使用者指定的間距）：既讓前段班分得開，畫面也不會出現一長串小數。
+  score = +(score + 0.99 * tie).toFixed(2);
+
   // ─── Apply Risk Penalties ───────────────────────────────
   if (isDisposition) {
     score = Math.max(score - 40, 0);
