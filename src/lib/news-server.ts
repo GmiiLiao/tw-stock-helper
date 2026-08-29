@@ -70,7 +70,9 @@ const NEWS_TTL = 5 * 60 * 1000;
 
 /** Fetch and filter stock news. Returns up to 25 allow-listed items, newest first. */
 export async function getStockNews(code: string, stockName = '', industry = ''): Promise<NewsItem[]> {
-  const cacheKey = `${code}|${industry}`;
+  // 查詢字串同時吃 stockName（有名字時查「名稱 代號」，沒有時查「代號 股票」），
+  // 快取鍵漏掉它 ⇒ 兩種查法會共用同一筆快取，互相污染。
+  const cacheKey = `${code}|${stockName}|${industry}`;
   const cached = _newsCache.get(cacheKey);
   if (cached && Date.now() - cached.at < NEWS_TTL) return cached.items;
 
@@ -128,8 +130,12 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
         fetchGoogleNewsRSS(`${industry} 產業 台股 site:${src.site}`, 'industry', allNews, `ind-${industry}-${src.site}`)),
       fetchGoogleNewsRSS(`${industry} 產業 台股 (${siteFilter})`, 'industry', allNews, `ind-${industry}`),
     ]);
-    const policyFilter = POLICY_SOURCES.map(s => `site:${s.site}`).join(' OR ');
-    await fetchGoogleNewsRSS(`${industry} (${policyFilter})`, 'policy', allNews, 'policy');
+    // 政策來源同樣不能併查（H 族，2026-08-29 實測）：
+    //   四個機關併成一個 OR 查詢 →「半導體」只回經濟部與國發會，
+    //   **國科會 0 則、金管會 0 則**；但單獨問各自都有。
+    //   金管會對金融股、國科會對科技股都是必要來源，被餓死等於整類消息看不到。
+    await Promise.all(POLICY_SOURCES.map(src =>
+      fetchGoogleNewsRSS(`${industry} site:${src.site}`, 'policy', allNews, `policy-${src.site}`)));
   }
 
   // Strict allow-list by source name (Google News links are redirects).
@@ -149,12 +155,22 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
     const ageH = (Date.now() - new Date(t).getTime()) / 36e5;
     return !isFinite(ageH) ? 2 : ageH <= 24 ? 0 : ageH <= 72 ? 1 : 2;
   };
-  filtered.sort((a, b) =>
+  const cmp = (a: NewsItem, b: NewsItem) =>
     freshTier(a.time) - freshTier(b.time) ||
     sourceRank(a.source) - sourceRank(b.source) ||
-    new Date(b.time).getTime() - new Date(a.time).getTime()
-  );
-  const result = filtered.slice(0, 25);
+    new Date(b.time).getTime() - new Date(a.time).getTime();
+  filtered.sort(cmp);
+  // 政策消息要保留名額，否則永遠進不來（2026-08-29 實測）：
+  //   政策來源在 sourceRank 是墊底的 9，排序後穩定落在 25 名之外，
+  //   實測 2330／6526／2412／1264／8383 全部 0 則 —— UI 的「🏦 政策」分頁
+  //   有做出來卻永遠是空的（使用者截圖裡它根本沒出現）。
+  //   政策消息的價值是真的（6548 那則「臺印度產業鏈結論壇·6 項 MOU·10 億商機」
+  //   就是有效訊息），不能因為排序墊底就整類消失。
+  const CAP = 25, POLICY_QUOTA = 4;
+  const pol = filtered.filter(n => n.category === 'policy');
+  const rest = filtered.filter(n => n.category !== 'policy');
+  const result = [...rest.slice(0, CAP - Math.min(POLICY_QUOTA, pol.length)), ...pol.slice(0, POLICY_QUOTA)]
+    .sort(cmp);   // 保留名額後再依同一把尺重排，維持清單順序一致
   // Cache non-empty results only (don't cache a rate-limited empty fetch).
   if (result.length > 0) _newsCache.set(cacheKey, { at: Date.now(), items: result });
   return result;
