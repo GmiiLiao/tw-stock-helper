@@ -5234,6 +5234,15 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   }
   if (!universe.length) { log('✖ 新聞判別：宇宙為空，不寫入'); return false; }
   // NEWS_VERDICT_N 現在是**安全上限**而非目標值（防暴走，不是刻意設限）。
+  // 晨間趟改用「新聞最新的優先」排序（盤後趟維持專屬報導優先）。
+  // 理由：晨間窗只有 60 分鐘（07:00→08:00 死線），而每檔需判別時要 72 秒
+  // ⇒ 最壞情況只跑得完約 50 檔。既然一定會被截斷，就要確保**被砍掉的是
+  // 新聞最舊的那些**，而不是照專屬報導排序砍掉剛出爐的消息。
+  // 跳過率高時這個排序不影響結果（全部沿用），只在真的塞不下時才發揮作用。
+  if (pass === 'morning') {
+    universe = universe.slice().sort((a, b) =>
+      Math.max(...b.articles.map(x => x.at || 0)) - Math.max(...a.articles.map(x => x.at || 0)));
+  }
   if (universe.length > NEWS_VERDICT_CAP) {
     log(`  ↳ 宇宙 ${universe.length} 檔 > 上限 ${NEWS_VERDICT_CAP}，截斷（已按專屬報導優先排序，被砍的是最邊緣的）`);
     universe = universe.slice(0, NEWS_VERDICT_CAP);
