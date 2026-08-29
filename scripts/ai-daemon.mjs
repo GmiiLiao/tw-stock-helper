@@ -9760,7 +9760,7 @@ async function computeNewsDaily() {
     await sleep(250);
   }
   if (titles > 0) {
-    await db.collection('newsDaily').doc(today).set({ dataDate: await currentDataDate(), date: today, at: Date.now(), titles, mentionsJson: JSON.stringify(mentions) });
+    await db.collection('newsDaily').doc(today).set({ date: today, at: Date.now(), titles, mentionsJson: JSON.stringify(mentions) });
     log(`✓ 新聞庫 ${today}：${titles} 則、提及 ${Object.keys(mentions).length} 檔`);
   }
   _newsDailyAt = Date.now();

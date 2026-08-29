@@ -147,7 +147,10 @@ const CONTRACTS = [
   { c: 'etfPremium',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'etfInfluence',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'newsDigest',       kind: 'latest',  maxStale: 8 * HOUR,  session: 'always' },
-  { c: 'newsDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'daily' },
+  // ⚠ newsDaily 是**按日曆日歸檔的新聞摘要**，不是市場資料：週六收到的就是
+  //   週六的新聞，date 本來就該是日曆日。對它套「資料日 vs 最近交易日」的
+  //   標準是我 2026-08-29 一度判錯的——它不該進第三道閘門，故 session:'always'。
+  { c: 'newsDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'always' },
   { c: 'marketReports',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily' },   // 收盤盤勢分析（2026-08-01 事故後納管：曾停更2日無人察覺）
 
   // ── 低頻（週/月/季）──
