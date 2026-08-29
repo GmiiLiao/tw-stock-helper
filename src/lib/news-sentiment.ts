@@ -10,7 +10,15 @@
 // hallucination (every classification traces to the article title).
 // ============================================================
 
-export interface NewsLite { title: string; time?: string; source?: string; url?: string }
+// verdict/verdictBasis 是**唯一有資格影響分數**的欄位（使用者 2026-08-29 明令）：
+//   verdict 必須來自 AI **讀完內文**後的利多/利空判別，
+//   verdictBasis 記錄判別依據，只有 'content' 能參與調分。
+//   標題（不論是關鍵字比對還是 LLM 讀標題）一律不得動分數。
+export interface NewsLite {
+  title: string; time?: string; source?: string; url?: string;
+  verdict?: '利多' | '利空' | '中性';
+  verdictBasis?: 'content' | 'title';
+}
 
 export interface ScoredNewsItem {
   title: string; source?: string; url?: string;
@@ -20,6 +28,9 @@ export interface ScoredNewsItem {
   validDays: number;       // 有效期（交易日）
   weight: number;          // current time-decayed weight (0..1); 0 = expired
   effective: number;       // sentiment * weight (contribution)
+  // 判別依據。只有 'content'（AI 讀完內文）能參與調分；
+  // 'title' 僅供顯示，永遠不計分。缺值視同 'title'。
+  verdictBasis: 'content' | 'title';
 }
 
 export interface NewsSentiment {
@@ -28,7 +39,8 @@ export interface NewsSentiment {
   bull: number;            // # active bullish items
   bear: number;            // # active bearish items
   total: number;           // # de-duped items considered
-  label: string;           // 偏多 / 偏空 / 中性
+  label: string;           // 偏多 / 偏空 / 中性 / 未判別
+  gradedCount: number;     // 真正參與調分的則數（＝有 AI 內文判別的）
   items: ScoredNewsItem[];
 }
 
@@ -94,21 +106,35 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
       title: it.title, source: it.source, url: it.url, date,
       sentiment, kind, validDays, weight,
       effective: parseFloat((sentiment * weight).toFixed(2)),
+      verdictBasis: it.verdictBasis === 'content' ? 'content' : 'title',
     });
   }
 
-  // Aggregate active (weight>0) contributions; ~4 weighted points → saturate ±1.
+  // ⛔ **硬規定（使用者 2026-08-29 明令）：只用標題絕對不得調分。**
+  //   合法的調分來源只有一種——AI 讀完內文後給出的利多/利空判別。
+  //   理由（docs/EXPERIMENTS.md）：只憑標題的判別實測**與結果反向**，
+  //   而讀完內文的 AI 判別因為還在累積 newsLift 反而刻意不加權
+  //   ⇒ 等於最粗糙的方法拿到最大的實權，紀律完全顛倒。
+  //   實測 2026-08-29 線上 /api/rating：2454 吃滿 +20 → 100 分 STRONG_BUY、
+  //   2330 +18 → 100 分 STRONG_BUY，全部出自標題關鍵字。
+  //   ⚠ 聚合是 sum/4 的**累加**不是平均 ⇒ 餵進來的新聞越多槓桿越大，
+  //     任何擴大新聞來源的改動都會 silently 放大它。這道閘門必須寫在程式裡。
   const active = scored.filter(s => s.weight > 0 && s.sentiment !== 0);
-  const sum = active.reduce((a, s) => a + s.effective, 0);
+  const graded = active.filter(s => s.verdictBasis === 'content');
+  const sum = graded.reduce((a, s) => a + s.effective, 0);
   const newsScore = Math.max(-1, Math.min(1, sum / 4));
   const adjustment = Math.round(newsScore * 20);
   const bull = active.filter(s => s.sentiment > 0).length;
   const bear = active.filter(s => s.sentiment < 0).length;
-  const label = newsScore > 0.15 ? '偏多' : newsScore < -0.15 ? '偏空' : '中性';
+  // 沒有任何內文判別時要**據實說「未判別」**，不可留白讓人以為新聞已納入評估。
+  const label = graded.length === 0
+    ? '未判別（尚無AI內文判別，不計分）'
+    : newsScore > 0.15 ? '偏多' : newsScore < -0.15 ? '偏空' : '中性';
 
   return {
     newsScore: parseFloat(newsScore.toFixed(2)),
     adjustment, bull, bear, total: scored.length, label,
+    gradedCount: graded.length,      // 真正參與調分的則數（＝有內文判別的）
     items: scored.sort((a, b) => Math.abs(b.effective) - Math.abs(a.effective)).slice(0, 12),
   };
 }

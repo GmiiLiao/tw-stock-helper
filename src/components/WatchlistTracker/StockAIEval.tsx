@@ -29,7 +29,7 @@ interface Loaded {
   isAttention: boolean; isDisposition: boolean;
   swing: string | null; swingModel: string | null; swingAt: number | null;
   swingSignal: SwingSig | null;
-  newsSentiment: { newsScore: number; adjustment: number; bull: number; bear: number; total: number; label: string } | null;
+  newsSentiment: { gradedCount?: number; newsScore: number; adjustment: number; bull: number; bear: number; total: number; label: string } | null;
   news: NewsItem[];
 }
 
@@ -173,7 +173,15 @@ export default function StockAIEval({ code, name }: { code: string; name: string
                 // News not obtained (or neutral) → explicitly excluded from scoring.
                 return (
                   <div style={{ marginTop: 10, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
-                    📰 新聞加權：{obtained ? '本次新聞情緒中性' : '本次未取得相關新聞'}，未計入評分（不佔權重比例）。
+                    {/* ⚠ 這裡不可以寫「新聞情緒中性」：調分為 0 的原因有兩種，
+                        混為一談就是捏造判斷。gradedCount=0 代表**根本還沒判別**，
+                        不是判別完是中性。（使用者 2026-08-29 明令：
+                        只有 AI 讀完內文的判別才能調分。） */}
+                    📰 新聞加權：{
+                      !obtained ? '本次未取得相關新聞'
+                      : !ns!.gradedCount ? `已取得 ${ns!.total} 則新聞，但尚未經 AI 讀完內文判別`
+                      : 'AI 內文判別為中性'
+                    }，未計入評分（不佔權重比例）。
                   </div>
                 );
               })()}
