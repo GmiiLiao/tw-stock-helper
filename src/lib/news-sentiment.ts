@@ -16,7 +16,10 @@
 //   標題（不論是關鍵字比對還是 LLM 讀標題）一律不得動分數。
 export interface NewsLite {
   title: string; time?: string; source?: string; url?: string;
-  verdict?: '利多' | '利空' | '中性';
+  // ⚠ 「資訊不足」是 daemon 會實際給出的第四種結果（AI 讀了但判不出來），
+  //   與「中性」意義完全不同：中性＝判過了沒方向，資訊不足＝根本無從判斷。
+  //   型別漏了它會落到 else 被當成中性，畫面就會謊稱「AI 判別為中性」。
+  verdict?: '利多' | '利空' | '中性' | '資訊不足';
   verdictBasis?: 'content' | 'title';
   verdictConfidence?: '高' | '中' | '低';
   // 判別**產出的時間**。時效衰減要用它，不能用被掛上的那則新聞的時間：
@@ -37,6 +40,7 @@ export interface ScoredNewsItem {
   // 判別依據。只有 'content'（AI 讀完內文）能參與調分；
   // 'title' 僅供顯示，永遠不計分。缺值視同 'title'。
   verdictBasis: 'content' | 'title';
+  verdict?: '利多' | '利空' | '中性' | '資訊不足';   // 保留原判別，供區分「中性」與「資訊不足」
 }
 
 export interface NewsSentiment {
@@ -47,6 +51,7 @@ export interface NewsSentiment {
   total: number;           // # de-duped items considered
   label: string;           // 偏多 / 偏空 / 中性 / 未判別
   judgedByAI: boolean;     // 是否已有 AI 內文判別（判為中性也算判過）
+  inconclusive: boolean;   // AI 讀了但判不出來（≠ 判為中性）
   verdictReason?: string;  // AI 的判別理由（有才給，不編造）
   ratedCount: number;      // 有多空傾向的篇數（中性者不進分群）
   storyCount: number;      // 併群後的故事數（標題相似者併為一則）
@@ -152,6 +157,7 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
       sentiment, kind, validDays, weight,
       effective: parseFloat((sentiment * weight).toFixed(2)),
       verdictBasis: it.verdictBasis === 'content' ? 'content' : 'title',
+      verdict: it.verdict,
     });
   }
 
@@ -180,6 +186,9 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   //   但真相是**判別已失效**。兩者對使用者的意義完全不同。
   //   （daemon 掛掉時 latest 會一直供舊判別，這道檢查是最後一層保護。）
   const judgedByAI = scored.some(s => s.verdictBasis === 'content' && s.weight > 0);
+  // 「資訊不足」單獨辨識——它不是中性，不可混為一談
+  const inconclusive = scored.some(s => s.verdictBasis === 'content' && s.weight > 0 && s.verdict === '資訊不足')
+    && !scored.some(s => s.verdictBasis === 'content' && s.weight > 0 && s.verdict !== '資訊不足');
   const active = scored.filter(s => s.weight > 0 && s.sentiment !== 0);
   const clusters: ScoredNewsItem[][] = [];
   const grams = new Map<ScoredNewsItem, Set<string>>();
@@ -213,7 +222,9 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
   const bear = stories.filter(x => x.sentiment < 0).length;
   // 沒有任何內文判別時要**據實說「未判別」**，不可留白讓人以為新聞已納入評估。
   const label = graded.length === 0
-    ? (judgedByAI ? 'AI內文判別為中性（不影響評分）' : '未判別（尚無AI內文判別，不計分）')
+    ? (inconclusive ? 'AI 讀完內文但資訊不足，無法判斷（不計分）'
+       : judgedByAI ? 'AI內文判別為中性（不影響評分）'
+       : '未判別（尚無AI內文判別，不計分）')
     : newsScore > 0.15 ? '偏多' : newsScore < -0.15 ? '偏空' : '中性';
 
   return {
@@ -224,6 +235,7 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     //   （實測 2891/6526：25 篇全判中性 ⇒ storyCount 0，不是 25 篇重複）。
     //   所以中間這層必須顯式揭露。
     judgedByAI,                      // 是否已有 AI 內文判別（中性也算判過）
+    inconclusive,                    // AI 讀了但資訊不足（與中性分開）
     // 只在真的有理由時才給——沒有就留 undefined，讓下游顯示原本的文字，不編造
     verdictReason: (items || []).find(x => x?.verdictBasis === 'content' && x?.verdictReason)?.verdictReason,
     ratedCount: active.length,       // 有多空傾向的篇數
