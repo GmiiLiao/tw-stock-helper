@@ -60,7 +60,8 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
   const amp = prev > 0 ? (stock.high - stock.low) / prev * 100 : null;      // 振幅
   const avg = stock.volume > 0 ? stock.value / stock.volume : null;          // 均價＝成交值/成交量
   const gap = prev > 0 ? (stock.open - prev) / prev * 100 : null;            // 開盤跳空
-  const pos = stock.high > stock.low ? (stock.price - stock.low) / (stock.high - stock.low) : 0.5;
+  // 缺高低時回 null 而不是 0.5——0.5 看起來像「中間位置」，其實是沒資料（2026-08-29）
+  const pos = stock.high > 0 && stock.low > 0 && stock.high > stock.low ? (stock.price - stock.low) / (stock.high - stock.low) : null;
   const lots = Math.round(stock.volume / 1000);
   const toUp = lim && lim.up > 0 ? (lim.up - stock.price) / stock.price * 100 : null;
   const toDown = lim && lim.down > 0 ? (stock.price - lim.down) / stock.price * 100 : null;
@@ -121,7 +122,7 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
         <Cell k="最低" v={nf(stock.low)} c={vs(stock.low)} />
         <Cell k="漲停" v={lim ? nf(lim.up) : '—'} chip="hot" sub="昨收×1.1，取合法跳動單位" />
         {/* 第 4 列 */}
-        <Cell k="收位" v={`${(pos * 100).toFixed(0)}%`} c={pos >= 0.8 ? UP : pos <= 0.2 ? DOWN : FLAT} sub="日內位階＝(收−最低)÷(最高−最低)" />
+        <Cell k="收位" v={pos == null ? '—' : `${(pos * 100).toFixed(0)}%`} c={pos == null ? FLAT : pos >= 0.8 ? UP : pos <= 0.2 ? DOWN : FLAT} sub="日內位階＝(收−最低)÷(最高−最低)" />
         <Cell k="筆數" v={stock.transactions ? ni(stock.transactions) : '—'} c="#7dd3fc" />
         <Cell k="跌停" v={lim ? nf(lim.down) : '—'} chip="cold" sub="昨收×0.9，取合法跳動單位" />
         {/* 第 5 列 */}
@@ -167,11 +168,11 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
         <div style={{ marginTop: 4 }}
           title="日內位階＝(收−最低)÷(最高−最低)。此檔不在即時五檔掃描範圍，故以日內位階替代。">
           <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', background: `linear-gradient(90deg, ${DOWN}55, #64748b33 50%, ${UP}55)` }}>
-            <div style={{ position: 'absolute', left: `calc(${(pos * 100).toFixed(1)}% - 2px)`, top: 0, bottom: 0, width: 4, background: '#fff', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
+            <div style={{ position: 'absolute', left: `calc(${((pos ?? 0.5) * 100).toFixed(1)}% - 2px)`, top: 0, bottom: 0, width: 4, background: '#fff', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '0 8px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <span style={{ color: '#bbf7d0' }}>低 {nf(stock.low)}</span>
-              <span style={{ color: '#fff' }}>收在區間 {(pos * 100).toFixed(0)}%</span>
+              <span style={{ color: '#fff' }}>{pos == null ? '區間資料不足' : `收在區間 ${(pos * 100).toFixed(0)}%`}</span>
               <span style={{ color: '#fecaca' }}>高 {nf(stock.high)}</span>
             </div>
           </div>

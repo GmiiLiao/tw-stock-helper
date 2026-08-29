@@ -938,11 +938,17 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
   const change = stock.change;
   const changePct = stock.changePercent;
   const prevClose = price - change;
-  const todayOpen = stock.open > 0 ? stock.open : price;
-  const todayHigh = stock.high > 0 ? stock.high : price;
-  const todayLow  = stock.low > 0 ? stock.low : price;
-  const amplitude = prevClose > 0 ? ((todayHigh - todayLow) / prevClose) * 100 : 0;
-  const closePos = (todayHigh - todayLow) > 0 ? (price - todayLow) / (todayHigh - todayLow) : 0.5;
+  // ⚠ 不可以用現價補開高低（2026-08-29 修）：舊版 `stock.high > 0 ? stock.high : price`
+  //   在快照缺 OHLC 時把三者都填成現價 ⇒ 振幅**恆為 0.0%**、收盤位置**恆為 50%**，
+  //   而這兩個數字直接印在下面的分析文字裡——等於對每一檔股票說一句捏造的話。
+  //   （快照缺 OHLC 那個根因已修，但這裡的 fallback 本身就是藏住它的東西：
+  //     資料再壞一次，畫面又會安靜地說 0.0%。）
+  const hasOhlc = stock.high > 0 && stock.low > 0 && stock.high >= stock.low;
+  const todayOpen = stock.open > 0 ? stock.open : null;
+  const todayHigh = hasOhlc ? stock.high : null;
+  const todayLow = hasOhlc ? stock.low : null;
+  const amplitude = hasOhlc && prevClose > 0 ? ((stock.high - stock.low) / prevClose) * 100 : null;
+  const closePos = hasOhlc && stock.high > stock.low ? (price - stock.low) / (stock.high - stock.low) : null;
 
   // Determine today's trend
   const isUp = changePct > 0.5;
@@ -969,31 +975,31 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
   } else if (changePct >= 5) {
     analysisEmoji = '🚀'; analysisLabel = '強勢上攻';
     analysisColor = 'var(--color-up)'; analysisBg = 'rgba(240,62,62,0.1)';
-    analysisText = `${stockName} 今日大漲 ${changePct.toFixed(2)}%，漲幅超過 5%，盤中振幅 ${amplitude.toFixed(1)}%。收盤位置在日內 ${(closePos * 100).toFixed(0)}% 水位，${closePos > 0.7 ? '接近高點收盤，多方力道強勁' : '雖然漲幅大但未站穩高點，需注意回落風險'}。`;
+    analysisText = `${stockName} 今日大漲 ${changePct.toFixed(2)}%，漲幅超過 5%${amplitude == null ? '' : `，盤中振幅 ${amplitude.toFixed(1)}%`}。${closePos == null ? '收盤位置資料不足' : `收盤位置在日內 ${(closePos * 100).toFixed(0)}% 水位`}，${(closePos ?? 0) > 0.7 ? '接近高點收盤，多方力道強勁' : '雖然漲幅大但未站穩高點，需注意回落風險'}。`;
   } else if (changePct >= 2) {
     analysisEmoji = '📈'; analysisLabel = '偏多走勢';
     analysisColor = 'var(--color-up)'; analysisBg = 'rgba(240,62,62,0.08)';
-    analysisText = `${stockName} 今日上漲 ${changePct.toFixed(2)}%，走勢偏多。${closePos > 0.6 ? '收在日內高位區，明日有機會延續漲勢' : '盤中高點未能守住，需觀察明日能否突破今日高點 ' + todayHigh.toFixed(2)}。`;
+    analysisText = `${stockName} 今日上漲 ${changePct.toFixed(2)}%，走勢偏多。${(closePos ?? 0) > 0.6 ? '收在日內高位區，明日有機會延續漲勢' : '盤中高點未能守住，需觀察明日能否突破今日高點 ' + (todayHigh ?? price).toFixed(2)}。`;
   } else if (changePct > 0.5) {
     analysisEmoji = '↗️'; analysisLabel = '小幅上漲';
     analysisColor = '#818cf8'; analysisBg = 'rgba(99,102,241,0.08)';
-    analysisText = `${stockName} 今日微漲 ${changePct.toFixed(2)}%，振幅 ${amplitude.toFixed(1)}%，整體走勢平穩。`;
+    analysisText = `${stockName} 今日微漲 ${changePct.toFixed(2)}%${amplitude == null ? '' : `，振幅 ${amplitude.toFixed(1)}%`}，整體走勢平穩。`;
   } else if (changePct <= -5) {
     analysisEmoji = '⚠️'; analysisLabel = '大幅下跌';
     analysisColor = 'var(--color-down)'; analysisBg = 'rgba(47,158,68,0.1)';
-    analysisText = `${stockName} 今日重挫 ${changePct.toFixed(2)}%，跌幅超過 5%。${closePos < 0.3 ? '收在日內低檔，空方完全主導' : '盤中有反彈跡象，但整體弱勢未改'}。建議嚴格遵守停損紀律。`;
+    analysisText = `${stockName} 今日重挫 ${changePct.toFixed(2)}%，跌幅超過 5%。${closePos != null && closePos < 0.3 ? '收在日內低檔，空方完全主導' : '盤中有反彈跡象，但整體弱勢未改'}。建議嚴格遵守停損紀律。`;
   } else if (changePct <= -2) {
     analysisEmoji = '📉'; analysisLabel = '偏空走勢';
     analysisColor = 'var(--color-down)'; analysisBg = 'rgba(47,158,68,0.08)';
-    analysisText = `${stockName} 今日下跌 ${changePct.toFixed(2)}%，走勢偏空。${closePos < 0.3 ? '收在日內低點附近，短線不宜搶反彈' : '盤中有企穩跡象，可觀察明日是否止跌'}。`;
+    analysisText = `${stockName} 今日下跌 ${changePct.toFixed(2)}%，走勢偏空。${closePos != null && closePos < 0.3 ? '收在日內低點附近，短線不宜搶反彈' : '盤中有企穩跡象，可觀察明日是否止跌'}。`;
   } else if (changePct < -0.5) {
     analysisEmoji = '↘️'; analysisLabel = '小幅下跌';
     analysisColor = '#f59e0b'; analysisBg = 'rgba(245,158,11,0.08)';
-    analysisText = `${stockName} 今日微跌 ${changePct.toFixed(2)}%，振幅 ${amplitude.toFixed(1)}%，波動不大。`;
+    analysisText = `${stockName} 今日微跌 ${changePct.toFixed(2)}%${amplitude == null ? '' : `，振幅 ${amplitude.toFixed(1)}%`}，波動不大。`;
   } else {
     analysisEmoji = '➡️'; analysisLabel = '平盤整理';
     analysisColor = 'var(--text-muted)'; analysisBg = 'rgba(100,116,139,0.08)';
-    analysisText = `${stockName} 今日平盤整理，漲跌幅 ${changePct.toFixed(2)}%，振幅僅 ${amplitude.toFixed(1)}%。市場觀望氣氛濃，等待方向選擇。`;
+    analysisText = `${stockName} 今日平盤整理，漲跌幅 ${changePct.toFixed(2)}%${amplitude == null ? '' : `，振幅僅 ${amplitude.toFixed(1)}%`}。市場觀望氣氛濃，等待方向選擇。`;
   }
 
   return (
@@ -1038,9 +1044,9 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
       {/* 同上：內聯樣式沒有 media query 可救，寫死四欄在手機必爆 → auto-fit */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '10px' }}>
         {[
-          { label: '今日開盤', value: todayOpen.toFixed(2), color: todayOpen >= prevClose ? 'var(--color-up)' : 'var(--color-down)', emoji: '🔔' },
-          { label: '今日最高', value: todayHigh.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
-          { label: '今日最低', value: todayLow.toFixed(2), color: 'var(--color-down)', emoji: '📉' },
+          { label: '今日開盤', value: todayOpen == null ? '—' : todayOpen.toFixed(2), color: (todayOpen ?? prevClose) >= prevClose ? 'var(--color-up)' : 'var(--color-down)', emoji: '🔔' },
+          { label: '今日最高', value: todayHigh == null ? '—' : todayHigh.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
+          { label: '今日最低', value: todayLow == null ? '—' : todayLow.toFixed(2), color: 'var(--color-down)', emoji: '📉' },
           { label: '昨日收盤', value: prevClose.toFixed(2), color: 'var(--text-muted)', emoji: '📌' },
         ].map(({ label, value, color, emoji }) => (
           <div key={label} style={{
@@ -1061,7 +1067,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           borderRadius: '10px', padding: '14px', textAlign: 'center',
         }}>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#818cf8', fontWeight: 600, marginBottom: '6px' }}>📊 振幅</div>
-          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#a5b4fc' }}>{amplitude.toFixed(2)}%</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#a5b4fc' }}>{amplitude == null ? '—' : `${amplitude.toFixed(2)}%`}</div>
         </div>
         <div style={{
           background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
