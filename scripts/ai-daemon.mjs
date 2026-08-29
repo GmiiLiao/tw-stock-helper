@@ -5176,8 +5176,17 @@ function newsVerdictTargetIso(pass, tw) {
   return isoDate(d);
 }
 
+// deadlineMins：台北時間的「幾點幾分」死線（分鐘數）。
+// ⚠ 必須換算成**絕對時間戳**再比較，不能拿當下的 mins 直接比：
+//   盤後趟 23:00 開跑、死線 05:00 ⇒ 1380 >= 300 為真，會立刻停止。
+//   跨午夜是這條管線的常態（盤後趟本來就跨日），這個 bug 一定會踩到。
 async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   const tw = taipei();
+  const deadlineTs = deadlineMins == null ? null : (() => {
+    const nowMins = tw.getHours() * 60 + tw.getMinutes();
+    const addDays = deadlineMins <= nowMins ? 1 : 0;   // 死線已過今日該時刻 ⇒ 指的是明天
+    return tw.getTime() + ((deadlineMins - nowMins) + addDays * 1440) * 60000;
+  })();
   const today = newsVerdictTargetIso(pass, tw);   // ＝適用交易日
   const ref = db.collection('newsVerdict').doc(today);
   const prev = (await ref.get()).data() || {};
@@ -5301,10 +5310,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   for (const u of universe) {
     const code = u.code;
     const minCo = (u.articles || []).length ? Math.min(...u.articles.map(a => a.coMentions)) : 1;
-    if (deadlineMins != null) {
-      const t2 = taipei();
-      if (t2.getHours() * 60 + t2.getMinutes() >= deadlineMins) { stopped = true; break; }
-    }
+    if (deadlineTs != null && taipei().getTime() >= deadlineTs) { stopped = true; break; }
     const seen = seenAll[code] || [];
     try {
       const r = await judgeOneStock(
@@ -11929,7 +11935,12 @@ async function dailyJobsLoop() {
       //   非交易日也跑——週末的新聞正是週一開盤要用的（使用者 08-28 指示）。
       if (mins >= 23 * 60 && _nvEveDate !== today) {
         // 成功才標記（與當沖資格同一課：先標記等於這天只嘗試一次）
-        try { if (await computeNewsVerdictBatch('evening')) _nvEveDate = today; }
+        // ⚠ 盤後趟也要給死線（05:00）：dailyJobsLoop 是**循序**執行的，
+        //   這個 job 實測要 131 分鐘，正常 23:00→01:10 沒問題，
+        //   但上游變慢或 AI 變慢時會一路吃掉 06:00 國際盤、07:00 晨間判別、
+        //   07:30 當沖資格、08:00 軋空判別——後兩者是使用者盤前要用的。
+        //   05:00 留足一小時緩衝，且已完成的部分有分段存檔不會白跑。
+        try { if (await computeNewsVerdictBatch('evening', 5 * 60)) _nvEveDate = today; }
         catch (e) { log('✖ 新聞判別·盤後（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 晨間那趟 07:00：國際與晨間新聞 06:00~07:00 到齊。
