@@ -4936,7 +4936,21 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       const yv = y.verdictJson ? JSON.parse(y.verdictJson) : {};
       const ys = y.seenJson ? JSON.parse(y.seenJson) : {};
       // 承接的判別標記來源日，讓下游看得出它不是今天新判的
-      for (const c in yv) if (!verdicts[c]) verdicts[c] = { ...yv[c], carriedFrom: yIso };
+      // ⚠ 承接要**設保存期限**：這裡是「今日空就整份複製前一日」，
+      //   等於每天繼承前一天的全部 ⇒ 判別單向累積，數月後 latest 會存著
+      //   上千筆早已過時的判別，而且會被送到前端。
+      //   評分端雖有時效衰減（過期權重歸零），但那是最後一道，
+      //   不該讓上游先累積一堆垃圾再靠下游擋。
+      //   7 天：比最長的新聞有效期（10 日）短，確保過期的不會被承接進來。
+      const CARRY_MAX_MS = 7 * 86400000;
+      const nowMs = Date.now();
+      let dropped = 0;
+      for (const c in yv) {
+        if (verdicts[c]) continue;
+        if (!yv[c]?.at || nowMs - yv[c].at > CARRY_MAX_MS) { dropped++; continue; }
+        verdicts[c] = { ...yv[c], carriedFrom: yIso };
+      }
+      if (dropped) log(`  ↳ 承接時丟棄 ${dropped} 筆逾 7 日的舊判別`);
       for (const c in ys) if (!seenAll[c]) seenAll[c] = ys[c];
       log(`  ↳ 承接前一日(${yIso})：判別 ${Object.keys(yv).length} 檔、已見標題 ${Object.keys(ys).length} 檔`);
     }
