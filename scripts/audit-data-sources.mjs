@@ -322,12 +322,19 @@ const taipeiNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 
  * 這正是 wm-freshness 說的「狀態階梯」要分 session，否則監控自己會變成雜訊來源。
  * 收盤後改用「當日內」判定（30 小時），只要資料日對就算健康。
  */
-function effectiveMaxStale(spec, marketOpen, tradingToday) {
-  if (spec.session === 'intraday') return marketOpen ? spec.maxStale : 30 * HOUR;
-  // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h，
-  // 不放寬的話每個週末稽核都是假警報，監控又變雜訊來源。
-  if (spec.session === 'daily' && !tradingToday) return Math.max(spec.maxStale, 78 * HOUR);
-  return spec.maxStale;
+function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0) {
+  // offHoursMs＝距上一個交易日收盤已經過了多久的「非交易時間」。
+  // 為什麼要通用地把它加進上限（2026-08-29）：
+  //   squeezeRecommend / limitUpRecommend / limitQueue / marketPulse 被標成
+  //   session:'always'，但它們**其實只在交易日產生**。上限固定 20h ⇒
+  //   每個週六下午一到就整組變紅，週日更慘。長紅的告警等於沒有告警，
+  //   真的故障會被淹在裡面（這正是專案記過的教訓）。
+  //   逐一改標籤治不了本：任何「只在交易日產生」的來源都會再犯。
+  //   ⚠ 只在**非交易日**加寬；交易日當天 offHoursMs=0，偵測力完全不變。
+  if (spec.session === 'intraday') return (marketOpen ? spec.maxStale : 30 * HOUR) + offHoursMs;
+  // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h。
+  if (spec.session === 'daily' && !tradingToday) return Math.max(spec.maxStale, 78 * HOUR) + offHoursMs;
+  return spec.maxStale + offHoursMs;
 }
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -396,7 +403,7 @@ function pickDataDate(d, dateField) {
   return null;
 }
 
-async function auditOne(spec, ltd, marketOpen, tradingToday) {
+async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0) {
   const out = { collection: spec.docId && spec.docId !== 'latest' ? `${spec.c}/${spec.docId}` : spec.c, status: 'OK', notes: [] };
   try {
     let data = null, docId = null;
@@ -429,7 +436,7 @@ async function auditOne(spec, ltd, marketOpen, tradingToday) {
       out.dataDate = pickDataDate(data, spec.dateField);
       if (ts == null) out.notes.push('無時間戳（不符新鮮度契約：缺 fetchedAt）');
       else {
-        const limit = effectiveMaxStale(spec, marketOpen, tradingToday);
+        const limit = effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs);
         if (Date.now() - ts > limit) {
           out.status = 'STALE';
           const fmt = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / MIN)}m`);
@@ -624,7 +631,15 @@ async function main() {
   const specs = ONLY ? CONTRACTS.filter(s => s.c === ONLY) : CONTRACTS;
   const results = [];
   const tradingToday = ltd === isoOf(taipeiNow());
-  for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday));
+  // 上一個交易日收盤（13:30 台北）到現在，累積了多少非交易時間。
+  // 交易日當天為 0 ⇒ 不影響平日的偵測力。
+  const offHoursMs = (() => {
+    if (tradingToday || !ltd) return 0;
+    const [y, m, d] = ltd.split('-').map(Number);
+    const closeUtc = Date.UTC(y, m - 1, d, 13 - 8, 30);   // 台北 13:30 → UTC
+    return Math.max(0, Date.now() - closeUtc);
+  })();
+  for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday, offHoursMs));
 
   const external = NO_EXT ? [] : await probeExternal(ltd);
   const fresh = NO_EXT ? [] : await probeFresh(ltd);
