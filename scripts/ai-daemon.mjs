@@ -4462,6 +4462,9 @@ async function judgeOneStock(it, ctx, opts = {}) {
   const { calMap = {}, gLine = '', indMap = {} } = ctx || {};
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
   const news = await fetchStockNewsMulti(kw, it.code);
+  // ⚠ 供函式尾端 return 使用：_picked 宣告在內層區塊，外面取不到。
+  //   （宣告作用域問題今天已踩過三次：newsAdjOf、flush、const核）
+  let _pickedOut = [];
   // 分流管線的省錢閘門（使用者 2026-08-29）：晨間那趟只處理「標題沒判過的」。
   //   多數晨間稿是盤後稿的改寫，沒有新標題就代表沒有新資訊 ⇒ 沿用既有判別、
   //   不花這一次 AI。這是 150 檔能在 08:00 前跑完的關鍵。
@@ -4578,6 +4581,7 @@ async function judgeOneStock(it, ctx, opts = {}) {
       if (_picked.length >= 4) break;
     }
     // 500 字會把一篇 1,000~1,600 字的稿子攔腰砍斷，等於沒讀完（使用者要求完整讀完）
+    _pickedOut = _picked;
     const body = _picked.map((n, i) => {
       const hot = hotHits(`${n.title} ${n.content || ''}`);
       const from = n.bodyFrom ? `（內文來源：${n.bodyFrom}${n.bodyGeneric ? '，以公司名搜尋取得，**可能不是近兩日的報導**，判斷時請降低權重並在風險欄註明' : ''}）` : '';
@@ -4702,6 +4706,15 @@ ${body || '（近 2 日無實質新聞）'}
 必須走完下列推理，強度是**推理與挑戰之後**的結論：
 
 ① 先從內文找出**最關鍵的那一句**（不是標題，是文中真正承載事實的那句）。
+   ⚠ **挑「有事實含量」的，不是挑「最像結論」的**（實測案例）：
+     2882 國泰金的報導裡同時有
+       (a)「李長庚認為台灣半導體與 AI 產業還有好幾年好光景」← 總經評論
+       (b)「上半年大賺 765 億元、每股純益 4.95 元、股利配發會比過去好」← 營運事實
+     模型挑了 (a)，於是影響路徑只能寫「帶動投資人信心、間接支撐股價」這種推想，
+     整條判別被自檢刪光。正確答案是 (b)——有數字、可查證、直接關係本公司獲利。
+   優先序：**本公司的營運數字 > 本公司的具體事件 > 對本公司的預測 > 產業/總經評論**。
+   高層對大環境的樂觀看法，除非文中把它連到本公司的訂單或財務數字，
+   否則**不是本檔的利多**，只是評論。
 ② 【供應鏈分析師＋全球經濟分析師】推它的**影響路徑與量級**：
    這件事透過什麼機制影響營收／毛利／獲利／評價？影響多大、多快、持續多久？
    是一次性還是結構性？佔本業比重多少？
@@ -5047,7 +5060,7 @@ ${body || '（近 2 日無實質新聞）'}
   // 若 seen 只有近期視窗內的，視窗外的文章永遠看起來是新的 ⇒ 幾乎跳不掉。
   // （2026-08-29 實測：只記 recent 時 25 檔只跳過 5 檔，設計預期落空。）
   const allTitles = news.map(n => n.title).filter(Boolean);
-  return { verdict, events, stale, ageDays, recent, material, withBody, allTitles };
+  return { verdict, events, stale, ageDays, recent, material, withBody, allTitles, picked: _pickedOut };
 }
 
 // 新聞判別的共用背景：國際盤、事件日曆、官方產業別。
@@ -12649,6 +12662,13 @@ if (ONESHOT) {
         const r = await judgeOneStock({ code: c, name: q[c]?.name || c }, ctx, {});
         const v = r?.verdict;
         log(`  ▸ ${c} ${q[c]?.name || ''} → ${v ? `${v.label}·強度${v.strength}·信心${v.confidence}·已預期${v.priced || '?'}` : '(無)'}`);
+        if (r?.picked?.length) {
+          log(`      ── 實際採用的 ${r.picked.length} 篇 ──`);
+          r.picked.forEach((a, i) => {
+            log(`      ${i + 1}. 《${a.title}》${a.hasBody ? `（內文來源:${a.bodyFrom || '?'}）` : '（僅標題）'}`);
+            if (a.content) log(`         ${String(a.content).replace(/\s+/g, ' ').slice(0, 150)}`);
+          });
+        }
         if (v) {
           log(`      關鍵句: ${(v.keyQuote || '—').slice(0, 46)}`);
           log(`      影響路徑: ${(v.impactPath || '—').slice(0, 54)}`);
