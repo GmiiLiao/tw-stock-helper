@@ -174,6 +174,28 @@ grep -rnE "stock\.(score|signal|grade) = " src/lib/
 把合法來源做成必要欄位（此處：`verdictBasis: 'content'` 才能進 sum），
 讓違反它的程式**編譯不過**，而不是靠人記得。
 
+### K. 摘要文件混進歷史查詢（統計被重複計入）
+
+`collection.orderBy(dateField)` 會把該 collection 裡**所有**帶那個欄位的文件撈出來，
+包含 `latest` / `summary` 這類摘要文件——而它們往往是最近一筆的鏡像。
+結果是最近那一天**被算兩次**：樣本數、均值、勝率全部微幅偏移，
+而數字看起來完全合理，從結果**完全看不出來**。
+
+```bash
+# 找出所有對 collection 做日期排序的查詢
+grep -rnE "\.collection\('[a-z]+'\)[\s\S]{0,40}\.orderBy" scripts/ src/
+# 再逐一確認該 collection 有沒有非日期文件
+#   node -e "...orderBy(field).limit(40).get() → 篩出 id 不符 YYYY-MM-DD 的"
+```
+
+**2026-08-30 實績**：五個 collection 掃下來，`swingCurvePicks` 與 `newsVerdict`
+各有 `latest`。前者**既有程式已擋**（`doc.id === 'latest' → continue`），
+後者是我當天新寫的 `computeNewsVerdictReview` 漏掉——而它正是要用來決定
+新聞調分係數的統計。`chipArchive`／`intradayArchive`／`chipDaily` 乾淨。
+
+**判準**：任何跨文件的統計查詢都要明確排除摘要文件。
+寫新的歷史查詢時，先問「這個 collection 裡有沒有 latest？」
+
 ---
 
 ## 執行時的紀律
