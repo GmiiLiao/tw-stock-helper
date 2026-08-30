@@ -467,7 +467,7 @@ async function buildPredictSkill(code) {
   } catch { return ''; }
 }
 
-async function _ollamaRaw(prompt) {
+async function _ollamaRaw(prompt, temperature) {
   const ctl = new AbortController();
   // 逾時自「實際送出」起算(非排隊起算)，因為佇列已序列化只送一個。
   const t = setTimeout(() => ctl.abort(), 240000);
@@ -475,7 +475,16 @@ async function _ollamaRaw(prompt) {
     const res = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       // think:false 關閉推理模型的思考輸出(Ollama 支援時生效，否則由 cleanLLM 兜底)。
-      body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false, think: false }), signal: ctl.signal,
+      // ⚠ **取樣溫度**（2026-08-30 加）：原本完全沒設，用 Ollama 預設（多數模型 0.8）。
+      //   那對創作合適，對「判別」這種分類任務等於直接製造隨機性——
+      //   實測 2882 國泰金同一批新聞、相隔幾分鐘的三次判別，
+      //   在「中性（0 分）」與「利多/強（約 +8 分）」之間跳動。
+      //   判別路徑改用低溫（見呼叫端 opts.temperature），未指定者維持原行為，
+      //   避免一次改動影響所有既有輸出。
+      body: JSON.stringify({
+        model: OLLAMA_MODEL, prompt, stream: false, think: false,
+        ...(temperature != null ? { options: { temperature } } : {}),
+      }), signal: ctl.signal,
     });
     clearTimeout(t);
     if (!res.ok) return null;
@@ -495,11 +504,11 @@ function _drainLLM() {
   _llmQueue.sort((a, b) => b.priority - a.priority || a.seq - b.seq);
   const job = _llmQueue.shift();
   _llmBusy = true;
-  _ollamaRaw(job.prompt).then(job.resolve, () => job.resolve(null)).finally(() => { _llmBusy = false; _drainLLM(); });
+  _ollamaRaw(job.prompt, job.temperature).then(job.resolve, () => job.resolve(null)).finally(() => { _llmBusy = false; _drainLLM(); });
 }
 let _llmSeq = 0;
 function askOllama(prompt, opts = {}) {
-  return new Promise(resolve => { _llmQueue.push({ prompt, priority: opts.priority || 0, seq: _llmSeq++, resolve }); _drainLLM(); });
+  return new Promise(resolve => { _llmQueue.push({ prompt, priority: opts.priority || 0, temperature: opts.temperature, seq: _llmSeq++, resolve }); _drainLLM(); });
 }
 
 const ACTIONS = ['續抱', '加碼', '減碼', '出脫', '換股', '觀望'];
@@ -4742,7 +4751,8 @@ ${body || '（近 2 日無實質新聞）'}
 理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
 連動: （一句話，60 字內，國際局勢或產業鏈的傳導路徑；沒有用到寫「無」）
 風險: （一句話，50 字內，指出這個判斷最大的不確定性；無明顯風險寫「無」）`;
-    const ans = await askOllama(prompt, { priority: 1 });
+    // 判別是分類任務，低溫以求一致（見 _ollamaRaw 的溫度註解）
+    const ans = await askOllama(prompt, { priority: 1, temperature: NEWS_TEMP });
     if (ans) {
       const mv = ans.match(/判別\s*[:：]\s*(利多|利空|中性)/);
       const ms = ans.match(/強度\s*[:：]\s*(極強|強|中|弱)/);
@@ -4819,7 +4829,7 @@ ${body || '（近 2 日無實質新聞）'}
         + `定案判別: 利多/利空/中性\n定案強度: 極強/強/中/弱\n定案信心: 高/中/低\n`
         + `修正說明: （若與初判不同，說明是哪一個挑戰改變了結論；相同寫「維持初判」）`;
       try {
-        const a3 = await askOllama(chPrompt, { priority: 1 });
+        const a3 = await askOllama(chPrompt, { priority: 1, temperature: NEWS_TEMP });
         if (a3) {
           const f = (re) => { const m = a3.match(re); return m ? m[1].trim() : null; };
           const fl = f(/定案判別\s*[:：]\s*(利多|利空|中性)/);
@@ -4881,7 +4891,7 @@ ${body || '（近 2 日無實質新聞）'}
     // ⚠ 只對**會影響評分**的判別跑。中性與資訊不足權重為 0，
     //   驗它不會改變任何結果，卻要多花呼叫——成本要花在有用的地方。
     const askJSON = async (prompt) => {
-      try { return await askOllama(prompt, { priority: 1 }); } catch { return null; }
+      try { return await askOllama(prompt, { priority: 1, temperature: NEWS_TEMP }); } catch { return null; }
     };
     const evidence = _picked.map(x => `《${x.title}》${(x.content || '').slice(0, 500)}`).join('\n');
 
@@ -5034,7 +5044,7 @@ ${body || '（近 2 日無實質新聞）'}
           + `若對象是同業、客戶、供應商或其他公司，就不是。\n`
           + `只回：「是」或「否」，再用一句話說明對象是誰。`;
         try {
-          const a2 = await askOllama(subjQ, { priority: 1 });
+          const a2 = await askOllama(subjQ, { priority: 1, temperature: NEWS_TEMP });
           if (/^\s*是/.test(a2 || '')) {
             verdict = {
               ...verdict,
@@ -5117,6 +5127,10 @@ async function newsJudgeContext(wantDates = []) {
 //   （使用者明令：只用標題絕對禁止調分）。沒判到的股票就據實顯示
 //   「未判別」，**不捏造中性值**。
 // ══════════════════════════════════════════════════════════════════
+// 判別用的取樣溫度。0.15 而非 0：留一點點隨機性避免模型卡在退化輸出，
+// 但遠低於預設 0.8——實測預設溫度會讓同一批新聞的判別在
+// 「中性」與「利多/強」之間跳動（2882 國泰金，三次跑出兩種結果）。
+const NEWS_TEMP = +(process.env.NEWS_TEMP || 0.15);
 const NEWS_VERDICT_N = +(process.env.NV_LIMIT || 150);    // 退回用的成交金額宇宙大小
 // 安全上限（防暴走），不是刻意設限：使用者 2026-08-29 明確要求不限前 150 檔。
 // 實測來源掃描一次約 110 檔，400 有充分餘裕；真的爆量時按專屬報導優先截斷。
