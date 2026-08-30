@@ -5336,6 +5336,11 @@ async function computeNewsVerdictReview(days = 40) {
   const groups = { 利多: [], 利空: [], 中性: [] };
   let usedDays = 0;
   for (const d of snap.docs) {
+    // ⚠ 跳過 latest：它是同一批判別的鏡像（同樣帶 targetDate 與 verdictJson），
+    //   不排除的話最近那個交易日會被重複計入一次，樣本數與均值都會偏。
+    //   這種「摘要文件混進歷史查詢」的錯誤很難從結果看出來——
+    //   數字看起來完全合理，只是其中一天的權重是兩倍。
+    if (d.id === 'latest') continue;
     const x = d.data();
     const day = x.targetDate;
     if (!day || !byDate[day]) continue;          // 該交易日還沒收盤／無存檔 ⇒ 跳過
