@@ -12652,6 +12652,32 @@ if (ONESHOT) {
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
     // 驗證用：NV_CODES=3037,1303 單獨判別指定個股，不寫入正式存檔
+    // 變異度量測：同一檔重複判別 N 次，看結果穩不穩。
+    // NV_CODES=2882,3008 NV_REPS=3
+    // ⚠ 這件事必須量：若同一檔跑三次得到三種結果，單次判別就不能用來排序。
+    newsVerdictVariance: async () => {
+      const codes = String(process.env.NV_CODES || '').split(',').map(x => x.trim()).filter(Boolean);
+      const reps = +(process.env.NV_REPS || 3);
+      if (!codes.length) { log('請設 NV_CODES=代號,代號'); return; }
+      const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+      const q = JSON.parse(snap.quotesJson || '{}');
+      const ctx = await newsJudgeContext([isoDate(taipei())]);
+      const tally = {};
+      for (const c of codes) {
+        tally[c] = [];
+        for (let i = 0; i < reps; i++) {
+          const r = await judgeOneStock({ code: c, name: q[c] && q[c].name ? q[c].name : c }, ctx, {});
+          const v = r && r.verdict;
+          tally[c].push(v ? v.label + '/' + v.strength : '(無)');
+        }
+        const arr = tally[c];
+        const uniq = [...new Set(arr)];
+        const counts = uniq.map(u => u + ' x' + arr.filter(x => x === u).length);
+        const name = q[c] && q[c].name ? q[c].name : '';
+        log('  ▸ ' + c + ' ' + name + ': ' + arr.join(' | '));
+        log('     ⇒ ' + (uniq.length === 1 ? '**完全一致**' : uniq.length + ' 種結果（' + counts.join('、') + '）'));
+      }
+    },
     newsVerdictProbe: async () => {
       const codes = String(process.env.NV_CODES || '').split(',').map(x => x.trim()).filter(Boolean);
       if (!codes.length) { log('請設 NV_CODES=代號,代號'); return; }
