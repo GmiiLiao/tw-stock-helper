@@ -667,6 +667,27 @@ async function main() {
     console.log(`[audit] ✓ 已寫入 system/dataHealth（內部異常 ${badN}、外部異常 ${extBad}）`);
   }
 
+  // ── daemon 是否落後於程式碼 ──────────────────────────────
+  // 改了 ai-daemon.mjs 卻忘了重啟，daemon 會**靜默跑舊碼**：
+  // 沒有錯誤、沒有告警，只是修正沒有生效。實測 2026-08-30 就發生一次
+  // （行程啟動 16:18、程式提交 16:28，對答案的修正沒進去）。
+  // 用「行程啟動時間 vs 檔案 mtime」比對——不需要 git，也涵蓋未提交的改動。
+  try {
+    const { execSync } = await import('node:child_process');
+    const pid = execSync("pgrep -f 'ai-daemon.mjs' | head -1", { encoding: 'utf8' }).trim();
+    if (pid) {
+      const started = new Date(execSync(`ps -o lstart= -p ${pid}`, { encoding: 'utf8' }).trim()).getTime();
+      const { statSync } = await import('node:fs');
+      const mtime = statSync(new URL('./ai-daemon.mjs', import.meta.url)).mtimeMs;
+      if (mtime > started) {
+        const mins = Math.round((mtime - started) / 60000);
+        console.log(`\n⚠ **daemon 落後於程式碼**：行程啟動於檔案最後修改的 ${mins} 分鐘前`);
+        console.log('   ⇒ 目前跑的是舊碼，修正尚未生效。需要：launchctl kickstart -k gui/501/com.gmii.twstock.ai-daemon');
+        console.log('   （重啟前先跑 scripts/can-restart-daemon.mjs 確認不在累積窗內）');
+      }
+    }
+  } catch { /* 取不到行程資訊不擋稽核 */ }
+
   if (AS_JSON) { console.log(JSON.stringify({ lastTradingDay: ltd, results, external }, null, 2)); process.exit(0); }
 
   const RANK = { ERROR: 0, MISSING: 1, EMPTY: 2, DATE_DRIFT: 3, STALE: 4, THIN: 5, OK: 9 };
