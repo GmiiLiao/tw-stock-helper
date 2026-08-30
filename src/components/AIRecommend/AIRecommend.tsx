@@ -394,7 +394,9 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                       color: view.newsVerdict.label === '利多' ? 'var(--color-up)'
                         : view.newsVerdict.label === '利空' ? 'var(--color-down)' : 'var(--text-muted)',
                     }}>{view.newsVerdict.label}</b>
-                    {view.newsVerdict.strength && (
+                    {/* 中性沒有方向，強度就沒有意義——顯示「中性·強度弱」只會讓人困惑 */}
+                    {view.newsVerdict.strength && view.newsVerdict.label !== '中性'
+                      && view.newsVerdict.label !== '資訊不足' && (
                       <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
                         {' '}強度{view.newsVerdict.strength}
                       </span>
