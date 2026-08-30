@@ -85,6 +85,17 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 // 提示裡就會失效，今天已證實模型會無視）。傷害最大的是問AI，
 // 因為使用者會直接照著那個數字做決定。
 // ⚠ 只驗有單位的數字。純序號、年份、條列編號不算，否則誤報會蓋掉真警訊。
+// 量測模式：只記錄不改輸出。用來在**套用前**先確認誤報率——
+// 每日分析與個股分析是長文、數字來源較雜，貿然套用可能製造大量假警報，
+// 而假警報會蓋掉真警訊（這專案吃過很多次）。先觀察幾天再決定。
+function probeNumbers(tag, answer, sourceText) {
+  try {
+    const bad = unverifiedNumbers(answer, sourceText);
+    if (bad.length) log(`  [數字校驗·量測] ${tag}：${bad.length} 個對不上 → ${bad.slice(0, 5).join('、')}`);
+    else log(`  [數字校驗·量測] ${tag}：全部可查證`);
+  } catch { /* 量測不可影響主流程 */ }
+}
+
 function unverifiedNumbers(answer, sourceText) {
   const norm = t => String(t || '').replace(/[,，\s]/g, '');
   const corpus = norm(sourceText);
@@ -798,6 +809,7 @@ async function swingForCode(code, name) {
 
   const prompt = `你是台灣股市資深波段操盤手。僅依下列實際數據，用繁體中文寫「波段操作分析」(140-220字)，涵蓋：趨勢與支撐壓力、籌碼/估值解讀、近一月新聞影響、具體波段進出價位與停損；務必遵守「乖離過大不追高、回測均線才進場」的紀律以提升勝率。${isRisk ? '因屬注意/處置股，須說明交易限制與波段風險控管。' : ''}嚴禁杜撰數據或臆測未提供的資訊。結尾不需免責聲明。${STRICT_RULE}\n\n【數據】\n${lines.join('\n')}`;
   const out = await askOllama(prompt);
+  if (out) probeNumbers('分析', out, prompt);
   if (!out) return false;
   await db.collection('stockAI').doc(code).set({
     code, name: name || st.name || '',
@@ -1126,6 +1138,7 @@ async function publishPremarketBrief() {
   const picksText = picks.map(p => `${p.code} ${p.name}：評分${p.score}(${p.signalLabel})、現價${p.price}、買${p.buy ?? '-'}/目標${p.target ?? '-'}/停損${p.stop ?? '-'}`).join('\n');
   const prompt = `你是台灣股市開盤前策略分析師。僅依下列「今日 AI 精選 10 檔」實際數據，用繁體中文寫一段 100-150 字的「今日盤前大盤策略與操作基調」。只談整體氛圍、族群與操作紀律，不要逐檔列價、不要杜撰任何數據或未提供資訊。${STRICT_RULE}\n\n【今日精選】\n${picksText}`;
   const out = await askOllama(prompt);
+  if (out) probeNumbers('個股分析', out, prompt);
   const marketStrategy = out ? out.replace(/^[#*\s]+/, '').trim().slice(0, 400) : '';
 
   const brief = {
@@ -3182,6 +3195,7 @@ async function publishUserSummaries() {
 【大盤】上漲 ${up} 家/下跌 ${down} 家；費半 ${sox?.changePct ?? 'n/a'}%
 【持股】\n${lines.join('\n')}`;
       const out = await askOllama(prompt);
+      if (out) probeNumbers('每日分析', out, prompt);
       if (!out) continue;
       await db.collection('users').doc(uid).collection('data').doc('dailySummary').set({ date: isoDate(taipei()), generatedAt: Date.now(), model: OLLAMA_MODEL, summary: out.trim().slice(0, 800) });
       log(`  ✓ 個人摘要 ${uid}`);
@@ -3221,6 +3235,7 @@ async function publishTradeReviews() {
       const prompt = `你是專業交易教練。依下列交易統計，用繁體中文寫一段「交易覆盤檢討」(180-240字)：點出交易習慣優缺點(如勝率、盈虧比、是否凹單/賣太早/過度交易)，給2-3個具體可執行的改進建議。語氣中肯鼓勵。勿杜撰數據，結尾加「※ AI 覆盤，非投資建議」。${STRICT_RULE}
 【交易統計】已實現勝率 ${winRate}%(${wins.length}勝/${losses.length}負)、平均獲利 ${avgWin}、平均虧損 ${avgLoss}、盈虧比 ${avgLoss !== 0 ? Math.abs(avgWin / avgLoss).toFixed(2) : 'N/A'}、總已實現損益 ${totalRealized}、買進次數 ${buyCount}、賣出次數 ${sells.length}；最賺 ${best?.[1]?.name}(${Math.round(best?.[1]?.pnl)})、最賠 ${worst?.[1]?.name}(${Math.round(worst?.[1]?.pnl)})`;
       const out = await askOllama(prompt);
+      if (out) probeNumbers('每日分析', out, prompt);
       if (!out) continue;
       await db.collection('users').doc(uid).collection('data').doc('tradeReview').set({
         generatedAt: Date.now(), model: OLLAMA_MODEL, review: out.trim().slice(0, 900),
