@@ -669,24 +669,22 @@ async function main() {
 
   // ── daemon 是否落後於程式碼 ──────────────────────────────
   // 改了 ai-daemon.mjs 卻忘了重啟，daemon 會**靜默跑舊碼**：
-  // 沒有錯誤、沒有告警，只是修正沒有生效。實測 2026-08-30 就發生一次
-  // （行程啟動 16:18、程式提交 16:28，對答案的修正沒進去）。
-  // 用「行程啟動時間 vs 檔案 mtime」比對——不需要 git，也涵蓋未提交的改動。
+  // 沒有錯誤、沒有告警，只是修正沒有生效（2026-08-30 實際發生過一次）。
+  // ⚠ 用**內容雜湊**而非 mtime：git checkout / touch 這類不改內容的操作
+  //   也會更新 mtime ⇒ 假警報。我第一版就是 mtime，寫完當場誤報。
   try {
-    const { execSync } = await import('node:child_process');
-    const pid = execSync("pgrep -f 'ai-daemon.mjs' | head -1", { encoding: 'utf8' }).trim();
-    if (pid) {
-      const started = new Date(execSync(`ps -o lstart= -p ${pid}`, { encoding: 'utf8' }).trim()).getTime();
-      const { statSync } = await import('node:fs');
-      const mtime = statSync(new URL('./ai-daemon.mjs', import.meta.url)).mtimeMs;
-      if (mtime > started) {
-        const mins = Math.round((mtime - started) / 60000);
-        console.log(`\n⚠ **daemon 落後於程式碼**：行程啟動於檔案最後修改的 ${mins} 分鐘前`);
-        console.log('   ⇒ 目前跑的是舊碼，修正尚未生效。需要：launchctl kickstart -k gui/501/com.gmii.twstock.ai-daemon');
-        console.log('   （重啟前先跑 scripts/can-restart-daemon.mjs 確認不在累積窗內）');
-      }
+    const { readFileSync } = await import('node:fs');
+    const { createHash } = await import('node:crypto');
+    const cur = createHash('sha256')
+      .update(readFileSync(new URL('./ai-daemon.mjs', import.meta.url))).digest('hex').slice(0, 16);
+    const b = (await db.collection('system').doc('daemonBuild').get()).data();
+    if (!b?.codeHash) {
+      console.log('\n⚠ 無 daemon 版本紀錄（system/daemonBuild）——無法確認跑的是不是最新碼');
+    } else if (b.codeHash !== cur) {
+      console.log(`\n⚠ **daemon 落後於程式碼**：執行中 ${b.codeHash}／磁碟上 ${cur}`);
+      console.log('   ⇒ 修正尚未生效。先跑 scripts/can-restart-daemon.mjs，再 launchctl kickstart -k gui/501/com.gmii.twstock.ai-daemon');
     }
-  } catch { /* 取不到行程資訊不擋稽核 */ }
+  } catch { /* 取不到不擋稽核 */ }
 
   if (AS_JSON) { console.log(JSON.stringify({ lastTradingDay: ltd, results, external }, null, 2)); process.exit(0); }
 

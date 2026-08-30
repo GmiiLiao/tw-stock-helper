@@ -79,6 +79,24 @@ process.on('unhandledRejection', e => { try { console.log(new Date().toISOString
 process.on('uncaughtException', e => { try { console.log(new Date().toISOString(), '⚠ uncaughtException:', (e && e.message) || e); } catch { /* noop */ } });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// 啟動時把**自身程式碼的雜湊**寫進 system/daemonBuild，供稽核比對
+// 「執行中的 daemon 是不是最新碼」。改了程式卻忘了重啟會**靜默跑舊碼**：
+// 不報錯、不告警，只是修正沒生效（2026-08-30 實際發生過一次）。
+// ⚠ 用內容雜湊而非 mtime：git checkout / touch 這類不改內容的操作也會
+//   更新 mtime ⇒ 假警報。第一版就是 mtime，寫完當場誤報。
+// ⚠ 宣告必須在使用之前（今天第五次踩到宣告順序）。
+let _daemonCodeHash = null;
+async function _recordDaemonBuild() {
+  try {
+    const { readFileSync } = await import('node:fs');
+    const { createHash } = await import('node:crypto');
+    _daemonCodeHash = createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex').slice(0, 16);
+    await db.collection('system').doc('daemonBuild').set({
+      codeHash: _daemonCodeHash, startedAt: Date.now(), host: os.hostname(), updatedAt: Date.now(),
+    });
+  } catch (e) { log('⚠ 記錄 daemon 版本失敗:', (e.message || '').slice(0, 40)); }
+}
+
 // ── heartbeat ──
 // 連線看門狗（2026-07-29 事故：Firestore 連線斷掉但行程仍活著，KeepAlive 不會重啟，
 // 導致當日新聞/歸檔等全部靜默失敗 10 小時）。連續失敗達門檻即主動結束，交由 launchd 重啟。
@@ -3909,6 +3927,7 @@ async function analyzeLoop() {
     await sleep(ANALYZE_MS);
   }
 }
+if (!ONESHOT) _recordDaemonBuild();   // 記錄本次啟動載入的程式碼版本
 if (!ONESHOT) analyzeLoop();
 
 // Manual test: FORCE_PREMARKET=1 publishes the brief immediately at startup.

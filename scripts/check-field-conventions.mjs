@@ -36,6 +36,9 @@ export const AT_ALLOWLIST = new Set([
   // verdictAt：AI 新聞判別**產出的時間**。與被判別新聞的發佈時間分開——
   // 時效衰減必須用它，用新聞時間會讓舊判別搭上新新聞的新鮮度。
   'verdictAt',
+  // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
+  // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
+  'startedAt',
   // 語意戳（事件時刻，不作為文件新鮮度依據）
   'addedAt', 'answeredAt', 'liveAt', 'bankAt', 'firstAt', 'finishedAt', 'savedAt',
   'linkedAt', 'sweepAt', 'stressAt', 'tradingModeAt', 'privacyAckAt',
