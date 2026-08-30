@@ -79,6 +79,19 @@ process.on('unhandledRejection', e => { try { console.log(new Date().toISOString
 process.on('uncaughtException', e => { try { console.log(new Date().toISOString(), '⚠ uncaughtException:', (e && e.message) || e); } catch { /* noop */ } });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// 數字校驗：把回答裡的「有單位數字」逐一比對來源資料，對不上就是編造的。
+// 用途不只新聞判別——「嚴禁編造數字」這條規則同時寫在每日分析、個股分析、
+// 問AI 三個提示詞裡，但**只有提示詞、沒有任何程式在檢查**（J 族：規則只寫在
+// 提示裡就會失效，今天已證實模型會無視）。傷害最大的是問AI，
+// 因為使用者會直接照著那個數字做決定。
+// ⚠ 只驗有單位的數字。純序號、年份、條列編號不算，否則誤報會蓋掉真警訊。
+function unverifiedNumbers(answer, sourceText) {
+  const norm = t => String(t || '').replace(/[,，\s]/g, '');
+  const corpus = norm(sourceText);
+  const nums = [...new Set(norm(answer).match(/\d+(?:\.\d+)?(?:%|％|倍|億|萬|元|張|點)/g) || [])];
+  return nums.filter(n => !corpus.includes(n) && !corpus.includes(n.replace(/％/, '%')));
+}
+
 // 啟動時把**自身程式碼的雜湊**寫進 system/daemonBuild，供稽核比對
 // 「執行中的 daemon 是不是最新碼」。改了程式卻忘了重啟會**靜默跑舊碼**：
 // 不報錯、不告警，只是修正沒生效（2026-08-30 實際發生過一次）。
@@ -3303,7 +3316,18 @@ async function answerQuestions() {
   但不要憑空給數字或結論。
 
 **只能根據下列「資料」回答**使用者問題，資料沒提到的就回「目前資料中未提供」，嚴禁編造數據或臆測。用繁體中文簡潔回答(120-220字)，結尾加「※ 依第二大腦資料整理，非投資建議」。${STRICT_RULE.replace('【數據】', '【資料】')}\n\n使用者問題：${q.question}\n\n【資料】\n${ctx}`;
-        const answer = await askOllama(prompt, { priority: 10 }); // 互動式優先插隊
+        let answer = await askOllama(prompt, { priority: 10 }); // 互動式優先插隊
+        // 數字校驗（使用者 2026-08-29 指定的防幻想約束 A）：
+        //   回答裡對不上來源資料的數字＝編造的。不刪除整段回答
+        //   （其餘內容可能有用），但要**在答案裡明說**哪些數字查不到，
+        //   否則使用者會照著假數字做決定。
+        if (answer) {
+          const bad = unverifiedNumbers(answer, prompt);
+          if (bad.length) {
+            answer += `\n\n⚠ 下列數字未能在提供的資料中查證，請勿採信：${bad.slice(0, 5).join('、')}`;
+            log(`  ⚠ 問AI 數字校驗未過（${q.id}）：${bad.slice(0, 4).join('、')}`);
+          }
+        }
         await db.runTransaction(async tx => {
           const d = await tx.get(ref);
           const arr = d.exists ? (d.data().items || []) : [];
