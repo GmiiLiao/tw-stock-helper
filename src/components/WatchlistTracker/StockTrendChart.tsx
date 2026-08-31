@@ -45,6 +45,23 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
   const [size, setSize] = useState(DEFAULT_SIZE[mode]);
   const [offset, setOffset] = useState(0); // 從最新往回偏移的根數
   const [hoverIdx, setHoverIdx] = useState<number | null>(null); // 游標所指的 K 棒
+
+  // 盤中週期：預設視窗要**從前一交易日的最後一根**開始（使用者 2026-08-31 指定）。
+  // 沒有前一根當參考，今天第一根 K 是懸空的——開盤跳空多少完全看不出來，
+  // 而跳空正是盤中判讀最先要看的東西。
+  // ⚠ 只調整**初次載入**的視窗；使用者縮放後 size 由他控制，
+  //   本效果不會再介入（deps 只有 mode/candles）。
+  useEffect(() => {
+    if (!['m1', 'm5', 'm10', 'm20', 'm60'].includes(mode) || candles.length < 2) return;
+    const dayOf = (t: number) =>
+      new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+    const lastDay = dayOf(candles[candles.length - 1].t);
+    let firstIdx = candles.length - 1;
+    while (firstIdx > 0 && dayOf(candles[firstIdx - 1].t) === lastDay) firstIdx--;
+    if (firstIdx <= 0) return;                       // 資料只有一天，沒有前一根可接
+    setSize(Math.max(8, candles.length - (firstIdx - 1)));
+    setOffset(0);
+  }, [mode, candles]);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setSize(Math.min(DEFAULT_SIZE[mode], n || DEFAULT_SIZE[mode])); setOffset(0); setHoverIdx(null); }, [mode, code, n]);
@@ -144,8 +161,16 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
 
   if (view.length === 0) return <div className={styles.chartError}>無 K 線數據</div>;
 
-  const W = 1000, H = 240, padL = 48, padR = 10, padT = 8, padB = 20;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
+  // 下方成交量副圖（使用者 2026-08-31 指定）。
+  // volH 是量圖高度、volGap 是與 K 線圖的間距；K 線的 plotH 要扣掉它們，
+  // 否則量圖會蓋住 K 棒下緣。
+  const volH = 54, volGap = 8;
+  const W = 1000, H = 240 + volH + volGap, padL = 48, padR = 10, padT = 8, padB = 20;
+  // K 線區高度要扣掉量圖與間距，否則量圖會蓋住 K 棒下緣
+  const plotW = W - padL - padR, plotH = H - padT - padB - volH - volGap;
+  const volTop = padT + plotH + volGap;                 // 量圖上緣
+  const volMax = Math.max(1, ...view.map(c => c.v || 0));
+  const yVol = (v: number) => volTop + volH - (Math.max(0, v) / volMax) * volH;
   const maVisible = maFull.flatMap(arr => view.map((_, i) => arr[start + i]).filter((v): v is number => v != null));
   const lo = Math.min(...view.map(c => c.l), ...(maVisible.length ? maVisible : [Infinity])),
         hi = Math.max(...view.map(c => c.h), ...(maVisible.length ? maVisible : [-Infinity]));
@@ -206,9 +231,18 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
               <g key={c.t}>
                 <line x1={x} y1={yOf(c.h)} x2={x} y2={yOf(c.l)} stroke={col} strokeWidth={1} />
                 <rect x={x - cw / 2} y={bodyTop} width={cw} height={bodyH} fill={col} />
+                {/* 成交量柱（使用者 2026-08-31 指定）：與 K 棒同色同寬，一眼對得起來 */}
+                <rect x={x - cw / 2} y={yVol(c.v || 0)} width={cw}
+                      height={Math.max(1, volTop + volH - yVol(c.v || 0))} fill={col} opacity={0.75} />
               </g>
             );
           })}
+          {/* 量圖的上下框線與最大量標示 */}
+          <line x1={padL} y1={volTop + volH} x2={W - padR} y2={volTop + volH} stroke="rgba(255,255,255,0.18)" />
+          <text x={padL - 4} y={volTop + 9} textAnchor="end" fontSize={9} fill="rgba(255,255,255,0.5)">
+            {volMax >= 10000 ? `${(volMax / 10000).toFixed(1)}萬` : volMax.toLocaleString()}
+          </text>
+          <text x={padL - 4} y={volTop + volH} textAnchor="end" fontSize={9} fill="rgba(255,255,255,0.35)">量</text>
           {/* 均線（週/月/季）——蠟燭之上、十字線之下 */}
           {MA_DEFS.map((d, di) => {
             const pts: string[] = [];
