@@ -5248,7 +5248,21 @@ const NEWS_SWEEP_FEEDS = [
   ['財政部',   null],
   ['經濟部',   null],
 ];
-const NEWS_SWEEP_MAX_AGE_MS = 4 * 86400000;   // 4 天：足以跨過週末
+// 新聞視窗的起點是**上一個交易日**，不是「今天減 N 天」（使用者 2026-08-31 指示）。
+// 固定 4 天跨得過週末，但**跨不過長假**——春節休 9 天的話，
+// 假期間累積的新聞會整段漏掉，而那些正是開盤後要反應的。
+// 下限 2 天（連續交易日之間也要留一點餘裕），上限 12 天（防日曆異常）。
+function newsSweepMaxAgeMs() {
+  try {
+    const today = isoDate(taipei());
+    const prev = prevTradingIsos(today, 2)[1];           // 上一個交易日
+    if (!prev) return 4 * 86400000;
+    const gapMs = new Date(`${today}T00:00:00+08:00`).getTime()
+      - new Date(`${prev}T00:00:00+08:00`).getTime();
+    // 從上一個交易日的開盤前算起，再加一天涵蓋當日
+    return Math.min(12 * 86400000, Math.max(2 * 86400000, gapMs + 86400000));
+  } catch { return 4 * 86400000; }
+}
 const NEWS_SWEEP_SITE = { 工商時報: 'ctee.com.tw', MoneyDJ: 'moneydj.com', 財政部: 'mof.gov.tw', 經濟部: 'moea.gov.tw' };
 
 // 來源名會被誤認成股票（實測「工商時報」→ 認出「時報」）⇒ 比對前先剝掉尾巴
@@ -5267,6 +5281,7 @@ async function sweepNewsSources() {
   const out = [];
   const seen = new Set();
   const now = Date.now();
+  const maxAgeMs = newsSweepMaxAgeMs();
   let dropOld = 0, dropNoDate = 0;
   await Promise.all(NEWS_SWEEP_FEEDS.map(async ([src, url]) => {
     const u = url || `https://news.google.com/rss/search?q=${encodeURIComponent('site:' + NEWS_SWEEP_SITE[src])}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
@@ -5292,13 +5307,13 @@ async function sweepNewsSources() {
         //   不擋的話，三年前稅務函釋裡提到的股票會被當成「今天有新聞」進入宇宙。
         //   窗口取 4 天：足以跨過週末（週五的新聞在週一仍然有效）。
         if (!at) { dropNoDate++; continue; }        // 無日期＝無法驗證新鮮度，寧可不要
-        if (now - at > NEWS_SWEEP_MAX_AGE_MS) { dropOld++; continue; }
+        if (now - at > maxAgeMs) { dropOld++; continue; }
         out.push({ src, title, link: pick('link'), at });
       }
     } catch (e) { log(`  ↳ 來源掃描 ${src} 失敗: ${(e.message || '').slice(0, 40)}`); }
   }));
   // 據實記錄丟掉了多少，否則「宇宙變小」會查不出原因
-  if (dropOld || dropNoDate) log(`  ↳ 來源掃描濾除：過舊 ${dropOld} 則、無日期 ${dropNoDate} 則`);
+  if (dropOld || dropNoDate) log(`  ↳ 來源掃描濾除：過舊 ${dropOld} 則、無日期 ${dropNoDate} 則（視窗 ${(maxAgeMs / 86400000).toFixed(0)} 天＝上一交易日起算）`);
   return out;
 }
 
@@ -5456,6 +5471,74 @@ async function computeNewsVerdictReview(days = 40) {
   //   就會整天算不到 newsLift 而且無人知曉——這正是 dayTradeRatio
   //   斷 8 天的同型錯誤（單次嘗試、失敗不重試、靜默）。
   return usedDays > 0;
+}
+
+// ══ 盤中即時新聞判別（使用者 2026-08-31 指示）══════════════════
+//   判別原本只跑盤後 23:00 與盤前 07:00 ⇒ **盤中發生的事完全看不到**，
+//   而那正是當日影響最大的一類：
+//     欣興 3037 盤中遭檢調搜索 → 當日開→收 −7.50%
+//     世界先進工廠失火
+//   這類消息盤前不存在，隔天才判別已經沒有意義。
+//
+// 設計上刻意「輕」：
+//   · 只看**最近 45 分鐘內發佈**的文章，不重掃整個視窗
+//   · 已判過的標題直接跳過（沿用 seen 機制）
+//   · 硬死線，絕不佔住盤中其他工作
+//   · 判別寫進當日 doc，網站立即讀得到
+async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
+  const tw = taipei();
+  const today = isoDate(tw);
+  const ref = db.collection('newsVerdict').doc(today);
+  const prev = (await ref.get()).data() || {};
+  const verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
+  const seenAll = prev.seenJson ? JSON.parse(prev.seenJson) : {};
+
+  const rows = await newsDrivenUniverse();
+  const cut = Date.now() - windowMin * 60000;
+  // 只留「最近 windowMin 分鐘內有新文章」的個股
+  const hot = rows.filter(r => r.articles.some(a => (a.at || 0) >= cut));
+  if (!hot.length) return true;                  // 沒有新消息＝正常，不是失敗
+
+  const deadlineTs = Date.now() + deadlineMin * 60000;
+  const ctx = await newsJudgeContext([today]);
+  let judged = 0, skipped = 0, hit = [];
+  for (const u of hot) {
+    if (Date.now() >= deadlineTs) break;
+    try {
+      const r = await judgeOneStock({ code: u.code, name: u.name }, ctx, { seenTitles: seenAll[u.code] || [] });
+      if (r?.skipped) { skipped++; continue; }
+      const v = r?.verdict;
+      if (!v) continue;
+      verdicts[u.code] = {
+        label: v.label, confidence: v.confidence, strength: v.strength || '中', reason: v.reason,
+        basis: v.basis, n: v.n, pass: 'intraday', at: Date.now(),
+        keyQuote: v.keyQuote || null, impactPath: v.impactPath || null,
+        priced: v.priced || null, challenge: v.challenge || null,
+        challenged: !!v.challenged, revision: v.revision || null,
+        gate: v.gate || null, unverifiedNums: v.unverifiedNums || null,
+        dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
+        strengthBasis: v.strengthBasis || null,
+        quotes: v.quotes || null, quoteVerified: v.quoteVerified ?? null,
+      };
+      seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
+      judged++;
+      // 盤中的重點是突發利空——把它們單獨記下來，供前端與告警使用
+      if (v.label === '利空') hit.push(`${u.code}${u.name}(${v.strength})`);
+    } catch { /* 單檔失敗不擋整輪 */ }
+  }
+  if (!judged && !skipped) return true;
+  await ref.set({
+    date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(),
+    lastPass: 'intraday', intradayAt: Date.now(),
+    verdictJson: JSON.stringify(verdicts), seenJson: JSON.stringify(seenAll),
+  }, { merge: true });
+  await db.collection('newsVerdict').doc('latest').set({
+    date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'intraday',
+    covered: Object.keys(verdicts).length, verdictJson: JSON.stringify(verdicts),
+  });
+  log(`✓ 盤中新聞判別：新消息 ${hot.length} 檔 → 判別 ${judged}、沿用 ${skipped}` +
+      `${hit.length ? `　⚠ 突發利空：${hit.join('、')}` : ''}`);
+  return true;
 }
 
 // pass: 'evening'（盤後）| 'morning'（國際與晨間，只處理新標題）
@@ -12188,6 +12271,7 @@ let _globalHistDate = '';     // 國際盤歷史每日更新守衛
 let _nvEveDate = '';          // 新聞內文判別·盤後那趟（23:00）
 let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:00 死線）
 let _nvReviewDate = '';       // 新聞判別對答案（15:30）
+let _nvIntradayAt = 0;        // 盤中新聞判別的上次執行時刻
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
 // 日韓早盤固定時刻（台北時間·分鐘）。08:30 為使用者指定必跑；09:00 後為盤中追蹤。
@@ -12265,6 +12349,17 @@ async function dailyJobsLoop() {
       if (isTradingDay(tw) && mins >= 7 * 60 && mins < 8 * 60 && _nvMornDate !== today) {
         try { if (await computeNewsVerdictBatch('morning', 8 * 60)) _nvMornDate = today; }
         catch (e) { log('✖ 新聞判別·晨間（窗內將重試）:', (e.message || '').slice(0, 60)); }
+      }
+      // 盤中即時新聞判別（09:00~13:30，每 25 分鐘一趟）。
+      // 使用者 2026-08-31：欣興盤中遭搜索當日跌 7.5%、世界先進工廠失火，
+      // 這類消息盤前不存在、隔天才判就沒有意義。
+      // ⚠ 刻意輕量：只看最近 45 分鐘的新文章、12 分鐘硬死線，
+      //   不能與盤中其他工作搶 LLM 佇列。
+      if (isTradingDay(tw) && mins >= 9 * 60 && mins <= 13 * 60 + 30
+          && Date.now() - _nvIntradayAt > 25 * 60000) {
+        _nvIntradayAt = Date.now();   // 先標記：這是週期性工作，失敗等下一輪即可
+        try { await computeIntradayNewsVerdict(); }
+        catch (e) { log('✖ 盤中新聞判別:', (e.message || '').slice(0, 60)); }
       }
       // 新聞判別對答案（15:30：當日 OHLC 已入 chipArchive）
       if (isTradingDay(tw) && mins >= 15 * 60 + 30 && _nvReviewDate !== today) {
@@ -12751,6 +12846,7 @@ if (ONESHOT) {
     newsVerdictEvening: () => computeNewsVerdictBatch('evening'),
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
+    newsVerdictIntraday: () => computeIntradayNewsVerdict(),
     // 驗證用：NV_CODES=3037,1303 單獨判別指定個股，不寫入正式存檔
     // 變異度量測：同一檔重複判別 N 次，看結果穩不穩。
     // NV_CODES=2882,3008 NV_REPS=3
