@@ -1974,6 +1974,19 @@ const _agent = { queue: [], lastByKey: {}, day: '', flags: {} };
 
 async function pushAgentMsg({ type, label, emoji, text, summary, severity = 'info', stocks = [], dedupeKey = null, cooldownMs = 30 * 60e3 }) {
   const now = Date.now();
+  // 佇列是行程記憶體，但寫出去是整份覆蓋 ⇒ 空佇列直接 set 會**洗掉線上既有訊息**。
+  // 單次執行（--run）就會踩到：實測 2026-09-01 盤中判別把面板洗到只剩 1 則。
+  // 首次推送前先把同一天的既有訊息讀回來。
+  if (!_agent.hydrated) {
+    _agent.hydrated = true;
+    try {
+      const cur = (await db.collection('aiMessages').doc('latest').get()).data();
+      if (cur && cur.date === isoDate(taipei())) {
+        const prev = JSON.parse(cur.messagesJson || '[]');
+        if (Array.isArray(prev) && prev.length && !_agent.queue.length) _agent.queue = [...prev].reverse();
+      }
+    } catch { /* 讀不到就照原樣新建 */ }
+  }
   if (dedupeKey) {
     if (_agent.lastByKey[dedupeKey] && now - _agent.lastByKey[dedupeKey] < cooldownMs) return;
     _agent.lastByKey[dedupeKey] = now;
@@ -1998,7 +2011,17 @@ async function agentTick(quotes, marketNow) {
     if (!isTradingDay(tw)) return;
     const mins = tw.getHours() * 60 + tw.getMinutes();
     const today = isoDate(tw);
-    if (_agent.day !== today) { _agent.day = today; _agent.flags = {}; _agent.queue = []; _agent.lastByKey = {}; }
+    if (_agent.day !== today) {
+      _agent.day = today; _agent.flags = {}; _agent.lastByKey = {};
+      // 換日清盤面敘事，但**保留新聞判別完成訊號**：晨間趟 07:00 推送時
+      // _agent.day 還是昨天，08:55 首次 agentTick 一重置就會把它清掉
+      // ——那正是使用者早上要看的那則。
+      // ⚠ 要加時效：agentTick 只在交易日跑 ⇒ 不設上限的話，
+      //   週五 23:00 的判別訊息會一路撐到**週一**面板（中間沒有 tick 清掉）。
+      //   14 小時足以涵蓋 23:00→08:55 與 07:00→08:55，且擋掉跨週末殘留。
+      _agent.queue = _agent.queue.filter(m =>
+        m.type === 'newsVerdict' && Date.now() - (m.timestamp || 0) < 14 * 3600e3);
+    }
     if (mins < 8 * 60 + 55 || mins > 14 * 60 + 30) return;   // 盤前 5 分鐘（08:55）啟動 → 14:30 盤後才關閉（2026-08-17 使用者定案）
     // 心跳（2026-08-18 使用者回報「顯示離線」）：訊息 10 分鐘一則是設計節奏，
     // 上線與否要看心跳不是看訊息年齡——視窗內每 ≤60 秒蓋章一次。
