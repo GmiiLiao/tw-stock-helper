@@ -46,25 +46,27 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
   const [offset, setOffset] = useState(0); // 從最新往回偏移的根數
   const [hoverIdx, setHoverIdx] = useState<number | null>(null); // 游標所指的 K 棒
 
-  // 盤中週期：預設視窗要**從前一交易日的最後一根**開始（使用者 2026-08-31 指定）。
-  // 沒有前一根當參考，今天第一根 K 是懸空的——開盤跳空多少完全看不出來，
-  // 而跳空正是盤中判讀最先要看的東西。
-  // ⚠ 只調整**初次載入**的視窗；使用者縮放後 size 由他控制，
-  //   本效果不會再介入（deps 只有 mode/candles）。
-  useEffect(() => {
-    if (!['m1', 'm5', 'm10', 'm20', 'm60'].includes(mode) || candles.length < 2) return;
-    const dayOf = (t: number) =>
-      new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
-    const lastDay = dayOf(candles[candles.length - 1].t);
-    let firstIdx = candles.length - 1;
-    while (firstIdx > 0 && dayOf(candles[firstIdx - 1].t) === lastDay) firstIdx--;
-    if (firstIdx <= 0) return;                       // 資料只有一天，沒有前一根可接
-    setSize(Math.max(8, candles.length - (firstIdx - 1)));
-    setOffset(0);
-  }, [mode, candles]);
+
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setSize(Math.min(DEFAULT_SIZE[mode], n || DEFAULT_SIZE[mode])); setOffset(0); setHoverIdx(null); }, [mode, code, n]);
+  // 預設視窗。⚠ **只能有這一個效果在設 size**——先前我另外加了一個
+  //   「盤中首根接前一交易日」的效果，宣告在這一個之前，於是每次都被這裡蓋掉，
+  //   使用者看到的仍是「53/265 根5分K」只有今天（2026-08-31 截圖回報）。
+  //   兩個效果搶同一個狀態必然出事，合併在這裡。
+  useEffect(() => {
+    let want = Math.min(DEFAULT_SIZE[mode], n || DEFAULT_SIZE[mode]);
+    // 盤中週期：視窗要**從前一交易日的最後一根**開始。
+    // 沒有前一根當參考，今天第一根 K 是懸空的，開盤跳空多少完全看不出來。
+    if (['m1', 'm5', 'm10', 'm20', 'm60'].includes(mode) && candles.length >= 2) {
+      const dk = (t: number) => new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+      const lastDay = dk(candles[candles.length - 1].t);
+      let firstIdx = candles.length - 1;
+      while (firstIdx > 0 && dk(candles[firstIdx - 1].t) === lastDay) firstIdx--;
+      if (firstIdx > 0) want = candles.length - (firstIdx - 1);   // 含前一交易日最後一根
+    }
+    setSize(Math.max(8, want));
+    setOffset(0); setHoverIdx(null);
+  }, [mode, code, n, candles]);
 
   const clampSize = Math.max(8, Math.min(size, n || 8));
   const clampOffset = Math.max(0, Math.min(offset, Math.max(0, n - clampSize)));
