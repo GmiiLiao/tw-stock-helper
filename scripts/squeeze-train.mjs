@@ -75,18 +75,38 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   const gRows = alignGlobal(hist, twDates);
 
   const samples = [];
+  // ── 新聞判別（2026-08-31 接入）──────────────────────────
+  // 這是模型從沒看過的維度：前面 28 個因子全是價量籌碼，
+  // 在同一份固定菜單裡重選，跑再多次也不會進步。
+  // ⚠ 判別自 2026-08-27 才開始累積，樣本遠不足 ⇒ **覆蓋率不到門檻就不啟用**。
+  //   現在硬跑出來的數字是雜訊，比沒有更糟（見 docs/EXPERIMENTS.md 的紀律）。
+  const newsByDate = {};
+  try {
+    const snap = await db.collection('newsVerdict').orderBy('targetDate', 'desc').limit(400).get();
+    for (const d of snap.docs) {
+      if (d.id === 'latest') continue;          // 摘要文件不是一個交易日（K 族）
+      const x = d.data();
+      if (!x?.targetDate || !x.verdictJson) continue;
+      newsByDate[x.targetDate] = JSON.parse(x.verdictJson);
+    }
+  } catch { /* 讀不到就當作沒有新聞維度，不擋訓練 */ }
+  const newsDays = Object.keys(newsByDate).length;
+
   for (let t = 25; t < T - 1; t++) {
     const g = gRows[days[t].date] || {};
+    const nv = newsByDate[days[t].date] || {};
     for (const code in days[t].close) {
       if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
       const f = buildStockFeatures(days, t, code);
       if (!f || !(f.close > minPrice) || !(f.avgVol >= minAvgVol)) continue;
       const y = buildLabels(days, t, code);
       if (!y) continue;
-      samples.push({ t, date: days[t].date, code, f, g, y, seg: t < T / 3 ? 0 : (t < 2 * T / 3 ? 1 : 2) });
+      const nvi = nv[code];
+    if (nvi) { f.newsLabel = nvi.label; f.newsStrength = nvi.strength || null; f.newsPriced = nvi.priced || null; }
+    samples.push({ t, date: days[t].date, code, f, g, y, seg: t < T / 3 ? 0 : (t < 2 * T / 3 ? 1 : 2) });
     }
   }
-  return { samples, days, T, twDates };
+  return { samples, days, T, twDates, newsDays };
 }
 
 // ── 3. 因子檢定 ────────────────────────────────────────────────────
@@ -117,7 +137,12 @@ function evaluate(sel, samples, baseMomentum, label = 'openRet') {
 }
 
 // ── 4. 候選因子（含國際盤連動）──────────────────────────────────────
-function factorGrid() {
+// newsDays＝有判別存檔的交易日數。低於門檻就**不把新聞因子放進網格**——
+// 樣本不足時它會被雜訊選中，然後我們會誤以為新聞有用。
+// 30 個交易日是最低限度（約 6 週），且仍要通過既有的樣本外＋安慰劑檢定。
+const NEWS_MIN_DAYS = +(process.env.NEWS_MIN_DAYS || 30);
+
+function factorGrid(newsDays = 0) {
   const F = [];
   const add = (name, group, sel) => F.push({ name, group, sel });
   // 個股·價
@@ -153,6 +178,15 @@ function factorGrid() {
   add('韓股漲>1%', '國際', x => x.g.kospi_chg != null && x.g.kospi_chg > 1);
   add('台股大盤漲>0.5%', '國際', x => x.g.twii_chg != null && x.g.twii_chg > 0.5);
   add('台幣升值', '國際', x => x.g.usdtwd_chg != null && x.g.usdtwd_chg < 0);
+  // ── 新聞判別（僅在累積足夠交易日後啟用）──────────────
+  // 這是唯一非價量籌碼的維度。前 28 個因子彼此高度相關（都是「動能＋籌碼」），
+  // 加再多也只是同一件事的不同切法；新聞是真正的新資訊。
+  if (newsDays >= NEWS_MIN_DAYS) {
+    add('新聞判利多', '聞', x => x.f.newsLabel === '利多');
+    add('新聞判利多且強度強以上', '聞', x => x.f.newsLabel === '利多' && (x.f.newsStrength === '強' || x.f.newsStrength === '極強'));
+    add('新聞判利多且市場未預期', '聞', x => x.f.newsLabel === '利多' && x.f.newsPriced === '否');
+    add('新聞非利空', '聞', x => x.f.newsLabel !== '利空');
+  }
   return F;
 }
 
@@ -201,7 +235,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const say = (...a) => { if (!quiet) log(...a); };
   say('▶ 軋空判讀模型訓練開始');
 
-  const { samples, twDates } = await buildSamples(db, { days });
+  const { samples, twDates, newsDays } = await buildSamples(db, { days });
   say(`  · 樣本 ${samples.length.toLocaleString()} 筆｜期間 ${twDates[0]} ~ ${twDates[twDates.length - 1]}`);
 
   // ── 時間切分：選模只用訓練段，樣本外段完全不參與挑選 ──
@@ -219,7 +253,8 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   say(`  · 樣本外基準：全市場 ${baseOot.all.mean}%/${baseOot.all.win}%｜純動能 ${baseOot.momentum.mean}%/${baseOot.momentum.win}%（可買口徑 ${baseOot.momentum.meanBuyable}%/${baseOot.momentum.winBuyable}%·可買${baseOot.momentum.buyRate}%）`);
 
   // 單因子掃描（**只在訓練段**，一律疊在純動能上）
-  const grid = factorGrid();
+  const grid = factorGrid(newsDays);
+  say(`  · 新聞判別覆蓋 ${newsDays} 個交易日${newsDays >= NEWS_MIN_DAYS ? '（已納入因子網格）' : `（未達 ${NEWS_MIN_DAYS} 日門檻，本次不納入）`}`);
   const single = [];
   for (const f of grid) {
     const r = evaluate(x => x.f.chg >= 5 && f.sel(x), train, baseTrain.momentum);
