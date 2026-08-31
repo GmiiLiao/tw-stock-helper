@@ -90,16 +90,26 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 // 而假警報會蓋掉真警訊（這專案吃過很多次）。先觀察幾天再決定。
 function probeNumbers(tag, answer, sourceText) {
   try {
-    const bad = unverifiedNumbers(answer, sourceText);
+    const bad = unverifiedNumbers(answer, sourceText, 'derive');
     if (bad.length) log(`  [數字校驗·量測] ${tag}：${bad.length} 個對不上 → ${bad.slice(0, 5).join('、')}`);
     else log(`  [數字校驗·量測] ${tag}：全部可查證`);
   } catch { /* 量測不可影響主流程 */ }
 }
 
-function unverifiedNumbers(answer, sourceText) {
+// mode='quote'：模型**只該引用**資料（問AI）⇒ 驗完整單位集，含元/張/點。
+// mode='derive'：模型**本來就會算**（分析路徑會給目標價、停損、部位張數）
+//   ⇒ 只驗事實型單位（%/倍/億/萬），否則誤報會蓋掉真警訊。
+// 分界不是憑感覺，是量出來的（2026-08-31，400 次分析輸出）：
+//   查不到的數字裡 元146/張74/點5 = 225 個（＝算出來的），
+//   億13/萬5/%4 = 22 個（＝引用型）。
+//   全單位集誤報率 20%，只看事實型降到 3%。
+function unverifiedNumbers(answer, sourceText, mode = 'quote') {
   const norm = t => String(t || '').replace(/[,，\s]/g, '');
   const corpus = norm(sourceText);
-  const nums = [...new Set(norm(answer).match(/\d+(?:\.\d+)?(?:%|％|倍|億|萬|元|張|點)/g) || [])];
+  const re = mode === 'derive'
+    ? /\d+(?:\.\d+)?(?:%|％|倍|億|萬)/g
+    : /\d+(?:\.\d+)?(?:%|％|倍|億|萬|元|張|點)/g;
+  const nums = [...new Set(norm(answer).match(re) || [])];
   return nums.filter(n => !corpus.includes(n) && !corpus.includes(n.replace(/％/, '%')));
 }
 
