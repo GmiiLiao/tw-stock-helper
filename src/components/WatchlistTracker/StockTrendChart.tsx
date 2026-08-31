@@ -179,12 +179,22 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
   const cw = Math.max(1, slot * 0.62);
   const xOf = (i: number) => padL + (i + 0.5) * slot;
   const yOf = (v: number) => padT + ((yMax - v) / (yMax - yMin)) * plotH;
-  const fmt = mode === 'month' ? 'yyyy/MM' : mode === 'week' ? 'yy/MM/dd' : 'MM/dd';
+  // ⚠ 盤中週期必須顯示**時間**（使用者 2026-08-31 截圖回報）：
+  //   1/5/10/20/60 分 K 若只標日期，X 軸會變成「08/28 08/28 08/31 08/31…」重複日期，
+  //   tooltip 也只有 2026/08/28——**分不出是 09:05 還是 13:25，等於不能用**。
+  const isIntra = ['m1', 'm5', 'm10', 'm20', 'm60'].includes(mode);
+  // 台北時區的日期字串。X 軸換日標示與「首根接前一交易日」共用同一把尺，
+  // 分成兩份實作必然漂移。
+  const dayKey = (t: number) =>
+    new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+  const fmt = mode === 'month' ? 'yyyy/MM' : mode === 'week' ? 'yy/MM/dd' : isIntra ? 'HH:mm' : 'MM/dd';
   const step = Math.max(1, Math.ceil(view.length / 7));
   const yTicks = 4;
 
   const hv = hoverIdx !== null && hoverIdx < view.length ? view[hoverIdx] : null;
-  const hvFmt = mode === 'month' ? 'yyyy/MM' : 'yyyy/MM/dd';
+  // tooltip 也要帶時間，且**日期一起留著**——盤中週期的資料會跨日
+  //（5 分 K 預設視窗就含前一交易日最後一根），只有時間會分不出是哪一天。
+  const hvFmt = mode === 'month' ? 'yyyy/MM' : isIntra ? 'MM/dd HH:mm' : 'yyyy/MM/dd';
 
   const legendIdx = hoverIdx !== null && hoverIdx < view.length ? start + hoverIdx : end - 1;
 
@@ -313,7 +323,13 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
               position: 'absolute', left: `${(xOf(i) / W) * 100}%`, bottom: 0, transform: 'translateX(-50%)',
               whiteSpace: 'nowrap',
               fontSize: 'calc(12.5px * var(--fz))', color: '#9fb0c9', fontFamily: "'JetBrains Mono', monospace",
-            }}>{format(new Date(c.t * 1000), fmt)}</span>
+            }}>{
+              // 盤中週期：每天**第一根**標日期、其餘標時間。
+              // 只標 HH:mm 的話跨日處分不出換日（5 分 K 預設視窗就含前一交易日）。
+              isIntra && i > 0 && dayKey(view[i - 1].t) !== dayKey(c.t)
+                ? format(new Date(c.t * 1000), 'MM/dd')
+                : format(new Date(c.t * 1000), fmt)
+            }</span>
           ) : null))}
         </div>
         {/* 游標數值框：日期/開高低收/量(張) */}
