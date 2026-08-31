@@ -4907,11 +4907,17 @@ ${body || '（近 2 日無實質新聞）'}
         + `  永遠只能判中性，那樣這份判別就沒有任何價值。\n`
         + `  只有當挑戰足以讓「市場不會照這個方向反應」時，才改判中性。\n`
         + `⚠ 不要為了與初判一致而敷衍——維持初判也要說明四個挑戰為何都不成立。\n\n`
+        + `**同時**做一件事：逐條檢查初判中的每一項陳述，在新聞原文裡找不找得到依據。\n`
+        + `找不到依據的情況：原文根本沒說、講的是**別家公司**、`
+        + `把「可能/預期」寫成已發生的事實、數字是你自己推算的。\n`
+        + `找不到依據的陳述**必須刪除**，不可改寫成更模糊的說法保留。\n\n`
         + `依此格式回答，不要多餘文字：\n`
         + `挑戰經濟: （一句話或「無」）\n挑戰產業: （一句話或「無」）\n`
         + `挑戰戰略: （一句話或「無」）\n挑戰供應鏈: （一句話或「無」）\n`
+        + `無依據: （逐條列出原文找不到依據的陳述；全部有依據寫「無」）\n`
         + `定案判別: 利多/利空/中性\n定案強度: 極強/強/中/弱\n定案信心: 高/中/低\n`
-        + `修正說明: （若與初判不同，說明是哪一個挑戰改變了結論；相同寫「維持初判」）`;
+        + `定案理由: （只保留原文找得到依據的內容，50 字內）\n`
+        + `修正說明: （若與初判不同，說明是哪一個挑戰或哪一句無依據改變了結論；相同寫「維持初判」）`;
       try {
         const a3 = await askOllama(chPrompt, { priority: 1, temperature: NEWS_TEMP });
         if (a3) {
@@ -4926,6 +4932,9 @@ ${body || '（近 2 日無實質新聞）'}
               strength: fs || verdict.strength,
               confidence: fc || verdict.confidence,
               challenged: true,
+              dirChecked: true,                      // 方向自檢已併入本次（原本是獨立一次呼叫）
+              reason: f(/定案理由\s*[:：]\s*(.+)/)?.slice(0, 70) || verdict.reason,
+              unsupported: (() => { const u = f(/無依據\s*[:：]\s*(.+)/); return u && u !== '無' ? [`挑戰: ${u.slice(0, 60)}`] : []; })(),
               challenges: {
                 經濟: f(/挑戰經濟\s*[:：]\s*(.+)/)?.slice(0, 50) || null,
                 產業: f(/挑戰產業\s*[:：]\s*(.+)/)?.slice(0, 50) || null,
@@ -4979,39 +4988,10 @@ ${body || '（近 2 日無實質新聞）'}
     };
     const evidence = _picked.map(x => `《${x.title}》${(x.content || '').slice(0, 500)}`).join('\n');
 
-    // ── 第一輪 C：查方向 ──
-    if (verdict && (verdict.label === '利多' || verdict.label === '利空')) {
-      const p1 = `以下是對 ${it.code} ${it.name} 的判別方向，以及所依據的新聞原文。\n`
-        + `**只檢查方向**（利多/利空/中性），這一輪不要動強度。\n`
-        + `逐條檢查判別中的每一項陳述，在原文裡找得到依據嗎？找不到的情況包括：\n`
-        + `原文根本沒說、原文說的是**別家公司**、把「可能/預期」寫成已發生的事實、\n`
-        + `數字是你自己推算的。\n\n`
-        + `【方向】${verdict.label}\n【關鍵句】${verdict.keyQuote || '（無）'}\n`
-        + `【影響路徑】${verdict.impactPath || '（無）'}\n【理由】${verdict.reason || ''}\n\n`
-        + `【新聞原文】\n${evidence}\n\n`
-        + `⚠ 找不到依據的陳述**必須刪除**，不可改寫成更模糊的說法保留。\n`
-        + `刪除後若證據不足以支撐原方向，就改判「中性」。\n\n`
-        + `格式：\n無依據: （逐條列出；全部有依據寫「無」）\n`
-        + `定案方向: 利多/利空/中性\n定案信心: 高/中/低\n`
-        + `定案理由: （只保留原文找得到依據的部分，50 字內）`;
-      const r1 = await askJSON(p1);
-      if (r1) {
-        const g = (re) => { const m = r1.match(re); return m ? m[1].trim() : null; };
-        const nl = g(/定案方向\s*[:：]\s*(利多|利空|中性)/);
-        const un = g(/無依據\s*[:：]\s*(.+)/);
-        if (nl) {
-          if (nl !== verdict.label) log(`  ↳ ${it.code} 方向自檢改判 ${verdict.label}→${nl}`);
-          verdict = {
-            ...verdict, label: nl, bullish: nl === '利多',
-            confidence: g(/定案信心\s*[:：]\s*(高|中|低)/) || verdict.confidence,
-            reason: g(/定案理由\s*[:：]\s*(.+)/)?.slice(0, 70) || verdict.reason,
-            dirChecked: true,
-            unsupported: un && un !== '無' ? [`方向: ${un.slice(0, 60)}`] : [],
-          };
-        }
-      }
-      verdict = verifyNums(verdict, '方向');
-    }
+    // （原本這裡有「第一輪 C：查方向」的獨立呼叫，2026-09-01 併入四角色挑戰那一次
+    //   ——兩者都在問「這個判斷站不站得住」，分開問等於同一件事付兩次成本。
+    //   合併後仍保留 dirChecked 標記與 unsupported 清單，可稽核性不變。）
+    verdict = verifyNums(verdict, '方向');
 
     // ══ E 引用強制（使用者 2026-08-29 加入，順序 D C A E C A）══
     //   要求逐字引用原文支撐每一項主張，**程式端逐句驗證引文是否真的存在**。
@@ -5029,10 +5009,17 @@ ${body || '（近 2 日無實質新聞）'}
         + `【判別理由】${verdict.reason || ''}\n`
         + `【強度依據】${verdict.impactPath || ''}\n\n`
         + `【新聞原文】\n${evidence}\n\n`
+        + `**同時**定案強度（＝你預期市場會有多大反應）。依原文事實檢查：\n`
+        + `· 量級在原文裡有沒有具體支撐（金額、比率、佔營收比重、客戶名稱）？\n`
+        + `  只有形容詞（「大幅」「強勁」）而無具體數字時，強度**不得超過「中」**。\n`
+        + `· 一次性項目強度上限「中」；市場已知並反映者須調降。\n`
+        + `· 極強只保留給：原文有具體數字且量級極大，或明確的重大法律/監管事件。\n\n`
         + `格式（最多 3 條引用）：\n`
         + `引用1: 「逐字照抄的原文句子」\n引用2: 「…」\n引用3: 「…」\n`
         + `無法引用: （列出理由中找不到原文支撐的主張；全部都引得出來寫「無」）\n`
-        + `淨化理由: （**只保留**上述引用能支撐的內容，50 字內）`;
+        + `淨化理由: （**只保留**上述引用能支撐的內容，50 字內）\n`
+        + `強度依據: （原文中支撐這個強度的具體事實；沒有寫「無具體數字」）\n`
+        + `定案強度: 極強/強/中/弱`;
       const rE = await askJSON(pE);
       if (rE) {
         // 主要解析：「引用N: …」。
@@ -5062,6 +5049,10 @@ ${body || '（近 2 日無實質新聞）'}
             reason: (cleaned || verdict.reason || '').slice(0, 70),
             quotes: verified.slice(0, 3).map(q => q.slice(0, 60)),
             quoteVerified: verified.length, quoteFailed: failed,
+            // 強度自檢已併入本次（原本是第三次呼叫）
+            strengthChecked: true,
+            strength: (rE.match(/定案強度\s*[:：]\s*(極強|強|中|弱)/) || [])[1] || verdict.strength,
+            strengthBasis: (rE.match(/強度依據\s*[:：]\s*(.+)/) || [])[1]?.trim().slice(0, 50) || null,
             // 有引文對不上＝模型至少編了一句，其他陳述也不該完全採信
             confidence: failed > 0 ? (verdict.confidence === '高' ? '中' : '低') : verdict.confidence,
           };
@@ -5071,36 +5062,9 @@ ${body || '（近 2 日無實質新聞）'}
       verdict = verifyNums(verdict, '引用後');
     }
 
-    // ── 第二輪 C：方向已定，只查強度（＝權重）──
-    if (verdict && (verdict.label === '利多' || verdict.label === '利空')) {
-      const p2 = `${it.code} ${it.name} 的方向已定案為【${verdict.label}】，**不要再改方向**。\n`
-        + `這一輪只決定**強度**，也就是你預期市場會有多大反應。\n\n`
-        + `【目前強度】${verdict.strength}\n【理由】${verdict.reason || ''}\n\n`
-        + `【新聞原文】\n${evidence}\n\n`
-        + `請依原文事實檢查強度是否合理：\n`
-        + `· 事件的量級在原文裡有沒有具體支撐（金額、比率、佔營收比重、客戶名稱）？\n`
-        + `  只有形容詞（「大幅」「強勁」）而無具體數字時，強度**不得超過「中」**。\n`
-        + `· 這件事影響的是一次性項目還是持續性的營運？一次性者強度上限「中」。\n`
-        + `· 市場是否已知並反映？已反映者即使事件大，隔日增量反應也小，須調降。\n`
-        + `· 極強只保留給：原文有具體數字且量級極大（如營收獲利年增數倍）、\n`
-        + `  或明確的重大法律/監管事件。找不到這種依據就不要給極強。\n\n`
-        + `格式：\n強度依據: （原文中支撐這個強度的具體事實；沒有寫「無具體數字」）\n`
-        + `定案強度: 極強/強/中/弱\n強度說明: （為何是這個強度，40 字內）`;
-      const r2 = await askJSON(p2);
-      if (r2) {
-        const g = (re) => { const m = r2.match(re); return m ? m[1].trim() : null; };
-        const ns = g(/定案強度\s*[:：]\s*(極強|強|中|弱)/);
-        if (ns) {
-          if (ns !== verdict.strength) log(`  ↳ ${it.code} 強度自檢調整 ${verdict.strength}→${ns}`);
-          verdict = {
-            ...verdict, strength: ns, strengthChecked: true,
-            strengthBasis: g(/強度依據\s*[:：]\s*(.+)/)?.slice(0, 50) || null,
-            strengthNote: g(/強度說明\s*[:：]\s*(.+)/)?.slice(0, 50) || null,
-          };
-        }
-      }
-      verdict = verifyNums(verdict, '強度');
-    }
+    // （原本這裡有「第二輪 C：查強度」的獨立呼叫，2026-09-01 併入引用強制那一次
+    //   ——兩者都在檢視同一批原文證據，分開問等於把原文再讀一遍。
+    //   合併後仍保留 strengthChecked 與 strengthBasis，可稽核性不變。）
 
     // 中性／資訊不足沒有方向，強度就沒有意義。不歸零的話畫面會出現
     // 「中性·強度強」這種自相矛盾的組合（強度是初判留下的，
