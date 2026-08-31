@@ -5888,6 +5888,22 @@ async function computeSqueezeNewsVerdict() {
     modelMain: model?.main?.name ?? null,
     modelSqueeze: model?.squeezeProb?.name ?? null,
     global: gToday,
+    // ── 市況揭露（2026-08-31 實驗結論）──────────────────────
+    //   本策略在「國際盤偏空日」的樣本外勝率僅 **49.6%**（41 天、397 筆）——等於擲硬幣。
+    //   而 08-28→08-31 那次命中率掉到 21.4%，正是這種日子。
+    //   ⚠ 為什麼是**揭露**而不是加濾網：試過的濾網全部沒通過安慰劑檢定
+    //     （硬閘門未超越隨機最佳；券資比≥20% 降權未超越 95 分位；
+    //      「不追高」在偏空日甚至有害，勝率僅 37.3%）。
+    //     揭露事實不需要通過安慰劑檢定，改動模型才需要。
+    //     見 docs/EXPERIMENTS.md ⑤。
+    intlRegime: (() => {
+      const nq = gToday?.nasdaq?.chg, sx = gToday?.sox?.chg;
+      if (nq == null || sx == null) return null;          // 取不到就不宣稱，不猜
+      return (nq > 0 && sx > -1) ? 'ok' : 'bear';
+    })(),
+    intlRegimeNote: '國際盤偏空日（那斯達克≤0 或 費半≤-1%）本策略樣本外勝率僅 49.6%'
+      + '（41 個交易日、397 筆）——與擲硬幣相當。此為揭露，非濾網：'
+      + '試過的濾網均未通過安慰劑檢定，詳見實驗紀錄⑤。',
     items: out,
     primaryCount: out.filter(x => x.primary).length,
     newsSource: newsSourceLabel(),   // 據實回報本輪真正取到新聞的來源（優先序：工商／經濟 → Yahoo／Google → 鉅亨）

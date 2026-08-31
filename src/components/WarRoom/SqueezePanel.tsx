@@ -33,6 +33,7 @@ interface Rec {
   updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
   modelMain: string | null; modelSqueeze: string | null; modelRunId: string | null;
   items: RecItem[]; primaryCount: number; newsSource?: string;
+  intlRegime?: 'ok' | 'bear' | null; intlRegimeNote?: string;
   global?: Record<string, { chg?: number | null; date?: string }>;
 }
 interface Data {
@@ -205,6 +206,19 @@ export default function SqueezePanel() {
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
             <b style={{ fontSize: 'calc(13px * var(--fz))' }}>🤖 開盤前新聞判別</b>
             <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+              {/* 市況揭露（2026-08-31 實驗結論）：偏空日本策略樣本外勝率僅 49.6%。
+                  刻意做成**揭露**而非濾網——試過的濾網全部沒通過安慰劑檢定，
+                  但這個勝率是 41 天／397 筆的大樣本觀察，使用者有權知道。 */}
+              {rec.intlRegime === 'bear' && (
+                <div style={{
+                  margin: '6px 0', padding: '6px 10px', borderRadius: 6,
+                  background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)',
+                  color: '#fbbf24', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.5,
+                }}>
+                  ⚠ <b>今日國際盤偏空</b>——本策略在此市況的樣本外勝率僅 <b>49.6%</b>
+                  （41 個交易日、397 筆），與擲硬幣相當。建議減碼或觀望。
+                </div>
+              )}
               適用 <b>{rec.targetDate ?? '—'}</b> · 主力推薦 {rec.primaryCount} 檔 · 來源 {rec.newsSource ?? '—'} ·
               {rec.modelMain ? <> 模型 <code>{rec.modelMain}</code></> : ' 尚無模型'}
             </span>
