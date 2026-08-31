@@ -936,8 +936,19 @@
 .periodTabs {
   display: flex;
   gap: 4px;
-  flex-shrink: 0;      /* 這四顆按鈕是操作元件，寧可讓別的東西換行也不能被壓扁 */
+  flex-shrink: 0;
+  /* 2026-08-31 從 4 顆增為 9 顆（加入 1/5/10/20/60 分 K）。
+     窄螢幕放不下 ⇒ 讓它自己橫向捲動，而不是擠壓其他元件或撐破版面。
+     ⚠ 只有這一列捲動，頁面本身不得出現橫向捲軸（使用者踩過這個坑）。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;          /* Firefox：不顯示捲軸但可捲 */
+  -ms-overflow-style: none;
+  max-width: 100%;      /* 這四顆按鈕是操作元件，寧可讓別的東西換行也不能被壓扁 */
 }
+
+.periodTabs::-webkit-scrollbar { display: none; }
+.periodTabs .periodTab { flex: 0 0 auto; }   /* 不被壓縮成看不清的窄鈕 */
 
 /* 手機：三大法人條獨佔一行，才不會跟標題、期間鈕搶那 375px */
 @media (max-width: 640px) {

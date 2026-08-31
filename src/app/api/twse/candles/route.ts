@@ -8,8 +8,36 @@ export const runtime = 'nodejs';
 
 // 日/週/月 K 線：Yahoo chart，interval=1d/1wk/1mo。
 // 日/週抓 range=max(可縮放到上市至今)，月同。回傳 OHLCV 陣列(由舊到新)。
-type Interval = '1d' | '1wk' | '1mo';
-const RANGE: Record<Interval, string> = { '1d': '5y', '1wk': 'max', '1mo': 'max' };
+type Interval = '1m' | '5m' | '60m' | '1d' | '1wk' | '1mo';
+// 盤中週期的 range 要短：1 分 K 拉太長 Yahoo 會截斷且無意義。
+// ⚠ Yahoo 原生沒有 10m/20m，那兩個由 5m 聚合而成（見 aggregate）。
+const RANGE: Record<Interval, string> = {
+  '1m': '1d', '5m': '5d', '60m': '1mo',
+  // ⚠ 日/週/月維持原本的深度，不可因為加盤中週期而縮短既有圖表的歷史
+  '1d': '5y', '1wk': 'max', '1mo': 'max',
+};
+
+type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
+
+// 把 N 根合併成一根。用途：Yahoo 沒有 10m/20m，以 5m 聚合而成。
+// ⚠ 以**每根的起始時間**為新根的時間戳，並沿用第一根的開盤、最後一根的收盤，
+//   高低取極值、量取總和——這是 K 線聚合的標準口徑，不可自創。
+function aggregate(bars: Bar[], n: number): Bar[] {
+  const out: Bar[] = [];
+  for (let i = 0; i < bars.length; i += n) {
+    const g = bars.slice(i, i + n);
+    if (!g.length) continue;
+    out.push({
+      t: g[0].t,
+      o: g[0].o,
+      h: Math.max(...g.map(x => x.h)),
+      l: Math.min(...g.map(x => x.l)),
+      c: g[g.length - 1].c,
+      v: g.reduce((a, x) => a + (x.v || 0), 0),
+    });
+  }
+  return out;
+}
 
 async function fetchCandles(symbol: string, interval: Interval) {
   const ctl = new AbortController();
@@ -49,11 +77,16 @@ export async function GET(request: NextRequest) {
   if (limited) return limited;
 
   const code = request.nextUrl.searchParams.get('code');
-  const interval = (request.nextUrl.searchParams.get('interval') || '1d') as Interval;
-  if (!code || !/^\d{4,6}$/.test(code) || !['1d', '1wk', '1mo'].includes(interval)) {
+  const interval = (request.nextUrl.searchParams.get('interval') || '1d') as Interval | '10m' | '20m';
+  const ALLOWED = ['1m', '5m', '10m', '20m', '60m', '1d', '1wk', '1mo'];
+  if (!code || !/^\d{4,6}$/.test(code) || !ALLOWED.includes(interval)) {
     return NextResponse.json({ error: 'bad params' }, { status: 400 });
   }
-  const candles = (await fetchCandles(`${code}.TW`, interval)) || (await fetchCandles(`${code}.TWO`, interval));
+  // 10m/20m 由 5m 聚合（Yahoo 無原生支援）
+  const AGG: Record<string, number> = { '10m': 2, '20m': 4 };
+  const fetchAs = (AGG[interval] ? '5m' : interval) as Interval;
+  const raw = (await fetchCandles(`${code}.TW`, fetchAs)) || (await fetchCandles(`${code}.TWO`, fetchAs));
+  const candles = raw && AGG[interval] ? aggregate(raw, AGG[interval]) : raw;
   if (!candles) return NextResponse.json({ code, interval, candles: [] }, { headers: { 'Cache-Control': 'no-store' } });
   // ⚠Yahoo 逐檔漏最新日K（2026-07-27 實例：2330 有、2332 的 close 為 null，漲停股尤甚）。
   // 用自家 chipArchive（每日 15:10 官方收盤歸檔·1,900+ 檔齊全）補齊尾端，日線才不會少一根。
@@ -80,6 +113,10 @@ export async function GET(request: NextRequest) {
     } catch { /* 補齊失敗＝維持 Yahoo 原樣，不影響既有功能 */ }
   }
   // 歷史 K 線變動慢，日線快取 5 分、週/月快取 1 小時；gzip 壓縮(日線 ~77KB→~18KB)
-  const maxAge = interval === '1d' ? 300 : 3600;
+  // 盤中週期變動快，快取要短；但仍由 CDN 吸收 ⇒ 上游請求數與使用者數解耦
+  const maxAge = interval === '1m' ? 60
+    : ['5m', '10m', '20m'].includes(interval) ? 120
+    : interval === '60m' ? 300
+    : interval === '1d' ? 300 : 3600;
   return gzipJson(request, { code, interval, candles }, `public, s-maxage=${maxAge}`);
 }

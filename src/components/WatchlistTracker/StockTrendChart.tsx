@@ -23,10 +23,14 @@ interface StockTrendChartProps {
 }
 
 // 四種 K 線：即時(以時間為單位) / 日 / 週 / 月。日週月為蠟燭圖，可 +/- 或滾輪縮放、拖曳平移。
-type Mode = 'rt' | 'day' | 'week' | 'month';
-const INTERVAL: Record<Exclude<Mode, 'rt'>, string> = { day: '1d', week: '1wk', month: '1mo' };
-const DEFAULT_SIZE: Record<Exclude<Mode, 'rt'>, number> = { day: 30, week: 30, month: 72 }; // 30日/30週/72月(6年)
-const MODE_LABEL: Record<Mode, string> = { rt: '即時', day: '日', week: '週', month: '月' };
+// 盤中週期（使用者 2026-08-31 指定：1/5/10/20/60 分）。
+// 10m/20m Yahoo 無原生支援，由 API 端以 5m 聚合（見 candles/route.ts）。
+type Mode = 'rt' | 'm1' | 'm5' | 'm10' | 'm20' | 'm60' | 'day' | 'week' | 'month';
+const INTERVAL: Record<Exclude<Mode, 'rt'>, string> = { m1: '1m', m5: '5m', m10: '10m', m20: '20m', m60: '60m', day: '1d', week: '1wk', month: '1mo' };
+// 盤中週期的預設顯示根數＝約一個交易日的量（台股 4.5 小時＝270 分）：
+//   1分 90 根（1.5 小時）／5分 54 根（4.5 小時＝整日）／10分 27／20分 14／60分 30（約 6 日）
+const DEFAULT_SIZE: Record<Exclude<Mode, 'rt'>, number> = { m1: 90, m5: 54, m10: 27, m20: 14, m60: 30, day: 30, week: 30, month: 72 };
+const MODE_LABEL: Record<Mode, string> = { rt: '即時', m1: '1分', m5: '5分', m10: '10分', m20: '20分', m60: '60分', day: '日', week: '週', month: '月' };
 
 interface Candle { t: number; o: number; h: number; l: number; c: number; v: number }
 
@@ -521,7 +525,7 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
         )}
         <InstStrip code={code} changePercent={changePercent} volume={volume} />
         <div className={styles.periodTabs}>
-          {(['rt', 'day', 'week', 'month'] as Mode[]).map(m => (
+          {(['rt', 'm1', 'm5', 'm10', 'm20', 'm60', 'day', 'week', 'month'] as Mode[]).map(m => (
             <button key={m} className={`${styles.periodTab} ${mode === m ? styles.periodTabActive : ''}`} onClick={() => setMode(m)}>
               {MODE_LABEL[m]}
             </button>
