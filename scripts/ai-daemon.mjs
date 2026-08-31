@@ -13117,8 +13117,41 @@ if (ONESHOT) {
     squeezeReview: () => computeSqueezeReview({ backfillDays: Number(process.argv[process.argv.indexOf('--run') + 2] || 60) }),
     squeezeTraining: () => recordSqueezeTraining(),   // 手動補當日訓練資料
     globalHist: () => updateGlobalHistory(),          // 手動更新國際盤歷史
+    // 只抓內文、不呼叫 LLM，把候選＋內文原樣倒成 JSON 給外部判別者使用。
+    // 用途：Ollama 塞住而盤前死線逼近時，由其他 AI 接手判別（2026-09-01 使用者授權）。
+    // ⚠ 刻意不複製抓取邏輯——直接用 fetchStockNewsMulti，
+    //   否則就違反 4548 行那條「不可以複製第二份」。
+    newsDump: async () => {
+      const outPath = process.argv[process.argv.indexOf('--run') + 2];
+      if (!outPath) { log('✖ newsDump 需要輸出路徑'); return; }
+      const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
+      const fc = (await db.collection('limitUpForecast').doc('latest').get()).data();
+      const seen = new Map();
+      for (const it of (picks?.items || [])) seen.set(it.code, { ...it, _from: 'squeeze' });
+      for (const it of [...(fc?.aList || []), ...(fc?.bList || [])]) {
+        if (seen.has(it.code)) seen.get(it.code)._from += '+limitUp';
+        else seen.set(it.code, { ...it, _from: 'limitUp' });
+      }
+      let indMap = {};
+      try { indMap = await getIndustryMap(); } catch { /* 少一個錨，不擋 */ }
+      const out = [];
+      for (const it of seen.values()) {
+        let news = [];
+        try { news = await fetchStockNewsMulti(it.name, it.code); } catch (e) { log(`  ✖ ${it.code} 抓取:`, e.message); }
+        out.push({ ...it, industry: indMap[it.code] || null, news });
+      }
+      const fs = await import('node:fs/promises');
+      await fs.writeFile(outPath, JSON.stringify({
+        generatedAt: Date.now(),
+        squeezeTargetDate: picks?.targetDate || null, squeezeArchDate: picks?.archDate || null,
+        limitUpDataDate: fc?.dataDate || null,
+        stocks: out,
+      }, null, 1));
+      log(`✓ newsDump：${out.length} 檔（含內文 ${out.filter(s => s.news.some(n => n.hasBody)).length} 檔）→ ${outPath}`);
+    },
     squeezeRec: () => computeSqueezeNewsVerdict(),
     limitUpRec: () => computeLimitUpNewsVerdict(),   // 漲停預測的新聞判別    // 手動產出新聞判別(讀內文+AI)
+    limitUpForecast: () => computeLimitUpForecast(), // 漲停預測榜重算（機器模型，不用 LLM；盤外自動用歸檔模式）
     revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
