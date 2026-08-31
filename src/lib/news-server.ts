@@ -17,6 +17,13 @@ export interface NewsItem {
   snippet?: string;
 }
 
+// ⛔ 論壇/討論區一律不採用（使用者 2026-09-01 明令）：網友對話不是事實來源。
+// 與 daemon 的 FORUM_DENY 同一份清單——兩邊都要擋，改動時兩邊都要改。
+const FORUM_DOMAINS = [
+  'ptt.cc', 'pttweb', 'mobile01.com', 'dcard.tw', 'reddit.com',
+  'facebook.com', 'threads.net', 'pixnet.net/blog', 'blogspot.com',
+  '/forum', '/bbs', '/board/', 'discuss',
+];
 const PAID_DOMAINS = [
   'businessweekly.com.tw', 'wealth.com.tw', 'cw.com.tw', 'mirrormedia.mg', 'stormmedia.com', 'magazine.businessweekly',
 ];
@@ -144,7 +151,9 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
     const src = (n.source || '').toLowerCase();
     return ALLOW_KEYWORDS.some(k => src.includes(k.toLowerCase()));
   };
-  const filtered = allNews.filter(n => isAllowed(n) && !PAID_DOMAINS.some(d => n.url.includes(d)));
+  const filtered = allNews.filter(n => isAllowed(n)
+    && !PAID_DOMAINS.some(d => n.url.includes(d))
+    && !FORUM_DOMAINS.some(d => (n.url || '').toLowerCase().includes(d)));
   // 排序＝「鮮度層 → 來源優先序 → 時間」三層（使用者指定 2026-08-29）。
   // 為什麼不是純粹按來源排：股票新聞的時效性是硬需求，
   //   若只看來源，三天前的工商時報會壓在今天的即時新聞上面，那是另一種錯。

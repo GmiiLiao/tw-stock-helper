@@ -4253,6 +4253,14 @@ function extractPublishedAt(html) {
   return 0;
 }
 
+// ⛔ **論壇/討論區一律不採用**（使用者 2026-09-01 明令）。
+//   理由：那是網友對話不是事實來源，且充斥推測、情緒與帶風向。
+//   判別的用途是預期市場反應，不是收集意見——把論壇當內文會直接污染判別。
+//   ⚠ 跨站找內文那條路（以標題搜尋）最容易撈到論壇，必須在**入口**擋掉，
+//     不能只靠提示詞叫模型忽略（規則只寫在提示裡就會失效，今天已證實多次）。
+const FORUM_DENY = /ptt\.cc|pttweb|mobile01|cmoney\.tw\/forum|wantgoo\.com\/stock\/\d+\/forum|dcard|reddit|facebook|threads\.net|xuite|pixnet\/blog|blogspot|forum|bbs|discuss|\/board\//i;
+const isForumUrl = (u) => FORUM_DENY.test(String(u || ''));
+
 const _NEWS_UA = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', 'Accept-Language': 'zh-TW,zh;q=0.9' };
 
 async function fetchArticleAt(url, name) {
@@ -4372,6 +4380,9 @@ async function fetchBodyByTitle(title, name) {
     const t = await r.text();
     urls = [...new Set([...t.matchAll(/uddg=([^&"]+)/g)].map(m => { try { return decodeURIComponent(m[1]); } catch { return ''; } })
       .filter(u => { try { return ALT_NEWS_DOMAINS.test(new URL(u).hostname); } catch { return false; } }))];
+    // ⛔ 論壇/討論區一律剔除（使用者 2026-09-01 明令）——網友對話不是事實來源，
+    //    且充斥推測與帶風向。必須在**入口**擋，不能只靠提示詞叫模型忽略。
+    urls = urls.filter(u => !isForumUrl(u));
   } catch { return null; }
   for (const u of urls.slice(0, 3)) {
     try {
@@ -5375,6 +5386,99 @@ async function newsVerdictUniverse(n = NEWS_VERDICT_N) {
   }
   rows.sort((a, b) => b.value - a.value);
   return rows.slice(0, n);
+}
+
+// ══ 夜間覆蓋率補判（使用者 2026-09-01 指示：夜間 Ollama 很閒，安排工作）══
+//
+// 要解決的缺口：宇宙來自「來源掃描」，掃不到的股票就沒有判別
+//   ⇒ 推薦榜 62 檔中只有 31 檔有判別，**一半的股票使用者看不到新聞面**。
+// 但 fetchStockNewsMulti 會**逐檔搜尋**（經濟日報/工商時報/Yahoo/GoogleNews），
+//   找得到掃描漏掉的新聞——只是每檔都要花時間，白天沒有餘裕。
+//
+// 夜間時段（實測）：
+//   23:00-01:15 盤後趟 → 01:15-02:00 閒置 → 02:00-02:30 訓練 → 02:30-06:40 閒置
+//   ⇒ 約 4 小時 55 分可用，以 90 秒/檔算可補判約 190 檔。
+//
+// ⚠ 只補「使用者實際看得到」的股票：推薦榜、軋空候選、漲停預測。
+//   全市場 2000 檔補不完，也沒必要——沒人看的股票判了也是浪費。
+// ⚠ D 拒答門檻照常生效：逐檔搜尋若仍無內文或本檔零提及，就判「資訊不足」，
+//   不會為了衝覆蓋率而編造判別。
+async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
+  const tw = taipei();
+  const today = newsVerdictTargetIso('evening', tw);
+  const ref = db.collection('newsVerdict').doc(today);
+  const prev = (await ref.get()).data() || {};
+  const verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
+  const seenAll = prev.seenJson ? JSON.parse(prev.seenJson) : {};
+
+  // 蒐集「使用者看得到」的股票
+  const want = new Map();
+  const add = (code, name, src) => {
+    if (!code || !/^[1-9]\d{3}$/.test(code) || verdicts[code]) return;   // 已有判別就不重判
+    if (!want.has(code)) want.set(code, { code, name: name || code, srcs: [] });
+    want.get(code).srcs.push(src);
+  };
+  try {
+    const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+    const q = snap?.quotesJson ? JSON.parse(snap.quotesJson) : {};
+    const nameOf = c => q[c]?.name || c;
+    for (const [col, doc, key, label] of [
+      ['aiRecommend', 'latest', 'recommendations', '推薦榜'],
+      ['squeezeSetup', 'latest', 'items', '軋空候選'],
+      ['limitUpForecast', 'latest', 'aList', '漲停預測'],
+    ]) {
+      try {
+        const d = (await db.collection(col).doc(doc).get()).data() || {};
+        for (const x of (d[key] || []).slice(0, 60)) add(x.code || x, nameOf(x.code || x), label);
+      } catch { /* 單一來源缺就跳過 */ }
+    }
+  } catch (e) { log('✖ 夜間補判：讀不到清單', (e.message || '').slice(0, 40)); return false; }
+
+  if (!want.size) { log('  ↳ 夜間補判：清單中的股票都已有判別，無事可做'); return true; }
+
+  const dlTs = (() => {
+    const now = tw.getHours() * 60 + tw.getMinutes();
+    return tw.getTime() + ((deadlineMins - now) + (deadlineMins <= now ? 1440 : 0)) * 60000;
+  })();
+  const ctx = await newsJudgeContext([today]);
+  const rows = [...want.values()];
+  let judged = 0, thin = 0, stopped = false;
+  log(`  ↳ 夜間補判：${rows.length} 檔待補（推薦榜/軋空/漲停中尚無判別者）`);
+  for (const u of rows) {
+    if (taipei().getTime() >= dlTs) { stopped = true; break; }
+    try {
+      const r = await withTimeout(judgeOneStock({ code: u.code, name: u.name }, ctx, {}), STOCK_TIMEOUT_MS, `夜補 ${u.code}`);
+      const v = r?.verdict;
+      if (!v) continue;
+      if (v.label === '資訊不足') { thin++; }      // 據實記錄，不算失敗
+      verdicts[u.code] = {
+        label: v.label, confidence: v.confidence, strength: v.strength || '中', reason: v.reason,
+        basis: v.basis, n: v.n, pass: 'night', at: Date.now(),
+        keyQuote: v.keyQuote || null, impactPath: v.impactPath || null, priced: v.priced || null,
+        challenged: !!v.challenged, dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
+        strengthBasis: v.strengthBasis || null, quotes: v.quotes || null,
+        quoteVerified: v.quoteVerified ?? null, gate: v.gate || null,
+        unverifiedNums: v.unverifiedNums || null, revision: v.revision || null,
+        srcList: u.srcs.join('／'),
+      };
+      seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
+      judged++;
+      if (judged % 20 === 0) {
+        await ref.set({ verdictJson: JSON.stringify(verdicts), seenJson: JSON.stringify(seenAll), updatedAt: Date.now() }, { merge: true });
+      }
+    } catch (e) { log(`  ↳ 夜補 ${u.code}: ${(e.message || '').slice(0, 40)}`); }
+  }
+  await ref.set({
+    date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(),
+    lastPass: 'night', verdictJson: JSON.stringify(verdicts), seenJson: JSON.stringify(seenAll),
+  }, { merge: true });
+  await db.collection('newsVerdict').doc('latest').set({
+    date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'night',
+    covered: Object.keys(verdicts).length, verdictJson: JSON.stringify(verdicts),
+  });
+  log(`✓ 夜間補判：新增 ${judged} 檔（其中資訊不足 ${thin}）` +
+      `${stopped ? '·**因死線停止**' : ''}，總覆蓋 ${Object.keys(verdicts).length} 檔`);
+  return judged > 0 || thin > 0;
 }
 
 // ══ 新聞判別的對答案（newsLift）══════════════════════════════════
@@ -12268,6 +12372,7 @@ let _nvEveDate = '';          // 新聞內文判別·盤後那趟（23:00）
 let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:00 死線）
 let _nvReviewDate = '';       // 新聞判別對答案（15:30）
 let _nvIntradayAt = 0;        // 盤中新聞判別的上次執行時刻
+let _nvNightDate = '';        // 夜間覆蓋率補判（01:15 起，06:30 死線）
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
 // 日韓早盤固定時刻（台北時間·分鐘）。08:30 為使用者指定必跑；09:00 後為盤中追蹤。
@@ -12358,6 +12463,15 @@ async function dailyJobsLoop() {
       if (isTradingDay(tw) && mins >= 7 * 60 && mins < 8 * 60 && _nvMornDate !== today) {
         try { if (await computeNewsVerdictBatch('morning', 8 * 60)) _nvMornDate = today; }
         catch (e) { log('✖ 新聞判別·晨間（窗內將重試）:', (e.message || '').slice(0, 60)); }
+      }
+      // 夜間覆蓋率補判（01:15 起跑，06:30 死線）——使用者 2026-09-01：
+      //   夜間 Ollama 很閒，安排工作。盤後趟約 01:15 結束，訓練 02:00 才開始，
+      //   之後到 06:40 都閒置 ⇒ 約 4 小時 55 分可用。
+      //   只補「使用者看得到」的股票（推薦榜/軋空候選/漲停預測）中尚無判別者。
+      // ⚠ 06:30 死線：不能吃到 06:40 行事曆同步與 07:00 晨間判別。
+      if (mins >= 60 + 15 && mins < 6 * 60 + 30 && _nvNightDate !== today) {
+        try { if (await computeNightBackfill()) _nvNightDate = today; }
+        catch (e) { log('✖ 夜間補判（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 盤中即時新聞判別（09:00~13:30，每 25 分鐘一趟）。
       // 使用者 2026-08-31：欣興盤中遭搜索當日跌 7.5%、世界先進工廠失火，
@@ -12875,6 +12989,7 @@ if (ONESHOT) {
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
     newsVerdictIntraday: () => computeIntradayNewsVerdict(),
+    newsVerdictNight: () => computeNightBackfill(),
     // 驗證用：NV_CODES=3037,1303 單獨判別指定個股，不寫入正式存檔
     // 變異度量測：同一檔重複判別 N 次，看結果穩不穩。
     // NV_CODES=2882,3008 NV_REPS=3

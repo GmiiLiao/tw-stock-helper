@@ -774,11 +774,17 @@ function buildPreMarketRecommendation(
   const low  = parseFloat(stock.LowestPrice)  || close;
   const open = parseFloat(stock.OpeningPrice) || close;
   const closePos = closePositionOf(close, high, low, prevClose);
-  const isLimitUp = chgPct >= 9.9;
+  // ⚠ **興櫃沒有漲跌幅限制**（2026-09-01 使用者回報 7930 威世波）：
+  //   威世波當日 +25.27%，用 chgPct>=9.9 判斷會說它「漲停」——
+  //   但興櫃根本沒有漲停這回事，那是上市櫃才有的制度。
+  //   資料來源已標 _market:'esb'（見 twse-api-server），這裡只是沒有用它。
+  const isEsb = (stock as { _market?: string })._market === 'esb';
+  const isLimitUp = !isEsb && chgPct >= 9.9;
 
   // Taiwan daily limit is ±10%
-  const limitUpPrice   = parseFloat((prevClose * 1.1).toFixed(2));
-  const limitDownPrice = parseFloat((prevClose * 0.9).toFixed(2));
+  // 興櫃無漲跌幅限制 ⇒ 不給價格（null），而不是給一個不存在的數字
+  const limitUpPrice   = isEsb ? null : parseFloat((prevClose * 1.1).toFixed(2));
+  const limitDownPrice = isEsb ? null : parseFloat((prevClose * 0.9).toFixed(2));
 
   // Expected opening range for next day
   // Momentum continuation: strong days gap up slightly; weak days mean-revert
@@ -1190,22 +1196,25 @@ function buildPricePrediction(stock: StockDayItem | null): PricePrediction {
   const nextLow  = parseFloat((close * (1 - effectiveAtrPct / 2 / 100)).toFixed(2));
 
   // 漲跌停板（台灣 ±10%）
-  const limitUp   = parseFloat((prevClose * 1.1).toFixed(2));
-  const limitDown = parseFloat((prevClose * 0.9).toFixed(2));
+  // 同上：興櫃無漲跌幅限制
+  const _isEsb2 = (stock as { _market?: string })._market === 'esb';
+  const limitUp   = _isEsb2 ? null : parseFloat((prevClose * 1.1).toFixed(2));
+  const limitDown = _isEsb2 ? null : parseFloat((prevClose * 0.9).toFixed(2));
 
   // 壓力位
   const resistance: PricePrediction['resistance'] = [
+    // 興櫃無漲跌停 ⇒ 不列這一條（下面 filter 掉），而不是列一個不存在的價位
     { price: limitUp,                                           label: '漲停板',   strength: 'strong' },
     { price: parseFloat((close * 1.05).toFixed(2)),             label: '+5% 壓力', strength: 'medium' },
     { price: parseFloat((close * 1.10).toFixed(2)),             label: '+10% 壓力', strength: 'weak'  },
-  ];
+  ].filter((x): x is { price: number; label: string; strength: 'strong' | 'medium' | 'weak' } => x.price != null);
 
   // 支撐位
   const support: PricePrediction['support'] = [
     { price: parseFloat((close * 0.97).toFixed(2)),  label: '-3% 支撐',  strength: 'strong' },
     { price: parseFloat((close * 0.95).toFixed(2)),  label: '-5% 支撐',  strength: 'medium' },
     { price: limitDown,                               label: '跌停板',    strength: 'weak'   },
-  ];
+  ].filter((x): x is { price: number; label: string; strength: 'strong' | 'medium' | 'weak' } => x.price != null);
 
   // 操作區間
   const buyZoneLow    = parseFloat((close * 0.98).toFixed(2));
