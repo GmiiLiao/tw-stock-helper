@@ -12300,16 +12300,29 @@ const ASIA_SLOTS = [
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
+// ⚠ **必須 return**（2026-08-31 差點釀成無窮迴圈）：
+//   舊版沒有 return，函式回傳 undefined。我改成「回報成敗」後，
+//   呼叫端 `if (await execScript(...)) _xxxDate = today` 會永遠拿到 undefined
+//   ⇒ 永遠不標記完成 ⇒ 250 日訓練、行事曆同步、健康稽核在迴圈裡**無限重跑**。
+//   是做共用函式的影響面掃描才擋下來的（使用者提醒「嚴禁修 A 錯 B」）。
 function execScript(name, args, tag, timeoutMin = 10) {
-  import('node:child_process').then(({ execFile }) => {
+  return import('node:child_process').then(({ execFile }) => {
     // ⚠ 中文路徑：URL.pathname 是百分號編碼（%E8%82%A1…），execFile 直接用會找不到檔
     //（2026-07-24 揭發：備份/分析/漲停前夜實驗子腳本長期靜默失敗）。必須解碼。
     const script = decodeURIComponent(new URL(`./${name}`, import.meta.url).pathname);
-    execFile(process.execPath, [script, ...args], { timeout: timeoutMin * 60000 }, (err, stdout) => {
-      if (err) log(`✖ ${tag}:`, err.message);
-      else log(`${tag}:`, String(stdout).trim().split('\n').pop());
+    // ⚠ **要回報成敗**（2026-08-31 發現）：舊版把錯誤全部吞掉、
+    //   永遠不 reject、也不回傳任何成敗指標。於是所有
+    //   `try { await execScript(...); _xxxDate = today } catch` 的寫法
+    //   **一律會走到標記那行**——我當天早上「改為成功才標記」的修正
+    //   因此完全無效，訓練失敗照樣整天不重試。
+    //   改為 resolve(boolean)，呼叫端才有辦法判斷。
+    return new Promise(resolve => {
+      execFile(process.execPath, [script, ...args], { timeout: timeoutMin * 60000 }, (err, stdout) => {
+        if (err) { log(`✖ ${tag}:`, err.message); resolve(false); }
+        else { log(`${tag}:`, String(stdout).trim().split('\n').pop()); resolve(true); }
+      });
     });
-  }).catch((e) => log(`✖ ${tag} spawn:`, e.message));
+  }).catch((e) => { log(`✖ ${tag} spawn:`, e.message); return false; });
 }
 async function dailyJobsLoop() {
   await runDailyJobs(true); // 開機先跑一輪，資料即時可用
@@ -12404,10 +12417,9 @@ async function dailyJobsLoop() {
         //   訓練失敗時這天就不再重試，而下一次要等 3~4 天，
         //   使用者會看到「模型停止訓練」卻沒有任何告警。
         //   改為成功才標記；execScript 失敗時下一輪迴圈會重試。
-        try {
-          await execScript('squeeze-train.mjs', ['250'], '🧪 軋空模型訓練', 30);
-          _squeezeTrainDate = today;
-        } catch (e) { log('✖ 軋空模型訓練（將重試）:', (e.message || '').slice(0, 60)); }
+        // execScript 現在回報成敗（見其註解）——失敗就不標記，下一輪重試
+        if (await execScript('squeeze-train.mjs', ['250'], '🧪 軋空模型訓練', 30)) _squeezeTrainDate = today;
+        else log('✖ 軋空模型訓練失敗，將於下一輪重試');
       }
       // 週六 10:00 週末復盤週報
       if (tw.getDay() === 6 && mins >= 10 * 60 && _weeklyDate !== today) {
@@ -12496,8 +12508,8 @@ async function dailyJobsLoop() {
         // 本專案的日期漂移已經靠人眼抓到四次（上櫃位移、加權指數落後、
         // stockHistory 只寫一次、chipDaily PIT），每一次都是使用者先發現的。
         if (mins >= 16 * 60 + 10 && _healthAuditDate !== today) {
-          _healthAuditDate = today;
-          execScript('audit-data-sources.mjs', ['--write'], '🩺 資料源健康稽核', 10);
+          if (await execScript('audit-data-sources.mjs', ['--write'], '🩺 資料源健康稽核', 10)) _healthAuditDate = today;
+          else log('✖ 健康稽核失敗，將重試');
           setTimeout(async () => {
             try {
               const h = (await db.collection('system').doc('dataHealth').get()).data();
@@ -12514,8 +12526,8 @@ async function dailyJobsLoop() {
         // 沒有這一步，/api/history 是只寫一次的快取 —— 技術指標會永遠停在
         // 該檔第一次被查詢的那天（實測最舊落後 5 週，且中間平均 13 個洞）。
         if (mins >= 15 * 60 + 20 && _histTopupDate !== today && isTradingDay(tw)) {
-          _histTopupDate = today;
-          execScript('topup-stock-history.mjs', [], '📈 日線補正', 20);
+          if (await execScript('topup-stock-history.mjs', [], '📈 日線補正', 20)) _histTopupDate = today;
+          else log('✖ 日線補正失敗，將重試');
         }
         // 每日 15:25 抓當日市場委託失衡（MI_5MINS）。
         // 2026-08-02 起：三年歷史已回補（orderFlowArchive），這一步是「不讓它斷」——
@@ -12548,8 +12560,8 @@ async function dailyJobsLoop() {
           }, 20 * 60000);
         }
         if (mins >= 15 * 60 + 25 && _orderFlowDate !== today && isTradingDay(tw)) {
-          _orderFlowDate = today;
-          execScript('backfill-orderflow.mjs', ['--days', '1'], '📋 委託失衡', 5);
+          if (await execScript('backfill-orderflow.mjs', ['--days', '1'], '📋 委託失衡', 5)) _orderFlowDate = today;
+          else log('✖ 委託失衡失敗，將重試');
         }
         // 每日 18:05 觸發收盤盤勢分析（/api/cron/daily-close）。
         // 2026-08-01 事故：這支原由 Cloud Scheduler 觸發，但 job 指向 us-central1
@@ -12568,8 +12580,8 @@ async function dailyJobsLoop() {
         // 每日 06:40 同步休市日曆（早於 07:00 新聞與 08:45 盤前快報，
         // 確保當天所有 isTradingDay() 判斷都吃到最新的表；颱風假當天才補得上）
         if (mins >= 6 * 60 + 40 && _calSyncDate !== today) {
-          _calSyncDate = today;
-          execScript('sync-trading-calendar.mjs', [], '📅 休市日曆同步', 5);
+          if (await execScript('sync-trading-calendar.mjs', [], '📅 休市日曆同步', 5)) _calSyncDate = today;
+          else log('✖ 休市日曆同步失敗，將重試');
           setTimeout(() => { _calLoadedDate = null; loadTradingCalendar(); }, 90000);
         }
         // 每月首個交易日 17:20 重建龍頭名單＋model-core（權重不變·僅名單/日期更新）
