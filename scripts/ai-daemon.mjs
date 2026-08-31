@@ -5388,6 +5388,38 @@ async function newsVerdictUniverse(n = NEWS_VERDICT_N) {
   return rows.slice(0, n);
 }
 
+// 新聞判別完成訊號（使用者 2026-09-01 指示：完成任務時應出現訊號提示）。
+//   四趟判別都用它，訊息裡帶「這一趟做了什麼、結果長怎樣」——
+//   只寫「完成」等於沒說，使用者無法判斷結果是否正常。
+// ⚠ 突發利空提高嚴重度：盤中冒出利空是當日最該立刻知道的事。
+async function pushVerdictDone(pass, { judged = 0, skipped = 0, failed = 0, stopped = false, verdicts = {}, targetDate = '' }) {
+  const PASS_LABEL = { evening: '盤後', morning: '晨間', intraday: '盤中', night: '夜間補判' };
+  const label = PASS_LABEL[pass] || pass;
+  const now = Date.now();
+  const fresh = Object.entries(verdicts).filter(([, v]) => now - (v.at || 0) < 3 * 3600000);
+  const dist = {};
+  for (const [, v] of fresh) dist[v.label] = (dist[v.label] || 0) + 1;
+  const bear = fresh.filter(([, v]) => v.label === '利空');
+  const bull = fresh.filter(([, v]) => v.label === '利多' && (v.strength === '強' || v.strength === '極強'));
+  const distTxt = Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}${n}`).join('·') || '無';
+  const parts = [`判別 ${judged}`, skipped ? `沿用 ${skipped}` : null, failed ? `失敗 ${failed}` : null,
+    stopped ? '**因死線提前停止**' : null].filter(Boolean);
+  await pushAgentMsg({
+    type: 'newsVerdict',
+    label: `${label}新聞識讀完成`,
+    emoji: bear.length ? '⚠️' : '📰',
+    severity: bear.length ? 'warn' : 'info',
+    text: `${parts.join('·')}｜${distTxt}`
+      + (bear.length ? `\n⚠ 利空：${bear.slice(0, 3).map(([c, v]) => `${c}(${v.strength})`).join('、')}` : '')
+      + (bull.length ? `\n利多強：${bull.slice(0, 3).map(([c]) => c).join('、')}` : ''),
+    summary: `${label}判別完成 ${judged} 檔${bear.length ? `·利空 ${bear.length}` : ''}`,
+    stocks: [...bear, ...bull].slice(0, 5).map(([c]) => c),
+    // 同一趟不重複推送；盤中每 25 分鐘一趟，冷卻 20 分鐘避免洗版
+    dedupeKey: `nv_${pass}_${targetDate}`,
+    cooldownMs: pass === 'intraday' ? 20 * 60000 : 6 * 3600000,
+  });
+}
+
 // ══ 夜間覆蓋率補判（使用者 2026-09-01 指示：夜間 Ollama 很閒，安排工作）══
 //
 // 要解決的缺口：宇宙來自「來源掃描」，掃不到的股票就沒有判別
@@ -5478,6 +5510,7 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
   });
   log(`✓ 夜間補判：新增 ${judged} 檔（其中資訊不足 ${thin}）` +
       `${stopped ? '·**因死線停止**' : ''}，總覆蓋 ${Object.keys(verdicts).length} 檔`);
+  await pushVerdictDone('night', { judged, failed: thin, stopped, verdicts, targetDate: today });
   return judged > 0 || thin > 0;
 }
 
@@ -5622,6 +5655,7 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
   });
   log(`✓ 盤中新聞判別：新消息 ${hot.length} 檔 → 判別 ${judged}、沿用 ${skipped}` +
       `${hit.length ? `　⚠ 突發利空：${hit.join('、')}` : ''}`);
+  await pushVerdictDone('intraday', { judged, skipped, verdicts, targetDate: today });
   return true;
 }
 
@@ -5769,6 +5803,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
           `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔` +
           `${flushFail ? `　⚠ 分段存檔失敗 ${flushFail} 次（中斷會丟失進度）` : ''}`);
+  await pushVerdictDone(pass, { judged, skipped, failed, stopped, verdicts, targetDate: today });
     }
   };
 
