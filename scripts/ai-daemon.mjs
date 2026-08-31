@@ -12712,15 +12712,23 @@ async function dailyJobsLoop() {
         if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) { await runDailyJobs(); _dailyJobsDate = today; }
         if (mins >= 16 * 60 + 30 && _officialDate !== today) { await runJobSet(OFFICIAL_CATCHUP, '(official)'); _officialDate = today; }
         if (mins >= 21 * 60 + 45 && _marginDate !== today) {
+          // ⚠ **成功才標記**（今天第二次踩到同一個反模式）：
+          //   原本 _marginDate = today 寫在這裡，後面的訓練資料與檢討報表
+          //   任何一步失敗就整天不再重試，而使用者會看到報表停在幾天前
+          //   卻沒有任何告警——與早上訓練排程那個是同一課。
           await runJobSet(MARGIN_CATCHUP, '(margin)');
-          _marginDate = today;
-          try { await computeChipPicks(); } catch (e) { log('✖ 資券後重算 chipPicks:', e.message); }  // 讓晚間資券立刻進榜單/評分
+          let _marginOk = true;
+          try { await computeChipPicks(); }
+          catch (e) { _marginOk = false; log('✖ 資券後重算 chipPicks（將重試）:', e.message); }  // 讓晚間資券立刻進榜單/評分
           // 軋空訓練資料（使用者需求 2026-08-26）：把當日漲停股的**當日與前一日**
           // 完整狀態＋國際盤連動存進第二大腦。必須排在資券歸檔之後，否則
           // 融資券欄位是空的（當日 21:45 才回填）。
-          try { await recordSqueezeTraining(); } catch (e) { log('✖ 軋空訓練資料:', e.message); }
+          try { await recordSqueezeTraining(); }
+          catch (e) { _marginOk = false; log('✖ 軋空訓練資料（將重試）:', e.message); }
           // 逐日對答案＋漏網診斷（使用者要求逐日修正）
-          try { await computeSqueezeReview({ backfillDays: 3 }); } catch (e) { log('✖ 軋空檢討:', e.message); }
+          try { await computeSqueezeReview({ backfillDays: 3 }); }
+          catch (e) { _marginOk = false; log('✖ 軋空檢討（將重試）:', e.message); }
+          if (_marginOk) _marginDate = today;
         }
         // 16:45 籌碼性格分類（炒作/長期核心，3 年 chipArchive；官方補抓寫完當日 archive 後）
         if (mins >= 16 * 60 + 45 && _characterDate !== today) {

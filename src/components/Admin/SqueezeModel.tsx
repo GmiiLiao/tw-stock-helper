@@ -85,7 +85,7 @@ export default function SqueezeModel() {
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <b style={{ fontSize: 'calc(14px * var(--fz))' }}>🧠 軋空判讀模型</b>
           <span style={{ color: 'var(--text-muted)' }}>
-            run <code>{m.runId}</code> · {fmtT(m.updatedAt)} · 排程：每週二/五 01:00
+            run <code>{m.runId}</code> · {fmtT(m.updatedAt)} · 排程：每交易日後 02:00
           </span>
         </div>
         <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>

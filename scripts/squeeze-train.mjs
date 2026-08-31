@@ -384,6 +384,17 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
     status: main ? 'ok' : 'no_edge',
     note: main ? null : '本輪沒有任何組合通過樣本外驗收——這是誠實結果，不是故障。訊號可能正在失效，請勿依賴舊模型下單。',
   };
+  // ⚠ **測試用的短窗訓練不得覆蓋正式模型**（2026-08-31 我親手踩到）：
+  //   我用 `squeeze-train.mjs 60` 做驗證，那次直接蓋掉了 250 日的正式模型，
+  //   使用者看到的變成 58 日、且「無因子通過」——那是樣本太短的必然結果，
+  //   卻長得像模型壞了。這與 squeezeRecommend 的 !ONESHOT 守衛是同一課。
+  //   250 是正式參數；低於 MIN_PROD_DAYS 一律視為測試，只印不寫。
+  const MIN_PROD_DAYS = 200;
+  if (days < MIN_PROD_DAYS) {
+    say(`  ⚠ 訓練窗 ${days} 日 < ${MIN_PROD_DAYS} 日 ⇒ 視為測試，**不寫入 squeezeModel**`);
+    say('     要寫入正式模型請用 250 日（或設 FORCE_WRITE=1）');
+    if (process.env.FORCE_WRITE !== '1') return;
+  }
   await db.collection('squeezeModel').doc('latest').set(model);
   await db.collection('squeezeReport').doc(runId).set({ ...model, single, combos: combos.slice(0, 30) });
   if (main) {
