@@ -39,6 +39,11 @@ export const AT_ALLOWLIST = new Set([
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',
+  // stoppedAtDeadline：因死線提前停止時未處理的檔數（不是時間戳，是計數）
+  'stoppedAtDeadline',
+  // intradayAt：盤中即時新聞判別的上次執行時刻（與 updatedAt 分開，
+  // 因為同一份 doc 會被盤後/晨間/盤中三趟寫入，需要分辨最後是哪一趟）
+  'intradayAt',
   // 語意戳（事件時刻，不作為文件新鮮度依據）
   'addedAt', 'answeredAt', 'liveAt', 'bankAt', 'firstAt', 'finishedAt', 'savedAt',
   'linkedAt', 'sweepAt', 'stressAt', 'tradingModeAt', 'privacyAckAt',

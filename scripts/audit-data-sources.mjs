@@ -106,14 +106,14 @@ const CONTRACTS = [
   { c: 'asiaPremarketArchive', kind: 'dated', maxStale: 30 * HOUR, session: 'daily', minRecords: 1, countField: 'snapshots' },
   { c: 'orderFlowArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1,    countField: 'curveJson' },
   { c: 'stockHistory',     kind: 'perCode', maxStale: 30 * HOUR, session: 'daily', minRecords: 900,  dateField: 'lastDate' },
-  { c: 'scanner',          kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'rsRanking',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'tradeSignals',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'multiTimeframe',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'chipPicks',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  { c: 'scanner',          kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
+  { c: 'rsRanking',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
+  { c: 'tradeSignals',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
+  { c: 'multiTimeframe',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
+  { c: 'chipPicks',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'chipCharacter',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'chipWind',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'chipDivergence',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  { c: 'chipWind',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
+  { c: 'chipDivergence',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'sectorRotation',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'sectorWind',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'marketWind',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
@@ -334,7 +334,7 @@ const taipeiNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 
  * 這正是 wm-freshness 說的「狀態階梯」要分 session，否則監控自己會變成雜訊來源。
  * 收盤後改用「當日內」判定（30 小時），只要資料日對就算健康。
  */
-function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0) {
+function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0, sincePubMs = null) {
   // offHoursMs＝距上一個交易日收盤已經過了多久的「非交易時間」。
   // 為什麼要通用地把它加進上限（2026-08-29）：
   //   squeezeRecommend / limitUpRecommend / limitQueue / marketPulse 被標成
@@ -350,6 +350,12 @@ function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0) {
   //   **今天早上就該更新**，給它們放寬等於把真正的斷線蓋掉：
   //   實測 limitUpRecommend 已 65 小時沒更新（今天 08:00 沒跑），
   //   卻因為放寬 67 小時而顯示 OK。
+  // ⚠ 有 publishHour 的來源，陳舊要以「上一次**應該**公布的時刻」為基準，
+  //   不是牆上時鐘（2026-08-31 實測）：融資融券每天 22:00 公布，
+  //   週一晚上 20:20 最新的本來就是週五 22:00 的 ⇒ 71 小時是正常的，
+  //   用固定 30h 上限判它陳舊等於每個交易日的白天都在誤報。
+  //   公布時刻**之後**仍未更新才是真的斷線，那時 sincePub 很小、抓得出來。
+  if (spec.publishHour != null && sincePubMs != null) return spec.maxStale + sincePubMs;
   if (spec.preopen) return spec.maxStale;
   if (spec.session === 'intraday') return (marketOpen ? spec.maxStale : 30 * HOUR) + offHoursMs;
   // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h。
@@ -456,7 +462,17 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
       out.dataDate = pickDataDate(data, spec.dateField);
       if (ts == null) out.notes.push('無時間戳（不符新鮮度契約：缺 fetchedAt）');
       else {
-        const limit = effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs);
+        // 距「上一次應該公布」多久：公布時刻前 ⇒ 從前一交易日的公布時刻算起
+        const _ph = publishHourOf(spec);
+        let sincePubMs = null;
+        if (_ph != null) {
+          const t3 = taipeiNow();
+          const nowH = t3.getHours() + t3.getMinutes() / 60;
+          const base = nowH >= _ph ? isoOf(t3) : prevTradingDay(isoOf(t3));
+          sincePubMs = Math.max(0, Date.now()
+            - new Date(`${base}T${String(Math.floor(_ph)).padStart(2, '0')}:00:00+08:00`).getTime());
+        }
+        const limit = effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs, sincePubMs);
         if (Date.now() - ts > limit) {
           out.status = 'STALE';
           const fmt = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / MIN)}m`);
