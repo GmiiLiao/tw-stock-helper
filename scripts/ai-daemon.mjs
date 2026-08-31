@@ -4402,6 +4402,22 @@ async function fetchBodyByTitle(title, name) {
 //   Google News → 覆蓋廣（各媒體都收），但**只拿得到標題**（連結是 JS 轉址、
 //               id 已加密，內文抓不到，兩條路都實測過）。
 //   ⇒ 兩者合併，並據實標示每一則是「有內文」還是「僅標題」。
+// 單檔逾時保護（2026-09-01 實測需要）：盤後趟在世界先進那檔卡住 16 分鐘不動，
+// 而 LLM 佇列是通的（分析工作每 10 秒完成一個）⇒ 卡點不在 LLM。
+// 根因還沒查明，但**一檔卡住不該拖垮整趟**——88 檔的盤後趟因此永遠跑不完。
+// 5 次 LLM 呼叫 × 240 秒逾時＝最壞 20 分鐘，這裡設 6 分鐘：
+// 正常單檔 60~100 秒，超過就是異常，跳過它繼續下一檔。
+async function withTimeout(p, ms, label) {
+  let t;
+  try {
+    return await Promise.race([
+      p,
+      new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`逾時 ${ms / 1000}s：${label}`)), ms); }),
+    ]);
+  } finally { clearTimeout(t); }
+}
+const STOCK_TIMEOUT_MS = 6 * 60000;
+
 // 本輪實際取得新聞的來源（不是「宣稱會用」的來源）。
 // 寫死標籤會過期，也會說謊——2026-08-29 使用者截圖抓到畫面仍寫
 // 「鉅亨（內文）＋GoogleNews（標題）」，但 fetchStockNewsMulti 早已改成
@@ -5505,7 +5521,7 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
   for (const u of hot) {
     if (Date.now() >= deadlineTs) break;
     try {
-      const r = await judgeOneStock({ code: u.code, name: u.name }, ctx, { seenTitles: seenAll[u.code] || [] });
+      const r = await withTimeout(judgeOneStock({ code: u.code, name: u.name }, ctx, { seenTitles: seenAll[u.code] || [] }), STOCK_TIMEOUT_MS, `盤中判別 ${u.code}`);
       if (r?.skipped) { skipped++; continue; }
       const v = r?.verdict;
       if (!v) continue;
@@ -5695,7 +5711,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     if (deadlineTs != null && taipei().getTime() >= deadlineTs) { stopped = true; break; }
     const seen = seenAll[code] || [];
     try {
-      const r = await judgeOneStock(
+      const r = await withTimeout(judgeOneStock(
         { code, name: u.name || code },
         ctx,
         // 晨間那趟才過濾已判標題；盤後那趟是當日第一次，全部都要判。
@@ -5719,7 +5735,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
               + `若它確實只是被列名而該事件與它無關，才判中性。`,
           } : {}),
         }
-      );
+      ), STOCK_TIMEOUT_MS, `判別 ${code}`);
       if (r && r.skipped) { skipped++; continue; }
       const v = r && r.verdict;
       if (!v) { failed++; continue; }
