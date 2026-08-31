@@ -157,7 +157,20 @@ export function analyzeNews(items: NewsLite[], nowMs = Date.now()): NewsSentimen
     // Time-decay weight: linear from 1 (fresh) → 0 at expiry; expired = 0.
     let weight = 1;
     if (date) {
-      const ageDays = (nowMs - new Date(date + 'T00:00:00+08:00').getTime()) / 86_400_000;
+      // ⚠ **AI 內文判別要用實際時間戳，不能截斷到日期**（2026-08-31 實測到的錯誤）：
+      //   判別是盤後 23:00 或盤前 07:00 專門為**當天這個交易日**產出的。
+      //   舊算法把時間截到午夜再算天數 ⇒ 昨晚 23:00 的判別，
+      //   今早 08:00 被當成「1.33 天前」，而一般新聞有效期只有 2 天
+      //   ⇒ **開盤前就已經衰減掉三分之二**。
+      //   實測 2886 兆豐金：利多/強、信心高，調分卻只有 +2（應約 +10），
+      //   聚合標籤還因此掉成「中性」——訊號在能發揮作用之前就被自己的衰減吃光。
+      //   新聞項目維持原本的日期口徑（新聞本來就是按日歸屬）；
+      //   只有帶 verdictAt 的 AI 判別改用時間戳。
+      const useTs = it.verdictBasis === 'content' && it.verdictAt;
+      const originMs = useTs
+        ? new Date(it.verdictAt as string).getTime()
+        : new Date(date + 'T00:00:00+08:00').getTime();
+      const ageDays = (nowMs - originMs) / 86_400_000;
       const window = calDays(validDays);
       weight = ageDays <= 0 ? 1 : ageDays >= window ? 0 : 1 - ageDays / window;
     }
