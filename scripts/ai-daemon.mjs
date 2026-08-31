@@ -5677,7 +5677,11 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   return (judged + skipped) > 0;
 }
 
-async function computeLimitUpNewsVerdict() {
+async function computeLimitUpNewsVerdict(deadlineMins = null) {
+  const _dlTs = deadlineMins == null ? null : (() => {
+    const t = taipei(); const now = t.getHours() * 60 + t.getMinutes();
+    return t.getTime() + ((deadlineMins - now) + (deadlineMins <= now ? 1440 : 0)) * 60000;
+  })();
   resetNewsSrcUsed();   // 每輪重算，避免標籤累積上一輪的來源
   const fc = (await db.collection('limitUpForecast').doc('latest').get()).data();
   const list = (fc?.aList || []).slice(0, 20);
@@ -5686,7 +5690,11 @@ async function computeLimitUpNewsVerdict() {
 
   const ctx = await newsJudgeContext([fc.dataDate, targetDate]);
   const out = [];
+  let _dlHit = 0;
   for (const it of list) {
+    // 死線到了就停——已判的照樣寫入，未判的下次再說。
+    // 不能為了「判完整批」而拖到 09:00 開盤（使用者盤前要用）。
+    if (_dlTs != null && taipei().getTime() >= _dlTs) { _dlHit = list.length - out.length; break; }
     const { verdict, events, stale, ageDays, recent, material, withBody } = await judgeOneStock(it, ctx);
     out.push({
       code: it.code, name: it.name, price: it.price, chg: it.chg,
@@ -5715,6 +5723,7 @@ async function computeLimitUpNewsVerdict() {
         + '主旋律敏感度、舊聞信心上限、無內文不判多空）。**尚未證明能提升命中率**，'
         + 'newsLift 需累積數週才有結論；在那之前不應據此加權。',
   };
+  if (_dlHit) { doc.stoppedAtDeadline = _dlHit; log(`  ⚠ 漲停判別因 08:50 死線提前停止，未判 ${_dlHit} 檔`); }
   await db.collection('limitUpRecommend').doc('latest').set(doc);
   // 手動重跑不得覆蓋當日存檔（同 squeezeRec：日期檔是對答案用的事前判別）
   if (targetDate && !ONESHOT) await db.collection('limitUpRecommend').doc(targetDate).set(doc);
@@ -12229,7 +12238,11 @@ async function dailyJobsLoop() {
         catch (e) { log('✖ 軋空新聞判別（窗內將重試）:', (e.message || '').slice(0, 60)); }
         // 漲停預測的新聞判別接在後面（共用同一套抓取與判別，成本同量級）。
         // 分開 try：軋空那條失敗不該連帶讓漲停這條也沒有。
-        try { await computeLimitUpNewsVerdict(); }
+        // ⚠ 硬死線 08:50：盤前判別現在要跑到 08:46 才就緒（距開盤僅 14 分鐘），
+        //   是多輪挑戰＋自檢＋引用強制把成本拉到 4~5 倍造成的。
+        //   宇宙變大或 AI 變慢就會壓到 09:00，使用者盤前拿不到判別。
+        //   寧可少判幾檔也不能拖到開盤——已判的部分照樣可用。
+        try { await computeLimitUpNewsVerdict(8 * 60 + 50); }
         catch (e) { log('✖ 漲停新聞判別:', (e.message || '').slice(0, 60)); }
       }
       // ── 新聞內文判別管線（使用者 2026-08-29 指定分流）──

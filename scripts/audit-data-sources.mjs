@@ -68,10 +68,10 @@ const CONTRACTS = [
   { c: 'squeezePicks',     kind: 'latest',  maxStale: 40 * MIN,  session: 'intraday', allowEmpty: true },
   // 開盤前新聞判別（每交易日 08:00 由本機 AI 產出）：盤中查它會是「今早那份」，
   // 故放寬到 20 小時；空榜正常（沒有候選就沒有判別）。
-  { c: 'squeezeRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  { c: 'squeezeRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true, preopen: true },
   // 漲停預測的新聞判別（2026-08-28 接上）：與 squeezeRecommend 同節奏，
   // 每交易日 08:00 由本機 AI 產出，盤中查它會是「今早那份」故放寬到 20 小時。
-  { c: 'limitUpRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  { c: 'limitUpRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true, preopen: true },
   // 搶漲停排隊（09:00~09:15 才有意義）：盤中每分更新，其餘時間停留在早上那份，
   // 故 maxStale 放寬到 20 小時；空榜是常態（多數日子沒有這種書況）。
   // 新聞內文判別（2026-08-29 上線）：盤後 23:00 + 晨間 07:00 兩趟。
@@ -150,8 +150,8 @@ const CONTRACTS = [
   { c: 'taifexPositions',  kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'bookDepth',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'volAvg20',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'premarketBrief',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
-  { c: 'morningNote',      kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  { c: 'premarketBrief',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', preopen: true },
+  { c: 'morningNote',      kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', preopen: true },
   { c: 'dailyPost',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'globalMarkets',    kind: 'latest',  maxStale: 12 * HOUR, session: 'always' },
   { c: 'adrPremium',       kind: 'latest',  maxStale: 12 * HOUR, session: 'always' },
@@ -342,6 +342,14 @@ function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0) {
   //   真的故障會被淹在裡面（這正是專案記過的教訓）。
   //   逐一改標籤治不了本：任何「只在交易日產生」的來源都會再犯。
   //   ⚠ 只在**非交易日**加寬；交易日當天 offHoursMs=0，偵測力完全不變。
+  // ⚠ **盤前產出的來源不給非交易時間放寬**（2026-08-31 使用者指正後釐清）：
+  //   放寬的正當理由是「收盤後才產生的資料，週一早上最新的本來就是週五的」
+  //   ——chipArchive、marginShort、volAvg20 那 67 小時是正常的。
+  //   但盤前產出的來源（當沖資格 07:30、軋空/漲停判別 08:00、晨間簡報）
+  //   **今天早上就該更新**，給它們放寬等於把真正的斷線蓋掉：
+  //   實測 limitUpRecommend 已 65 小時沒更新（今天 08:00 沒跑），
+  //   卻因為放寬 67 小時而顯示 OK。
+  if (spec.preopen) return spec.maxStale;
   if (spec.session === 'intraday') return (marketOpen ? spec.maxStale : 30 * HOUR) + offHoursMs;
   // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h。
   if (spec.session === 'daily' && !tradingToday) return Math.max(spec.maxStale, 78 * HOUR) + offHoursMs;
@@ -414,7 +422,7 @@ function pickDataDate(d, dateField) {
   return null;
 }
 
-async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0) {
+async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, maxDataDate = ltd) {
   const out = { collection: spec.docId && spec.docId !== 'latest' ? `${spec.c}/${spec.docId}` : spec.c, status: 'OK', notes: [] };
   try {
     let data = null, docId = null;
@@ -529,9 +537,9 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0) {
       // ⚠ 閘門原本只擋「太舊」，於是**資料日晚於最近交易日反而通過**——
       //   那是不可能的日期（實測週六有 4 個來源自稱資料日 2026-08-29），
       //   而且正是「拿日曆今天當資料日」的特徵。兩個方向都要擋。
-      if (out.dataDate > ltd) {
+      if (out.dataDate > maxDataDate) {
         out.status = 'DATE_DRIFT';
-        out.notes.push(`資料日 ${out.dataDate} **晚於**最近交易日 ${ltd}——不可能的日期，多半是拿日曆今天當資料日`);
+        out.notes.push(`資料日 ${out.dataDate} **晚於**可能的最新資料日 ${maxDataDate}——不可能的日期，多半是拿日曆今天當資料日`);
       } else if (out.dataDate < expect) {
         out.status = 'DATE_DRIFT';
         out.notes.push(`資料日 ${out.dataDate} < 期待 ${expect}${beforePub ? `（${pubHour}:00 前以前一交易日為準）` : ''}`);
@@ -641,16 +649,35 @@ async function main() {
     && ltd === isoOf(t);
   const specs = ONLY ? CONTRACTS.filter(s => s.c === ONLY) : CONTRACTS;
   const results = [];
-  const tradingToday = ltd === isoOf(taipeiNow());
+  // ⚠ ltd 是「最後一個**完成**的交易日」。盤中時它還是昨天/上週五，
+  //   不能拿它當「資料日的上限」，也不能拿它判斷「今天是不是交易日」：
+  //   2026-08-31（週一）盤中實測，兩個錯誤同時發生——
+  //     ① dayTradeEligible / morningNote 正確帶著今天的日期，
+  //        卻被「資料日晚於最近交易日」判成 DATE_DRIFT（假警報）
+  //     ② offHoursMs 把盤中當成非交易時間、放寬 67 小時，
+  //        於是 limitUpRecommend 已經 65 小時沒更新卻顯示 OK（**真問題被蓋掉**）
+  //   改用日曆判斷「今天是不是交易日」，與「最後一個完成交易日」分開。
+  const todayIso = isoOf(taipeiNow());
+  const isTradingToday = await (async () => {
+    const t = taipeiNow();
+    if (t.getDay() === 0 || t.getDay() === 6) return false;
+    try {
+      const d = (await db.collection('system').doc('tradingCalendar').get()).data();
+      return !(Array.isArray(d?.holidays) && d.holidays.includes(todayIso));
+    } catch { return true; }   // 取不到日曆時保守視為交易日（不放寬）
+  })();
+  const tradingToday = isTradingToday;
+  // 資料日的合理上限：交易日當天可以是今天，非交易日則以最後完成交易日為準
+  const maxDataDate = isTradingToday ? todayIso : ltd;
   // 上一個交易日收盤（13:30 台北）到現在，累積了多少非交易時間。
   // 交易日當天為 0 ⇒ 不影響平日的偵測力。
   const offHoursMs = (() => {
-    if (tradingToday || !ltd) return 0;
+    if (isTradingToday || !ltd) return 0;
     const [y, m, d] = ltd.split('-').map(Number);
     const closeUtc = Date.UTC(y, m - 1, d, 13 - 8, 30);   // 台北 13:30 → UTC
     return Math.max(0, Date.now() - closeUtc);
   })();
-  for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday, offHoursMs));
+  for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday, offHoursMs, maxDataDate));
 
   const external = NO_EXT ? [] : await probeExternal(ltd);
   const fresh = NO_EXT ? [] : await probeFresh(ltd);
