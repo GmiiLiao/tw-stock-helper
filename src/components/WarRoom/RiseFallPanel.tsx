@@ -6,7 +6,7 @@
 // 點方塊展開即時K線。資料：/api/twse/market-snapshot（daemon 每分掃）。
 
 import { useEffect, useMemo, useState } from 'react';
-import { shouldPollNow } from '@/lib/market-clock';
+import { shouldPollNow , inPreOpenBlackout} from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
@@ -183,14 +183,19 @@ export default function RiseFallPanel() {
 
   useEffect(() => {
     let live = true;
-    const load = () => {
-      if (!shouldPollNow()) return;   // 休市 or 分頁在背景 → 跳過（計時器照跑）
+    // force=true 用於**首次載入**：收盤後也要載入，才顯示得出當日最終結算資料。
+    // 舊寫法連第一次都被 shouldPollNow 擋掉 ⇒ 盤後畫面永遠是 0 檔
+    // （使用者 2026-08-31 截圖：晚上 8 點看到「全市場 0 檔·無」，當日資訊整個消失）。
+    const load = (force = false) => {
+      // 開盤前 5 分鐘清空：昨日資料已無參考價值，今日尚未開始
+      if (inPreOpenBlackout()) { setSnaps([]); return; }
+      if (!force && !shouldPollNow()) return;   // 休市 or 分頁在背景 → 跳過輪詢（計時器照跑）
       fetch('/api/twse/market-snapshot').then(r => (r.ok ? r.json() : null)).then(d => {
         if (!live || !d?.quotes) return;
         setSnaps(d.quotes); setUpdatedAt(d.updatedAt ?? null); setMarketOpen(!!d.marketOpen);
       }).catch(() => {});
     };
-    load();
+    load(true);   // 首次一律載入，盤後才看得到最終結算資料
     // 10 秒：API 已含 5 秒快線覆蓋（正在看的股票），30 秒會吃掉快線的增益
     const t = setInterval(load, isTwTradingHours() ? 10000 : 120000);
     return () => { live = false; clearInterval(t); };

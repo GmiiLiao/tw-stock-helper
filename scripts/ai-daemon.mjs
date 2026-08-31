@@ -12374,12 +12374,24 @@ async function dailyJobsLoop() {
         catch (e) { log('✖ 國際盤歷史（將於下一輪重試）:', (e.message || '').slice(0, 60)); }
       }
       // 軋空判讀模型訓練：**每週二、五 01:00 後**（使用者指定）。
-      // 選這兩天是因為它們各自落在「週一收盤後」與「週四收盤後」，能把最近
-      // 一段完整交易日納入；01:00 執行則避開盤中與晚間歸檔的資源競爭。
+      // （原註：選週二/五是為了各自落在「週一收盤後」與「週四收盤後」；
+      //   2026-08-31 改為每個交易日之後都訓練，涵蓋更即時。）
       // ⚠ 不設 isTradingDay 閘門——訓練吃的是歷史歸檔，跟今天開不開盤無關。
-      if ((tw.getDay() === 2 || tw.getDay() === 5) && mins >= 60 && _squeezeTrainDate !== today) {
-        _squeezeTrainDate = today;
-        execScript('squeeze-train.mjs', ['250'], '🧪 軋空模型訓練', 30);
+      // 訓練改為**每個交易日之後的凌晨 02:00**（使用者 2026-08-31 指示）。
+      // 原本只有週二/週五 ⇒ 最長要等 3~4 天才吃到新資料，
+      // 使用者看到「模型好幾天沒動」自然會以為訓練停了。
+      // 改成「昨天有開盤就訓練」＝週二～週六 02:00，每個交易日的收盤資料
+      // 隔天凌晨就進得了模型。02:00 避開 01:00 前後的歸檔與晚間工作。
+      const _yTw = new Date(tw.getTime() - 86400000);
+      if (isTradingDay(_yTw) && mins >= 2 * 60 && _squeezeTrainDate !== today) {
+        // ⚠ **先標記再呼叫**是本專案記過的反模式（dayTradeRatio 因此斷 8 天）：
+        //   訓練失敗時這天就不再重試，而下一次要等 3~4 天，
+        //   使用者會看到「模型停止訓練」卻沒有任何告警。
+        //   改為成功才標記；execScript 失敗時下一輪迴圈會重試。
+        try {
+          await execScript('squeeze-train.mjs', ['250'], '🧪 軋空模型訓練', 30);
+          _squeezeTrainDate = today;
+        } catch (e) { log('✖ 軋空模型訓練（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 週六 10:00 週末復盤週報
       if (tw.getDay() === 6 && mins >= 10 * 60 && _weeklyDate !== today) {

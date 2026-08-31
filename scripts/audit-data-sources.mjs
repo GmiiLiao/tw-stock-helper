@@ -87,8 +87,9 @@ const CONTRACTS = [
     docId: 'summary', allowEmpty: true },
   { c: 'limitQueue',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   { c: 'marketPulse',      kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
-  // 軋空判讀模型：每週二/五訓練 ⇒ 最長間隔 4 天，設 5 天為陳舊上限。
-  { c: 'squeezeModel',     kind: 'latest',  maxStale: 5 * DAY,   session: 'always', allowEmpty: true },
+  // 軋空判讀模型：**每個交易日之後的凌晨 02:00** 訓練（2026-08-31 改）
+  // ⇒ 最長間隔是週末的 2 天（週六訓練後到週二），設 3 天為陳舊上限。
+  { c: 'squeezeModel',     kind: 'latest',  maxStale: 3 * DAY,   session: 'always', allowEmpty: true },
 
   // ── 每日收盤後（節奏以日計）──
   { c: 'chipArchive',      kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'closeJson' },
@@ -666,7 +667,13 @@ async function main() {
       return !(Array.isArray(d?.holidays) && d.holidays.includes(todayIso));
     } catch { return true; }   // 取不到日曆時保守視為交易日（不放寬）
   })();
-  const tradingToday = isTradingToday;
+  // ⚠ 兩個判準**不能共用**（2026-08-31 我先合併成一個，結果把週末放寬也關掉了）：
+  //   · maxDataDate 看「今天是不是交易日」→ 是就允許資料日是今天
+  //     （否則盤中產出的 dayTradeEligible／morningNote 會被誤判為未來日期）
+  //   · offHoursMs 看「**今天的資料產出了沒**」→ 週一早上收盤後類的資料
+  //     最新本來就是週五的，那 60~70 小時是正常的（使用者指正）
+  //     ⇒ 用 ltd === 今天 判斷，而不是「今天是不是交易日」
+  const tradingToday = ltd === todayIso;
   // 資料日的合理上限：交易日當天可以是今天，非交易日則以最後完成交易日為準
   const maxDataDate = isTradingToday ? todayIso : ltd;
   // 上一個交易日收盤（13:30 台北）到現在，累積了多少非交易時間。

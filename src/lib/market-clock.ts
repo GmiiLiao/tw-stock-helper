@@ -115,6 +115,17 @@ export function pollInterval(opts: {
  * 計時器照跑但不發請求 —— 比改寫成 useSharedPoll 風險低得多，
  * 效果（省掉 81% 的無效請求）是一樣的。
  */
+// 開盤前 5 分鐘的清空窗（使用者 2026-08-31 指定）。
+// 盤後要繼續顯示**當日最終結算資料**——收盤後把畫面清成 0 檔等於把
+// 當天的資訊丟掉，而使用者盤後正是要看那個。
+// 只有在「今天要開盤、且再 5 分鐘就開」時才清空：
+//   那一刻昨日資料已無參考價值，今日又還沒開始。
+export function inPreOpenBlackout(now: Date = new Date()): boolean {
+  if (!isTradingDay(now)) return false;
+  const m = now.getHours() * 60 + now.getMinutes();
+  return m >= 8 * 60 + 55 && m < 9 * 60;
+}
+
 export function shouldPollNow(now?: Date): boolean {
   if (typeof document !== 'undefined' && document.hidden) return false;
   return getSession(now) !== 'closed';
