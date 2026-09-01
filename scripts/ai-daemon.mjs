@@ -4382,7 +4382,19 @@ async function fetchYahooStockBodies(code, name, cap = 2) {
       if (body.length < 200 || (name && !body.includes(name))) continue;
       let title = '';
       try { title = decodeURIComponent(l.split('/news/')[1] || '').replace(/-\d{6,}.*$/, '').replace(/-/g, ' ').trim(); } catch { /* slug 解碼失敗就留空 */ }
-      out.push({ title: title || `${name} 相關報導`, body: body.slice(0, 1600), host: 'tw.stock.yahoo.com', url: l });
+      // 發布日期：Yahoo 文章頁是 SPA、無 <time> 標籤，但 <article> 內文開頭
+      // 有「2026年8月26日週三 下午5:43」。取 article 區塊內**第一個**中文日期
+      // （後面的可能是相關新聞）。解析不到就留 0 → 上層 bodyGeneric 標時效不明。
+      // 2026-09-01 實測缺日期的代價：3086/3540 的 4 月面額變更公告被當 0 日前
+      // 新聞餵進判別（at 被捏造成 Date.now()，捏造預設值 A 族）。
+      let at = 0;
+      const dm = body.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+      if (dm) {
+        const ts = Date.UTC(+dm[1], +dm[2] - 1, +dm[3]) - 8 * 3600000;   // 台北該日 00:00
+        // 未來日期＝解析錯（撞到年報預告等），照樣不填
+        if (ts > Date.UTC(2020, 0, 1) && ts < Date.now() + 86400000) at = ts;
+      }
+      out.push({ title: title || `${name} 相關報導`, body: body.slice(0, 1600), host: 'tw.stock.yahoo.com', url: l, at });
     } catch { /* 換下一篇 */ }
   }
   return out;
@@ -4469,7 +4481,10 @@ function newsSourceLabel() {
 async function fetchStockNewsMulti(keyword, code) {
   const out = [];
   const push = (a, src) => (_newsSrcUsed.add(src), out).push({
-    title: a.title, content: a.body, at: a.at || Date.now(), link: a.url,
+    // ⚠ at 解析不到就 null——不可捏造成 Date.now()（A 族）：
+    //   2026-09-01 實測 4 月的面額變更公告被標成 0 日前混進「2 日內」判別。
+    //   下游鮮度過濾全部有 n.at && 前置檢查（4627/4643/4675 行），null 安全。
+    title: a.title, content: a.body, at: a.at || null, link: a.url,
     src, hasBody: true, bodyFrom: a.host, bodyGeneric: !a.at,   // 抓不到日期就標記，時效不明
   });
   const bodies = () => out.filter(x => x.hasBody).length;
@@ -4485,7 +4500,7 @@ async function fetchStockNewsMulti(keyword, code) {
   if (bodies() < 2) {
     try {
       for (const y of await fetchYahooStockBodies(code, keyword, 2)) {
-        push({ title: y.title, body: y.body, at: 0, url: y.url, host: y.host }, 'Yahoo');
+        push({ title: y.title, body: y.body, at: y.at || 0, url: y.url, host: y.host }, 'Yahoo');
       }
     } catch { /* 同上 */ }
   }
@@ -11407,7 +11422,9 @@ async function computeLimitUpForecast() {
       for (const k in LU_CONT) est *= LU_CONT[k](k === 'streak' ? streak : feats[k]);
       est = Math.max(5, Math.min(55, Math.round(est)));
       bList.push({
-        code, name, market: q?.market || 'tse', price: +c0.toFixed(2), est, luCnt5,
+        // chg 補齊（2026-09-01）：A 榜有 chg、B 榜沒有——同榜不同 schema 讓下游
+        // 合併兩榜時拿到 undefined（newsDump 實測印出「漲undefined%」）。
+        code, name, market: q?.market || 'tse', price: +c0.toFixed(2), chg: +feats.chg0.toFixed(2), est, luCnt5,
         volX: +feats.volX.toFixed(1), fShare: +feats.fShare.toFixed(1), streak,
         tag: est >= 28 ? '高' : est >= 20 ? '中' : '低',
         note: `${luCnt5 >= 2 ? `連${luCnt5}板` : '首板'}·${feats.volX < 1 ? '縮量鎖死' : feats.volX >= 4 ? '爆量(出貨警戒)' : '量能正常'}`,
