@@ -139,6 +139,11 @@ export async function GET(request: NextRequest) {
           TradeVolume: found.TradeVolume,
           TradeValue: found.TradeValue,
           Transaction: found.Transaction,
+          // ⚠ **市場別必須帶過來**（2026-09-01 使用者回報 7930 威世波漲停錯誤）：
+          // 這裡是逐欄重建，漏掉 _market 就等於把「這是興櫃」這件事丟掉，
+          // 下游的漲跌停判斷因此對興櫃套用了不存在的 ±10% 限制。
+          // 我第一版只改下游、沒發現欄位在這裡就被剝掉——部署後驗證才發現沒生效。
+          _market: found._market,
         };
       }
     } catch (err: any) {
@@ -207,6 +212,9 @@ interface CompanyInfo {
 type AnnouncementRow = (string | number)[];
 
 interface StockDayItem {
+  // 'tse' 上市 ｜ 'otc' 上櫃 ｜ 'esb' 興櫃。
+  // 興櫃**沒有漲跌幅限制**，下游的漲跌停判斷必須看這個欄位。
+  _market?: string;
   Code: string;
   Name: string;
   OpeningPrice: string;
