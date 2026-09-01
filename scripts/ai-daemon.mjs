@@ -4603,7 +4603,11 @@ function extensionCharsOf(name, allNames) {
 async function judgeOneStock(it, ctx, opts = {}) {
   const { calMap = {}, gLine = '', indMap = {} } = ctx || {};
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
+  // ⏱ 階段計時（2026-09-01）：曾有單檔 16 分鐘的紀錄，root cause 一直沒抓到。
+  //   最起碼要能回答「卡在抓取還是判別」。慢於 90 秒才輸出，不洗版。
+  const _t0 = Date.now();
   const news = await fetchStockNewsMulti(kw, it.code);
+  const _tFetch = Date.now() - _t0;
   // ⚠ 供函式尾端 return 使用：_picked 宣告在內層區塊，外面取不到。
   //   （宣告作用域問題今天已踩過三次：newsAdjOf、flush、const核）
   let _pickedOut = [];
@@ -5167,6 +5171,10 @@ ${body || '（近 2 日無實質新聞）'}
   // 若 seen 只有近期視窗內的，視窗外的文章永遠看起來是新的 ⇒ 幾乎跳不掉。
   // （2026-08-29 實測：只記 recent 時 25 檔只跳過 5 檔，設計預期落空。）
   const allTitles = news.map(n => n.title).filter(Boolean);
+  { // ⏱ 慢件回報：>90 秒才輸出（正常單檔 60~90 秒）。判別段含所有 LLM 輪次。
+    const _total = Date.now() - _t0;
+    if (_total > 90000) log(`    ⏱ ${it.code} ${it.name || ''} 慢件：總 ${(_total / 1000).toFixed(0)}s（抓取 ${(_tFetch / 1000).toFixed(0)}s、判別 ${((_total - _tFetch) / 1000).toFixed(0)}s）`);
+  }
   return { verdict, events, stale, ageDays, recent, material, withBody, allTitles, picked: _pickedOut };
 }
 
