@@ -917,8 +917,11 @@ let _calLoadedDate = null;
  */
 async function fetchBwibbu() {
   const expect = ymd8(taipei());
+  // ⚠ 驗日期要用 title（真資料日），不能用 date 欄（服務日）——2026-09-01 抓到的
+  //   B 族缺陷：date 欄恆等於「今天」，於是**每天盤前（含 boot 輪）這裡都把
+  //   昨天的 PER/PBR 標成今天**。改 title 後盤前會誠實地降級 openapi（自報昨日）。
   const res = await fetchDated(
-    `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${expect}&response=json`, expect);
+    `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${expect}&response=json`, expect, 'title');
   if (res.ok) {
     // rwd 欄位：股票代號,股票名稱,本益比,殖利率(%),股價淨值比
     const rows = (res.json.data || []).map(r => ({
@@ -952,11 +955,20 @@ function toYmd8(v) {
   return null;
 }
 
-/** 從「115年07月31日 …」這種標題把日期挖出來（TWT96U 只在 title 自報）。 */
+/** 從標題把民國日期挖出來。兩種實測格式都要吃：
+ *   TWT96U 借券 →「115年08月11日 …」
+ *   BWIBBU 殖利率 →「115/08/11 個股日本益比…」
+ * ⚠ TWSE 月初 off-by-one（2026-09-01 實測）：9/1 盤前 BWIBBU title 印
+ *   「115/09/0」——資料日其實是上月末 08/31（TWSE 的「日-1」顯示在月界翻車，
+ *   連指定 date=20260831 查詢也回同一份）。日=0 用 Date.UTC 自動借位換算成
+ *   上月末（1 月 0 日也會正確借成前一年 12/31）。這是換算上游的已知顯示錯誤，
+ *   數值反推內容確為前一交易日，不是猜測。 */
 function ymdFromTitle(title) {
-  const m = String(title || '').match(/(\d{2,3})年(\d{1,2})月(\d{1,2})日/);
+  const m = String(title || '').match(/(\d{2,3})\s*[年/]\s*(\d{1,2})\s*[月/]\s*(\d{1,2})\s*日?/);
   if (!m) return null;
-  return `${+m[1] + 1911}${String(+m[2]).padStart(2, '0')}${String(+m[3]).padStart(2, '0')}`;
+  let y = +m[1] + 1911, mo = +m[2], d = +m[3];
+  if (d === 0) { const dt = new Date(Date.UTC(y, mo - 1, 0)); y = dt.getUTCFullYear(); mo = dt.getUTCMonth() + 1; d = dt.getUTCDate(); }
+  return `${y}${String(mo).padStart(2, '0')}${String(d).padStart(2, '0')}`;
 }
 
 /**
@@ -2314,7 +2326,10 @@ async function marketSnapshotLoop() {
           applyMis(await misBatch(prio.slice(i, i + 120).map(code => byCode[code]).filter(Boolean)), true);
           await sleep(3000);   // 快線佔 1 req/5s，主迴圈放緩到 1 req/3s，合計 ~2.7 req/5s < MIS 限制
         }
-        try { await db.collection('bookDepth').doc('latest').set({ byCodeJson: JSON.stringify(depthOut), n: Object.keys(depthOut).length, at: Date.now(), date: isoDate(taipei()) }); } catch { /* ignore */ }
+        // 空榜要自己解釋（稽核原則）：盤外本來就沒有五檔，n=0 是真實狀態不是故障
+        // ——但**只在盤外**附理由；盤中 n=0 不給理由，讓稽核照樣報警
+        //（bookDepth 曾壞半年沒人發現，那道保護不可弱化）。
+        try { await db.collection('bookDepth').doc('latest').set({ byCodeJson: JSON.stringify(depthOut), n: Object.keys(depthOut).length, at: Date.now(), date: isoDate(taipei()), ...(Object.keys(depthOut).length === 0 && !marketNow ? { emptyReason: '盤外無五檔（五檔僅盤中 09:00~13:35 存在）' } : {}) }); } catch { /* ignore */ }
         // ② 全市場輪掃：其餘代碼每輪掃 8 批(960檔·單批120實測OK)，~1分鐘覆蓋全市場一輪。
         //    修正實案(2026-07-17)：全市場快照僅150檔live、1830檔掛昨日種子 →
         //    「即時漲跌」左欄混入大量昨日上漲的殘留資料。

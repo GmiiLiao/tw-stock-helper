@@ -246,7 +246,18 @@ const FRESH_PROBES = [
 // 看起來像資料源壞了，其實是解析漏了，方向完全誤導。
 function ymdFromTitle(t) {
   const m = String(t || '').match(/(\d{2,3})\s*[年/-]\s*(\d{1,2})\s*[月/-]\s*(\d{1,2})\s*日?/);
-  return m ? `${+m[1] + 1911}-${String(+m[2]).padStart(2, '0')}-${String(+m[3]).padStart(2, '0')}` : null;
+  if (!m) return null;
+  let y = +m[1] + 1911, mo = +m[2], d = +m[3];
+  // ⚠ TWSE 月初 off-by-one（2026-09-01 實測）：9/1 盤前 BWIBBU title 印
+  //   「115/09/0」——資料日其實是上月末 08/31，TWSE 的「日-1」顯示在月界翻車。
+  //   連指定 date=20260831 查詢也回同一份 09/0。日=0 依日曆語義就是「上月第 0 天」
+  //   = 上月末，用 Date.UTC 的自動借位換算（1 月 0 日會正確借位成前一年 12/31）。
+  //   這是**換算上游的已知顯示錯誤**，不是猜測——數值反推內容確為前一交易日。
+  if (d === 0) {
+    const dt = new Date(Date.UTC(y, mo - 1, 0));
+    y = dt.getUTCFullYear(); mo = dt.getUTCMonth() + 1; d = dt.getUTCDate();
+  }
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
 async function probeFresh(ltd) {
