@@ -85,7 +85,56 @@ export async function GET(request: NextRequest) {
   // 10m/20m 由 5m 聚合（Yahoo 無原生支援）
   const AGG: Record<string, number> = { '10m': 2, '20m': 4 };
   const fetchAs = (AGG[interval] ? '5m' : interval) as Interval;
-  const raw = (await fetchCandles(`${code}.TW`, fetchAs)) || (await fetchCandles(`${code}.TWO`, fetchAs));
+  let raw = (await fetchCandles(`${code}.TW`, fetchAs)) || (await fetchCandles(`${code}.TWO`, fetchAs));
+  // ⚠ Yahoo 分鐘線開盤後常整條缺席（2026-09-01 實測 09:13 全市場 range=1d 回
+  //   0 根、regularMarketTime 停在前一日收盤）⇒ 盤中 1~60 分 K 全部不動。
+  //   用自家 MIS 分時（marketIntraday/latest，與「即時」分頁同源）聚合補今天
+  //   的尾端——與下方 1d 用 chipArchive 補尾端同一個模式。
+  //   Yahoo 正常時 lastT 已是最新 bar，這裡幾乎不補、零成本；Yahoo 恢復後自動讓位。
+  if (fetchAs === '1m' || fetchAs === '5m' || fetchAs === '60m') {
+    try {
+      const db = getAdminDb();
+      if (db) {
+        const doc = (await db.collection('marketIntraday').doc('latest').get()).data();
+        const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+        const todayIso = `${twNow.getFullYear()}-${String(twNow.getMonth() + 1).padStart(2, '0')}-${String(twNow.getDate()).padStart(2, '0')}`;
+        if (doc && doc.date === todayIso && doc.seriesJson) {
+          const s = JSON.parse(doc.seriesJson)[code];
+          const pts: [number, number, number][] = s?.pts || [];   // [epoch秒, 價, 累積量(股)]
+          if (pts.length) {
+            const sec = fetchAs === '1m' ? 60 : fetchAs === '5m' ? 300 : 3600;
+            const lastT = raw?.length ? raw[raw.length - 1].t : 0;
+            // 依 bucket 聚合：o=首價、h/l=極值、c=末價、v=累積量差分
+            const buckets = new Map<number, { o: number; h: number; l: number; c: number; cum: number }>();
+            for (const [t, p, cum] of pts) {
+              if (!(p > 0)) continue;
+              const b = Math.floor(t / sec) * sec;
+              const cur = buckets.get(b);
+              if (!cur) buckets.set(b, { o: p, h: p, l: p, c: p, cum: cum || 0 });
+              else { cur.h = Math.max(cur.h, p); cur.l = Math.min(cur.l, p); cur.c = p; cur.cum = cum || cur.cum; }
+            }
+            const keys = [...buckets.keys()].sort((a, b) => a - b);
+            const add: Bar[] = [];
+            let prevCum = 0;
+            for (const k of keys) {
+              const b = buckets.get(k)!;
+              const v = Math.max(0, b.cum - prevCum);
+              prevCum = b.cum;
+              // ⚠ 不能用「k <= lastT 就不補」：Yahoo 會留一根**停更的進行中 bar**
+              //   （實測 60m 停在 09:02），跳過它會讓該 bucket 凍到下一根才動。
+              //   改成同 bucket 以自家覆蓋——自家分時 25~32 秒更新一次，恆比停更的新。
+              if (k < Math.floor(lastT / sec) * sec) continue;   // 更早的 Yahoo 歷史 bar 不動
+              add.push({ t: k, o: +b.o.toFixed(2), h: +b.h.toFixed(2), l: +b.l.toFixed(2), c: +b.c.toFixed(2), v });
+            }
+            if (add.length) {
+              const covered = new Set(add.map(x => x.t));
+              raw = [...(raw || []).filter(x => !covered.has(Math.floor(x.t / sec) * sec)), ...add].sort((a, b) => a.t - b.t);
+            }
+          }
+        }
+      }
+    } catch { /* 補齊失敗＝維持 Yahoo 原樣，不影響既有功能 */ }
+  }
   const candles = raw && AGG[interval] ? aggregate(raw, AGG[interval]) : raw;
   if (!candles) return NextResponse.json({ code, interval, candles: [] }, { headers: { 'Cache-Control': 'no-store' } });
   // ⚠Yahoo 逐檔漏最新日K（2026-07-27 實例：2330 有、2332 的 close 為 null，漲停股尤甚）。
