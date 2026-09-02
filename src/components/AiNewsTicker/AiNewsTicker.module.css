@@ -822,3 +822,9 @@
   .navSection {
   flex-shrink: 0;  /* 側欄釘底布局：字體放大時不被壓縮 */ display: none; }
 }
+
+/* 股號 chip 可點開個股分析（2026-09-02）——hover 提示可互動 */
+.stockChip:hover {
+  background: rgba(59,130,246,0.35);
+  border-color: rgba(59,130,246,0.6);
+}

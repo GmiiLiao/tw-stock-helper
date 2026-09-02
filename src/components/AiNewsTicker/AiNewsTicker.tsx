@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getSession, isForeground, msToNextReveal, startLiveLoop, revealTick } from '@/lib/market-clock';
 import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
+import { useAppStore } from '@/lib/store';
 import styles from './AiNewsTicker.module.css';
 
 // ──────────────────────────────────────────────────────────────
@@ -61,6 +62,12 @@ const SEVERITY_COLOR: Record<string, string> = {
 // ──────────────────────────────────────────────────────────────
 
 function DetailModal({ msg, onClose }: { msg: AgentMessage; onClose: () => void }) {
+  // 股號 chip 要帶名稱、點擊開個股分析（使用者 2026-09-02 指定）。
+  // 名稱查 allStocks（Header 已載的全市場清單）；查不到只顯示代號，不捏造。
+  const allStocks = useAppStore(s => s.allStocks);
+  const navigateTo = useAppStore(s => s.navigateTo);
+  const nameOf = (code: string) => allStocks.find(x => x.code === code)?.name || '';
+  const openStock = (code: string) => { onClose(); navigateTo('stock', code); };
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
@@ -80,7 +87,15 @@ function DetailModal({ msg, onClose }: { msg: AgentMessage; onClose: () => void 
         {msg.stocks.length > 0 && (
           <div className={styles.modalStocks}>
             {msg.stocks.map(s => (
-              <span key={s} className={styles.stockChip}>{s}</span>
+              <button
+                key={s}
+                className={styles.stockChip}
+                onClick={() => openStock(s)}
+                title={`開啟 ${s} 個股分析`}
+                style={{ cursor: 'pointer' }}
+              >
+                {s}{nameOf(s) ? ` ${nameOf(s)}` : ''} ↗
+              </button>
             ))}
           </div>
         )}
