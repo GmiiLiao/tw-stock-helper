@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getSession, isForeground, msToNextReveal } from '@/lib/market-clock';
+import { getSession, isForeground, msToNextReveal, startLiveLoop } from '@/lib/market-clock';
 import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
 import styles from './AiNewsTicker.module.css';
 
@@ -167,9 +167,11 @@ export function NavbarIndexWidget() {
       } catch { /* ignore */ }
     };
     // 盤中 5 秒（與 Header 同節奏；daemon 已把指數搭進 5 秒快線，60 秒輪詢會白白落後
-    // ——2026-08-17 使用者回報「左上更新太久」）。固定 setInterval 是本專案明令禁止的
-    // 陷阱（間隔只算一次），改遞迴 setTimeout 每次重算。
-    let timeoutId: ReturnType<typeof setTimeout>;
+    // ——2026-08-17 使用者回報「左上更新太久」）。
+    // ⚠ 2026-09-02「報價完全沒有變化」同族修復：背景排的 300 秒計時器在回前景時
+    //   不會自己縮短，這張側欄大指數卡就凍住最久 5 分鐘。改接 startLiveLoop
+    //   （鎖相＋visibilitychange 立即恢復），節奏函式自帶——含美股/夜盤時段，
+    //   不能吃預設 liveQuoteInterval（它盤外 10 分鐘，會拖慢美股更新）。
     const getInterval = () => {
       if (!isForeground()) return 300_000;
       const s = getSession();
@@ -177,10 +179,9 @@ export function NavbarIndexWidget() {
       if (s === 'pre-open') return 15_000;
       return 60_000;
     };
-    const tick = () => { load(); timeoutId = setTimeout(tick, getInterval()); };
     load();
-    timeoutId = setTimeout(tick, getInterval());
-    return () => clearTimeout(timeoutId);
+    const stop = startLiveLoop(load, getInterval);
+    return () => stop();
   }, []);
 
   if (!data || data.weighted === 0) return (

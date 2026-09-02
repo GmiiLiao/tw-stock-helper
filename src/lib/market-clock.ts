@@ -158,20 +158,20 @@ export function liveQuoteInterval(): number {
  *  一直沒有；2026-09-02 又把自選/戰情接上同一節奏，等於把缺陷面擴大——
  *  回前景恢復必須內建在標準件裡，不能靠每個呼叫端自己記得。
  *  fn 以 fire-and-forget 執行（不 await）：fetch 失敗不得斷輪詢鏈，fn 自行 catch。 */
-export function startLiveLoop(fn: () => void): () => void {
+export function startLiveLoop(fn: () => void, intervalFn: () => number = liveQuoteInterval): () => void {
   let t: ReturnType<typeof setTimeout>;
   let alive = true;
   const tick = () => {
     if (!alive) return;
     fn();
-    t = setTimeout(tick, liveQuoteInterval());
+    t = setTimeout(tick, intervalFn());
   };
-  t = setTimeout(tick, liveQuoteInterval());
+  t = setTimeout(tick, intervalFn());
   const onVis = () => {
     if (typeof document === 'undefined' || document.hidden || !alive) return;
     clearTimeout(t);
     fn();                                   // 先補一次，不讓使用者等
-    t = setTimeout(tick, liveQuoteInterval());
+    t = setTimeout(tick, intervalFn());
   };
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
   return () => {
