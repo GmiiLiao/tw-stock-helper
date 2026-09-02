@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getSession, isForeground, msToNextReveal } from './market-clock';
+import { liveQuoteInterval } from './market-clock';
 
 // ============================================================
 // useLiveQuotes — shared real-time MIS quote poller.
@@ -18,16 +18,8 @@ export interface LiveQuote {
   source: string;
 }
 
-// 時段判斷統一走 market-clock（會查國定假日，原本的版本只擋週末）。
-// 休市時報價不會變，直接把間隔拉長到 10 分鐘讓計時器保持存活即可 ——
-// 使用者跨過 09:00 時下一輪就會自動回到 5 秒。
-function marketInterval(): number {
-  if (!isForeground()) return 600_000;
-  const s = getSession();
-  if (s === 'regular') return msToNextReveal(3000);   // 鎖相：揭示邊界+3s
-  if (s === 'pre-open') return 15_000;
-  return 600_000;
-}
+// 節奏統一走 market-clock 的 liveQuoteInterval（2026-09-02 升格為全站標準件，
+// 邏輯原封搬家：鎖相+盤前 15s+休市/背景 10 分鐘）。
 
 export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuote> {
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
@@ -62,10 +54,10 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
 
     const tick = () => {
       fetchQuotes();
-      timeoutId = setTimeout(tick, marketInterval());
+      timeoutId = setTimeout(tick, liveQuoteInterval());
     };
     fetchQuotes();
-    timeoutId = setTimeout(tick, marketInterval());
+    timeoutId = setTimeout(tick, liveQuoteInterval());
     return () => { alive = false; clearTimeout(timeoutId); };
   }, [key]);
 

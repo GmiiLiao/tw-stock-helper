@@ -136,6 +136,20 @@ export function isForeground(): boolean {
   return typeof document === 'undefined' || !document.hidden;
 }
 
+/** 全站台股報價的統一節奏（使用者 2026-09-02「盤中為 3 秒更新·全站同步」）：
+ *  盤中鎖相「揭示邊界+3s」（揭示 5 秒一拍、+1s 快線抓、+3s 各層快取已回填）、
+ *  盤前 15s、休市/背景分頁 10 分鐘。
+ *  ⚠ 所有顯示**台股股價**的輪詢都應該用這一個時鐘——這是 2026-08-17
+ *  「單一時鐘同步擴散」設計的全站版；各自 setInterval 會把相位疊回亂數延遲。
+ *  含美盤/ADR 的元件（Header）除外：那些休市時仍在動，節奏需求不同。 */
+export function liveQuoteInterval(): number {
+  if (!isForeground()) return 600_000;
+  const s = getSession();
+  if (s === 'regular') return msToNextReveal(3000);   // 鎖相：揭示邊界+3s
+  if (s === 'pre-open') return 15_000;
+  return 600_000;
+}
+
 /* 相容層：讓既有呼叫點可以最小改動遷移過來 --------------------------- */
 
 /** 取代 useLiveQuotes.ts:20-28 的 marketInterval() */

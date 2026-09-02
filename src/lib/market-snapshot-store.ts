@@ -93,7 +93,10 @@ export interface HotQuotes { quotes: Record<string, SnapQuote>; at: number }
 let _hotCache: { at: number; hot: HotQuotes | null } = { at: 0, hot: null };
 
 export async function readHotQuotes(): Promise<HotQuotes | null> {
-  if (Date.now() - _hotCache.at < 2000) return _hotCache.hot;
+  // 1 秒（原 2 秒）：前端已鎖相在「揭示邊界+3s」打（2026-09-02 盤中 3 秒更新規格），
+  // 2 秒快取會讓 +3s 的請求偶發拿到 +1.1s 前快取的**上一拍**——快取過期節奏與
+  // 揭示邊界相位隨機。1 秒把這個窗口砍半，Firestore 讀最多 1 次/秒/實例，成本可忽略。
+  if (Date.now() - _hotCache.at < 1000) return _hotCache.hot;
   const db = getAdminDb();
   if (!db) return null;
   try {

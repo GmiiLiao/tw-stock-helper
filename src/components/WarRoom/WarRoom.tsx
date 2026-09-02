@@ -19,6 +19,7 @@ import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { liveQuoteInterval } from '@/lib/market-clock';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
@@ -145,8 +146,16 @@ export default function WarRoom() {
       try { const b = await fetch('/api/ai/market-health').then(x => (x.ok ? x.json() : null)); if (live && b) setBreadth(b); } catch { /* ignore */ }
     };
     load(); quotes(); loadBreadth();
-    const iv = setInterval(() => { load(); quotes(); loadBreadth(); }, isTwTradingHours() ? 30000 : 300000);
-    return () => { live = false; clearInterval(iv); };
+    const iv = setInterval(() => { load(); loadBreadth(); }, isTwTradingHours() ? 30000 : 300000);
+    // 報價與榜單分離（使用者 2026-09-02「盤中為 3 秒更新」）：榜單/寬度 30 秒即可，
+    // 但**價格**要鎖相在 MIS 揭示邊界+3s——揭示 5 秒一拍，邊界+1s 快線已抓、
+    // +3s 時各層快取已回填，此時打恰好每拍都拿到最新價。盤外退回 5 分鐘。
+    let qt: ReturnType<typeof setTimeout> | null = null;
+    const qLoop = () => {
+      qt = setTimeout(async () => { await quotes(); if (live) qLoop(); }, liveQuoteInterval());
+    };
+    qLoop();
+    return () => { live = false; clearInterval(iv); if (qt) clearTimeout(qt); };
   }, [ttlMin, benchMax, prune]);
 
   // 點選(展開)主榜列 → 釘住到備選區（之後掉榜也保留）
