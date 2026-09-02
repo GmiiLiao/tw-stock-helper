@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { liveQuoteInterval } from './market-clock';
+import { startLiveLoop } from './market-clock';
 
 // ============================================================
 // useLiveQuotes — shared real-time MIS quote poller.
@@ -31,7 +31,6 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
   useEffect(() => {
     if (!key) { setQuotes({}); return; }
     let alive = true;
-    let timeoutId: ReturnType<typeof setTimeout>;
 
     const fetchQuotes = async () => {
       try {
@@ -52,13 +51,11 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
       } catch { /* keep previous quotes */ }
     };
 
-    const tick = () => {
-      fetchQuotes();
-      timeoutId = setTimeout(tick, liveQuoteInterval());
-    };
     fetchQuotes();
-    timeoutId = setTimeout(tick, liveQuoteInterval());
-    return () => { alive = false; clearTimeout(timeoutId); };
+    // startLiveLoop＝鎖相＋回前景立即恢復（2026-09-02「報價完全沒有變化」的修復：
+    // 背景排的 10 分鐘計時器在回前景時不會自己縮短，必須 onVis 重排）。
+    const stop = startLiveLoop(fetchQuotes);
+    return () => { alive = false; stop(); };
   }, [key]);
 
   return quotes;

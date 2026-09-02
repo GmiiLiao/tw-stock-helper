@@ -5,7 +5,7 @@ import { useAppStore } from '@/lib/store';
 import type { WatchlistGroup, WatchlistItem, AppNotification } from '@/lib/store';
 import styles from './WatchlistTracker.module.css';
 import StockTrendChart from './StockTrendChart';
-import { liveQuoteInterval } from '@/lib/market-clock';
+import { startLiveLoop } from '@/lib/market-clock';
 import StockAIEval from './StockAIEval';
 import { getTargetPrice } from '@/lib/scoring';
 import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBanner';
@@ -2302,18 +2302,14 @@ export default function WatchlistTracker() {
     // 報價鎖相（使用者 2026-09-02「盤中為 3 秒更新」）：原本 5 秒自由輪詢與
     // MIS 揭示邊界（5 秒一拍）相位隨機，平均多落後半拍。改鎖「揭示邊界+3s」
     // ——+1s 快線已抓、+3s 各層快取已回填，每拍都拿到最新揭示。
-    let qt: ReturnType<typeof setTimeout> | null = null;
-    const qLoop = () => {
-      qt = setTimeout(async () => { await fetchQuotes(); if (live) qLoop(); }, liveQuoteInterval());
-    };
-    qLoop();
+    const stopQ = startLiveLoop(fetchQuotes);   // 鎖相＋回前景立即恢復（標準件）
     // AI recommendations refresh every 5 min
     const aiInterval = setInterval(() => {
       fetchAiRecommendations();
     }, 5 * 60_000);
     return () => {
       live = false;
-      if (qt) clearTimeout(qt);
+      stopQ();
       clearInterval(aiInterval);
     };
   }, [fetchQuotes, fetchAiRecommendations]);

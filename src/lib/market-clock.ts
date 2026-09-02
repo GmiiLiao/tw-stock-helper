@@ -150,6 +150,37 @@ export function liveQuoteInterval(): number {
   return 600_000;
 }
 
+/** 鎖相輪詢迴圈＋回前景立即恢復——全站報價輪詢的標準件。回傳 stop 函式。
+ *  ⚠ 為什麼必須帶 visibilitychange（2026-09-02 使用者回報「報價完全沒有變化」）：
+ *  liveQuoteInterval 在背景分頁排 10 分鐘檔，而**間隔是排程當下算的**——
+ *  切去 LINE 再切回來，那顆計時器不會自己縮短，報價就凍住最久 10 分鐘。
+ *  Header 在 2026-08-11 就修過這個（加 onVis 立即重排），但 useLiveQuotes 系
+ *  一直沒有；2026-09-02 又把自選/戰情接上同一節奏，等於把缺陷面擴大——
+ *  回前景恢復必須內建在標準件裡，不能靠每個呼叫端自己記得。
+ *  fn 以 fire-and-forget 執行（不 await）：fetch 失敗不得斷輪詢鏈，fn 自行 catch。 */
+export function startLiveLoop(fn: () => void): () => void {
+  let t: ReturnType<typeof setTimeout>;
+  let alive = true;
+  const tick = () => {
+    if (!alive) return;
+    fn();
+    t = setTimeout(tick, liveQuoteInterval());
+  };
+  t = setTimeout(tick, liveQuoteInterval());
+  const onVis = () => {
+    if (typeof document === 'undefined' || document.hidden || !alive) return;
+    clearTimeout(t);
+    fn();                                   // 先補一次，不讓使用者等
+    t = setTimeout(tick, liveQuoteInterval());
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
+  return () => {
+    alive = false;
+    clearTimeout(t);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
+  };
+}
+
 /* 相容層：讓既有呼叫點可以最小改動遷移過來 --------------------------- */
 
 /** 取代 useLiveQuotes.ts:20-28 的 marketInterval() */
