@@ -722,9 +722,26 @@ async function fetchYahooSymbolServer(symbol: string) {
 const _marketIndexMemo = memoize<MarketIndexData>('market-index', 15_000,
   () => getMarketIndexDataInternalUncached());
 
+// 台股指數的 3 秒新鮮層（2026-09-02「盤中為 3 秒更新」）：
+// 15 秒 memoize 是為了保護 6 個美股 Yahoo 請求，但它讓台股加權落後最多三拍。
+// daemon 指數是 Firestore 小文件讀——3 秒 TTL 的成本可忽略，
+// 美股欄位維持 15 秒（動那邊會把 Yahoo 請求×5，才是真的risky）。
+const _daemonIdxFresh = memoize<Partial<MarketIndexData> | null>('daemon-index-fresh', 3_000,
+  () => readDaemonIndex());
+
 export async function getMarketIndexDataInternal(): Promise<MarketIndexData> {
   const v = await _marketIndexMemo();
-  return v ?? ({ weighted: 0, weightedChange: 0, weightedChangePercent: 0 } as MarketIndexData);
+  const base = v ?? ({ weighted: 0, weightedChange: 0, weightedChangePercent: 0 } as MarketIndexData);
+  // 盤中把台股欄位蓋成 3 秒新鮮版（同 tradeDate 才蓋——跨日判斷仍由 memoize 版把關）
+  try {
+    if (isMarketOpen()) {
+      const fresh = await _daemonIdxFresh();
+      if (fresh && fresh.weighted && fresh.weighted > 0 && (!base.tradeDate || fresh.tradeDate === base.tradeDate)) {
+        return { ...base, ...fresh };
+      }
+    }
+  } catch { /* 新鮮層失敗＝退回 15 秒版，不影響既有行為 */ }
+  return base;
 }
 
 /**

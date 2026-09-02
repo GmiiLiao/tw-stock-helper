@@ -19,7 +19,7 @@ import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
-import { startLiveLoop } from '@/lib/market-clock';
+import { startLiveLoop, revealTick } from '@/lib/market-clock';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
@@ -136,7 +136,7 @@ export default function WarRoom() {
       try {
         const codes = JSON.parse(localStorage.getItem('warBench') || '{}')?.items?.map((b: BenchItem) => b.code) || [];
         if (!codes.length) return;
-        const j = await fetch(`/api/twse/mis-quote?codes=${codes.slice(0, 30).join(',')}`).then(x => (x.ok ? x.json() : null));
+        const j = await fetch(`/api/twse/mis-quote?codes=${codes.slice(0, 30).join(',')}&t=${revealTick()}`).then(x => (x.ok ? x.json() : null));
         const qs: { code: string; price: number; changePercent: number }[] = j?.quotes || [];
         if (!live || !qs.length) return;
         setBench(cur => cur.map(b => { const q = qs.find(x => x.code === b.code); return q && q.price > 0 ? { ...b, lastPrice: q.price, lastChg: q.changePercent } : b; }));

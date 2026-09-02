@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { startLiveLoop } from './market-clock';
+import { startLiveLoop, revealTick } from './market-clock';
 
 // ============================================================
 // useLiveQuotes — shared real-time MIS quote poller.
@@ -34,7 +34,8 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
 
     const fetchQuotes = async () => {
       try {
-        const res = await fetch(`/api/twse/mis-quote?codes=${encodeURIComponent(key)}`, { cache: 'no-store' });
+        // t=拍號：CDN 快取鍵按拍分開（見 market-clock revealTick）——同拍全球共享、換拍必回源
+        const res = await fetch(`/api/twse/mis-quote?codes=${encodeURIComponent(key)}&t=${revealTick()}`);
         if (!res.ok) return;
         const data = await res.json();
         if (!alive || !Array.isArray(data.quotes)) return;

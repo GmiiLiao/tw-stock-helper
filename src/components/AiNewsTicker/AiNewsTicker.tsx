@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getSession, isForeground, msToNextReveal, startLiveLoop } from '@/lib/market-clock';
+import { getSession, isForeground, msToNextReveal, startLiveLoop, revealTick } from '@/lib/market-clock';
 import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
 import styles from './AiNewsTicker.module.css';
 
@@ -162,7 +162,7 @@ export function NavbarIndexWidget() {
       // 而 Header 也在打同一支 API，兩者共用 CDN 快取才有意義。
       if (!isForeground()) return;
       try {
-        const res = await fetch('/api/twse/market-index');
+        const res = await fetch(`/api/twse/market-index?t=${revealTick()}`);
         if (res.ok) setData(await res.json());
       } catch { /* ignore */ }
     };

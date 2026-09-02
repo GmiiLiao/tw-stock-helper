@@ -24,7 +24,7 @@ export async function GET() {
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
     const nearOpen = isTradingDay(now) && now.getHours() >= 8;
     const cacheHeader = active
-      ? 'public, max-age=2, s-maxage=3, stale-while-revalidate=5, stale-if-error=60'
+      ? 'public, max-age=2, s-maxage=5, stale-while-revalidate=5, stale-if-error=60'   // 拍號快取鍵後 s-maxage 拉滿一拍（前端帶 ?t=revealTick）
       : nearOpen
         ? 'public, max-age=15, s-maxage=30, stale-while-revalidate=30, stale-if-error=600'
         : 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600, stale-if-error=86400';

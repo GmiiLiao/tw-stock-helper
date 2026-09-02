@@ -30,8 +30,11 @@ export async function GET(request: NextRequest) {
       {
         headers: {
           // 盤中 no-store 會讓每個 5 秒輪詢都打穿 CDN（CLAUDE.md 最貴教訓）。
-          // 快線資料本身 5 秒一更、實例快取 2 秒，s-maxage=2 無損即時性。
-          'Cache-Control': marketOpen ? 'public, s-maxage=2, stale-while-revalidate=10' : 'public, max-age=60',
+          // 2026-09-02 改拍號快取鍵（前端帶 &t=revealTick）：同拍恆 hit、換拍
+          // URL 變＝必回源 ⇒ s-maxage 拉滿一拍也不會殘影。SWR 縮成 origin
+          // 慢時的容錯，不再是常態路徑（先前 swr=10 讓鎖相請求常吃一兩拍前殘影，
+          // 實測平均資料齡 7.9s、僅 1/8 拍 ≤5s）。
+          'Cache-Control': marketOpen ? 'public, s-maxage=5, stale-while-revalidate=5' : 'public, max-age=60',
           'Access-Control-Allow-Origin': '*',
           'X-Data-Source': result.source,
         },

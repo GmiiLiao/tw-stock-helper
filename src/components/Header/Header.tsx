@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
 import { fetchAllStocksDayData } from '@/lib/twse-api';
 import type { StockInfo } from '@/lib/twse-api';
-import { getSession, isForeground, isMarketOpen as isMarketOpenClock, msToNextReveal } from '@/lib/market-clock';
+import { getSession, isForeground, isMarketOpen as isMarketOpenClock, msToNextReveal, revealTick } from '@/lib/market-clock';
 import styles from './Header.module.css';
 import { useShallow } from 'zustand/react/shallow';
 import DayTradeBadge from '@/components/shared/DayTradeBadge';
@@ -86,8 +86,9 @@ export default function Header() {
   // ── Load market data ──────────────────────────────────────────
   const loadMarketIndex = useCallback(async () => {
     try {
-      // cache-buster 會讓每次 URL 都不同 → CDN 100% miss。改吃 route 的 s-maxage=3。
-      const res = await fetch('/api/twse/market-index');
+      // t=拍號（非 cache-buster）：同拍所有使用者同一快取鍵、換拍必回源——
+      // 取代 s-maxage+SWR 的殘影（詳 market-clock revealTick）。
+      const res = await fetch(`/api/twse/market-index?t=${revealTick()}`);
       if (!res.ok) return;
       const indexData = await res.json();
       if (indexData) {

@@ -5,7 +5,7 @@ import { useAppStore } from '@/lib/store';
 import type { WatchlistGroup, WatchlistItem, AppNotification } from '@/lib/store';
 import styles from './WatchlistTracker.module.css';
 import StockTrendChart from './StockTrendChart';
-import { startLiveLoop } from '@/lib/market-clock';
+import { startLiveLoop, revealTick } from '@/lib/market-clock';
 import StockAIEval from './StockAIEval';
 import { getTargetPrice } from '@/lib/scoring';
 import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBanner';
@@ -2180,7 +2180,7 @@ export default function WatchlistTracker() {
 
           const misResults = await Promise.all(
             batches.map(batch =>
-              fetch(`/api/twse/mis-quote?codes=${batch.join(',')}`, { cache: 'no-store' })
+              fetch(`/api/twse/mis-quote?codes=${batch.join(',')}&t=${revealTick()}`)
                 .then(r => r.ok ? r.json() : null).catch(() => null)
             )
           );

@@ -181,6 +181,13 @@ export function startLiveLoop(fn: () => void, intervalFn: () => number = liveQuo
   };
 }
 
+/** 目前的 MIS 揭示拍號（整 5 秒牆鐘）。放進報價請求的 query，讓 CDN 快取鍵
+ *  按拍分開：每拍第一個請求必回源、同拍所有使用者共享同一份——
+ *  取代「s-maxage 過期＋stale-while-revalidate 先回舊值」的殘影行為
+ *  （2026-09-02 實測鎖相打仍平均 7.9s 資料齡、1/8 拍 ≤5s，元凶就是 SWR 殘影）。
+ *  用戶時鐘偏差只會讓該用戶自成快取鍵，不會拿到錯資料。 */
+export const revealTick = () => Math.floor(Date.now() / 5000);
+
 /* 相容層：讓既有呼叫點可以最小改動遷移過來 --------------------------- */
 
 /** 取代 useLiveQuotes.ts:20-28 的 marketInterval() */
