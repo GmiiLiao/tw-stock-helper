@@ -200,7 +200,7 @@ export default function WarRoom() {
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <h1 style={{ fontSize: 'calc(1.25rem * var(--fz))', fontWeight: 900 }}>⚡ 盤中戰情</h1>
-        <span className="mobile-hide" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>盤中專用（撿尾盤請至 📡 即時追蹤）· 盤中 09:10–13:35 每 60 秒更新</span>
+        <span className="mobile-hide" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>盤中專用（撿尾盤請至 📡 即時追蹤）· 盤中 09:00–13:35 每 60 秒更新</span>
       </div>
       <PageHelp id="war" />
 
@@ -303,7 +303,7 @@ export default function WarRoom() {
             const rows = [...map.values()].sort((a, b) => b.hitOn.length - a.hitOn.length || b.volX - a.volX);
             if (!rows.length) return (
               <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '14px 4px' }}>
-                目前無符合已開啟策略的個股（盤中 09:10 起每 60 秒掃描；非盤中時段顯示最後一次結果）。
+                目前無符合已開啟策略的個股（盤中 09:00 起每 60 秒掃描（開盤 10 分鐘內為 1 分 K 輪間方向偵測）；非盤中時段顯示最後一次結果）。
               </div>
             );
             const { rows: shownRows, filteredTotal } = applyPick(rows, pickCtl, {

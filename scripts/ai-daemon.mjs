@@ -1801,7 +1801,8 @@ async function writeIntraday() {
 // 早盤回補：daemon 只從「被檢視當下」才記錄，故被檢視前的早盤缺一段。
 // 每輪回補一檔(限流)，用 Yahoo 1m 補上首筆之前的早盤，讓即時走勢圖從 09:00 起完整、
 // 且盤中 route 可直接回 daemon(免等 Yahoo)→速度不退步。
-const _ibBackfilled = new Set(); let _ibDay = '';
+const _ibBackfilled = new Map();   // code → 'done' | 退避到期時戳
+let _ibDay = '';
 async function fetchYahoo1m(sym) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 6000);
   try {
@@ -1816,28 +1817,36 @@ async function fetchYahoo1m(sym) {
 const _taipeiMinOf = tsSec => { const t = new Date(new Date(tsSec * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return t.getHours() * 60 + t.getMinutes(); };
 async function backfillIntradayMorning(trackedSet, byCode) {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
-  if (mins < 9 * 60 + 10 || mins >= 13 * 60 + 35) return;   // 只在盤中且開盤 10 分後回補
+  // 2026-09-03 使用者指定：09:00 起即時監聽，缺口一出現就補、不等 09:10。
+  // ⚠ 配套必改：原本「無論成敗都標記」在 09:00 就跑會變成**永不回補**——
+  //   Yahoo 分鐘線開盤初常整條缺席（2026-09-01 實測），第一試必敗、標記後不再試。
+  //   改成**成功才標記 done**，失敗退避 90 秒後可重試（Map 存 nextAt）。
+  if (mins < 9 * 60 || mins >= 13 * 60 + 35) return;
   const today = isoDate(tw);
   if (_ibDay !== today) { _ibBackfilled.clear(); _ibDay = today; }
-  // 找一檔：尚未回補、且序列缺早盤(首筆晚於 09:05 或整段缺)
+  // 找一檔：尚未補成、退避已過、且序列缺早盤（首筆晚於 09:01 或整段缺）
   let target = null;
+  const now = Date.now();
   for (const code of trackedSet) {
-    if (_ibBackfilled.has(code)) continue;
+    const st = _ibBackfilled.get(code);
+    if (st === 'done') continue;
+    if (typeof st === 'number' && now < st) continue;        // 退避中
     const s = _intraday.series[code];
     const firstMin = s?.pts?.length ? _taipeiMinOf(s.pts[0][0]) : 9999;
-    if (firstMin > 9 * 60 + 5) { target = code; break; }
+    if (firstMin > 9 * 60 + 1) { target = code; break; }
   }
   if (!target) return;
-  _ibBackfilled.add(target);                                 // 無論成敗都標記，避免反覆重試
+  _ibBackfilled.set(target, now + 90_000);                   // 先掛退避；成功後改標 done
   const market = byCode[target]?.market;
   const bars = await fetchYahoo1m(`${target}.${market === 'otc' ? 'TWO' : 'TW'}`);
   if (!bars) return;
   const s = _intraday.series[target];
   const firstTs = s?.pts?.length ? s.pts[0][0] : Infinity;
   const morning = bars.filter(b => b[0] < firstTs && _taipeiMinOf(b[0]) >= 9 * 60 && _taipeiMinOf(b[0]) < 13 * 60 + 35);
-  if (!morning.length) return;
+  if (!morning.length) return;                               // 沒補到＝退避後再試（Yahoo 資料未出）
   if (!s) { _intraday.series[target] = { prev: +(bars[0][1]).toFixed(2), pts: morning }; }
   else { s.pts = [...morning, ...s.pts]; if (s.pts.length > 400) s.pts.splice(400); }
+  _ibBackfilled.set(target, 'done');
   log(`  ⏮ 早盤回補 ${target} +${morning.length} 筆`);
 }
 
@@ -12581,10 +12590,15 @@ const RADAR_STRATEGIES = {
 };
 let _radarCtx = { date: '', avgVol: null, hi5: null, prevClose: null, ma5: null, yChg: null, yForeign: null, yTrust: null, ySqueeze: null, hi20: null };
 let _radarSeen = { date: '', map: {} }; // code -> firstSeen ts(當日，跨策略共用)
+let _radarOpen = { date: '', map: {} };   // 開盤段輪間記錄（60秒/輪·差分=1分K 粒度）
 let _radarRating = { at: 0, map: {} };  // AI 評分快取(5分)，避免每60秒重抓全市場
 async function computeIntradayRadar() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
-  if (!isTradingDay(tw) || mins < 9 * 60 + 10 || mins >= 13 * 60 + 35) return;
+  // 2026-09-03 使用者指定：09:00 就要開始偵測。開盤段（09:00–09:10）全日量能
+  // 基準失真（elapsed 下限撐不住第一分鐘的極端比例），改走**輪間差分方向偵測**
+  // ——警示束 60 秒/輪，輪間差分＝1 分 K 粒度；5 分方向=連續多輪累積。
+  // 09:10 起照舊走原策略（分支隔離，原邏輯零改動）。
+  if (!isTradingDay(tw) || mins < 9 * 60 || mins >= 13 * 60 + 35) return;
 
   // 每日一次：5日均量/5日高/昨收/MA5(近似:前5日收盤均)/昨日漲幅/昨日外資（chipArchive）
   if (_radarCtx.date !== today) {
@@ -12631,6 +12645,8 @@ async function computeIntradayRadar() {
     _radarCtx = { date: today, avgVol, hi5, prevClose, ma5, yChg, yForeign, yTrust, ySqueeze, hi20 };
   }
   if (_radarSeen.date !== today) _radarSeen = { date: today, map: {} };
+  if (_radarOpen.date !== today) _radarOpen = { date: today, map: {} };
+  const opening = mins < 9 * 60 + 10;                       // 開盤段：輪間差分方向偵測
   // AI 評分快取(5分刷新)
   if (Date.now() - _radarRating.at > 300000) {
     try { _radarRating = { at: Date.now(), map: (await getJSON('/api/rating'))?.ratings || {} }; } catch { /* keep old */ }
@@ -12658,6 +12674,24 @@ async function computeIntradayRadar() {
     const bounce = x.low > 0 ? (x.price - x.low) / x.low * 100 : 0;
 
     const hits = [];
+    if (opening) {
+      // ── 開盤段（09:00–09:10）：輪間差分方向偵測，不用全日量能基準 ──
+      const hist = _radarOpen.map[code] || (_radarOpen.map[code] = []);
+      const vNow = (x.volume || 0) / 1000;
+      const prev1 = hist[hist.length - 1], prev2 = hist[hist.length - 2];
+      hist.push({ p: x.price, v: vNow, at: Date.now() });
+      if (hist.length > 6) hist.shift();
+      if (prev1 && prev2) {
+        const dV1 = vNow - prev1.v, dV0 = prev1.v - prev2.v;               // 本輪/上輪的分鐘量
+        const rising = x.price > prev1.p && prev1.p >= prev2.p;            // 連兩輪上攻（1分K方向）
+        const volAccel = dV1 > 0 && dV1 > dV0 * 1.3;                       // 分鐘量加速
+        if (rising && x.price > x.open && pos >= 0.7 && volAccel) {
+          if (chg >= 0.5 && chg <= 3.5) hits.push('ignite');
+          else if (chg >= 3.5 && chg <= 8.5 && body >= 2.5) hits.push('volSurge');
+        }
+        if (gap >= 1.5 && x.low > pc && x.price >= x.open && dV1 > 0) hits.push('openStrong');
+      }
+    } else {
     if (chg >= 0.5 && chg <= 3.5 && volX >= 2 && pos >= 0.75 && h5 > 0 && x.price >= h5 * 0.99) hits.push('ignite');
     if (chg >= 3.5 && chg <= 8.5 && volX >= 3 && pos >= 0.85 && body >= 2.5) hits.push('volSurge');
     if (gap >= 1.5 && x.low > pc && x.price >= x.open && volX >= 1.2) hits.push('openStrong');
@@ -12666,6 +12700,7 @@ async function computeIntradayRadar() {
     if ((_radarCtx.yForeign?.[code] || 0) >= 500 && chg >= 1 && volX >= 1.5 && pos >= 0.7) hits.push('chipIgnite');
     if (_radarCtx.ySqueeze?.[code] != null && chg > 2) hits.push('squeeze');
     { const h20 = _radarCtx.hi20?.[code] || 0; if (h20 > 0 && x.price > h20 && pc <= h20 && pos >= 0.7) hits.push('breakHigh'); }
+    }
     if (!hits.length) continue;
 
     if (!_radarSeen.map[code]) _radarSeen.map[code] = Date.now();
