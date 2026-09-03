@@ -63,7 +63,7 @@ export default function ShortPanel() {
           color: active ? '#f87171' : 'var(--text-muted)',
           border: `1px solid ${active ? 'rgba(239,68,68,0.35)' : 'rgba(148,163,184,0.3)'}`,
         }}>
-          {active ? `🐻 偏空日（健康度 ${data.health}）· 空方順風` : `⏸ 觀察模式（健康度 ${data.health ?? '—'}≥50·多頭日放空逆風）`}
+          {active ? `🐻 偏空日（健康度 ${data.health}）` : `⏸ 多頭日（健康度 ${data.health ?? '—'}）`}·當沖空參考
         </span>
         <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
           資料日 {data.dataDate ?? '—'} · 過濾後 {data.totalPassed} 檔 · 入榜 {data.items.length}
@@ -153,7 +153,10 @@ export default function ShortPanel() {
 
       <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.6 }}>
         ⚠ 空單虧損不對稱（理論無上限）——本榜已先排除軋空候選與高券資比標的，但仍須自設停損。
-        第一期為展示排序（未經 OOT/安慰劑驗證），分數僅供排列、不代表勝率；累積樣本後將依站規驗證。
+        📊 歷史回測（399 天·EXPERIMENTS ⑦）：機械因子版隔日收→收勝率僅 48%（未過安慰劑檢定）；
+        <b>開盤進·收盤出（當沖空口徑）54~55% 兩窗穩定</b>——本榜定位為<b>當沖空參考</b>；
+        <b>5 日留倉 OOT 反彈 +0.41%，嚴禁作為波段留倉依據</b>。偏空/多頭日模式僅供參考（回測顯示無顯著差異）。
+        回測未含 AI 利空判別因子（生產版有·前瞻對答案累積驗證中）。
         融券尚須留意券源與強制回補公告。僅供研究參考，非投資建議。
       </div>
     </div>

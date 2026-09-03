@@ -11986,10 +11986,13 @@ async function computeShortCandidates() {
     items: items.slice(0, 20), totalPassed: items.length,
     trainJson: JSON.stringify(trainRows),                       // 全部通過股的特徵快照（訓練用·含未入榜）
     skippedFilters: skipped,
-    note: '做空風控候選（第一期·展示排序未經OOT，分數僅供排列不宣稱勝率）。'
+    note: '做空風控候選。⚠ 歷史回測(2026-09-03·EXPERIMENTS⑦·399天)：機械因子版'
+      + '隔日c2c勝率僅48%未過安慰劑、**o2c(開盤進收盤出=當沖空口徑)54-55%兩窗穩定**、'
+      + '5日留倉OOT反彈+0.41% ⇒ 定位=當沖空參考·嚴禁波段留倉依據。'
+      + '偏空日無超額(全市場齊跌)·多頭日相對超額較大但絕對值貼零——mode僅供參考。'
+      + '回測缺AI利空因子(生產版有·前瞻累積驗證中)。'
       + '資格層：可先賣現股當沖·非處置·非除權息回補期(14日)·20日均額>5000萬。'
-      + '風控層：軋空候選榜反查排除·券資比>15%排除。'
-      + 'watch=大盤健康度≥50（多頭日放空逆風，僅觀察）。研究輔助，非投資建議。',
+      + '風控層：軋空候選榜反查排除·券資比>15%排除。研究輔助，非投資建議。',
   };
   await db.collection('shortCandidates').doc('latest').set(doc);
   // 排程跑才寫日期檔（review 對答案的事前存檔）；手動 CLI 只更新 latest——
