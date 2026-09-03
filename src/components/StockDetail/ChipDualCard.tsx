@@ -21,24 +21,27 @@ const col = (n?: number) => (n == null ? 'var(--text-muted)' : n > 0 ? '#f03e3e'
 
 export default function ChipDualCard({ code }: { code: string }) {
   const [sig, setSig] = useState<Sig | null>(null);
+  const [day, setDay] = useState<{ foreign: number; trust: number; dealer: number; date: string } | null>(null);
   const [sigDate, setSigDate] = useState<string | null>(null);
   const [cum, setCum] = useState<Cum | null>(null);
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/ai/chip-signals?code=${code}`).then(r => (r.ok ? r.json() : null)).then(d => { if (live && d) { setSig(d.signal); setSigDate(d.dataDate); } }).catch(() => {});
+    fetch(`/api/ai/chip-signals?code=${code}`).then(r => (r.ok ? r.json() : null)).then(d => { if (live && d) { setSig(d.signal); setDay(d.day ?? null); setSigDate(d.day?.date || d.dataDate); } }).catch(() => {});
     fetch(`/api/ai/chip-cumulative?code=${code}`).then(r => (r.ok ? r.json() : null)).then(d => { if (live) setCum(d); }).catch(() => {});
     return () => { live = false; };
   }, [code]);
 
   const tags = sig?.tags || [];
   const rows: { label: string; icon: string; day?: number; cum?: number }[] = [
-    { label: '外資', icon: '🌐', day: sig?.foreign, cum: cum?.found ? cum.foreign : undefined },
-    { label: '投信', icon: '🏛️', day: sig?.trust, cum: cum?.found ? cum.trust : undefined },
-    { label: '自營商', icon: '🏢', day: sig?.dealer, cum: cum?.found ? cum.dealer : undefined },
+    // 當日數字：day＝全市場來源（chipDaily·每檔都有）優先；sig 僅訊號股才有（後備相容）
+    { label: '外資', icon: '🌐', day: day?.foreign ?? sig?.foreign, cum: cum?.found ? cum.foreign : undefined },
+    { label: '投信', icon: '🏛️', day: day?.trust ?? sig?.trust, cum: cum?.found ? cum.trust : undefined },
+    { label: '自營商', icon: '🏢', day: day?.dealer ?? sig?.dealer, cum: cum?.found ? cum.dealer : undefined },
   ];
-  const dayTotal = sig ? (sig.foreign || 0) + (sig.trust || 0) + (sig.dealer || 0) : undefined;
-  const hasDay = !!sig, hasCum = !!cum?.found;
+  const src = day ?? sig;
+  const dayTotal = src ? (src.foreign || 0) + (src.trust || 0) + (src.dealer || 0) : undefined;
+  const hasDay = !!src, hasCum = !!cum?.found;
   if (!hasDay && !hasCum) return null;
 
   return (
@@ -82,10 +85,10 @@ export default function ChipDualCard({ code }: { code: string }) {
         <div style={{ textAlign: 'right', fontWeight: 900, color: col(cum?.total), padding: '5px 0', borderTop: '1px solid var(--border-primary)' }}>{hasCum ? fmt(cum!.total) : '—'}</div>
       </div>
 
-      {hasDay && (sig!.streak > 0 || sig!.marginChg !== 0) && (
+      {sig && (sig.streak > 0 || sig.marginChg !== 0) && (
         <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
-          {sig!.streak > 0 && <span>外資連買 {sig!.streak} 日　</span>}
-          {sig!.marginChg !== 0 && <span>融資{sig!.marginChg > 0 ? '增' : '減'} {Math.abs(Math.round(sig!.marginChg)).toLocaleString()} 張</span>}
+          {sig.streak > 0 && <span>外資連買 {sig.streak} 日　</span>}
+          {sig.marginChg !== 0 && <span>融資{sig.marginChg > 0 ? '增' : '減'} {Math.abs(Math.round(sig.marginChg)).toLocaleString()} 張</span>}
         </div>
       )}
       <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
