@@ -11766,6 +11766,181 @@ async function computeChipDivergence() {
   log(`✓ 量價背離(${DIV_WIN}日)：吸貨候選 ${accumulate.length}、出貨候選 ${distribute.length}`);
 }
 
+// ── 🐻 做空風控候選榜 shortCandidates（2026-09-03·使用者核准第一期）────
+// 設計原則（股市分析師規畫定稿）：空單虧損不對稱（理論無上限），
+// **風控過濾放在選股之前**——先砍「不能空的」與「會被軋的」，再挑弱勢股。
+// 全部組件取自站上現成資料（詳 note）；新增訊號未經 OOT 前只做展示排序，
+// 分數僅供排列，不宣稱勝率。⚠ 榜單為研究輔助，非投資建議。
+//
+// 資格層：可先賣現股當沖（繞開平盤下融券限制的合法路徑）·非處置股·
+//         非除權息回補期(14日)·流動性(20日均額>5000萬)。興櫃天然不在 chipArchive。
+// 風控層：軋空候選榜反查排除（站上獨有優勢）·券資比>15% 排除。
+// 評分層：外資連賣·量價背離出貨·寶塔翻空·均線空頭·反轉訊號4空方清單·
+//         AI 利空判別（讀內文版·priced 減半）·當日弱勢。
+// 市況層：大盤健康度<50 → active；否則 watch（榜照出，標示觀察模式）。
+
+// 處置股名單（TWSE＋TPEx openapi）。回傳 Set<code>，僅含「今日在處置期間內」者。
+// ⚠ 民國日期期間解析：'115/09/03～115/09/09' 或 '1150903~1150909' 兩種格式都要吃。
+async function fetchPunishSet() {
+  const parseRocDate = (t) => {
+    const m1 = String(t || '').match(/(\d{2,3})\/(\d{1,2})\/(\d{1,2})/);
+    if (m1) return `${+m1[1] + 1911}${String(+m1[2]).padStart(2, '0')}${String(+m1[3]).padStart(2, '0')}`;
+    const m2 = String(t || '').match(/(\d{7})/);
+    if (m2) return `${+m2[1].slice(0, 3) + 1911}${m2[1].slice(3)}`;
+    return null;
+  };
+  const today = ymd8(taipei());
+  const out = new Set();
+  const UA = { 'User-Agent': 'Mozilla/5.0' };
+  try {
+    const j = await fetch('https://openapi.twse.com.tw/v1/announcement/punish', { headers: UA, signal: AbortSignal.timeout(12000) }).then(r => r.json());
+    for (const x of (Array.isArray(j) ? j : [])) {
+      const seg = String(x.DispositionPeriod || '').split(/[～~]/);
+      const from = parseRocDate(seg[0]), to = parseRocDate(seg[1]);
+      if (x.Code && from && to && today >= from && today <= to) out.add(String(x.Code).trim());
+    }
+  } catch { /* 單邊失敗不擋，由呼叫端記 skippedFilters */ }
+  try {
+    const j = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_disposal_information', { headers: UA, signal: AbortSignal.timeout(12000) }).then(r => r.json());
+    for (const x of (Array.isArray(j) ? j : [])) {
+      const seg = String(x.DispositionPeriod || '').split(/[～~]/);
+      const from = parseRocDate(seg[0]), to = parseRocDate(seg[1]);
+      const code = String(x.SecuritiesCompanyCode || '').trim();
+      if (code && from && to && today >= from && today <= to) out.add(code);
+    }
+  } catch { /* 同上 */ }
+  return out;
+}
+
+async function computeShortCandidates() {
+  const archRaw = await readArchive(21, 'closeJson');
+  if (archRaw.length < 21) { log('  ⚠ 做空候選：chipArchive 不足 21 日'); return; }
+  // readArchive 回 raw doc（closeJson 是字串）——先 parse 成 {date, map}
+  const arch = archRaw.map(d => ({ date: d.date, map: JSON.parse(d.closeJson) }));
+  const asc = arch.slice().reverse();                          // 舊→新
+  const latest = arch[0];
+  const close = latest.map;
+  const skipped = [];
+
+  // ── 各資料源（缺哪個就跳過該濾網並誠實記錄，不捏造也不擋整支）────────
+  const [dtDoc, pagodaDoc, divgDoc, nvDoc, healthDoc, sqDoc, divCalDoc, revDoc, marginArr] = await Promise.all([
+    db.collection('dayTradeEligible').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('pagodaSignals').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('chipDivergence').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('newsVerdict').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('marketHealth').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('squeezePicks').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('dividendCalendar').doc('latest').get().then(d => d.data()).catch(() => null),
+    db.collection('reversalSignals').doc('latest').get().then(d => d.data()).catch(() => null),
+    readArchive(3, 'marginJson').catch(() => []),
+  ]);
+  const punish = await fetchPunishSet();
+  if (!punish.size) skipped.push('處置股(名單抓取失敗或今日空)');
+
+  const dtMap = dtDoc?.codesJson ? JSON.parse(dtDoc.codesJson) : null;
+  if (!dtMap) skipped.push('當沖先賣資格(無資料→整層跳過會放進不可空標的，故改為全部標記未知)');
+  const pagoda = pagodaDoc?.dailyJson ? JSON.parse(pagodaDoc.dailyJson) : {};
+  const distSet = new Set((divgDoc?.distribute || []).map(x => x.code));
+  let verdicts = {};
+  try { if (nvDoc?.verdictJson) verdicts = JSON.parse(nvDoc.verdictJson); } catch { /* 缺判別→利空加權跳過 */ }
+  if (!Object.keys(verdicts).length) skipped.push('AI利空判別(無累積判別)');
+  const squeezeSet = new Set((sqDoc?.items || []).map(x => x.code));
+  let margin = {};
+  try { if (marginArr?.[0]?.marginJson) margin = JSON.parse(marginArr[0].marginJson); } catch { /* 缺資券→券資比濾網跳過 */ }
+  if (!Object.keys(margin).length) skipped.push('券資比(無資券歸檔)');
+  const exSoon = new Set();
+  {
+    // dividendCalendar 的 date 是**民國格式**（'1150903' 或 '115/09/03'）——不是 ISO
+    const rocToMs = (t) => {
+      const m = String(t || '').replace(/\//g, '').match(/^(\d{3})(\d{2})(\d{2})$/);
+      return m ? Date.UTC(+m[1] + 1911, +m[2] - 1, +m[3]) - 8 * 3600000 : null;
+    };
+    const now = Date.now();
+    for (const e of (divCalDoc?.upcoming || [])) {
+      const t = rocToMs(e.date);
+      if (!e.code || t == null) continue;
+      if (t > now && t - now < 14 * 86400000) exSoon.add(String(e.code));
+    }
+  }
+  const revHit = {};                                           // code → [清單名]
+  for (const [k, label] of [['down', '過熱出貨'], ['down2', '爆量出貨'], ['down3', '低價過熱'], ['down4', '加權出貨']]) {
+    for (const x of (revDoc?.[k] || [])) if (x.code) (revHit[x.code] ||= []).push(label);
+  }
+  const chipWin = await loadChipWindow(8).catch(() => []);
+  if (!chipWin.length) skipped.push('法人連賣(chipDaily 視窗空)');
+  const nameMap = {};
+  try { const q = (await readSnapshotQuotes())?.quotes || {}; for (const cc in q) if (q[cc]?.name) nameMap[cc] = q[cc].name; } catch { /* 缺名不擋 */ }
+
+  // 20 日均額與 MA 序列（closeJson: code → [收,量張,開,高,低]）
+  const seriesOf = (code) => asc.map(d => d.map[code]).filter(r => Array.isArray(r) && r[0] > 0);
+  const items = [];
+  for (const code of Object.keys(close)) {
+    const r = close[code];
+    if (!Array.isArray(r) || !(r[0] > 0)) continue;
+    const price = r[0];
+    const ser = seriesOf(code);
+    if (ser.length < 21) continue;
+    // 資格層 ───────────────────────────────
+    const avgAmt = ser.slice(-20).reduce((s, x) => s + x[0] * (x[1] || 0) * 1000, 0) / 20;
+    if (avgAmt < 50_000_000) continue;                          // E7 流動性
+    if (punish.has(code)) continue;                             // E3 處置
+    if (exSoon.has(code)) continue;                             // E5 回補期
+    const dt = dtMap ? (dtMap[code] || 0) : -1;                 // -1=未知
+    if (dtMap && dt !== 1) continue;                            // E1/E2 可先賣現股當沖
+    // 風控層 ───────────────────────────────
+    if (squeezeSet.has(code)) continue;                         // E6 軋空榜反查
+    const mg = margin[code];
+    const shortRatio = Array.isArray(mg) && mg[0] > 0 ? (mg[1] || 0) / mg[0] * 100 : null;
+    if (shortRatio != null && shortRatio > 15) continue;        // 券資比高=軋空燃料
+    // 評分層 ───────────────────────────────
+    const reasons = [];
+    let score = 0;
+    const prev = ser[ser.length - 2][0];
+    const chg = prev > 0 ? (price - prev) / prev * 100 : 0;
+    if (chg < -2) { score += 2; reasons.push(`當日跌${chg.toFixed(1)}%`); }
+    const closes = ser.map(x => x[0]);
+    const ma = (n) => closes.slice(-n).reduce((s, x) => s + x, 0) / n;
+    const ma5 = ma(5), ma20 = ma(20);
+    if (ma5 < ma20 && price < ma20) { score += 4; reasons.push('空頭排列(5<20·價在20日線下)'); }
+    const low20 = Math.min(...closes.slice(-21, -1));
+    if (price < low20) { score += 3; reasons.push('破20日低'); }
+    const pg = pagoda[code];
+    if (pg?.flip === 'down') { score += 5; reasons.push('寶塔翻黑'); }
+    else if (pg && pg.above === false) { score += 2; reasons.push('寶塔線下'); }
+    if (distSet.has(code)) { score += 6; reasons.push('量價背離·出貨候選'); }
+    if (chipWin.length) {
+      const streak = foreignSellStreak(code, chipWin);
+      if (streak >= 3) { score += Math.min(8, streak * 2); reasons.push(`外資連賣${streak}日`); }
+    }
+    for (const lb of (revHit[code] || [])) { score += 8; reasons.push(`反轉訊號·${lb}`); }
+    const v = verdicts[code];
+    if (v && v.label === '利空') {
+      const base = v.strength === '極強' ? 12 : v.strength === '強' ? 10 : v.strength === '中' ? 6 : 3;
+      const pts = v.priced === '是' ? Math.round(base / 2) : base;
+      score += pts; reasons.push(`AI利空(${v.strength}${v.priced === '是' ? '·已反映減半' : ''})`);
+    }
+    if (score < 8 || reasons.length < 2) continue;              // 至少兩訊號共振
+    items.push({ code, name: nameMap[code] || code, price, chg: +chg.toFixed(2), score, reasons,
+      shortRatio: shortRatio == null ? null : +shortRatio.toFixed(1),
+      dayTradeShort: dt === 1 ? true : dt === -1 ? null : false });
+  }
+  items.sort((a, b) => b.score - a.score);
+  const health = healthDoc?.health;
+  const mode = health != null && health < 50 ? 'active' : 'watch';
+  await db.collection('shortCandidates').doc('latest').set({
+    updatedAt: Date.now(), dataDate: latest.date || null, mode,
+    health: health ?? null,
+    items: items.slice(0, 20), totalPassed: items.length,
+    skippedFilters: skipped,
+    note: '做空風控候選（第一期·展示排序未經OOT，分數僅供排列不宣稱勝率）。'
+      + '資格層：可先賣現股當沖·非處置·非除權息回補期(14日)·20日均額>5000萬。'
+      + '風控層：軋空候選榜反查排除·券資比>15%排除。'
+      + 'watch=大盤健康度≥50（多頭日放空逆風，僅觀察）。研究輔助，非投資建議。',
+  });
+  log(`✓ 做空候選：${items.length} 檔過濾後入榜 ${Math.min(20, items.length)} 檔（${mode}·健康度${health ?? '?'}）`
+    + (skipped.length ? `　⚠ 跳過濾網：${skipped.join('、')}` : ''));
+}
+
 // ── 63) 第四法人：ETF 被動買賣盤影響 etfInfluence（2026-07-15）──────
 // 使用者觀察：市值型 ETF(0050/006208)已成準法人力量。可靠可算的部分：
 //  ① 市值排名(收盤×已發行股數)→ 0050/006208 成分近似(市值前50)＋權重
@@ -12448,7 +12623,7 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
   }
@@ -12471,6 +12646,7 @@ let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:0
 let _nvReviewDate = '';       // 新聞判別對答案（15:30）
 let _nvIntradayAt = 0;        // 盤中新聞判別的上次執行時刻
 let _nvNightDate = '';        // 夜間覆蓋率補判（01:15 起，06:30 死線）
+let _shortCandAt = 0;         // 做空候選：盤中每 10 分鐘一輪（2026-09-03）
 let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
 // 日韓早盤固定時刻（台北時間·分鐘）。08:30 為使用者指定必跑；09:00 後為盤中追蹤。
@@ -12570,6 +12746,12 @@ async function dailyJobsLoop() {
       if (mins >= 60 + 15 && mins < 6 * 60 + 30 && _nvNightDate !== today) {
         try { if (await computeNightBackfill()) _nvNightDate = today; }
         catch (e) { log('✖ 夜間補判（將重試）:', (e.message || '').slice(0, 60)); }
+      }
+      // 做空風控候選（2026-09-03）：盤中每 10 分鐘刷新（弱勢/處置/軋空狀態盤中都在變）。
+      // 盤後定榜由 daily jobs 清單的 shortCandidates 條目負責（15:10 歸檔後）。
+      if (isTradingDay(tw) && mins >= 9 * 60 && mins <= 13 * 60 + 40 && Date.now() - _shortCandAt > 10 * 60000) {
+        _shortCandAt = Date.now();   // 先標記：週期性工作，失敗等下一輪
+        try { await computeShortCandidates(); } catch (e) { log('✖ 做空候選:', (e.message || '').slice(0, 60)); }
       }
       // 盤中即時新聞判別（09:00~13:30，每 25 分鐘一趟）。
       // 使用者 2026-08-31：欣興盤中遭搜索當日跌 7.5%、世界先進工廠失火，
@@ -13192,6 +13374,7 @@ if (ONESHOT) {
     squeezeRec: () => computeSqueezeNewsVerdict(),
     limitUpRec: () => computeLimitUpNewsVerdict(),   // 漲停預測的新聞判別    // 手動產出新聞判別(讀內文+AI)
     limitUpForecast: () => computeLimitUpForecast(), // 漲停預測榜重算（機器模型，不用 LLM；盤外自動用歸檔模式）
+    shortCandidates: () => computeShortCandidates(), // 做空風控候選榜（2026-09-03 第一期）
     revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
