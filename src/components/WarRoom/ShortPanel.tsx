@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useLiveQuotes } from '@/lib/useLiveQuotes';
+import { tickSize, isLimitUp, isLimitDown } from '@/lib/twse-api';
 
 // ── 🐻 做空風控候選（2026-09-03 第一期）────────────────────────────
 // daemon 盤中每 10 分鐘刷新、盤後定榜（shortCandidates/latest）。
@@ -34,6 +36,9 @@ export default function ShortPanel() {
   const [review, setReview] = useState<{ latestDay?: ReviewDay; history?: ReviewDay[] } | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const navigateTo = useAppStore(s => s.navigateTo);
+  // 盤中即時（使用者 2026-09-03 指定：開盤時每列顯示即時價/量/漲跌停）。
+  // useLiveQuotes＝站上標準件：鎖相 3 秒·回前景恢復·拍號快取——不另造輪詢。
+  const live = useLiveQuotes(data?.items?.map(x => x.code) ?? []);
 
   useEffect(() => {
     let live = true;
@@ -117,6 +122,28 @@ export default function ShortPanel() {
               <span style={{ fontWeight: 700, color: it.chg < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
                 {it.price}（{it.chg > 0 ? '+' : ''}{it.chg}%）
               </span>
+              {isTwTradingHours() && live[it.code] && (() => {
+                const q = live[it.code];
+                if (!(q.price > 0) || !(q.prevClose > 0)) return null;
+                // 跌停價＝昨收×0.9 向上取至檔位（規則同 twse-api isLimitDown）
+                const rawDn = q.prevClose * 0.9;
+                const dnT = tickSize(rawDn);
+                const dnPrice = Math.ceil(rawDn / dnT - 1e-9) * dnT;
+                const distDn = (q.price - dnPrice) / q.price * 100;
+                const lu = isLimitUp(q.price, q.change);
+                const ld = isLimitDown(q.price, q.change);
+                return (
+                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', flexBasis: '100%', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <b style={{ color: q.changePercent < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
+                      ⚡ 即時 {q.price}（{q.changePercent > 0 ? '+' : ''}{q.changePercent?.toFixed(2)}%）
+                    </b>
+                    <span style={{ color: 'var(--text-muted)' }}>開 {q.open > 0 ? q.open : '—'} · 量 {q.volume > 0 ? Math.round(q.volume / 1000).toLocaleString() : '—'} 張</span>
+                    {ld ? <b style={{ color: '#22c55e' }}>🔒 已觸跌停 {dnPrice.toFixed(2)}</b>
+                      : lu ? <b style={{ color: '#ef4444' }}>⚠ 漲停鎖住（空單危險）</b>
+                      : <span style={{ color: 'var(--text-muted)' }}>距跌停 {distDn.toFixed(1)}%（{dnPrice.toFixed(2)}）</span>}
+                  </span>
+                );
+              })()}
               {it.newAt && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.4)', borderRadius: 4, padding: '1px 5px' }}>NEW {it.newAt}</span>}
               {it.industry && <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{it.industry}</span>}
               <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
