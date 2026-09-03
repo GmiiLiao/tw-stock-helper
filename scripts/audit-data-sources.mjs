@@ -72,6 +72,12 @@ const CONTRACTS = [
   // 漲停預測的新聞判別（2026-08-28 接上）：與 squeezeRecommend 同節奏，
   // 每交易日 08:00 由本機 AI 產出，盤中查它會是「今早那份」故放寬到 20 小時。
   { c: 'limitUpRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true, preopen: true },
+  // 做空風控候選（2026-09-03）：盤中每 10 分鐘＋盤後定榜。空榜是設計結果
+  // （過濾嚴格·多頭日更少），doc 自帶 totalPassed/note 解釋 ⇒ allowEmpty。
+  { c: 'shortCandidates',  kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  // 訓練樣本：21:45 班車寫 dated doc。漏一天＝少一筆不可回補的樣本（特徵是
+  // 當日快照，事後重建就不是 PIT）——這正是 bookDepth 壞半年教訓要防的。
+  { c: 'shortTraining',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 100, countField: 'rowsJson' },
   // 搶漲停排隊（09:00~09:15 才有意義）：盤中每分更新，其餘時間停留在早上那份，
   // 故 maxStale 放寬到 20 小時；空榜是常態（多數日子沒有這種書況）。
   // 新聞內文判別（2026-08-29 上線）：盤後 23:00 + 晨間 07:00 兩趟。

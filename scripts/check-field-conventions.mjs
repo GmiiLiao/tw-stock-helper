@@ -74,6 +74,7 @@ export const DATE_ALLOWLIST = new Set([
   // 原樣帶給外部判別者——squeeze 的適用日/歸檔日與 limitUp 的資料日**本來就
   // 不同天**，壓成同名反而重演「口徑混同」。前綴標明出處。
   'squeezeTargetDate', 'squeezeArchDate', 'limitUpDataDate',
+  'boardDate',   // shortReview：這筆成績對的是哪一天的榜（榜日）——與結果日(date)本來就差一個交易日，壓同名會混口徑
   // squeezePicks/latest 的兩個資料日：軋空榜刻意把「漲幅的日子」與「券資比的
   // 日子」分開標——融資券當日 21:45 才公布，混為一談就會把 t-1 的券資比說成今日。
   'priceDate',   // 漲幅資料日（當日/盤中即時）
