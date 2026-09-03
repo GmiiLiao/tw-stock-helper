@@ -12,7 +12,7 @@ import { tickSize, isLimitUp, isLimitDown } from '@/lib/twse-api';
 // ⚠ 第一期展示排序未經 OOT 驗證——分數僅供排列，不宣稱勝率。非投資建議。
 
 interface ShortItem {
-  code: string; name: string; price: number; chg: number; score: number;
+  code: string; name: string; price: number; open?: number | null; chg: number; score: number;
   reasons: string[]; shortRatio: number | null; dayTradeShort: boolean | null;
   industry?: string | null; support?: number; supportPct?: number;
   resist?: number; resistPct?: number; lend?: number | null; lendChgPct?: number | null;
@@ -122,6 +122,7 @@ export default function ShortPanel() {
               <span style={{ fontWeight: 700, color: it.chg < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
                 {it.price}（{it.chg > 0 ? '+' : ''}{it.chg}%）
               </span>
+              {it.open != null && <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>開 {it.open}</span>}
               {isTwTradingHours() && live[it.code] && (() => {
                 const q = live[it.code];
                 if (!(q.price > 0) || !(q.prevClose > 0)) return null;

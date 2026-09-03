@@ -11965,7 +11965,7 @@ async function computeShortCandidates() {
     // 支撐/壓力參考（空單的獲利目標與停損）：近月(21日)最低收=支撐、MA20=壓力
     // ⚠ 視窗只有 21 日就誠實叫近月——不寫 60 日（closes 根本沒 60 筆，A 族的表親）
     const low60 = Math.min(...closes);
-    const item = { code, name: nameMap[code] || code, price, chg: +chg.toFixed(2), score, reasons,
+    const item = { code, name: nameMap[code] || code, price, open: r[2] > 0 ? r[2] : null, chg: +chg.toFixed(2), score, reasons,
       shortRatio: shortRatio == null ? null : +shortRatio.toFixed(1),
       dayTradeShort: dt === 1 ? true : dt === -1 ? null : false,
       industry: ind,
