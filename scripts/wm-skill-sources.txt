@@ -1,0 +1,50 @@
+# wm 技能的上游依據檔（scripts/wm-weekly-sync.sh 每週比對 blob 變更 → 決定哪些技能要修訂）
+# 格式：<上游路徑>  <對應技能>（第二欄僅供人讀）
+AGENTS.md                                   wm-agent-task-mode
+CONTRIBUTING.md                             wm-agent-task-mode
+compound-engineering.local.md               wm-agent-task-mode
+scripts/agent-preflight.mjs                 wm-agent-task-mode
+CONCEPTS.md                                 wm-data-accuracy wm-freshness-health-monitoring wm-ci-guardrails wm-authoritative-identity wm-documented-solutions
+ARCHITECTURE.md                             wm-multi-tier-cache wm-edge-gateway wm-freshness-health-monitoring
+CHANGELOG.md                                wm-authoritative-identity（新技術族偵測）
+scripts/_pipeline-dedup.mjs                 wm-data-accuracy
+scripts/_seed-utils.mjs                     wm-realtime-seed-pipeline wm-data-accuracy
+src/config/ml-config.ts                     wm-browser-ml
+src/workers/ml.worker.ts                    wm-browser-ml
+scripts/lib/brief-embedding.mjs             wm-browser-ml
+src/services/runtime-config.ts              wm-source-aggregation wm-llm-provider-routing
+src/services/settings-manager.ts            wm-llm-provider-routing
+api/api-route-exceptions.json               wm-contract-first-api
+scripts/enforce-sebuf-api-contract.mjs      wm-contract-first-api
+src/utils/circuit-breaker.ts                wm-resilience-circuit-breaker
+src/services/smart-poll-loop.ts             wm-resilience-circuit-breaker wm-smart-polling-startup
+api/health.js                               wm-freshness-health-monitoring
+scripts/check-seed-freshness.mjs            wm-freshness-health-monitoring
+.husky/pre-commit                           wm-ci-guardrails
+.husky/pre-push                             wm-ci-guardrails
+scripts/prepush-attest.sh                   wm-ci-guardrails
+scripts/lint-boundaries.mjs                 wm-ci-guardrails
+scripts/enforce-rate-limit-policies.mjs     wm-ci-guardrails wm-security-model
+scripts/enforce-panel-content-writes.mjs    wm-ci-guardrails wm-panel-data-lifecycle
+scripts/enforce-safe-html.mjs               wm-ci-guardrails
+scripts/check-sentry-coverage.mjs           wm-ci-guardrails wm-observability-degradation
+scripts/check-inventory-count-contracts.mjs wm-ci-guardrails
+scripts/check-unicode-safety.mjs            wm-ci-guardrails
+api/_api-key.js                             wm-security-model wm-edge-gateway
+api/_rate-limit.js                          wm-security-model wm-observability-degradation
+api/_cors.js                                wm-security-model wm-edge-gateway
+server/_shared/rate-limit.ts                wm-security-model
+api/_sentry-edge.js                         wm-observability-degradation
+src/components/Panel.ts                     wm-panel-data-lifecycle wm-smart-polling-startup
+src/app/refresh-scheduler.ts                wm-smart-polling-startup
+server/_shared/redis.ts                     wm-multi-tier-cache
+server/gateway.ts                           wm-edge-gateway wm-multi-tier-cache
+scripts/check-railway-deploy-drift.mjs      wm-deploy-drift-watchdog
+scripts/check-postmerge-deploys.mjs         wm-deploy-drift-watchdog
+.github/workflows/railway-deploy-drift.yml  wm-deploy-drift-watchdog
+.github/workflows/seed-freshness-monitor.yml wm-freshness-health-monitoring
+.github/workflows/deploy-gate.yml           wm-ci-guardrails
+scripts/check-style-layout-budget.mjs       wm-bundle-perf-budgets
+api/mcp.ts                                  wm-mcp-agent-surface
+public/.well-known/agent-skills/index.json  wm-mcp-agent-surface
+src-tauri/tauri.conf.json                   wm-platform-stack-reference
