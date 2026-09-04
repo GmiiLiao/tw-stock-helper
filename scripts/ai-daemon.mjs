@@ -13045,6 +13045,8 @@ async function dailyJobsLoop() {
             try {
               const h = (await db.collection('system').doc('dataHealth').get()).data();
               if (!h) return;
+              // 稽核範圍異常（契約表縮水/probe 整批跳過）比「有異常」更危險——那是全綠假象
+              if (h.auditIncomplete) log(`❌ 資料源健康：稽核範圍異常，只檢查 ${h.sourceCount} 個資料源（下限 ${h.minSources}）——本次結果不可信`);
               if (h.unhealthy > 0 || h.externalUnhealthy > 0) {
                 const bad = (h.results || []).filter(r => r.status !== 'OK')
                   .map(r => `${r.collection}(${r.status})`).join('、');

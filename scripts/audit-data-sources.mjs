@@ -722,11 +722,21 @@ async function main() {
   const external = NO_EXT ? [] : await probeExternal(ltd);
   const fresh = NO_EXT ? [] : await probeFresh(ltd);
 
+  // ── 稽核完整性防護（wm-ci-guardrails「0 assertions 即 fail」·2026-09-04）──
+  // 契約表被清空、或 probe 整批異常跳過時，稽核會「全綠」——因為根本沒檢查幾個。
+  // ⚠ 刻意**不改 exit code**：daemon 對本腳本是「成功才標記、失敗每 5 分鐘重試」，
+  //   exit 1 會讓它整天重跑完整稽核（含外部 probe）。防護放在標記層：
+  //   dataHealth 帶 auditIncomplete，daemon 告警段據此吼出來（見 ai-daemon 16:10 段）。
+  const MIN_SOURCES = 60;                       // 2026-09-04 現況 72；低於此值＝範圍異常
+  const auditIncomplete = results.length < MIN_SOURCES;
+  if (auditIncomplete) console.log(`\n❌ 稽核範圍異常：只檢查了 ${results.length} 個資料源（下限 ${MIN_SOURCES}）——契約表或 probe 流程有問題，本次「全綠」不可信`);
+
   if (WRITE) {
     const badN = results.filter(r => r.status !== 'OK').length;
     const extBad = external.filter(r => r.status !== 'OK').length;
     await db.collection('system').doc('dataHealth').set({
       updatedAt: Date.now(), date: ltd,
+      auditIncomplete, sourceCount: results.length, minSources: MIN_SOURCES,
       total: results.length, healthy: results.length - badN, unhealthy: badN,
       externalTotal: external.length, externalUnhealthy: extBad,
       results, external, fresh,

@@ -1,0 +1,5 @@
+#!/bin/sh
+# pre-push：型別全量檢查（30~60 秒·push 頻率低可承受）
+cd "$(git rev-parse --show-toplevel)" || exit 1
+npx tsc --noEmit || { echo "❌ tsc 未通過，push 中止"; exit 1; }
+echo "✓ pre-push：tsc 通過"

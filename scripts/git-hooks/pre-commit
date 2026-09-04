@@ -1,0 +1,14 @@
+#!/bin/sh
+# 台股助手 pre-commit 閘門（wm-ci-guardrails·2026-09-04）
+# 目的：磁碟上任何時刻不可放語法壞碼——launchd 會在 daemon 死亡時拉起磁碟版
+#（2026-08-31 `_sma` 重複宣告 crash loop 事故）。輕量兩項，~3 秒；tsc 放 pre-push。
+cd "$(git rev-parse --show-toplevel)" || exit 1
+fail=0
+for f in $(git diff --cached --name-only --diff-filter=ACM | grep -E '^scripts/.*\.mjs$'); do
+  node --check "$f" || { echo "❌ 語法錯誤：$f"; fail=1; }
+done
+if git diff --cached --name-only | grep -qE '\.(ts|tsx|mjs)$'; then
+  node scripts/check-field-conventions.mjs >/tmp/fc.out 2>&1 || { cat /tmp/fc.out; echo "❌ 欄位命名契約違規（先到 check-field-conventions.mjs 登記）"; fail=1; }
+fi
+[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約通過"
+exit $fail
