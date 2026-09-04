@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
     builtAt: process.env.BUILD_AT || null,
     xffHops: hops,
     xffTailMasked: xff ? xff.split(',').slice(-2).map(mask) : [],
+    host: request.headers.get('host') || null,   // 分辨「經 Hosting」vs「cloudfunctions 直連」的訊號（R6）；GFE 對錯配 Host 回 404，故可信
+    forwardedHeaderNames: [...request.headers.keys()].filter(k => /^(x-forwarded|forwarded|x-real-ip|fastly|via|x-served|x-client)/i.test(k)),
   };
   if (request.nextUrl.searchParams.get('debug') === '1') {
     const admin = await requireAdmin(request);
