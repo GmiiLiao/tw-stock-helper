@@ -101,6 +101,7 @@ interface LiveQuote {
   tradeTime: string;
   source: 'mis_realtime' | 'stock_day_all' | 'snapshot' | 'unknown';
   prevPrice?: number; // previous fetched price for flash detection
+  revealAt?: number | null;   // MIS 揭示時戳（R7）；null＝來源未提供
 }
 
 interface AiRecommendation {
@@ -611,7 +612,10 @@ function StockRow({
       <div className={styles.rowVolume} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: '#94a3b8' }}>{volStr}</div>
         {quote?.source === 'mis_realtime' && (
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#22c55e', fontWeight: 700, marginTop: '2px' }}>● 即時</div>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#22c55e', fontWeight: 700, marginTop: '2px' }}
+            title={quote.revealAt ? '交易所揭示時刻（MIS tlong）' : '來源未提供揭示時刻，顯示的是抓取時刻'}>
+            ● 即時{quote.tradeTime ? ` ${new Date(quote.tradeTime).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+          </div>
         )}
       </div>
 
@@ -2198,7 +2202,7 @@ export default function WatchlistTracker() {
                   open: q.open ?? 0, high: q.high ?? 0, low: q.low ?? 0,
                   prevClose: q.prevClose ?? 0, change: q.change ?? 0,
                   changePercent: q.changePercent ?? 0, volume: q.volume ?? 0,
-                  tradeTime: q.tradeTime ?? '', source: q.source ?? 'unknown',
+                  tradeTime: q.tradeTime ?? '', revealAt: q.revealAt ?? null, source: q.source ?? 'unknown',
                 };
               }
             }

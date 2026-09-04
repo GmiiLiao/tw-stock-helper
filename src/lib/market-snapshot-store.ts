@@ -20,7 +20,8 @@ export interface SnapQuote {
   // live = this quote carries a REAL-TIME MIS tick this cycle. When false the
   // quote is the latest TWSE close (seed) — NEVER present it as 即時.
   live?: boolean;
-  liveAt?: number;       // epoch ms of the MIS tick (only when live)
+  liveAt?: number;       // epoch ms when the daemon FETCHED the tick (only when live)
+  revealAt?: number | null;   // MIS 揭示時戳 tlong（資料本身的時間；與 liveAt 可差數十秒）；缺為 null
   // 買一貼漲停 × 賣一全空 × 當日最高尚未觸及漲停 ＝**排隊搶漲停**（尚未成交上去）。
   // 刻意與「已漲停」分開：這批可能排到一半就散掉，混為一談會誤導。
   queueUp?: boolean;
@@ -33,6 +34,7 @@ export interface MarketSnapshot {
   count: number;
   liveCount?: number;    // how many quotes carry a real-time MIS tick
   sweepAt: number;       // epoch ms of last full/partial sweep write
+  hotAt?: number | null; // 快線文件寫入時刻（reader 合併時帶出，供「伺服器停更」警告；F13）
   marketOpen: boolean;
   sweeping?: boolean;    // daemon 掃描窗內（盤中+收盤後至15:00）
   source: 'mis_sweep' | 'stock_day_all' | 'mixed';
@@ -68,8 +70,10 @@ export async function readMarketSnapshot(): Promise<MarketSnapshot | null> {
     const quotes: Record<string, SnapQuote> = d.quotesJson ? JSON.parse(d.quotesJson) : (d.quotes || {});
     // 5 秒快線覆蓋（在 reader 統一做）：所有讀快照的 API（mis-quote、market-snapshot、
     // stock-day-all…）都自動吃到「使用者正在看的股票」的 5 秒級報價，liveAt 較新者勝。
+    let hotAt: number | null = null;
     try {
       const hot = await readHotQuotes();
+      if (hot) hotAt = hot.at;
       if (hot && Date.now() - hot.at < 30_000) {
         for (const code in hot.quotes) {
           const hq = hot.quotes[code];
@@ -77,7 +81,7 @@ export async function readMarketSnapshot(): Promise<MarketSnapshot | null> {
         }
       }
     } catch { /* hot lane optional */ }
-    const snap = { quotes, count: d.count, liveCount: d.liveCount ?? 0, sweepAt: d.sweepAt, marketOpen: d.marketOpen, sweeping: d.sweeping, source: d.source };
+    const snap = { quotes, count: d.count, liveCount: d.liveCount ?? 0, sweepAt: d.sweepAt, hotAt, marketOpen: d.marketOpen, sweeping: d.sweeping, source: d.source };
     _snapCache = { at: Date.now(), snap };
     return snap;
   } catch (e) {

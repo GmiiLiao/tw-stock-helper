@@ -108,6 +108,7 @@ export default function Header() {
           setDataDate(`${d.slice(0,4)}/${d.slice(4,6)}/${d.slice(6,8)}`);
         }
         setDataSource(indexData.source || '');
+        setServerAt(typeof indexData.snapshotAt === 'number' ? indexData.snapshotAt : null);
       }
     } catch (err) {
       console.error('[Header] Fetch market-index error:', err);
@@ -177,19 +178,26 @@ export default function Header() {
   // 線索知道自己在看幾小時前的價格。這裡加一個看得見的過期指示：
   //   盤中 > 3 分鐘、其餘 > 30 分鐘沒更新 → 顯示可點擊的過期提示。
   const [staleMin, setStaleMin] = useState(0);
+  // 伺服器端停更（F13·2026-09-04 使用者定義）：交易日盤中資料應即時更新，daemon 快照超時未前進要**警告**
+  // （不隱藏、不退回舊資料）；非交易日／收盤後顯示交易所公布的最終資料，不警告。
+  // 與上面的 staleMin 不同：那是「這個瀏覽器抓不到」，這是「抓到了但伺服器沒新資料」。
+  const [serverAt, setServerAt] = useState<number | null>(null);
+  const [serverStaleSec, setServerStaleSec] = useState(0);
   useEffect(() => {
     const calc = () => {
       const t = useAppStore.getState().lastFetchTime;
       setStaleMin(t ? (Date.now() - t) / 60000 : 0);
+      setServerStaleSec(serverAt && getSession() === 'regular' ? (Date.now() - serverAt) / 1000 : 0);
     };
     calc();
     const id = setInterval(calc, 20_000);
     const onVis = () => { if (!document.hidden) calc(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
-  }, []);
+  }, [serverAt]);
   const staleLimit = getSession() === 'regular' ? 3 : 30;
   const isStale = staleMin > staleLimit;
+  const isServerStale = serverStaleSec > 90;   // 快線 5 秒、主迴圈 ~1 分鐘：90 秒沒前進就是停更，不是節奏
 
   // Poll full stock list (heavy) — dynamic interval recalculated each tick
   useEffect(() => {
@@ -470,6 +478,21 @@ export default function Header() {
           >
             ⚠ 資料 {staleMin < 60 ? `${staleMin.toFixed(0)} 分鐘` : `${(staleMin / 60).toFixed(1)} 小時`}未更新
           </button>
+        )}
+
+        {/* 伺服器停更（盤中限定）：daemon 快照超時未前進——重新載入沒用，要看的是 daemon */}
+        {isServerStale && !isStale && (
+          <span
+            title={`交易日盤中資料應為即時；伺服器快照已 ${Math.round(serverStaleSec)} 秒沒有新資料（可能是 daemon 或上游停更），畫面顯示的是最後一次更新`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '2px 9px', borderRadius: 999, marginRight: 6,
+              background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.5)',
+              color: '#fbbf24', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))',
+            }}
+          >
+            ⚠ 即時資料 {serverStaleSec < 120 ? `${Math.round(serverStaleSec)} 秒` : `${(serverStaleSec / 60).toFixed(0)} 分鐘`}未更新
+          </span>
         )}
 
         {/* Manual refresh button */}

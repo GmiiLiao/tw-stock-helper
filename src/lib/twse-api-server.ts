@@ -36,6 +36,7 @@ export interface MarketIndexData {
   source: string;
   tradeTime?: string;
   tradeDate?: string;
+  snapshotAt?: number | null;   // daemon 寫 marketIndex/latest 的時刻（F13 伺服器停更警告用）
   upCount?: number;
   downCount?: number;
   totalStocks?: number;
@@ -97,6 +98,8 @@ export interface MisQuote {
   changePercent: number;
   volume: number;
   tradeTime: string;
+  revealAt?: number | null;    // MIS 揭示時戳 tlong（資料的時間）；null＝來源未提供
+  fetchedAt?: number | null;   // daemon 抓取時刻（liveAt）——與 revealAt 可差數十秒，不可混稱
   source: 'mis_realtime' | 'mis_bid' | 'mis_close' | 'stock_day_all';
   dataDate?: string;
 }
@@ -106,6 +109,7 @@ export interface MisQuoteResponse {
   isRealtime: boolean;
   marketOpen: boolean;
   source: string;
+  snapshotAt?: number | null;  // daemon 最近寫快照時刻；盤中久未前進＝伺服器停更（前端警告不隱藏）
 }
 
 // ============================================================
@@ -783,7 +787,7 @@ async function getMarketIndexDataInternalUncached(): Promise<MarketIndexData> {
     const useDaemon = !!daemonIdx
       && (!(raw0.weighted > 0) || (daemonIdx.tradeDate || '') > ((raw0 as MarketIndexData).tradeDate || ''));
     const raw = useDaemon
-      ? { ...raw0, ...daemonIdx, source: 'daemon_mis' } as MarketIndexData
+      ? { ...raw0, ...daemonIdx, source: 'daemon_mis', snapshotAt: (daemonIdx as { at?: number }).at ?? null } as MarketIndexData
       : raw0;
 
     const usMarket = {
@@ -1122,7 +1126,10 @@ export async function getMisQuoteDataInternal(codes: string[]): Promise<MisQuote
           prevClose: q.price - q.change,
           change: q.change, changePercent: q.changePercent,
           volume: q.volume,
-          tradeTime: live && q.liveAt ? new Date(q.liveAt).toISOString() : '',
+          // tradeTime＝揭示時戳（MIS tlong）優先；沒有 tlong 才退回抓取時刻並以 revealAt=null 明示（R7 口徑）
+          tradeTime: live && (q.revealAt || q.liveAt) ? new Date(q.revealAt || q.liveAt!).toISOString() : '',
+          revealAt: live ? (q.revealAt ?? null) : null,
+          fetchedAt: live ? (q.liveAt ?? null) : null,
           source: live ? 'mis_realtime' : 'stock_day_all',
         });
       }
@@ -1130,7 +1137,9 @@ export async function getMisQuoteDataInternal(codes: string[]): Promise<MisQuote
       // through so single off-priority codes can still try direct MIS / close.
       if (hit.length === codes.length) {
         const anyLive = hit.some(q => q.source === 'mis_realtime');
-        return { quotes: hit, isRealtime: anyLive, marketOpen, source: anyLive ? 'mis_realtime' : 'stock_day_all' };
+        // snapshotAt＝daemon 最近一次寫快照（快線或主迴圈）——前端據此判「伺服器停更」（F13：警告不隱藏）
+        const snapshotAt = Math.max(snap!.sweepAt || 0, snap!.hotAt || 0) || null;
+        return { quotes: hit, isRealtime: anyLive, marketOpen, source: anyLive ? 'mis_realtime' : 'stock_day_all', snapshotAt };
       }
     }
   } catch { /* snapshot unavailable — fall through to direct MIS / close */ }

@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
         isRealtime: result.isRealtime,
         marketOpen: result.marketOpen,
         source: result.source,
+        snapshotAt: result.snapshotAt ?? null,
       },
       {
         headers: {

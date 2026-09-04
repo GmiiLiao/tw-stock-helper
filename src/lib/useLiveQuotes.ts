@@ -16,6 +16,8 @@ export interface LiveQuote {
   price: number; change: number; changePercent: number;
   prevClose: number; open: number; high: number; low: number; volume: number;
   source: string;
+  tradeTime?: string;          // ISO；揭示時戳優先（見 twse-api-server R7 口徑）
+  revealAt?: number | null;    // MIS tlong；null＝來源未提供
 }
 
 // 節奏統一走 market-clock 的 liveQuoteInterval（2026-09-02 升格為全站標準件，
@@ -45,7 +47,7 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
             code: q.code, name: q.name,
             price: q.price, change: q.change, changePercent: q.changePercent,
             prevClose: q.prevClose, open: q.open, high: q.high, low: q.low, volume: q.volume,
-            source: q.source,
+            source: q.source, tradeTime: q.tradeTime || '', revealAt: q.revealAt ?? null,
           };
         }
         setQuotes(map);

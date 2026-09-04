@@ -1485,6 +1485,9 @@ async function misBatch(batch) {
         changePercent: hasLive && prev > 0 ? +((change / prev) * 100).toFixed(2) : 0,
         open: _num(it.o), high: _num(it.h), low: _num(it.l),
         volume: vol, value: Math.round(price * vol), hasLive, realTrade,
+        // 揭示時戳（MIS tlong，ms）：與 liveAt（抓取時刻）分開——實測兩者可差 35–41 秒（WM-SCAN R7）。
+        // 缺就 null，不拿抓取時刻冒充。
+        revealAt: Number(it.tlong) > 0 ? Number(it.tlong) : null,
         // 只在成立時帶欄位——2,000 檔的快照不該為了少數幾檔多背 false
         ...(queueUp ? { queueUp: true, queueLots: Math.round(_qVol), limitPrice: _up } : {}),
         bid: _parseLevels(it.b, it.g), ask: _parseLevels(it.a, it.f), // 五檔委買委賣（僅供當下參考，不歸檔）
@@ -2028,7 +2031,7 @@ async function hotQuoteLoop() {
         if (q?.hasLive) {
           const merged = { code: k, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent,
             open: q.open, high: q.high, low: q.low, volume: q.volume, value: q.value,
-            market: c.market, live: true, liveAt: Date.now() };
+            market: c.market, live: true, liveAt: Date.now(), revealAt: q.revealAt ?? null };
           _lastLive[k] = merged;            // 主迴圈快照下一輪也直接受益
           out[k] = merged;
         } else if (_lastLive[k]) {
