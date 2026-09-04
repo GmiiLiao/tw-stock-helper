@@ -19,8 +19,9 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 - `scripts/audit-data-sources.mjs` 四道閘門：maxStale／minRecords／**資料日漂移**／**市場組成**（後兩道是本站栽過四次的）；72 來源，MIN_SOURCES=60 防 vacuous pass（`auditIncomplete` 標記，exit code 刻意不變因 daemon 失敗會 5 分鐘重跑）。
 - daemon 16:10 跑並寫 `system/dataHealth`，`/api/system/data-health` 對外；新資料源**必須**登記 CONTRACTS，否則等於沒保護。
 - 資料日一律來源自報（回音驗證）；`boardDataDate(tw, marketOpen)` 三段語意；`liveDay` 不是「盤中」標籤。
-- **口徑待釐清**（09-04 TWSE 測試發現）：daemon `liveAt: Date.now()`（抓取時刻）而 MIS 揭示時戳可落後 35–41s → 前端「⚡即時」是抓取新鮮度不是揭示新鮮度；屬 Content Clock 語意問題（不影響價格）。
-- **正向待辦**：dataHealth 加 seed 時鐘 vs content 時鐘雙欄；latest doc 的「太舊不顯示」天花板（F4 延伸）。
+- ✅ R7 已做（09-04）：`revealAt`＝MIS tlong（資料時鐘）與 `liveAt`（抓取時鐘）分開儲存與回傳，`tradeTime` 改揭示優先；缺 tlong 為 null 不冒充。
+- ✅ F13 已做（09-04，使用者定義）：**盤中超時未更新→警告不隱藏；非交易日顯示交易所最終資料**——mis-quote／market-index 回 `snapshotAt`，Header 在盤中快照 >90s 未前進時顯示 ⚠。「太舊不顯示」構想作廢。
+- **正向待辦**：dataHealth 加 seed 時鐘 vs content 時鐘雙欄。
 
 ## 修A錯B 影響面
 改任一 latest doc 的 date/at 欄位前先查 CONTRACTS 的 dateField；改 audit 判定前先查 daemon 呼叫端的成功/失敗語意。

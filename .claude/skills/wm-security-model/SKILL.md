@@ -17,7 +17,7 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 
 ## 台股助手規範
 - `src/lib/require-admin.ts`（verifyIdToken＋admin 名單）、`src/lib/cron-auth.ts`（CRON_SECRET）、`src/lib/rate-limit.ts`（per-instance 有界 Map；設 UPSTASH_* 即全域）；11 支 route 有 rateLimit。
-- **反向發現（09-04）**：`rate-limit.ts clientIp()` 取 XFF **第一跳**（`split(',')[0]`）——第一跳是 client 可預置的；正確是取 Firebase Hosting/Cloud Run 附加的那一跳（`/api/system/version` 回 `xffHops`／`xffTailMasked` 供取樣；取樣定案後再改取法）。
+- **R6（09-04 實測定案，使用者選 (a) 記錄殘餘風險）**：經 Hosting 時 client 的 XFF 被剝除、取第一跳正確；但 cloudfunctions.net／run.app／fh- 標籤 URL 皆可公開直連，GFE 把真實 IP 附在尾端 ⇒ 直連可偽造第一跳繞過限流；host 與 fastly-client-ip 在標籤 URL 直連時與經 Hosting 相同，**應用層無法分辨**；改取最後一跳會讓經 Hosting 的所有人共桶。限流是 per-instance 縱深防禦，授權由 token 把關。正解在基礎設施（封直連），排入下次基礎設施變更。詳記憶 project_tw_stock_xff_topology。
 - R2 已收口（2026-09-04）：compare-agent 加 rateLimit 10/min；news-agent 零呼叫端下架；route 普查證實 6 支 mutating 全有 auth 或 rateLimit。
 - 秘密：TELEGRAM_BOT_TOKEN／VAPID_PRIVATE_KEY／CRON_SECRET 只在 .env.local；GOOGLE_APPLICATION_CREDENTIALS 不進 .env.local（LaunchAgent plist 帶）；SA key 檔在 repo 外只引路徑。
 - 不做 dev auth backdoor；不接受使用者密碼。
