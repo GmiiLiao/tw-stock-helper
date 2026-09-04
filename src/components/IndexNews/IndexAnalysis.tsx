@@ -458,13 +458,23 @@ export default function IndexAnalysis() {
   const [name, setName] = useState('加權指數');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');   // 更新失敗時只加註記，不清掉已顯示的 K 線（wm-panel-data-lifecycle）
+  const loadedKey = useRef('');                 // 已成功載入的 sym|iv；切換標的時舊資料不可沿用
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const key = `${sym}|${iv}`;
+    if (loadedKey.current !== key) { setAll([]); setLoading(true); }
     try {
-      const j = await fetch(`/api/index/candles?sym=${sym}&interval=${iv}`).then(r => (r.ok ? r.json() : null));
-      setAll(j?.candles || []); setName(j?.name || sym); setNote(j?.note || '');
-    } catch { setAll([]); } finally { setLoading(false); }
+      const r = await fetch(`/api/index/candles?sym=${sym}&interval=${iv}`, { signal: AbortSignal.timeout(10_000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      if (!Array.isArray(j?.candles)) throw new Error('回應缺 candles');
+      setAll(j.candles); setName(j.name || sym); setNote(j.note || ''); setLoadErr('');
+      loadedKey.current = key;
+    } catch (e) {
+      // 暫時性失敗：有舊資料就保留並標示；沒有才顯示無資料
+      setLoadErr(`更新失敗（${e instanceof Error ? e.message : String(e)}）`);
+    } finally { setLoading(false); }
   }, [sym, iv]);
   useEffect(() => { load(); }, [load]);
 
@@ -521,7 +531,8 @@ export default function IndexAnalysis() {
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
         {loading ? <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>
-          : all.length ? <MultiPaneChart all={all} iv={iv} initSize={win} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>無資料</div>}
+          : all.length ? <MultiPaneChart all={all} iv={iv} initSize={win} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>{loadErr ? `無資料：${loadErr}` : '無資料'}</div>}
+        {loadErr && all.length > 0 && <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4 }}>⚠ {loadErr}，顯示的是上次成功載入的資料</div>}
         {note && <div style={{ fontSize: 11, color: '#cbd5f5', marginTop: 4 }}>ℹ {note}</div>}
       </div>
 

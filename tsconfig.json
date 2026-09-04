@@ -36,7 +36,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": [".backup_before_opt", "_to_delete", 
-    "node_modules"
+  "exclude": [
+    ".backup_before_opt",
+    "_to_delete",
+    "node_modules",
+    "second-brain"
   ]
 }

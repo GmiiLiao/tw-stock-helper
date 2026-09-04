@@ -10,5 +10,9 @@ done
 if git diff --cached --name-only | grep -qE '\.(ts|tsx|mjs)$'; then
   node scripts/check-field-conventions.mjs >/tmp/fc.out 2>&1 || { cat /tmp/fc.out; echo "❌ 欄位命名契約違規（先到 check-field-conventions.mjs 登記）"; fail=1; }
 fi
-[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約通過"
+if git diff --cached --name-only | grep -qE '^src/'; then
+  node scripts/audit-routes.mjs >/tmp/ar.out 2>&1 || { cat /tmp/ar.out; echo "❌ route 封閉世界普查違規（scripts/route-policy.json）"; fail=1; }
+  node scripts/audit-ratchets.mjs >/tmp/rt.out 2>&1 || { cat /tmp/rt.out; echo "❌ Ratchet 違規（setInterval 未接 gate）"; fail=1; }
+fi
+[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet 通過"
 exit $fail

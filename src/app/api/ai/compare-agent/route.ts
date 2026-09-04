@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,9 @@ interface StockCompareItem {
 }
 
 export async function POST(request: NextRequest) {
+  // 直打本機 Ollama 的路徑：生產環境打不到（安全地壞著），但仍不可讓人免費反覆觸發（WM-SCAN R2 選項 a）
+  const limited = await rateLimit(request, 'compare-agent', 10);
+  if (limited) return limited;
   try {
     const body = await request.json().catch(() => ({}));
     const {

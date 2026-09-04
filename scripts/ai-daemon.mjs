@@ -519,6 +519,52 @@ async function buildPredictSkill(code) {
   } catch { return ''; }
 }
 
+// ── Ollama 健康探測與 daemon 健康文件（wm-llm-provider-routing F11·wm-observability F14·2026-09-04）──
+// 單供應商（本機 Ollama）沒有降級鏈，能做的是**早知道**：開機＋每小時打 /api/tags（5 秒逾時），
+// 連同熔斷器狀態、每日任務耗時一起寫 system/daemonHealth（獨立文件，不與 16:10 audit 覆寫的 dataHealth 互踩）。
+let _ollamaHealth = { ok: null, at: 0, latencyMs: null, models: null, error: null };
+let _ollamaFailStreak = 0;
+async function probeOllama() {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const j = r.ok ? await r.json() : null;
+    const models = Array.isArray(j?.models) ? j.models.map(m => m.name) : null;
+    _ollamaHealth = { ok: r.ok, at: Date.now(), latencyMs: Date.now() - t0, models, error: r.ok ? null : `HTTP ${r.status}`,
+      hasModel: models ? models.includes(OLLAMA_MODEL) : null };
+    if (!r.ok) log(`❌ Ollama 探測失敗：HTTP ${r.status}`);
+    else if (models && !models.includes(OLLAMA_MODEL)) log(`❌ Ollama 可達但沒有模型 ${OLLAMA_MODEL}（現有：${models.join(', ')}）`);
+  } catch (e) {
+    _ollamaHealth = { ok: false, at: Date.now(), latencyMs: Date.now() - t0, models: null, error: String(e.message || e).slice(0, 120), hasModel: null };
+    log(`❌ Ollama 探測失敗：${_ollamaHealth.error}（識讀 pass 會整批失敗）`);
+  }
+  return _ollamaHealth;
+}
+const _jobTimings = {};   // name → { ms, at, tag }（F14：08:30 前完成的硬要求需要量測每段耗時）
+async function timedJob(name, fn, tag = '') {
+  const t0 = Date.now();
+  try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
+  const ms = Date.now() - t0; _jobTimings[name] = { ms, at: Date.now(), tag };
+  if (ms > 60_000) log(`⏱ ${name}${tag} 耗時 ${(ms / 1000).toFixed(0)}s`);
+  return ms;
+}
+function slowestJobs(n = 5) { return Object.entries(_jobTimings).sort((a, b) => b[1].ms - a[1].ms).slice(0, n).map(([k, v]) => `${k} ${(v.ms / 1000).toFixed(0)}s`).join('、'); }
+async function writeDaemonHealth() {
+  try {
+    await db.collection('system').doc('daemonHealth').set({
+      at: Date.now(), pid: process.pid, ollama: _ollamaHealth, breakers: breakerSnapshot(),
+      jobTimings: _jobTimings, slowest: slowestJobs(8),
+    });
+  } catch (e) { log('⚠ daemonHealth 寫入失敗:', e.message); }
+}
+async function daemonHealthLoop() {
+  for (;;) {
+    await probeOllama();
+    await writeDaemonHealth();
+    await sleep(3_600_000);
+  }
+}
+
 async function _ollamaRaw(prompt, temperature) {
   const ctl = new AbortController();
   // 逾時自「實際送出」起算(非排隊起算)，因為佇列已序列化只送一個。
@@ -1803,16 +1849,37 @@ async function writeIntraday() {
 // 且盤中 route 可直接回 daemon(免等 Yahoo)→速度不退步。
 const _ibBackfilled = new Map();   // code → 'done' | 退避到期時戳
 let _ibDay = '';
+// ── 外部源熔斷（wm-resilience-circuit-breaker·WM-SCAN F1·2026-09-04）──────────
+// 只包 Yahoo 族（chart 與 news 兩個 host），**不包 MIS**（MIS 的 null 多是 z 缺席等市場現實）。
+// Read Outcome 三態：只有 throw（連線失敗/逾時/非 JSON）算失敗；HTTP 200 但無資料是 miss，不計。
+// 連續 threshold 次失敗 → 冷卻（5 分起，每次再跳閘加倍，上限 30 分）；冷卻中呼叫端直接拿 null，
+// 與「上游沒資料」同一形狀，呼叫端既有的退避/重試邏輯不變。冷卻到期後第一次呼叫即半開探測。
+const _breakers = new Map();
+function _breaker(key) { let b = _breakers.get(key); if (!b) { b = { failures: 0, until: 0, trips: 0, lastError: '' }; _breakers.set(key, b); } return b; }
+function breakerOpen(key) { return Date.now() < _breaker(key).until; }
+function breakerOk(key) { const b = _breaker(key); if (b.trips) log(`✓ 熔斷恢復 ${key}（曾跳閘 ${b.trips} 次）`); b.failures = 0; b.trips = 0; b.until = 0; }
+function breakerFail(key, err, { threshold = 3, cooldownMs = 300_000, maxCooldownMs = 1_800_000 } = {}) {
+  const b = _breaker(key); b.failures++; b.lastError = String(err?.message || err || '').slice(0, 120);
+  if (b.failures >= threshold) {
+    b.trips++; const cd = Math.min(cooldownMs * 2 ** (b.trips - 1), maxCooldownMs);
+    b.until = Date.now() + cd; b.failures = 0;
+    log(`⛔ 熔斷 ${key}：連續 ${threshold} 次失敗（${b.lastError}），冷卻 ${Math.round(cd / 60000)} 分`);
+  }
+}
+function breakerSnapshot() { const o = {}; for (const [k, b] of _breakers) o[k] = { open: Date.now() < b.until, until: b.until || null, trips: b.trips, failures: b.failures, lastError: b.lastError || null }; return o; }
+
 async function fetchYahoo1m(sym) {
+  if (breakerOpen('yahoo-chart')) return null;
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 6000);
   try {
     const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1m&range=1d&includePrePost=false`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.json()).finally(() => clearTimeout(tm));
+    breakerOk('yahoo-chart');
     const res = j?.chart?.result?.[0]; if (!res) return null;
     const ts = res.timestamp || []; const q = res.indicators?.quote?.[0] || {};
     const out = [];
     for (let i = 0; i < ts.length; i++) { const c = q.close?.[i]; if (c > 0) out.push([ts[i], +c.toFixed(2), q.volume?.[i] ?? 0]); }
     return out.length ? out : null;
-  } catch { return null; }
+  } catch (e) { breakerFail('yahoo-chart', e); return null; }
 }
 const _taipeiMinOf = tsSec => { const t = new Date(new Date(tsSec * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return t.getHours() * 60 + t.getMinutes(); };
 async function backfillIntradayMorning(trackedSet, byCode) {
@@ -4377,16 +4444,18 @@ async function fetchYahooStockBodies(code, name, cap = 2) {
   if (!/^\d{4,6}[A-Z]?$/.test(String(code || ''))) return [];
   const UA = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' };
   let links = [];
+  if (breakerOpen('yahoo-news')) return [];   // 熔斷冷卻中（見 fetchYahoo1m 上方說明）
   for (const sfx of ['TW', 'TWO']) {
     try {
       const r = await fetch(`https://tw.stock.yahoo.com/quote/${code}.${sfx}/news`, { headers: UA, signal: AbortSignal.timeout(12000) });
+      breakerOk('yahoo-news');   // 有 HTTP 回應＝host 可達；!ok 是該檔無頁，屬 miss
       if (!r.ok) continue;
       const t = await r.text();
       // 去重要把 query string 砍掉——同一篇會以帶參數/不帶參數兩種形式出現
       links = [...new Set([...t.matchAll(/https:\/\/tw\.stock\.yahoo\.com\/news\/[^"'\\ ]{20,}/g)]
         .map(m => m[0].split('?')[0]))];
       if (links.length) break;
-    } catch { /* 換另一個後綴 */ }
+    } catch (e) { breakerFail('yahoo-news', e); /* 換另一個後綴 */ }
     await sleep(300);
   }
   if (!links.length) return [];
@@ -9456,9 +9525,11 @@ async function hintDca() {
 
 // Yahoo 日線 helper（回測/beta 用；stockHistory 僅覆蓋部分個股）
 async function fetchYahooDaily(sym, range = '1y') {
+  if (breakerOpen('yahoo-chart')) return null;   // 熔斷冷卻中：與「無資料」同形狀（見 fetchYahoo1m 上方說明）
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 10000);
   try {
     const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=${range}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: ctl.signal }).then(r => r.json()).finally(() => clearTimeout(tm));
+    breakerOk('yahoo-chart');
     const res = j?.chart?.result?.[0]; if (!res) return null;
     const ts = res.timestamp || []; const qd = res.indicators?.quote?.[0] || {};
     const bars = [];
@@ -9469,7 +9540,7 @@ async function fetchYahooDaily(sym, range = '1y') {
       bars.push({ t: ts[i], o, h: Math.max(hi, o, c, lo), l: Math.min(lo, o, c, hi), c, v: qd.volume?.[i] ?? 0 });
     }
     return bars.length ? bars : null;
-  } catch { return null; }
+  } catch (e) { breakerFail('yahoo-chart', e); return null; }
 }
 const _ySym = (code, market) => `${code}.${market === 'otc' ? 'TWO' : 'TW'}`;
 
@@ -12782,15 +12853,18 @@ async function runDailyJobs(boot = false) {
   const BOOT_SKIP = new Set(['finReports']);
   for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
-    try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
+    await timedJob(name, fn, tag);
   }
+  const total = Object.values(_jobTimings).filter(v => v.tag === tag).reduce((s, v) => s + v.ms, 0);
+  log(`⏱ dailyJobs${tag} 總耗時 ${(total / 60000).toFixed(1)} 分；最慢：${slowestJobs(5)}`);
+  writeDaemonHealth();
 }
 // 官方盤後資料公布時間不同，光靠 15:10 一次會抓到前一日：T86 三大法人約 16:00、
 // 期交所/集保/除權息/借券/月營收約 16:30 前、融資融券約 21:30 才出。故加兩個補抓時段。
 const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];
 const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
 async function runJobSet(jobs, tag) {
-  for (const [name, fn] of jobs) { try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } }
+  for (const [name, fn] of jobs) await timedJob(name, fn, tag);
 }
 let _intradayDate = '';   // 個股5分K歸檔每日一次
 let _asiaAt = 0, _asiaCatchupDate = '';   // 日韓早盤節流與補跑守衛（見 computeAsiaPremarket）
@@ -13333,6 +13407,7 @@ async function dailyJobsLoop() {
   }
 }
 if (!ONESHOT) dailyJobsLoop();
+if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔斷器狀態、任務耗時 → system/daemonHealth
 
 // 再平衡設定監看：使用者在 UI 更新現金部位後，45 秒內重算配置漂移
 // (否則要等每日排程，看起來像「輸入沒成功」)。

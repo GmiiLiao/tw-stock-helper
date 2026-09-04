@@ -10,6 +10,20 @@ Next.js 15 App Router + React 19 + zustand + Firebase（Auth / Firestore / App H
 > 若輸出是 `/Users/gmii` 代表 `.git` 不見了 —— **先問人，不要 git init**。
 > 2026-07-31 之前的歷史在家目錄那份 repo，查法與規則見 [`docs/REPO-LAYOUT.md`](docs/REPO-LAYOUT.md)。
 
+## 任務模式與終端狀態（wm-agent-task-mode·2026-09-04）
+
+- **模式由使用者的動詞決定**：「查看／分析／列出／為什麼／等我決定」＝**唯讀**——不改檔、不 commit、
+  不重啟 daemon、不部署；「開工／go／修正／補上」才是實作模式。報告模式下發現問題只列不修。
+- **動碼前先跑 preflight**：影響面掃描（呼叫端／回傳值消費端／時序：盤中、daemon 重啟窗、每日任務時段），
+  daemon 重啟前 `node scripts/can-restart-daemon.mjs`。這是「不要修A錯B」的機械化步驟，不是可選項。
+- **終端狀態分開宣稱**，六個是不同的主張，不可混用：本機驗證通過 → 已 commit → 已部署 → **線上實測**
+  （附標頭／數字）→ 線上觀測到（daemon log／dataHealth）→ 使用者驗收。commit 成功或 tsc 綠燈**不證明**
+  線上行為；沒實測的一律寫「未驗」。
+- **驗證分級**：先跑最小聚焦證明，再跑該面向要求的閘門；中斷或逾時的檢查不得宣稱通過；要分清產品失敗／
+  既有基線失敗／缺憑證／沙箱限制並附證據；交付時列「改了什麼、驗了什麼、**什麼還沒證明**」。
+- disk 即部署：launchd KeepAlive 會在 daemon 死亡時拉起**磁碟上的版本**，半成品碼不可落地（pre-commit 擋語法）。
+- 交易相關輸出一律附「非投資建議」。技能全文：`.claude/skills/wm-agent-task-mode/SKILL.md`。
+
 ## 三層架構 —— 先理解這個，否則會改錯地方
 
 ```
