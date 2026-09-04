@@ -13,8 +13,8 @@ description: LLM 供應商路由——每個 provider 宣告 fallback 鏈、無 
 
 ## 台股助手規範
 - daemon 只有本機 Ollama（6 處引用，無第二供應商）：Ollama 不可用時**不得靜默**——`pushVerdictDone` 帶 stopped/failed 計數；09-01 實案「Ollama 來不及處理由我先處理」是人工降級。
-- web 層 `ai/compare-agent`、`ai/news-agent` 直打 localhost:11434，生產必死（R2 待裁決：建議 compare-agent 加 rateLimit、news-agent 下架）。
-- **正向待辦**：daemon 對 Ollama 的健康探測（啟動時＋每小時）寫入 dataHealth，識讀 pass 前先探測，避免整批 timeout 才發現。
+- web 層 `ai/compare-agent` 直打 localhost:11434（生產必死）已加 rateLimit；`news-agent` 已下架（2026-09-04 R2）。
+- ✅ 已做（F11）：`probeOllama()` 打 `/api/tags`（5s 逾時）開機＋每小時，連同熔斷器狀態寫 `system/daemonHealth`（獨立文件，不與 audit 覆寫的 dataHealth 互踩）；模型不在列或不可達即 ❌ log。
 - 判定結果落地要標 provider/model 版本（verdict 的可追溯性）。
 
 ## 修A錯B 影響面

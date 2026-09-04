@@ -17,8 +17,8 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 
 ## 台股助手規範
 - `src/lib/require-admin.ts`（verifyIdToken＋admin 名單）、`src/lib/cron-auth.ts`（CRON_SECRET）、`src/lib/rate-limit.ts`（per-instance 有界 Map；設 UPSTASH_* 即全域）；11 支 route 有 rateLimit。
-- **反向發現（09-04）**：`rate-limit.ts clientIp()` 取 XFF **第一跳**（`split(',')[0]`）——第一跳是 client 可預置的；正確是取 Firebase Hosting/Cloud Run 附加的那一跳（需線上實測 XFF 形狀後改，屬 L 族觀測）。
-- R2 未裁決：`ai/compare-agent`、`ai/news-agent` 無驗證無限流（生產打不到 Ollama，安全地壞著）。
+- **反向發現（09-04）**：`rate-limit.ts clientIp()` 取 XFF **第一跳**（`split(',')[0]`）——第一跳是 client 可預置的；正確是取 Firebase Hosting/Cloud Run 附加的那一跳（`/api/system/version` 回 `xffHops`／`xffTailMasked` 供取樣；取樣定案後再改取法）。
+- R2 已收口（2026-09-04）：compare-agent 加 rateLimit 10/min；news-agent 零呼叫端下架；route 普查證實 6 支 mutating 全有 auth 或 rateLimit。
 - 秘密：TELEGRAM_BOT_TOKEN／VAPID_PRIVATE_KEY／CRON_SECRET 只在 .env.local；GOOGLE_APPLICATION_CREDENTIALS 不進 .env.local（LaunchAgent plist 帶）；SA key 檔在 repo 外只引路徑。
 - 不做 dev auth backdoor；不接受使用者密碼。
 

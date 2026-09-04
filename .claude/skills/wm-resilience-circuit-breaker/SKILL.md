@@ -16,7 +16,7 @@ description: 熔斷器與降級存活——失敗計數→冷卻狀態機、tri-
 
 ## 台股助手規範
 - web 層：`memoize`（singleflight）已有 8s 硬逾時＋in-flight 毒化防護＋失敗負快取；`cacheHeader` 各層級有 stale-if-error（tick 60s … daily 86400s）。
-- daemon：**尚無失敗計數器**（09-02 Yahoo 整條斷線每輪空打一整天）。F1 設計：`withBreaker(key, fn, {threshold 3, cooldown 5min→30min})`，v1 只包 Yahoo 族（hoisted wrapper `fetchYahoo1m/_fetchYahoo1mRaw`），**絕不包 MIS**（MIS 的失敗多為 z 缺席之類的市場現實）。
+- daemon ✅ 已做（2026-09-04 F1）：`breakerOpen/breakerOk/breakerFail` 三個小函式包 Yahoo 族兩個 key（`yahoo-chart`：1m＋日線；`yahoo-news`：內文），閾值 3、冷卻 5 分起每次跳閘加倍上限 30 分；**只有 throw 算失敗**（200 無資料是 miss）；冷卻中回 null 與「無資料」同形狀，呼叫端退避邏輯不變；狀態寫 `system/daemonHealth.breakers`。**絕不包 MIS**。
 - 冷卻中要有可觀測訊號（log ❌＋dataHealth）；恢復探測一次一個。
 - 前端：`useLiveQuotes`／`startLiveLoop` 為 fire-and-forget，錯誤不清空既有報價（見 wm-panel-data-lifecycle）。
 - **finite stale grace**（上游 9/3 新增）：降級資料要有存活上限——本站 daily 層 stale-if-error=86400 是上限，但 daemon 產出的 latest doc 沒有「太舊就不顯示」的天花板 → 正向待辦 F4 延伸。

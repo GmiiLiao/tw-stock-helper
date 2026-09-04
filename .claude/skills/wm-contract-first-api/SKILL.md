@@ -17,7 +17,7 @@ description: 契約優先 API——proto/OpenAPI 生成、allowlist 例外要有
 - 本站契約層＝`scripts/check-field-conventions.mjs`（xxxAt／xxxDate 欄位登記，pre-commit 強制）＋ `audit-data-sources.mjs` CONTRACTS 表（每資料源的 maxStale／minRecords／dateField／市場組成）。
 - 新增 API route 必做三件事：cacheHeader 層級、rateLimit（mutating）、若讀 daemon latest doc 用 `latestDoc()`；回應形狀變更要同步前端型別（TS 會擋）。
 - 例外（直打上游的 fallback 路徑）必須有總開關與註解說明為何存在（`ALLOW_DIRECT_MIS` 是範本）。
-- **正向待辦**：route 清單稽核腳本（列所有 route 的 method／auth／rateLimit／cache 四欄，缺項即紅）——上游 enforce-rate-limit-policies 的簡化版。
+- ✅ 已做（F7）：`scripts/audit-routes.mjs --table` 列 102 route 四欄；政策在 `scripts/route-policy.json`。
 
 ## 修A錯B 影響面
 改回應欄位名 ＝ 改契約：先 grep 前端所有消費端與 daemon 寫入端；欄位改名走登記表。

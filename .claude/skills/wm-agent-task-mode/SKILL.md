@@ -20,7 +20,7 @@ description: AI 協作工程規範——任務模式與授權分離、終端狀�
 - 動碼前的 preflight ＝ **影響面掃描**（記憶 feedback_change_impact_scan）：呼叫端／回傳值消費端／時序（盤中／daemon 重啟窗）。daemon 重啟前先 `node scripts/can-restart-daemon.mjs`。
 - 終端狀態用詞：「已 commit」「已 deploy」「線上實測（附標頭/數字）」三者分開寫；沒實測的寫「未驗」。
 - 交易相關輸出附「非投資建議」。
-- **正向待辦**：CLAUDE.md 目前無「任務模式」段——建議新增（本技能第一節即可移植）。
+- ✅ 已內化（2026-09-04 F6）：CLAUDE.md「任務模式與終端狀態」段。
 
 ## 修A錯B 影響面
 本技能本身就是修A錯B的結構化版本；改它前先讀 CLAUDE.md「絕對不要做的事」確認不矛盾。

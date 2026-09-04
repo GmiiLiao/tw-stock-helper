@@ -15,7 +15,7 @@ description: 面板資料生命週期——錯誤絕不覆蓋既有好資料、s
 ## 台股助手規範
 - React 寫法：`catch` 分支**只 set error，不 set 空陣列**；`r.ok ? r.json() : null` 後 `setAll(j?.x || [])` 會把 503 變成清空——改為 `if (!j) { setError(...); return; }`。
 - 首載與更新分開：`loading` 只在無資料時遮蓋；有資料時更新失敗顯示「更新失敗·顯示 HH:MM 資料」。
-- **反向發現（09-04）**：`src/components/IndexNews/IndexAnalysis.tsx:467` `catch { setAll([]) }` 且非 2xx 也清空——指數 K 線在暫時性失敗時整張消失。其餘元件掃描乾淨（StockDetail 只 log）。
+- R5 已修（2026-09-04 F9）：`IndexAnalysis.tsx` 失敗時保留上次資料並顯示「⚠ 更新失敗…顯示的是上次成功載入的資料」；只有切換標的（sym|iv 變）才清空；fetch 加 10s 逾時。其餘元件掃描乾淨。
 - useLiveQuotes：失敗保留上一拍報價，不回退到昨收。
 
 ## 修A錯B 影響面

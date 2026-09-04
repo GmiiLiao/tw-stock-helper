@@ -14,7 +14,7 @@ description: 問題→解法知識庫（docs/solutions 98 篇含 frontmatter 分
 ## 台股助手規範
 - 既有同型：`docs/DATA-INTEGRITY-SCAN.md`（A–L 故障族＋可重跑 grep）、`docs/EXPERIMENTS.md`（含負面結果）、CLAUDE.md「絕對不要做的事」（每條附實案日期）。
 - 新事故一律先歸族（A–L），族不夠就加族並附探針；不要只在 commit message 講。
-- 詞彙：本站已有的專有名詞（唯一不變式、口徑隔離、修A錯B、資料日 vs 服務日、殘缺宇宙、快線/主迴圈、拍號）散在 CLAUDE.md——**正向待辦**：集中成 `docs/CONCEPTS.md`，每條寫「為什麼要區分」。
+- 詞彙：本站已有的專有名詞（唯一不變式、口徑隔離、修A錯B、資料日 vs 服務日、殘缺宇宙、快線/主迴圈、拍號）散在 CLAUDE.md——✅ 已做（F12）：`docs/CONCEPTS.md` 16 條（唯一不變式／快線主迴圈／拍號／資料日 vs 服務日／殘缺宇宙／空殼文件／口徑隔離／Read Outcome／Content Clock／修A錯B／終端狀態／觀察窗／disk 即部署／Vacuous Guard／雙向 Ratchet）。
 - 文件數字（route 數、來源數）要由腳本產生或標「量測日」。
 
 ## 修A錯B 影響面

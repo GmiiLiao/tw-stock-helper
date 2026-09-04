@@ -19,7 +19,7 @@ description: 即時資料種子管線——runSeed 生命週期（lock→fetch�
 - **失敗不寫空**：`loadCodes` 上市＋上櫃缺一邊保留舊快取；`_lastLive` 重啟由 `restoreLastLive()` 接回；尾盤五檔窗（13:20–13:35）記憶體累積，13:36 歸檔前不可重啟。
 - 早盤回補 `backfillIntradayMorning`：成功才標 done，失敗 90s 退避重試（等同 extend-and-retry）。
 - 快照 TTL 5 分 vs 寫入 40 秒＝7.5×，過規則。
-- 每日任務匯流排（21:45 資券、16:10 稽核、06:40 休市日曆）＝ bundle；**正向待辦**：各段執行時間記錄與 wall budget（08:30 前完成的硬要求需要它）。
+- 每日任務匯流排（21:45 資券、16:10 稽核、06:40 休市日曆）＝ bundle；✅ 已做（F14）：`timedJob()` 逐段計時，>60s 記 ⏱，每輪結束 log 總耗時＋最慢 5 段，寫入 `system/daemonHealth.jobTimings`；wall budget 門檻待累積一週數據再定。
 - 非交易時段 daemon 不掃（81% 時間資料不變）。
 
 ## 修A錯B 影響面

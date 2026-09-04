@@ -21,7 +21,7 @@ description: CI 防護網與抗漂移——分層 pre-push（狀態依賴／樹�
 
 ## 台股助手規範
 - `scripts/git-hooks/pre-commit`（node --check staged .mjs＋欄位契約）、`pre-push`（tsc）；`core.hooksPath` 指向。**半成品碼進 disk 會被 launchd KeepAlive 撿起 crash loop**——這是 pre-commit 存在的理由。
-- audit MIN_SOURCES=60 是本站第一個反 Vacuous Guard。**正向待辦**：(1) 對 pre-commit 與 audit 各做一次 Mutation Proof 並記錄；(2) route 清單 Closed-World Gate（每支 route 分類 auth/rateLimit/cache，未分類即紅）；(3) Ratchet：`setInterval` 未接 gate 的檔案數（36 中 12 已接）當雙向普查；(4) hook 依「誰能修」分流 exit code（tsc 失敗硬擋、外部不可用軟過並註明）。
+- audit MIN_SOURCES=60 是本站第一個反 Vacuous Guard。已做（2026-09-04 F7/F8/F15）：(1) Mutation Proof：pre-commit 放壞 .mjs → exit 1；audit `--only` 縮到 2 源 → ❌ 稽核範圍異常（記錄於 docs/WM-SCAN-2026-09-04.md）；(2) `scripts/audit-routes.mjs`＋`route-policy.json`：102 route 封閉世界普查（mutating 無 auth/rateLimit 即紅、GET 無 cache 雙向基線）；(3) `scripts/audit-ratchets.mjs`：setInterval 未接 gate 24 檔雙向 Ratchet；兩者接進 pre-commit（碰 src/ 才跑）。**待辦**：(4) hook 依「誰能修」分流 exit code；(5) `check-field-conventions` 改為所有 *At/*Date 未登記即紅（屬性集合軸）。
 - daemon 空 catch 現況：0 個裸空、150 個有註解——維持「空 catch 必附理由」。
 
 ## 修A錯B 影響面
