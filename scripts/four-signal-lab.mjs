@@ -57,6 +57,11 @@ for (let t = WARM; t < days.length - FWD; t++) {
     const base = pre.reduce((s, x) => s + x[1], 0) / pre.length;
     const last5 = v.slice(-5).reduce((s, x) => s + x, 0) / 5;
     const s4 = base > 0 && last5 >= 2 * base && v.slice(-3).every(x => x >= 1.5 * base);
+    // 量能細項（2026-09-05 使用者問「有沒有把交易量放進來」→ 補梯度／事件日量／持續 5 日）
+    const vr5 = base > 0 ? last5 / base : 0;                       // 近 5 日均量倍數
+    const sustain5 = base > 0 && v.slice(-5).every(x => x >= 1.5 * base);
+    const volS1 = s1 >= 0 && base > 0 ? v[s1] / base : 0;           // 漲停日量倍數
+    const volS3 = s3 >= 0 && base > 0 ? v[s3] / base : 0;           // 缺口日量倍數
     const chgT = pct(c[W - 1], c[W - 2]);
     // 前瞻（t+1 開盤進場）
     const n1 = days[t + 1].close[code]; if (!Array.isArray(n1) || !(n1[2] > 0)) continue;
@@ -67,7 +72,7 @@ for (let t = WARM; t < days.length - FWD; t++) {
     if (r5 == null || r10 == null || r20 == null) continue;
     let minLow5 = Infinity, maxC20 = -Infinity; for (let k = 1; k <= 5; k++) { const x = days[t + k].close[code]; if (x?.[4] > 0) minLow5 = Math.min(minLow5, x[4]); } for (let k = 1; k <= 20; k++) { const x = days[t + k].close[code]; if (x?.[0] > 0) maxC20 = Math.max(maxC20, x[0]); }
     const trueStart = minLow5 >= l[W - 1] && pct(maxC20, entry) >= 5;
-    rows.push({ code, t, date: D.date, s1, runLen: best, runEnd: bestEnd, s3, s3open, s4, chgT, entry, r5, r10, r20, mdd: pct(minLow5, entry), hit10: pct(maxC20, entry) >= 10, trueStart });
+    rows.push({ code, t, date: D.date, s1, runLen: best, runEnd: bestEnd, s3, s3open, s4, vr5, sustain5, volS1, volS3, chgT, entry, r5, r10, r20, mdd: pct(minLow5, entry), hit10: pct(maxC20, entry) >= 10, trueStart });
   }
 }
 console.log(`觀測 ${rows.length} 筆 stock-day`);
@@ -87,6 +92,18 @@ const SETS = {
   '四訊號 K=5 新鮮(≤5日)': r => fresh(r, 5),
   '四訊號 K=8': r => r.runLen >= 8 && r.s1 >= 0 && r.s3 >= 0 && r.s4,
   '四訊號 K=5 新鮮 ∧ 今日≤3%(未追高)': r => fresh(r, 5) && r.chgT <= 3,
+  '── 量能變體 ──': () => false,
+  '④ 1.5×（放寬）': r => r.vr5 >= 1.5,
+  '④ 2×（原設定）': r => r.vr5 >= 2,
+  '④ 3×': r => r.vr5 >= 3,
+  '④ 5×': r => r.vr5 >= 5,
+  '④ 持續5日皆≥1.5×': r => r.sustain5 && r.vr5 >= 2,
+  '漲停日量≥2×基準': r => r.volS1 >= 2,
+  '缺口日量≥2×基準': r => r.volS3 >= 2,
+  '四訊號K=5新鮮 ∧ 量3×': r => fresh(r, 5) && r.vr5 >= 3,
+  '四訊號K=5新鮮 ∧ 漲停日量≥3× ∧ 缺口日量≥2×': r => fresh(r, 5) && r.volS1 >= 3 && r.volS3 >= 2,
+  '四訊號K=5新鮮 ∧ 持續5日': r => fresh(r, 5) && r.sustain5,
+  '①漲停 ∧ 漲停日量≥3× ∧ 缺口未補（無連陽/倍量要求）': r => r.s1 >= 0 && r.volS1 >= 3 && r.s3 >= 0 && r.s3open,
 };
 function stat(arr) {
   const n = arr.length; if (!n) return null;
@@ -114,7 +131,7 @@ P(`\n▶ 安慰劑（同量隨機 n=${pl.length}）`); P(`  ${fmt(stat(pl))}`);
 // 案例
 const cases = target.map(r => ({ ...r, name: names[r.code] || '' })).sort((a, b) => b.r20 - a.r20);
 P(`\n▶ 案例（四訊號 K=5 新鮮·去重 n=${cases.length}）——前 12 名與後 6 名（20 日淨報酬）`);
-const line = r => `  ${r.date} ${r.code} ${r.name.padEnd(5, '　')} 連陽${r.runLen} 漲停@${r.s1 - W + 1}d 缺口@${r.s3 - W + 1}d${r.s3open ? '未補' : '已補'} 今${r.chgT.toFixed(1)}% → 5日${(r.r5 - COST).toFixed(1)}% 10日${(r.r10 - COST).toFixed(1)}% 20日${(r.r20 - COST).toFixed(1)}% 最深${r.mdd.toFixed(1)}% ${r.trueStart ? '✅真起漲' : ''}`;
+const line = r => `  ${r.date} ${r.code} ${r.name.padEnd(5, '　')} 量${r.vr5.toFixed(1)}× 漲停日量${r.volS1.toFixed(1)}× 連陽${r.runLen} 漲停@${r.s1 - W + 1}d 缺口@${r.s3 - W + 1}d${r.s3open ? '未補' : '已補'} 今${r.chgT.toFixed(1)}% → 5日${(r.r5 - COST).toFixed(1)}% 10日${(r.r10 - COST).toFixed(1)}% 20日${(r.r20 - COST).toFixed(1)}% 最深${r.mdd.toFixed(1)}% ${r.trueStart ? '✅真起漲' : ''}`;
 for (const r of cases.slice(0, 12)) P(line(r));
 P('  …');
 for (const r of cases.slice(-6)) P(line(r));
