@@ -75,6 +75,7 @@ const CONTRACTS = [
   // 做空風控候選（2026-09-03）：盤中每 10 分鐘＋盤後定榜。空榜是設計結果
   // （過濾嚴格·多頭日更少），doc 自帶 totalPassed/note 解釋 ⇒ allowEmpty。
   { c: 'shortCandidates',  kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
+  { c: 'gapLimitUp',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },   // 🎯 縮量跳空漲停（2026-09-05）
   // 訓練樣本：21:45 班車寫 dated doc。漏一天＝少一筆不可回補的樣本（特徵是
   // 當日快照，事後重建就不是 PIT）——這正是 bookDepth 壞半年教訓要防的。
   { c: 'shortTraining',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 100, countField: 'rowsJson' },

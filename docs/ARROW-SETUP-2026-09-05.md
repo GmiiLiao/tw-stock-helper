@@ -94,3 +94,10 @@
 5. 不做評分卡；清單頁固定顯示「勝率 53.6%／中位 +1.5%／最深 −8.8%／停損必守」
 
 工作量：中（daemon 一支計算＋一支 review、一支 route、一個分頁、推播模板）。非投資建議。
+
+## 六、上線紀錄（2026-09-05 使用者「go」）
+
+- daemon `computeGapLimitUp()`：交易日 13:36–14:10 從快照定榜一次並推播（TG＋Web Push，全市場漲停 >60 檔的事件日不推播）；15:10 歸檔後由 daily jobs 重算（不推播）；`computeGapLimitUpReview()` 每日對答案（t+1 開盤進場、5／20 日淨、停損觸發、買不到），事件日不進樣本外總結；`GAPLU_DATE=YYYY-MM-DD --run gapLimitUp` 可補算，`latest` 只往前走。
+- API `/api/ai/gap-limit-up`（latestDoc intraday）；盤中戰情新分頁「🎯 跳空漲停」（`GapLimitUpPanel`）：★縮量／連陽／底部位置／停損線，隔日盤中即時標「🔒 鎖漲停買不到／● 可買／⛔ 已破停損」。
+- 實跑：09-04 榜 2 檔（★7610 聯友金屬 量 0.68×、6672 騰輝電子 1.3×）；08-03（漲停 110 檔）正確標事件日、對答案 83.7%／+21% 只留紀錄不進總結。
+- audit CONTRACTS 登記 `gapLimitUp`；commit 見 git log；daemon 已重啟。首次真實推播＝下一個交易日 13:36。

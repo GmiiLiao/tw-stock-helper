@@ -10,6 +10,7 @@ import ChipPicksPanel from '@/components/WarRoom/ChipPicksPanel';
 import LimitUpPanel from '@/components/WarRoom/LimitUpPanel';
 import SqueezePanel from '@/components/WarRoom/SqueezePanel';
 import ShortPanel from '@/components/WarRoom/ShortPanel';
+import GapLimitUpPanel from '@/components/WarRoom/GapLimitUpPanel';
 import VolSurgePanel from '@/components/WarRoom/VolSurgePanel';
 import RiseFallPanel from '@/components/WarRoom/RiseFallPanel';
 import DecisionDesk from '@/components/Candidates/DecisionDesk';
@@ -70,7 +71,7 @@ export default function WarRoom() {
   const [toggles, setToggles] = useState<Record<string, boolean>>(Object.fromEntries(STRAT_ORDER.map(k => [k, true])));
   const [pickCtl, setPickCtl] = usePickControls();
   // 主分頁存 store：讓候選便條能從任何頁一鍵切到「決策工作台」分頁
-  const mainTab = useAppStore(st => st.warTab) as 'radar' | 'chip' | 'limitup' | 'volsurge' | 'risefall' | 'desk' | 'squeeze' | 'short';
+  const mainTab = useAppStore(st => st.warTab) as 'radar' | 'chip' | 'limitup' | 'volsurge' | 'risefall' | 'desk' | 'squeeze' | 'short' | 'gaplu';
   const setMainTab = useAppStore(st => st.setWarTab);
   const prevCodes = useRef<Map<string, RadarItem>>(new Map());
 
@@ -206,7 +207,7 @@ export default function WarRoom() {
 
       {/* ── 主分頁切換（置頂：手機上才不會被下方卡片埋掉）── */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', overflowX: 'auto', marginBottom: 10, paddingBottom: 2, scrollbarWidth: 'none' }}>
-        {([['radar', '📡 盤中雷達'], ['risefall', '📈 即時漲跌'], ['chip', '🧬 籌碼推選'], ['limitup', '🚀 漲停預測'], ['squeeze', '🩳 軋空候選'], ['short', '🐻 空方候選'], ['volsurge', '⚡ 盤中爆量'], ['desk', '🗒️ 決策工作台']] as const).map(([k, label]) => {
+        {([['radar', '📡 盤中雷達'], ['risefall', '📈 即時漲跌'], ['chip', '🧬 籌碼推選'], ['limitup', '🚀 漲停預測'], ['squeeze', '🩳 軋空候選'], ['short', '🐻 空方候選'], ['gaplu', '🎯 跳空漲停'], ['volsurge', '⚡ 盤中爆量'], ['desk', '🗒️ 決策工作台']] as const).map(([k, label]) => {
           const on = mainTab === k;
           return (
             <button key={k} onClick={() => { setMainTab(k); logActivity('war_tab', { tab: k }); }}
@@ -259,7 +260,7 @@ export default function WarRoom() {
         </>
       )}
 
-      {mainTab === 'desk' ? <DecisionDesk /> : mainTab === 'risefall' ? <RiseFallPanel /> : mainTab === 'volsurge' ? <VolSurgePanel /> : mainTab === 'limitup' ? <LimitUpPanel /> : mainTab === 'squeeze' ? <SqueezePanel /> : mainTab === 'short' ? <ShortPanel /> : mainTab === 'chip' ? <ChipPicksPanel /> : (
+      {mainTab === 'desk' ? <DecisionDesk /> : mainTab === 'risefall' ? <RiseFallPanel /> : mainTab === 'volsurge' ? <VolSurgePanel /> : mainTab === 'limitup' ? <LimitUpPanel /> : mainTab === 'squeeze' ? <SqueezePanel /> : mainTab === 'short' ? <ShortPanel /> : mainTab === 'gaplu' ? <GapLimitUpPanel /> : mainTab === 'chip' ? <ChipPicksPanel /> : (
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* ── 主榜：盤中雷達（多策略開關篩選） ── */}
         <div style={{ flex: '1 1 640px', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.06)', border: '1px solid rgba(61,142,248,0.25)' }}>

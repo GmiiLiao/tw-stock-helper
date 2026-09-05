@@ -12146,6 +12146,121 @@ async function computeShortReview() {
   return true;
 }
 
+// ── 🎯 縮量跳空漲停（2026-09-05 使用者核准·EXPERIMENTS ⑨）──────────────────
+// 影片「大漲前四特徵」台股化：事件日 = 漲停 ∧ 向上跳空（低>昨高）∧ 當日量 <2× 前 20 日均量
+//（量 <1× 標★；倍量在台股是反效果——實測量≥4× 20日 +0.07%、<1× +6.89%）。
+// 實測（排除全市場漲停 >60 檔的事件日、去重、t+1 開盤進場、成本 0.4425%）：
+//   20 日淨 +6.89%／中位 +1.46%／勝率 53.6%／+30% 命中 28%／5 日最深 −8.8%／22% 隔日開盤鎖漲停買不到。
+// 13:36 從快照定榜並推播；15:10 歸檔後重算（不再推播）；每日 review 對答案累積樣本外。停損線＝事件日最低。
+let _gapLuDate = '';
+async function computeGapLimitUp({ push = false } = {}) {
+  const tw = taipei(); const today = process.env.GAPLU_DATE || isoDate(tw);   // GAPLU_DATE=YYYY-MM-DD：用歸檔重算指定事件日（測試/補算）
+  const archRaw = await readArchive(23 + 25, 'closeJson');
+  if (archRaw.length < 22) { log('  ⚠ 跳空漲停：chipArchive 不足 22 日'); return false; }
+  const arch = archRaw.map(d => ({ date: d.date, map: JSON.parse(d.closeJson) }));
+  const snap = await readSnapshotQuotes();
+  const names = {}; for (const [k, q] of Object.entries(snap?.quotes || {})) if (q.name) names[k] = q.name;
+  let todayMap, prior, srcNote;
+  const ai = arch.findIndex(d => d.date === today);
+  if (ai >= 0) { todayMap = arch[ai].map; prior = arch.slice(ai + 1); srcNote = '歸檔'; }
+  else {
+    if (!isTradingDay(tw)) { log('  · 跳空漲停：非交易日且歸檔無今日，略過'); return false; }   // 週末重算會把週五 live 當今日→假事件日
+    if (!snap) return false;
+    todayMap = {};
+    for (const [k, q] of Object.entries(snap.quotes)) if (q.live && q.price > 0) todayMap[k] = [q.price, Math.round((q.volume || 0) / 1000), q.open || 0, q.high || 0, q.low || 0, q.queueUp ? 1 : 0];
+    prior = arch; srcNote = '快照';
+  }
+  prior = prior.slice(0, 21);                                   // t-1 … t-21
+  const prevDate = prior[0].date;
+  const punish = await fetchPunishSet().catch(() => new Set());
+  const items = []; let luTotal = 0, excludedHighVol = 0;
+  for (const code of Object.keys(todayMap)) {
+    const T = todayMap[code]; const P = prior[0].map[code];
+    if (!Array.isArray(T) || !Array.isArray(P) || !(T[0] > 0) || !(P[0] > 0)) continue;
+    const chg = (T[0] - P[0]) / P[0] * 100;
+    if (chg < 9.5) continue;
+    luTotal++;
+    if (!(T[4] > 0) || !(P[3] > 0) || T[4] <= P[3]) continue;   // E2 缺口：今低 > 昨高
+    const hist = prior.map(d => d.map[code]).filter(x => Array.isArray(x) && x[0] > 0);
+    if (hist.length < 20) continue;
+    const h20 = hist.slice(0, 20);
+    const base = h20.reduce((s2, x) => s2 + (x[1] || 0), 0) / 20;
+    const amt = h20.reduce((s2, x) => s2 + x[0] * (x[1] || 0) * 1000, 0) / 20;
+    if (!(base > 0) || amt < 50_000_000) continue;
+    const volX = T[1] / base;
+    if (volX >= 2) { excludedHighVol++; continue; }
+    let run = 0; for (const x of hist.slice(0, 10)) { if (x[2] > 0 && x[0] > x[2]) run++; else break; }
+    const lo20 = Math.min(...h20.map(x => x[0])), hi20 = Math.max(...h20.map(x => x[0]));
+    items.push({ code, name: names[code] || code, price: T[0], chg: +chg.toFixed(2), volX: +volX.toFixed(2), star: volX < 1,
+      run, baseUp: +((P[0] - lo20) / lo20 * 100).toFixed(1), range20: +((hi20 - lo20) / lo20 * 100).toFixed(1),
+      eventLow: T[4], eventHigh: T[3], open: T[2], queueUp: !!T[5], punish: punish.has(code) });
+  }
+  items.sort((a, b) => a.volX - b.volX);
+  const marketEvent = luTotal > 60;
+  const doc = {
+    date: today, at: Date.now(), updatedAt: Date.now(), prevDate, source: srcNote, items, luTotal, excludedHighVol, marketEvent,
+    rule: '漲停 ∧ 今低>昨高 ∧ 當日量<2×前20日均量（★<1×）·20日均額≥5000萬·停損=事件日低',
+    stats: '實測(排除全市場漲停日·去重·t+1開盤進場·扣成本)：20日淨+6.89%·中位+1.46%·勝率53.6%·+30%命中28%·5日最深-8.8%·22%隔日開盤鎖漲停買不到。右尾與均值皆正但回撤深，跌破停損線必出。非投資建議。',
+  };
+  await db.collection('gapLimitUp').doc(today).set(doc);
+  // latest 只往前走：GAPLU_DATE 補算舊日不得把 latest 蓋回過去
+  const curLatest = (await db.collection('gapLimitUp').doc('latest').get()).data();
+  if (!curLatest?.date || curLatest.date <= today) await db.collection('gapLimitUp').doc('latest').set({ ...doc, reviewHistory: curLatest?.reviewHistory ?? [], reviewSummary: curLatest?.reviewSummary ?? null, reviewedDays: curLatest?.reviewedDays ?? 0 });
+  log(`✓ 跳空漲停（${srcNote}）：${items.length} 檔（★${items.filter(i => i.star).length}·今日漲停 ${luTotal} 檔·爆量剔除 ${excludedHighVol}${marketEvent ? '·⚠ 全市場事件日' : ''}）`);
+  if (push && items.length && !marketEvent) {
+    const list = items.slice(0, 8).map(i => `${i.star ? '★' : ''}${i.name}(${i.code}) 量${i.volX}× 停損${i.eventLow}${i.queueUp ? ' 買一貼停' : ''}${i.punish ? ' 處置' : ''}`).join('、');
+    const message = `🎯 縮量跳空漲停 ${items.length} 檔（${today}）：${list}。實測 20日淨+6.9%·勝率53.6%·中位+1.5%·5日最深-8.8%；明日開盤鎖漲停＝買不到，跌破停損線必出。非投資建議。`;
+    const alert = { code: items[0].code, name: items[0].name, type: 'gapLimitUp', price: items[0].price, message, at: Date.now() };
+    try {
+      const us = await db.collection('users').get();
+      let sent = 0;
+      for (const u of us.docs) { try { await pushAlerts(u.id, [alert]); sent++; } catch { /* 單用戶失敗不影響其他 */ } }
+      log(`  · 跳空漲停推播 ${sent} 位使用者`);
+    } catch (e) { log('  ⚠ 跳空漲停推播失敗:', e.message); }
+  } else if (push && marketEvent) log('  · 全市場事件日（漲停 >60 檔）不推播——訊號在這種日子失效');
+  return true;
+}
+// 對答案：對最近 25 個交易日的榜單，用歸檔算 t+1 開盤進場後的 5/20 日淨報酬、停損是否觸發、是否買得到
+async function computeGapLimitUpReview() {
+  const archRaw = await readArchive(27, 'closeJson');
+  if (archRaw.length < 3) return false;
+  const asc = archRaw.map(d => ({ date: d.date, map: JSON.parse(d.closeJson) })).reverse();
+  const idx = Object.fromEntries(asc.map((d, i) => [d.date, i]));
+  const COST = 0.4425;
+  const qs = await db.collection('gapLimitUp').orderBy('date', 'desc').limit(30).get();
+  const history = []; const pool = [];
+  for (const d of qs.docs) {
+    if (d.id === 'latest') continue;
+    const b = d.data(); const t = idx[b.date]; if (t == null || !b.items?.length) continue;
+    const n1 = asc[t + 1]; if (!n1) continue;
+    const rows = b.items.map(it => {
+      const o1 = n1.map[it.code]?.[2]; if (!(o1 > 0)) return { code: it.code, name: it.name, unbuyable: null };
+      if ((o1 - it.price) / it.price * 100 >= 9.5) return { code: it.code, name: it.name, unbuyable: true };
+      const at = k => asc[t + k]?.map[it.code]?.[0] || null;
+      const r5 = at(5) ? +(((at(5) - o1) / o1 * 100) - COST).toFixed(2) : null;
+      const r20 = at(20) ? +(((at(20) - o1) / o1 * 100) - COST).toFixed(2) : null;
+      let minLow5 = Infinity, maxC = -Infinity, avail = 0;
+      for (let k = 1; k <= 20; k++) { const x = asc[t + k]?.map[it.code]; if (!x) break; avail = k; if (k <= 5 && x[4] > 0) minLow5 = Math.min(minLow5, x[4]); maxC = Math.max(maxC, x[0]); }
+      const stopHit = minLow5 < Infinity ? minLow5 < it.eventLow : null;
+      return { code: it.code, name: it.name, unbuyable: false, entry: o1, r5, r20, days: avail, maxUp: maxC > 0 ? +((maxC - o1) / o1 * 100).toFixed(1) : null, stopHit };
+    });
+    const done = rows.filter(r => r.r20 != null);
+    const day = { date: b.date, n: b.items.length, unbuyable: rows.filter(r => r.unbuyable).length,
+      n20: done.length, win20: done.length ? +(done.filter(r => r.r20 > 0).length / done.length * 100).toFixed(1) : null,
+      avg20: done.length ? +(done.reduce((s2, r) => s2 + r.r20, 0) / done.length).toFixed(2) : null,
+      avg5: (() => { const a = rows.filter(r => r.r5 != null); return a.length ? +(a.reduce((s2, r) => s2 + r.r5, 0) / a.length).toFixed(2) : null; })(),
+      hit30: done.length ? +(done.filter(r => r.maxUp >= 30).length / done.length * 100).toFixed(0) : null,
+      stopHit: rows.filter(r => r.stopHit).length };
+    day.marketEvent = !!b.marketEvent;
+    history.push(day); if (!b.marketEvent) pool.push(...done);   // 全市場事件日的成績不進樣本外總結（08-03 一天 43 筆 +21% 會灌爆）
+    await db.collection('gapLimitUp').doc(b.date).set({ review: day, reviewRowsJson: JSON.stringify(rows) }, { merge: true });
+  }
+  const summary = pool.length ? { n: pool.length, win20: +(pool.filter(r => r.r20 > 0).length / pool.length * 100).toFixed(1), avg20: +(pool.reduce((s2, r) => s2 + r.r20, 0) / pool.length).toFixed(2), hit30: +(pool.filter(r => r.maxUp >= 30).length / pool.length * 100).toFixed(0) } : null;
+  await db.collection('gapLimitUp').doc('latest').set({ reviewHistory: history.slice(0, 25), reviewSummary: summary, reviewedDays: history.length }, { merge: true });
+  log(`✓ 跳空漲停對答案：${history.length} 日榜、20日完成 ${pool.length} 筆${summary ? `·勝率 ${summary.win20}%·均 ${summary.avg20}%` : ''}`);
+  return true;
+}
+
 // ── 63) 第四法人：ETF 被動買賣盤影響 etfInfluence（2026-07-15）──────
 // 使用者觀察：市值型 ETF(0050/006208)已成準法人力量。可靠可算的部分：
 //  ① 市值排名(收盤×已發行股數)→ 0050/006208 成分近似(市值前50)＋權重
@@ -12854,7 +12969,7 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['gapLimitUp', computeGapLimitUp], ['gapLimitUpReview', computeGapLimitUpReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     await timedJob(name, fn, tag);
   }
@@ -12986,6 +13101,10 @@ async function dailyJobsLoop() {
       if (isTradingDay(tw) && mins >= 9 * 60 && mins <= 13 * 60 + 40 && Date.now() - _shortCandAt > 10 * 60000) {
         _shortCandAt = Date.now();   // 先標記：週期性工作，失敗等下一輪
         try { await computeShortCandidates(); } catch (e) { log('✖ 做空候選:', (e.message || '').slice(0, 60)); }
+      }
+      // 🎯 縮量跳空漲停（2026-09-05）：13:36 收盤試撮結束後從快照定榜＋推播，每日一次；15:10 歸檔後由 daily jobs 重算不推播。
+      if (isTradingDay(tw) && mins >= 13 * 60 + 36 && mins < 14 * 60 + 10 && _gapLuDate !== today) {
+        try { if (await computeGapLimitUp({ push: true })) _gapLuDate = today; } catch (e) { log('✖ 跳空漲停:', (e.message || '').slice(0, 60)); }
       }
       // 盤中即時新聞判別（09:00~13:30，每 25 分鐘一趟）。
       // 使用者 2026-08-31：欣興盤中遭搜索當日跌 7.5%、世界先進工廠失火，
@@ -13503,6 +13622,8 @@ if (!ONESHOT) questionLoop();
 //   asiaBoth    先 chipPicks 再 alerts（RSI 警報需要 marginSnap 先更新）
 if (ONESHOT) {
   const JOBS = {
+    gapLimitUp: () => computeGapLimitUp({ push: process.env.GAPLU_PUSH === '1' }),   // GAPLU_DATE=YYYY-MM-DD 指定事件日
+    gapLimitUpReview: () => computeGapLimitUpReview(),
     // 新聞內文判別管線。第二個參數是死線（台北分鐘數），單次執行不設。
     // 測試用：NV_LIMIT 可縮小宇宙，避免驗證一次就跑滿 150 檔。
     newsVerdictEvening: () => computeNewsVerdictBatch('evening'),
