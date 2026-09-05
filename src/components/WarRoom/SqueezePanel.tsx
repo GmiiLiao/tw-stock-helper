@@ -3,10 +3,11 @@
 // 軋空候選 —— 條件經 240 日 / 16.9 萬筆事件回測校準（見 daemon SQUEEZE_SKILL）。
 // 這一頁的設計原則：**把邊際效益講清楚**。券資比的貢獻只有約 +1.5pp，
 // 若做成「軋空預測神器」的口吻，使用者會照著重押，那是我們造成的傷害。
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
 interface Item {
   code: string; name: string; price: number; chg: number;
@@ -54,6 +55,7 @@ const fmtSigned = (v?: number | null) =>
 export default function SqueezePanel() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<Data | null>(null);
+  const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
   const [rec, setRec] = useState<Rec | null>(null);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -246,10 +248,11 @@ export default function SqueezePanel() {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     {it.primary && <span style={{ fontWeight: 800, color: '#22c55e' }}>★ 主力推薦</span>}
-                    <button onClick={() => navigateTo('stock', it.code)}
+                    <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
                       style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
-                      {it.code} {it.name}
+                      {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
                     </button>
+                    <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                     {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
                     <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
                     <span style={{ color: 'var(--text-muted)' }}>券資比 {it.ratio}%</span>
@@ -285,6 +288,7 @@ export default function SqueezePanel() {
                       · {n.link ? <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>{n.title}</a> : n.title}
                     </div>
                   ))}
+                  {openCode === it.code && <div style={{ marginTop: 8 }}><StockTrendChart code={it.code} name={it.name} closePrice={0} changePercent={it.chg} /></div>}
                 </div>
               );
             })}
@@ -322,7 +326,8 @@ export default function SqueezePanel() {
             </thead>
             <tbody>
               {d.items.map(it => (
-                <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
+                <Fragment key={it.code}>
+                <tr style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
                   <td style={{ padding: '4px 4px', textAlign: 'left', whiteSpace: 'nowrap' }}>
                     {it.tier === 4 ? '⭐⭐⭐⭐' : it.tier === 3 ? '⭐⭐⭐' : it.tier === 2 ? '⭐⭐' : it.tier === 1 ? '⭐' : '⚠'}
                     <span style={{ marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))', color: it.tier === 4 ? '#22c55e' : it.weakBand ? '#f59e0b' : 'var(--text-muted)' }}>
@@ -330,10 +335,11 @@ export default function SqueezePanel() {
                     </span>
                   </td>
                   <td style={{ padding: '4px 4px', textAlign: 'left' }}>
-                    <button onClick={() => navigateTo('stock', it.code)}
+                    <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
                       style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
-                      {it.code} {it.name}
+                      {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
                     </button>
+                    <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                     {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
                   </td>
                   <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
@@ -359,6 +365,12 @@ export default function SqueezePanel() {
                   <td style={{ padding: '4px 4px', color: 'var(--text-muted)' }}>{it.mgn.toLocaleString()} / {it.shrt.toLocaleString()}</td>
                   <td style={{ padding: '4px 4px' }}>{it.volX}x</td>
                 </tr>
+                {openCode === it.code && (
+                  <tr><td colSpan={12} style={{ padding: '6px 4px 10px' }}>
+                    <StockTrendChart code={it.code} name={it.name} closePrice={it.price} changePercent={it.chg} />
+                  </td></tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { tickSize, isLimitUp, isLimitDown } from '@/lib/twse-api';
+import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
 // ── 🐻 做空風控候選（2026-09-03 第一期）────────────────────────────
 // daemon 盤中每 10 分鐘刷新、盤後定榜（shortCandidates/latest）。
@@ -35,6 +36,7 @@ export default function ShortPanel() {
   const [data, setData] = useState<ShortDoc | null>(null);
   const [review, setReview] = useState<{ latestDay?: ReviewDay; history?: ReviewDay[] } | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
   const navigateTo = useAppStore(s => s.navigateTo);
   // 盤中即時（使用者 2026-09-03 指定：開盤時每列顯示即時價/量/漲跌停）。
   // useLiveQuotes＝站上標準件：鎖相 3 秒·回前景恢復·拍號快取——不另造輪詢。
@@ -110,15 +112,16 @@ export default function ShortPanel() {
               borderLeft: `3px solid ${i < 3 ? '#f87171' : 'rgba(148,163,184,0.35)'}`,
             }}>
               <button
-                onClick={() => navigateTo('stock', it.code)}
-                title={`開啟 ${it.code} 個股分析`}
+                onClick={() => setOpenCode(c => c === it.code ? null : it.code)}
+                title="點擊展開／收合即時走勢"
                 style={{
                   fontFamily: 'monospace', fontWeight: 700, fontSize: 'calc(14px * var(--fz))',
-                  color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                  color: 'var(--text-primary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline dotted',
                 }}
               >
-                {it.code} {it.name} ↗
+                {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
               </button>
+              <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
               <span style={{ fontWeight: 700, color: it.chg < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
                 {it.price}（{it.chg > 0 ? '+' : ''}{it.chg}%）
               </span>
@@ -172,6 +175,11 @@ export default function ShortPanel() {
                   background: 'rgba(15,23,42,0.6)', borderRadius: 6, padding: '6px 10px', lineHeight: 1.6 }}>
                   🤖 AI 利空判別：{it.verdictReason}
                   {it.verdictQuote && <div style={{ color: 'var(--text-muted)' }}>「{it.verdictQuote}」</div>}
+                </div>
+              )}
+              {openCode === it.code && (
+                <div style={{ flexBasis: '100%' }}>
+                  <StockTrendChart code={it.code} name={it.name} closePrice={it.price} changePercent={it.chg} livePrice={live[it.code]?.price} volume={live[it.code]?.volume} />
                 </div>
               )}
             </div>

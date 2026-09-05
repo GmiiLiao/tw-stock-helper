@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { isLimitUp } from '@/lib/twse-api';
 import { getSession, isForeground } from '@/lib/market-clock';
+import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
 // ── 🎯 縮量跳空漲停（2026-09-05·EXPERIMENTS ⑨）────────────────────────
 // 事件日＝漲停 ∧ 今低>昨高 ∧ 當日量<2×前20日均量（★<1×）。daemon 13:36 定榜＋推播。
@@ -26,6 +27,7 @@ interface Doc {
 export default function GapLimitUpPanel() {
   const [data, setData] = useState<Doc | null>(null);
   const [err, setErr] = useState('');
+  const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁）
   const navigateTo = useAppStore(s => s.navigateTo);
   const live = useLiveQuotes(data?.items?.map(x => x.code) ?? []);
 
@@ -78,10 +80,11 @@ export default function GapLimitUpPanel() {
             const broke = showLive ? q.low > 0 && q.low < it.eventLow : false;
             return (
               <div key={it.code} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-secondary, rgba(30,41,59,0.5))', borderLeft: `3px solid ${it.star ? '#fbbf24' : 'rgba(148,163,184,0.35)'}` }}>
-                <button onClick={() => navigateTo('stock', it.code)} title={`開啟 ${it.code} 個股分析`}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(14px * var(--fz))', padding: 0, fontFamily: 'inherit' }}>
-                  {it.star ? '★ ' : ''}{it.code} {it.name}
+                <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(14px * var(--fz))', padding: 0, fontFamily: 'inherit', textDecoration: 'underline dotted' }}>
+                  {it.star ? '★ ' : ''}{it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
                 </button>
+                <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(13px * var(--fz))' }}>{it.price.toFixed(2)} <span style={{ color: '#ef4444' }}>+{it.chg}%</span></span>
                 <span style={{ fontSize: 'calc(12px * var(--fz))', color: it.volX < 1 ? '#fbbf24' : 'var(--text-muted)' }} title="事件日成交量 ÷ 前 20 日均量；<1× 為縮量鎖死（實測最強）">量 {it.volX}×</span>
                 <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="事件日前連續收>開天數（加分項，OOT 有效）">連陽 {it.run}</span>
@@ -93,6 +96,11 @@ export default function GapLimitUpPanel() {
                   <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: broke ? '#f87171' : locked ? '#fbbf24' : '#4ade80' }}>
                     {broke ? `⛔ 已破停損 ${q.price.toFixed(2)}` : locked ? `🔒 鎖漲停 ${q.price.toFixed(2)} 買不到` : `● 可買 ${q.price.toFixed(2)} (${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%)`}
                   </span>
+                )}
+                {openCode === it.code && (
+                  <div style={{ flexBasis: '100%' }}>
+                    <StockTrendChart code={it.code} name={it.name} closePrice={it.price} changePercent={it.chg} livePrice={q?.price} volume={q?.volume} />
+                  </div>
                 )}
               </div>
             );
