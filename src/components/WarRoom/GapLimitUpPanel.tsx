@@ -7,20 +7,22 @@ import { isLimitUp } from '@/lib/twse-api';
 import { getSession, isForeground } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
-// ── 🎯 縮量跳空漲停（2026-09-05·EXPERIMENTS ⑨）────────────────────────
-// 事件日＝漲停 ∧ 今低>昨高 ∧ 當日量<2×前20日均量（★<1×）。daemon 13:36 定榜＋推播。
-// 實測（排除全市場漲停日·去重·t+1 開盤進場·扣成本）：20 日淨 +6.89%·中位 +1.46%·勝率 53.6%·
-// +30% 命中 28%·5 日最深 −8.8%·22% 隔日開盤鎖漲停買不到。不做評分卡：右尾與均值皆正但回撤深。
+// ── 🎯 影片形態：平底 → 緊鄰連陽 → 漲停跳空（2026-09-06 順序＋形狀版·EXPERIMENTS ⑨）────
+// 使用者要的是影片「箭頭那一根」：先平底、再一串小陽線、緊接著漲停＋跳空。daemon 依此順序比對，
+// 並用 21 日走勢與影片模板的相似度（Pearson ≥0.8）過濾。倍量／縮量只作標籤（強制倍量實測反而較差）。
+// 實測（排除全市場漲停日·去重·t+1 開盤進場·扣成本·n=48）：20 日淨 +7.7%·中位 +3.1%·勝率 56.3%·10 日 +7.2%·
+// +30% 命中 17%·5 日最深 −6.7%（安慰劑 +2.2%／48%）。不做評分卡。
 // 隔日盤中：用 useLiveQuotes 標「鎖漲停買不到／可買／已破停損線」。非投資建議。
 
 interface Item {
-  code: string; name: string; price: number; chg: number; volX: number; star: boolean;
-  run: number; baseUp: number; range20: number; eventLow: number; eventHigh: number; open: number;
-  queueUp: boolean; punish: boolean;
+  code: string; name: string; price: number; chg: number; volX: number; star: boolean; heavy: boolean;
+  runAdj: number; runGain: number | null; baseFlat: number | null; shape: number | null;
+  baseUp: number; eventLow: number; eventHigh: number; open: number;
+  queueUp: boolean; punish: boolean; why?: string;
 }
 interface ReviewDay { date: string; n: number; unbuyable: number; n20: number; win20: number | null; avg20: number | null; avg5: number | null; hit30: number | null; stopHit: number }
 interface Doc {
-  date: string; at: number; source: string; items: Item[]; luTotal: number; excludedHighVol: number; marketEvent: boolean;
+  date: string; at: number; source: string; items: Item[]; near?: Item[]; luTotal: number; marketEvent: boolean;
   rule: string; stats: string; reviewHistory?: ReviewDay[]; reviewSummary?: { n: number; win20: number; avg20: number; hit30: number } | null;
 }
 
@@ -51,10 +53,10 @@ export default function GapLimitUpPanel() {
     <div style={{ padding: '10px 4px' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '3px 10px', borderRadius: 6, background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.35)' }}>
-          🎯 縮量跳空漲停 · 事件日 {data.date}（{data.source}）
+          🎯 影片形態：平底→連陽→漲停跳空 · 事件日 {data.date}（{data.source}）
         </span>
         <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
-          今日漲停 {data.luTotal} 檔 · 入榜 {data.items.length} · 爆量剔除 {data.excludedHighVol}
+          今日漲停 {data.luTotal} 檔 · 符合順序＋形狀 {data.items.length} · 形似但順序不完整 {data.near?.length ?? 0}
           {data.marketEvent && <b style={{ color: '#f87171' }}>　⚠ 全市場事件日（漲停 &gt;60 檔）——此訊號在這種日子失效，不推播</b>}
           {err && <span style={{ color: '#fbbf24' }}>　⚠ 更新失敗（{err}），顯示上次資料</span>}
         </span>
@@ -70,7 +72,7 @@ export default function GapLimitUpPanel() {
         </div>
       )}
       {data.items.length === 0 ? (
-        <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>{data.date} 無符合條件的個股（空榜是正常結果——多數日子沒有縮量跳空漲停）</div>
+        <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>{data.date} 無完整符合「平底→連陽→漲停跳空」的個股（空榜是正常結果；下方「形似但順序不完整」僅供觀察）</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {data.items.map(it => {
@@ -86,9 +88,10 @@ export default function GapLimitUpPanel() {
                 </button>
                 <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(13px * var(--fz))' }}>{it.price.toFixed(2)} <span style={{ color: '#ef4444' }}>+{it.chg}%</span></span>
-                <span style={{ fontSize: 'calc(12px * var(--fz))', color: it.volX < 1 ? '#fbbf24' : 'var(--text-muted)' }} title="事件日成交量 ÷ 前 20 日均量；<1× 為縮量鎖死（實測最強）">量 {it.volX}×</span>
-                <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="事件日前連續收>開天數（加分項，OOT 有效）">連陽 {it.run}</span>
-                <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="昨收距 20 日最低收；實測已漲一段者反而較佳">底部 +{it.baseUp}%</span>
+                <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#a78bfa' }} title="近 21 日走勢與影片模板（15 天平底→5 天緩升→跳升）的相似度，≥0.8 才入榜">形狀 {it.shape ?? '—'}</span>
+                <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="緊鄰事件日的連續小陽線根數與段漲幅（影片：連陽）">連陽 {it.runAdj}{it.runGain != null ? `（+${it.runGain}%）` : ''}</span>
+                <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="連陽之前 15 日的高低差（影片：平底盤整）">底平 {it.baseFlat ?? '—'}%</span>
+                <span style={{ fontSize: 'calc(12px * var(--fz))', color: it.heavy ? '#f97316' : it.star ? '#fbbf24' : 'var(--text-muted)' }} title="事件日成交量 ÷ 前 20 日均量。影片說倍量；本站實測強制倍量反而較差，故只作標籤">量 {it.volX}×{it.heavy ? ' 倍量' : it.star ? ' 縮量' : ''}</span>
                 <span style={{ fontSize: 'calc(12px * var(--fz))', color: '#f87171', fontWeight: 700 }} title="事件日最低價：跌破必出（真起漲定義即以此為底）">停損 {it.eventLow}</span>
                 {it.queueUp && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '1px 6px', borderRadius: 6, background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>買一貼停·明日恐買不到</span>}
                 {it.punish && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '1px 6px', borderRadius: 6, background: 'rgba(148,163,184,0.2)', color: 'var(--text-muted)' }}>處置股</span>}
@@ -107,8 +110,25 @@ export default function GapLimitUpPanel() {
           })}
         </div>
       )}
+      {(data.near?.length ?? 0) > 0 && (
+        <details style={{ marginTop: 10 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>形似但順序不完整（{data.near!.length} 檔·不推播·僅供觀察）</summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            {data.near!.map(it => (
+              <div key={it.code} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '5px 10px', borderRadius: 6, background: 'rgba(30,41,59,0.35)', fontSize: 'calc(12px * var(--fz))' }}>
+                <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-secondary, #cbd5e1)', fontWeight: 700, textDecoration: 'underline dotted' }}>{it.code} {it.name} {openCode === it.code ? '▴' : '▾'}</button>
+                <span style={{ color: '#a78bfa' }}>形狀 {it.shape ?? '—'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>連陽 {it.runAdj}</span>
+                <span style={{ color: 'var(--text-muted)' }}>量 {it.volX}×</span>
+                <span style={{ color: '#f59e0b' }}>落選：{it.why}</span>
+                {openCode === it.code && <div style={{ flexBasis: '100%' }}><StockTrendChart code={it.code} name={it.name} closePrice={it.price} changePercent={it.chg} /></div>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 10 }}>
-        影片「四特徵」在台股的實測：精確條件（含倍量、平底）20 日 −4.2%／勝率 29%；害它輸的是「倍量」——本榜刻意只收縮量。停損＝事件日最低，跌破無條件出。非投資建議。
+        順序＋形狀版是影片畫面的忠實量化；「倍量」在台股實測是反效果（強制倍量 20 日 +4.2% vs 不限量 +7.7%），故只標不擋。停損＝事件日最低，跌破無條件出；隔日開盤鎖漲停＝買不到。非投資建議。
       </div>
     </div>
   );

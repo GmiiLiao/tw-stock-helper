@@ -12155,7 +12155,7 @@ async function computeShortReview() {
 let _gapLuDate = '';
 async function computeGapLimitUp({ push = false } = {}) {
   const tw = taipei(); const today = process.env.GAPLU_DATE || isoDate(tw);   // GAPLU_DATE=YYYY-MM-DD：用歸檔重算指定事件日（測試/補算）
-  const archRaw = await readArchive(23 + 25, 'closeJson');
+  const archRaw = await readArchive(process.env.GAPLU_DATE ? 420 : 23 + 25, 'closeJson');   // 補算舊日要讀夠深
   if (archRaw.length < 22) { log('  ⚠ 跳空漲停：chipArchive 不足 22 日'); return false; }
   const arch = archRaw.map(d => ({ date: d.date, map: JSON.parse(d.closeJson) }));
   const snap = await readSnapshotQuotes();
@@ -12173,43 +12173,59 @@ async function computeGapLimitUp({ push = false } = {}) {
   prior = prior.slice(0, 21);                                   // t-1 … t-21
   const prevDate = prior[0].date;
   const punish = await fetchPunishSet().catch(() => new Set());
-  const items = []; let luTotal = 0, excludedHighVol = 0;
+  // ── 順序比對（2026-09-06 使用者：要照影片順序 平底 → 緊鄰的一串小陽線 → 箭頭日）──
+  // 箭頭日 t：漲停 ∧ 今低>昨高；緊鄰連陽：結束於 t-1（或 t-2，容忍一根停頓）且 ≥3 根、段漲 2–15%；
+  // 平底：連陽之前 15 日 (高-低)/低 ≤30%；形狀：近 21 日收盤路徑與影片模板（15 天平 → 5 天緩升 → 跳升）Pearson ≥0.8。
+  // 倍量只當標籤（實測強制倍量 20 日 +4.2%／不限量 +7.7%）。EXPERIMENTS ⑨。
+  const TEMPLATE = [...Array(15).fill(0), 1.6, 3.2, 4.8, 6.4, 8, 18];
+  const pearson = (p, q) => { const m = a => a.reduce((s2, x) => s2 + x, 0) / a.length; const mp = m(p), mq = m(q); let num = 0, dp = 0, dq = 0; for (let i = 0; i < p.length; i++) { num += (p[i] - mp) * (q[i] - mq); dp += (p[i] - mp) ** 2; dq += (q[i] - mq) ** 2; } return dp > 0 && dq > 0 ? num / Math.sqrt(dp * dq) : null; };
+  const items = [], near = []; let luTotal = 0;
   for (const code of Object.keys(todayMap)) {
     const T = todayMap[code]; const P = prior[0].map[code];
     if (!Array.isArray(T) || !Array.isArray(P) || !(T[0] > 0) || !(P[0] > 0)) continue;
     const chg = (T[0] - P[0]) / P[0] * 100;
     if (chg < 9.5) continue;
     luTotal++;
-    if (!(T[4] > 0) || !(P[3] > 0) || T[4] <= P[3]) continue;   // E2 缺口：今低 > 昨高
-    const hist = prior.map(d => d.map[code]).filter(x => Array.isArray(x) && x[0] > 0);
-    if (hist.length < 20) continue;
+    if (!(T[4] > 0) || !(P[3] > 0) || T[4] <= P[3]) continue;   // 缺口：今低 > 昨高
+    const hist = prior.map(d => d.map[code]);                   // hist[0]=t-1 … 需連續完整
+    if (hist.slice(0, 21).some(x => !Array.isArray(x) || !(x[0] > 0) || !(x[2] > 0))) continue;
     const h20 = hist.slice(0, 20);
     const base = h20.reduce((s2, x) => s2 + (x[1] || 0), 0) / 20;
     const amt = h20.reduce((s2, x) => s2 + x[0] * (x[1] || 0) * 1000, 0) / 20;
     if (!(base > 0) || amt < 50_000_000) continue;
     const volX = T[1] / base;
-    if (volX >= 2) { excludedHighVol++; continue; }
-    let run = 0; for (const x of hist.slice(0, 10)) { if (x[2] > 0 && x[0] > x[2]) run++; else break; }
-    const lo20 = Math.min(...h20.map(x => x[0])), hi20 = Math.max(...h20.map(x => x[0]));
-    items.push({ code, name: names[code] || code, price: T[0], chg: +chg.toFixed(2), volX: +volX.toFixed(2), star: volX < 1,
-      run, baseUp: +((P[0] - lo20) / lo20 * 100).toFixed(1), range20: +((hi20 - lo20) / lo20 * 100).toFixed(1),
-      eventLow: T[4], eventHigh: T[3], open: T[2], queueUp: !!T[5], punish: punish.has(code) });
+    // 緊鄰連陽（結束於 t-1 或 t-2）
+    let runAdj = 0, runEnd = 0;
+    for (const off of [0, 1]) { let r = 0; for (let i = off; i < off + 10 && i < hist.length; i++) { const x = hist[i]; if (x && x[2] > 0 && x[0] > x[2]) r++; else break; } if (r > runAdj) { runAdj = r; runEnd = off; } }
+    const runGain = runAdj >= 2 && hist[runEnd + runAdj] ? (hist[runEnd][0] - hist[runEnd + runAdj][0]) / hist[runEnd + runAdj][0] * 100 : null;
+    const baseCl = hist.slice(runEnd + runAdj, runEnd + runAdj + 15).filter(x => x?.[0] > 0).map(x => x[0]);
+    const baseFlat = baseCl.length >= 10 ? (Math.max(...baseCl) - Math.min(...baseCl)) / Math.min(...baseCl) * 100 : null;
+    const path = [...hist.slice(0, 20).map(x => x[0]).reverse(), T[0]]; const b0 = path[0];
+    const shape = pearson(path.map(x => (x - b0) / b0 * 100), TEMPLATE);
+    const lo20 = Math.min(...h20.map(x => x[0]));
+    const it = { code, name: names[code] || code, price: T[0], chg: +chg.toFixed(2), volX: +volX.toFixed(2), star: volX < 1, heavy: volX >= 2,
+      runAdj, runGain: runGain == null ? null : +runGain.toFixed(1), baseFlat: baseFlat == null ? null : +baseFlat.toFixed(1), shape: shape == null ? null : +shape.toFixed(2),
+      baseUp: +((P[0] - lo20) / lo20 * 100).toFixed(1), eventLow: T[4], eventHigh: T[3], open: T[2], queueUp: !!T[5], punish: punish.has(code) };
+    const seqOk = runAdj >= 3 && runGain != null && runGain >= 2 && runGain <= 15 && baseFlat != null && baseFlat <= 30;
+    if (seqOk && shape >= 0.8) items.push(it);
+    else if (shape >= 0.8 || seqOk) near.push({ ...it, why: seqOk ? '形狀 <0.8' : runAdj < 3 ? `連陽只有 ${runAdj} 根` : runGain != null && (runGain < 2 || runGain > 15) ? `連陽段漲 ${runGain.toFixed(1)}% 不在 2–15%` : '底部不平' });
   }
-  items.sort((a, b) => a.volX - b.volX);
+  items.sort((a, b) => (b.shape ?? 0) - (a.shape ?? 0));
+  near.sort((a, b) => (b.shape ?? 0) - (a.shape ?? 0));
   const marketEvent = luTotal > 60;
   const doc = {
-    date: today, at: Date.now(), updatedAt: Date.now(), prevDate, source: srcNote, items, luTotal, excludedHighVol, marketEvent,
-    rule: '漲停 ∧ 今低>昨高 ∧ 當日量<2×前20日均量（★<1×）·20日均額≥5000萬·停損=事件日低',
-    stats: '實測(排除全市場漲停日·去重·t+1開盤進場·扣成本)：20日淨+6.89%·中位+1.46%·勝率53.6%·+30%命中28%·5日最深-8.8%·22%隔日開盤鎖漲停買不到。右尾與均值皆正但回撤深，跌破停損線必出。非投資建議。',
+    date: today, at: Date.now(), updatedAt: Date.now(), prevDate, source: srcNote, items, near: near.slice(0, 12), luTotal, marketEvent,
+    rule: '影片順序：平底(連陽前15日高低差≤30%) → 緊鄰連陽≥3根(段漲2–15%) → 箭頭日(漲停 ∧ 今低>昨高) ∧ 21日走勢與模板形狀相似≥0.8·20日均額≥5000萬·停損=事件日低；倍量/縮量只作標籤',
+    stats: '順序＋形狀版實測(排除全市場漲停日·去重·t+1開盤進場·扣成本·n=48)：20日淨+7.7%·中位+3.1%·勝率56.3%·10日+7.2%·+30%命中17%·5日最深-6.7%；安慰劑+2.2%/48%。強制倍量版 n=38：+4.2%/52.6%。跌破事件日低必出。非投資建議。',
   };
   await db.collection('gapLimitUp').doc(today).set(doc);
   // latest 只往前走：GAPLU_DATE 補算舊日不得把 latest 蓋回過去
   const curLatest = (await db.collection('gapLimitUp').doc('latest').get()).data();
   if (!curLatest?.date || curLatest.date <= today) await db.collection('gapLimitUp').doc('latest').set({ ...doc, reviewHistory: curLatest?.reviewHistory ?? [], reviewSummary: curLatest?.reviewSummary ?? null, reviewedDays: curLatest?.reviewedDays ?? 0 });
-  log(`✓ 跳空漲停（${srcNote}）：${items.length} 檔（★${items.filter(i => i.star).length}·今日漲停 ${luTotal} 檔·爆量剔除 ${excludedHighVol}${marketEvent ? '·⚠ 全市場事件日' : ''}）`);
+  log(`✓ 影片形態（${srcNote}）：${items.length} 檔（形似但順序不完整 ${near.length}·今日漲停 ${luTotal} 檔${marketEvent ? '·⚠ 全市場事件日' : ''}）`);
   if (push && items.length && !marketEvent) {
-    const list = items.slice(0, 8).map(i => `${i.star ? '★' : ''}${i.name}(${i.code}) 量${i.volX}× 停損${i.eventLow}${i.queueUp ? ' 買一貼停' : ''}${i.punish ? ' 處置' : ''}`).join('、');
-    const message = `🎯 縮量跳空漲停 ${items.length} 檔（${today}）：${list}。實測 20日淨+6.9%·勝率53.6%·中位+1.5%·5日最深-8.8%；明日開盤鎖漲停＝買不到，跌破停損線必出。非投資建議。`;
+    const list = items.slice(0, 8).map(i => `${i.name}(${i.code}) 形狀${i.shape} 連陽${i.runAdj} 量${i.volX}×${i.heavy ? '倍量' : i.star ? '縮量' : ''} 停損${i.eventLow}${i.queueUp ? ' 買一貼停' : ''}${i.punish ? ' 處置' : ''}`).join('、');
+    const message = `🎯 影片形態（平底→連陽→漲停跳空）${items.length} 檔（${today}）：${list}。順序＋形狀版實測 20日淨+7.7%·勝率56%·中位+3.1%·5日最深-6.7%；明日開盤進場、鎖漲停＝買不到，跌破停損線必出。非投資建議。`;
     const alert = { code: items[0].code, name: items[0].name, type: 'gapLimitUp', price: items[0].price, message, at: Date.now() };
     try {
       const us = await db.collection('users').get();
