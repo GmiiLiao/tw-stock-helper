@@ -117,6 +117,11 @@ const SETS = {
   'SEQ3 不限量': r => r.E1 && r.E2 && r.runAdj >= 3 && r.runGain >= 2 && r.runGain <= 15 && r.baseFlat != null && r.baseFlat <= 30,
   'SEQ3 不限量 ∧ 形狀 ≥0.8': r => r.E1 && r.E2 && r.runAdj >= 3 && r.runGain >= 2 && r.runGain <= 15 && r.baseFlat != null && r.baseFlat <= 30 && r.shape >= 0.8,
   'SEQ2：緊鄰連陽≥2（放寬）∧ 倍量 ∧ 平底': r => r.E1 && r.E2 && r.E3 && r.runAdj >= 2 && r.baseFlat != null && r.baseFlat <= 30,
+  '── 支線候選：強勢連陽（段漲 >15%，連陽裡已含漲停）──': () => false,
+  '支線A：緊鄰連陽≥3 ∧ 段漲15–40% ∧ 底平≤30%（不限量）': r => r.E1 && r.E2 && r.runAdj >= 3 && r.runGain > 15 && r.runGain <= 40 && r.baseFlat != null && r.baseFlat <= 30,
+  '支線A ∧ 形狀≥0.8': r => r.E1 && r.E2 && r.runAdj >= 3 && r.runGain > 15 && r.runGain <= 40 && r.baseFlat != null && r.baseFlat <= 30 && r.shape >= 0.8,
+  '支線B：段漲>40%（已噴一段）∧ 形狀≥0.8': r => r.E1 && r.E2 && r.runAdj >= 3 && r.runGain > 40 && r.shape >= 0.8,
+  '主線+支線A 合併（段漲2–40%）∧ 形狀≥0.8': r => r.E1 && r.E2 && r.runAdj >= 3 && r.runGain >= 2 && r.runGain <= 40 && r.baseFlat != null && r.baseFlat <= 30 && r.shape >= 0.8,
   '形狀相似 ≥0.85 單獨（漲停跳空，不管連陽）': r => r.E1 && r.E2 && r.shape >= 0.85,
   '形狀相似 ≥0.85 ∧ 倍量': r => r.E1 && r.E2 && r.E3 && r.shape >= 0.85,
 };

@@ -12206,17 +12206,20 @@ async function computeGapLimitUp({ push = false } = {}) {
     const it = { code, name: names[code] || code, price: T[0], chg: +chg.toFixed(2), volX: +volX.toFixed(2), star: volX < 1, heavy: volX >= 2,
       runAdj, runGain: runGain == null ? null : +runGain.toFixed(1), baseFlat: baseFlat == null ? null : +baseFlat.toFixed(1), shape: shape == null ? null : +shape.toFixed(2),
       baseUp: +((P[0] - lo20) / lo20 * 100).toFixed(1), eventLow: T[4], eventHigh: T[3], open: T[2], queueUp: !!T[5], punish: punish.has(code) };
-    const seqOk = runAdj >= 3 && runGain != null && runGain >= 2 && runGain <= 15 && baseFlat != null && baseFlat <= 30;
+    // 主線：小陽線 2–15%；支線A（2026-09-06 使用者：友達/彩晶案）：強勢連陽 15–40%（連陽裡已含一根漲停）——
+    // 回測 n=154 20 日 +8.7%/勝 53.9%，但 5 日均 −0.3%、最深 −8.8%（進場後常先回檔），故標籤明示。>40% 只有 19 筆主窗負，不收。
+    const seqOk = runAdj >= 3 && runGain != null && runGain >= 2 && runGain <= 40 && baseFlat != null && baseFlat <= 30;
+    it.branch = runGain != null && runGain > 15 ? '強勢連陽' : '主線';
     if (seqOk && shape >= 0.8) items.push(it);
-    else if (shape >= 0.8 || seqOk) near.push({ ...it, why: seqOk ? '形狀 <0.8' : runAdj < 3 ? `連陽只有 ${runAdj} 根` : runGain != null && (runGain < 2 || runGain > 15) ? `連陽段漲 ${runGain.toFixed(1)}% 不在 2–15%` : '底部不平' });
+    else if (shape >= 0.8 || seqOk) near.push({ ...it, why: seqOk ? '形狀 <0.8' : runAdj < 3 ? `連陽只有 ${runAdj} 根` : runGain != null && (runGain < 2 || runGain > 40) ? `連陽段漲 ${runGain.toFixed(1)}% 不在 2–40%` : '底部不平' });
   }
   items.sort((a, b) => (b.shape ?? 0) - (a.shape ?? 0));
   near.sort((a, b) => (b.shape ?? 0) - (a.shape ?? 0));
   const marketEvent = luTotal > 60;
   const doc = {
     date: today, at: Date.now(), updatedAt: Date.now(), prevDate, source: srcNote, items, near: near.slice(0, 12), luTotal, marketEvent,
-    rule: '影片順序：平底(連陽前15日高低差≤30%) → 緊鄰連陽≥3根(段漲2–15%) → 箭頭日(漲停 ∧ 今低>昨高) ∧ 21日走勢與模板形狀相似≥0.8·20日均額≥5000萬·停損=事件日低；倍量/縮量只作標籤',
-    stats: '順序＋形狀版實測(排除全市場漲停日·去重·t+1開盤進場·扣成本·n=48)：20日淨+7.7%·中位+3.1%·勝率56.3%·10日+7.2%·+30%命中17%·5日最深-6.7%；安慰劑+2.2%/48%。強制倍量版 n=38：+4.2%/52.6%。跌破事件日低必出。非投資建議。',
+    rule: '影片順序：平底(連陽前15日高低差≤30%) → 緊鄰連陽≥3根(主線段漲2–15%／支線·強勢連陽15–40%) → 箭頭日(漲停 ∧ 今低>昨高) ∧ 21日走勢與模板形狀相似≥0.8·20日均額≥5000萬·停損=事件日低；倍量/縮量只作標籤',
+    stats: '順序＋形狀版實測(排除全市場漲停日·去重·t+1開盤進場·扣成本)：主線 n=48 20日淨+7.7%·中位+3.1%·勝率56.3%·10日+7.2%·5日最深-6.7%；支線強勢連陽 n=124 20日+8.3%·勝率53.2%·+30%命中26%·但5日均-0.2%·最深-9.2%（常先回檔）；合併 n=167 +8.3%/54.5%；安慰劑+2.2%/48%。跌破事件日低必出。非投資建議。',
   };
   await db.collection('gapLimitUp').doc(today).set(doc);
   // latest 只往前走：GAPLU_DATE 補算舊日不得把 latest 蓋回過去
@@ -12224,8 +12227,8 @@ async function computeGapLimitUp({ push = false } = {}) {
   if (!curLatest?.date || curLatest.date <= today) await db.collection('gapLimitUp').doc('latest').set({ ...doc, reviewHistory: curLatest?.reviewHistory ?? [], reviewSummary: curLatest?.reviewSummary ?? null, reviewedDays: curLatest?.reviewedDays ?? 0 });
   log(`✓ 影片形態（${srcNote}）：${items.length} 檔（形似但順序不完整 ${near.length}·今日漲停 ${luTotal} 檔${marketEvent ? '·⚠ 全市場事件日' : ''}）`);
   if (push && items.length && !marketEvent) {
-    const list = items.slice(0, 8).map(i => `${i.name}(${i.code}) 形狀${i.shape} 連陽${i.runAdj} 量${i.volX}×${i.heavy ? '倍量' : i.star ? '縮量' : ''} 停損${i.eventLow}${i.queueUp ? ' 買一貼停' : ''}${i.punish ? ' 處置' : ''}`).join('、');
-    const message = `🎯 影片形態（平底→連陽→漲停跳空）${items.length} 檔（${today}）：${list}。順序＋形狀版實測 20日淨+7.7%·勝率56%·中位+3.1%·5日最深-6.7%；明日開盤進場、鎖漲停＝買不到，跌破停損線必出。非投資建議。`;
+    const list = items.slice(0, 8).map(i => `${i.branch === '強勢連陽' ? '[強勢連陽]' : ''}${i.name}(${i.code}) 形狀${i.shape} 連陽${i.runAdj}(+${i.runGain}%) 量${i.volX}×${i.heavy ? '倍量' : i.star ? '縮量' : ''} 停損${i.eventLow}${i.queueUp ? ' 買一貼停' : ''}${i.punish ? ' 處置' : ''}`).join('、');
+    const message = `🎯 影片形態（平底→連陽→漲停跳空）${items.length} 檔（${today}）：${list}。主線實測 20日淨+7.7%·勝率56%；[強勢連陽]支線 20日+8.3%·勝率53%但常先回檔(5日-0.2%·最深-9%)；明日開盤進場、鎖漲停＝買不到，跌破停損線必出。非投資建議。`;
     const alert = { code: items[0].code, name: items[0].name, type: 'gapLimitUp', price: items[0].price, message, at: Date.now() };
     try {
       const us = await db.collection('users').get();

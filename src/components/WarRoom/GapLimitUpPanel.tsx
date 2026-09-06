@@ -18,7 +18,7 @@ interface Item {
   code: string; name: string; price: number; chg: number; volX: number; star: boolean; heavy: boolean;
   runAdj: number; runGain: number | null; baseFlat: number | null; shape: number | null;
   baseUp: number; eventLow: number; eventHigh: number; open: number;
-  queueUp: boolean; punish: boolean; why?: string;
+  queueUp: boolean; punish: boolean; why?: string; branch?: '主線' | '強勢連陽';
 }
 interface ReviewDay { date: string; n: number; unbuyable: number; n20: number; win20: number | null; avg20: number | null; avg5: number | null; hit30: number | null; stopHit: number }
 interface Doc {
@@ -88,6 +88,7 @@ export default function GapLimitUpPanel() {
                 </button>
                 <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(13px * var(--fz))' }}>{it.price.toFixed(2)} <span style={{ color: '#ef4444' }}>+{it.chg}%</span></span>
+                {it.branch === '強勢連陽' && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '1px 6px', borderRadius: 6, background: 'rgba(249,115,22,0.15)', color: '#f97316', fontWeight: 700 }} title="支線：連陽段漲 15–40%（連陽裡已含漲停）。實測 20 日 +8.3%／勝率 53%，但 5 日均 −0.2%、最深 −9%——進場後常先回檔">強勢連陽</span>}
                 <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#a78bfa' }} title="近 21 日走勢與影片模板（15 天平底→5 天緩升→跳升）的相似度，≥0.8 才入榜">形狀 {it.shape ?? '—'}</span>
                 <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="緊鄰事件日的連續小陽線根數與段漲幅（影片：連陽）">連陽 {it.runAdj}{it.runGain != null ? `（+${it.runGain}%）` : ''}</span>
                 <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="連陽之前 15 日的高低差（影片：平底盤整）">底平 {it.baseFlat ?? '—'}%</span>
