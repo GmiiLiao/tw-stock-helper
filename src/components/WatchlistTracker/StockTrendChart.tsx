@@ -63,6 +63,7 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
       let firstIdx = candles.length - 1;
       while (firstIdx > 0 && dk(candles[firstIdx - 1].t) === lastDay) firstIdx--;
       if (firstIdx > 0) want = candles.length - (firstIdx - 1);   // 含前一交易日最後一根
+      else want = candles.length;   // 序列全是今天（Yahoo 1m range=1d）：預設看整日，不再只看最後 90 根（2026-09-07 台虹：後 90 根全鎖漲停，開盤那段被藏在視窗外）
     }
     setSize(Math.max(8, want));
     setOffset(0); setHoverIdx(null);
@@ -176,7 +177,10 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
   const maVisible = maFull.flatMap(arr => view.map((_, i) => arr[start + i]).filter((v): v is number => v != null));
   const lo = Math.min(...view.map(c => c.l), ...(maVisible.length ? maVisible : [Infinity])),
         hi = Math.max(...view.map(c => c.h), ...(maVisible.length ? maVisible : [-Infinity]));
-  const pad = (hi - lo) * 0.06 || 1; const yMin = lo - pad, yMax = hi + pad;
+  // 可視區間全部同價（漲跌停鎖死）：hi===lo 時原本 pad=1 元固定值，高價股會畫成貼邊死線，
+  // 低價股又被撐成大空白。改為價格的 ±0.5%，並在縮放列標示鎖死（2026-09-07 台虹：後 210 根全 327）。
+  const flatLocked = view.length > 0 && hi === lo && Number.isFinite(hi);
+  const pad = flatLocked ? Math.max(hi * 0.005, 0.01) : ((hi - lo) * 0.06 || 1); const yMin = lo - pad, yMax = hi + pad;
   const slot = plotW / view.length;
   const cw = Math.max(1, slot * 0.62);
   const xOf = (i: number) => padL + (i + 0.5) * slot;
@@ -357,6 +361,11 @@ function CandleChart({ candles, mode, code, onView }: { candles: Candle[]; mode:
         <button className={styles.periodTab} style={{ flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }} title="放大（顯示更少根）"
           onClick={() => setSize(s => Math.round(Math.max(8, s * 0.7)))}>＋</button>
         <span style={{ whiteSpace: 'nowrap' }}>{view.length}/{n} 根{MODE_LABEL[mode]}K</span>
+        {flatLocked && (
+          <span style={{ whiteSpace: 'nowrap', color: '#fbbf24', fontWeight: 700 }} title="可視區間內每一根 K 的開高低收都是同一價（漲停或跌停鎖死），放大縮小畫面不會變；按 － 拉出更早的走勢">
+            🔒 區間全鎖 {hi.toFixed(2)}{view.length < n ? '·按 － 看更早' : ''}
+          </span>
+        )}
         <span className="desktop-only" style={{ whiteSpace: 'nowrap' }}>· 滾輪縮放 · 拖曳平移</span>
         {clampOffset > 0 && (
           <button className={styles.periodTab} style={{ marginLeft: 'auto', flexShrink: 0, whiteSpace: 'nowrap', padding: '3px 10px' }}
