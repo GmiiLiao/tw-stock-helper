@@ -104,7 +104,12 @@ export async function GET(request: NextRequest) {
     const firstTickMin = daemon?.ticks?.length
       ? (() => { const t = new Date(new Date(daemon.ticks[0].time * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' })); return t.getHours() * 60 + t.getMinutes(); })()
       : 9999;
-    if (marketOpen && daemon && firstTickMin <= 9 * 60 + 10) {
+    // ⚠ 快速路徑還要檢查「尾端夠新」（2026-09-07 台虹實案）：daemon 只記錄快線優先集裡的個股，
+    //   使用者 09:00 看過、切走 15 分鐘後它就掉出優先集，序列停在 09:12；早盤回補只補開頭缺口，
+    //   不補中段斷洞。只看「第一筆夠早」會把凍住的 13 點當完整序列回一整天。
+    //   尾端超過 3 分鐘沒新點就改走一般路徑（Yahoo 主幹＋daemon 尾段），回應形狀不變。
+    const lastTickAgeSec = daemon?.ticks?.length ? Date.now() / 1000 - daemon.ticks[daemon.ticks.length - 1].time : Infinity;
+    if (marketOpen && daemon && firstTickMin <= 9 * 60 + 10 && lastTickAgeSec <= 180) {
       return NextResponse.json({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, { headers: okCache() });
     }
 
