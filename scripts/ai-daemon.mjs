@@ -13015,7 +13015,8 @@ let _nvReviewDate = '';       // 新聞判別對答案（15:30）
 let _nvIntradayAt = 0;        // 盤中新聞判別的上次執行時刻
 let _nvNightDate = '';        // 夜間覆蓋率補判（01:15 起，06:30 死線）
 let _shortCandAt = 0;         // 做空候選：盤中每 10 分鐘一輪（2026-09-03）
-let _squeezeTrainDate = '';   // 軋空模型訓練（週二/五 01:00 後）冪等守衛
+let _squeezeTrainDate = '';   // 軋空模型訓練（每個交易日之後 02:00）冪等守衛；開機時從 squeezeModel/latest.updatedAt 接回，重啟不重訓
+let _squeezeTrainInit = false;
 let _asiaSlotDate = '', _asiaSlotsDone = new Set();   // 具名時刻表守衛（見 dailyJobsLoop 的 ASIA_SLOTS）
 // 日韓早盤固定時刻（台北時間·分鐘）。08:30 為使用者指定必跑；09:00 後為盤中追蹤。
 const ASIA_SLOTS = [
@@ -13148,15 +13149,19 @@ async function dailyJobsLoop() {
         try { await updateGlobalHistory(); _globalHistDate = today; }
         catch (e) { log('✖ 國際盤歷史（將於下一輪重試）:', (e.message || '').slice(0, 60)); }
       }
-      // 軋空判讀模型訓練：**每週二、五 01:00 後**（使用者指定）。
-      // （原註：選週二/五是為了各自落在「週一收盤後」與「週四收盤後」；
-      //   2026-08-31 改為每個交易日之後都訓練，涵蓋更即時。）
-      // ⚠ 不設 isTradingDay 閘門——訓練吃的是歷史歸檔，跟今天開不開盤無關。
-      // 訓練改為**每個交易日之後的凌晨 02:00**（使用者 2026-08-31 指示）。
-      // 原本只有週二/週五 ⇒ 最長要等 3~4 天才吃到新資料，
-      // 使用者看到「模型好幾天沒動」自然會以為訓練停了。
-      // 改成「昨天有開盤就訓練」＝週二～週六 02:00，每個交易日的收盤資料
-      // 隔天凌晨就進得了模型。02:00 避開 01:00 前後的歸檔與晚間工作。
+      // 軋空判讀模型訓練：**每個交易日之後的凌晨 02:00**（使用者 2026-08-31 指示；舊的「週二/五 01:00」已廢，
+      //   2026-09-07 我還被殘留註解誤導過一次，故刪乾淨）。「昨天有開盤就訓練」＝週二～週六 02:00，
+      //   每個交易日的收盤資料隔天凌晨就進模型。02:00 避開 01:00 前後的歸檔與晚間工作。
+      // ⚠ 不設 isTradingDay(今天) 閘門——訓練吃的是歷史歸檔，跟今天開不開盤無關。
+      // 冪等守衛只在記憶體 ⇒ 每次重啟都會再訓一次（09-04～09-05 重啟四次就多訓四次，白耗 30 分鐘算力）。
+      //   開機第一次進來先從 squeezeModel/latest.updatedAt 接回「今天訓過了沒」。
+      if (!_squeezeTrainInit) {
+        _squeezeTrainInit = true;
+        try {
+          const m = (await db.collection('squeezeModel').doc('latest').get()).data();
+          if (m?.updatedAt && isoDate(new Date(new Date(m.updatedAt).toLocaleString('en-US', { timeZone: 'Asia/Taipei' }))) === today) { _squeezeTrainDate = today; log('  · 軋空模型今日已訓練（開機接回，不重訓）'); }
+        } catch { /* 讀不到就照舊邏輯，最多多訓一次 */ }
+      }
       const _yTw = new Date(tw.getTime() - 86400000);
       if (isTradingDay(_yTw) && mins >= 2 * 60 && _squeezeTrainDate !== today) {
         // ⚠ **先標記再呼叫**是本專案記過的反模式（dayTradeRatio 因此斷 8 天）：
