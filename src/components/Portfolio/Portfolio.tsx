@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, useEffect } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import { useAppStore } from '@/lib/store';
 import type { TradeRecord } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -69,7 +70,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
     name: '',
     price: '',
     quantity: '',
-    unit: (typeof window !== 'undefined' && localStorage.getItem('tradeUnit') === 'share' ? 'share' : 'lot') as 'lot' | 'share',   // 張/股·記住上次選擇（零股使用者不必每次重切）
+    unit: (storageGet('tradeUnit') === 'share' ? 'share' : 'lot') as 'lot' | 'share',   // 張/股·記住上次選擇（零股使用者不必每次重切）
     date: new Date().toISOString().split('T')[0],
     note: '',
     dayTrade: false,
@@ -249,7 +250,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
                 <span>{form.type === 'dividend' ? '持有數量' : '數量'}</span>
                 <span style={{ display: 'inline-flex', border: '1px solid var(--border-primary)', borderRadius: 6, overflow: 'hidden' }}>
                   {(['lot', 'share'] as const).map(u => (
-                    <button key={u} type="button" onClick={() => { localStorage.setItem('tradeUnit', u); setForm(f => ({ ...f, unit: u })); }}
+                    <button key={u} type="button" onClick={() => { storageSet('tradeUnit', u); setForm(f => ({ ...f, unit: u })); }}
                       style={{ padding: '2px 10px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, border: 'none', cursor: 'pointer',
                         background: form.unit === u ? 'var(--accent-primary, #3d8ef8)' : 'var(--bg-tertiary)',
                         color: form.unit === u ? '#fff' : 'var(--text-secondary)' }}>

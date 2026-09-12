@@ -6,6 +6,7 @@
 // 術語點擊展開白話解釋；「📖 完整說明書」連到帳號選單的說明書頁。
 
 import { useEffect, useState } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import { PAGE_HELP, GLOSSARY, visibleLines } from '@/lib/help-content';
 import { useAppStore } from '@/lib/store';
 import { usePremiumAccess } from '@/lib/access';
@@ -18,12 +19,12 @@ export default function PageHelp({ id }: { id: string }) {
   const [term, setTerm] = useState<string | null>(null);
 
   useEffect(() => {
-    try { setOpen(localStorage.getItem(`pageHelp:${id}`) === '1'); } catch { /* ignore */ }
+    setOpen(storageGet(`pageHelp:${id}`) === '1');
   }, [id]);
   const toggle = () => {
     setOpen(o => {
       const n = !o;
-      try { localStorage.setItem(`pageHelp:${id}`, n ? '1' : '0'); } catch { /* ignore */ }
+      storageSet(`pageHelp:${id}`, n ? '1' : '0');
       return n;
     });
   };

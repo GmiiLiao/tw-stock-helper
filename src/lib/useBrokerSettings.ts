@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { useDataUid, canWriteUserData } from './view-as';
@@ -16,7 +17,7 @@ const KEY = 'brokerSettings';
 function readLocal(): BrokerSettings | null {
   if (typeof window === 'undefined') return null;
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    const s = JSON.parse(storageGet(KEY) || 'null');
     if (!s || typeof s !== 'object') return null;
     return { discount: s.discount ?? DEFAULT_BROKER.discount, minFee: s.minFee ?? DEFAULT_BROKER.minFee };
   } catch { return null; }
@@ -42,7 +43,7 @@ export function useBrokerSettings(): [BrokerSettings, (s: BrokerSettings) => voi
       if (b && typeof b.discount === 'number') {
         const s = { discount: b.discount, minFee: b.minFee ?? DEFAULT_BROKER.minFee };
         setSettings(s);
-        try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }
+        storageSet(KEY, JSON.stringify(s));
       } else {
         // 雲端沒有 → 本機有就用並上傳（一次性遷移），都沒有用預設
         const local = readLocal();
@@ -57,7 +58,7 @@ export function useBrokerSettings(): [BrokerSettings, (s: BrokerSettings) => voi
 
   const save = (s: BrokerSettings) => {
     setSettings(s);
-    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    storageSet(KEY, JSON.stringify(s));
     if (dataUid && db && typeof (db as { type?: unknown }).type !== 'undefined' && canWriteUserData()) {
       setDoc(doc(db, 'users', dataUid, 'data', 'cashLedger'), { broker: s, updatedAt: Date.now() }, { merge: true }).catch(() => {});
     }

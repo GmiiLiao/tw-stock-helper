@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 
@@ -90,8 +91,8 @@ function deriveState(mp: MpData) {
 // 撿尾盤推薦股（尾盤買點清單）
 function TailPicksSection({ tp }: { tp: TailPicks }) {
   const [collapsed, setCollapsed] = useState<boolean>(false);
-  useEffect(() => { const s = localStorage.getItem('tailCollapsed'); if (s !== null) setCollapsed(s === '1'); }, []);
-  const toggleCollapse = () => setCollapsed(c => { const n = !c; localStorage.setItem('tailCollapsed', n ? '1' : '0'); return n; });
+  useEffect(() => { const s = storageGet('tailCollapsed'); if (s !== null) setCollapsed(s === '1'); }, []);
+  const toggleCollapse = () => setCollapsed(c => { const n = !c; storageSet('tailCollapsed', n ? '1' : '0'); return n; });
   const mBadge = (m: string) => m === 'otc' ? { t: '櫃', c: '#f59e0b' } : { t: '市', c: '#3d8ef8' };
   // 台股慣例：買超(正)紅、賣超(負)綠
   const Lots = ({ label, v }: { label: string; v?: number }) => {
@@ -236,10 +237,10 @@ export function MarketPatternBanner() {
   // 盤型紀律可收合，讓下方撿尾盤推薦股往上；記住上次選擇
   const [collapsed, setCollapsed] = useState<boolean>(true);
   useEffect(() => {
-    const s = localStorage.getItem('mpCollapsed');
+    const s = storageGet('mpCollapsed');
     if (s !== null) setCollapsed(s === '1');
   }, []);
-  const toggle = () => setCollapsed(c => { const n = !c; localStorage.setItem('mpCollapsed', n ? '1' : '0'); return n; });
+  const toggle = () => setCollapsed(c => { const n = !c; storageSet('mpCollapsed', n ? '1' : '0'); return n; });
 
   if (!mp?.env) return null;
   const { liveValid, closed, env, liveWarn, borderColor } = deriveState(mp);

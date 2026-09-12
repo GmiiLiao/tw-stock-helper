@@ -6,6 +6,7 @@
 // 點方塊展開即時K線。資料：/api/twse/market-snapshot（daemon 每分掃）。
 
 import { useEffect, useMemo, useState } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import { shouldPollNow , inPreOpenBlackout} from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
@@ -178,8 +179,8 @@ export default function RiseFallPanel() {
   const compareCodes = useAppStore(s => s.compareCodes);
   const candidateSet = useMemo(() => new Set(compareCodes), [compareCodes]);
 
-  useEffect(() => { try { const c = parseInt(localStorage.getItem('rfCols') || '4'); if (c >= 2 && c <= 10) setCols(c); } catch { /* ignore */ } }, []);
-  const saveCols = (c: number) => { setCols(c); try { localStorage.setItem('rfCols', String(c)); } catch { /* ignore */ } };
+  useEffect(() => { const c = parseInt(storageGet('rfCols') || '4'); if (c >= 2 && c <= 10) setCols(c); }, []);
+  const saveCols = (c: number) => { setCols(c); storageSet('rfCols', String(c)); };
 
   useEffect(() => {
     let live = true;

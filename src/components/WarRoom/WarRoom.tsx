@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import { useIsPremium } from '@/lib/view-as';
 import { MarketPatternHint } from '@/components/MarketPattern/MarketPatternBanner';
 import PortfolioAlerts from '@/components/Portfolio/PortfolioAlerts';
@@ -78,24 +79,24 @@ export default function WarRoom() {
   // 設定與備選區還原（備選區跨日清空）
   useEffect(() => {
     try {
-      const s = JSON.parse(localStorage.getItem('warBenchCfg') || '{}');
+      const s = JSON.parse(storageGet('warBenchCfg') || '{}');
       if (s.ttlMin) setTtlMin(s.ttlMin); if (s.benchMax) setBenchMax(s.benchMax);
-      const b = JSON.parse(localStorage.getItem('warBench') || 'null');
+      const b = JSON.parse(storageGet('warBench') || 'null');
       if (b?.date === todayTw() && Array.isArray(b.items)) setBench(b.items);
-      const t = JSON.parse(localStorage.getItem('warStrategyToggles') || 'null');
+      const t = JSON.parse(storageGet('warStrategyToggles') || 'null');
       if (t && typeof t === 'object') setToggles(cur => ({ ...cur, ...t }));
     } catch { /* ignore */ }
   }, []);
   const flipToggle = (k: string) => setToggles(cur => {
     const next = { ...cur, [k]: !cur[k] };
-    try { localStorage.setItem('warStrategyToggles', JSON.stringify(next)); } catch { /* ignore */ }
+    storageSet('warStrategyToggles', JSON.stringify(next));
     return next;
   });
   const saveBench = useCallback((items: BenchItem[]) => {
     setBench(items);
-    try { localStorage.setItem('warBench', JSON.stringify({ date: todayTw(), items })); } catch { /* ignore */ }
+    storageSet('warBench', JSON.stringify({ date: todayTw(), items }));
   }, []);
-  const saveCfg = (t: number, m: number) => { setTtlMin(t); setBenchMax(m); try { localStorage.setItem('warBenchCfg', JSON.stringify({ ttlMin: t, benchMax: m })); } catch { /* ignore */ } };
+  const saveCfg = (t: number, m: number) => { setTtlMin(t); setBenchMax(m); storageSet('warBenchCfg', JSON.stringify({ ttlMin: t, benchMax: m })); };
 
   // 備選區修剪：未釘住者逾時或超量(舊者先出)；釘住者保留
   const prune = useCallback((items: BenchItem[], ttl: number, max: number) => {
@@ -129,14 +130,14 @@ export default function WarRoom() {
           let next = [...cur];
           for (const d of dropped) if (!next.some(b => b.code === d.code) && !nowCodes.has(d.code)) next.push(d);
           next = prune(next, ttlMin, benchMax);
-          try { localStorage.setItem('warBench', JSON.stringify({ date: todayTw(), items: next })); } catch { /* ignore */ }
+          storageSet('warBench', JSON.stringify({ date: todayTw(), items: next }));
           return next;
         });
       } catch { /* ignore */ }
     };
     const quotes = async () => {
       try {
-        const codes = JSON.parse(localStorage.getItem('warBench') || '{}')?.items?.map((b: BenchItem) => b.code) || [];
+        const codes = JSON.parse(storageGet('warBench') || '{}')?.items?.map((b: BenchItem) => b.code) || [];
         if (!codes.length) return;
         const j = await fetch(`/api/twse/mis-quote?codes=${codes.slice(0, 30).join(',')}&t=${revealTick()}`).then(x => (x.ok ? x.json() : null));
         const qs: { code: string; price: number; changePercent: number }[] = j?.quotes || [];
@@ -164,7 +165,7 @@ export default function WarRoom() {
       const next = exist
         ? cur.map(b => (b.code === it.code ? { ...b, pinned: true } : b))
         : [...cur, { code: it.code, name: it.name, market: it.market, addedAt: Date.now(), pinned: true, lastPrice: it.price, lastChg: it.chg }];
-      try { localStorage.setItem('warBench', JSON.stringify({ date: todayTw(), items: next })); } catch { /* ignore */ }
+      storageSet('warBench', JSON.stringify({ date: todayTw(), items: next }));
       return next;
     });
   };

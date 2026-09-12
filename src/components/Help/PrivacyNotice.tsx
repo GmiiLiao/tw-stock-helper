@@ -6,6 +6,7 @@
 // 「我知道了」即收合；連結至完整聲明頁。
 
 import { useEffect, useState } from 'react';
+import { readStorage, storageSet } from '@/lib/safe-storage';
 import { doc, setDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -90,13 +91,13 @@ export function ConsentBanner() {
 
   useEffect(() => {
     if (!user?.uid) { setShow(false); return; }
-    try { setShow(localStorage.getItem(ACK_KEY) !== '1'); } catch { setShow(false); }
+    const r = readStorage(ACK_KEY); setShow(r.ok && r.value !== '1');   // storage 不可用→存不了確認→不要一直跳
   }, [user?.uid]);
 
   if (!show || currentPage === 'privacy') return null;
 
   const ack = () => {
-    try { localStorage.setItem(ACK_KEY, '1'); } catch { /* ignore */ }
+    storageSet(ACK_KEY, '1');
     setShow(false);
     const u = auth?.currentUser;
     if (u) setDoc(doc(db, 'users', u.uid), { privacyAckAt: Date.now() }, { merge: true }).catch(() => {});

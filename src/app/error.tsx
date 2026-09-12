@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { storageRemove } from '@/lib/safe-storage';
 
 // ── 頁面層錯誤邊界（2026-08-06 補）──────────────────────────────────
 //
@@ -98,7 +99,7 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 4 }}>
         <button style={btn('#3d8ef8')} onClick={() => (chunk ? location.reload() : reset())}>{chunk ? '重新載入' : '重試'}</button>
         <button style={btn('#f59e0b', '#1a1a1a')} onClick={() => {
-          try { localStorage.removeItem('tw-stock-app-storage'); } catch { /* 私密模式可能不給存取 */ }
+          storageRemove('tw-stock-app-storage');   // safe-storage 內部已吞私密模式例外
           location.reload();
         }}>清除本機暫存並重載</button>
       </div>

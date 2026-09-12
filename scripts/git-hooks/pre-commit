@@ -13,6 +13,7 @@ fi
 if git diff --cached --name-only | grep -qE '^src/'; then
   node scripts/audit-routes.mjs >/tmp/ar.out 2>&1 || { cat /tmp/ar.out; echo "❌ route 封閉世界普查違規（scripts/route-policy.json）"; fail=1; }
   node scripts/audit-ratchets.mjs >/tmp/rt.out 2>&1 || { cat /tmp/rt.out; echo "❌ Ratchet 違規（setInterval 未接 gate）"; fail=1; }
+  node scripts/enforce-safe-storage.mjs >/tmp/ss.out 2>&1 || { cat /tmp/ss.out; echo "❌ 原生 localStorage 呼叫（改用 @/lib/safe-storage）"; fail=1; }
 fi
-[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet 通過"
+[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet＋safe-storage 通過"
 exit $fail

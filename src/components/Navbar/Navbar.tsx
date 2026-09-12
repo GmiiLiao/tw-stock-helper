@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import { useAppStore } from '@/lib/store';
 import styles from './Navbar.module.css';
 import AiNewsTicker, { NavbarIndexWidget } from '@/components/AiNewsTicker/AiNewsTicker';
@@ -76,7 +77,7 @@ export default function Navbar() {
   // ── 字體大小比例（無障礙）：zoom 整頁縮放、版面自動重排，設定存本機 ──
   const [fontScale, setFontScale] = useState(1);
   useEffect(() => {
-    const saved = parseFloat(localStorage.getItem('fontScale') || '1');
+    const saved = parseFloat(storageGet('fontScale') || '1');
     if (saved >= 1 && saved <= 2.5) { setFontScale(saved); applyFontScale(saved); }
   }, []);
   // ── 游標防護：Chromium 的 body.zoom × 手機IME insertText bug ──
@@ -118,7 +119,7 @@ export default function Navbar() {
   };
   const changeFontScale = (v: number) => {
     setFontScale(v);
-    localStorage.setItem('fontScale', String(v));
+    storageSet('fontScale', String(v));
     applyFontScale(v);
   };
   const FontScaleRow = () => (
