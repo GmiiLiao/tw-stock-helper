@@ -1552,7 +1552,12 @@ async function _fetchOtcDated(dateYmd) {
       }
     }
     return out;
-  } catch { return []; }
+  } catch (e) {
+    // R10（2026-09-12）：以前是靜默 `catch { return [] }`——outage 與「今天沒資料」同值。
+    // 回傳形狀不動（8 個呼叫端多數已以 length===0 棄權），但故障必須留痕。
+    log(`  ⚠ STOCK_DAY_ALL 抓取失敗（回空）：${(e?.message || '').slice(0, 80)}`);
+    return [];
+  }
 }
 async function getAllMarketCodes(force = false) {
   if (!force && _codesCache && Date.now() - _codesAt < 10 * 60000) return _codesCache;
@@ -9846,8 +9851,11 @@ async function computeStrategyPicks() {
     const cj = arch[ai]?.closeJson ? JSON.parse(arch[ai].closeJson) : null; if (!cj) continue;
     for (const c in cj) { const v = cj[c][0]; if (v > (max60[c] || 0)) max60[c] = v; }
   }
-  // 外資投信同日買：取「最新歸檔日」法人（假日/盤前=最近交易日，修正原先讀今日造成的空清單）
+  // 外資投信「同日」買：法人必須與 arch[0]（最新收盤歸檔日）同一天。收盤 15:10 已歸檔、
+  // 法人尚未寫入的窗內 arch[0] 沒有 instJson ⇒ 本輪**不貼**這個標籤（16:45 補跑會補上），
+  // 不可退到 arch[1]——那是拿昨天的法人配今天的收盤，日期位移一格（R13·2026-09-12）。
   const instToday = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : null;
+  if (!instToday) log(`  ⚠ strategyPicks：${arch[0]?.date || '?'} 尚無法人歸檔，本輪略過「外資投信同日買」標籤`);
   for (const r of rows) {
     if (!(r.close > 0) || r.code.startsWith('00')) continue;
     const prevC = r.close - r.change;
@@ -10392,6 +10400,9 @@ async function computeTailEndPicks() {
     source = 'live';
   } else {
     const csv = await fetchCloseCsvFull();
+    // R10（2026-09-12）：CSV 空（含抓取失敗）就棄權——原本會拿 0 檔算盤型並覆寫 marketPattern/latest，
+    // 上一份好的撿尾盤榜被「今天沒有」蓋掉，而那其實是 TWSE 一次暫時性失敗。
+    if (csv.length === 0) { log('  ⚠ 撿尾盤/盤型：STOCK_DAY_ALL 回空，本輪棄權（保留上一份 latest）'); return; }
     for (const r of csv) rows.push({ code: r.code, name: r.name, market: 'tse', o: r.open, h: r.high, l: r.low, c: r.close, lots: r.vol / 1000 });
   }
 
