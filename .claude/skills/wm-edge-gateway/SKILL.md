@@ -4,7 +4,7 @@ description: Edge 閘道請求管線——先便宜後昂貴的固定順序（or
 ---
 # wm-edge-gateway｜閘道管線
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`server/gateway.ts`（2,421 行 `createDomainGateway`）、`api/_cors.js`（雙 profile allowlist）、`api/_api-key.js`、`api/_relay.js`。**適用度：部分（Next.js route 各自為政）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`server/gateway.ts`（2,421 行 `createDomainGateway`）、`api/_cors.js`（雙 profile allowlist）、`api/_api-key.js`、`api/_relay.js`。**適用度：部分（Next.js route 各自為政）**。
 
 ## 原則
 - 管線順序固定且**先便宜後昂貴**：拒絕的 origin 不帶 CORS header；CORS 產生失敗即 fail-closed。

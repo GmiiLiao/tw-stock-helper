@@ -4,7 +4,7 @@ description: 權威身分解析、拒絕啟發式猜測、三態解析結果—�
 ---
 # wm-authoritative-identity｜權威身分解析
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`CHANGELOG.md` #5695（SEC CIK 解析取代 domain-slug 啟發式）、`CONCEPTS.md`（Filer／Filer Resolution）。**適用度：內化（同源規矩）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`CHANGELOG.md` #5695（SEC CIK 解析取代 domain-slug 啟發式）、`CONCEPTS.md`（Filer／Filer Resolution）。**適用度：內化（同源規矩）**。
 
 ## 原則
 - 只接受能唯一指認的 key（登記在案的代號；名稱唯一時才收）；**歧義時解析為「無」，不做 tie-break**——按標題長度排序之類的代理指標是猜測不是解析。

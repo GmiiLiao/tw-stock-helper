@@ -4,7 +4,7 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 ---
 # wm-data-accuracy｜資料正確性
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`scripts/_pipeline-dedup.mjs`、`scripts/_seed-utils.mjs`（atomicPublish）、`CONCEPTS.md`（Read Outcome／Content Clock／Content-Age Contract）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`scripts/_pipeline-dedup.mjs`、`scripts/_seed-utils.mjs`（atomicPublish）、`CONCEPTS.md`（Read Outcome／Content Clock／Content-Age Contract）。**適用度：深度內化**。
 
 ## 原則（上游提煉）
 - **Read Outcome 三態**：讀取結果必須區分 hit／miss／failure。「讀不到」與「真的沒有」是相反的行動：miss 可回空、failure 必須棄權（跳過本輪、保留 last-good、回報未完成），絕不把 outage 變成自信的空答案。
@@ -26,3 +26,8 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 ## 掃描探針
 - 反向：`rg -n "\|\| Date.now\(\)" scripts src`（時間捏造）；`rg -nU "catch[^{]*\{[^}]{0,200}items: \[\]" src/app/api`（outage 包成空答案）
 - 正向：新資料源是否有 dateField 進 audit CONTRACTS
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- **Failure-Opaque Dependency**（見 wm-freshness 增補）是 Read Outcome 的「上一層」變體：三態在讀取層做對了，卻在回傳邊界被壓成兩態。規範：**任何包了 try/catch 的資料函式，其 catch 分支的回傳型別必須與「空結果」可區分**（`null`／throw／`{ ok:false }`），禁止 `catch { return [] }`。
+- 本站符合處：`fetchDaemonIntraday` catch 回 `null`（stock-intraday route）、`readArchive` 找「最近一個有該欄位的日子」。探針：`rg "catch \{[^}]*return \[\]" src scripts`。

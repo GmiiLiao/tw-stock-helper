@@ -4,7 +4,7 @@ description: MCP 與 Agent 可發現面——MCP server（OAuth+HMAC grant、bil
 ---
 # wm-mcp-agent-surface｜MCP／Agent 產品面（參考·不適用）
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`api/mcp.ts`、`api/mcp-proxy`、`skills/*/SKILL.md`（frontmatter name/description/…）、`public/.well-known/agent-skills/index.json`、`agent-card.json`、`llms.txt`、`cli/`、`sdk/{python,ruby,go}`、`mcp-live-smoke.yml`。**適用度：不適用（保留作技能格式與 discovery 的參考）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`api/mcp.ts`、`api/mcp-proxy`、`skills/*/SKILL.md`（frontmatter name/description/…）、`public/.well-known/agent-skills/index.json`、`agent-card.json`、`llms.txt`、`cli/`、`sdk/{python,ruby,go}`、`mcp-live-smoke.yml`。**適用度：不適用（保留作技能格式與 discovery 的參考）**。
 
 ## 原則（可借的部分）
 - 公開 discovery methods 與認證 data methods 分層；discovery 有 digest 防漂移。

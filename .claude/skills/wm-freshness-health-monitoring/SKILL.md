@@ -4,7 +4,7 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 ---
 # wm-freshness-health-monitoring｜新鮮度與健康
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`api/health.js`（3,919 行；每 key `maxStaleMin`＝cron 2–3×、`minRecordCount`、STALE_CONTENT_GRACE 3h）、`scripts/check-seed-freshness.mjs`、`CONCEPTS.md`（Content-Age Contract／Activation Marker／Read Outcome）、`.github/workflows/seed-freshness-monitor.yml`（每 15 分）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`api/health.js`（3,919 行；每 key `maxStaleMin`＝cron 2–3×、`minRecordCount`、STALE_CONTENT_GRACE 3h）、`scripts/check-seed-freshness.mjs`、`CONCEPTS.md`（Content-Age Contract／Activation Marker／Read Outcome）、`.github/workflows/seed-freshness-monitor.yml`（每 15 分）。**適用度：深度內化**。
 
 ## 原則
 - 每次資料寫入同時寫 `seed-meta:{fetchedAt, recordCount, sourceVersion}`；健康端點只讀 meta，不讀大 payload。
@@ -28,3 +28,9 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 
 ## 掃描探針
 - 正向：`node scripts/audit-data-sources.mjs`（全綠＋sourceCount≥60）；反向：`rg -n "liveAt: Date.now" scripts/ai-daemon.mjs`
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- **CONCEPTS 新詞條「Constant Health Flag」**：健康布林若把「結構上永遠為真」的狀態（此面向永遠不會有的能力、永遠無法自證的依賴）納入定義，就會每次都報警，消費端學會忽略它＝學對了。修法是把定義**縮**到「下一次請求可能清掉」的狀態。台股助手探針：`system/dataHealth` 與 Header 的 ⚠ 只能由「會變」的條件觸發（stale／缺筆／日期漂移）；**任何 `always true` 的 flag 先刪再說**。
+- **CONCEPTS 新詞條「Failure-Opaque Dependency」**：handler 自己把故障吞掉、回一個格式正確的空成功 ⇒ 在它的邊界上「outage」與「真的沒有」同值——Read Outcome 三態被往上搬了一層後崩塌。台股助手探針：`latestDoc()` 找不到文件回 404 是對的；但任何 route 在 `catch` 裡回 `{ items: [] }` 200 就是本病（本週 web route 0 例；daemon `catch { return [] }` 8 處，分級見 docs/WM-SCAN-2026-09-12.md R10）。
+- `api/health.js` 本週 966 行變動：改用 `readExistsFlags` 批次讀存在旗標、每 key `maxStaleMin` 重新按「cron 節奏 ×3、能吞一次漏跑」校準（30／180／300／360／540／720 分）。台股助手 `CONTRACTS` 的 `maxStale` 校準原則相同，週更時對照。

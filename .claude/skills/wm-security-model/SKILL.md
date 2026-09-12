@@ -4,7 +4,7 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 ---
 # wm-security-model｜安全模型
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`api/_api-key.js`（session／user／enterprise 三種 kind；Origin/Referer 不可信 #3541）、`api/_rate-limit.js`＋`server/_shared/rate-limit.ts`（sliding window、failClosed、IETF RateLimit headers、`X-RateLimit-Mode: degraded`）、`scripts/enforce-rate-limit-policies.mjs`（政策 key 必須對得上真 route）、`api/_cors.js`。**適用度：部分內化**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`api/_api-key.js`（session／user／enterprise 三種 kind；Origin/Referer 不可信 #3541）、`api/_rate-limit.js`＋`server/_shared/rate-limit.ts`（sliding window、failClosed、IETF RateLimit headers、`X-RateLimit-Mode: degraded`）、`scripts/enforce-rate-limit-policies.mjs`（政策 key 必須對得上真 route）、`api/_cors.js`。**適用度：部分內化**。
 
 ## 原則
 - **Origin／Referer／Sec-Fetch-Site／X-Forwarded-For 都是 client 可寫**：不可當「真瀏覽器」或身分證明；rate-limit 的 identifier 要取**受信 proxy 附加的那一跳**，不是最左邊。

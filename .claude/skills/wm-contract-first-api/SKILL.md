@@ -4,7 +4,7 @@ description: 契約優先 API——proto/OpenAPI 生成、allowlist 例外要有
 ---
 # wm-contract-first-api｜契約優先 API
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`proto/**`（313 檔）、`api/api-route-exceptions.json`（888 行 allowlist）、`scripts/enforce-sebuf-api-contract.mjs`、`docs/adding-endpoints.mdx`。**適用度：部分（無 proto，取契約精神）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`proto/**`（313 檔）、`api/api-route-exceptions.json`（888 行 allowlist）、`scripts/enforce-sebuf-api-contract.mjs`、`docs/adding-endpoints.mdx`。**適用度：部分（無 proto，取契約精神）**。
 
 ## 原則
 - 契約是唯一真相：路徑／動詞／驗證約束寫在 proto，四輸出（client／server／OpenAPI／bundle）由 `make generate` 生成；**不得手改生成物**。

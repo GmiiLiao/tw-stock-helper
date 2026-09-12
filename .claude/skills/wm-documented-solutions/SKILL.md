@@ -4,7 +4,7 @@ description: 問題→解法知識庫（docs/solutions 98 篇含 frontmatter 分
 ---
 # wm-documented-solutions｜解法文件與共享詞彙
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`docs/solutions/**`（98 篇：logic-errors 26／integration-issues 18／conventions 12／best-practices 11／design-patterns 10…）、`CONCEPTS.md`（60+ 詞條）。**適用度：部分內化**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`docs/solutions/**`（98 篇：logic-errors 26／integration-issues 18／conventions 12／best-practices 11／design-patterns 10…）、`CONCEPTS.md`（60+ 詞條）。**適用度：部分內化**。
 
 ## 原則
 - 每個修過的問題寫成一篇：frontmatter `title/date/category/module/problem_type/severity/applies_when/tags`；正文分 Context／昂貴的發現／規則。目的是**下次改同區域前可被檢索**，不是紀錄流水帳。

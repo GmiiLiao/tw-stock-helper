@@ -4,7 +4,7 @@ description: 智慧輪詢與漸進式啟動——startSmartPollLoop（回傳 fal
 ---
 # wm-smart-polling-startup｜智慧輪詢與啟動
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`src/services/smart-poll-loop.ts`（261 行：hiddenMultiplier 10、maxBackoff 4×、jitter 0.1、minInterval 1s、visibilityDebounce 300ms、AbortController 隨 stop/隱藏中止）、`src/app/refresh-scheduler.ts`、`src/components/Panel.ts`（150ms debounced setContent）。**適用度：深度內化（09-02 標準件）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`src/services/smart-poll-loop.ts`（261 行：hiddenMultiplier 10、maxBackoff 4×、jitter 0.1、minInterval 1s、visibilityDebounce 300ms、AbortController 隨 stop/隱藏中止）、`src/app/refresh-scheduler.ts`、`src/components/Panel.ts`（150ms debounced setContent）。**適用度：深度內化（09-02 標準件）**。
 
 ## 原則
 - 間隔每次重算（setTimeout 遞迴），**不用 setInterval＋一次性三元**。

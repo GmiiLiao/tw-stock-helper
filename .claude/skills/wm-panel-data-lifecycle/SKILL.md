@@ -4,7 +4,7 @@ description: 面板資料生命週期——錯誤絕不覆蓋既有好資料、s
 ---
 # wm-panel-data-lifecycle｜面板資料生命週期
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`src/components/Panel.ts`（1,715 行：`_hasData` 防錯誤覆蓋、`clearErrorState` 單一擁有者、`withRetryBackoffPreserved`、#6557 cii/strategic-risk 生產事故）、`scripts/enforce-panel-content-writes.mjs`（lint 抓自己 replaceChildren 繞過清錯的面板）。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`src/components/Panel.ts`（1,715 行：`_hasData` 防錯誤覆蓋、`clearErrorState` 單一擁有者、`withRetryBackoffPreserved`、#6557 cii/strategic-risk 生產事故）、`scripts/enforce-panel-content-writes.mjs`（lint 抓自己 replaceChildren 繞過清錯的面板）。**適用度：部分**。
 
 ## 原則
 - **一次 transient 失敗不得清掉正確資料**：錯誤只加徽章，內容保留；有資料時錯誤是附註，沒資料時錯誤才是主畫面。
@@ -23,3 +23,8 @@ description: 面板資料生命週期——錯誤絕不覆蓋既有好資料、s
 
 ## 掃描探針
 - 反向：`rg -nU "catch[^{]*\{[^}]{0,160}set[A-Z]\w*\((\[\]|null)\)" src -g '*.tsx'`；`rg -n "r.ok \? r.json\(\) : null" src` 後看是否 `|| []`
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- **CONCEPTS 新詞條「Content Commit」**：面板內容寫入經短視窗合併，文件要到視窗關閉才真的換掉標記；綁在渲染列上的東西（元素 handle、寫進去的計時器、observer）必須從 commit callback 註冊，不能從發出寫入的那一行註冊。`scripts/enforce-panel-content-writes.mjs` 本週 +51 行即為此加閘。
+- 台股助手對應：React 已由 reconciler 承擔 commit 語意，但 **StockTrendChart 的 canvas/ref 量測、`useEffect` 讀 DOM 尺寸** 屬同類——只能在 effect（commit 後）讀，不得在 render 期讀 ref。探針：`rg "ref\.current\.(offset|client|getBounding)" src` 逐一確認在 effect／handler 內。

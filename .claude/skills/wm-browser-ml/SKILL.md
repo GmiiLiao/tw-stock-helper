@@ -4,7 +4,7 @@ description: 瀏覽器端 ML 與向量記憶（ONNX 模型登記、worker 合流
 ---
 # wm-browser-ml｜瀏覽器端 ML 與 AI 合成防護
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`src/config/ml-config.ts`（模型登記：priority／size／required／task）、`src/workers/ml.worker.ts`、`scripts/lib/brief-embedding.mjs`、`CONCEPTS.md`（Extraction Evidence Gate）。**適用度：部分（AI 推論在 daemon 側）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`src/config/ml-config.ts`（模型登記：priority／size／required／task）、`src/workers/ml.worker.ts`、`scripts/lib/brief-embedding.mjs`、`CONCEPTS.md`（Extraction Evidence Gate）。**適用度：部分（AI 推論在 daemon 側）**。
 
 ## 原則
 - 模型以**資料宣告**（id／size／priority／required），下載前做裝置能力閘門；worker 內併發載入合流＋進度串流。

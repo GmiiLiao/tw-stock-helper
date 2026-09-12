@@ -4,7 +4,7 @@ description: AI 協作工程規範——任務模式與授權分離、終端狀�
 ---
 # wm-agent-task-mode｜任務模式、授權與終端狀態
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`AGENTS.md`（Task Mode and Authority／Start Here／Verification／PR Delivery）、`scripts/agent-preflight.mjs`、`compound-engineering.local.md`（五個 review agents）。**適用度：★★★ 建議內化（零程式碼）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`AGENTS.md`（Task Mode and Authority／Start Here／Verification／PR Delivery）、`scripts/agent-preflight.mjs`、`compound-engineering.local.md`（五個 review agents）。**適用度：★★★ 建議內化（零程式碼）**。
 
 ## 原則
 - **任務模式決定權限**：review／explain／report／diagnose ＝ 唯讀，不改檔、不推、不改外部狀態；implement／fix／ship 才改碼、驗證、交付。
@@ -27,3 +27,8 @@ description: AI 協作工程規範——任務模式與授權分離、終端狀�
 
 ## 掃描探針
 - 正向：`rg -c "任務模式|終端狀態" CLAUDE.md`（0 ＝ 未內化）
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- AGENTS.md 全文重寫為「Own the outcome／Start safely」兩段：**一個 owner 負責整合與完成**，只在能降低總工作量時委派有界的獨立工作，不遞迴委派；**動手前先從一個可觀察的使用者結果出發**，追完 interface→service→storage→worker→外部服務的路徑；**記錄檢查涵蓋了什麼、留下什麼沒驗**；方法反覆失敗先查原因再重試。合併／替代 PR／六種終端狀態的規則移到 CONTRIBUTING「Complete one change」。
+- 台股助手已內化於 CLAUDE.md 任務模式段；本次新增一條：**交付時「什麼還沒證明」必須明列**（原本只有「驗了什麼」）。

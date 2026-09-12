@@ -4,7 +4,7 @@ description: 多層快取——四層瀑布、single-flight 合流、leader/foll
 ---
 # wm-multi-tier-cache｜多層快取
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`ARCHITECTURE.md` §9（Bootstrap seed→in-memory→Upstash Redis `cachedFetchJson`→upstream）、`server/_shared/redis.ts`、`server/gateway.ts`（FNV-1a ETag）、`CONCEPTS.md`（Seed-Owned Key／One-Shot Hydration／The Lever Test／Bootstrap View Key）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`ARCHITECTURE.md` §9（Bootstrap seed→in-memory→Upstash Redis `cachedFetchJson`→upstream）、`server/_shared/redis.ts`、`server/gateway.ts`（FNV-1a ETag）、`CONCEPTS.md`（Seed-Owned Key／One-Shot Hydration／The Lever Test／Bootstrap View Key）。**適用度：深度內化**。
 
 ## 原則
 - 讀取順序固定；miss 合流（N 併發只打 1 次），leader 做副作用、follower 只等；fetcher 硬逾時防 in-flight map 永久毒化。
@@ -28,3 +28,8 @@ description: 多層快取——四層瀑布、single-flight 合流、leader/foll
 
 ## 掃描探針
 - 反向：`rg -n "let cached|cachedAt" src/app/api src/lib`；`rg -n "\?t=\$\{Date.now" src`；正向：新 route 有 `cacheHeader`
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- **CONCEPTS 新詞條「Deployment Key Prefix」**：非正式環境的 app 自有快取鍵一律加 `<env>:<sha8>:` 前綴，preview／dev 共用同一個 Upstash 也不會讀到或覆蓋正式列；seeder 寫的是裸鍵，所以每個讀取都要明示「讀哪個族群」，`raw=true` 是唯一 opt-out。這是**寫入所有權邊界**，不是快取細節。
+- 台股助手對應：本站只有一個 Firestore 專案、無 preview 部署，**目前不適用**；但 `GAPLU_DATE`／`--only` 這類「人工回補」寫入與 daemon 正式寫入共用同一批 doc，已用 forward-only guard 擋 latest 被舊資料覆蓋（09-05）。若未來出現 staging 專案，鍵前綴優先於再加 guard。

@@ -4,7 +4,7 @@ description: CI 防護網與抗漂移——分層 pre-push（狀態依賴／樹�
 ---
 # wm-ci-guardrails｜CI 防護網
 
-**上游依據**（基線 v2.10.0 · d902d0d · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`.husky/pre-commit`（合併/關閉 PR 分支拒 commit＋unicode 安全）、`.husky/pre-push`＋`scripts/prepush-attest.sh`（tiered gate、green-tree cache、identity gate）、`scripts/lint-boundaries.mjs`（types→config→services→components→app 單向）、`scripts/enforce-*.mjs`（rate-limit-policies／panel-content-writes／safe-html／api-contract／premium-fetch）、`scripts/check-sentry-coverage.mjs`、`check-inventory-count-contracts.mjs`、`CONCEPTS.md` Test & Guard Verification、43 條 workflow。**適用度：部分內化（09-04 起有 hooks）**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`.husky/pre-commit`（合併/關閉 PR 分支拒 commit＋unicode 安全）、`.husky/pre-push`＋`scripts/prepush-attest.sh`（tiered gate、green-tree cache、identity gate）、`scripts/lint-boundaries.mjs`（types→config→services→components→app 單向）、`scripts/enforce-*.mjs`（rate-limit-policies／panel-content-writes／safe-html／api-contract／premium-fetch）、`scripts/check-sentry-coverage.mjs`、`check-inventory-count-contracts.mjs`、`CONCEPTS.md` Test & Guard Verification、43 條 workflow。**適用度：部分內化（09-04 起有 hooks）**。
 
 ## 原則
 - **架構不變式要可執行**：邊界 lint 是「executable authority」，文件只是說明。
@@ -29,3 +29,10 @@ description: CI 防護網與抗漂移——分層 pre-push（狀態依賴／樹�
 
 ## 掃描探針
 - 反向：`rg -c "catch\s*(\(\w*\))?\s*\{\s*\}" src scripts`（裸空 catch）；正向：`git config core.hooksPath`；`rg -l "setInterval\(" src | wc -l` vs 接 gate 數
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- **上游新增 `scripts/enforce-safe-local-storage.mjs`（`npm run lint:safe-local-storage`）**：原生 `localStorage.getItem/setItem` 一律被禁，必須走 `safeLocalStorage` 包裝（私密視窗／Safari ITP／被封鎖的站點資料都會讓 accessor 本身丟例外）。這是「屬性集合軸」的封閉世界：不是掃有沒有 try，而是掃「有沒有直接呼叫」。
+- **`.husky/pre-push` 的 `PROTO_INPUTS` 從 8 個目錄改成逐檔列舉**（含 package.json／.nvmrc／各產生器腳本）：把「哪些輸入會影響產出」寫成明示清單，才能做 Mutation Proof（改一個不在清單裡的檔就該被抓到）。
+- **工作流更名 `lint.yml`→`lint-code.yml`；新增 `sentry-resolve-pin-audit.yml`、`github-stars-refresh.yml`**（各自對應 `npm run audit:sentry-resolve-pins` 與 README 星數快取）。
+- 台股助手對應：本站 10 檔 24 處原生 `localStorage` 呼叫，其中 **Portfolio.tsx（2）、MarketPatternBanner.tsx（4）、Navbar.tsx（2，讀那處）未包 try**；其餘 7 檔各自手寫 try。本站沒有共用 helper（`src/lib` 無 safeStorage）。⇒ 掃描結果列為 R9（見 docs/WM-SCAN-2026-09-12.md），修法是新增 `src/lib/safe-storage.ts` 並把「原生呼叫 = 紅」接進 pre-commit，**不是**逐檔補 try。

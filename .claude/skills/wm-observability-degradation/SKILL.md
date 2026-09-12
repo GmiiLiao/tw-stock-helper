@@ -4,7 +4,7 @@ description: 降級可觀測性——marker header、錯誤分級與 fingerprint
 ---
 # wm-observability-degradation｜可觀測的降級
 
-**上游依據**（基線 v2.10.0 · 96a93d4 · 2026-09-04（第二大腦 second-brain/worldmonitor/））：`api/_rate-limit.js`（`RATE_LIMIT_DEGRADED_HEADERS`、`rateLimitErrorLevel`、`rateLimitFingerprintStage`）、`api/_sentry-edge.js`、`scripts/check-sentry-coverage.mjs`、`scripts/check-analytics-collector.mjs`（「不要相信 deployment status」）。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`api/_rate-limit.js`（`RATE_LIMIT_DEGRADED_HEADERS`、`rateLimitErrorLevel`、`rateLimitFingerprintStage`）、`api/_sentry-edge.js`、`scripts/check-sentry-coverage.mjs`、`scripts/check-analytics-collector.mjs`（「不要相信 deployment status」）。**適用度：部分**。
 
 ## 原則
 - 每條降級路徑回 **marker**（header 或欄位），前端能分辨「拿到的是降級資料」。
@@ -24,3 +24,8 @@ description: 降級可觀測性——marker header、錯誤分級與 fingerprint
 
 ## 掃描探針
 - 正向：`rg -l "X-Data-Source|X-Data-Mode" src/app/api | wc -l`；反向：`rg -n "console.error" src/app/api | wc -l` vs 有 marker 的 route 數
+
+## 2026-09-12 週更增補（上游 d902d0d→02f2115）
+
+- 新增 `scripts/audit-sentry-resolve-pins.mjs` + 工作流 `sentry-resolve-pin-audit.yml`：定期稽核「被標成 resolved 但 pin 住的 issue」是否又冒出來，避免「解決」變成靜音。依賴新增 `@sentry/vite-plugin`（source map 上傳）。
+- 台股助手對應：本站無 Sentry；同類風險是 `docs/DATA-INTEGRITY-SCAN.md` 的「查過且乾淨」清單——它是 pin，不是 resolve。規範：**每週掃描必須重跑那份 grep，不得沿用上週結論**。
