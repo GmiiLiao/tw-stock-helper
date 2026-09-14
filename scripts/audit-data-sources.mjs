@@ -78,7 +78,7 @@ const CONTRACTS = [
   { c: 'gapLimitUp',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },   // 🎯 縮量跳空漲停（2026-09-05）
   // 訓練樣本：21:45 班車寫 dated doc。漏一天＝少一筆不可回補的樣本（特徵是
   // 當日快照，事後重建就不是 PIT）——這正是 bookDepth 壞半年教訓要防的。
-  { c: 'shortTraining',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 100, countField: 'rowsJson' },
+  { c: 'shortTraining',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 100, countField: 'rowsJson', publishHour: 22 },   // 21:45 班車
   // 搶漲停排隊（09:00~09:15 才有意義）：盤中每分更新，其餘時間停留在早上那份，
   // 故 maxStale 放寬到 20 小時；空榜是常態（多數日子沒有這種書況）。
   // 新聞內文判別（2026-08-29 上線）：盤後 23:00 + 晨間 07:00 兩趟。
@@ -118,7 +118,7 @@ const CONTRACTS = [
   { c: 'tradeSignals',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'multiTimeframe',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'chipPicks',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
-  { c: 'chipCharacter',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  { c: 'chipCharacter',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17 },   // 16:45 起跑子程序，~16:50 寫完
   { c: 'chipWind',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'chipDivergence',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22 },
   { c: 'sectorRotation',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
@@ -170,7 +170,7 @@ const CONTRACTS = [
   //   週六的新聞，date 本來就該是日曆日。對它套「資料日 vs 最近交易日」的
   //   標準是我 2026-08-29 一度判錯的——它不該進第三道閘門，故 session:'always'。
   { c: 'newsDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'always' },
-  { c: 'marketReports',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily' },   // 收盤盤勢分析（2026-08-01 事故後納管：曾停更2日無人察覺）
+  { c: 'marketReports',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 18.5 },   // daemon 18:05 打 /api/cron/daily-close   // 收盤盤勢分析（2026-08-01 事故後納管：曾停更2日無人察覺）
 
   // ── 低頻（週/月/季）──
   { c: 'revenue',          kind: 'latest',  maxStale: 40 * DAY,  session: 'always' },
@@ -373,7 +373,11 @@ function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0, since
   //   週一晚上 20:20 最新的本來就是週五 22:00 的 ⇒ 71 小時是正常的，
   //   用固定 30h 上限判它陳舊等於每個交易日的白天都在誤報。
   //   公布時刻**之後**仍未更新才是真的斷線，那時 sincePub 很小、抓得出來。
-  if (spec.publishHour != null && sincePubMs != null) return spec.maxStale + sincePubMs;
+  // ⚠ 這裡要用 publishHourOf（含 daily 預設 16.75），不是 spec.publishHour（2026-09-14 修）：
+  //   舊寫法只認「明示」的 publishHour，於是 daily 預設值那些來源（chipCharacter／marketReports／
+  //   shortTraining）在週一 16:15 被拿固定 30h 對週五的產物 ⇒ 每個週一都報 STALE、每個週一都是假的。
+  //   sincePubMs 本來就是用 publishHourOf 算的——兩處必須共用同一份定義。
+  if (publishHourOf(spec) != null && sincePubMs != null) return spec.maxStale + sincePubMs;
   if (spec.preopen) return spec.maxStale;
   if (spec.session === 'intraday') return (marketOpen ? spec.maxStale : 30 * HOUR) + offHoursMs;
   // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h。

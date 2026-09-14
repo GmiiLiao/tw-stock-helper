@@ -9854,8 +9854,13 @@ async function computeStrategyPicks() {
   // 外資投信「同日」買：法人必須與 arch[0]（最新收盤歸檔日）同一天。收盤 15:10 已歸檔、
   // 法人尚未寫入的窗內 arch[0] 沒有 instJson ⇒ 本輪**不貼**這個標籤（16:45 補跑會補上），
   // 不可退到 arch[1]——那是拿昨天的法人配今天的收盤，日期位移一格（R13·2026-09-12）。
-  const instToday = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : null;
-  if (!instToday) log(`  ⚠ strategyPicks：${arch[0]?.date || '?'} 尚無法人歸檔，本輪略過「外資投信同日買」標籤`);
+  let instToday = arch[0]?.instJson ? JSON.parse(arch[0].instJson) : null;
+  // ⚠ 「有 instJson」不等於「上市法人進來了」（2026-09-14 實案）：15:00 TPEx 法人常比 T86 先出，
+  //   15:15 的 instJson 只有上櫃 ⇒ 全上市的候選對不到任何法人 ⇒ 法人榜 0，16:47 補跑才變 13。
+  //   與 archiveChipDaily 的 hasTseInst 同一組權值股樣本判定；缺上市就整個標籤棄權，不出半套榜。
+  const instHasTse = !!instToday && ['2330', '2317', '2454', '2882'].some(c => instToday[c]);
+  if (instToday && !instHasTse) { log(`  ⚠ strategyPicks：${arch[0]?.date || '?'} 法人歸檔只有上櫃（T86 未出），本輪略過「外資投信同日買」標籤（16:45 補跑）`); instToday = null; }
+  else if (!instToday) log(`  ⚠ strategyPicks：${arch[0]?.date || '?'} 尚無法人歸檔，本輪略過「外資投信同日買」標籤`);
   for (const r of rows) {
     if (!(r.close > 0) || r.code.startsWith('00')) continue;
     const prevC = r.close - r.change;
@@ -10229,7 +10234,10 @@ async function archiveChipDaily() {
     return;
   }
   await ref.set(patch, { merge: true });
-  log(`✓ 籌碼歸檔 ${iso}：法人${(cur.instJson || patch.instJson) ? '✓' : '—'} 資券${(cur.marginJson || patch.marginJson) ? '✓' : '—'}`
+  const _instTag = (() => { try { const m = JSON.parse(patch.instJson || cur.instJson || 'null'); if (!m) return '—';
+    const tse = ['2330', '2317', '2454', '2882'].some(c => m[c]), otc = ['6274', '8069', '3260', '5347', '3105'].some(c => m[c]);
+    return tse && otc ? '✓' : tse ? '上市✓上櫃缺' : otc ? '上櫃✓上市缺' : '？'; } catch { return '？'; } })();
+  log(`✓ 籌碼歸檔 ${iso}：法人${_instTag} 資券${(cur.marginJson || patch.marginJson) ? '✓' : '—'}`
     + ` 借券${(cur.lendingJson || patch.lendingJson) ? '✓' : '—'} 當沖${(cur.dayTradeJson || patch.dayTradeJson) ? '✓' : '—'}（收盤另依資料日歸檔）`);
 }
 
