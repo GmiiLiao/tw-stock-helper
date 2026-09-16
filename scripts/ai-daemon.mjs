@@ -12172,6 +12172,86 @@ async function computeShortReview() {
 //   20 日淨 +6.89%／中位 +1.46%／勝率 53.6%／+30% 命中 28%／5 日最深 −8.8%／22% 隔日開盤鎖漲停買不到。
 // 13:36 從快照定榜並推播；15:10 歸檔後重算（不再推播）；每日 review 對答案累積樣本外。停損線＝事件日最低。
 let _gapLuDate = '';
+
+// ───────────────────────────────────────────────────────────
+// 📈 波段持有（2026-09-16 使用者指定）：近 5／10／20／60 日「連續成長」榜各 25 檔＋整合榜。
+//
+// 口徑（與 09-16 對談中的即席計算完全一致，方便對照）：
+//   · 漲幅＝N 個交易日前收盤 → 最新收盤（收盤對收盤）；N 日內任一天缺收盤就不算（避免日期位移）。
+//   · 「連續」用三個數字描述：上漲日數／N、最長連漲、目前連漲（平盤不算漲也不中斷）；
+//     並附期間最大回檔——單看漲幅會把「幾根大漲堆出來」和「天天小漲」混成一團。
+//   · 流動性閘：20 日均成交額 ≥ 5,000 萬（張×收盤×1000），冷門股不上榜。
+//   · 型態標籤：穩健＝上漲日 ≥ 60% 且最大回檔 ≤ 8%；劇烈＝最大回檔 > 12%；其餘＝一般。
+//   · 整合榜：四榜取聯集，分數＝Σ(26 − 該榜名次)，先比上榜數再比分數；同時列四榜名次，
+//     讓人一眼看出「四個窗都在漲」和「只有短窗衝一下」的差別。
+//   · 資料日＝最新收盤歸檔日（chipArchive）；每交易日 16:45 上櫃補跑後產出（收盤定版），
+//     另存 swingHold/{dataDate} 當歷史資料（其他功能可引用），latest 只前進不倒退。
+//   · 減資／除權息參考價未還原（chipArchive 既有限制），payload.caveats 明示。
+// 非投資建議。
+// ───────────────────────────────────────────────────────────
+const SWING_HOLD_WINDOWS = [5, 10, 20, 60];
+const SWING_HOLD_TOP = 25;
+const SWING_HOLD_MIN_AMT = 50_000_000;
+async function computeSwingHold({ force = false } = {}) {
+  const tw = taipei();
+  const arch = await readArchive(90, 'closeJson');          // 新→舊
+  if (arch.length < 61) { log('  ⚠ 波段持有：chipArchive 不足 61 日'); return false; }
+  const days = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));   // 舊→新
+  const latest = days[days.length - 1];
+  const cur = (await db.collection('swingHold').doc('latest').get()).data();
+  if (!force && cur?.dataDate === latest.date) { log(`  · 波段持有：${latest.date} 已產出，略過`); return true; }
+  // 名稱：宇宙清單優先，缺的用快照
+  const names = {};
+  for (const c of (_codesCache || [])) names[c.code] = { name: c.name, market: c.market };
+  if (!Object.keys(names).length) { const q = (await readSnapshotQuotes())?.quotes || {}; for (const c in q) names[c] = { name: q[c].name, market: q[c].market }; }
+  const amtDays = days.slice(-20);
+  const amtOf = {};
+  for (const code of Object.keys(latest.m)) {
+    let s = 0, n = 0; for (const d of amtDays) { const r = d.m[code]; if (r && r[0] > 0) { s += r[0] * (r[1] || 0) * 1000; n++; } }
+    amtOf[code] = n ? s / n : 0;
+  }
+  const universe = Object.keys(latest.m).filter(c => /^\d{4}$/.test(c) && amtOf[c] >= SWING_HOLD_MIN_AMT);
+  const boards = {};
+  for (const N of SWING_HOLD_WINDOWS) {
+    const win = days.slice(-(N + 1));
+    const rows = [];
+    for (const code of universe) {
+      const cl = win.map(d => d.m[code]?.[0]);
+      if (cl.some(v => !(v > 0))) continue;
+      const c0 = cl[0], c = cl[N];
+      let up = 0, streak = 0, maxStreak = 0, maxDD = 0, peak = c0;
+      for (let i = 1; i <= N; i++) {
+        if (cl[i] > cl[i - 1]) { up++; streak++; if (streak > maxStreak) maxStreak = streak; } else if (cl[i] < cl[i - 1]) streak = 0;
+        if (cl[i] > peak) peak = cl[i]; const dd = (peak - cl[i]) / peak * 100; if (dd > maxDD) maxDD = dd;
+      }
+      const gain = (c / c0 - 1) * 100;
+      if (!(gain > 0)) continue;
+      const type = (up / N >= 0.6 && maxDD <= 8) ? '穩健' : maxDD > 12 ? '劇烈' : '一般';
+      rows.push({ code, name: names[code]?.name || '', market: names[code]?.market || '', c0, price: c, gain: +gain.toFixed(1), up, maxStreak, streak, maxDD: +maxDD.toFixed(1), type, amtM: Math.round(amtOf[code] / 1e6) });
+    }
+    rows.sort((a, b) => b.gain - a.gain);
+    boards['d' + N] = { window: N, from: win[0].date, to: latest.date, eligible: rows.length, items: rows.slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r })) };
+  }
+  // 整合榜
+  const combo = {};
+  for (const N of SWING_HOLD_WINDOWS) for (const it of boards['d' + N].items) {
+    const c = (combo[it.code] ||= { code: it.code, name: it.name, market: it.market, price: it.price, boards: 0, score: 0, ranks: {}, gains: {}, streak: it.streak, amtM: it.amtM });
+    c.boards++; c.score += SWING_HOLD_TOP + 1 - it.rank; c.ranks['d' + N] = it.rank; c.gains['d' + N] = it.gain;
+  }
+  const comboItems = Object.values(combo).sort((a, b) => b.boards - a.boards || b.score - a.score).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
+  const doc = {
+    updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date,
+    universe: universe.length, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
+    method: '漲幅＝N 個交易日前收盤→最新收盤；上漲日／最長連漲／目前連漲（平盤不算漲也不中斷）＋期間最大回檔；穩健＝上漲日≥60% 且回檔≤8%，劇烈＝回檔>12%。整合榜＝四榜聯集，分數 Σ(26−名次)，先比上榜數再比分數。',
+    caveats: ['漲幅是收盤對收盤，不含盤中高低；減資／除權息參考價未還原，近期有此類事件的個股會失真。', '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
+    boards, combo: { items: comboItems },
+  };
+  await db.collection('swingHold').doc(latest.date).set(doc);
+  if (!cur?.dataDate || cur.dataDate <= latest.date) await db.collection('swingHold').doc('latest').set(doc);
+  log(`✓ 波段持有 ${latest.date}：宇宙 ${universe.length} 檔｜5日 ${boards.d5.items[0]?.code || '—'} +${boards.d5.items[0]?.gain ?? 0}%｜整合榜首 ${comboItems[0]?.code || '—'}（上榜 ${comboItems[0]?.boards ?? 0} 榜）`);
+  return true;
+}
+
 async function computeGapLimitUp({ push = false } = {}) {
   const tw = taipei(); const today = process.env.GAPLU_DATE || isoDate(tw);   // GAPLU_DATE=YYYY-MM-DD：用歸檔重算指定事件日（測試/補算）
   const archRaw = await readArchive(process.env.GAPLU_DATE ? 420 : 23 + 25, 'closeJson');   // 補算舊日要讀夠深
@@ -13017,7 +13097,7 @@ async function runDailyJobs(boot = false) {
 }
 // 官方盤後資料公布時間不同，光靠 15:10 一次會抓到前一日：T86 三大法人約 16:00、
 // 期交所/集保/除權息/借券/月營收約 16:30 前、融資融券約 21:30 才出。故加兩個補抓時段。
-const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['gapLimitUp', computeGapLimitUp], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];   // gapLimitUp 排在 chipArchive 之後：15:10 版歸檔上櫃可能未併入（2026-09-07 實案 34→12 檔），16:30 併入後重算
+const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['gapLimitUp', computeGapLimitUp], ['swingHold', computeSwingHold], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];   // gapLimitUp 排在 chipArchive 之後：15:10 版歸檔上櫃可能未併入（2026-09-07 實案 34→12 檔），16:30 併入後重算
 const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) await timedJob(name, fn, tag);
@@ -13553,7 +13633,8 @@ async function dailyJobsLoop() {
         try { await computeStrategyPicks(); } catch (e) { log('✖ otc補跑 strategyPicks:', e.message); }
         try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
         try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
-        try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }   // 收盤定版價出貨警示（盤中另有每分檢查）
+        try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }
+        try { await computeSwingHold(); } catch (e) { log('✖ 波段持有:', e.message); }        // 5/10/20/60 日連續成長榜＋整合榜（收盤定版·存歷史）   // 收盤定版價出貨警示（盤中另有每分檢查）
         // 第2套預選：先對前幾天的答案（scoreSwingCurves 讀的是歸檔，與今日分型無關），
         // 再產今日分型。順序反過來也不會錯，但這樣 log 讀起來是「先結算再開盤」。
         try { await scoreSwingCurves(); } catch (e) { log('✖ 曲線記分板:', e.message); }
@@ -13667,6 +13748,7 @@ if (ONESHOT) {
   const JOBS = {
     gapLimitUp: () => computeGapLimitUp({ push: process.env.GAPLU_PUSH === '1' }),   // GAPLU_DATE=YYYY-MM-DD 指定事件日
     gapLimitUpReview: () => computeGapLimitUpReview(),
+    swingHold: () => computeSwingHold({ force: process.env.SWING_HOLD_FORCE === '1' }),   // 波段持有榜（SWING_HOLD_FORCE=1 強制重算）
     // 新聞內文判別管線。第二個參數是死線（台北分鐘數），單次執行不設。
     // 測試用：NV_LIMIT 可縮小宇宙，避免驗證一次就跑滿 150 檔。
     newsVerdictEvening: () => computeNewsVerdictBatch('evening'),

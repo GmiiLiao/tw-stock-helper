@@ -7,12 +7,13 @@ import Screener from '@/components/Screener/Screener';
 import NlScreen from './NlScreen';
 import StrategyPicks from './StrategyPicks';
 import SignalBoards from './SignalBoards';
+import SwingHoldBoard from './SwingHoldBoard';
 import TopicPicks from './TopicPicks';
 import { MODES } from '@/lib/trading-mode';
 import styles from './StockPicker.module.css';
 import PageHelp from '@/components/Help/PageHelp';
 
-type PickerTab = 'recommend' | 'boards' | 'topic' | 'strategy' | 'screen';
+type PickerTab = 'recommend' | 'boards' | 'swinghold' | 'topic' | 'strategy' | 'screen';
 
 // 📋 訊號榜單（2026-08-03 新增）：整理前選股清單散在市場總覽(6張)、指數新聞(2張)、
 //   本頁、盤中戰情、即時追蹤共五處，使用者得先想「這張在哪一頁」。全部收攏到這裡
@@ -28,6 +29,8 @@ const tabs = (modeLabel: string, modeHorizon: string): { id: PickerTab; label: s
   // 🎯話題選股（2026-08-05 由「指數·新聞」搬來）：hint 同樣釘死在它真正的口徑上。
   //   它**不掛任何模式**——三張清單的窗口各不相同（5日/隔日/避開），
   //   掛上某個模式等於宣稱它有那個模式的實證。
+  // 📈波段持有（2026-09-16）：5/10/20/60 日連續成長排行＋整合榜，收盤定版、存歷史。動能排行，非回測訊號——hint 釘死。
+  { id: 'swinghold', label: '波段持有',   icon: '📈', hint: '5/10/20/60日連續成長 · 收盤定版' },
   { id: 'topic',     label: '話題選股',   icon: '🎯', hint: '新聞話題 × 5日線 · 不分模式' },
   { id: 'strategy',  label: '選股策略',   icon: '📐', hint: '實測驗證 · 隔日沖口徑' },
   { id: 'screen',    label: '進階篩選',   icon: '🔍', hint: '自訂條件 · 比較分析' },
@@ -84,6 +87,7 @@ export default function StockPicker() {
         {/* Keep both mounted-on-demand; each manages its own data fetching. */}
         {tab === 'recommend' && <AIRecommend />}
         {tab === 'boards' && <SignalBoards />}
+        {tab === 'swinghold' && <SwingHoldBoard />}
         {tab === 'topic' && <TopicPicks />}
         {tab === 'strategy' && (
           <>
