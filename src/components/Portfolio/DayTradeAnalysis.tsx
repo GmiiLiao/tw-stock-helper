@@ -82,6 +82,8 @@ export default function DayTradeAnalysis() {
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: 8, fontSize: 'calc(12px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800 }}
+                itemStyle={{ color: '#e2e8f7' }}                       // 預設會沿用長條色，深底上是黑字（2026-09-16 使用者回報）
+                cursor={{ fill: 'rgba(255,255,255,0.06)' }}             // 預設 hover 底色是淺灰塊，深底上刺眼
                 formatter={(v: any, _n: any, p: any) => [`${money(Number(v))} 元（${p?.payload?.count ?? 0} 趟）`, '當沖淨損益']}
               />
               <Bar dataKey="net" radius={[4, 4, 0, 0]}>

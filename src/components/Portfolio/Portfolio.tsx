@@ -882,6 +882,8 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
                   borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))',
                 }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
+                itemStyle={{ color: '#e2e8f7' }}
+                cursor={{ fill: 'rgba(255,255,255,0.06)' }}
                 formatter={(v: any, name: any) => [
                   `${Number(v) >= 0 ? '+' : ''}${Number(v).toLocaleString()} 元`,
                   name === 'pnl' ? '已實現損益' : '股利收入'
