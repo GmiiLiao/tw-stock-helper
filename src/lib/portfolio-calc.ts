@@ -170,7 +170,10 @@ export function buildLedger(records: TradeRecord[]): Ledger {
       lots: t.quantity, sellPrice: t.price,
       avgCost: +avgCost.toFixed(4), proceeds: Math.round(proceedsMatched),
       pnl, roi, cost: Math.round(matchedCost), storedPnL,
-      mismatch: storedPnL != null && Math.abs(pnl - storedPnL) > 1,
+      // 門檻 10 元（2026-09-16 使用者實案：南亞兩筆各差 2 元被標紅）：存檔值是記錄當下逐項捨入
+      // （手續費/稅無條件捨去再加總），重算是 totalAmount − 加權成本後再四捨五入，兩條路徑各捨一次
+      // 就差 1~2 元，張數多也不會放大。真正的成本脫鉤（手動持倉價與紀錄不符）是數百到數萬元。
+      mismatch: storedPnL != null && Math.abs(pnl - storedPnL) > 10,
       matchedLots, oversoldLots, unit: t.unit,
       holdingDays: led.lastBuyDate ? dayDiff(led.lastBuyDate, t.date) : null,
       dayTrade: t.dayTrade,
