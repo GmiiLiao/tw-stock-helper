@@ -10,6 +10,7 @@ import PortfolioAI from './PortfolioAI';
 import PortfolioAlerts from './PortfolioAlerts';
 import PortfolioSummary from './PortfolioSummary';
 import PortfolioTradeReview from './PortfolioTradeReview';
+import DayTradeAnalysis from './DayTradeAnalysis';
 import PortfolioRisk from './PortfolioRisk';
 import PortfolioAlertRules from './PortfolioAlertRules';
 import ThesisCards from './ThesisCards';
@@ -728,6 +729,9 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           </div>
         ))}
       </div>
+
+      {/* ⚡ 當沖損益分析：獨立口徑（同日同碼配對·當日買均為成本），詳 src/lib/daytrade-calc.ts */}
+      <CardBoundary name="當沖損益分析"><DayTradeAnalysis /></CardBoundary>
 
       {/* Profit Gauge */}
       {ledger.closedCount > 0 && (
