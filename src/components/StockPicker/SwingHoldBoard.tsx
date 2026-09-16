@@ -68,7 +68,7 @@ export default function SwingHoldBoard() {
     <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit' }}>
       <button onClick={() => setOpenCode(c => (c === it.code ? null : it.code))} title="展開／收合即時走勢" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, fontFamily: mono }}>{openCode === it.code ? '▾' : '▸'} {it.code}</button>
       <span style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)} title="開個股頁">{it.name}</span>
-      <DayTradeMark status={statusOf(dt, it.code)} />
+      {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
       <button onClick={() => toggleCandidate(it.code)} title="加入／移除候選便條" style={{ marginLeft: 6, background: 'none', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '0 5px', cursor: 'pointer', color: MUTED, fontSize: 'calc(11px * var(--fz))' }}>＋候選</button>
     </td>
   );
