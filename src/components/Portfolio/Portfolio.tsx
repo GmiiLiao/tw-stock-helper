@@ -5,7 +5,7 @@ import { storageGet, storageSet } from '@/lib/safe-storage';
 import { useAppStore } from '@/lib/store';
 import type { TradeRecord } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import PortfolioAI from './PortfolioAI';
 import PortfolioAlerts from './PortfolioAlerts';
 import PortfolioSummary from './PortfolioSummary';
@@ -1457,8 +1457,8 @@ export default function Portfolio() {
                       data={pieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={70}
-                      outerRadius={110}
+                      innerRadius="52%"
+                      outerRadius="82%"
                       paddingAngle={2}
                       dataKey="value"
                     >
@@ -1493,11 +1493,18 @@ export default function Portfolio() {
                       contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                     />
-                    <Legend
-                      formatter={(value) => <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{value}</span>}
-                    />
                   </PieChart>
                 </ResponsiveContainer>
+                {/* 圖例移出圖表區（2026-09-16 使用者回報圓環被圖例蓋住）：recharts 的 <Legend> 佔用同一個
+                    260px 容器，持股名稱一長就換到 3 行，圓環被往上擠又被圖例壓住。改成自畫、放在容器下方，
+                    半徑改百分比讓圓環永遠落在容器內。 */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '4px 12px', marginTop: 6 }}>
+                  {pieData.map((d, i) => (
+                    <span key={d.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[i % COLORS.length], flexShrink: 0 }} />{d.name}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 
