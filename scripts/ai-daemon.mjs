@@ -12422,7 +12422,10 @@ async function computeShortCandidates() {
   const archRaw = await readArchive(21, 'closeJson');
   if (archRaw.length < 21) { log('  ⚠ 做空候選：chipArchive 不足 21 日'); return; }
   // readArchive 回 raw doc（closeJson 是字串）——先 parse 成 {date, map}
-  const arch = archRaw.map(d => ({ date: d.date, map: JSON.parse(d.closeJson) }));
+  // 價格結構事件還原（2026-09-17 第二批接入）：減資股事件前價格偏低會被誤判「弱勢」、面額變更股反之；
+  //   只用收盤序列判弱勢，張數不動。沒有係數的事件不動。
+  const factors = await loadPriceFactors().catch(() => ({}));
+  const arch = applyPriceFactors(archRaw.map(d => ({ date: d.date, m: JSON.parse(d.closeJson) })), factors).map(d => ({ date: d.date, map: d.m }));
   const asc = arch.slice().reverse();                          // 舊→新
   const latest = arch[0];
   const close = latest.map;
@@ -12590,6 +12593,7 @@ async function computeShortCandidates() {
     updatedAt: Date.now(), dataDate: latest.date || null, mode,
     health: health ?? null,
     items: items.slice(0, 20), totalPassed: items.length,
+    priceEventsApplied: Object.keys(factors).length,            // 價格結構事件還原（2026-09-17）
     trainJson: JSON.stringify(trainRows),                       // 全部通過股的特徵快照（訓練用·含未入榜）
     skippedFilters: skipped,
     note: '做空風控候選。⚠ 歷史回測(2026-09-03·EXPERIMENTS⑦·399天)：機械因子版'
