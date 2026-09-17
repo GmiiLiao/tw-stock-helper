@@ -107,9 +107,27 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   const nearEvent = (code, dateIso) => { const arr = evByCode[code]; if (!arr) return false; const t0 = Date.parse(dateIso); return arr.some(ev => Math.abs(t0 - ev) <= EV_WIN); };
   let excludedEvents = 0;
 
+  // ── A 段（docs/SQUEEZE-MODEL-VARIABLES §4-4）：市況 regime＝當日漲家數比的三分位（多頭／中性／空頭）──
+  //   用 t 日自己的漲家數比（t 日收盤後已知，PIT 合法）。每筆樣本帶 rg，評估時分層報告，主模型須多頭／空頭兩層都不為負。
+  const regimeByDate = {};
+  const ratios = [];
+  for (let t = 1; t < T; t++) {
+    let up = 0, n = 0;
+    for (const code in days[t].close) { const c = days[t].close[code]?.[C0], p = days[t - 1].close[code]?.[C0]; if (!(c > 0) || !(p > 0)) continue; n++; if (c > p) up++; }
+    const r = n ? up / n : null;
+    regimeByDate[days[t].date] = r == null ? null : { upRatio: +r.toFixed(3), rg: 'neutral' };
+    if (r != null) ratios.push(r);
+  }
+  // ⚠ 固定 55%／45% 在台股會把 56% 的日子判成空頭（漲家數比中位數約 0.42，小型股常態偏跌）。
+  //   改用視窗自身的三分位：上三分之一多頭、下三分之一空頭，門檻寫進報表（regimeCuts）。
+  const rgLo = pct(ratios, 1 / 3), rgHi = pct(ratios, 2 / 3);
+  for (const d in regimeByDate) { const x = regimeByDate[d]; if (!x) continue; x.rg = x.upRatio >= rgHi ? 'bull' : x.upRatio <= rgLo ? 'bear' : 'neutral'; }
+  const regimeCuts = { lo: +rgLo.toFixed(3), hi: +rgHi.toFixed(3) };
+
   for (let t = 25; t < T - 1; t++) {
     const g = gRows[days[t].date] || {};
     const nv = newsByDate[days[t].date] || {};
+    const rg = regimeByDate[days[t].date]?.rg || 'neutral';
     for (const code in days[t].close) {
       if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
       if (nearEvent(code, days[t].date)) { excludedEvents++; continue; }
@@ -119,11 +137,13 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
       if (!y) continue;
       const nvi = nv[code];
     if (nvi) { f.newsLabel = nvi.label; f.newsStrength = nvi.strength || null; f.newsPriced = nvi.priced || null; }
-    samples.push({ t, date: days[t].date, code, f, g, y, seg: t < T / 3 ? 0 : (t < 2 * T / 3 ? 1 : 2) });
+    samples.push({ t, date: days[t].date, code, f, g, y, rg, seg: t < T / 3 ? 0 : (t < 2 * T / 3 ? 1 : 2) });
     }
   }
-  return { samples, days, T, twDates, newsDays, excludedEvents, eventCodes: Object.keys(evByCode).length };
+  return { samples, days, T, twDates, newsDays, excludedEvents, eventCodes: Object.keys(evByCode).length, regimeByDate, regimeCuts };
 }
+const C0 = 0;   // closeJson 列格式 [收, 量張, 開, 高, 低]
+const COST_PCT = 0.4425;   // 手續費（折讓前）＋證交稅，不含價差；A 段絕對報酬閘門用
 
 // ── 3. 規則 v2（2026-09-17 重規畫·docs/SQUEEZE-MODEL-REDESIGN-2026-09-17.md）──────────────
 // 使用者決定：交易定義做成**兩套可切換**（隔日沖／當沖）、切點首版釘 2026-06-10、四段全做。
@@ -171,22 +191,33 @@ function blockBootstrap(daily, iters = BOOT_ITERS, block = BOOT_BLOCK, seed = 7)
 
 // 一組樣本的完整統計（逐筆＋日層級）。base＝dayBaseline；segOf＝日期→段（0/1/2），null 表示不分段
 function evalGroup(g, mode, base, segOf = null) {
-  const rows = g.map(x => ({ d: x.date, r: mode.ret(x.y), seg: segOf ? segOf(x.date) : null })).filter(x => x.r != null);
+  const rows = g.map(x => ({ d: x.date, r: mode.ret(x.y), rg: x.rg || 'neutral', seg: segOf ? segOf(x.date) : null })).filter(x => x.r != null);
   const n = rows.length;
-  if (n < MIN_N) return { n, days: 0, mean: null, win: null, excess: null, ci: null, segs: null, pass: false, state: 'ns', stateLabel: '樣本不足', why: '樣本不足' };
-  const byDay = {}; for (const x of rows) (byDay[x.d] ||= []).push(x.r);
+  if (n < MIN_N) return { n, days: 0, mean: null, win: null, excess: null, ci: null, net: null, segs: null, byRegime: null, pass: false, state: 'ns', stateLabel: '樣本不足', why: '樣本不足' };
+  const byDay = {}; const rgOf = {}; for (const x of rows) { (byDay[x.d] ||= []).push(x.r); rgOf[x.d] = x.rg; }
   const dates = Object.keys(byDay).sort();
   const daily = dates.map(d => mean(byDay[d]) - (base[d] ?? 0));   // 日層級超額（對純動能）
+  const dailyNet = dates.map(d => mean(byDay[d]) - COST_PCT);      // A 段：日層級淨報酬（扣費稅）
   const boot = blockBootstrap(daily);
+  const bootNet = blockBootstrap(dailyNet, BOOT_ITERS, BOOT_BLOCK, 11);
   const segs = segOf ? [0, 1, 2].map(k => { const a = dates.filter(d => segOf(d) === k).map(d => mean(byDay[d]) - (base[d] ?? 0)); return a.length >= 8 ? +mean(a).toFixed(3) : null; }) : null;
+  // A 段：市況分層（多頭／空頭／中性各自的日層級超額與淨報酬；<8 日的層標 null，不做結論）
+  const byRegime = {};
+  for (const k of ['bull', 'neutral', 'bear']) {
+    const ds = dates.filter(d => rgOf[d] === k);
+    byRegime[k] = ds.length >= 8 ? { days: ds.length, excess: +mean(ds.map(d => mean(byDay[d]) - (base[d] ?? 0))).toFixed(3), net: +mean(ds.map(d => mean(byDay[d]) - COST_PCT)).toFixed(3) } : { days: ds.length, excess: null, net: null };
+  }
   const win = rows.filter(x => x.r > 0).length / n * 100;
   const state = boot.lo == null ? 'ns' : boot.lo > 0 ? 'valid' : boot.hi < 0 ? 'invalid' : 'ns';
   const segOk = !segs || segs.every(v => v != null && v > 0);
-  const pass = dates.length >= MIN_DAYS && state === 'valid' && segOk;
-  const why = dates.length < MIN_DAYS ? `交易日不足（${dates.length}<${MIN_DAYS}）` : !segOk ? '三段未皆贏基準' : state !== 'valid' ? (state === 'invalid' ? '顯著輸基準' : 'CI 跨 0（無顯著差異）') : 'ok';
+  const netOk = bootNet.lo != null && bootNet.lo > 0;
+  const regimeOk = ['bull', 'bear'].every(k => byRegime[k].excess == null || byRegime[k].excess >= 0);   // 兩層都不為負（層太小不計）
+  const pass = dates.length >= MIN_DAYS && state === 'valid' && segOk && netOk && regimeOk;
+  const why = dates.length < MIN_DAYS ? `交易日不足（${dates.length}<${MIN_DAYS}）` : !segOk ? '三段未皆贏基準' : state !== 'valid' ? (state === 'invalid' ? '顯著輸基準' : 'CI 跨 0（無顯著差異）') : !netOk ? `淨報酬未過（扣費稅後 CI 下界 ${bootNet.lo ?? '—'}）` : !regimeOk ? `市況分層有一層為負（多頭 ${byRegime.bull.excess}／空頭 ${byRegime.bear.excess}）` : 'ok';
   return {
     n, days: dates.length, mean: +mean(rows.map(x => x.r)).toFixed(3), win: +win.toFixed(1),
-    excess: boot.mean, ci: [boot.lo, boot.hi], segs, state, stateLabel: STATE_LABEL[state], pass, why,
+    excess: boot.mean, ci: [boot.lo, boot.hi], net: { mean: bootNet.mean, ci: [bootNet.lo, bootNet.hi] }, byRegime,
+    segs, state, stateLabel: STATE_LABEL[state], pass, why,
     limitUpRate: +(g.filter(x => x.y.limitUp === 1).length / g.length * 100).toFixed(1),
     squeezeRate: +(g.filter(x => x.y.squeeze === 1).length / g.length * 100).toFixed(1),
   };
@@ -453,7 +484,9 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const t0 = Date.now();
   const say = (...a) => { if (!quiet) log(...a); };
   say('▶ 軋空判讀模型訓練開始（規則 v2·三套交易模式·固定切點）');
-  const { samples, twDates, newsDays, excludedEvents, eventCodes } = await buildSamples(db, { days });
+  const { samples, twDates, newsDays, excludedEvents, eventCodes, regimeByDate, regimeCuts } = await buildSamples(db, { days });
+  const rgCount = { bull: 0, neutral: 0, bear: 0 }; for (const d in regimeByDate) if (regimeByDate[d]) rgCount[regimeByDate[d].rg]++;
+  say(`  · 市況分層（漲家數比三分位：≥${regimeCuts.hi} 多頭／≤${regimeCuts.lo} 空頭）：多頭 ${rgCount.bull} 日、中性 ${rgCount.neutral} 日、空頭 ${rgCount.bear} 日`);
   const hash = datasetHash(samples, twDates);
   say(`  · 樣本 ${samples.length.toLocaleString()} 筆｜期間 ${twDates[0]} ~ ${twDates[twDates.length - 1]}｜資料集 ${hash}｜切點 ${OOS_FROM}｜事件股排除 ${excludedEvents.toLocaleString()} 筆（${eventCodes} 檔·±30 日）`);
   say(`  · 新聞判別覆蓋 ${newsDays} 個交易日${newsDays >= NEWS_MIN_DAYS ? '（已納入因子網格）' : `（未達 ${NEWS_MIN_DAYS} 日門檻，本次不納入）`}`);
@@ -482,6 +515,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const model = {
     runId, modelVersion, updatedAt: Date.now(), trainMs: Date.now() - t0, rules: 'v2', datasetHash: hash,
     eventExclusion: { excluded: excludedEvents, codes: eventCodes, windowDays: 30, source: 'priceEvents/latest' },
+    regime: { rule: '漲家數比三分位（視窗自身）：上三分之一多頭／下三分之一空頭（t 日自身）', cuts: regimeCuts, days: rgCount, costPct: COST_PCT, gates: '超額 CI 下界>0 ＋ 淨報酬(扣費稅) CI 下界>0 ＋ 多頭/空頭兩層皆不為負' },
     period: { from: twDates[0], to: twDates[twDates.length - 1], days: twDates.length, oosFrom: OOS_FROM },
     tradeMode: 'nextday', modes: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, strip(m)])),
     // 相容：頂層＝預設模式（隔日沖），既有讀者（daemon runId/main.name/squeezeProb.name、管理頁）不需改

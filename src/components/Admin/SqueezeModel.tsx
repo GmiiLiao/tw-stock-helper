@@ -10,7 +10,8 @@ import { auth } from '@/lib/firebase';
 
 interface Stat { n?: number; mean?: number | null; win?: number | null; buyRate?: number | null; nBuyable?: number; meanBuyable?: number | null; winBuyable?: number | null; limitUpRate?: number; squeezeRate?: number }
 // v2（2026-09-17 規則重規畫）：日層級超額 excess、95% CI、交易日數 days、三態 state；v1 文件沒有這些欄位，畫面兩者都要能讀
-interface StatV2 extends Stat { excess?: number | null; ci?: [number | null, number | null] | null; days?: number; state?: 'valid' | 'ns' | 'invalid'; stateLabel?: string; segs?: (number | null)[] | null }
+interface RegimeCell { days: number; excess: number | null; net: number | null }
+interface StatV2 extends Stat { excess?: number | null; ci?: [number | null, number | null] | null; days?: number; state?: 'valid' | 'ns' | 'invalid'; stateLabel?: string; segs?: (number | null)[] | null; net?: { mean: number | null; ci: [number | null, number | null] } | null; byRegime?: { bull: RegimeCell; neutral: RegimeCell; bear: RegimeCell } | null }
 interface Branch { group: string; rank?: number; name?: string; pass?: boolean; why?: string; state?: string; stateLabel?: string; train?: { mean?: number; win?: number; n: number; segs?: (number | null)[] | null; excess?: number | null; ci?: [number | null, number | null] | null; days?: number }; oot?: StatV2 | null }
 interface ModeModel {
   tradeMode?: string; tradeLabel?: string; label: string; samples: number; trainN: number; ootN: number; trainDays?: number; ootDays?: number; excludedEntry?: number;
@@ -147,6 +148,12 @@ export default function SqueezeModel() {
                 <tr><td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)' }}>純動能基準（樣本外）</td><td style={td}>0</td><td style={td}>—</td><td style={{ ...td, color: 'var(--text-muted)' }}>{pn(m.baseline.oot.momentum.mean)}</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.win}%</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.n}</td><td style={td}>—</td></tr>
               </tbody>
             </table>
+            {m.main.oot.net && (
+              <div style={{ marginTop: 4 }}>
+                A 段閘門：樣本外淨報酬（扣費稅 0.4425%）<b style={{ color: (m.main.oot.net.ci?.[0] ?? -1) > 0 ? '#22c55e' : '#ef4444' }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
+                {m.main.oot.byRegime && <>　市況分層超額：多頭 <b>{pp(m.main.oot.byRegime.bull.excess)}</b>（{m.main.oot.byRegime.bull.days} 日）／空頭 <b>{pp(m.main.oot.byRegime.bear.excess)}</b>（{m.main.oot.byRegime.bear.days} 日）</>}
+              </div>
+            )}
             <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
               超額＝每日「因子組平均 − 純動能母體平均」再對日序列取平均；CI 為按日區塊自助法（block 5、1,000 次）。進場可買已先剔除。
               {m.permutation && <>　置換檢定 p=<b style={{ color: m.permutation.p <= 0.05 ? '#22c55e' : '#ef4444' }}>{m.permutation.p}</b>（{m.permutation.trials} 次·同稀疏度）</>}
