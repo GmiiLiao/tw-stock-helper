@@ -382,6 +382,30 @@ function squeezeCalibration(oot, grid, mode) {
   return { rows, calibrated: total >= 200, note: total >= 200 ? '樣本外·依命中籌碼因子數分桶' : `樣本外僅 ${total} 筆，未校準` };
 }
 
+// ── B 段（docs/SQUEEZE-MODEL-VARIABLES §5-B，2026-09-18）：每日橫截面百分位因子 ──
+//   絕對門檻（法人淨買/均量≥5%、量比≥2）在不同市況命中比例天差地遠，沒有 regime 不變性。
+//   改成「當天純動能母體內的百分位」：同一天所有可買動能股裡排前 20%／後 20%。只用當天資料，無前視。
+const CS_KEYS = { volX: '量', instVsVol: '法', ret5: '價', pos: '價', chg: '價', ratio: '券', shVsVol: '券' };
+function attachCrossSection(pool, isMom) {
+  const byDay = {}; for (const x of pool) if (isMom(x)) (byDay[x.date] ||= []).push(x);
+  for (const d in byDay) {
+    const arr = byDay[d];
+    for (const k in CS_KEYS) {
+      const vals = arr.map(x => x.f[k]).filter(v => v != null && Number.isFinite(v)).sort((a, b) => a - b);
+      if (vals.length < 10) { for (const x of arr) (x.cs ||= {})[k] = null; continue; }
+      for (const x of arr) { const v = x.f[k]; (x.cs ||= {})[k] = (v == null || !Number.isFinite(v)) ? null : vals.findIndex(u => u >= v) / (vals.length - 1); }
+    }
+  }
+}
+function crossSectionGrid() {
+  const F = [];
+  for (const k in CS_KEYS) {
+    F.push({ name: `${k} 當日前20%`, group: CS_KEYS[k], sel: x => x.cs?.[k] != null && x.cs[k] >= 0.8, dir: '+', cs: true });
+    F.push({ name: `${k} 當日後20%`, group: CS_KEYS[k], sel: x => x.cs?.[k] != null && x.cs[k] <= 0.2, dir: '-', cs: true });
+  }
+  return F;
+}
+
 // ── 5. 單一交易模式的完整訓練 ────────────────────────────────────────
 function trainMode(mode, samples, twDates, baseGrid, say) {
   // 母體：該模式進場可買者；切點固定
@@ -390,7 +414,8 @@ function trainMode(mode, samples, twDates, baseGrid, say) {
   const q = quantiles(train.filter(x => x.f.chg >= 5));
   const newsKey = mode.key === 'daytrade' ? 'newsNext' : 'newsIntra';
   const newsDaysMode = new Set(pool.filter(x => x.f[`${newsKey}Label`]).map(x => x.date)).size;
-  const grid = [...baseGrid, ...factorGrid(newsDaysMode, { ...q, newsKey }).filter(f => /P[28]0/.test(f.name) || f.group === '聞')];   // 固定門檻＋分位數門檻＋（達門檻時）新聞
+  attachCrossSection(pool, x => x.f.chg >= 5);   // B 段：每日橫截面百分位（只用當天）
+  const grid = [...baseGrid, ...factorGrid(newsDaysMode, { ...q, newsKey }).filter(f => /P[28]0/.test(f.name) || f.group === '聞'), ...crossSectionGrid()];   // 固定門檻＋分位數門檻＋橫截面百分位＋（達門檻時）新聞
   const trainDates = [...new Set(train.map(x => x.date))].sort();
   const segCut = [trainDates[Math.floor(trainDates.length / 3)], trainDates[Math.floor(trainDates.length * 2 / 3)]];
   const segOf = d => (d < segCut[0] ? 0 : d < segCut[1] ? 1 : 2);   // 三段在訓練段內切（§2.4）
