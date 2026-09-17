@@ -107,7 +107,7 @@ export default function ShortPanel() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {data.items.map((it, i) => (
-            <div key={it.code} style={{
+            <div key={it.code} data-anchor={it.code} style={{
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               padding: '8px 10px', borderRadius: 8, background: 'var(--bg-secondary, rgba(30,41,59,0.5))',
               borderLeft: `3px solid ${i < 3 ? '#f87171' : 'rgba(148,163,184,0.35)'}`,

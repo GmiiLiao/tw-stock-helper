@@ -29,7 +29,7 @@ function TopicRow({ it }: { it: TopicItem }) {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const navigateTo = useAppStore(s => s.navigateTo);
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
+    <div data-anchor={it.code} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0', borderTop: '1px solid rgba(148,163,184,0.08)', flexWrap: 'wrap' }}>
       <button onClick={() => navigateTo('stock', it.code)}
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', padding: 0 }}>
         {it.code} {it.name}

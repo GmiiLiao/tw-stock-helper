@@ -514,6 +514,7 @@ function StockRow({
 
   return (
     <div
+      data-anchor={stock.code}
       className={`${styles.stockRow} ${showDragHandle ? styles.hasDragHandle : ''} ${isLimitUp ? styles.limitUp : ''} ${isLimitDown ? styles.limitDown : ''}`}
       onClick={onToggleExpand}
       style={{ cursor: 'pointer', borderColor: isExpanded ? 'rgba(99, 102, 241, 0.4)' : undefined, background: isExpanded ? 'rgba(99, 102, 241, 0.03)' : undefined }}

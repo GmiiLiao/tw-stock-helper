@@ -134,7 +134,7 @@ export default function NlScreen() {
           {(data.results || []).length === 0 && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>沒有符合條件的股票，試試放寬條件。</div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px,1fr))', gap: 8 }}>
             {(data.results || []).map(r => (
-              <div key={r.code} onClick={() => navigateTo('stock', r.code)} style={{ cursor: 'pointer', padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div key={r.code} data-anchor={r.code} onClick={() => navigateTo('stock', r.code)} style={{ cursor: 'pointer', padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-primary)' }}>
                     <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span> {(() => { const st = statusOf(dt, r.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={r.code} variant="icon" />

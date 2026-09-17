@@ -128,7 +128,7 @@ export default function SwingCurveBoard() {
                 <>
                   <div style={{ marginTop: 5, display: 'grid', gap: 1 }}>
                     {picks.picks.slice(0, open === c.id ? 20 : 4).map(p => (
-                      <div key={p.code} onClick={() => navigateTo('stock', p.code)}
+                      <div key={p.code} data-anchor={p.code} onClick={() => navigateTo('stock', p.code)}
                         style={{ display: 'flex', justifyContent: 'space-between', columnGap: 6, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', minWidth: 0 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <b style={{ color: '#7dd3fc' }}>{p.code}</b> {p.name} {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={p.code} variant="icon" />

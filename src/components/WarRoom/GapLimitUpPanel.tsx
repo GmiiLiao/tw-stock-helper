@@ -82,7 +82,7 @@ export default function GapLimitUpPanel() {
             const locked = showLive ? isLimitUp(q.price, q.change) : false;
             const broke = showLive ? q.low > 0 && q.low < it.eventLow : false;
             return (
-              <div key={it.code} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-secondary, rgba(30,41,59,0.5))', borderLeft: `3px solid ${it.star ? '#fbbf24' : 'rgba(148,163,184,0.35)'}` }}>
+              <div key={it.code} data-anchor={it.code} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-secondary, rgba(30,41,59,0.5))', borderLeft: `3px solid ${it.star ? '#fbbf24' : 'rgba(148,163,184,0.35)'}` }}>
                 <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(14px * var(--fz))', padding: 0, fontFamily: 'inherit', textDecoration: 'underline dotted' }}>
                   {it.star ? '★ ' : ''}{it.code} {it.name} {openCode === it.code ? '▴' : '▾'}

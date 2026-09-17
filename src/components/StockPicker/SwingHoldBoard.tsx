@@ -7,6 +7,7 @@ import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 
 // ── 📈 波段持有：近 5／10／20／60 日連續成長榜＋整合榜（2026-09-16）──
 // 資料：daemon 每交易日 16:45 定版寫 swingHold/latest；歷史 swingHold/{dataDate} 可用日期選單回看。
@@ -60,7 +61,8 @@ function LiveChip({ chg }: { chg?: number }) {
 export default function SwingHoldBoard() {
   const dt = useDayTradeCodes();
   const navigateTo = useAppStore(s => s.navigateTo);
-  const [tab, setTab] = useState<Tab>('combo');
+  const [tab, setTabState] = useState<Tab>(() => { const v = storageGet('swingHoldTab'); return (['combo', 'd5', 'd10', 'd20', 'd60'] as string[]).includes(v || '') ? (v as Tab) : 'combo'; });
+  const setTab = (t: Tab) => { setTabState(t); storageSet('swingHoldTab', t); };   // 子分頁記本機：返回時不重置，錨點列才在畫面上
   const [data, setData] = useState<Data | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [pick, setPick] = useState<string>('');           // '' = latest
@@ -146,7 +148,7 @@ export default function SwingHoldBoard() {
             </tr></thead>
             <tbody>
               {(data.combo?.items ?? []).flatMap(it => [
-                <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
+                <tr key={it.code} data-anchor={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
                   <td style={cell}>{it.rank}</td>{nameCell(it)}<td style={cell}>{it.price}</td><td style={cell}>{liveCell(it.code, it.price)}</td>
                   <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={it.seqWin} /></td>
                   <td style={{ ...cell, fontWeight: 700, color: it.boards >= 3 ? UP : 'var(--text-primary)' }}>{it.boards}/4</td><td style={cell}>{it.score}</td>
@@ -168,7 +170,7 @@ export default function SwingHoldBoard() {
               </tr></thead>
               <tbody>
                 {board.items.flatMap(it => [
-                  <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
+                  <tr key={it.code} data-anchor={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
                     <td style={cell}>{it.rank}</td>{nameCell(it)}<td style={cell}>{it.c0} → {it.price}</td>
                     <td style={{ ...cell, fontWeight: 700, color: UP }}>+{it.gain}%</td><td style={cell}>{liveCell(it.code, it.price)}</td>
                     <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={board.window} /></td>

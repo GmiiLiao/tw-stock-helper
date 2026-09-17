@@ -57,13 +57,24 @@ export default function App() {
   // ⇒ 等到「文件高度已經夠」再捲；用 rAF 輪詢最多 ~1 秒，避免資料慢到而放棄。
   //   （清單頁的資料是非同步載入的，高度不是一次到位。）
   const pendingScrollY = useAppStore(s => s.pendingScrollY);
+  const pendingAnchor = useAppStore(s => s.pendingAnchor);
   const clearPendingScroll = useAppStore(s => s.clearPendingScroll);
   useEffect(() => {
     if (pendingScrollY == null) return;
     let raf = 0; const t0 = Date.now();
+    // 錨點優先（2026-09-17）：從清單點進個股再返回，捲到「那一列」比捲到「那個高度」可靠——
+    // 清單資料是非同步的、子分頁也可能重掛載，同一個 scrollY 未必還對到同一列。
+    // 錨點元素最多等 4 秒（榜單 API 回來要 1～2 秒）；等不到才退回 scrollY。
+    const ANCHOR_WAIT = 4000, HEIGHT_WAIT = 3000;
     const tryScroll = () => {
+      const elapsed = Date.now() - t0;
+      if (pendingAnchor) {
+        const el = document.querySelector<HTMLElement>(`[data-anchor="${pendingAnchor}"]`);
+        if (el) { el.scrollIntoView({ block: 'center', behavior: 'auto' }); clearPendingScroll(); return; }
+        if (elapsed < ANCHOR_WAIT) { raf = requestAnimationFrame(tryScroll); return; }
+      }
       const reachable = document.documentElement.scrollHeight - window.innerHeight;
-      if (reachable >= pendingScrollY - 2 || Date.now() - t0 > 1000) {
+      if (reachable >= pendingScrollY - 2 || elapsed > HEIGHT_WAIT) {
         window.scrollTo({ top: pendingScrollY, behavior: 'auto' });
         clearPendingScroll();
         return;
@@ -72,7 +83,7 @@ export default function App() {
     };
     raf = requestAnimationFrame(tryScroll);
     return () => cancelAnimationFrame(raf);
-  }, [pendingScrollY, clearPendingScroll]);
+  }, [pendingScrollY, pendingAnchor, clearPendingScroll]);
 
   useEffect(() => {
     let alive = true;

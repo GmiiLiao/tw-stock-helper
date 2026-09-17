@@ -141,10 +141,13 @@ interface AppState {
   // ⚠ 歷史要連**捲動位置**一起記（2026-08-11 使用者要求「返回能回到上一個狀態位置」）：
   //   先前只記 {page, stock}，所以從清單捲到第 30 檔點進個股，返回時被丟回最頂端，
   //   使用者得重新捲一次才找得到剛剛看的那一檔——清單越長越難用。
-  pageHistory: Array<{ page: AppState['currentPage']; stock?: string | null; scrollY?: number }>;  // navigation stack
+  pageHistory: Array<{ page: AppState['currentPage']; stock?: string | null; scrollY?: number; anchor?: string | null }>;  // navigation stack；anchor＝離開時點進的個股（返回捲到該列）
   // 返回時要還原到的捲動位置；由 page.tsx 的 effect 消費後清成 null。
   // 不能在 store 裡直接 scrollTo——那時候新頁面還沒渲染完，捲了也會被內容撐掉。
   pendingScrollY: number | null;
+  // 返回時優先捲到的錨點列（來源頁上 data-anchor=代號 的元素）；找不到才退回 pendingScrollY。
+  // 2026-09-17 使用者實案：scrollY 有還原，但清單頁的子分頁重新掛載後回到預設，原本那列根本不在畫面上。
+  pendingAnchor: string | null;
   selectedStock: string | null;
   activeTab: string;
   // 頁面內分頁選取：存在 store(非持久化)，讓「進個股→返回」時回到原本的子分頁而非重置
@@ -294,6 +297,7 @@ export const useAppStore = create<AppState>()(
       currentPage: 'dashboard',
       pageHistory: [],
       pendingScrollY: null,
+      pendingAnchor: null,
       selectedStock: null,
       activeTab: 'overview',
       pickerTab: 'recommend',
@@ -353,11 +357,13 @@ export const useAppStore = create<AppState>()(
             pageHistory: [
               ...state.pageHistory.slice(-19),  // keep max 20 history items
               // 記下離開當下的捲動位置，返回時才回得到同一個地方
-              { page: state.currentPage, stock: state.selectedStock, scrollY: typeof window !== 'undefined' ? window.scrollY : 0 },
+              { page: state.currentPage, stock: state.selectedStock, scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
+                anchor: page === 'stock' ? (nextStock ?? null) : null },   // 從清單點進個股 ⇒ 返回時捲到那一列
             ],
             currentPage: page,
             selectedStock: nextStock,
             pendingScrollY: null,   // 前進一律回到頂端（新頁面從頭看）
+            pendingAnchor: null,
           };
         });
       },
@@ -372,10 +378,11 @@ export const useAppStore = create<AppState>()(
           // 否則「個股分析」項目會殘留、且來源頁狀態混亂
           selectedStock: prev.stock ?? null,
           pendingScrollY: prev.scrollY ?? 0,
+          pendingAnchor: prev.anchor ?? null,
         };
       }),
 
-      clearPendingScroll: () => set({ pendingScrollY: null }),
+      clearPendingScroll: () => set({ pendingScrollY: null, pendingAnchor: null }),
 
       setSelectedStock: (code) => set({ selectedStock: code }),
       setActiveTab: (tab) => set({ activeTab: tab }),

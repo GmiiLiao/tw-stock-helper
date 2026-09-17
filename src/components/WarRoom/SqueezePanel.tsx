@@ -242,7 +242,7 @@ export default function SqueezePanel() {
               const v = it.verdict;
               const c = v?.label === '利多' ? '#22c55e' : v?.label === '利空' ? '#ef4444' : v?.label === '中性' ? '#94a3b8' : '#64748b';
               return (
-                <div key={it.code} style={{
+                <div key={it.code} data-anchor={it.code} style={{
                   padding: '7px 11px', borderRadius: 8,
                   background: it.primary ? 'rgba(34,197,94,0.08)' : 'var(--bg-elevated)',
                   border: `1px solid ${it.primary ? 'rgba(34,197,94,0.45)' : 'var(--border-primary)'}`,

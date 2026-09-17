@@ -144,7 +144,7 @@ export default function StrategyPicks() {
             return q.length === 0 ? null : (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                 {q.slice(0, 14).map(p => (
-                  <span key={p.code} onClick={() => navigateTo('stock', p.code)}
+                  <span key={p.code} data-anchor={p.code} onClick={() => navigateTo('stock', p.code)}
                     style={{ cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '4px 10px', borderRadius: 10, background: (consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.18)' : 'rgba(240,62,62,0.12)', border: `1px solid ${(consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.55)' : 'rgba(240,62,62,0.35)'}` }}>
                     {(consensus[p.code]?.count ?? 1) >= 2 ? '⭐' : ''}{p.code} {p.name} <span style={{ color: '#fbbf24' }}>{p.score ?? ''}</span> <RiskBadge code={p.code} size="xs" /> <AddCandidateButton code={p.code} variant="icon" />
                   </span>
@@ -165,7 +165,7 @@ export default function StrategyPicks() {
           <div style={{ fontWeight: 800, marginBottom: 8 }}>⭐ 多重共識（同時命中 ≥2 種策略，優先關注）</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {multi.map(([code, v]) => (
-              <div key={code} onClick={() => navigateTo('stock', code)}
+              <div key={code} data-anchor={code} onClick={() => navigateTo('stock', code)}
                 style={{ cursor: 'pointer', padding: '6px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)' }}>
                 <b style={{ color: '#fbbf24' }}>{code} {v.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={code} variant="icon" />
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginLeft: 6 }}>
@@ -214,7 +214,7 @@ export default function StrategyPicks() {
                 {[...list].sort((a, b) => ((consensus[b.code]?.count ?? 1) - (consensus[a.code]?.count ?? 1)) || ((b.score ?? 0) - (a.score ?? 0))).slice(0, 24).map(p => {
                   const cc = consensus[p.code]?.count ?? 1;
                   return (
-                  <div key={p.code} onClick={() => navigateTo('stock', p.code)}
+                  <div key={p.code} data-anchor={p.code} onClick={() => navigateTo('stock', p.code)}
                     style={{ cursor: 'pointer', padding: '8px 10px', borderRadius: 8, opacity: p.dtHigh ? 0.55 : 1,
                       background: cc >= 2 ? 'rgba(251,191,36,0.14)' : 'var(--bg-tertiary)',
                       border: cc >= 2 ? '1.5px solid rgba(251,191,36,0.55)' : '1px solid transparent' }}>

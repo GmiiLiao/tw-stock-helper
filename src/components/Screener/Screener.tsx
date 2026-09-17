@@ -1308,6 +1308,7 @@ export default function Screener() {
                   return (
                     <div
                       key={stock.code}
+                      data-anchor={stock.code}
                       className={styles.mobileCard}
                       onClick={() => navigateTo('stock', stock.code)}
                     >
@@ -1640,6 +1641,7 @@ export default function Screener() {
                         return (
                           <tr
                             key={stock.code}
+                            data-anchor={stock.code}
                             id={`compare-row-${stock.code}`}
                             onClick={() => navigateTo('stock', stock.code)}
                             style={{ cursor: 'pointer' }}
@@ -1755,6 +1757,7 @@ export default function Screener() {
                     return (
                       <div
                         key={stock.code}
+                        data-anchor={stock.code}
                         className={styles.mobileCard}
                         onClick={() => navigateTo('stock', stock.code)}
                       >

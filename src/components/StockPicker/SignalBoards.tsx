@@ -82,7 +82,7 @@ export default function SignalBoards() {
   }, []);
 
   const Row = ({ code, name, right }: { code: string; name: string; right: React.ReactNode }) => (
-    <div onClick={() => navigateTo('stock', code)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0', cursor: 'pointer' }}>
+    <div data-anchor={code} onClick={() => navigateTo('stock', code)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0', cursor: 'pointer' }}>
       <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <b style={{ color: 'var(--text-primary)' }}>{code}</b> {name} {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={code} variant="icon" />
       </span>
