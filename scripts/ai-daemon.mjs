@@ -12227,7 +12227,8 @@ async function computeSwingHold({ force = false } = {}) {
   // 名稱：宇宙清單優先，缺的用快照
   const names = {};
   for (const c of (_codesCache || [])) names[c.code] = { name: c.name, market: c.market };
-  if (!Object.keys(names).length) { const q = (await readSnapshotQuotes())?.quotes || {}; for (const c in q) names[c] = { name: q[c].name, market: q[c].market }; }
+  // 宇宙快取殘缺時（實案 09-17 重啟時 TPEx 掛掉，_codesCache 只有上市）用快照補缺的名稱，不讓上櫃股名稱空白
+  { const q = (await readSnapshotQuotes())?.quotes || {}; for (const c in q) if (!names[c]) names[c] = { name: q[c].name, market: q[c].market }; }
   const amtDays = days.slice(-20);
   const amtOf = {};
   for (const code of Object.keys(latest.m)) {
