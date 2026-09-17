@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -122,6 +123,7 @@ export default function ShortPanel() {
                 {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
               </button>
               <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
+              <AddCandidateButton code={it.code} variant="icon" />
               <span style={{ fontWeight: 700, color: it.chg < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
                 {it.price}（{it.chg > 0 ? '+' : ''}{it.chg}%）
               </span>

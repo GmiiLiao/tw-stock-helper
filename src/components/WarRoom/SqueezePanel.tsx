@@ -3,6 +3,7 @@
 // 軋空候選 —— 條件經 240 日 / 16.9 萬筆事件回測校準（見 daemon SQUEEZE_SKILL）。
 // 這一頁的設計原則：**把邊際效益講清楚**。券資比的貢獻只有約 +1.5pp，
 // 若做成「軋空預測神器」的口吻，使用者會照著重押，那是我們造成的傷害。
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { Fragment, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
@@ -254,6 +255,7 @@ export default function SqueezePanel() {
                     </button>
                     <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                     {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
+                    <AddCandidateButton code={it.code} variant="icon" />
                     <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
                     <span style={{ color: 'var(--text-muted)' }}>券資比 {it.ratio}%</span>
                     <span style={{ padding: '1px 8px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' }}>
@@ -341,6 +343,7 @@ export default function SqueezePanel() {
                     </button>
                     <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
                     {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
+                    <AddCandidateButton code={it.code} variant="icon" />
                   </td>
                   <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
                   <td style={{ padding: '4px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>

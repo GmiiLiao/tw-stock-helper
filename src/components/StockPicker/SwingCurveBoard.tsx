@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
@@ -130,7 +131,7 @@ export default function SwingCurveBoard() {
                       <div key={p.code} onClick={() => navigateTo('stock', p.code)}
                         style={{ display: 'flex', justifyContent: 'space-between', columnGap: 6, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', minWidth: 0 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <b style={{ color: '#7dd3fc' }}>{p.code}</b> {p.name} {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+                          <b style={{ color: '#7dd3fc' }}>{p.code}</b> {p.name} {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={p.code} variant="icon" />
                         </span>
                         <span style={{ whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-secondary)' }}>{p.price}</span>
                       </div>

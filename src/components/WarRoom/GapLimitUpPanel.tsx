@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -87,6 +88,7 @@ export default function GapLimitUpPanel() {
                   {it.star ? '★ ' : ''}{it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
                 </button>
                 <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
+                <AddCandidateButton code={it.code} variant="icon" />
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(13px * var(--fz))' }}>{it.price.toFixed(2)} <span style={{ color: '#ef4444' }}>+{it.chg}%</span></span>
                 {it.branch === '強勢連陽' && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '1px 6px', borderRadius: 6, background: 'rgba(249,115,22,0.15)', color: '#f97316', fontWeight: 700 }} title="支線：連陽段漲 15–40%（連陽裡已含漲停）。實測 20 日 +8.3%／勝率 53%，但 5 日均 −0.2%、最深 −9%——進場後常先回檔">強勢連陽</span>}
                 <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 700, color: '#a78bfa' }} title="近 21 日走勢與影片模板（15 天平底→5 天緩升→跳升）的相似度，≥0.8 才入榜">形狀 {it.shape ?? '—'}</span>

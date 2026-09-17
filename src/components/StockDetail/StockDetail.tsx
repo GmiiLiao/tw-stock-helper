@@ -417,7 +417,7 @@ export default function StockDetail() {
           >
             {inWatchlist ? '★ 已追蹤' : '☆ 加入自選'}
           </button>
-          <AddCandidateButton code={stock.code} variant="full" />
+          <AddCandidateButton code={stock.code} variant="icon" />
           <button
             id={`add-holding-btn-${stock.code}`}
             className="btn btn-buy"

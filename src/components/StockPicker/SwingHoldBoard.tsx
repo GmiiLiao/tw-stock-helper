@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
@@ -26,7 +27,6 @@ const typeStyle: Record<string, { bg: string; fg: string }> = { 穩健: { bg: 'r
 export default function SwingHoldBoard() {
   const dt = useDayTradeCodes();
   const navigateTo = useAppStore(s => s.navigateTo);
-  const toggleCandidate = useAppStore(s => s.toggleCandidate);
   const [tab, setTab] = useState<Tab>('combo');
   const [data, setData] = useState<Data | null>(null);
   const [dates, setDates] = useState<string[]>([]);
@@ -69,7 +69,7 @@ export default function SwingHoldBoard() {
       <button onClick={() => setOpenCode(c => (c === it.code ? null : it.code))} title="展開／收合即時走勢" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, fontFamily: mono }}>{openCode === it.code ? '▾' : '▸'} {it.code}</button>
       <span style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)} title="開個股頁">{it.name}</span>
       {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
-      <button onClick={() => toggleCandidate(it.code)} title="加入／移除候選便條" style={{ marginLeft: 6, background: 'none', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '0 5px', cursor: 'pointer', color: MUTED, fontSize: 'calc(11px * var(--fz))' }}>＋候選</button>
+      <span style={{ marginLeft: 6 }}><AddCandidateButton code={it.code} variant="icon" /></span>
     </td>
   );
   const chartRow = (it: { code: string; name: string; price: number }, span: number) => openCode === it.code ? (

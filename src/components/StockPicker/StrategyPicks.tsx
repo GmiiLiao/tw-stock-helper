@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useMemo, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
@@ -145,7 +146,7 @@ export default function StrategyPicks() {
                 {q.slice(0, 14).map(p => (
                   <span key={p.code} onClick={() => navigateTo('stock', p.code)}
                     style={{ cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '4px 10px', borderRadius: 10, background: (consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.18)' : 'rgba(240,62,62,0.12)', border: `1px solid ${(consensus[p.code]?.count ?? 1) >= 2 ? 'rgba(251,191,36,0.55)' : 'rgba(240,62,62,0.35)'}` }}>
-                    {(consensus[p.code]?.count ?? 1) >= 2 ? '⭐' : ''}{p.code} {p.name} <span style={{ color: '#fbbf24' }}>{p.score ?? ''}</span> <RiskBadge code={p.code} size="xs" />
+                    {(consensus[p.code]?.count ?? 1) >= 2 ? '⭐' : ''}{p.code} {p.name} <span style={{ color: '#fbbf24' }}>{p.score ?? ''}</span> <RiskBadge code={p.code} size="xs" /> <AddCandidateButton code={p.code} variant="icon" />
                   </span>
                 ))}
                 {q.length > 14 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', alignSelf: 'center' }}>…共 {q.length} 檔（完整見下方 🥇 卡）</span>}
@@ -166,7 +167,7 @@ export default function StrategyPicks() {
             {multi.map(([code, v]) => (
               <div key={code} onClick={() => navigateTo('stock', code)}
                 style={{ cursor: 'pointer', padding: '6px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)' }}>
-                <b style={{ color: '#fbbf24' }}>{code} {v.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+                <b style={{ color: '#fbbf24' }}>{code} {v.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={code} variant="icon" />
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginLeft: 6 }}>
                   評分 {v.score ?? '—'} · {v.keys.map(k => d.stats[k]?.icon + d.stats[k]?.name).join('＋')}
                 </span>
@@ -221,6 +222,7 @@ export default function StrategyPicks() {
                       {cc >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, color: '#fbbf24' }}>⭐×{cc}</span>}
                       <b style={{ color: '#e2e8f0' }}>{p.code}</b>
                       <span style={{ color: '#7dd3fc', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                      <AddCandidateButton code={p.code} variant="icon" />
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: p.market === 'otc' ? '#f59e0b' : '#38bdf8' }}>{p.market === 'otc' ? '櫃' : '市'}</span>
                       {p.streak && p.streak >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: p.streak >= 3 ? '#ef4444' : '#f97316' }}>連{p.streak}停{p.streak >= 3 ? '⚠不追' : ''}</span>}
                       {p.volX != null && p.volX >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>⚡量{p.volX}倍</span>}

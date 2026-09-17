@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import styles from './AIRecommend.module.css';
@@ -298,6 +299,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
           </span>
         </div>
         <div className={styles.quickInfoActions}>
+          <AddCandidateButton code={stock.code} variant="icon" />
           <button
             id={`ai-goto-${stock.code}`}
             className="btn btn-ghost btn-sm"

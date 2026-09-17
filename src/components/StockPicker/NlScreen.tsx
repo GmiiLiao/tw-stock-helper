@@ -1,5 +1,6 @@
 'use client';
 
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -136,7 +137,7 @@ export default function NlScreen() {
               <div key={r.code} onClick={() => navigateTo('stock', r.code)} style={{ cursor: 'pointer', padding: '8px 10px', background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-primary)' }}>
-                    <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span> {(() => { const st = statusOf(dt, r.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+                    <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span> {(() => { const st = statusOf(dt, r.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={r.code} variant="icon" />
                   </div>
                   <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
                     評分 <b style={{ color: '#fbbf24' }}>{r.score}</b>

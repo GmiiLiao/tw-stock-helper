@@ -362,7 +362,7 @@ export default function DecisionDesk() {
                       <span title="綜合評分＝勝率雷達基底＋實證訊號效應量（詳見說明書）" style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, padding: '1px 8px', borderRadius: 7, background: 'rgba(167,139,250,0.15)', color: '#c4b5fd' }}>🧬{c.comp.score}</span>
                       {c.v?.win != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>開賣漲 {c.v.win}%</span>}
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, color: stance.c }}>{stance.t}</span>
-                      <AddCandidateButton code={c.code} variant="chip" />
+                      <AddCandidateButton code={c.code} variant="icon" />
                       <button onClick={() => setOpenCode(open ? null : c.code)} style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', background: 'transparent', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '2px 8px', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
                     </span>
                   </div>
