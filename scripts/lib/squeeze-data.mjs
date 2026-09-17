@@ -165,8 +165,21 @@ export function buildLabels(days, t, code) {
   //   本站早有此教訓（漲停前夜解剖：43% 的前夜自己就是鎖死日、收盤買不到）。
   //   模型若不扣掉不可買的，會系統性高估——因為漲最兇的那些正好是買不到的。
   const buyable = o1 > 0 ? (o1 < lim - 1e-6 ? 1 : 0) : null;
+  // ── v2（2026-09-17 規則重規畫 §2.1）：交易定義分兩套，各自的「進場可買」不同 ──
+  //   隔日沖：t 收買→t+1 開賣。進場限制是 **t 日收盤是否鎖漲停**（鎖停買不到）；t+1 開盤鎖停是最佳出場，不剔除。
+  //   當沖  ：t+1 開買→t+1 收賣。進場限制是 t+1 開盤未鎖停（＝既有 buyable）；報酬 dtRet。
+  const p1 = days[t - 1]?.close[code];
+  const limT = p1?.[C] > 0 ? (() => { const raw = p1[C] * 1.1; const tk = tick(raw); return Math.floor(raw / tk + 1e-9) * tk; })() : null;
+  const entryLocked = limT != null ? (c0 >= limT - 1e-6 ? 1 : 0) : null;
+  const dtRet = o1 > 0 ? +(((c1 - o1) / o1) * 100).toFixed(2) : null;
+  // 波段持有（使用者 2026-09-17 加）：t 收買 → t+5 收賣；t+5 未到就 null（樣本尾端）
+  const c5 = days[t + 5]?.close[code]?.[C];
+  const hold5Ret = c5 > 0 ? +(((c5 - c0) / c0) * 100).toFixed(2) : null;
   return {
     openRet, closeRet, buyable,
+    entryLocked,                       // 1＝t 日收盤鎖漲停（隔日沖／波段買不到）
+    dtRet,                             // 當沖口徑：t+1 開→t+1 收
+    hold5Ret,                          // 波段口徑：t 收→t+5 收
     openRetBuyable: buyable === 1 ? openRet : null,
     limitUp: c1 >= lim - 1e-6 ? 1 : 0,
     squeeze: closeRet >= 5 && covered === 1 ? 1 : 0,   // 漲≥5% 且融券真的減少

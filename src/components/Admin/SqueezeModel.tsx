@@ -9,13 +9,23 @@ import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
 
 interface Stat { n?: number; mean?: number | null; win?: number | null; buyRate?: number | null; nBuyable?: number; meanBuyable?: number | null; winBuyable?: number | null; limitUpRate?: number; squeezeRate?: number }
-interface Branch { group: string; name?: string; pass?: boolean; why?: string; train?: { mean: number; win: number; n: number; segs: (number | null)[] }; oot?: Stat }
+// v2（2026-09-17 規則重規畫）：日層級超額 excess、95% CI、交易日數 days、三態 state；v1 文件沒有這些欄位，畫面兩者都要能讀
+interface StatV2 extends Stat { excess?: number | null; ci?: [number | null, number | null] | null; days?: number; state?: 'valid' | 'ns' | 'invalid'; stateLabel?: string; segs?: (number | null)[] | null }
+interface Branch { group: string; rank?: number; name?: string; pass?: boolean; why?: string; state?: string; stateLabel?: string; train?: { mean?: number; win?: number; n: number; segs?: (number | null)[] | null; excess?: number | null; ci?: [number | null, number | null] | null; days?: number }; oot?: StatV2 | null }
+interface ModeModel {
+  tradeMode?: string; tradeLabel?: string; label: string; samples: number; trainN: number; ootN: number; trainDays?: number; ootDays?: number; excludedEntry?: number;
+  baseline: { train: { all: Stat; momentum: Stat }; oot: { all: Stat; momentum: Stat } };
+  main: { name: string; parts: string[]; train: { mean?: number; win?: number; n: number; segs?: (number | null)[] | null; excess?: number | null; ci?: [number | null, number | null] | null; days?: number }; oot: StatV2; edgeVsMomentum: number; ci?: [number | null, number | null] | null } | null;
+  squeezeProb?: Model['squeezeProb']; branches: Branch[]; singleTop?: Model['singleTop'];
+  passedCount?: number; comboCount?: number; survivorCount?: number; status: string; note?: string | null;
+}
 interface Model {
   runId: string; updatedAt: number; status: string; note?: string | null;
+  rules?: string; datasetHash?: string; tradeMode?: string; modes?: Record<string, ModeModel>;
   period: { from: string; to: string; days: number; oosFrom: string };
-  samples: number; trainN: number; ootN: number; label: string;
+  samples: number; trainN: number; ootN: number; label: string; trainDays?: number; ootDays?: number; excludedEntry?: number;
   baseline: { train: { all: Stat; momentum: Stat }; oot: { all: Stat; momentum: Stat } };
-  main: { name: string; parts: string[]; train: { mean: number; win: number; n: number; segs: (number | null)[] }; oot: Stat; edgeVsMomentum: number } | null;
+  main: { name: string; parts: string[]; train: { mean?: number; win?: number; n: number; segs?: (number | null)[] | null; excess?: number | null; ci?: [number | null, number | null] | null; days?: number }; oot: StatV2; edgeVsMomentum: number; ci?: [number | null, number | null] | null } | null;
   squeezeProb?: { name?: string; parts?: string[]; train?: { n: number; rate: number }; oot?: { n: number; rate: number }; baseline?: { oot?: { rate: number | null } }; lift?: number; status?: string; note?: string };
   branches: Branch[];
   singleTop?: Array<{ name: string; group: string; n: number; mean?: number; win?: number; segs?: (number | null)[]; pass: boolean; why: string }>;
@@ -34,11 +44,16 @@ interface Data {
 
 const fmtT = (ms?: number | null) => (ms ? new Date(ms).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) : '—');
 const pn = (v?: number | null, d = 2) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(d)}%`);
+const pp = (v?: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}pp`);
+const ciTxt = (ci?: [number | null, number | null] | null) => (ci && ci[0] != null ? `[${ci[0]}, ${ci[1]}]` : '—');
+const stateColor = (s?: string) => (s === 'valid' ? '#22c55e' : s === 'invalid' ? '#ef4444' : '#f59e0b');
+const MODE_TABS: Array<[string, string]> = [['nextday', '隔日沖'], ['daytrade', '當沖'], ['swing', '波段持有']];
 
 export default function SqueezeModel() {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState('nextday');   // v2 三套交易模式切換（使用者 2026-09-17 決定）
 
   useEffect(() => {
     // ⚠ /api/admin/* 走 requireAdmin，必須帶 Firebase ID token
@@ -73,7 +88,12 @@ export default function SqueezeModel() {
       </div>
     );
   }
-  const m = d.model;
+  const root = d.model;
+  const v2 = root.rules === 'v2' && !!root.modes;
+  // v2：畫面讀所選模式那份；v1：只有一份（頂層）
+  const m: ModeModel & { runId: string; updatedAt: number; period: Model['period']; placebo?: Model['placebo'] } = v2 && root.modes![mode]
+    ? { ...root.modes![mode], runId: root.runId, updatedAt: root.updatedAt, period: root.period, placebo: root.placebo }
+    : root;
   const box: React.CSSProperties = { padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', marginBottom: 12 };
   const th: React.CSSProperties = { padding: '4px 6px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 600 };
   const td: React.CSSProperties = { padding: '4px 6px', textAlign: 'right' };
@@ -88,18 +108,42 @@ export default function SqueezeModel() {
             run <code>{m.runId}</code> · {fmtT(m.updatedAt)} · 排程：每交易日後 02:00
           </span>
         </div>
+        {v2 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            {MODE_TABS.filter(([k]) => root.modes![k]).map(([k, lab]) => (
+              <button key={k} onClick={() => setMode(k)} style={{ padding: '3px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', cursor: 'pointer', fontWeight: 700, background: mode === k ? 'var(--accent-purple,#6366f1)' : 'var(--bg-tertiary)', color: mode === k ? '#fff' : 'var(--text-secondary)' }}>
+                {lab}{root.modes![k].main ? ' ✓' : ''}
+              </button>
+            ))}
+            <span style={{ color: 'var(--text-muted)', alignSelf: 'center' }}>規則 v2 · 資料集 {root.datasetHash} · {m.tradeLabel}</span>
+          </div>
+        )}
         <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
           期間 {m.period.from} ~ {m.period.to}（{m.period.days} 日）·
           樣本 {m.samples.toLocaleString()} 筆（訓練 {m.trainN.toLocaleString()} / <b>樣本外 {m.ootN.toLocaleString()}</b>，
-          自 <b>{m.period.oosFrom}</b> 起完全未參與選模）· 標的：{m.label}
+          自 <b>{m.period.oosFrom}</b> 起完全未參與選模{v2 ? '·切點固定' : ''}）· 標的：{m.label}
+          {v2 && m.excludedEntry != null && <>　· 進場不可買剔除 {m.excludedEntry.toLocaleString()} 筆 · 訓練 {m.trainDays} 日／樣本外 {m.ootDays} 日</>}
         </div>
         {m.note && <div style={{ color: '#f59e0b', marginTop: 4 }}>⚠ {m.note}</div>}
       </div>
 
       {/* 主判讀模型 */}
       <div style={{ ...box, borderColor: m.main ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)' }}>
-        <b>① 主判讀模型（最大化「可買」隔日開盤報酬）</b>
-        {!m.main ? <div style={{ color: '#ef4444', marginTop: 4 }}>本輪無組合通過樣本外驗收。</div> : (
+        <b>① 主判讀模型（{v2 ? `${m.tradeLabel}·日層級超額對純動能·95% CI 下界＞0 才算` : '最大化「可買」隔日開盤報酬'}）</b>
+        {!m.main ? <div style={{ color: '#ef4444', marginTop: 4 }}>本輪無組合通過樣本外驗收。</div> : v2 ? (
+          <>
+            <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 800, color: '#22c55e', margin: '4px 0' }}>{m.main.name}</div>
+            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 720 }}>
+              <thead><tr><th style={{ ...th, textAlign: 'left' }}>口徑</th><th style={th}>日層級超額</th><th style={th}>95% CI</th><th style={th}>逐筆平均</th><th style={th}>勝率</th><th style={th}>樣本</th><th style={th}>交易日</th></tr></thead>
+              <tbody>
+                <tr><td style={{ ...td, textAlign: 'left' }}>訓練段</td><td style={td}>{pp(m.main.train.excess)}</td><td style={td}>{ciTxt(m.main.train.ci)}</td><td style={td}>{pn(m.main.train.mean)}</td><td style={td}>{m.main.train.win ?? '—'}%</td><td style={td}>{m.main.train.n}</td><td style={td}>{m.main.train.days ?? '—'}</td></tr>
+                <tr style={{ fontWeight: 700 }}><td style={{ ...td, textAlign: 'left' }}>樣本外</td><td style={{ ...td, color: stateColor(m.main.oot.state) }}>{pp(m.main.oot.excess)}</td><td style={td}>{ciTxt(m.main.oot.ci)}</td><td style={td}>{pn(m.main.oot.mean)}</td><td style={td}>{m.main.oot.win ?? '—'}%</td><td style={td}>{m.main.oot.n}</td><td style={td}>{m.main.oot.days ?? '—'}</td></tr>
+                <tr><td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)' }}>純動能基準（樣本外）</td><td style={td}>0</td><td style={td}>—</td><td style={{ ...td, color: 'var(--text-muted)' }}>{pn(m.baseline.oot.momentum.mean)}</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.win}%</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.n}</td><td style={td}>—</td></tr>
+              </tbody>
+            </table>
+            <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>超額＝每日「因子組平均 − 純動能母體平均」再對日序列取平均；CI 為按日區塊自助法（block 5、1,000 次）。進場可買已先剔除。</div>
+          </>
+        ) : (
           <>
             <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 800, color: '#22c55e', margin: '4px 0' }}>{m.main.name}</div>
             <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 620 }}>
@@ -148,27 +192,29 @@ export default function SqueezeModel() {
 
       {/* 分支模型 */}
       <div style={box}>
-        <b>③ 分支模型狀態（各族群最佳單因子）</b>
+        <b>③ 分支模型狀態（{v2 ? '各族群前兩名·三態：有效／無顯著差異／失效' : '各族群最佳單因子'}）</b>
         <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 4 }}>
           <thead><tr>
             <th style={{ ...th, textAlign: 'left' }}>族群</th><th style={{ ...th, textAlign: 'left' }}>因子</th>
-            <th style={th}>訓練段</th><th style={th}>樣本外</th><th style={th}>樣本外n</th><th style={{ ...th, textAlign: 'center' }}>狀態</th>
+            <th style={th}>訓練段{v2 ? '超額' : ''}</th><th style={th}>樣本外{v2 ? '超額' : ''}</th>{v2 && <th style={th}>95% CI</th>}<th style={th}>樣本外n{v2 ? '／日' : ''}</th><th style={{ ...th, textAlign: 'center' }}>狀態</th>
           </tr></thead>
           <tbody>
-            {m.branches.map(b => (
-              <tr key={b.group} style={{ borderTop: '1px solid var(--border-primary)' }}>
-                <td style={{ ...td, textAlign: 'left', fontWeight: 700 }}>{b.group}</td>
+            {m.branches.map((b, i) => (
+              <tr key={`${b.group}-${b.rank ?? i}`} style={{ borderTop: '1px solid var(--border-primary)' }} title={b.why}>
+                <td style={{ ...td, textAlign: 'left', fontWeight: 700 }}>{b.group}{v2 && b.rank ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> #{b.rank}</span> : null}</td>
                 <td style={{ ...td, textAlign: 'left' }}>{b.name ?? '—'}</td>
-                <td style={td}>{b.train ? pn(b.train.mean) : '—'}</td>
-                <td style={td}>{b.oot ? pn(b.oot.mean) : '—'}</td>
-                <td style={td}>{b.oot?.n ?? '—'}</td>
-                <td style={{ ...td, textAlign: 'center', color: b.pass ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
-                  {b.pass ? '有效' : (b.why ?? '失效')}
+                <td style={td}>{v2 ? pp(b.train?.excess) : (b.train ? pn(b.train.mean) : '—')}</td>
+                <td style={td}>{v2 ? pp(b.oot?.excess) : (b.oot ? pn(b.oot.mean) : '—')}</td>
+                {v2 && <td style={td}>{ciTxt(b.oot?.ci)}</td>}
+                <td style={td}>{b.oot?.n ?? '—'}{v2 && b.oot?.days != null ? `／${b.oot.days}` : ''}</td>
+                <td style={{ ...td, textAlign: 'center', color: v2 ? (b.oot ? stateColor(b.state) : 'var(--text-muted)') : (b.pass ? '#22c55e' : '#ef4444'), fontWeight: 700 }}>
+                  {v2 ? (b.stateLabel ?? '—') : (b.pass ? '有效' : (b.why ?? '失效'))}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {v2 && <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>「訓練段未通過」＝該因子在訓練段未同時滿足 CI 下界＞0、三段皆贏基準、交易日 ≥40；滑鼠移到列上可看原因與本群最佳者差多少。</div>}
       </div>
 
       {/* 訓練資料集 */}
@@ -195,7 +241,7 @@ export default function SqueezeModel() {
         <div style={box}>
           <b>⑤ 單因子檢定（訓練段·前 16 名）</b>
           <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
-            通過條件：n≥80 且三段皆同向 且贏純動能基準（均值與勝率都要贏）。
+            通過條件：{v2 ? 'n≥80、交易日≥40、訓練段內三段皆贏純動能、日層級超額 95% CI 下界＞0。' : 'n≥80 且三段皆同向 且贏純動能基準（均值與勝率都要贏）。'}
             通過 {m.passedCount} 個 → 組合 {m.comboCount} 組 → 樣本外存活 {m.survivorCount} 組。
             {m.placebo && <>　安慰劑（隨機分組最佳值）{pn(m.placebo.maxOfRandom)}／平均 {pn(m.placebo.meanOfRandom)}，可作為過擬合幅度的量尺。</>}
           </div>
