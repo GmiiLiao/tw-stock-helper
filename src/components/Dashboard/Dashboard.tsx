@@ -175,7 +175,7 @@ function LimitBoard({ stocks }: { stocks: StockInfo[] }) {
     return (
       <button key={s.code} className={styles.heatmapCell}
         style={{ background: up ? 'rgba(201,42,42,0.6)' : 'rgba(30,126,52,0.6)', position: 'relative' }}
-        onClick={() => navigateTo('stock', s.code)} title={`${s.code} ${s.name} ${s.price}（${badge?.t === '櫃' ? '上櫃' : badge?.t === '市' ? '上市' : badge?.t || ''}）`}>
+        onClick={() => navigateTo('stock', s.code)} title={`${s.code} ${s.name} ${s.price}（${badge?.t === '櫃' ? '上櫃' : badge?.t === '市' ? '上市' : badge?.t === '創' ? '創新板' : badge?.t || ''}）`}>
         {badge && <span style={{ position: 'absolute', top: 2, right: 3, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: badge.c, opacity: 0.95 }}>{badge.t}</span>}
         {(() => { const st = statusOf(dt, s.code); return st == null ? null : (
           <span title={DT_STYLE[st].title}

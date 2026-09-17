@@ -43,8 +43,11 @@ export interface StockInfo {
 }
 
 // ── 市場別標籤：上市 / 上櫃 / ETF（00 開頭 4-6 碼為 ETF）──
-export function marketBadge(s: { code: string; market?: string }): { t: string; c: string } | null {
+export function marketBadge(s: { code: string; market?: string; name?: string }): { t: string; c: string } | null {
   if (/^00\d{2,4}$/.test(s.code)) return { t: 'ETF', c: '#a78bfa' };
+  // 創新板（TIB）：證交所把它算在上市（STOCK_DAY_ALL 同一張表、market 也是 tse），
+  // 只有名稱尾綴「-創」／「KY創」能辨識（2026-09-18 實測 36 檔）。使用者要看得出它是創新板，不是一般上市。
+  if (s.name && /-創$|KY創$/.test(s.name.trim())) return { t: '創', c: '#34d399' };
   if (s.market === 'esb') return { t: '興', c: '#22d3ee' };
   if (s.market === 'otc') return { t: '櫃', c: '#f59e0b' };
   if (s.market === 'tse') return { t: '市', c: '#38bdf8' };

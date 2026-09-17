@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import { parseStock, scoreStock, fetchRiskStocks, isRegularStock, SCORING_VERSION } from '@/lib/scoring-server';
 import { getInstWeights } from '@/lib/inst-weight-server';
@@ -144,7 +145,7 @@ export async function GET(request: NextRequest) {
       defensive: buyable.filter(s => s.strategy === 'defensive').sort(rank).slice(0, 20),
     };
 
-    return NextResponse.json({
+    return gzipJsonAuto({   // 2026-09-18：232KB 未壓縮 → gzip
       recommendations,
       strategies,
       totalAnalyzed: stocks.length,
@@ -161,9 +162,7 @@ export async function GET(request: NextRequest) {
         dispositionCount: riskData.disposition.length,
         totalRiskStocks: riskData.allCodes.length,
       },
-    }, {
-      headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30' },
-    });
+    }, { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30' });
 
   } catch (error) {
     console.error('AI recommendation error:', error);

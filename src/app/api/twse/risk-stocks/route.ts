@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchRiskStocks as fetchRiskStocksSource } from '@/lib/risk-stocks-source';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 
 export const runtime = 'nodejs';
 
@@ -37,9 +38,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 export async function GET() {
   // Return cache if still fresh
   if (cachedResult && Date.now() - cachedAt < CACHE_TTL) {
-    return NextResponse.json(cachedResult, {
-      headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' },
-    });
+    return gzipJsonAuto(cachedResult, { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' });
   }
 
   // ⚠ 抓取與解析已抽到 @/lib/risk-stocks-source（2026-08-11）：
@@ -66,9 +65,7 @@ export async function GET() {
   cachedResult = result;
   cachedAt = Date.now();
 
-  return NextResponse.json(result, {
-    headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' },
-  });
+  return gzipJsonAuto(result, { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' });
 }
 
 // ── Helpers ──────────────────────────────────────────────────

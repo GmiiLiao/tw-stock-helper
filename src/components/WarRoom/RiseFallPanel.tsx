@@ -198,8 +198,12 @@ export default function RiseFallPanel() {
     };
     load(true);   // 首次一律載入，盤後才看得到最終結算資料
     // 10 秒：API 已含 5 秒快線覆蓋（正在看的股票），30 秒會吃掉快線的增益
-    const t = setInterval(load, isTwTradingHours() ? 10000 : 120000);
-    return () => { live = false; clearInterval(t); };
+    // ⚠ 間隔每一拍重算（CLAUDE.md：三元判斷只在掛載時算一次，之後永不重算——盤中掛載的分頁
+    //   收盤後仍每 10 秒打 308KB 一整夜；2026-09-18 Hosting 下載量事故的一半來自這裡）。
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => { load(); t = setTimeout(tick, isTwTradingHours() ? 10000 : 120000); };
+    t = setTimeout(tick, isTwTradingHours() ? 10000 : 120000);
+    return () => { live = false; clearTimeout(t); };
   }, []);
 
   const sorter = (k: SortKey, up: boolean) => (a: Snap, b: Snap) =>

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { gzipJson } from '@/lib/gzip-response';
+import { gzipJson, gzipJsonAuto } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
 import { getSession, setHolidays, isTradingDay } from '@/lib/market-clock';
 
@@ -142,5 +142,5 @@ export async function latestDoc(
 
   const header = cacheHeader(tier);
   if (opts.request) return gzipJson(opts.request, result.data, header);
-  return NextResponse.json(result.data, { headers: { 'Cache-Control': header } });
+  return gzipJsonAuto(result.data, header);   // 2026-09-18：不帶 request 的 12 支也要壓（原本原樣送出）
 }

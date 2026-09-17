@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { StockInfo } from '@/lib/twse-api';
+import { shouldPollNow } from '@/lib/market-clock';
 import styles from './QuoteGrid.module.css';
 
 // ── 📋 報價總覽格子（2026-08-06 依使用者提供的券商版面重做）──────────
@@ -74,11 +75,15 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
   const [flow, setFlow] = useState<{ inner: number; outer: number; total: number; outerPct: number | null; since: number } | null>(null);
   useEffect(() => {
     let live = true;
-    const load = () => fetch(`/api/twse/order-flow?code=${stock.code}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => { if (live && j?.found) setFlow(j); else if (live) setFlow(null); }).catch(() => {});
-    load();
-    const t = setInterval(load, 15000);
+    // 內外盤只在盤中變；休市或分頁在背景就跳過（原本 24/7 每 15 秒打，個股頁掛一夜＝5,760 次）
+    const load = (force = false) => {
+      if (!force && !shouldPollNow()) return;
+      fetch(`/api/twse/order-flow?code=${stock.code}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(j => { if (live && j?.found) setFlow(j); else if (live) setFlow(null); }).catch(() => {});
+    };
+    load(true);
+    const t = setInterval(() => load(), 15000);
     return () => { live = false; clearInterval(t); };
   }, [stock.code]);
   const flowSince = flow?.since ? new Date(flow.since).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';

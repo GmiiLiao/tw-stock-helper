@@ -10,7 +10,7 @@
 //   改為靜態高對比（仍看得見，只是不閃）。
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/lib/store';
-import { isForeground } from '@/lib/market-clock';
+import { isForeground, shouldPollNow } from '@/lib/market-clock';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
@@ -30,8 +30,9 @@ export default function LimitQueueAlert() {
 
   useEffect(() => {
     let live = true;
-    const load = () => {
+    const load = (force = false) => {
       if (!isForeground()) return;
+      if (!force && !shouldPollNow()) return;   // 排隊只存在盤前～盤中；休市每 15 秒打一整夜沒有資訊增益
       fetch('/api/twse/limit-queue', { cache: 'no-store' })
         .then(r => (r.ok ? r.json() : null))
         .then(x => {
@@ -48,8 +49,8 @@ export default function LimitQueueAlert() {
         })
         .catch(() => {});
     };
-    load();
-    const id = setInterval(load, 15_000);
+    load(true);
+    const id = setInterval(() => load(), 15_000);
     const onVis = () => { if (!document.hidden) load(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { live = false; clearInterval(id); document.removeEventListener('visibilitychange', onVis); };

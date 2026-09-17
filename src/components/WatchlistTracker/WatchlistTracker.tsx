@@ -5,7 +5,7 @@ import { useAppStore } from '@/lib/store';
 import type { WatchlistGroup, WatchlistItem, AppNotification } from '@/lib/store';
 import styles from './WatchlistTracker.module.css';
 import StockTrendChart from './StockTrendChart';
-import { startLiveLoop, revealTick } from '@/lib/market-clock';
+import { startLiveLoop, revealTick, shouldPollNow } from '@/lib/market-clock';
 import StockAIEval from './StockAIEval';
 import { getTargetPrice } from '@/lib/scoring';
 import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBanner';
@@ -2081,7 +2081,10 @@ export default function WatchlistTracker() {
   // 全市場快照：急漲跌榜需要全市場視角（daemon 每分掃 ~1900 檔）
   useEffect(() => {
     let live = true;
-    const load = () => fetch('/api/twse/market-snapshot')
+    // 首次一律載入（盤後要看當日最終值）；之後休市或分頁在背景就跳過（308KB 一支，原本 24/7 每分鐘打）
+    const load = (force = false) => {
+      if (!force && !shouldPollNow()) return;
+      fetch('/api/twse/market-snapshot')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         if (!live || !d?.quotes?.length) return;
@@ -2097,8 +2100,9 @@ export default function WatchlistTracker() {
         }
         setSnapQuotes(map);
       }).catch(() => {});
-    load();
-    const t = setInterval(load, 60000);
+    };
+    load(true);
+    const t = setInterval(() => load(), 60000);
     return () => { live = false; clearInterval(t); };
   }, []);
   const [loading, setLoading] = useState(false);

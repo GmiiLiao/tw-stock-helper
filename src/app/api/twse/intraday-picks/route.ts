@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 import { closePositionOf } from '@/lib/scoring-server';
 import { getStockDayAllDataInternal, isMarketOpen } from '@/lib/twse-api-server';
 import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/scoring-server';
@@ -120,17 +121,17 @@ export async function GET() {
       try {
         const saved = (await db.collection('intradayPicks').doc('latest').get()).data();
         if (saved?.picks) {
-          return NextResponse.json(
+          return gzipJsonAuto(
             { picks: JSON.parse(saved.picks), marketOpen, universe: saved.universe, stale: true, savedAt: saved.savedAt, generatedAt: new Date().toISOString() },
-            { headers: { 'Cache-Control': 'public, s-maxage=300' } },
+            { 'Cache-Control': 'public, s-maxage=300' },
           );
         }
       } catch { /* fall through */ }
     }
 
-    return NextResponse.json(
+    return gzipJsonAuto(   // 2026-09-18：58KB 未壓縮 → gzip
       { picks, marketOpen, universe: candidates.length, progress: +progress.toFixed(2), generatedAt: new Date().toISOString() },
-      { headers: { 'Cache-Control': marketOpen ? 'public, s-maxage=30' : 'public, s-maxage=300' } },
+      { 'Cache-Control': marketOpen ? 'public, s-maxage=30' : 'public, s-maxage=300' },
     );
   } catch (e) {
     console.error('[intraday-picks] error:', e);

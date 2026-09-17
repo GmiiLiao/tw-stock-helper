@@ -391,7 +391,7 @@ export default function StockDetail() {
           <div className={styles.stockCode}>{stock.code}</div>
           <div className={styles.stockName}>
             {stock.name}
-            {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, verticalAlign: 'middle', color: b.c, border: `1px solid ${b.c}66`, borderRadius: 5, padding: '0 5px' }}>{b.t === '市' ? '上市' : b.t === '櫃' ? '上櫃' : b.t}</span> : null; })()}
+            {(() => { const b = marketBadge(stock); return b ? <span style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, verticalAlign: 'middle', color: b.c, border: `1px solid ${b.c}66`, borderRadius: 5, padding: '0 5px' }}>{b.t === '市' ? '上市' : b.t === '櫃' ? '上櫃' : b.t === '創' ? '創新板' : b.t}</span> : null; })()}
             <span style={{ marginLeft: 6, verticalAlign: 'middle' }}><RiskBadge code={stock.code} /></span>
             <span style={{ marginLeft: 6, verticalAlign: 'middle' }}><DayTradeBadge code={stock.code} /></span>
           </div>

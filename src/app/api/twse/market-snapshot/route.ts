@@ -1,6 +1,7 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { readMarketSnapshot } from '@/lib/market-snapshot-store';
 import { cacheHeader } from '@/lib/api-cache';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -39,10 +40,11 @@ export async function GET() {
         market: x.market || 'tse', open: x.open ?? 0, high: x.high ?? 0, low: x.low ?? 0,
       });
     }
-    return NextResponse.json(
+    // 2026-09-18：308KB 未壓縮＋戰情室每 10 秒輪詢＝Hosting 下載量主因，改 gzip（約 −80%）
+    return gzipJsonAuto(
       { found: true, updatedAt: s.sweepAt ?? null, marketOpen: !!s.marketOpen, count: quotes.length, quotes },
       // hot 層（s-maxage=2）：內容含 5 秒快線，10 秒層會把快線的增益吃掉一半
-      { headers: { 'Cache-Control': cacheHeader('hot') } },
+      cacheHeader('hot'),
     );
   } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
 }
