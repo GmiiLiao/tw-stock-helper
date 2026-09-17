@@ -36,7 +36,8 @@ const taipeiParts = (tsSec: number) => {
 interface PrevDay { code: string; date: string; open: number; high: number; low: number; close: number; ticks: { timeStr: string; close: number; volume: number }[] }
 
 async function buildPrevDay(code: string): Promise<PrevDay | null> {
-  const result = (await fetchYahoo5d(`${code}.TW`)) || (await fetchYahoo5d(`${code}.TWO`));
+  const [tw, two] = await Promise.all([fetchYahoo5d(`${code}.TW`), fetchYahoo5d(`${code}.TWO`)]);   // 與 stock-intraday 同：並行兩市場，落在 memoize 8s 硬逾時內
+  const result = tw || two;
   if (!result) return null;
   const ts: number[] = result.timestamp ?? [];
   const q = result.indicators?.quote?.[0] ?? {};
@@ -61,7 +62,8 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
   if (!code || !/^\d{4,6}$/.test(code)) return NextResponse.json({ error: 'code required' }, { status: 400 });
   try {
-    const data = await memoize(`intraday-prev:${code}`, 6 * 3600_000, () => buildPrevDay(code));
+    // ⚠ memoize 回傳的是「取值函式」，要再呼叫一次（第一版 await 了工廠本身 → 序列化函式物件 → 500）
+    const data = await memoize(`intraday-prev:${code}`, 6 * 3600_000, () => buildPrevDay(code))();
     if (!data) return NextResponse.json({ error: 'No previous-day intraday' }, { status: 404 });
     return NextResponse.json(data, { headers: { 'Cache-Control': cacheHeader('daily'), 'Access-Control-Allow-Origin': '*' } });
   } catch (error) {
