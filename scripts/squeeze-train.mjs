@@ -94,11 +94,25 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   } catch { /* 讀不到就當作沒有新聞維度，不擋訓練 */ }
   const newsDays = Object.keys(newsByDate).length;
 
+  // ── 事件股排除（§2.2，使用者 2026-09-17 決定「加入」）──────────────────
+  //   減資／面額變更／分割／大額除權的股，事件日前後 ±30 個日曆日（≈20 個交易日）的樣本一律剔除——
+  //   不用係數還原（係數誤差會進標籤），直接排除。有沒有係數都排（無來源的 2 件也是跳價，一樣不可信）。
+  //   來源：daemon 每日 15:10 寫的 priceEvents/latest（相鄰有收盤日比值超出 ±20%）。
+  const evByCode = {};
+  try {
+    const pe = (await db.collection('priceEvents').doc('latest').get()).data();
+    for (const e of (pe?.items || [])) if (e?.code && e?.date) (evByCode[e.code] ||= []).push(Date.parse(e.date));
+  } catch { /* 沒有事件表就不排除，報表會顯示 0 */ }
+  const EV_WIN = 30 * 86400000;
+  const nearEvent = (code, dateIso) => { const arr = evByCode[code]; if (!arr) return false; const t0 = Date.parse(dateIso); return arr.some(ev => Math.abs(t0 - ev) <= EV_WIN); };
+  let excludedEvents = 0;
+
   for (let t = 25; t < T - 1; t++) {
     const g = gRows[days[t].date] || {};
     const nv = newsByDate[days[t].date] || {};
     for (const code in days[t].close) {
       if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+      if (nearEvent(code, days[t].date)) { excludedEvents++; continue; }
       const f = buildStockFeatures(days, t, code);
       if (!f || !(f.close > minPrice) || !(f.avgVol >= minAvgVol)) continue;
       const y = buildLabels(days, t, code);
@@ -108,7 +122,7 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
     samples.push({ t, date: days[t].date, code, f, g, y, seg: t < T / 3 ? 0 : (t < 2 * T / 3 ? 1 : 2) });
     }
   }
-  return { samples, days, T, twDates, newsDays };
+  return { samples, days, T, twDates, newsDays, excludedEvents, eventCodes: Object.keys(evByCode).length };
 }
 
 // ── 3. 規則 v2（2026-09-17 重規畫·docs/SQUEEZE-MODEL-REDESIGN-2026-09-17.md）──────────────
@@ -439,9 +453,9 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const t0 = Date.now();
   const say = (...a) => { if (!quiet) log(...a); };
   say('▶ 軋空判讀模型訓練開始（規則 v2·三套交易模式·固定切點）');
-  const { samples, twDates, newsDays } = await buildSamples(db, { days });
+  const { samples, twDates, newsDays, excludedEvents, eventCodes } = await buildSamples(db, { days });
   const hash = datasetHash(samples, twDates);
-  say(`  · 樣本 ${samples.length.toLocaleString()} 筆｜期間 ${twDates[0]} ~ ${twDates[twDates.length - 1]}｜資料集 ${hash}｜切點 ${OOS_FROM}`);
+  say(`  · 樣本 ${samples.length.toLocaleString()} 筆｜期間 ${twDates[0]} ~ ${twDates[twDates.length - 1]}｜資料集 ${hash}｜切點 ${OOS_FROM}｜事件股排除 ${excludedEvents.toLocaleString()} 筆（${eventCodes} 檔·±30 日）`);
   say(`  · 新聞判別覆蓋 ${newsDays} 個交易日${newsDays >= NEWS_MIN_DAYS ? '（已納入因子網格）' : `（未達 ${NEWS_MIN_DAYS} 日門檻，本次不納入）`}`);
   const grid = factorGrid(newsDays);
 
@@ -467,6 +481,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const strip = m => { const { _all, ...rest } = m; return rest; };
   const model = {
     runId, modelVersion, updatedAt: Date.now(), trainMs: Date.now() - t0, rules: 'v2', datasetHash: hash,
+    eventExclusion: { excluded: excludedEvents, codes: eventCodes, windowDays: 30, source: 'priceEvents/latest' },
     period: { from: twDates[0], to: twDates[twDates.length - 1], days: twDates.length, oosFrom: OOS_FROM },
     tradeMode: 'nextday', modes: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, strip(m)])),
     // 相容：頂層＝預設模式（隔日沖），既有讀者（daemon runId/main.name/squeezeProb.name、管理頁）不需改
