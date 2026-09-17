@@ -10284,6 +10284,22 @@ async function fetchTpexDailyCloseValidated(expectYmd8) {
 //   dailySeq／波段持有的 10 日序列跨過這個洞就少一天）。這裡掃最近 N 份文件，對 otcPending 的那幾天
 //   用**帶日期＋回聲驗證**的 TPEx 端點補上櫃日 K；只補缺的代號、不動已有的；補不到就留著下次再試。
 //   ⚠ 只補 closeJson；該日的其他上櫃欄位（法人等）各有自己的補抓路徑，不在這裡混做。
+// Yahoo 逐檔某一日的日 K → [收, 張, 開, 高, 低]；bar 日期（台北）必須等於 iso 才回，否則 null
+async function yahooDailyBar(code, sfx, iso) {
+  try {
+    const p1 = Math.floor(Date.parse(`${iso}T00:00:00+08:00`) / 1000) - 86400 * 2, p2 = p1 + 86400 * 5;
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${code}.${sfx}?period1=${p1}&period2=${p2}&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(10000) });
+    const j = r.ok ? await r.json() : null; const res = j?.chart?.result?.[0]; if (!res?.timestamp) return null;
+    const q = res.indicators?.quote?.[0] || {};
+    for (let i = 0; i < res.timestamp.length; i++) {
+      const day = new Date(res.timestamp[i] * 1000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      if (day !== iso) continue;
+      const c = q.close?.[i]; if (!(c > 0)) return null;
+      return [+c.toFixed(2), Math.round((q.volume?.[i] || 0) / 1000), +(q.open?.[i] || 0).toFixed(2), +(q.high?.[i] || 0).toFixed(2), +(q.low?.[i] || 0).toFixed(2)];
+    }
+    return null;
+  } catch { return null; }
+}
 async function backfillOtcPending(days = 15) {
   const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(days).get();
   let fixed = 0, pending = 0;
@@ -10293,18 +10309,33 @@ async function backfillOtcPending(days = 15) {
     pending++;
     const ymd = d.id.replace(/-/g, '');
     const otc = await _fetchOtcDated(ymd);   // 回聲驗證：日期對不上回空
-    if (!otc.length) { log(`  ⚠ 上櫃補洞 ${d.id}：TPEx 帶日期端點無資料，留待下次`); continue; }
     const close = JSON.parse(x.closeJson);
-    let added = 0;
+    let added = 0, src = 'tpex';
     for (const r of otc) {
       if (!/^\d{4}$/.test(r.code) || !(r.close > 0) || close[r.code]) continue;
       close[r.code] = [r.close, Math.round((r.vol || 0) / 1000), r.open || 0, r.high || 0, r.low || 0];
       added++;
     }
-    if (!added) { log(`  ⚠ 上櫃補洞 ${d.id}：端點有 ${otc.length} 列但無新代號可補`); continue; }
-    await d.ref.set({ closeJson: JSON.stringify(close), otcPending: false, otcFixedAt: Date.now() }, { merge: true });
+    // TPEx 帶日期端點也沒有時，退到 Yahoo 逐檔日 K（使用者 2026-09-17 指示「檢查 yahoo 是否有資料能補上」；
+    // 實測 08-20 四檔上櫃股 Yahoo 都有當日 bar）。⚠ Yahoo 逐檔會漏日 K（漲停股尤甚，見 8d7d980），
+    // 所以每根 bar 必須**回聲驗證日期＝目標日**才收；缺的檔就缺、不拿鄰日冒充。上櫃宇宙來自快照的 market=otc。
+    if (!otc.length) {
+      const markets = await marketIndexMap().catch(() => ({}));
+      const want = Object.keys(markets).filter(c => markets[c] === 'otc' && /^\d{4}$/.test(c) && !close[c]);
+      if (!want.length) { log(`  ⚠ 上櫃補洞 ${d.id}：TPEx 無資料，且快照無可補的上櫃代號`); continue; }
+      let miss = 0;
+      for (const code of want.slice(0, 1200)) {
+        const bar = await yahooDailyBar(code, 'TWO', d.id);
+        if (bar) { close[code] = bar; added++; } else miss++;
+        await sleep(150);
+      }
+      src = 'yahoo';
+      log(`  ↳ 上櫃補洞 ${d.id}：TPEx 無資料，Yahoo 逐檔補 ${added} 檔、缺 ${miss} 檔（只收日期回聲相符的 bar）`);
+    }
+    if (!added) { log(`  ⚠ 上櫃補洞 ${d.id}：${otc.length ? `端點有 ${otc.length} 列但無新代號可補` : '兩個來源都補不到'}，留待下次`); continue; }
+    await d.ref.set({ closeJson: JSON.stringify(close), otcPending: false, otcFixedAt: Date.now(), otcFixSource: src }, { merge: true });
     fixed++;
-    log(`✓ 上櫃補洞 ${d.id}：補入 ${added} 檔（${Object.keys(close).length} 檔）`);
+    log(`✓ 上櫃補洞 ${d.id}：補入 ${added} 檔（${Object.keys(close).length} 檔·${src}）`);
     await sleep(500);
   }
   if (!pending) log(`  · 上櫃補洞：最近 ${days} 份歸檔無 otcPending`);
@@ -10352,15 +10383,116 @@ async function computePriceEvents(days = 90) {
     }
   } catch (e) { log('  ⚠ 減資參考價對照失敗（事件表照寫，kind 留未對來源）:', (e.message || '').slice(0, 50)); }
   const names = await nameIndexMap().catch(() => ({}));
+  const markets = await marketIndexMap().catch(() => ({}));
   for (const e of events) e.name = names[e.code] || null;
+  // ── 還原係數（2026-09-17 使用者決定：加係數、逐榜接入）──
+  //   factor＝「事件前價格 × factor ≈ 事件後口徑」。來源優先序：
+  //   ① TWSE 減資恢復買賣參考價（上市，精確）：factor = ref / prev
+  //   ② Yahoo 逐檔事件（第三方；上櫃減資／面額變更／除權息都有）：split num/den＝股數倍率 s、除息金額 D
+  //      ⇒ 事件後參考價 = (prev − D) / s，factor = 那個 / prev。實測 2380 減資 6.6→23.86 與 TWSE 參考價一字不差。
+  //   ③ MOPS 面額變更公告（主旨「面額由「新台幣X元」變更為「新台幣Y元」」）：只做交叉比對／②缺時的後備，factor = Y/X。
+  //   Yahoo 的事件日：除權息＝除權息日（＝我們的事件日）；減資／面額變更＝停止買賣起日（落在 prevDate 與事件日之間）。
+  //   ⚠ 首日檢核：事件日收盤必須落在 prev×factor 的 ±12% 內（漲跌幅 10%＋誤差），否則係數不採用（不捏造）。
+  const yCache = {};
+  const yahooEvents = async (code) => {
+    if (yCache[code]) return yCache[code];
+    const order = markets[code] === 'otc' ? ['TWO', 'TW'] : ['TW', 'TWO'];
+    for (const sfx of order) {
+      try {
+        const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${code}.${sfx}?interval=1d&range=6mo&events=div%2Csplit`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(12000) });
+        const j = r.ok ? await r.json() : null; const res = j?.chart?.result?.[0]; if (!res) continue;
+        const ev = res.events || {};
+        const iso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+        yCache[code] = {
+          splits: Object.values(ev.splits || {}).map(x => ({ date: iso(x.date), s: (+x.numerator) / (+x.denominator) })).filter(x => x.s > 0),
+          divs: Object.values(ev.dividends || {}).map(x => ({ date: iso(x.date), amount: +x.amount || 0 })),
+        };
+        return yCache[code];
+      } catch { /* 換後綴 */ }
+      await sleep(150);
+    }
+    return (yCache[code] = { splits: [], divs: [] });
+  };
+  let mopsPar = {};
+  try { mopsPar = await mopsParValueChanges(arch[0].date); } catch { /* 沒有 MOPS 交叉就沒有 */ }
+  let withFactor = 0, rejected = 0;
+  for (const e of events) {
+    const inWin = d => d > e.prevDate && d <= e.date;
+    let factor = null, src = null, detail = null;
+    if (e.ref > 0) { factor = e.ref / e.prev; src = 'twse'; }
+    else {
+      const y = await yahooEvents(e.code);
+      const sp = y.splits.filter(x => inWin(x.date)); const dv = y.divs.filter(x => inWin(x.date));
+      const s = sp.reduce((a, x) => a * x.s, 1); const D = dv.reduce((a, x) => a + x.amount, 0);
+      if (sp.length || dv.length) {
+        factor = ((e.prev - D) / s) / e.prev; src = 'yahoo'; detail = { s: +s.toFixed(6), div: +D.toFixed(4) };
+        if (e.kind === '未對來源') e.kind = s < 1 ? '減資' : s >= 2 ? '面額變更/分割' : s > 1 ? (D > 0 ? '除權息' : '除權') : '除息';
+      }
+      const mp = mopsPar[e.code]?.find(x => x.date >= e.prevDate && x.date <= e.date);
+      if (mp) { e.mops = { oldPar: mp.oldPar, newPar: mp.newPar, at: mp.date }; if (factor == null) { factor = mp.newPar / mp.oldPar; src = 'mops'; if (e.kind === '未對來源') e.kind = '面額變更'; } }
+      await sleep(120);
+    }
+    if (factor != null) {
+      const dev = e.close / (e.prev * factor) - 1;
+      if (Math.abs(dev) > 0.12) { e.factorRejected = { factor: +factor.toFixed(6), src, firstDayDev: +(dev * 100).toFixed(1) }; factor = null; src = null; rejected++; }
+    }
+    e.factor = factor != null ? +factor.toFixed(6) : null; e.factorSrc = src; if (detail) e.yahoo = detail;
+    if (e.factor) withFactor++;
+  }
   events.sort((a, b) => b.date.localeCompare(a.date));
   await db.collection('priceEvents').doc('latest').set({
     dataDate: arch[arch.length - 1].date, updatedAt: Date.now(), fetchedAt: Date.now(), n: events.length, items: events,
     window: { from: arch[0].date, to: arch[arch.length - 1].date, days: arch.length }, band: [PRICE_EVENT_LO, PRICE_EVENT_HI],
-    note: '相鄰有收盤日比值超出 ±20% 的價格結構事件（減資／面額變更／分割／大額除權或資料錯誤）。只記錄，歸檔序列未調整；各消費端尚未引用。非投資建議。',
+    withFactor, rejected,
+    note: '相鄰有收盤日比值超出 ±20% 的價格結構事件（減資／面額變更／分割／大額除權或資料錯誤）。factor＝事件前價格×factor≈事件後口徑（來源 twse／yahoo／mops，首日 ±12% 檢核不過者不給）。歸檔原始序列不回寫；已接入的榜見各 doc 的 priceEventsApplied。非投資建議。',
   });
-  log(`✓ 價格結構事件：${events.length} 件（${arch[0].date}～${arch[arch.length - 1].date}；減資對上 ${events.filter(e => e.ref).length}）`);
+  log(`✓ 價格結構事件：${events.length} 件（${arch[0].date}～${arch[arch.length - 1].date}；有係數 ${withFactor}、檢核剔除 ${rejected}、TWSE 減資 ${events.filter(e => e.ref).length}）`);
   return true;
+}
+// 代號→市場（自快照；tse/otc）
+async function marketIndexMap() {
+  const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+  const q = snap?.quotesJson ? JSON.parse(snap.quotesJson) : {};
+  const out = {}; for (const c in q) if (q[c]?.market) out[c] = q[c].market; return out;
+}
+// MOPS 面額變更公告解析：{code: [{date, oldPar, newPar}]}（只讀 mopsNews 有的日子；09-16 起才有資料）
+async function mopsParValueChanges(fromIso) {
+  const snap = await db.collection('mopsNews').where('date', '>=', fromIso).get();
+  const out = {};
+  for (const d of snap.docs) {
+    if (d.id === 'latest') continue;
+    const items = d.data().itemsJson ? Object.values(JSON.parse(d.data().itemsJson)) : [];
+    for (const it of items) {
+      const m = String(it.subject || '').match(/面額[由從]?「?新台幣\s*([\d.]+)\s*元」?變更為「?新台幣\s*([\d.]+)\s*元/);
+      if (!m) continue;
+      (out[it.code] ||= []).push({ date: d.id, oldPar: +m[1], newPar: +m[2] });
+    }
+  }
+  return out;
+}
+// ── 還原係數的套用（各榜逐一接入時共用；2026-09-17 先接 dailySeq、swingHold）──
+//   輸入「舊→新」的 days（[{date, m}]），回傳新陣列：事件日之前（date < ev.date）該檔的 收/開/高/低 × factor，
+//   張數不動（成交額請用原始 days 算）。沒有係數的事件不動（只在事件表上看得到）。不改動傳入物件。
+async function loadPriceFactors() {
+  const d = (await db.collection('priceEvents').doc('latest').get()).data();
+  const out = {};
+  for (const e of (d?.items || [])) if (e.factor > 0 && e.code && e.date) (out[e.code] ||= []).push({ date: e.date, factor: e.factor });
+  return out;
+}
+function applyPriceFactors(days, factors) {
+  const codes = Object.keys(factors || {});
+  if (!codes.length) return days;
+  return days.map(d => {
+    let copy = null;
+    for (const code of codes) {
+      const row = d.m[code]; if (!row) continue;
+      let f = 1; for (const ev of factors[code]) if (d.date < ev.date) f *= ev.factor;
+      if (f === 1) continue;
+      if (!copy) copy = { ...d.m };
+      copy[code] = row.map((v, i) => (i === 1 ? v : (v > 0 ? +(v * f).toFixed(2) : v)));
+    }
+    return copy ? { ...d, m: copy } : d;
+  });
 }
 // 代號→名稱（自快照；失敗回空表，呼叫端自行 catch）
 async function nameIndexMap() {
@@ -12569,7 +12701,9 @@ async function computeDailySeq({ force = false } = {}) {
   const tw = taipei();
   const arch = await readArchive(70, 'closeJson');
   if (arch.length < 11) { log('  ⚠ dailySeq：chipArchive 不足 11 日'); return false; }
-  const days = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));
+  // 價格結構事件還原（2026-09-17 第一批接入）：事件日前的價格乘係數，張數不動；沒有係數的事件不動
+  const factors = await loadPriceFactors().catch(() => ({}));
+  const days = applyPriceFactors(arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })), factors);
   const latest = days[days.length - 1];
   const cur = (await db.collection('dailySeq').doc('latest').get()).data();
   // 冪等以「資料日相同且宇宙沒變大」為準：15:10 歸檔只有上市、16:45 才補上櫃——只看資料日會讓上櫃永遠補不進來（09-17 實案 1,089 檔）
@@ -12592,7 +12726,7 @@ async function computeDailySeq({ force = false } = {}) {
     if (!seq.length) continue;
     out[code] = [ma(5), ma(20), ma(60), ...seq];
   }
-  const doc = { updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date, n: Object.keys(out).length, byCodeJson: JSON.stringify(out) };
+  const doc = { updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date, n: Object.keys(out).length, byCodeJson: JSON.stringify(out), priceEventsApplied: Object.keys(factors).length };
   await db.collection('dailySeq').doc('latest').set(doc);
   log(`✓ dailySeq ${latest.date}：${doc.n} 檔（${Math.round(doc.byCodeJson.length / 1024)}KB）`);
   return true;
@@ -12605,7 +12739,10 @@ async function computeSwingHold({ force = false } = {}) {
   const tw = taipei();
   const arch = await readArchive(90, 'closeJson');          // 新→舊
   if (arch.length < 61) { log('  ⚠ 波段持有：chipArchive 不足 61 日'); return false; }
-  const days = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));   // 舊→新
+  const daysRaw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));   // 舊→新（原始，算成交額用）
+  // 價格結構事件還原（2026-09-17 第一批接入）：漲幅／連漲／回檔／均線都用還原後價格；成交額用原始價×原始張數
+  const factors = await loadPriceFactors().catch(() => ({}));
+  const days = applyPriceFactors(daysRaw, factors);
   const latest = days[days.length - 1];
   const cur = (await db.collection('swingHold').doc('latest').get()).data();
   // 冪等以「資料日相同且宇宙沒變大」為準（見 computeDailySeq 同註）：上櫃 16:45 才進歸檔，不能只看資料日
@@ -12616,7 +12753,7 @@ async function computeSwingHold({ force = false } = {}) {
   for (const c of (_codesCache || [])) names[c.code] = { name: c.name, market: c.market };
   // 宇宙快取殘缺時（實案 09-17 重啟時 TPEx 掛掉，_codesCache 只有上市）用快照補缺的名稱，不讓上櫃股名稱空白
   { const q = (await readSnapshotQuotes())?.quotes || {}; for (const c in q) if (!names[c]) names[c] = { name: q[c].name, market: q[c].market }; }
-  const amtDays = days.slice(-20);
+  const amtDays = daysRaw.slice(-20);
   const amtOf = {};
   for (const code of Object.keys(latest.m)) {
     let s = 0, n = 0; for (const d of amtDays) { const r = d.m[code]; if (r && r[0] > 0) { s += r[0] * (r[1] || 0) * 1000; n++; } }
@@ -12661,7 +12798,8 @@ async function computeSwingHold({ force = false } = {}) {
     updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date,
     universe: universe.length, universeAll: uniNow, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
     method: '漲幅＝N 個交易日前收盤→最新收盤；上漲日／最長連漲／目前連漲（平盤不算漲也不中斷）＋期間最大回檔；穩健＝上漲日≥60% 且回檔≤8%，劇烈＝回檔>12%。整合榜＝四榜聯集，分數 Σ(26−名次)，先比上榜數再比分數。',
-    caveats: ['漲幅是收盤對收盤，不含盤中高低；減資／除權息參考價未還原，近期有此類事件的個股會失真。', '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
+    caveats: [`漲幅是收盤對收盤，不含盤中高低；減資／面額變更／除權息以 priceEvents 係數還原（本次 ${Object.keys(factors).length} 檔），沒有係數的事件股仍會失真。`, '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
+    priceEventsApplied: Object.keys(factors).length,
     boards, combo: { items: comboItems },
   };
   await db.collection('swingHold').doc(latest.date).set(doc);
@@ -14056,6 +14194,7 @@ async function dailyJobsLoop() {
         if (otcOk) _otcFixDate = today;
         try { await archiveChipDaily(); } catch (e) { log('✖ otc補跑 archive:', e.message); }
         try { await backfillOtcPending(); } catch (e) { log('✖ 上櫃補洞:', (e.message || '').slice(0, 60)); }   // 更早日子的 otcPending（2026-08-20 型）
+        try { await computePriceEvents(); } catch (e) { log('✖ 價格結構事件:', (e.message || '').slice(0, 60)); }   // 上櫃併入後重算係數，供下面 dailySeq／swingHold 還原
         try { await computeStrategyPicks(); } catch (e) { log('✖ otc補跑 strategyPicks:', e.message); }
         try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
         try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
