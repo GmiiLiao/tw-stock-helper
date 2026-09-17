@@ -41,7 +41,7 @@ export default function ShortPanel() {
   const navigateTo = useAppStore(s => s.navigateTo);
   // 盤中即時（使用者 2026-09-03 指定：開盤時每列顯示即時價/量/漲跌停）。
   // useLiveQuotes＝站上標準件：鎖相 3 秒·回前景恢復·拍號快取——不另造輪詢。
-  const live = useLiveQuotes(data?.items?.map(x => x.code) ?? []);
+  const live = useLiveQuotes(data?.items?.map(x => x.code) ?? [], 60, { register: false });   // 榜單列表不搶快線名額（2026-09-17）
 
   useEffect(() => {
     let live = true;

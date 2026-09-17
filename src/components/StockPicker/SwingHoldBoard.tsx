@@ -13,9 +13,11 @@ import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 // 每日一份、不輪詢（掛載時抓一次；換日期再抓）。即時價由 useLiveQuotes 帶入（共用快線，不打上游）。
 // ⚠ 這是動能排行不是進場訊號——本站尚未對它做持有期回測，payload.caveats 一律原樣顯示。非投資建議。
 
-interface Item { rank: number; code: string; name: string; market: string; c0: number; price: number; gain: number; up: number; maxStreak: number; streak: number; maxDD: number; type: '穩健' | '劇烈' | '一般'; amtM: number }
+type MaFlags = (boolean | null)[];            // [5日, 20日, 60日] 收盤是否在均線之上；null＝資料不足
+type Seq = number[];                           // 區間逐日攤平 [漲跌%, 張, 漲跌%, 張, …]（Firestore 不接受巢狀陣列）
+interface Item { rank: number; code: string; name: string; market: string; c0: number; price: number; gain: number; up: number; maxStreak: number; streak: number; maxDD: number; type: '穩健' | '劇烈' | '一般'; amtM: number; ma?: MaFlags; seq?: Seq }
 interface Board { window: number; from: string; to: string; eligible: number; items: Item[] }
-interface ComboItem { rank: number; code: string; name: string; market: string; price: number; boards: number; score: number; ranks: Record<string, number>; gains: Record<string, number>; streak: number; amtM: number }
+interface ComboItem { rank: number; code: string; name: string; market: string; price: number; boards: number; score: number; ranks: Record<string, number>; gains: Record<string, number>; streak: number; amtM: number; ma?: MaFlags; seq?: Seq | null; seqWin?: number }
 interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[] } }
 
 type Tab = 'combo' | 'd5' | 'd10' | 'd20' | 'd60';
@@ -23,6 +25,37 @@ const TABS: { id: Tab; label: string }[] = [{ id: 'combo', label: '🏁 整合�
 const UP = '#f03e3e', DOWN = '#2f9e44', MUTED = 'var(--text-muted)';
 const mono = "'JetBrains Mono', monospace";
 const typeStyle: Record<string, { bg: string; fg: string }> = { 穩健: { bg: 'rgba(34,197,94,0.15)', fg: '#4ade80' }, 劇烈: { bg: 'rgba(249,115,22,0.15)', fg: '#f97316' }, 一般: { bg: 'rgba(148,163,184,0.15)', fg: 'var(--text-muted)' } };
+
+// 均線位置小提示：▲3＝站上 5/20/60 全部；▲2／▲1＝只站上部分（title 列出哪幾條）；▽＝三線之下。資料不足顯示 —。
+function MaChip({ ma }: { ma?: MaFlags }) {
+  if (!ma || ma.every(v => v == null)) return null;
+  const names = ['5日', '20日', '60日'];
+  const above = ma.filter(v => v === true).length, known = ma.filter(v => v != null).length;
+  const title = `收盤 vs 均線：${ma.map((v, i) => `${names[i]}${v == null ? '？' : v ? '上' : '下'}`).join('・')}`;
+  const all = above === known && known === 3;
+  const style = { padding: '0 5px', borderRadius: 5, fontSize: 'calc(11px * var(--fz))', fontWeight: 800, marginLeft: 4, whiteSpace: 'nowrap' as const,
+    background: all ? 'rgba(240,62,62,0.16)' : above === 0 ? 'rgba(47,158,68,0.16)' : 'rgba(251,191,36,0.16)', color: all ? UP : above === 0 ? DOWN : '#fbbf24' };
+  return <span title={title} style={style}>{above === 0 ? '▽' : `▲${above}`}</span>;
+}
+// 區間逐日縮圖：柱高＝成交張數（相對區間最大量），顏色＝當日漲跌；一眼分辨「量增價漲的起漲」與「量縮的回落」。
+function SeqBars({ seq, win }: { seq?: Seq | null; win?: number }) {
+  if (!seq?.length) return <span style={{ color: MUTED }}>—</span>;
+  const pairs: [number, number][] = []; for (let i = 0; i + 1 < seq.length; i += 2) pairs.push([seq[i], seq[i + 1]]);
+  const W = Math.min(96, Math.max(40, pairs.length * 3)), H = 18, vmax = Math.max(1, ...pairs.map(d => d[1])), bw = W / pairs.length;
+  const title = `${win ? win + '日' : ''}逐日（舊→新）：` + pairs.map(d => `${d[0] >= 0 ? '+' : ''}${d[0]}%/${d[1].toLocaleString()}張`).join('，');
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'inline-block', verticalAlign: 'middle' }}><title>{title}</title>
+      {pairs.map((d, i) => { const h = Math.max(1, (d[1] / vmax) * H); return <rect key={i} x={i * bw + 0.2} y={H - h} width={Math.max(0.8, bw - 0.4)} height={h} fill={d[0] > 0 ? UP : d[0] < 0 ? DOWN : '#94a3b8'} opacity={0.9} />; })}
+    </svg>
+  );
+}
+// 即時狀態小提示：漲停鎖死（買不到）／跌停
+function LiveChip({ chg }: { chg?: number }) {
+  if (chg == null) return null;
+  if (chg >= 9.5) return <span title="即時已達漲停（鎖死買不到）" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(240,62,62,0.16)', color: UP, fontWeight: 800 }}>🔒漲停</span>;
+  if (chg <= -9.5) return <span title="即時已達跌停" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(47,158,68,0.16)', color: DOWN, fontWeight: 800 }}>跌停</span>;
+  return null;
+}
 
 export default function SwingHoldBoard() {
   const dt = useDayTradeCodes();
@@ -50,7 +83,7 @@ export default function SwingHoldBoard() {
 
   const board = tab === 'combo' ? null : data?.boards?.[tab];
   const codes = useMemo(() => (tab === 'combo' ? data?.combo?.items : board?.items)?.map(i => i.code) ?? [], [tab, data, board]);
-  const quotes = useLiveQuotes(codes);
+  const quotes = useLiveQuotes(codes, 60, { register: false });   // 整張榜不搶快線名額；展開走勢那檔由圖自己登記
 
   if (err) return <div style={{ padding: 20, color: MUTED }}>⚠ 波段持有榜{err}（伺服器暫時讀不到，不是空榜）</div>;
   if (!data) return <div style={{ padding: 20, color: MUTED }}>載入中…</div>;
@@ -64,12 +97,14 @@ export default function SwingHoldBoard() {
     const d = (q.price / price - 1) * 100;
     return <span style={{ color: d >= 0 ? UP : DOWN }} title="即時價（相對資料日收盤）">{q.price.toFixed(2)} <span style={{ fontSize: 'calc(11.5px * var(--fz))' }}>{d >= 0 ? '+' : ''}{d.toFixed(1)}%</span></span>;
   };
-  const nameCell = (it: { code: string; name: string }) => (
+  const nameCell = (it: { code: string; name: string; ma?: MaFlags }) => (
     <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit' }}>
       <button onClick={() => setOpenCode(c => (c === it.code ? null : it.code))} title="展開／收合即時走勢" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, fontFamily: mono }}>{openCode === it.code ? '▾' : '▸'} {it.code}</button>
       <span style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)} title="開個股頁">{it.name}</span>
       {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
       <span style={{ marginLeft: 6 }}><AddCandidateButton code={it.code} variant="icon" /></span>
+      <MaChip ma={it.ma} />
+      <LiveChip chg={quotes[it.code]?.changePercent} />
     </td>
   );
   const chartRow = (it: { code: string; name: string; price: number }, span: number) => openCode === it.code ? (
@@ -105,6 +140,7 @@ export default function SwingHoldBoard() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead><tr>
               <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤</th><th style={head}>即時</th>
+              <th style={head} title="逐日漲跌×成交量縮圖（優先 20 日窗）：紅＝漲、綠＝跌，柱高＝量">量序</th>
               <th style={head} title="進了幾個窗的榜（最多 4）">上榜</th><th style={head} title="Σ(26−名次)，越高越靠前">分數</th>
               <th style={head}>5日</th><th style={head}>10日</th><th style={head}>20日</th><th style={head}>60日</th><th style={head}>目前連漲</th><th style={head}>均額(百萬)</th>
             </tr></thead>
@@ -112,11 +148,12 @@ export default function SwingHoldBoard() {
               {(data.combo?.items ?? []).flatMap(it => [
                 <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
                   <td style={cell}>{it.rank}</td>{nameCell(it)}<td style={cell}>{it.price}</td><td style={cell}>{liveCell(it.code, it.price)}</td>
+                  <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={it.seqWin} /></td>
                   <td style={{ ...cell, fontWeight: 700, color: it.boards >= 3 ? UP : 'var(--text-primary)' }}>{it.boards}/4</td><td style={cell}>{it.score}</td>
                   {['d5', 'd10', 'd20', 'd60'].map(k => <td key={k} style={{ ...cell, color: it.gains[k] != null ? UP : MUTED }}>{it.gains[k] != null ? `+${it.gains[k]}% (#${it.ranks[k]})` : '—'}</td>)}
                   <td style={cell}>{it.streak} 日</td><td style={cell}>{it.amtM.toLocaleString()}</td>
                 </tr>,
-                chartRow(it, 12),
+                chartRow(it, 13),
               ])}
             </tbody>
           </table>
@@ -126,6 +163,7 @@ export default function SwingHoldBoard() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
               <thead><tr>
                 <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>起 → 收</th><th style={head}>{board.window}日漲幅</th><th style={head}>即時</th>
+                <th style={head} title="區間逐日漲跌×成交量縮圖（舊→新）：紅＝漲、綠＝跌，柱高＝量。量增價漲＝起漲，量縮價跌＝回落">量序</th>
                 <th style={head} title="區間內收盤高於前一日的天數">上漲日</th><th style={head}>最長連漲</th><th style={head}>目前連漲</th><th style={head} title="區間內自高點的最大跌幅">最大回檔</th><th style={head}>型態</th><th style={head}>均額(百萬)</th>
               </tr></thead>
               <tbody>
@@ -133,12 +171,13 @@ export default function SwingHoldBoard() {
                   <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
                     <td style={cell}>{it.rank}</td>{nameCell(it)}<td style={cell}>{it.c0} → {it.price}</td>
                     <td style={{ ...cell, fontWeight: 700, color: UP }}>+{it.gain}%</td><td style={cell}>{liveCell(it.code, it.price)}</td>
+                    <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={board.window} /></td>
                     <td style={cell}>{it.up}/{board.window}</td><td style={cell}>{it.maxStreak}</td><td style={cell}>{it.streak}</td>
                     <td style={{ ...cell, color: it.maxDD > 12 ? '#f97316' : MUTED }}>−{it.maxDD}%</td>
                     <td style={{ ...cell, fontFamily: 'inherit' }}><span style={{ padding: '1px 6px', borderRadius: 6, background: typeStyle[it.type].bg, color: typeStyle[it.type].fg, fontSize: 'calc(11.5px * var(--fz))' }}>{it.type}</span></td>
                     <td style={cell}>{it.amtM.toLocaleString()}</td>
                   </tr>,
-                  chartRow(it, 11),
+                  chartRow(it, 12),
                 ])}
               </tbody>
             </table>

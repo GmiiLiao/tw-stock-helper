@@ -16,7 +16,9 @@ export async function GET(request: NextRequest) {
 
   // Tell the daemon which stocks are being actively viewed so it folds them
   // into its real-time priority sweep (throttled, fire-and-forget).
-  recordLiveRequests(codes);
+  // nv=1（2026-09-17）：榜單整張 25～60 檔的即時價欄不登記「瀏覽中」——快線 120 檔名額與自選共用，
+  // 一展開榜單就把名額塞滿，使用者最後打開的那檔會被擠回 40 秒一輪的主迴圈。展開走勢時 StockTrendChart 自己會登記那一檔。
+  if (request.nextUrl.searchParams.get('nv') !== '1') recordLiveRequests(codes);
 
   try {
     const result = await getMisQuoteDataInternal(codes);

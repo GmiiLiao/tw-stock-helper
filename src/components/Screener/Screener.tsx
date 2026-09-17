@@ -723,7 +723,7 @@ export default function Screener() {
   }, [allStocks, filter, sortBy, sortDir, ratings]);
 
   // Live MIS quotes for the visible filtered rows — overlay real-time price.
-  const liveQuotes = useLiveQuotes(filteredStocks.map(s => s.code), 60);
+  const liveQuotes = useLiveQuotes(filteredStocks.map(s => s.code), 60, { register: false });   // 篩選結果最多 60 檔，不搶快線名額（2026-09-17）
   const withLive = (s: StockInfo): StockInfo => {
     const q = liveQuotes[s.code];
     return q && q.price > 0 ? { ...s, price: q.price, change: q.change, changePercent: q.changePercent } : s;

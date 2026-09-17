@@ -23,7 +23,9 @@ export interface LiveQuote {
 // 節奏統一走 market-clock 的 liveQuoteInterval（2026-09-02 升格為全站標準件，
 // 邏輯原封搬家：鎖相+盤前 15s+休市/背景 10 分鐘）。
 
-export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuote> {
+export function useLiveQuotes(codes: string[], max = 60, opts: { register?: boolean } = {}): Record<string, LiveQuote> {
+  // register:false ＝ 榜單整張列表用：只讀價、不把 25～60 檔登記成「瀏覽中」搶快線名額（見 mis-quote route nv=1）
+  const nv = opts.register === false ? '&nv=1' : '';
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   // Stable key so the effect only re-subscribes when the code set changes.
   const key = [...new Set(codes.filter(Boolean))].sort().slice(0, max).join(',');
@@ -37,7 +39,7 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
     const fetchQuotes = async () => {
       try {
         // t=拍號：CDN 快取鍵按拍分開（見 market-clock revealTick）——同拍全球共享、換拍必回源
-        const res = await fetch(`/api/twse/mis-quote?codes=${encodeURIComponent(key)}&t=${revealTick()}`);
+        const res = await fetch(`/api/twse/mis-quote?codes=${encodeURIComponent(key)}&t=${revealTick()}${nv}`);
         if (!res.ok) return;
         const data = await res.json();
         if (!alive || !Array.isArray(data.quotes)) return;
@@ -59,7 +61,7 @@ export function useLiveQuotes(codes: string[], max = 60): Record<string, LiveQuo
     // 背景排的 10 分鐘計時器在回前景時不會自己縮短，必須 onVis 重排）。
     const stop = startLiveLoop(fetchQuotes);
     return () => { alive = false; stop(); };
-  }, [key]);
+  }, [key, nv]);
 
   return quotes;
 }

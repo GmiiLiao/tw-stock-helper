@@ -549,11 +549,12 @@ async function timedJob(name, fn, tag = '') {
   return ms;
 }
 function slowestJobs(n = 5) { return Object.entries(_jobTimings).sort((a, b) => b[1].ms - a[1].ms).slice(0, n).map(([k, v]) => `${k} ${(v.ms / 1000).toFixed(0)}s`).join('、'); }
+let _hotStats = null;   // 快線揭示落後統計（5 分鐘一筆，見 hotQuoteLoop）
 async function writeDaemonHealth() {
   try {
     await db.collection('system').doc('daemonHealth').set({
       at: Date.now(), pid: process.pid, ollama: _ollamaHealth, breakers: breakerSnapshot(),
-      jobTimings: _jobTimings, slowest: slowestJobs(8),
+      jobTimings: _jobTimings, slowest: slowestJobs(8), hotLag: _hotStats,
     });
   } catch (e) { log('⚠ daemonHealth 寫入失敗:', e.message); }
 }
@@ -2012,6 +2013,13 @@ async function publishIndexFromHot(t, o) {
 
 async function hotQuoteLoop() {
   let _hotN = 0, _hotFresh = 0;
+  // 2026-09-17 量測：固定 120 檔批次的回應被 MIS 凍住約 30 秒（120 檔揭示時戳同時跳）。主迴圈批次組成每輪不同，
+  // 落後只有 P50 約 20 秒 ⇒ 每輪把優先集「輪轉」一個起點，讓 ex_ch 字串每輪不同。上游請求數不變。
+  // 防護（wm-resilience）：輪換後若連續 3 輪 0 live（盤中），退回固定順序 10 分鐘並留 log；不靜默。
+  // 量測（wm-freshness 的 seed 時鐘 vs content 時鐘）：每輪算 liveAt−revealAt 的 P50/P90 與「揭示時戳前進比例」，
+  // 5 分鐘一報並寫進 daemonHealth.hotLag——這是明天開盤驗證輪換有沒有效的唯一依據。
+  let _hotRound = 0, _hotRotate = true, _hotRotateOffUntil = 0, _hotZero = 0;
+  const _hotPrevReveal = {}; let _hotLags = [], _hotChanged = 0, _hotCompared = 0;
   for (;;) {
     try {
       const tw = taipei();
@@ -2022,12 +2030,22 @@ async function hotQuoteLoop() {
       const codes = await getAllMarketCodes(false);
       if (!codes.length) { await sleep(15000); continue; }
       const byCode = {}; for (const c of codes) byCode[c.code] = c;
-      const prio = (await buildPriorityCodes(codes)).slice(0, 120);
+      const prio0 = (await buildPriorityCodes(codes)).slice(0, 120);
+      if (!_hotRotate && Date.now() > _hotRotateOffUntil) { _hotRotate = true; log('· 快線：恢復輪換批次'); }
+      const off = _hotRotate && prio0.length ? (_hotRound++ % prio0.length) : 0;
+      const prio = [...prio0.slice(off), ...prio0.slice(0, off)];
       // 指數搭同一班車（2026-08-17 使用者要求 5 秒內更新）：120+2 檔一個請求，
       // 上游請求數零增加。t00/o00 只進指數發布，不進個股報價。
       const batch = [...prio.map(c => byCode[c]).filter(Boolean), { market: 'tse', code: 't00' }, { market: 'otc', code: 'o00' }];
       if (batch.length <= 2) { await sleep(15000); continue; }
       const mis = await misBatch(batch);   // 護欄（pz 紀律/漲跌停/高低價）都在裡面
+      {
+        const nowMs = Date.now(); const liveQ = Object.values(mis).filter(q => q?.hasLive);
+        if (liveQ.length === 0 && mins >= 9 * 60 + 2) { if (++_hotZero >= 3 && _hotRotate) { _hotRotate = false; _hotRotateOffUntil = nowMs + 10 * 60000; _hotZero = 0; log('⚠ 快線：輪換批次後連續 3 輪 0 live，退回固定批次 10 分鐘'); } }
+        else _hotZero = 0;
+        for (const k in mis) { const q = mis[k]; if (!q?.hasLive || !(q.revealAt > 0)) continue; _hotLags.push((nowMs - q.revealAt) / 1000);
+          if (_hotPrevReveal[k] != null) { _hotCompared++; if (q.revealAt !== _hotPrevReveal[k]) _hotChanged++; } _hotPrevReveal[k] = q.revealAt; }
+      }
       publishIndexFromHot(mis.t00, mis.o00).catch(() => {});
       const out = {};
       for (const c of batch) {
@@ -2050,7 +2068,13 @@ async function hotQuoteLoop() {
       }
       // 心跳：每 ~5 分鐘報一次本期拿到新成交的檔次（觀察 MIS 供應健康度）
       _hotFresh += Object.values(mis).filter(q => q?.hasLive).length;
-      if (++_hotN >= 60) { log(`✓ 快線：近5分鐘 ${_hotFresh} 檔次新成交（每輪 ${batch.length} 檔）`); _hotN = 0; _hotFresh = 0; }
+      if (++_hotN >= 60) {
+        const ls = _hotLags.slice().sort((a, b) => a - b); const pct = p => (ls.length ? ls[Math.min(ls.length - 1, Math.floor(ls.length * p))].toFixed(0) : '—');
+        const freshPct = _hotCompared ? Math.round(_hotChanged / _hotCompared * 100) : null;
+        _hotStats = { at: Date.now(), p50: ls.length ? +pct(0.5) : null, p90: ls.length ? +pct(0.9) : null, freshPct, rotate: _hotRotate, samples: ls.length };
+        log(`✓ 快線：近5分鐘 ${_hotFresh} 檔次新成交（每輪 ${batch.length} 檔）｜揭示落後 P50 ${pct(0.5)}s P90 ${pct(0.9)}s｜揭示更新率 ${freshPct ?? '—'}%｜輪換 ${_hotRotate ? '開' : '關'}`);
+        _hotN = 0; _hotFresh = 0; _hotLags = []; _hotChanged = 0; _hotCompared = 0;
+      }
       // 鎖相（2026-08-17 使用者指正「應該只有一個時間同步擴散」）：
       // MIS 揭示貼齊整 5 秒牆鐘（實測 t 欄全為 :00/:05/:10…）。與其用自己的
       // 相位每 5 秒睡一輪（平均多等 2.5 秒、且每個使用者相位都不同），
@@ -12227,7 +12251,12 @@ async function computeSwingHold({ force = false } = {}) {
       const gain = (c / c0 - 1) * 100;
       if (!(gain > 0)) continue;
       const type = (up / N >= 0.6 && maxDD <= 8) ? '穩健' : maxDD > 12 ? '劇烈' : '一般';
-      rows.push({ code, name: names[code]?.name || '', market: names[code]?.market || '', c0, price: c, gain: +gain.toFixed(1), up, maxStreak, streak, maxDD: +maxDD.toFixed(1), type, amtM: Math.round(amtOf[code] / 1e6) });
+      // 2026-09-17 使用者：列上要有「價格在 5/20/60 日線之上」的小提示，與區間逐日漲跌×成交量的縮圖（辨識起漲／回落）
+      const allCl = days.map(d => d.m[code]?.[0]).filter(v => v > 0);
+      const maAbove = [5, 20, 60].map(n => (allCl.length >= n ? c > allCl.slice(-n).reduce((s2, v) => s2 + v, 0) / n : null));
+      // Firestore 不接受巢狀陣列 ⇒ 攤平成 [漲跌%, 張, 漲跌%, 張, …]，前端每 2 個一組還原
+      const seq = win.slice(1).flatMap((d, i) => [+(((cl[i + 1] / cl[i]) - 1) * 100).toFixed(1), Math.round(d.m[code]?.[1] || 0)]);
+      rows.push({ code, name: names[code]?.name || '', market: names[code]?.market || '', c0, price: c, gain: +gain.toFixed(1), up, maxStreak, streak, maxDD: +maxDD.toFixed(1), type, amtM: Math.round(amtOf[code] / 1e6), ma: maAbove, seq });
     }
     rows.sort((a, b) => b.gain - a.gain);
     boards['d' + N] = { window: N, from: win[0].date, to: latest.date, eligible: rows.length, items: rows.slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r })) };
@@ -12235,7 +12264,8 @@ async function computeSwingHold({ force = false } = {}) {
   // 整合榜
   const combo = {};
   for (const N of SWING_HOLD_WINDOWS) for (const it of boards['d' + N].items) {
-    const c = (combo[it.code] ||= { code: it.code, name: it.name, market: it.market, price: it.price, boards: 0, score: 0, ranks: {}, gains: {}, streak: it.streak, amtM: it.amtM });
+    const c = (combo[it.code] ||= { code: it.code, name: it.name, market: it.market, price: it.price, boards: 0, score: 0, ranks: {}, gains: {}, streak: it.streak, amtM: it.amtM, ma: it.ma, seq: null, seqWin: 0 });
+    if (N === 20 || (c.seqWin !== 20 && N > c.seqWin)) { c.seq = it.seq; c.seqWin = N; }   // 整合榜縮圖：優先用 20 日窗，否則用最長的那個
     c.boards++; c.score += SWING_HOLD_TOP + 1 - it.rank; c.ranks['d' + N] = it.rank; c.gains['d' + N] = it.gain;
   }
   const comboItems = Object.values(combo).sort((a, b) => b.boards - a.boards || b.score - a.score).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
