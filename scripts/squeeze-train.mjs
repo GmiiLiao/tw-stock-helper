@@ -180,9 +180,21 @@ function evalGroup(g, mode, base, segOf = null) {
 
 // ── 4. 候選因子 ───────────────────────────────────────────────────
 const NEWS_MIN_DAYS = +(process.env.NEWS_MIN_DAYS || 30);
-function factorGrid(newsDays = 0) {
+// 第三段（§2.3）：連續型因子另加**分位數門檻**版本，門檻由訓練段母體算出並寫進名稱與報表，不再只靠手寫常數。
+//   q＝{ volX:{p20,p80}, ratio:{p80}, instVsVol:{p80}, ret5:{p80}, pos:{p80}, shVsVol:{p80} }（缺就不加）
+function factorGrid(newsDays = 0, q = null) {
   const F = [];
   const add = (name, group, sel, dir = '+') => F.push({ name, group, sel, dir });
+  if (q) {
+    const qq = (k, p) => q[k]?.[p];
+    if (qq('volX', 'p80') != null) add(`量比≥P80(${qq('volX', 'p80')})`, '量', x => x.f.volX != null && x.f.volX >= qq('volX', 'p80'));
+    if (qq('volX', 'p20') != null) add(`量比<P20(${qq('volX', 'p20')})縮量`, '量', x => x.f.volX != null && x.f.volX < qq('volX', 'p20'));
+    if (qq('ratio', 'p80') != null) add(`券資比≥P80(${qq('ratio', 'p80')}%)`, '券', x => x.f.ratio != null && x.f.ratio >= qq('ratio', 'p80'));
+    if (qq('shVsVol', 'p80') != null) add(`融券增/均量≥P80(${qq('shVsVol', 'p80')}%)`, '券', x => x.f.shVsVol != null && x.f.shVsVol >= qq('shVsVol', 'p80'));
+    if (qq('instVsVol', 'p80') != null) add(`法人淨買/均量≥P80(${qq('instVsVol', 'p80')}%)`, '法', x => x.f.instVsVol != null && x.f.instVsVol >= qq('instVsVol', 'p80'));
+    if (qq('ret5', 'p80') != null) add(`5日漲幅≥P80(${qq('ret5', 'p80')}%)`, '價', x => x.f.ret5 != null && x.f.ret5 >= qq('ret5', 'p80'));
+    if (qq('pos', 'p80') != null) add(`收位≥P80(${qq('pos', 'p80')})`, '價', x => x.f.pos != null && x.f.pos >= qq('pos', 'p80'));
+  }
   add('漲≥5%', '價', x => x.f.chg >= 5);
   add('漲3~8.5%（可買區）', '價', x => x.f.chg >= 3 && x.f.chg <= 8.5);
   add('破20日高', '價', x => x.f.brk20 === 1);
@@ -246,11 +258,78 @@ function datasetHash(samples, twDates) {
   return h.digest('hex').slice(0, 12);
 }
 
+// 訓練段母體的分位數（純動能母體上算，與因子測試同母體）
+function quantiles(set) {
+  const q = {};
+  const take = (k, ps) => { const a = set.map(x => x.f[k]).filter(v => v != null && Number.isFinite(v)); if (a.length < 200) return; q[k] = {}; for (const p of ps) q[k][`p${Math.round(p * 100)}`] = +pct(a, p).toFixed(2); };
+  take('volX', [0.2, 0.8]); take('ratio', [0.8]); take('shVsVol', [0.8]); take('instVsVol', [0.8]); take('ret5', [0.8]); take('pos', [0.8]);
+  return q;
+}
+
+// 第三段（§2.4 多重比較）：**隨機因子安慰劑**。把每個因子的入選遮罩在「同一天內」隨機打亂（保留每日入選數），
+// 用同樣的「訓練段挑最佳 → 樣本外看超額」流程重跑 N 次，得到「亂挑也能挑到多好」的分佈；正式主模型的樣本外超額
+// 必須高於安慰劑最佳的 P95。只用日層級平均（不做自助法），成本可控。
+function randomFactorPlacebo(train, oot, baseTr, baseOo, grid, mode, trials = 100) {
+  const isMom = x => x.f.chg >= 5;
+  const byDate = (set) => { const m = {}; for (const x of set) if (isMom(x) && mode.ret(x.y) != null) (m[x.date] ||= []).push(x); return m; };
+  const trD = byDate(train), ooD = byDate(oot);
+  const dailyExcess = (D, sizes, rnd, base) => {   // sizes: date → 該因子在該日的入選數；隨機抽同數量
+    const out = [];
+    for (const d in sizes) { const arr = D[d]; if (!arr || !sizes[d]) continue; const k = Math.min(sizes[d], arr.length); let s = 0; const used = new Set(); for (let i = 0; i < k; i++) { let j; do { j = Math.floor(rnd() * arr.length); } while (used.has(j)); used.add(j); s += mode.ret(arr[j].y); } out.push(s / k - (base[d] ?? 0)); }
+    return out;
+  };
+  const sizesOf = (f, D) => { const m = {}; for (const d in D) { const n = D[d].filter(f.sel).length; if (n) m[d] = n; } return m; };
+  const trSizes = grid.map(f => sizesOf(f, trD)), ooSizes = grid.map(f => sizesOf(f, ooD));
+  const bestOot = [];
+  for (let t = 0; t < trials; t++) {
+    const rnd = prng(1000 + t);
+    let best = null;
+    for (let i = 0; i < grid.length; i++) {
+      const dtr = dailyExcess(trD, trSizes[i], rnd, baseTr); if (dtr.length < MIN_DAYS) continue;
+      const m = mean(dtr); if (best == null || m > best.m) best = { i, m };
+    }
+    if (!best) continue;
+    const doo = dailyExcess(ooD, ooSizes[best.i], rnd, baseOo);
+    if (doo.length) bestOot.push(mean(doo));
+  }
+  bestOot.sort((a, b) => a - b);
+  if (!bestOot.length) return null;
+  return { trials: bestOot.length, p50: +bestOot[Math.floor(bestOot.length * 0.5)].toFixed(3), p95: +bestOot[Math.floor(bestOot.length * 0.95)].toFixed(3), max: +bestOot[bestOot.length - 1].toFixed(3), note: '隨機因子（同日內打亂遮罩、保留每日入選數）挑最佳後的樣本外日層級超額分佈；只供參考——稀疏因子（每日 2～3 檔）會把 P95 拉高，正式閘門用逐候選置換檢定' };
+}
+
+// 逐候選置換檢定（正式閘門）：把**這個候選自己**的遮罩在同日內打亂 N 次（每日入選數不變），
+//   得到「同樣稀疏度、純靠運氣」的樣本外超額分佈；p＝隨機超額 ≥ 實際超額的比例。p ≤ 0.05 才採用。
+function permutationTest(oot, baseOo, sel, mode, observed, trials = 200) {
+  const isMom = x => x.f.chg >= 5;
+  const D = {}; for (const x of oot) if (isMom(x) && mode.ret(x.y) != null) (D[x.date] ||= []).push(x);
+  const sizes = {}; for (const d in D) { const n = D[d].filter(sel).length; if (n) sizes[d] = n; }
+  let ge = 0, done = 0;
+  for (let t = 0; t < trials; t++) {
+    const rnd = prng(5000 + t); const out = [];
+    for (const d in sizes) { const arr = D[d]; const k = Math.min(sizes[d], arr.length); const used = new Set(); let s = 0; for (let i = 0; i < k; i++) { let j; do { j = Math.floor(rnd() * arr.length); } while (used.has(j)); used.add(j); s += mode.ret(arr[j].y); } out.push(s / k - (baseOo[d] ?? 0)); }
+    if (!out.length) continue; done++; if (mean(out) >= observed) ge++;
+  }
+  return done ? { p: +(ge / done).toFixed(3), trials: done } : null;
+}
+
+// 第四段（§2.7）：軋空機率校準表——依「命中幾個籌碼因子」分桶，列樣本外實際軋空率
+function squeezeCalibration(oot, grid, mode) {
+  const chip = grid.filter(g => g.group === '券');
+  const isMom = x => x.f.chg >= 5;
+  const buckets = {};
+  for (const x of oot) { if (!isMom(x)) continue; const k = Math.min(3, chip.filter(f => f.sel(x)).length); const b = (buckets[k] ||= { n: 0, sq: 0 }); b.n++; if (x.y.squeeze === 1) b.sq++; }
+  const rows = Object.keys(buckets).sort().map(k => ({ chipHits: +k === 3 ? '3+' : +k, n: buckets[k].n, squeezeRate: +(buckets[k].sq / buckets[k].n * 100).toFixed(2) }));
+  const total = rows.reduce((s, r) => s + r.n, 0);
+  return { rows, calibrated: total >= 200, note: total >= 200 ? '樣本外·依命中籌碼因子數分桶' : `樣本外僅 ${total} 筆，未校準` };
+}
+
 // ── 5. 單一交易模式的完整訓練 ────────────────────────────────────────
-function trainMode(mode, samples, twDates, grid, say) {
+function trainMode(mode, samples, twDates, baseGrid, say) {
   // 母體：該模式進場可買者；切點固定
   const pool = samples.filter(x => mode.entryOk(x.y) && mode.ret(x.y) != null);
   const train = pool.filter(x => x.date < OOS_FROM), oot = pool.filter(x => x.date >= OOS_FROM);
+  const q = quantiles(train.filter(x => x.f.chg >= 5));
+  const grid = [...baseGrid, ...factorGrid(0, q).filter(f => /P[28]0/.test(f.name))];   // 固定門檻＋分位數門檻
   const trainDates = [...new Set(train.map(x => x.date))].sort();
   const segCut = [trainDates[Math.floor(trainDates.length / 3)], trainDates[Math.floor(trainDates.length * 2 / 3)]];
   const segOf = d => (d < segCut[0] ? 0 : d < segCut[1] ? 1 : 2);   // 三段在訓練段內切（§2.4）
@@ -314,20 +393,44 @@ function trainMode(mode, samples, twDates, grid, say) {
   const sqValidated = sqCands.slice(0, 15).map(c => { const o = sqRate(oot, selOf(c.parts)); const pass = o.n >= 25 && o.rate != null && baseSqOot.rate != null && o.rate > baseSqOot.rate; return { name: c.parts.join(' × '), parts: c.parts, train: c.train, oot: o, pass, why: pass ? 'ok' : (o.n < 25 ? '樣本外筆數不足' : '樣本外未贏純動能軋空率') }; });
   const sqBest = sqValidated.filter(v => v.pass).sort((a, b) => b.oot.rate - a.oot.rate)[0] || null;
 
+  // 第三段：隨機因子安慰劑（參考）＋逐候選置換檢定（正式閘門 p ≤ 0.05）；不過就降級 no_edge（誠實）
+  const placebo = randomFactorPlacebo(train, oot, baseTr, baseOo, grid, mode);
+  let mainFinal = main, perm = null;
+  if (main) {
+    perm = permutationTest(oot, baseOo, selOf(main.parts), mode, main.oot.excess);
+    if (perm && perm.p > 0.05) { say(`      ⚠ 主模型 ${main.name} 樣本外超額 ${main.oot.excess}pp 置換檢定 p=${perm.p} > 0.05 ⇒ 不採用（安慰劑 P95 ${placebo?.p95 ?? '—'}pp 供參）`); mainFinal = null; }
+    else say(`      置換檢定 p=${perm?.p ?? '—'}（${perm?.trials ?? 0} 次）｜隨機因子安慰劑 P50 ${placebo?.p50 ?? '—'}／P95 ${placebo?.p95 ?? '—'}pp（參考）`);
+  }
+  const calibration = squeezeCalibration(oot, grid, mode);
+
   return {
-    tradeMode: mode.key, tradeLabel: mode.label, oosFrom: OOS_FROM,
+    tradeMode: mode.key, tradeLabel: mode.label, oosFrom: OOS_FROM, quantiles: q, placebo, permutation: perm, calibration,
+    mainRejectedByPlacebo: main && !mainFinal ? { name: main.name, excess: main.oot.excess, p: perm?.p ?? null, placeboP95: placebo?.p95 ?? null } : null,
     label: mode.key === 'daytrade' ? 'dtRet（明開買→明收賣）' : mode.key === 'swing' ? 'hold5Ret（今收買→第5日收賣）' : 'openRet（今收買→明開賣）',
     samples: pool.length, excludedEntry: samples.length - pool.length, trainN: train.length, ootN: oot.length, trainDays: trainDates.length, ootDays: new Set(oot.map(x => x.date)).size,
     baseline: { train: { all: allTr, momentum: momTr }, oot: { all: allOo, momentum: momOo } },
-    main: main ? { name: main.name, parts: main.parts, train: main.train, oot: main.oot, edgeVsMomentum: main.oot.excess, ci: main.oot.ci } : null,
+    main: mainFinal ? { name: mainFinal.name, parts: mainFinal.parts, train: mainFinal.train, oot: mainFinal.oot, edgeVsMomentum: mainFinal.oot.excess, ci: mainFinal.oot.ci } : null,
     branches,
     squeezeProb: sqBest ? { name: sqBest.name, parts: sqBest.parts, train: sqBest.train, oot: sqBest.oot, baseline: { train: baseSqTrain, oot: baseSqOot }, lift: +(sqBest.oot.rate - (baseSqOot.rate ?? 0)).toFixed(2) } : { status: 'no_edge', baseline: { train: baseSqTrain, oot: baseSqOot }, note: '無軋空專用組合通過樣本外驗收' },
     squeezeValidated: sqValidated, validated, singleTop: single.slice(0, 16),
     passedCount: passed.length, comboCount: combos.length, survivorCount: survivors.length,
-    status: main ? 'ok' : 'no_edge',
-    note: main ? null : '本輪沒有任何組合通過樣本外驗收（規則 v2：日層級 CI 下界>0）——誠實結果，不是故障。',
+    status: mainFinal ? 'ok' : 'no_edge',
+    note: mainFinal ? null : (main ? `本輪最佳 ${main.name} 置換檢定 p=${perm?.p ?? '—'} 未達 0.05，不採用（誠實結果）。` : '本輪沒有任何組合通過樣本外驗收（規則 v2：日層級 CI 下界>0）——誠實結果，不是故障。'),
     _all: { single, combos: combos.slice(0, 30) },
   };
+}
+
+// 第四段（§2.6）：換版規則——新版主模型樣本外超額不得低於上一版（同模式）；否則沿用上一版的主模型並註明。
+function applyPromotion(modes, prev, say) {
+  for (const k of Object.keys(modes)) {
+    const cur = modes[k], old = prev?.modes?.[k];
+    if (!old?.main) { cur.promotion = { changed: !!cur.main, from: null }; continue; }
+    if (!cur.main) { cur.promotion = { changed: true, from: old.main.name, to: null, note: '新版無模型通過，線上不再有主模型（誠實）' }; continue; }
+    if ((cur.main.edgeVsMomentum ?? -9) < (old.main.edgeVsMomentum ?? -9)) {
+      say(`      ↳ [${k}] 新版 ${cur.main.name}（${cur.main.edgeVsMomentum}pp）低於上一版 ${old.main.name}（${old.main.edgeVsMomentum}pp）⇒ 本輪未換版`);
+      cur.candidateMain = cur.main; cur.main = old.main; cur.promotion = { changed: false, kept: old.main.name, candidate: cur.candidateMain.name, note: '本輪未換版：新版樣本外超額低於上一版' };
+    } else cur.promotion = { changed: cur.main.name !== old.main.name, from: old.main.name, to: cur.main.name };
+  }
 }
 
 // ── 6. 主流程 ───────────────────────────────────────────────────
@@ -353,11 +456,17 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const modes = {};
   for (const k of Object.keys(TRADE_MODES)) modes[k] = trainMode(TRADE_MODES[k], samples, twDates, grid, say);
 
+  // 第四段：版本化與換版規則
+  let prev = null;
+  try { const p = (await db.collection('squeezeModel').doc('latest').get()).data(); if (p?.rules === 'v2') prev = p; } catch { /* 無上一版 */ }
+  applyPromotion(modes, prev, say);
+
   const runId = `${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}`;
+  const modelVersion = `${runId}@${hash}`;
   const def = modes.nextday;
   const strip = m => { const { _all, ...rest } = m; return rest; };
   const model = {
-    runId, updatedAt: Date.now(), trainMs: Date.now() - t0, rules: 'v2', datasetHash: hash,
+    runId, modelVersion, updatedAt: Date.now(), trainMs: Date.now() - t0, rules: 'v2', datasetHash: hash,
     period: { from: twDates[0], to: twDates[twDates.length - 1], days: twDates.length, oosFrom: OOS_FROM },
     tradeMode: 'nextday', modes: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, strip(m)])),
     // 相容：頂層＝預設模式（隔日沖），既有讀者（daemon runId/main.name/squeezeProb.name、管理頁）不需改

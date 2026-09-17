@@ -18,6 +18,12 @@ interface ModeModel {
   main: { name: string; parts: string[]; train: { mean?: number; win?: number; n: number; segs?: (number | null)[] | null; excess?: number | null; ci?: [number | null, number | null] | null; days?: number }; oot: StatV2; edgeVsMomentum: number; ci?: [number | null, number | null] | null } | null;
   squeezeProb?: Model['squeezeProb']; branches: Branch[]; singleTop?: Model['singleTop'];
   passedCount?: number; comboCount?: number; survivorCount?: number; status: string; note?: string | null;
+  // 第三、四段
+  permutation?: { p: number; trials: number } | null;
+  placeboV2?: { trials: number; p50: number; p95: number; max: number; note?: string } | null;
+  calibration?: { rows: Array<{ chipHits: number | string; n: number; squeezeRate: number }>; calibrated: boolean; note: string } | null;
+  promotion?: { changed: boolean; from?: string | null; to?: string | null; kept?: string; candidate?: string; note?: string } | null;
+  mainRejectedByPlacebo?: { name: string; excess: number | null; p?: number | null; placeboP95?: number | null } | null;
 }
 interface Model {
   runId: string; updatedAt: number; status: string; note?: string | null;
@@ -141,7 +147,12 @@ export default function SqueezeModel() {
                 <tr><td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)' }}>純動能基準（樣本外）</td><td style={td}>0</td><td style={td}>—</td><td style={{ ...td, color: 'var(--text-muted)' }}>{pn(m.baseline.oot.momentum.mean)}</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.win}%</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.n}</td><td style={td}>—</td></tr>
               </tbody>
             </table>
-            <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>超額＝每日「因子組平均 − 純動能母體平均」再對日序列取平均；CI 為按日區塊自助法（block 5、1,000 次）。進場可買已先剔除。</div>
+            <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+              超額＝每日「因子組平均 − 純動能母體平均」再對日序列取平均；CI 為按日區塊自助法（block 5、1,000 次）。進場可買已先剔除。
+              {m.permutation && <>　置換檢定 p=<b style={{ color: m.permutation.p <= 0.05 ? '#22c55e' : '#ef4444' }}>{m.permutation.p}</b>（{m.permutation.trials} 次·同稀疏度）</>}
+              {(m as unknown as { placebo?: { p50?: number; p95?: number } }).placebo?.p95 != null && <>　隨機因子安慰劑 P50 {pp((m as unknown as { placebo: { p50: number } }).placebo.p50)}／P95 {pp((m as unknown as { placebo: { p95: number } }).placebo.p95)}（參考）</>}
+            </div>
+            {m.promotion?.note && <div style={{ color: '#f59e0b', marginTop: 4 }}>↻ {m.promotion.note}{m.promotion.candidate ? `（候選 ${m.promotion.candidate}）` : ''}</div>}
           </>
         ) : (
           <>
@@ -188,6 +199,12 @@ export default function SqueezeModel() {
             )}
           </>
         ) : <div style={{ color: '#ef4444', marginTop: 4 }}>無軋空專用組合通過樣本外驗收（誠實結果）。</div>}
+        {v2 && m.calibration && (
+          <div style={{ marginTop: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>校準（{m.calibration.note}）：</span>
+            {m.calibration.rows.map(r => <span key={String(r.chipHits)} style={{ marginLeft: 10 }}>籌碼命中 {r.chipHits} → <b>{r.squeezeRate}%</b><span style={{ color: 'var(--text-muted)' }}>（n={r.n}）</span></span>)}
+          </div>
+        )}
       </div>
 
       {/* 分支模型 */}
