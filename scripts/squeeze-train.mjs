@@ -211,10 +211,10 @@ const MIN_N = 80, MIN_DAYS = 40, BOOT_ITERS = 1000, BOOT_BLOCK = 5;
 const STATE_LABEL = { valid: '有效', ns: '無顯著差異', invalid: '失效' };
 
 // 決定性偽隨機（訓練要可重現）
-function prng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
+export function prng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
 
 // 每日基準：某天「純動能母體（漲≥5% 且進場可買）」的平均報酬。日層級超額都對它算。
-function dayBaseline(set, mode) {
+export function dayBaseline(set, mode) {
   const acc = {};
   for (const x of set) { const r = mode.ret(x.y); if (r == null) continue; (acc[x.date] ||= []).push(r); }
   const out = {}; for (const d in acc) out[d] = mean(acc[d]);
@@ -237,7 +237,7 @@ function blockBootstrap(daily, iters = BOOT_ITERS, block = BOOT_BLOCK, seed = 7)
 }
 
 // 一組樣本的完整統計（逐筆＋日層級）。base＝dayBaseline；segOf＝日期→段（0/1/2），null 表示不分段
-function evalGroup(g, mode, base, segOf = null) {
+export function evalGroup(g, mode, base, segOf = null) {
   const rows = g.map(x => ({ d: x.date, r: mode.ret(x.y), rg: x.rg || 'neutral', seg: segOf ? segOf(x.date) : null })).filter(x => x.r != null);
   const n = rows.length;
   if (n < MIN_N) return { n, days: 0, mean: null, win: null, excess: null, ci: null, net: null, segs: null, byRegime: null, pass: false, state: 'ns', stateLabel: '樣本不足', why: '樣本不足' };
@@ -394,7 +394,7 @@ function randomFactorPlacebo(train, oot, baseTr, baseOo, grid, mode, trials = 10
 
 // 逐候選置換檢定（正式閘門）：把**這個候選自己**的遮罩在同日內打亂 N 次（每日入選數不變），
 //   得到「同樣稀疏度、純靠運氣」的樣本外超額分佈；p＝隨機超額 ≥ 實際超額的比例。p ≤ 0.05 才採用。
-function permutationTest(oot, baseOo, sel, mode, observed, trials = 200) {
+export function permutationTest(oot, baseOo, sel, mode, observed, trials = 200) {
   const isMom = x => x.f.chg >= 5;
   const D = {}; for (const x of oot) if (isMom(x) && mode.ret(x.y) != null) (D[x.date] ||= []).push(x);
   const sizes = {}; for (const d in D) { const n = D[d].filter(sel).length; if (n) sizes[d] = n; }
@@ -423,7 +423,7 @@ function squeezeCalibration(oot, grid, mode) {
 //   改成「當天純動能母體內的百分位」：同一天所有可買動能股裡排前 20%／後 20%。只用當天資料，無前視。
 const CS_KEYS = { volX: '量', instVsVol: '法', ret5: '價', pos: '價', chg: '價', ratio: '券', shVsVol: '券', relSector: '族群', sectorSync: '族群', distHi60: '位置', distLo60: '位置',
   lendVsVol: '借券', lendChgVsVol: '借券', sblVsVol: '借券', sblChgVsVol: '借券' };   // E 段：可借額度代理（有歷史）＋借券餘額（09-18 起累積）
-function attachCrossSection(pool, isMom) {
+export function attachCrossSection(pool, isMom) {
   const byDay = {}; for (const x of pool) if (isMom(x)) (byDay[x.date] ||= []).push(x);
   for (const d in byDay) {
     const arr = byDay[d];
