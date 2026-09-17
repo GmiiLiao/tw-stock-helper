@@ -656,7 +656,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   };
   const MIN_PROD_DAYS = 200;
   if (days < MIN_PROD_DAYS && process.env.FORCE_WRITE !== '1') { say(`  ⚠ 訓練窗 ${days} 日 < ${MIN_PROD_DAYS} 日 ⇒ 視為測試，不寫入`); return model; }
-  if (process.env.DRY_RUN === '1') { say('  ⚠ DRY_RUN=1：只印不寫'); }
+  if (process.env.DRY_RUN === '1') { say('  ⚠ DRY_RUN=1：只印不寫'); model.singleAll = Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, m._all.single])); }
   else {
     await db.collection('squeezeModel').doc('latest').set(model);
     await db.collection('squeezeReport').doc(runId).set({ ...model, singleAll: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, m._all.single])), combosAll: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, m._all.combos])) });
