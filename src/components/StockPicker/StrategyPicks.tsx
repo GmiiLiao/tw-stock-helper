@@ -18,6 +18,8 @@ interface Stat { name: string; icon: string; winRate: number; avgRet: number; pf
 interface Data { date: string; dataDate?: string | null; updatedAt: number; stats: Record<string, Stat>; groups: Record<string, Pick[]>; regime?: { index: number; ma20: number; bull: boolean } | null }
 
 const ORDER = ['limitLock', 'dipLimit', 'gapUp', 'volBreak', 'secondBar', 'chip']; // dipLimit 實測 58% 排第2、高於連2K棒
+// 評分顯示到小數第 2 位（2026-09-17 使用者截圖：16.729999999999997 直接印在卡片上——浮點誤差不該給人看）
+const fmtScore = (s: number | null | undefined) => (typeof s === 'number' && Number.isFinite(s) ? s.toFixed(2).replace(/\.?0+$/, '') : '—');
 const RULES = [
   '進場：收盤前（漲停鎖死為掛單排隊）；出場：次日 09:00–10:00，隔日必出',
   '開高走弱跌破開盤價即出；開低直接認賠出場，不留倉第二晚',
@@ -169,7 +171,7 @@ export default function StrategyPicks() {
                 style={{ cursor: 'pointer', padding: '6px 12px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)' }}>
                 <b style={{ color: '#fbbf24' }}>{code} {v.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={code} variant="icon" />
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginLeft: 6 }}>
-                  評分 {v.score ?? '—'} · {v.keys.map(k => d.stats[k]?.icon + d.stats[k]?.name).join('＋')}
+                  評分 {fmtScore(v.score)} · {v.keys.map(k => d.stats[k]?.icon + d.stats[k]?.name).join('＋')}
                 </span>
               </div>
             ))}
@@ -218,22 +220,28 @@ export default function StrategyPicks() {
                     style={{ cursor: 'pointer', padding: '8px 10px', borderRadius: 8, opacity: p.dtHigh ? 0.55 : 1,
                       background: cc >= 2 ? 'rgba(251,191,36,0.14)' : 'var(--bg-tertiary)',
                       border: cc >= 2 ? '1.5px solid rgba(251,191,36,0.55)' : '1px solid transparent' }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
-                      {cc >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, color: '#fbbf24' }}>⭐×{cc}</span>}
-                      <b style={{ color: '#e2e8f0' }}>{p.code}</b>
-                      <span style={{ color: '#7dd3fc', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    {/* 2026-09-17 使用者截圖：標籤（連停／量／外資／回檔）擠在名稱同一列，名稱被截成「艾..」。
+                        名稱列只放 代號＋名稱＋候選＋市場，其餘標籤另起一列，名稱永遠看得到。 */}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 }}>
+                      {cc >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, color: '#fbbf24', flexShrink: 0 }}>⭐×{cc}</span>}
+                      <b style={{ color: '#e2e8f0', flexShrink: 0 }}>{p.code}</b>
+                      <span style={{ color: '#7dd3fc', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{p.name}</span>
                       <AddCandidateButton code={p.code} variant="icon" />
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: p.market === 'otc' ? '#f59e0b' : '#38bdf8' }}>{p.market === 'otc' ? '櫃' : '市'}</span>
-                      {p.streak && p.streak >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: p.streak >= 3 ? '#ef4444' : '#f97316' }}>連{p.streak}停{p.streak >= 3 ? '⚠不追' : ''}</span>}
-                      {p.volX != null && p.volX >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>⚡量{p.volX}倍</span>}
-                      {p.instF != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>外{(p.instF / 1000).toFixed(1)}k/投{p.instT}</span>}
-                      {p.dd != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#38bdf8' }}>回檔{p.dd}%</span>}
-                      {p.dtHigh && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#f97316' }}>⚠高當沖</span>}
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: p.market === 'otc' ? '#f59e0b' : '#38bdf8', flexShrink: 0 }}>{p.market === 'otc' ? '櫃' : '市'}</span>
                     </div>
+                    {((p.streak && p.streak >= 2) || (p.volX != null && p.volX >= 2) || p.instF != null || p.dd != null || p.dtHigh) && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2, fontSize: 'calc(12.5px * var(--fz))' }}>
+                        {p.streak && p.streak >= 2 && <span style={{ fontWeight: 800, color: p.streak >= 3 ? '#ef4444' : '#f97316' }}>連{p.streak}停{p.streak >= 3 ? '⚠不追' : ''}</span>}
+                        {p.volX != null && p.volX >= 2 && <span style={{ fontWeight: 800, color: '#fbbf24' }}>⚡量{p.volX}倍</span>}
+                        {p.instF != null && <span style={{ fontWeight: 700, color: '#7dd3fc' }}>外{(p.instF / 1000).toFixed(1)}k/投{p.instT}</span>}
+                        {p.dd != null && <span style={{ fontWeight: 700, color: '#38bdf8' }}>回檔{p.dd}%</span>}
+                        {p.dtHigh && <span style={{ fontWeight: 800, color: '#f97316' }}>⚠高當沖</span>}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, fontSize: 'calc(12.5px * var(--fz))', marginTop: 3 }}>
                       <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{p.price}</span>
                       <span style={{ color: 'var(--color-up)', fontFamily: "'JetBrains Mono',monospace" }}>+{p.changePct}%</span>
-                      <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>評分 <b style={{ color: '#fbbf24' }}>{p.score ?? '—'}</b></span>
+                      <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>評分 <b style={{ color: '#fbbf24' }}>{fmtScore(p.score)}</b></span>
                     </div>
                   </div>
                   );

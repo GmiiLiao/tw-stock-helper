@@ -10396,7 +10396,7 @@ async function computeStrategyPicks() {
   const prevLockStreak = Object.fromEntries(((sameDay ? prev?.prevLock : prev?.groups?.limitLock) || []).map(x => [x.code, x.streak || 1]));
   const rating = (await getJSON('/api/rating'))?.ratings || {};
   const dtHigh = new Set((((await db.collection('dayTradeRatio').doc('latest').get()).data())?.high || []).map(x => x.code));
-  const enrich = r => { const pc = r.close - r.change; return { code: r.code, name: r.name, market: r.market, price: r.close, changePct: pc > 0 ? +((r.change / pc) * 100).toFixed(2) : 0, score: rating[r.code]?.score ?? null, signal: rating[r.code]?.signal ?? null, dtHigh: dtHigh.has(r.code) }; };
+  const enrich = r => { const pc = r.close - r.change; return { code: r.code, name: r.name, market: r.market, price: r.close, changePct: pc > 0 ? +((r.change / pc) * 100).toFixed(2) : 0, score: rating[r.code]?.score != null ? +(+rating[r.code].score).toFixed(2) : null, signal: rating[r.code]?.signal ?? null, dtHigh: dtHigh.has(r.code) }; };   // 來源就收到小數第 2 位（2026-09-17 卡片曾印出 16.729999999999997）
   // 歷史來源改用籌碼歸檔 chipArchive（已回填 83 日）：昨量、近 3 日收盤、法人皆取自此。
   // 資料日 = 今日 CSV 的交易日；arch[0] 應與其同日（同日已歸檔）或為前一交易日。
   // readArchive 保證 arch[0] 一定有 closeJson——原本裸讀時，盤前空殼會讓
