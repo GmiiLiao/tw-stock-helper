@@ -113,9 +113,10 @@ export default function SwingCurveBoard() {
               {c.hist && (
                 <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginTop: 3 }}>
                   {/* 成長與回檔成對——單看成長會誤導 */}
-                  <div style={{ whiteSpace: 'nowrap' }}>歷史5日 淨{sign(c.hist.net5)}pp 勝{sign(c.hist.win5)}pp</div>
-                  <div style={{ whiteSpace: 'nowrap' }}>歷史20日 淨{sign(c.hist.net20)}pp 勝{sign(c.hist.win20)}pp</div>
-                  <div style={{ whiteSpace: 'nowrap' }}>
+                  <div>歷史5日 淨{sign(c.hist.net5)}pp 勝{sign(c.hist.win5)}pp</div>
+                  <div>歷史20日 淨{sign(c.hist.net20)}pp 勝{sign(c.hist.win20)}pp</div>
+                  {/* 2026-09-17：這行含「最大成長／回檔（n）」三段，230px 卡片塞不下就被截；改可換行 */}
+                  <div>
                     最大成長 <b style={{ color: UP }}>{c.hist.grow20.toFixed(1)}%</b>
                     <span style={{ margin: '0 3px' }}>／</span>
                     回檔 <b style={{ color: DOWN }}>{c.hist.draw20.toFixed(1)}%</b>

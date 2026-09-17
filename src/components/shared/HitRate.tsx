@@ -85,8 +85,9 @@ export default function HitRate({ list, label, horizons = [5, 10] }: {
         if (!c || c.excess == null) return null;
         const thin = (c.entryDays ?? 0) < 5;
         return (
-          <span key={h} style={{ whiteSpace: 'nowrap' }}>
-            <span style={{ color: 'var(--text-muted)' }}>{h}日超額</span>{' '}
+          // 只鎖「N日超額 +x.xpp」這段不換行，括號內明細可換行（2026-09-17 窄卡片溢出）
+          <span key={h} style={{ minWidth: 0 }}>
+            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{h}日超額</span>{' '}
             <b style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))', color: c.excess > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
               {c.excess > 0 ? '+' : ''}{c.excess}pp
             </b>

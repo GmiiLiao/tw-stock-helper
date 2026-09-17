@@ -131,7 +131,11 @@ export default function SignalBoards() {
     </div>
   );
 
+  // ⚠ 2026-09-17 使用者截圖「資料都出窗」：這個 grid 用 auto-fit，原本把 PID 板放在 grid 裡跨滿整列
+  //   （gridColumn 1/-1）——跨欄的元素讓所有空欄都算「有內容」不會塌縮，於是兩張卡各只拿到 1/5 寬（約 330px），
+  //   命中率與列文字塞不下就溢出。PID 板改放在 grid **外面**當下一個區塊，grid 只剩兩張卡，auto-fit 才會各撐一半。
   const swingBoards = (
+    <>
     <div style={grid}>
       <div style={card}>
         <div style={title}>🌊 波段起漲 <span style={sub}>持有 5 個交易日·空頭日限定</span></div>
@@ -168,14 +172,15 @@ export default function SignalBoards() {
         {strength?.evidence?.main && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>📐 {strength.evidence.main}</div>}
         {strength?.caveats?.filter(Boolean).map((c, i) => <div key={i} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginTop: 4, lineHeight: 1.6 }}>{c}</div>)}
       </div>
-      {/* 第 2 套預選機制（2026-08-11 使用者指定）。
-          ⚠ 刻意跨滿整個 grid 寬度並用虛線框：它是**觀察中的實驗**，
-            八種曲線在歷史三窗沒有任何一種通過准入門檻，由 60 日實記當裁判。
-            與上面兩張已驗證的榜單並排同寬會讓人誤以為同級。 */}
-      <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-        <SwingCurveBoard />
-      </div>
     </div>
+    {/* 第 2 套預選機制（2026-08-11 使用者指定）。
+        ⚠ 刻意獨占整列並用虛線框：它是**觀察中的實驗**，
+          八種曲線在歷史三窗沒有任何一種通過准入門檻，由 60 日實記當裁判。
+          與上面兩張已驗證的榜單並排同寬會讓人誤以為同級。（放在 grid 外，理由見上） */}
+    <div style={{ marginTop: 14, minWidth: 0 }}>
+      <SwingCurveBoard />
+    </div>
+    </>
   );
 
   const daytradeBoards = (
