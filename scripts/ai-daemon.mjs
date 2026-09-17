@@ -5758,6 +5758,54 @@ async function computeNewsVerdictReview(days = 40) {
   //   15:30 跑時若當日 chipArchive 還沒寫入（歸檔在 15:10，偶爾延遲），
   //   就會整天算不到 newsLift 而且無人知曉——這正是 dayTradeRatio
   //   斷 8 天的同型錯誤（單次嘗試、失敗不重試、靜默）。
+  // ── M1 多口徑分組對答案（2026-09-17 計畫第一段·docs/NEWS-VERDICT-LEARNING-PLAN-2026-09-17.md）──
+  //   單一「開→收」口徑看不出錯在哪一層：新聞效應可能在跳空就出完、也可能延到 5 日。
+  //   這裡對同一批判別另算 gap(昨收→今開)／o2c／c2c／d5x(開盤進場→第 5 個交易日收盤，扣同日宇宙等權)，
+  //   並依 label×{confidence,strength,priced,basis,pass} 分組，寫 newsVerdictReview/breakdown。
+  //   只記錄、不影響任何評分；樣本不足的組 n 照實列，讀的人自己看 n。
+  try {
+    const dates = arch.map(a => a.date).sort();                 // 舊→新
+    const idx = Object.fromEntries(dates.map((d, i) => [d, i]));
+    const uniMean = {};                                          // 每日宇宙等權：o2c 與 d5（開→t+4 收）
+    const uni = (day) => {
+      if (uniMean[day]) return uniMean[day];
+      const i = idx[day]; const m = byDate[day]; const m5 = dates[i + 4] ? byDate[dates[i + 4]] : null;
+      let s1 = 0, n1 = 0, s5 = 0, n5 = 0;
+      for (const c in m) { const r = m[c]; if (!(r?.[2] > 0) || !(r?.[0] > 0)) continue; s1 += (r[0] - r[2]) / r[2] * 100; n1++; const q = m5?.[c]; if (q?.[0] > 0) { s5 += (q[0] - r[2]) / r[2] * 100; n5++; } }
+      return (uniMean[day] = { o2c: n1 ? s1 / n1 : null, d5: n5 ? s5 / n5 : null });
+    };
+    const rows = [];
+    for (const d of snap.docs) {
+      if (d.id === 'latest') continue;
+      const x = d.data(); const day = x.targetDate; if (!day || !byDate[day] || idx[day] == null) continue;
+      const prevDay = dates[idx[day] - 1], d5Day = dates[idx[day] + 4];
+      const v = x.verdictJson ? JSON.parse(x.verdictJson) : {};
+      for (const code in v) {
+        const r = byDate[day][code]; if (!Array.isArray(r) || !(r[0] > 0) || !(r[2] > 0)) continue;
+        const p = prevDay ? byDate[prevDay]?.[code]?.[0] : null; const c5 = d5Day ? byDate[d5Day]?.[code]?.[0] : null;
+        const u = uni(day);
+        const o2c = (r[0] - r[2]) / r[2] * 100;
+        rows.push({ v: v[code], gap: p > 0 ? (r[2] - p) / p * 100 : null, o2c, o2cx: u.o2c != null ? o2c - u.o2c : null,
+          c2c: p > 0 ? (r[0] - p) / p * 100 : null, d5x: (c5 > 0 && u.d5 != null) ? (c5 - r[2]) / r[2] * 100 - u.d5 : null });
+      }
+    }
+    const H = ['gap', 'o2c', 'o2cx', 'c2c', 'd5x'];
+    const stat = (arr) => { const o = { n: arr.length }; for (const h of H) { const a = arr.map(r => r[h]).filter(x => x != null); o[h] = a.length ? { n: a.length, mean: +(a.reduce((s, x) => s + x, 0) / a.length).toFixed(3), win: +(a.filter(x => x > 0).length / a.length * 100).toFixed(1) } : null; } return o; };
+    const groups = {};
+    const add = (k, r) => (groups[k] ||= []).push(r);
+    for (const r of rows) {
+      const L = r.v.label || '?'; add(`label=${L}`, r);
+      for (const f of ['confidence', 'strength', 'priced', 'basis', 'pass']) add(`label=${L}|${f}=${r.v[f] ?? 'null'}`, r);
+    }
+    const out = {}; for (const k in groups) out[k] = stat(groups[k]);
+    await db.collection('newsVerdictReview').doc('breakdown').set({
+      updatedAt: Date.now(), days: usedDays, rows: rows.length,
+      horizons: 'gap=昨收→今開｜o2c=今開→今收｜o2cx=o2c−同日宇宙等權｜c2c=昨收→今收｜d5x=今開→第5個交易日收−同日宇宙等權（%）',
+      groups: out, note: '只記錄不加權；分組 n 小的不可下結論。非投資建議。',
+    });
+    const g = k => out[k] ? `${k}: n=${out[k].n} o2cx ${out[k].o2cx?.mean ?? '—'} d5x ${out[k].d5x?.mean ?? '—'}` : '';
+    log(`  · 分組對答案：${g('label=利多|priced=否')}｜${g('label=利多|priced=是')}｜${g('label=中性')}｜${g('label=利空')}`);
+  } catch (e) { log('  ⚠ 分組對答案失敗:', (e.message || '').slice(0, 80)); }
   return usedDays > 0;
 }
 
