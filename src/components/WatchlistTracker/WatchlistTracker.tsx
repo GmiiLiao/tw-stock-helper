@@ -14,43 +14,10 @@ import { useDayTradeStatus } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { MaChipFor, SeqBarsFor } from '@/components/shared/SeqIndicators';
+import { useRiskCodes, isDispositionPending, taipeiToday } from '@/lib/useRiskCodes';
 
 // ─── Shared status badges (漲跌停 / 注意 / 處置) ───────────────────────────────
-// Risk codes (注意/處置) + disposition period fetched once at module level.
-type RiskInfo = { attention: Set<string>; disposition: Set<string>; dispEnd: Map<string, string>; attEnd: Map<string, string> };
-const emptyRisk = (): RiskInfo => ({ attention: new Set(), disposition: new Set(), dispEnd: new Map(), attEnd: new Map() });
-let _riskCache: RiskInfo | null = null;
-let _riskPromise: Promise<RiskInfo> | null = null;
-function fetchRiskCodes() {
-  if (!_riskPromise) {
-    _riskPromise = fetch('/api/twse/risk-stocks', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => {
-        const r = emptyRisk();
-        for (const x of (d?.disposition || []) as Array<{ code: string; endDate?: string }>) {
-          if (x.code) { r.disposition.add(x.code); if (x.endDate) r.dispEnd.set(x.code, x.endDate); }
-        }
-        for (const x of (d?.attention || []) as Array<{ code: string; endDate?: string }>) {
-          if (x.code) { r.attention.add(x.code); if (x.endDate) r.attEnd.set(x.code, x.endDate); }
-        }
-        _riskCache = r;
-        return r;
-      })
-      .catch(() => emptyRisk());
-  }
-  return _riskPromise;
-}
-function useRiskCodes() {
-  const [v, setV] = useState<RiskInfo>(_riskCache || emptyRisk());
-  useEffect(() => {
-    if (_riskCache) { setV(_riskCache); return; }
-    let live = true;
-    fetchRiskCodes().then(r => { if (live) setV(r); });
-    return () => { live = false; };
-  }, []);
-  return v;
-}
-
+// 注意/處置名單改用全站共用 hook（2026-09-18：此處原有一份複本，處置「尚未生效」的判斷只修共用版就會漏這裡）。
 /** Format a date string (YYYY-MM-DD or similar) to M/D for compact display. */
 function shortDate(d?: string): string {
   if (!d) return '';
@@ -61,15 +28,17 @@ function shortDate(d?: string): string {
 /** Inline status tags shown next to a stock name in every tracking tab.
  *  showLimit=false for panels that already render their own 漲跌停 badge. */
 function StatusBadges({ code, changePercent, showLimit = true }: { code: string; changePercent?: number | null; showLimit?: boolean }) {
-  const { attention, disposition, dispEnd, attEnd } = useRiskCodes();
+  const risk = useRiskCodes();
+  const { attention, disposition, dispEnd, dispStart, attEnd } = risk;
   const dtSt = useDayTradeStatus(code);   // 當沖資格（null = 名單未載入，不渲染）
   const pct = changePercent ?? 0;
   const limitUp = showLimit && pct >= 9.9;
   const limitDown = showLimit && pct <= -9.9;
   const nearUp = showLimit && pct >= 7 && pct < 9.9;
-  const isDisp = disposition.has(code);
+  const pending = disposition.has(code) && isDispositionPending(risk, code);   // 已公告、明日起才處置（3441 實案）
+  const isDisp = disposition.has(code) && !pending;
   const isAtt = attention.has(code) && !isDisp;
-  if (!limitUp && !limitDown && !nearUp && !isDisp && !isAtt && dtSt == null) return null;
+  if (!limitUp && !limitDown && !nearUp && !isDisp && !isAtt && !pending && dtSt == null) return null;
   const dispUntil = shortDate(dispEnd.get(code));
   const attUntil = shortDate(attEnd.get(code));
   const tag = (text: string, color: string, bg: string, border?: string) => (
@@ -82,6 +51,7 @@ function StatusBadges({ code, changePercent, showLimit = true }: { code: string;
       {nearUp && tag('近漲停', '#e67700', 'rgba(230,119,0,0.15)')}
       {isDisp && tag(dispUntil ? `🔴 處置至 ${dispUntil}` : '🔴 處置', '#ef4444', 'rgba(239,68,68,0.18)', 'rgba(239,68,68,0.35)')}
       {isAtt && tag(attUntil ? `🟡 注意至 ${attUntil}` : '🟡 注意', '#eab308', 'rgba(234,179,8,0.18)', 'rgba(234,179,8,0.35)')}
+      {pending && tag(`🔴 ${shortDate(dispStart.get(code))}起處置`, '#ef4444', 'rgba(239,68,68,0.18)', 'rgba(239,68,68,0.35)')}
       {dtSt != null && <DayTradeMark status={dtSt} size="xs" />}
     </span>
   );
@@ -1198,6 +1168,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: '5px', padding: '0 16px' }}>
           {filtered.map((stock, idx) => {
             const isDisp = stock.type === 'disposition';
+            const dispPending = isDisp && !!stock.startDate && stock.startDate > taipeiToday();   // 已公告、尚未生效
             const isUserHolding = userCodes.has(stock.code);
             const until = isDisp && stock.endDate ? stock.endDate.replace(/^\d{4}\//, '') : '';
             const tip = [`${stock.code} ${stock.name}（${stock.source}）`, stock.reason,
@@ -1221,7 +1192,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
                 <span style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))', fontFamily: "'JetBrains Mono', monospace" }}>{stock.code}</span>
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</span>
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: isDisp ? '#ffd6d6' : '#fff3bf' }}>
-                  {isDisp ? (until ? `處置至${until}` : '處置') : '注意'}
+                  {dispPending ? `${shortDate(stock.startDate)}起處置` : isDisp ? (until ? `處置至${until}` : '處置') : '注意'}
                 </span>
               </button>
             );

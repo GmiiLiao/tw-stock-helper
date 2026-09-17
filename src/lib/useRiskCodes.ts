@@ -7,10 +7,20 @@ export type RiskInfo = {
   attention: Set<string>;
   disposition: Set<string>;
   dispEnd: Map<string, string>;
+  dispStart: Map<string, string>;
   attEnd: Map<string, string>;
 };
 
-const emptyRisk = (): RiskInfo => ({ attention: new Set(), disposition: new Set(), dispEnd: new Map(), attEnd: new Map() });
+const emptyRisk = (): RiskInfo => ({ attention: new Set(), disposition: new Set(), dispEnd: new Map(), dispStart: new Map(), attEnd: new Map() });
+
+/** 台北日曆日 YYYY-MM-DD */
+export const taipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+
+/** 處置已公告但尚未生效（startDate 在今天之後）——3441 實案：公告日當天還只是注意股，不能掛「處置中」。 */
+export function isDispositionPending(r: RiskInfo, code: string, today = taipeiToday()): boolean {
+  const s = r.dispStart.get(code);
+  return !!s && s > today;
+}
 
 let _riskCache: RiskInfo | null = null;
 let _riskPromise: Promise<RiskInfo> | null = null;
@@ -21,8 +31,8 @@ export function fetchRiskCodes(): Promise<RiskInfo> {
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         const r = emptyRisk();
-        for (const x of (d?.disposition || []) as Array<{ code: string; endDate?: string }>) {
-          if (x.code) { r.disposition.add(x.code); if (x.endDate) r.dispEnd.set(x.code, x.endDate); }
+        for (const x of (d?.disposition || []) as Array<{ code: string; startDate?: string; endDate?: string }>) {
+          if (x.code) { r.disposition.add(x.code); if (x.endDate) r.dispEnd.set(x.code, x.endDate); if (x.startDate) r.dispStart.set(x.code, x.startDate); }
         }
         for (const x of (d?.attention || []) as Array<{ code: string; endDate?: string }>) {
           if (x.code) { r.attention.add(x.code); if (x.endDate) r.attEnd.set(x.code, x.endDate); }

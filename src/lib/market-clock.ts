@@ -52,6 +52,14 @@ export function holidaysAgeMs() {
   return holidaysLoadedAt === 0 ? Infinity : Date.now() - holidaysLoadedAt;
 }
 
+/** 以 YYYY-MM-DD 判是否交易日（週末＋休市日曆）；日曆未載入時只擋週末（fail-open，與 isTradingDay 同）。 */
+export function isTradingYmd(ymd: string): boolean {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  return !holidays.has(ymd);
+}
+
 export function isTradingDay(now: Date = new Date()): boolean {
   const { ymd, dow } = taipei(now);
   if (dow === 0 || dow === 6) return false;

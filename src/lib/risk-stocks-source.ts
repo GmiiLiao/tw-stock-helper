@@ -27,6 +27,8 @@
 //   但要明說「來源未提供事由」，不要編。
 
 import { memoize } from './singleflight';
+import { holidaysAgeMs, isTradingYmd } from './market-clock';
+import { primeHolidays } from './api-cache';
 
 export interface RiskStockInfo {
   code: string;
@@ -83,29 +85,33 @@ function splitPeriod(p: string): { startDate?: string; endDate?: string } {
 //   公告仍寫 115/08/03～115/08/18，但新制下 8/3 起 7 個營業日 8/11 已滿、
 //   8/12 起已解除；照抄公告會把人家多關 5 天，持股警示、評分扣分全跟著錯。
 // 故迄日取「公告迄日」與「新制天數推算迄日」較早者，已屆滿者整筆剔除。
-// （營業日以跳過週末近似，國定假日未內建——與 tw-settlement 同一把尺。）
+// ⚠ 3441 實案（2026-09-18）：營業日推算原本只跳週末，09-25 中秋、09-28 教師節沒算，
+//   把官方正確的 09-18～09-30（7 個營業日）「縮短」成 09-28（那天根本休市）。
+//   營業日一律走 system/tradingCalendar（primeHolidays）；日曆沒載到就**不縮短**、只剔除已屆滿。
 const NEW_REGIME_START = '2026-08-10';
 
-// 自 startIso 起算第 n 個營業日（start 當天算第 1 日，跳過週末）
-function nthTradingDay(startIso: string, n: number): string {
+// 自 startIso 起算第 n 個營業日（start 當天算第 1 日；週末＋休市日曆都跳過）
+export function nthTradingDay(startIso: string, n: number): string {
   const [y, m, d] = startIso.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  let count = dt.getDay() !== 0 && dt.getDay() !== 6 ? 1 : 0;
-  while (count < n) {
-    dt.setDate(dt.getDate() + 1);
-    if (dt.getDay() !== 0 && dt.getDay() !== 6) count++;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const iso = () => dt.toISOString().slice(0, 10);
+  let count = isTradingYmd(iso()) ? 1 : 0;
+  let guard = 0;
+  while (count < n && guard++ < 60) {
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    if (isTradingYmd(iso())) count++;
   }
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  return iso();
 }
 
-function applyNewDispositionRegime(list: RiskStockInfo[]): RiskStockInfo[] {
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+export function applyNewDispositionRegime(list: RiskStockInfo[], today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })): RiskStockInfo[] {
+  const calendarLoaded = holidaysAgeMs() !== Infinity;
   const out: RiskStockInfo[] = [];
   for (const d of list) {
     if (!d.startDate || !d.endDate) { out.push(d); continue; }          // 無日期可算 → 原樣保留
     if (d.endDate < NEW_REGIME_START) { out.push(d); continue; }        // 新制上路前已結束 → 歷史事實不動
     const days = /當沖|沖銷/.test(d.reason) ? 7 : 5;                    // 涉當沖 7 日、一般 5 日
-    const newEnd = nthTradingDay(d.startDate, days);
+    const newEnd = calendarLoaded ? nthTradingDay(d.startDate, days) : d.endDate;   // 無日曆 → 不縮短
     const effEnd = newEnd < d.endDate ? newEnd : d.endDate;
     if (effEnd < today) continue;                                       // 新制下已解除 → 剔除
     out.push(effEnd === d.endDate ? d : {
@@ -129,6 +135,7 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
   //   於是每天有大半時間上市注意股整批為 0，畫面只是「清單變短」，不報錯。
   //   注意股是「公布日隔天生效」的狀態 ⇒ 正解是 rwd 區間查詢最近 7 天、取**最新一個有資料的公布日**那批，
   //   並把名單日期回給畫面；openapi 當日端點只當補充（若它已有今天的，會是更新的那批）。
+  await primeHolidays().catch(() => null);   // 處置營業日推算要用休市日曆；載不到走 fail-open（不縮短）
   const now = new Date(); const from = new Date(now.getTime() - 7 * 86400000);
   const [twAttRange, twAtt, twNote, twDisp, tpAtt, tpDisp] = await Promise.all([
     fetchJSON(`https://www.twse.com.tw/rwd/zh/announcement/notice?startDate=${ymd(from)}&endDate=${ymd(now)}&response=json`),

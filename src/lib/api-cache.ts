@@ -93,7 +93,7 @@ const NO_STORE = { 'Cache-Control': 'no-store' } as const;
  *
  * 每個 instance 只讀一次 Firestore，之後每 6 小時刷新，成本可忽略。
  */
-const primeHolidays = memoize<string[]>('trading-calendar', 6 * 3600_000, async () => {
+export const primeHolidays = memoize<string[]>('trading-calendar', 6 * 3600_000, async () => {
   const db = getAdminDb();
   if (!db) throw new Error('no db');
   const d = (await db.collection('system').doc('tradingCalendar').get()).data();
