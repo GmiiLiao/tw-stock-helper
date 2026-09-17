@@ -36,6 +36,9 @@ export const AT_ALLOWLIST = new Set([
   // verdictAt：AI 新聞判別**產出的時間**。與被判別新聞的發佈時間分開——
   // 時效衰減必須用它，用新聞時間會讓舊判別搭上新新聞的新鮮度。
   'verdictAt',
+  // pxAt：判別時點價（px）所取自的快照時刻（newsVerdict 各筆，2026-09-17 M1-b）。
+  //   與 at（判別產出時刻）、verdictAt 分開——它記的是「這個價格是何時的」，對答案用。
+  'pxAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',
@@ -95,8 +98,8 @@ export const DATE_ALLOWLIST = new Set([
   // 領域日期（交易/公司/新聞/處置）
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',
-  // 上游 API 原樣欄位（TWSE openapi 的 Date、民國 rocDate）
-  'Date', 'rocDate',
+  // 上游 API 原樣欄位（TWSE openapi 的 Date、民國 rocDate；MOPS t05st02_detail 請求參數 enterDate＝民國發言日）
+  'Date', 'rocDate', 'enterDate',
 ]);
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，

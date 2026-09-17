@@ -2948,6 +2948,155 @@ async function computeGlobalMarkets() {
   log(`✓ 國際盤：費半 ${sox?.changePct ?? 'n/a'}% → ${expectation}`);
 }
 
+// ── 公開資訊觀測站「當日重大訊息」接入（2026-09-17 計畫第一段·使用者決定「要接」）──
+//   免費、官方、第一手、帶精確發言時間。本段**只抓取與去重，不判別、不進評分**（第一段規格：先把量尺做對）。
+//   端點：新版 MOPS JSON API `POST t05st02 {TYPEK, year, month, day}`（民國年）。實測：TYPEK sii／otc 回同一份
+//   （上市上櫃都在，市場別在每列的 parameters.marketKind），且列裡混有**前一日晚間補登**的公告 ⇒ 依發言日分桶存檔。
+//   ⚠ openapi 的 t187ap04_L 是「前一日」鏡像（出表日比發言日晚一天，2026-09-17 實測），只能當備援，這裡不用。
+//   去重鍵 = marketKind-enterDate-serialNumber-companyId（序號在同公司同日內唯一）。
+//   內文（「說明」欄）另打 t05st02_detail：每輪最多 MOPS_DETAIL_CAP 筆、300ms 間隔，抓不到留 null 不捏造；
+//   apiName 不是 t05st02_detail 的列（中期報告 t59sb01 等）沒有這種內文，只存主旨。
+//   文件：mopsNews/{發言日} itemsJson（key→item）＋ mopsNews/latest（今日、依時間新→舊）。
+const MOPS_API = 'https://mops.twse.com.tw/mops/api/';
+const MOPS_DETAIL_CAP = 150;
+const MOPS_BODY_MAX = 1200;
+function mopsRocToMs(d, t) {
+  const m = String(d || '').match(/^(\d{2,3})\/(\d{2})\/(\d{2})$/); if (!m) return null;
+  const [hh, mm, ss] = String(t || '00:00:00').split(':').map(Number);
+  return Date.UTC(+m[1] + 1911, +m[2] - 1, +m[3], (hh || 0) - 8, mm || 0, ss || 0);   // 台北時間 → UTC ms
+}
+async function mopsPost(api, body) {
+  const r = await fetch(MOPS_API + api, {
+    method: 'POST', headers: { 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const j = await r.json();
+  if (j?.code !== 200) throw new Error(`MOPS ${j?.code ?? '?'} ${j?.message || ''}`.trim());
+  return j.result;
+}
+async function ingestMops() {
+  const tw = taipei(); const today = isoDate(tw);
+  const res = await mopsPost('t05st02', { TYPEK: 'sii', year: String(tw.getFullYear() - 1911), month: String(tw.getMonth() + 1).padStart(2, '0'), day: String(tw.getDate()).padStart(2, '0') });
+  const rows = Array.isArray(res?.data) ? res.data : [];
+  const byDay = {};
+  for (const r of rows) {
+    const m = String(r[0] || '').match(/^(\d{2,3})\/(\d{2})\/(\d{2})$/); if (!m) continue;
+    const day = `${+m[1] + 1911}-${m[2]}-${m[3]}`;
+    const at = mopsRocToMs(r[0], r[1]); if (!at) continue;
+    const p = (r[5] && r[5].parameters) || {};
+    const code = String(r[2] || '').trim(); if (!code) continue;
+    const key = `${p.marketKind || '?'}-${p.enterDate || ''}-${p.serialNumber ?? ''}-${code}`;
+    (byDay[day] ||= {})[key] = {
+      key, code, name: String(r[3] || '').trim(), subject: String(r[4] || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+      at, market: p.marketKind || null, enter: p.enterDate || null, serial: p.serialNumber ?? null,
+      api: (r[5] && r[5].apiName) || null, body: null,
+    };
+  }
+  if (!Object.keys(byDay).length) { log('  ⚠ MOPS 重訊：查詢成功但無列（清晨可能尚無公告）'); }
+  let added = 0, detailed = 0, detailFail = 0, budget = MOPS_DETAIL_CAP;
+  for (const day of Object.keys(byDay).sort()) {
+    const ref = db.collection('mopsNews').doc(day);
+    const prev = (await ref.get()).data();
+    const items = prev?.itemsJson ? JSON.parse(prev.itemsJson) : {};
+    const fresh = Object.values(byDay[day]).filter(x => !items[x.key]);
+    for (const x of fresh) { items[x.key] = x; added++; }
+    // 內文：新的先補，額度有剩再補上一輪沒補到的（超過 150 則的日子分幾輪補齊，不會永遠缺）
+    const wantBody = [...fresh, ...Object.values(items).filter(x => !x.body && !fresh.includes(x))]
+      .filter(x => !x.body && x.api === 't05st02_detail' && x.market && x.enter && x.serial != null);
+    let bodyTouched = 0;
+    for (const x of wantBody) {
+      if (budget <= 0) break;
+      budget--; bodyTouched++;
+      try {
+        const d = await mopsPost('t05st02_detail', { marketKind: x.market, enterDate: x.enter, serialNumber: x.serial, companyId: x.code });
+        const row = Array.isArray(d?.data) ? d.data[0] : null;
+        const body = row ? String(row[9] || '').replace(/\r/g, '').trim() : '';
+        if (body) { items[x.key].body = body.slice(0, MOPS_BODY_MAX); detailed++; } else detailFail++;
+      } catch { detailFail++; }
+      await sleep(300);
+    }
+    if (!fresh.length && !bodyTouched && prev) continue;   // 這天沒有新公告也沒補到內文：不重寫
+    // Firestore 單文件 1MiB：季報／董事會截止日可達上千則，超標就只保留最新 300 則的內文
+    let json = JSON.stringify(items);
+    if (json.length > 900_000) {
+      const keep = new Set(Object.values(items).sort((a, b) => b.at - a.at).slice(0, 300).map(x => x.key));
+      for (const k in items) if (!keep.has(k)) items[k].body = null;
+      json = JSON.stringify(items);
+      log(`  ⚠ MOPS ${day} 超過 900KB，僅保留最新 300 則內文`);
+    }
+    await ref.set({
+      date: day, dataDate: day, n: Object.keys(items).length, updatedAt: Date.now(), fetchedAt: Date.now(),
+      itemsJson: json, source: 'mops.twse.com.tw/mops/api/t05st02',
+      note: '公開資訊觀測站當日重大訊息原文（官方第一手·僅抓取去重，未判別、未進評分）。非投資建議。',
+    }, { merge: true });
+  }
+  // latest ＝ 今日那份（清晨無公告時 n=0，稽核 allowEmpty；不拿前一日冒充今日）
+  const tDoc = (await db.collection('mopsNews').doc(today).get()).data();
+  const tItems = tDoc?.itemsJson ? Object.values(JSON.parse(tDoc.itemsJson)).sort((a, b) => b.at - a.at) : [];
+  await db.collection('mopsNews').doc('latest').set({
+    date: today, dataDate: today, n: tItems.length, updatedAt: Date.now(), fetchedAt: Date.now(),
+    items: tItems.map(x => ({ key: x.key, code: x.code, name: x.name, subject: x.subject, at: x.at, market: x.market, hasBody: !!x.body })),
+    days: Object.keys(byDay).sort(),
+    note: '今日重大訊息索引（內文在 mopsNews/{日期}）。僅抓取去重，未判別。非投資建議。',
+  });
+  log(`✓ MOPS 重訊：${rows.length} 列（${Object.keys(byDay).sort().join('、') || '無'}）→ 新增 ${added}、內文 ${detailed}${detailFail ? `、內文失敗 ${detailFail}` : ''}；今日 ${tItems.length} 則`);
+  return true;
+}
+
+// ── 產業現貨／原物料報價（2026-09-17 計畫第一段·使用者決定「先接免費來源」）──
+//   只抓取存檔（sectorSpot/{日}＋latest），**不進任何評分**；供之後的產業層判別（M8）與對答案引用。
+//   免費來源：Yahoo Finance 期貨連續合約（走既有 _yahooQuote：日線×小時線交叉驗證、以報價所屬交易日為基準）
+//   與 DRAMeXchange 首頁公開的 DRAM 現貨表（Session Average／Session Change，頁面自報 Last Update）。
+//   付費或抓不到的（DRAMeXchange 合約價、WitsView 面板、SCFI 頁面是圖片、BDI 需授權）**不接、不捏造**。
+const SPOT_FUTURES = [
+  ['CL=F', '西德州原油', 'USD/桶', ['塑化', '航運', '油電燃氣']],
+  ['BZ=F', '布蘭特原油', 'USD/桶', ['塑化', '航運']],
+  ['NG=F', '天然氣', 'USD/MMBtu', ['油電燃氣', '塑化']],
+  ['HG=F', '銅', 'USD/磅', ['電線電纜', 'PCB', '電子零組件']],
+  ['ALI=F', '鋁', 'USD/噸', ['金屬', '汽車零組件']],
+  ['GC=F', '黃金', 'USD/盎司', ['貴金屬']],
+  ['SI=F', '白銀', 'USD/盎司', ['貴金屬', '太陽能']],
+];
+async function computeSectorSpot() {
+  const today = isoDate(taipei());
+  const items = []; const sources = {};
+  for (const [sym, name, unit, sectors] of SPOT_FUTURES) {
+    try {
+      const q = await _yahooQuote(sym);
+      // asOf＝這筆報價所屬的交易日（UTC 日，Yahoo 語意），chgPct＝對前一交易日收盤
+      if (q) { items.push({ key: sym, name, unit, price: q.price, chgPct: q.total ?? null, asOf: q.curDay ?? null, prevDate: q.prevDate ?? null, quoteAt: q.quoteAt ?? null, source: 'yahoo', sectors }); sources.yahoo = true; }
+    } catch { /* 單一標的失敗不擋 */ }
+    await sleep(200);
+  }
+  try {
+    const html = await (await fetch('https://www.dramexchange.com/', { headers: _NEWS_UA, signal: AbortSignal.timeout(15000) })).text();
+    const cells = t => [...t.matchAll(/<tr[\s\S]*?<\/tr>/gi)].map(r => [...r[0].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()));
+    const tables = [...html.matchAll(/<table[\s\S]*?<\/table>/gi)].map(m => cells(m[0]));
+    const dram = tables.find(rows => rows[0]?.[0] === 'Item' && /Daily High/i.test(rows[0]?.[1] || ''));
+    // 頁面自報的更新時刻（例「Last Update:Sep.17 2026 14:40 (GMT+8)」）——這才是資料時點，不拿抓取時刻冒充
+    const upd = (html.match(/DRAM Spot Price[\s\S]{0,600}?Last Update:\s*([A-Za-z]{3}\.?\s*\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2})/) || [])[1] || null;
+    const updMs = upd ? Date.parse(upd.replace('.', ' ') + ' GMT+0800') : NaN;
+    if (dram) {
+      for (const row of dram.slice(1)) {
+        const price = parseFloat(row[5]); const chg = parseFloat(String(row[6] || '').replace('%', ''));
+        if (!(price > 0) || !/DDR/.test(row[0] || '')) continue;
+        items.push({ key: `DRAM:${row[0]}`, name: `DRAM 現貨 ${row[0]}`, unit: 'USD', price, chgPct: Number.isFinite(chg) ? chg : null,
+          asOf: Number.isFinite(updMs) ? isoDate(new Date(new Date(updMs).toLocaleString('en-US', { timeZone: 'Asia/Taipei' }))) : null, quoteAt: Number.isFinite(updMs) ? updMs : null,
+          source: 'dramexchange', sectors: ['記憶體'] });
+      }
+      if (dram.length > 1) sources.dramexchange = true;
+    }
+  } catch { /* DRAMeXchange 抓不到就沒有記憶體那組，缺就缺 */ }
+  if (!items.length) { log('✖ 產業現貨報價：所有來源皆無資料，不寫入'); return false; }
+  const doc = { date: today, dataDate: today, n: items.length, updatedAt: Date.now(), fetchedAt: Date.now(), items, sources,
+    note: '免費來源的產業現貨／原物料報價（Yahoo 期貨連續合約＋DRAMeXchange 公開現貨表）。只存檔不評分。非投資建議。' };
+  await db.collection('sectorSpot').doc(today).set(doc);
+  await db.collection('sectorSpot').doc('latest').set(doc);
+  log(`✓ 產業現貨報價：${items.length} 項（${Object.keys(sources).join('＋')}）`);
+  return true;
+}
+
 // ── 日韓早盤風向（台股開盤前的領先窗口）──────────────────────────
 // 時區事實：日本與韓國都是 UTC+9，兩地 09:00 開盤 ＝ **台北 08:00**。
 //   台股 08:30 試撮、09:00 開盤 ⇒ 開盤前有 30~60 分鐘的日韓實盤資訊。
@@ -4494,8 +4643,11 @@ async function fetchYahooStockBodies(code, name, cap = 2) {
   // 題材稿優先於【公告】：公告有價值（營收/財報）但題材才解釋隔日走勢
   links.sort((a, b) => (/%E5%85%AC%E5%91%8A/.test(a) ? 1 : 0) - (/%E5%85%AC%E5%91%8A/.test(b) ? 1 : 0));
   const out = [];
+  // 2026-09-17：多抓幾篇再**依日期由新到舊**取 cap 篇（與經濟日報同一套做法）。
+  //   舊版取前 cap 篇：題材稿排前面但可能是幾週前的，近兩日那篇被擠掉 ⇒ 判別落入
+  //   「內文皆逾期、近兩日只有標題」的資訊不足（反查 249 筆的主因之一）。
   for (const l of links) {
-    if (out.length >= cap) break;
+    if (out.length >= cap + 3) break;
     try {
       await sleep(400);
       const r = await fetch(l, { headers: UA, signal: AbortSignal.timeout(12000) });
@@ -4522,7 +4674,8 @@ async function fetchYahooStockBodies(code, name, cap = 2) {
       out.push({ title: title || `${name} 相關報導`, body: body.slice(0, 1600), host: 'tw.stock.yahoo.com', url: l, at });
     } catch { /* 換下一篇 */ }
   }
-  return out;
+  out.sort((a, b) => (b.at || 0) - (a.at || 0));   // 缺日期（at=0）排最後
+  return out.slice(0, cap);
 }
 
 // name 是品質閘門：抽出來的字裡**必須出現公司名**，否則多半抓到的是側邊欄
@@ -4612,7 +4765,20 @@ async function fetchStockNewsMulti(keyword, code) {
     title: a.title, content: a.body, at: a.at || null, link: a.url,
     src, hasBody: true, bodyFrom: a.host, bodyGeneric: !a.at,   // 抓不到日期就標記，時效不明
   });
-  const bodies = () => out.filter(x => x.hasBody).length;
+  // ⚠ 閘門要數的是**近期**內文，不是任何內文（2026-09-17 對 8 個交易日 1,203 筆判別反查：
+  //   254 筆資訊不足裡 249 筆的理由是「有含內文的報導但最新一則已超過 14 日、近兩日只有標題」）。
+  //   舊版 bodies() 把經濟日報搜到的幾個月前舊文也算數 ⇒ bodies()≥2 成立、Yahoo／鉅亨那兩條
+  //   **根本沒被打**，近兩日的題材全留在標題級。改成只數 3 日內（≈兩個交易日視窗）的內文，
+  //   舊文仍保留在 out（下游 14 日回退照用），只是不再擋住後面的來源。
+  //   視窗與 judgeOneStock 同一把尺：回溯到前兩個交易日的起點（週一涵蓋四／五／六／日），下限 3 日。
+  const FRESH_MS = (() => {
+    try {
+      const back = prevTradingIsos(isoDate(taipei()), 3); const from = back[2] || back[1] || back[0];
+      const [yy, mm, dd] = from.split('-').map(Number);
+      return Math.max(3 * 86400000, Date.now() - (Date.UTC(yy, mm - 1, dd) - 8 * 3600000));
+    } catch { return 3 * 86400000; }
+  })();
+  const bodies = () => out.filter(x => x.hasBody && x.at && Date.now() - x.at <= FRESH_MS).length;
   const dedupKey = t => String(t || '').replace(/\s/g, '').slice(0, 16);
 
   // ── ① 優先來源：經濟日報・工商時報（使用者指定 2026-08-28）──────────
@@ -4661,7 +4827,7 @@ async function fetchStockNewsMulti(keyword, code) {
   // ── ③ 最後手段：以標題到白名單財經網找同一則報導 ────────────────────
   //    使用者指示：不可用「無法取得內文」搪塞。
   try {
-    if (!out.some(x => x.hasBody && !MACHINE_NEWS.test(x.title))) {
+    if (!out.some(x => x.hasBody && !MACHINE_NEWS.test(x.title) && x.at && Date.now() - x.at <= FRESH_MS)) {
       let filled = 0;
       for (const n of out) {
         if (filled >= 2) break;
@@ -4677,9 +4843,10 @@ async function fetchStockNewsMulti(keyword, code) {
     }
   } catch { /* 同上 */ }
 
-  if (bodies()) {
+  const allBodies = out.filter(x => x.hasBody).length;
+  if (allBodies) {
     const srcs = [...new Set(out.filter(x => x.hasBody).map(x => x.src))];
-    log(`    ↳ ${keyword}：內文 ${bodies()} 則（${srcs.join('・')}）`);
+    log(`    ↳ ${keyword}：內文 ${allBodies} 則（${srcs.join('・')}）${bodies() ? '' : '，皆逾 3 日'}`);
   }
   return out;
 }
@@ -5007,6 +5174,9 @@ ${body || '（近 2 日無實質新聞）'}
 關鍵句: （引用內文最關鍵的一句，30 字內；沒有可引用的寫「無」）
 影響路徑: （這句話透過什麼機制影響營收/獲利/評價，含量級，50 字內）
 已被預期: 是/否/不確定
+事件類型: 訂單/財測/法說/擴產/法律/處分/減資/併購/產業報價/宏觀/營收財報/新產品/人事/其他  ← 只挑一個，寫「發生了什麼」，不寫好壞
+確定性: 已確認/預期/傳聞  ← 已確認＝公司或官方已公告的事實；預期＝法人或媒體的預估；傳聞＝未經證實
+新穎性: 首次/重複  ← 這件事是首次揭露，還是先前已被報導過的舊事重提
 挑戰: （最可能推翻上述判斷的反方論點，40 字內；想不到寫「無」）
 強度: 極強/強/中/弱   ← 必須是經過上面「挑戰」之後的定案
 信心: 高/中/低
@@ -5021,6 +5191,11 @@ ${body || '（近 2 日無實質新聞）'}
       const mkey = ans.match(/關鍵句\s*[:：]\s*(.+)/);
       const mpath = ans.match(/影響路徑\s*[:：]\s*(.+)/);
       const mprc = ans.match(/已被預期\s*[:：]\s*(是|否|不確定)/);
+      // L1 抽取欄（2026-09-17 計畫第一段）：只多存欄位供分組對答案，**不進判定規則**。
+      //   事件類型限定在清單內，清單外／沒答 ⇒ null（不捏造預設值）。
+      const mety = ans.match(/事件類型\s*[:：]\s*(訂單|財測|法說|擴產|法律|處分|減資|併購|產業報價|宏觀|營收財報|新產品|人事|其他)/);
+      const mcert = ans.match(/確定性\s*[:：]\s*(已確認|預期|傳聞)/);
+      const mnov = ans.match(/新穎性\s*[:：]\s*(首次|重複)/);
       const mchal = ans.match(/挑戰\s*[:：]\s*(.+)/);
       const mc = ans.match(/信心\s*[:：]\s*(高|中|低)/);
       const mr = ans.match(/理由\s*[:：]\s*(.+)/);
@@ -5040,6 +5215,7 @@ ${body || '（近 2 日無實質新聞）'}
         keyQuote: mkey ? mkey[1].trim().slice(0, 40) : null,
         impactPath: mpath ? mpath[1].trim().slice(0, 60) : null,
         priced: mprc ? mprc[1] : null,
+        eventType: mety ? mety[1] : null, certainty: mcert ? mcert[1] : null, novelty: mnov ? mnov[1] : null,
         challenge: mchal ? mchal[1].trim().slice(0, 50) : null,
         reason: mr ? mr[1].trim().slice(0, 70) : ans.slice(0, 70),
         risk: stale
@@ -5329,7 +5505,24 @@ async function newsJudgeContext(wantDates = []) {
   let indMap = {};
   try { indMap = await getIndustryMap(); } catch { /* 沒有產業別只是少一個錨 */ }
 
-  return { gToday, gLine, calMap, indMap };
+  // M1-b 判別時點記價（2026-09-17 計畫第一段）：判別寫入時記下「當時的價格」，
+  //   對答案才能從可交易的起點算（盤中趟尤其：新聞出來前的漲幅不可算成新聞效應）。
+  //   來源＝marketSnapshot/latest 的 price（盤中＝最新成交、盤後＝當日收盤、晨間＝前日收盤）；
+  //   pxOpen 記快照當時是否盤中，pxAt 記快照時刻——一趟共用一份，最多落後該趟的長度。
+  let px = {}, pxOpen = false, pxAt = null;
+  try {
+    const s = (await db.collection('marketSnapshot').doc('latest').get()).data();
+    const q = s?.quotesJson ? JSON.parse(s.quotesJson) : {};
+    for (const c in q) if (q[c]?.price > 0) px[c] = q[c].price;
+    pxOpen = !!s?.marketOpen; pxAt = s?.updatedAt ?? null;
+  } catch { /* 缺價只是少記一欄，不擋判別 */ }
+
+  return { gToday, gLine, calMap, indMap, px, pxOpen, pxAt };
+}
+// 判別寫入時附上的時點價欄位（batch／intraday 兩個寫入端共用，避免各自漂移）
+function verdictPxFields(ctx, code) {
+  const p = ctx?.px?.[code];
+  return p > 0 ? { px: p, pxSrc: ctx.pxOpen ? 'live' : 'close', pxAt: ctx.pxAt ?? null } : { px: null, pxSrc: null, pxAt: null };
 }
 
 // ── 漲停預測的新聞判別（2026-08-28）──────────────────────────────────
@@ -5658,6 +5851,8 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
         label: v.label, confidence: v.confidence, strength: v.strength || '中', reason: v.reason,
         basis: v.basis, n: v.n, pass: 'night', at: Date.now(),
         keyQuote: v.keyQuote || null, impactPath: v.impactPath || null, priced: v.priced || null,
+        eventType: v.eventType || null, certainty: v.certainty || null, novelty: v.novelty || null,
+        ...verdictPxFields(ctx, u.code),
         challenged: !!v.challenged, dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
         strengthBasis: v.strengthBasis || null, quotes: v.quotes || null,
         quoteVerified: v.quoteVerified ?? null, gate: v.gate || null,
@@ -5785,22 +5980,24 @@ async function computeNewsVerdictReview(days = 40) {
         const p = prevDay ? byDate[prevDay]?.[code]?.[0] : null; const c5 = d5Day ? byDate[d5Day]?.[code]?.[0] : null;
         const u = uni(day);
         const o2c = (r[0] - r[2]) / r[2] * 100;
+        const px = v[code].px > 0 ? v[code].px : null;   // M1-b：判別時點價（盤後／晨間趟＝前收，盤中趟＝當時成交價）
         rows.push({ v: v[code], gap: p > 0 ? (r[2] - p) / p * 100 : null, o2c, o2cx: u.o2c != null ? o2c - u.o2c : null,
-          c2c: p > 0 ? (r[0] - p) / p * 100 : null, d5x: (c5 > 0 && u.d5 != null) ? (c5 - r[2]) / r[2] * 100 - u.d5 : null });
+          c2c: p > 0 ? (r[0] - p) / p * 100 : null, d5x: (c5 > 0 && u.d5 != null) ? (c5 - r[2]) / r[2] * 100 - u.d5 : null,
+          pxc: px ? (r[0] - px) / px * 100 : null, px5: (px && c5 > 0) ? (c5 - px) / px * 100 : null });
       }
     }
-    const H = ['gap', 'o2c', 'o2cx', 'c2c', 'd5x'];
+    const H = ['gap', 'o2c', 'o2cx', 'c2c', 'd5x', 'pxc', 'px5'];
     const stat = (arr) => { const o = { n: arr.length }; for (const h of H) { const a = arr.map(r => r[h]).filter(x => x != null); o[h] = a.length ? { n: a.length, mean: +(a.reduce((s, x) => s + x, 0) / a.length).toFixed(3), win: +(a.filter(x => x > 0).length / a.length * 100).toFixed(1) } : null; } return o; };
     const groups = {};
     const add = (k, r) => (groups[k] ||= []).push(r);
     for (const r of rows) {
       const L = r.v.label || '?'; add(`label=${L}`, r);
-      for (const f of ['confidence', 'strength', 'priced', 'basis', 'pass']) add(`label=${L}|${f}=${r.v[f] ?? 'null'}`, r);
+      for (const f of ['confidence', 'strength', 'priced', 'basis', 'pass', 'eventType', 'certainty', 'novelty', 'pxSrc']) add(`label=${L}|${f}=${r.v[f] ?? 'null'}`, r);
     }
     const out = {}; for (const k in groups) out[k] = stat(groups[k]);
     await db.collection('newsVerdictReview').doc('breakdown').set({
       updatedAt: Date.now(), days: usedDays, rows: rows.length,
-      horizons: 'gap=昨收→今開｜o2c=今開→今收｜o2cx=o2c−同日宇宙等權｜c2c=昨收→今收｜d5x=今開→第5個交易日收−同日宇宙等權（%）',
+      horizons: 'gap=昨收→今開｜o2c=今開→今收｜o2cx=o2c−同日宇宙等權｜c2c=昨收→今收｜d5x=今開→第5個交易日收−同日宇宙等權｜pxc=判別時點價→今收｜px5=判別時點價→第5個交易日收（%；px 自 2026-09-17 起才有）',
       groups: out, note: '只記錄不加權；分組 n 小的不可下結論。非投資建議。',
     });
     const g = k => out[k] ? `${k}: n=${out[k].n} o2cx ${out[k].o2cx?.mean ?? '—'} d5x ${out[k].d5x?.mean ?? '—'}` : '';
@@ -5850,6 +6047,8 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
         basis: v.basis, n: v.n, pass: 'intraday', at: Date.now(),
         keyQuote: v.keyQuote || null, impactPath: v.impactPath || null,
         priced: v.priced || null, challenge: v.challenge || null,
+        eventType: v.eventType || null, certainty: v.certainty || null, novelty: v.novelty || null,
+        ...verdictPxFields(ctx, u.code),
         challenged: !!v.challenged, revision: v.revision || null,
         gate: v.gate || null, unverifiedNums: v.unverifiedNums || null,
         dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
@@ -5939,7 +6138,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
       for (const c in yv) {
         if (verdicts[c]) continue;
         if (!yv[c]?.at || nowMs - yv[c].at > CARRY_MAX_MS) { dropped++; continue; }
-        verdicts[c] = { ...yv[c], carriedFrom: yIso };
+        // 承接的判別時點價屬於前一個適用日，對今天無意義 ⇒ 清掉（不然 pxc 會拿錯日的起點算）
+        verdicts[c] = { ...yv[c], carriedFrom: yIso, px: null, pxSrc: null, pxAt: null };
       }
       if (dropped) log(`  ↳ 承接時丟棄 ${dropped} 筆逾 7 日的舊判別`);
       for (const c in ys) if (!seenAll[c]) seenAll[c] = ys[c];
@@ -6065,6 +6265,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         label: v.label, confidence: v.confidence, strength: v.strength || '中', reason: v.reason,
         keyQuote: v.keyQuote || null, impactPath: v.impactPath || null,
         priced: v.priced || null, challenge: v.challenge || null,
+        eventType: v.eventType || null, certainty: v.certainty || null, novelty: v.novelty || null,
+        ...verdictPxFields(ctx, code),
         challenged: !!v.challenged, revision: v.revision || null,
         gate: v.gate || null, unverifiedNums: v.unverifiedNums || null,
         dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
@@ -13206,7 +13408,7 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['gapLimitUp', computeGapLimitUp], ['gapLimitUpReview', computeGapLimitUpReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['sectorSpot', computeSectorSpot], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['gapLimitUp', computeGapLimitUp], ['gapLimitUpReview', computeGapLimitUpReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     await timedJob(name, fn, tag);
   }
@@ -13231,6 +13433,7 @@ let _nvEveDate = '';          // 新聞內文判別·盤後那趟（23:00）
 let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:00 死線）
 let _nvReviewDate = '';       // 新聞判別對答案（15:30）
 let _nvIntradayAt = 0;        // 盤中新聞判別的上次執行時刻
+let _mopsAt = 0;              // 公開資訊觀測站重大訊息：每 30 分鐘一輪（2026-09-17）
 let _nvNightDate = '';        // 夜間覆蓋率補判（01:15 起，06:30 死線）
 let _shortCandAt = 0;         // 做空候選：盤中每 10 分鐘一輪（2026-09-03）
 let _squeezeTrainDate = '';   // 軋空模型訓練（每個交易日之後 02:00）冪等守衛；開機時從 squeezeModel/latest.updatedAt 接回，重啟不重訓
@@ -13354,6 +13557,12 @@ async function dailyJobsLoop() {
         _nvIntradayAt = Date.now();   // 先標記：這是週期性工作，失敗等下一輪即可
         try { await computeIntradayNewsVerdict(); }
         catch (e) { log('✖ 盤中新聞判別:', (e.message || '').slice(0, 60)); }
+      }
+      // 公開資訊觀測站重大訊息（2026-09-17）：07:00~23:30 每 30 分鐘一輪，非交易日也跑（假日仍有補登）。
+      //   只抓取去重；一輪 1 次列表 ＋ 最多 150 次內文，與 MIS 額度無關（不同主機）。
+      if (mins >= 7 * 60 && mins <= 23 * 60 + 30 && Date.now() - _mopsAt > 30 * 60000) {
+        _mopsAt = Date.now();   // 先標記：週期性工作，失敗等下一輪
+        try { await ingestMops(); } catch (e) { log('✖ MOPS 重訊:', (e.message || '').slice(0, 60)); }
       }
       // 新聞判別對答案（15:30：當日 OHLC 已入 chipArchive）
       if (isTradingDay(tw) && mins >= 15 * 60 + 30 && _nvReviewDate !== today) {
@@ -13876,6 +14085,8 @@ if (ONESHOT) {
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
     newsVerdictIntraday: () => computeIntradayNewsVerdict(),
+    mops: () => ingestMops(),                 // 公開資訊觀測站重大訊息抓取去重（2026-09-17）
+    sectorSpot: () => computeSectorSpot(),    // 產業現貨／原物料報價（免費來源）
     newsVerdictNight: () => computeNightBackfill(),
     // 驗證用：NV_CODES=3037,1303 單獨判別指定個股，不寫入正式存檔
     // 變異度量測：同一檔重複判別 N 次，看結果穩不穩。

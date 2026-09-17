@@ -78,6 +78,11 @@ const CONTRACTS = [
   { c: 'gapLimitUp',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },   // 🎯 縮量跳空漲停（2026-09-05）
   { c: 'swingHold',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate' },   // 📈 波段持有 5/10/20/60 日連續成長榜（2026-09-16）
   { c: 'dailySeq',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate', minRecords: 1500, countField: 'byCodeJson' },   // 📊 每檔近 10 日漲跌×量＋三線（2026-09-17）
+  // 📢 公開資訊觀測站重大訊息（2026-09-17 新聞計畫第一段）：07:00~23:30 每 30 分鐘一輪，非交易日也跑。
+  //   latest 是「今日」索引，清晨 n=0 是正常（doc 自帶 note），故 allowEmpty；資料日＝今日日曆日。
+  { c: 'mopsNews',         kind: 'latest',  maxStale: 3 * HOUR,  session: 'always', allowEmpty: true, dateField: 'dataDate', countField: 'items' },
+  // 🛢 產業現貨／原物料報價（免費來源：Yahoo 期貨＋DRAMeXchange 現貨表）：每日 15:10 班車，只存檔不評分。
+  { c: 'sectorSpot',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 16, dateField: 'dataDate', minRecords: 5, countField: 'items' },
   // 訓練樣本：21:45 班車寫 dated doc。漏一天＝少一筆不可回補的樣本（特徵是
   // 當日快照，事後重建就不是 PIT）——這正是 bookDepth 壞半年教訓要防的。
   { c: 'shortTraining',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 100, countField: 'rowsJson', publishHour: 22 },   // 21:45 班車
