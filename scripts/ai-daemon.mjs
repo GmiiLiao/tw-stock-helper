@@ -4432,57 +4432,6 @@ const BULLISH_KW = ['漲價', '調漲', '報價上揚', '大單', '訂單', '接
 const MACHINE_NEWS = /盤中速報|收盤速報|漲速|自動生成|快訊[:：]?\s*股價/;
 const BEARISH_KW = ['下修', '調降', '減產', '砍單', '虧損', '衰退', '認列', '罰款', '召回', '停產', '訴訟'];
 
-// 鉅亨網個股新聞（**有真正的內文**）。Google News RSS 走不通——它的連結是 JS
-// 轉址、伺服器端抓回來只有 11 個字「Google News」，且 article id 已加密無法解出
-// 原始網址（2026-08-26 實測兩條路都試過）。鉅亨提供 JSON API 與 128~900 字內文，
-// 是台灣主要財經媒體，適合當「讀內容再判斷」的來源。
-async function fetchCnyesNews(keyword, cap = 6) {
-  try {
-    const url = `https://api.cnyes.com/media/api/v1/search/news?q=${encodeURIComponent(keyword)}&limit=${cap * 2}`;
-    const r = await nfetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
-    if (!r.ok) return [];
-    const j = await r.json();
-    const raw = j?.items?.data || j?.data?.items || j?.items || [];
-    const arr = Array.isArray(raw) ? raw : (raw.data || []);
-    const strip = t => String(t || '').replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-    return arr.slice(0, cap).map(it => ({
-      id: it.newsId || 0,
-      title: strip(it.title || it.name),
-      content: strip(it.content || it.summary || it.abstract).slice(0, 900),
-      at: it.publishAt ? it.publishAt * 1000 : 0,
-      link: it.newsId ? `https://news.cnyes.com/news/id/${it.newsId}` : '',
-    })).filter(x => x.title);
-  } catch { return []; }
-}
-
-// 鉅亨的**內文只在網頁上**（2026-08-27 三條路都實測）：
-//   api/v1/news/{id}     → HTTP 200 但 items 是空物件（0 字）
-//   api/v1/newspage/{id} → 404
-//   news.cnyes.com/news/id/{id} → <article> 有完整內文（實測 1,071 字）✓
-// 搜尋 API 的 content 欄只有 20~160 字摘要，達不到 hasBody 的 60 字門檻 ⇒
-// 08-27 的 12 檔判別有 11 檔 basis=title，等於沒讀新聞就下多空判斷。
-async function fetchCnyesBody(newsId) {
-  try {
-    const r = await nfetch(`https://news.cnyes.com/news/id/${newsId}`);
-    if (!r.ok) return '';
-    const m = (await r.text()).match(/<article[\s\S]*?<\/article>/);
-    if (!m) return '';
-    return m[0]
-      .replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<style[\s\S]*?<\/style>/g, ' ')
-      .replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 1600);
-  } catch { return ''; }
-}
-
-// ── 跨站補內文（使用者指示 2026-08-27）────────────────────────────────
-// 「新聞無法看到內文，就找其它網站相同類似標題來識讀內文，不可用無法取得內文來塞」
-//
-// 為什麼需要：鉅亨對冷門股常常只有「盤中速報」機器稿（實測前鼎 20 則全是），
-// Google News 覆蓋廣但**只給標題**（連結是加密轉址，內文抓不到，兩條路都試過）。
-// 於是拿 Google News 的標題去搜同一則報導在**別的媒體**的版本，那邊抓得到內文。
-// 實測：「前鼎 光通訊 訂單」→ 工商時報 724 字（矽光子/800G 送樣）——正是鉅亨
-// 完全沒有的題材；「弘塑、辛耘接單看到2030年」→ 自由時報 1,012 字。
-const ALT_NEWS_DOMAINS = /(^|\.)(ltn\.com\.tw|udn\.com|ctee\.com\.tw|technews\.tw|moneydj\.com|cnyes\.com|wealth\.com\.tw|businesstoday\.com\.tw|chinatimes\.com|nownews\.com|ettoday\.net)$/i;
-
 const _stripHtml = h => h
   .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
   .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/gi, ' ')
@@ -4572,110 +4521,15 @@ async function fetchArticleAt(url, name) {
 // ── 每檔抓取的請求預算（2026-09-17）────────────────────────────────────
 // 新增來源之後，單檔最壞情況會從 ~15 次膨脹到 30+ 次；150 檔一趟就是 4,500 次。
 // 所有新聞抓取一律走 nfetch()：逐檔計數，超過預算就拒發並記一次，下游來源自然跳過。
-// 預算 28 ＝ 經濟日報 4＋工商 5＋Yahoo 4＋Google 1＋鉅亨 3＋自由 3＋Google 解碼 6＋餘裕 2。
-const NEWS_REQ_BUDGET = +(process.env.NEWS_REQ_BUDGET || 28);
+// 兩層架構下每檔：索引 0（共用）＋Google RSS 1＋Yahoo RSS 1～2＋每故事最多 3 出處×最多 3 次。
+const NEWS_REQ_BUDGET = +(process.env.NEWS_REQ_BUDGET || 24);   // 第一層逐檔 6～7 次＋第二層最多 4 故事；24 是防暴走上限
+const NEWS_REQ_TIMEOUT_MS = +(process.env.NEWS_REQ_TIMEOUT_MS || 2000);   // 使用者 2026-09-17：超過 2000ms 的來源不使用
 let _newsReq = 0, _newsReqDenied = 0;
 function resetNewsReqBudget() { _newsReq = 0; _newsReqDenied = 0; }
 async function nfetch(url, opts = {}) {
   if (_newsReq >= NEWS_REQ_BUDGET) { _newsReqDenied++; throw new Error(`新聞請求預算用罄（${NEWS_REQ_BUDGET}）`); }
   _newsReq++;
-  return fetch(url, { headers: _NEWS_UA, signal: AbortSignal.timeout(12000), ...opts });
-}
-
-// DuckDuckGo 熔斷：連續查詢後它會直接回 0 筆（2026-08-27 實測），繼續打只是浪費預算。
-// 連續 3 次「有回應但 0 個結果連結」就視為被擋，冷卻 5 分鐘（既有 breaker 機制）。
-function ddgLinks(html) {
-  return [...new Set([...html.matchAll(/uddg=([^&"]+)/g)].map(m => { try { return decodeURIComponent(m[1]); } catch { return ''; } }).filter(Boolean))];
-}
-async function ddgSearch(query) {
-  if (breakerOpen('ddg')) return [];
-  const r = await nfetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-  if (!r.ok) { breakerFail('ddg', new Error(`HTTP ${r.status}`)); return []; }
-  const links = ddgLinks(await r.text());
-  if (links.length) breakerOk('ddg'); else breakerFail('ddg', new Error('0 結果（疑似被擋）'));
-  return links;
-}
-
-/** ① 經濟日報（優先來源·可直接搜尋）
- *  2026-09-17：搜尋頁內嵌 JSON-LD ItemList（url／headline／datePublished，依時間遞減），
- *  先讀日期再決定抓哪幾篇——舊版是「抓 cap+3 篇文章再排序」，多花 3 次請求還可能全是舊文。 */
-function parseUdnItemList(html) {
-  const out = [];
-  for (const m of html.matchAll(/"@type"\s*:\s*"NewsArticle"[\s\S]{0,400}?"url"\s*:\s*"(https:\/\/money\.udn\.com\/money\/story\/\d+\/\d+)[^"]*"[\s\S]{0,600}?"datePublished"\s*:\s*"([^"]{10,40})"/g)) {
-    const at = Date.parse(m[2]);
-    if (Number.isFinite(at)) out.push({ url: m[1], at });
-  }
-  return out;
-}
-async function fetchUdnMoney(keyword, cap = 3) {
-  const out = [];
-  try {
-    const r = await nfetch(`https://money.udn.com/search/result/1001/${encodeURIComponent(keyword)}`, { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) return out;
-    const html = await r.text();
-    let list = parseUdnItemList(html);
-    if (!list.length) {   // JSON-LD 缺席就退回舊法：連結全抓、多抓幾篇再依日期排
-      list = [...new Set([...html.matchAll(/https:\/\/money\.udn\.com\/money\/story\/\d+\/\d+/g)].map(m => m[0]))].slice(0, cap + 3).map(url => ({ url, at: 0 }));
-    }
-    list.sort((x, y) => y.at - x.at);
-    // 只抓 14 日內的（判別回退上限）；一篇都沒有就抓最新 1 篇，讓下游能據實說「有內文但逾期」
-    const fresh = list.filter(x => !x.at || Date.now() - x.at <= 14 * 86400000);
-    const pick = (fresh.length ? fresh : list.slice(0, 1)).slice(0, cap + (list[0]?.at ? 0 : 3));
-    const got = [];
-    for (const { url } of pick) {
-      await sleep(400);
-      const a = await fetchArticleAt(url, keyword);
-      if (a) got.push(a);
-    }
-    got.sort((x, y) => (y.at || 0) - (x.at || 0));
-    out.push(...got.slice(0, cap));
-  } catch { /* 單一來源失敗不擋 */ }
-  return out;
-}
-
-/** ① 工商時報（優先來源·站內搜尋／tag／RSS 全部 403／404（2026-09-17 再測），只能由 DDG 定位文章頁） */
-async function fetchCtee(keyword, cap = 2) {
-  const out = [];
-  try {
-    const links = (await ddgSearch(`site:ctee.com.tw ${keyword}`)).filter(u => /ctee\.com\.tw\/(news|newspaper)\//.test(u));
-    const got = [];
-    for (const u of links.slice(0, cap + 2)) {
-      await sleep(400);
-      const a = await fetchArticleAt(u, keyword);
-      if (a) got.push(a);
-    }
-    got.sort((x, y) => (y.at || 0) - (x.at || 0));   // 同上：新的優先
-    out.push(...got.slice(0, cap));
-  } catch { /* DDG 被擋就算了，經濟日報那條仍在 */ }
-  return out;
-}
-
-/** ③ 自由財經（2026-09-17 實測：search.ltn.com.tw 可搜、依日期排序、每筆帶日期，文章頁有內文與 datePublished）
- *  關鍵字比對的是全文，標題未必含公司名 ⇒ 靠 fetchArticleAt 的「內文必須含公司名」閘門把關。 */
-async function fetchLtn(keyword, cap = 2, freshMs = 14 * 86400000) {
-  const out = [];
-  if (breakerOpen('ltn')) return out;
-  try {
-    const r = await nfetch(`https://search.ltn.com.tw/list?keyword=${encodeURIComponent(keyword)}&type=business&sort=date`);
-    if (!r.ok) { breakerFail('ltn', new Error(`HTTP ${r.status}`)); return out; }
-    breakerOk('ltn');
-    const html = await r.text();
-    const items = [];
-    for (const m of html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)) {
-      const u = (m[1].match(/https?:\/\/ec\.ltn\.com\.tw\/article\/[a-z]+\/\d+/) || [])[0];
-      const d = (m[1].match(/(\d{4})\/(\d{2})\/(\d{2})/) || []);
-      if (!u || !d[1]) continue;
-      const at = Date.UTC(+d[1], +d[2] - 1, +d[3]) - 8 * 3600000;   // 列表只有日期，取台北 00:00；文章頁會覆寫成精確時間
-      if (Date.now() - at > freshMs) continue;
-      if (!items.some(x => x.u === u)) items.push({ u, at });
-    }
-    for (const { u } of items.slice(0, cap)) {
-      await sleep(400);
-      const a = await fetchArticleAt(u, keyword);
-      if (a) out.push(a);
-    }
-  } catch (e) { breakerFail('ltn', e); }
-  return out;
+  return fetch(url, { headers: _NEWS_UA, signal: AbortSignal.timeout(NEWS_REQ_TIMEOUT_MS), ...opts });
 }
 
 // ── Google News 連結解碼（2026-09-17 實測可行）─────────────────────────────
@@ -4718,12 +4572,6 @@ async function fetchGnewsBody(link, name) {
   return fetchArticleAt(url, name);
 }
 
-// Yahoo 逐檔新聞頁——跨站補內文的**主力**（2026-08-27 實測後改為優先）。
-// 為什麼不是用搜尋引擎當主力：DuckDuckGo 在連續查詢後會直接回 0 筆
-// （實測同一組查詢前一分鐘還有結果、之後全空），把判別品質綁在會擋機器人的
-// 第三方搜尋上並不可靠。Yahoo 這支是**per-stock 端點**，不需要搜尋，
-// 冷門股也有（實測前鼎 34 篇、金居 40 篇、亞泰金屬 40 篇，皆含實質內容）。
-const _YH_BOILER = /加入為 Google 偏好來源|另開新視窗|將 Yahoo (?:加入|設為)[^。]{0,30}|Yahoo 奇摩股市|延伸閱讀|更多內容|文章.{0,4}來源/g;
 
 // 2026-09-17：改走 **逐檔 RSS** `tw.stock.yahoo.com/rss?s={code}.TW`（實測 20 則、有 pubDate 與直連）。
 //   舊版刮新聞頁：連結沒有日期，得先抓 cap+3 篇文章才知道哪篇新（多花 3~5 次請求），
@@ -4749,98 +4597,6 @@ async function fetchYahooRssItems(code) {
   }
   return [];
 }
-async function fetchYahooArticle(l, name, atHint = 0) {
-  const r = await nfetch(l);
-  if (!r.ok) return null;
-  const html = await r.text();
-  const m = html.match(/<article[\s\S]*?<\/article>/i);
-  if (!m) return null;
-  const body = _stripHtml(m[0]).replace(_YH_BOILER, ' ').replace(/\s+/g, ' ').trim();
-  if (body.length < 200 || (name && !body.includes(name))) return null;
-  let title = '';
-  try { title = decodeURIComponent(l.split('/news/')[1] || '').replace(/-\d{6,}.*$/, '').replace(/-/g, ' ').trim(); } catch { /* slug 解碼失敗就留空 */ }
-  // 發布日期：RSS 的 pubDate 優先；刮頁退路只能取 <article> 內第一個「2026年8月26日」。
-  // 解析不到就留 0 → 上層 bodyGeneric 標時效不明（不可捏造成 Date.now()，2026-09-01 教訓）。
-  let at = atHint;
-  if (!at) {
-    const dm = body.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
-    if (dm) {
-      const ts = Date.UTC(+dm[1], +dm[2] - 1, +dm[3]) - 8 * 3600000;   // 台北該日 00:00
-      if (ts > Date.UTC(2020, 0, 1) && ts < Date.now() + 86400000) at = ts;   // 未來日期＝解析錯
-    }
-  }
-  return { title: title || `${name} 相關報導`, body: body.slice(0, 1600), host: 'tw.stock.yahoo.com', url: l, at };
-}
-async function fetchYahooStockBodies(code, name, cap = 2, freshMs = 14 * 86400000) {
-  if (!/^\d{4,6}[A-Z]?$/.test(String(code || ''))) return [];
-  if (breakerOpen('yahoo-news')) return [];   // 熔斷冷卻中（見 fetchYahoo1m 上方說明）
-  const out = [];
-  // ── 主路：RSS ──
-  const rss = await fetchYahooRssItems(code);
-  if (rss.length) {
-    // 近期優先；同為近期時題材稿排在【公告】前（公告有價值但題材才解釋隔日走勢）。
-    // 近期一篇都沒有就退到 14 日內（判別的回退上限）——量測抓到 6245 立端：唯一一篇 14 日內
-    // 的內文只有 Yahoo 有，只抓近期會讓它從「stale 判別」掉成「資訊不足」。
-    const byPri = (a, b) => (/公告/.test(a.title) ? 1 : 0) - (/公告/.test(b.title) ? 1 : 0) || b.at - a.at;
-    let pool = rss.filter(x => x.at && Date.now() - x.at <= freshMs).sort(byPri);
-    if (!pool.length) pool = rss.filter(x => x.at && Date.now() - x.at <= 14 * 86400000).sort(byPri).slice(0, 1);
-    for (const it of pool.slice(0, cap + 1)) {
-      if (out.length >= cap) break;
-      try { await sleep(400); const a = await fetchYahooArticle(it.link, name, it.at); if (a) out.push({ ...a, title: it.title || a.title }); }
-      catch { /* 換下一篇 */ }
-    }
-    out.sort((a, b) => (b.at || 0) - (a.at || 0));
-    return out.slice(0, cap);
-  }
-  // ── 退路：刮新聞頁（RSS 空或被擋）──
-  let links = [];
-  for (const sfx of ['TW', 'TWO']) {
-    try {
-      const r = await nfetch(`https://tw.stock.yahoo.com/quote/${code}.${sfx}/news`);
-      breakerOk('yahoo-news');   // 有 HTTP 回應＝host 可達；!ok 是該檔無頁，屬 miss
-      if (!r.ok) continue;
-      const t = await r.text();
-      // 去重要把 query string 砍掉——同一篇會以帶參數/不帶參數兩種形式出現
-      links = [...new Set([...t.matchAll(/https:\/\/tw\.stock\.yahoo\.com\/news\/[^"'\\ ]{20,}/g)].map(m => m[0].split('?')[0]))];
-      if (links.length) break;
-    } catch (e) { if (!/預算/.test(e.message)) breakerFail('yahoo-news', e); }
-    await sleep(300);
-  }
-  links.sort((a, b) => (/%E5%85%AC%E5%91%8A/.test(a) ? 1 : 0) - (/%E5%85%AC%E5%91%8A/.test(b) ? 1 : 0));
-  for (const l of links) {
-    if (out.length >= cap + 3) break;
-    try { await sleep(400); const a = await fetchYahooArticle(l, name); if (a) out.push(a); } catch { /* 換下一篇 */ }
-  }
-  out.sort((a, b) => (b.at || 0) - (a.at || 0));   // 缺日期（at=0）排最後
-  return out.slice(0, cap);
-}
-
-// name 是品質閘門：抽出來的字裡**必須出現公司名**，否則多半抓到的是側邊欄
-// 導覽連結（實測鉅亨頁面就會給出 610 字的標題湯，看起來很像內文）。
-async function fetchBodyByTitle(title, name) {
-  const q = String(title || '').replace(/[｜|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
-  if (!q) return null;
-  let urls = [];
-  try {
-    urls = (await ddgSearch(q)).filter(u => { try { return ALT_NEWS_DOMAINS.test(new URL(u).hostname); } catch { return false; } });
-    // ⛔ 論壇/討論區一律剔除（使用者 2026-09-01 明令）——網友對話不是事實來源，
-    //    且充斥推測與帶風向。必須在**入口**擋，不能只靠提示詞叫模型忽略。
-    urls = urls.filter(u => !isForumUrl(u));
-  } catch { return null; }
-  for (const u of urls.slice(0, 3)) {
-    try {
-      await sleep(400);
-      const r = await nfetch(u);
-      if (!r.ok) continue;
-      const body = extractArticleBody(await r.text());
-      if (body.length >= 200 && (!name || body.includes(name))) {
-        return { body: body.slice(0, 1600), host: new URL(u).hostname.replace(/^www\./, ''), url: u };
-      }
-    } catch { /* 換下一個 */ }
-  }
-  return null;
-}
-
 // ── 次交易日開盤前 1 小時：讀新聞**內文**，由 AI 判別利多與否 ────────────
 // 使用者指定（2026-08-26）：次日開盤前 1 小時核對國際新聞內容，需要仔細閱讀
 // 內容並經 AI 判別是否利多，**每一檔都要出判別提示**（不是只標記有利多的）。
@@ -4877,11 +4633,8 @@ const STOCK_TIMEOUT_MS = 6 * 60000;
 // 「鉅亨（內文）＋GoogleNews（標題）」，但 fetchStockNewsMulti 早已改成
 // 經濟日報／工商時報優先。改成據實回報：某來源當天掛掉就不會被列出。
 const _newsSrcUsed = new Set();
-// ⚠ 索引 feed 的標籤要與 NEWS_INDEX_FEEDS 一致（那個常數宣告在後面，這裡不能引用，TDZ）
-const NEWS_SRC_ORDER = ['工商時報', '經濟日報', 'Yahoo', 'GoogleNews', '鉅亨', '自由財經搜尋', 'Google解碼', '跨站比對',
-  '自由財經RSS', '科技新報RSS', 'ETtodayRSS', '中央社RSS', '經濟日報RSS', '鉅亨RSS', 'MoneyDJ RSS', 'Yahoo財經RSS'];
-
-// 「近期內文」的視窗（fetchStockNewsMulti 的閘門與量測腳本共用同一把尺）：
+const NEWS_SRC_ORDER = ['工商時報', '經濟日報', '鉅亨', 'Yahoo', '自由財經', 'ETtoday', '中央社', 'MoneyDJ', '科技新報', '財經新報', 'GoogleNews'];
+// 「近期內文」的視窗（fetchStockNewsMulti 與量測腳本共用同一把尺）：
 //   回溯到前兩個交易日的起點（週一涵蓋四／五／六／日），下限 3 日。
 function newsFreshWindowMs() {
   try {
@@ -4907,15 +4660,23 @@ function newsSourceLabel() {
 // ⚠ 與 NEWS_SWEEP_FEEDS（宇宙掃描）刻意分開：改宇宙掃描的來源會改變判別宇宙（成本與名單），
 //   這裡只影響「取內文」。
 const NEWS_INDEX_FEEDS = [
-  ['自由財經RSS', 'https://news.ltn.com.tw/rss/business.xml'],
-  ['科技新報RSS', 'https://technews.tw/feed/'],
-  ['ETtodayRSS', 'https://feeds.feedburner.com/ettoday/finance'],
-  ['中央社RSS', 'https://feeds.feedburner.com/rsscna/finance'],
-  ['經濟日報RSS', 'https://money.udn.com/rssfeed/news/1001/5591?ch=money'],
-  ['經濟日報RSS', 'https://money.udn.com/rssfeed/news/1001/5590?ch=money'],
-  ['鉅亨RSS', 'https://news.cnyes.com/rss/v1/news/category/tw_stock'],
-  ['MoneyDJ RSS', 'https://www.moneydj.com/KMDJ/RssCenter.aspx?svc=NW&fno=1&arg=X0000000'],
-  ['Yahoo財經RSS', 'https://tw.stock.yahoo.com/rss?category=tw-market'],
+  ['自由財經', 'https://news.ltn.com.tw/rss/business.xml'],
+  ['科技新報', 'https://technews.tw/feed/'],
+  ['財經新報', 'https://finance.technews.tw/feed/'],
+  ['ETtoday', 'https://feeds.feedburner.com/ettoday/finance'],
+  ['中央社', 'https://feeds.feedburner.com/rsscna/finance'],
+  ['經濟日報', 'https://money.udn.com/rssfeed/news/1001/5591?ch=money'],
+  ['經濟日報', 'https://money.udn.com/rssfeed/news/1001/5590?ch=money'],
+  ['經濟日報', 'https://money.udn.com/rssfeed/news/1001/5588?ch=money'],
+  ['經濟日報', 'https://money.udn.com/rssfeed/news/1001/5597?ch=money'],
+  ['鉅亨', 'https://news.cnyes.com/rss/v1/news/category/tw_stock'],
+  ['鉅亨', 'https://news.cnyes.com/rss/v1/news/category/headline'],
+  ['MoneyDJ', 'https://www.moneydj.com/KMDJ/RssCenter.aspx?svc=NW&fno=1&arg=X0000000'],
+  ['Yahoo', 'https://tw.stock.yahoo.com/rss?category=tw-market'],
+  ['Yahoo', 'https://tw.stock.yahoo.com/rss?category=tw-stock'],
+  ['Yahoo', 'https://tw.stock.yahoo.com/rss?category=intl-market'],
+  ['Yahoo', 'https://tw.stock.yahoo.com/rss?category=research'],
+  ['工商時報', 'https://news.google.com/rss/search?q=site:ctee.com.tw&hl=zh-TW&gl=TW&ceid=TW:zh-Hant'],   // 站內 RSS 403，走 Google 站內查詢（標題級，內文靠解碼）
 ];
 const NEWS_INDEX_TTL_MS = 30 * 60000;          // 一趟判別內共用；盤中趟 45 分鐘一輪，晨間趟 60 分鐘
 const NEWS_INDEX_MAX_AGE_MS = 4 * 86400000;    // 跨得過週末；再舊的判別也不會用（14 日回退另有來源）
@@ -4950,12 +4711,17 @@ async function buildNewsTitleIndex() {
   const now = Date.now();
   const raw = [];
   const failed = [];
-  await Promise.all(NEWS_INDEX_FEEDS.map(async ([src, url]) => {
-    try {
-      const r = await fetch(url, { headers: _NEWS_UA, signal: AbortSignal.timeout(15000) });
-      if (!r.ok) { failed.push(`${src} HTTP ${r.status}`); return; }
-      for (const it of _rssItems(await r.text(), src)) if (now - it.at <= NEWS_INDEX_MAX_AGE_MS) raw.push(it);
-    } catch (e) { failed.push(`${src} ${(e.message || '').slice(0, 30)}`); }
+  // 併發限 3：17 支一起打會互搶頻寬，實測 6 支被 2 秒逾時切掉；限 3 後每支仍各守 2 秒
+  const queue = NEWS_INDEX_FEEDS.slice();
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    for (let job = queue.shift(); job; job = queue.shift()) {
+      const [src, url] = job;
+      try {
+        const r = await fetch(url, { headers: _NEWS_UA, signal: AbortSignal.timeout(NEWS_REQ_TIMEOUT_MS) });
+        if (!r.ok) { failed.push(`${src} HTTP ${r.status}`); continue; }
+        for (const it of _rssItems(await r.text(), src)) if (now - it.at <= NEWS_INDEX_MAX_AGE_MS) raw.push(it);
+      } catch (e) { failed.push(`${src} ${/abort/i.test(e.message) ? '逾 2 秒' : (e.message || '').slice(0, 30)}`); }
+    }
   }));
   raw.sort((a, b) => b.at - a.at);
   // 去重＋分故事：同一件事各家改寫標題重發，Dice ≥ TITLE_SIM 歸同一個 storyId（第二層每個故事只取一份內文）
@@ -4980,134 +4746,205 @@ async function newsIndexFor(code, name) {
   return _newsIndex.items.filter(x => x.codes.includes(code) || (name && x.title.includes(name)));
 }
 
-async function fetchStockNewsMulti(keyword, code) {
+// ── 分析師分類（使用者 2026-09-17 指定：擴大股市新聞並依標題與內文分類）──────────
+// 這是**規則式**分類，不是評分：只做兩件事——①「榜單／速報／整理稿」在第一層就剔除（使用者明令），
+// ② 給每則故事貼一個類別，供選稿排序與畫面標示。多空方向仍由 AI 讀完內文決定（硬規定不動）。
+// 為什麼不用 LLM 分類：每檔 2 秒的預算下，150 檔 × 2 則的本機模型分類要 40 分鐘以上；
+// 深讀本來就在判別階段做（L1 抽取欄 eventType 等），這裡只需要便宜、可重現的粗分。
+// ⛔ 論壇／討論區在**標題層**就擋（使用者 2026-09-01 明令）：Google News 會收 CMoney「股市爆料同學會」、
+//    LINE TODAY「討論牆」這類貼文，網址是 Google 轉址、解碼前 FORUM_DENY 看不出來，實測 09-17 光頡／立端
+//    的故事名額全被它們占走。標題含這些字樣一律當雜訊。
+const NEWS_NOISE_RE = /買超前|賣超前|前\d+名|排行|排名|榜\b|榜單|強勢股整理|量大強漲|漲停股一覽|熱門股一覽|概念股一覽|\d+檔(?:出列|整理|一覽|名單)|盤後籌碼|籌碼動向|分點|討論牆|爆料同學會|股市爆料|同學會|討論區|論壇|留言板|網友熱議|PTT|Dcard|股友們|《[^》]*(?:買超|賣超|成交|週轉|漲幅|跌幅|排行)[^》]*》|\d+-\d+》/;
+const NEWS_CATS_RULES = [
+  ['法規事件', /檢調|搜索|約談|起訴|裁罰|罰鍰|訴訟|求償|召回|停工|停產|火災|爆炸|違規|吹哨|背信|掏空/],
+  ['財報營收', /營收|財報|EPS|每股(?:盈餘|純益)|獲利|純益|毛利|轉盈|虧損|自結|年增|月增|季增/],
+  ['訂單產能', /訂單|接單|出貨|擴產|產能|量產|投片|認證|打入|供應鏈|供貨|新廠|投資設廠/],
+  ['資本行動', /併購|收購|處分|增資|減資|庫藏股|股利|除息|除權|私募|GDR|ADR|分割|合併|入股/],
+  ['法人觀點', /目標價|評等|法說|上調|調升|下修|調降|外資報告|券商|研究報告|看好|看淡/],
+  ['產業趨勢', /AI|人工智慧|半導體|晶圓|CoWoS|HBM|記憶體|光通訊|矽光子|CPO|機器人|無人機|衛星|電動車|儲能|重電|生技|新藥/],
+  ['總經政策', /關稅|聯準會|Fed|央行|升息|降息|匯率|台幣|油價|通膨|CPI|制裁|地緣|戰爭|川普|政策|補貼/],
+  ['籌碼盤勢', /漲停|跌停|外資買超|外資賣超|投信|融資|融券|當沖|均線|技術面|跳空|爆量|大漲|大跌|反彈|回檔/],
+];
+function classifyNewsStory(title, content = '') {
+  const t = String(title || ''), tc = `${t} ${String(content || '').slice(0, 600)}`;
+  if (MACHINE_NEWS.test(t) || NEWS_NOISE_RE.test(t)) return { cat: '榜單速報', noise: true };
+  for (const [cat, re] of NEWS_CATS_RULES) if (re.test(t)) return { cat, noise: false };   // 標題優先
+  for (const [cat, re] of NEWS_CATS_RULES) if (re.test(tc)) return { cat, noise: false };  // 再看內文前段
+  return { cat: '其他', noise: false };
+}
+const NEWS_CAT_PRIORITY = { 法規事件: 0, 訂單產能: 1, 財報營收: 2, 資本行動: 3, 法人觀點: 4, 產業趨勢: 5, 總經政策: 6, 其他: 7, 籌碼盤勢: 8 };
+
+// ── 第二層：取一個出處的內文（每次請求 ≤2 秒；使用者 2026-09-17：超過 2000ms 的來源不使用）──
+//   feed 自帶正文（零請求）→ 直接可讀的站（1 次）→ Google News 連結解碼（3 次）。
+//   沒有 headless Chrome：實測它從未在 2 秒內回來（7～45 秒），依規則不用。
+async function fetchStoryBody(item, name) {
+  if (item.body && item.body.includes(name)) {
+    let host = ''; try { host = new URL(item.link).hostname.replace(/^www\./, ''); } catch { host = item.src; }
+    return { title: item.title, body: _cleanBody(item.body), at: item.at, url: item.link, host };
+  }
+  if (/news\.google\.com\/rss\/articles\//.test(item.link || '')) return fetchGnewsBody(item.link, name);
+  let host = ''; try { host = new URL(item.link).hostname; } catch { return null; }
+  if (isForumUrl(item.link) || !GNEWS_BODY_DOMAINS.test(host)) return null;
+  return fetchArticleAt(item.link, name);
+}
+// 同一故事多個出處合成一篇：最長的當底稿，其他出處的句子若與底稿任一句 Dice<0.6 就當補充句附在後面
+function mergeStoryBodies(versions) {
+  const sorted = versions.filter(v => v && v.body && v.body.length >= 200).sort((a, b) => b.body.length - a.body.length);
+  if (!sorted.length) return null;
+  const sent = t => t.split(/(?<=[。！？!?])\s*/).map(s => s.trim()).filter(s => s.length > 12);
+  const base = sent(sorted[0].body); const baseG = base.map(_bigrams); const extra = [];
+  for (const v of sorted.slice(1)) for (const s of sent(v.body)) { const g = _bigrams(s); if (!baseG.some(b => _dice(b, g) >= 0.6) && !extra.some(e => _dice(_bigrams(e.s), g) >= 0.6)) extra.push({ s, host: v.host }); }
+  const text = base.join('') + (extra.length ? ` 【其他出處補充】${extra.map(e => `（${e.host}）${e.s}`).join('')}` : '');
+  return { ...sorted[0], body: text.slice(0, 2200), hosts: [...new Set(sorted.map(v => v.host))], added: extra.length, n: sorted.length };
+}
+
+// ── 兩層比對取新聞（使用者 2026-09-17 指定，取代原本的 ①～④ 逐來源抓取）─────────
+// 第一層：只收「標題＋時間」——分類 feed 索引（一趟共用）＋ Google News 個股 RSS ＋ Yahoo 逐檔 RSS，
+//         只留 14 日內、剔除榜單／速報，並依分析師分類貼標。
+// 第二層：對近兩交易日最新的 2 個故事（故事間 Dice<TITLE_SIM），找「標題相似（Dice≥0.5）且發布時間差
+//         ≤8 小時」的其他出處，逐出處取內文（每請求 ≤2 秒），合成一篇；近兩日一則都沒有就退到 14 日內
+//         最新 1 個故事（供判別的 stale 回退）。
+// 實測（同一批 40 檔）：舊法 78%／39.9 秒／13.3 請求 → 兩層 2 秒版 68%／2.2 秒／7.3 請求。
+// 回傳形狀與舊版相同（title/content/at/link/src/hasBody/bodyFrom/bodyGeneric，另加 cat/sources），
+// judgeOneStock、seenTitles、newsDump、覆蓋率量測都不用改。
+// ── 第一層逐檔來源（使用者 2026-08-28 指定的優先序：① 工商時報・經濟日報 ② Yahoo／Google ③ 其他財經網）──
+//   每一條只取「標題＋時間＋連結」，各守 2 秒；內文一律留給第二層依故事取。
+//   使用者 2026-09-17：不可只靠 Google RSS，其他新聞網都得用。
+const NEWS_SRC_PRIORITY = { 工商時報: 0, 經濟日報: 0, Yahoo: 1, GoogleNews: 1, 鉅亨: 2, 自由財經: 2 };
+const srcPriority = src => NEWS_SRC_PRIORITY[src] ?? 3;
+/** 經濟日報站內搜尋：頁面內嵌 JSON-LD ItemList（url／headline／datePublished，依時間遞減） */
+async function fetchUdnTitles(keyword) {
   const out = [];
-  const push = (a, src) => (_newsSrcUsed.add(src), out).push({
-    // ⚠ at 解析不到就 null——不可捏造成 Date.now()（A 族）：
-    //   2026-09-01 實測 4 月的面額變更公告被標成 0 日前混進「2 日內」判別。
-    //   下游鮮度過濾全部有 n.at && 前置檢查（4627/4643/4675 行），null 安全。
-    title: a.title, content: a.body, at: a.at || null, link: a.url,
-    src, hasBody: true, bodyFrom: a.host, bodyGeneric: !a.at,   // 抓不到日期就標記，時效不明
-  });
-  // ⚠ 閘門要數的是**近期**內文，不是任何內文（2026-09-17 對 8 個交易日 1,203 筆判別反查：
-  //   254 筆資訊不足裡 249 筆的理由是「有含內文的報導但最新一則已超過 14 日、近兩日只有標題」）。
-  //   舊版 bodies() 把經濟日報搜到的幾個月前舊文也算數 ⇒ bodies()≥2 成立、Yahoo／鉅亨那兩條
-  //   **根本沒被打**，近兩日的題材全留在標題級。改成只數 3 日內（≈兩個交易日視窗）的內文，
-  //   舊文仍保留在 out（下游 14 日回退照用），只是不再擋住後面的來源。
-  //   視窗與 judgeOneStock 同一把尺：回溯到前兩個交易日的起點（週一涵蓋四／五／六／日），下限 3 日。
-  const FRESH_MS = newsFreshWindowMs();
-  const isFresh = x => x.at && Date.now() - x.at <= FRESH_MS;
-  const bodies = () => out.filter(x => x.hasBody && isFresh(x)).length;
-  // 「實質近期內文」＝近兩日、有內文、非機器稿——judgeOneStock 判 basis=content 用的就是這把尺
-  const realFresh = () => out.filter(x => x.hasBody && isFresh(x) && !MACHINE_NEWS.test(x.title)).length;
-  const dedupKey = t => String(t || '').replace(/\s/g, '').slice(0, 16);
-  resetNewsReqBudget();
-
-  // ── ① 優先來源：經濟日報・工商時報（使用者指定 2026-08-28）──────────
-  try { for (const a of await fetchUdnMoney(keyword, 3)) push(a, '經濟日報'); } catch { /* 單一來源失敗不擋 */ }
-  await sleep(300);
-  try { for (const a of await fetchCtee(keyword, 2)) push(a, '工商時報'); } catch { /* 同上 */ }
-
-  // ── 第一層索引 → 第二層取內文（兩層架構·2026-09-17）───────────────────
-  //    只對「近兩交易日、非機器稿、提到本檔」的故事做，每個故事一份內文，依成本：
-  //    feed 自帶正文（零請求）→ 直接可讀的站（1 次）。Google 解碼（3 次）與 DDG 仍在後面的 ④。
   try {
-    const seenStory = new Set();
-    for (const it of await newsIndexFor(code, keyword)) {
-      if (realFresh() >= 2) break;
-      if (!isFresh(it) || MACHINE_NEWS.test(it.title) || seenStory.has(it.storyId)) continue;
-      if (out.some(x => x.hasBody && titleSeen(it.title, [x.title]))) continue;   // 已有同故事內文
-      seenStory.add(it.storyId);
-      if (it.body && it.body.includes(keyword)) {   // 品質閘門與 fetchArticleAt 同：內文必須含公司名
-        let host = ''; try { host = new URL(it.link).hostname.replace(/^www\./, ''); } catch { /* 無連結就標媒體 */ }
-        push({ title: it.title, body: _cleanBody(it.body), at: it.at, url: it.link, host: host || it.src }, it.src);
-        continue;
-      }
-      let host = ''; try { host = new URL(it.link).hostname; } catch { continue; }
-      if (!ALT_NEWS_DOMAINS.test(host) && !/cna\.com\.tw$/.test(host)) continue;   // 只直接抓可讀的站
-      await sleep(300);
-      const a = await fetchArticleAt(it.link, keyword);
-      if (a) push({ ...a, title: it.title || a.title, at: a.at || it.at }, it.src);
+    const r = await nfetch(`https://money.udn.com/search/result/1001/${encodeURIComponent(keyword)}`);
+    if (!r.ok) return out;
+    const html = await r.text();
+    for (const m of html.matchAll(/"@type"\s*:\s*"NewsArticle"[\s\S]{0,400}?"url"\s*:\s*"(https:\/\/money\.udn\.com\/money\/story\/\d+\/\d+)[^"]*"[\s\S]{0,200}?"headline"\s*:\s*"([^"]{4,160})"[\s\S]{0,600}?"datePublished"\s*:\s*"([^"]{10,40})"/g)) {
+      const at = Date.parse(m[3]); if (!Number.isFinite(at)) continue;
+      out.push({ title: _cleanBody(m[2].replace(/&lt;\/?u&gt;|<\/?u>/g, '')), link: m[1], at, src: '經濟日報', body: '' });
     }
-  } catch { /* 索引失敗不擋既有來源 */ }
-
-  // ── ② 輔助：Yahoo 逐檔新聞（per-stock RSS，冷門股也有；2026-09-17 改 RSS 定日期）──
-  //    只在優先來源沒湊到 2 則**近期**內文時才打——省請求，也避免 prompt 灌太多則。
-  if (bodies() < 2) {
-    try {
-      for (const y of await fetchYahooStockBodies(code, keyword, 2, FRESH_MS)) {
-        push({ title: y.title, body: y.body, at: y.at || 0, url: y.url, host: y.host }, 'Yahoo');
-      }
-    } catch { /* 同上 */ }
-  }
-
-  // ── ② 輔助：Google News（標題覆蓋最廣；連結可解碼，見下方 ④）──────────
-  await sleep(300);
-  try {
-    for (const n of await fetchGoogleNewsRss(keyword, 8)) {
-      if (out.some(x => dedupKey(x.title) === dedupKey(n.title))) continue;
-      out.push({ title: n.title, content: '', at: n.at, link: n.link, src: n.src || 'GoogleNews', hasBody: false });
-    }
-  } catch { /* 同上 */ }
-
-  // ── ③ 其他財經網：鉅亨（有內文，但冷門股常只有盤中速報機器稿）──────
-  if (bodies() < 2) {
-    await sleep(300);
-    try {
-      let got = 0;
-      for (const n of await fetchCnyesNews(keyword, 6)) {
-        let content = n.content || '';
-        if (n.id && got < 2 && !MACHINE_NEWS.test(n.title)) {
-          const b = await fetchCnyesBody(n.id);
-          if (b.length >= 60) { content = _cleanBody(b); got++; }
-          await sleep(300);
-        }
-        if (out.some(x => dedupKey(x.title) === dedupKey(n.title))) continue;
-        out.push({ ...n, content, src: '鉅亨', hasBody: content.length >= 60,
-          bodyFrom: content.length >= 60 ? 'news.cnyes.com' : undefined });
-      }
-    } catch { /* 同上 */ }
-  }
-
-  // ── ③ 其他財經網：自由財經站內搜尋（2026-09-17 新接：依日期排序、列表帶日期）──
-  //    標籤刻意叫「自由財經搜尋」：Google News 條目的 src 也會是「自由財經」（標題級），不可撞名。
-  if (realFresh() < 2) {
-    await sleep(300);
-    try { for (const a of await fetchLtn(keyword, 2, FRESH_MS)) if (!out.some(x => dedupKey(x.title) === dedupKey(a.title))) push(a, '自由財經搜尋'); }
-    catch { /* 同上 */ }
-  }
-
-  // ── ④ 跨站補內文（使用者指示：不可用「無法取得內文」搪塞）──────────────
-  //    先走 Google News 連結解碼（2026-09-17 實測可行、確定性高、每篇 3 次請求），
-  //    只對近期、非機器稿、還沒有內文的標題做，每檔最多 2 篇；仍空才走 DDG 以標題搜尋（會被擋）。
-  const fillFrom = async (fetcher, tag, onlyFresh) => {
-    let filled = 0;
-    for (const n of out) {
-      if (filled >= 2 || realFresh() >= 2) break;
-      if (n.hasBody || MACHINE_NEWS.test(n.title) || (onlyFresh && !isFresh(n))) continue;
-      const alt = await fetcher(n);
-      if (alt) {
-        n.content = _cleanBody(alt.body); n.hasBody = true; n.bodyFrom = alt.host;
-        if (alt.at && !n.at) n.at = alt.at;
-        if (!n.link || /news\.google\.com/.test(n.link)) n.link = alt.url;
-        _newsSrcUsed.add(tag);
-        filled++;
-      }
-      await sleep(400);
-    }
-  };
-  try {
-    if (!realFresh()) await fillFrom(n => (/news\.google\.com\/rss\/articles\//.test(n.link) ? fetchGnewsBody(n.link, keyword) : Promise.resolve(null)), 'Google解碼', true);
-    if (!realFresh()) await fillFrom(n => fetchBodyByTitle(n.title, keyword), '跨站比對', false);   // 舊行為：舊標題也試（供 14 日回退）
-  } catch { /* 同上 */ }
-
-  const allBodies = out.filter(x => x.hasBody).length;
-  if (allBodies) {
-    const srcs = [...new Set(out.filter(x => x.hasBody).map(x => x.bodyFrom && !NEWS_SRC_ORDER.includes(x.src) ? x.bodyFrom : x.src))];
-    log(`    ↳ ${keyword}：內文 ${allBodies} 則（${srcs.join('・')}）${bodies() ? '' : '，皆逾 3 日'}｜請求 ${_newsReq}${_newsReqDenied ? `（預算用罄，拒發 ${_newsReqDenied}）` : ''}`);
-  } else if (_newsReqDenied) log(`    ↳ ${keyword}：無內文｜請求 ${_newsReq}（預算用罄，拒發 ${_newsReqDenied}）`);
+  } catch { /* 單一來源失敗不擋 */ }
   return out;
 }
+/** 鉅亨搜尋 API：JSON、有 publishAt 與 newsId；content 只是摘要（留給第二層判斷夠不夠） */
+async function fetchCnyesTitles(keyword) {
+  const out = [];
+  try {
+    const r = await nfetch(`https://api.cnyes.com/media/api/v1/search/news?q=${encodeURIComponent(keyword)}&limit=20`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
+    if (!r.ok) return out;
+    const j = await r.json(); const raw = j?.items?.data || j?.data?.items || j?.items || []; const arr = Array.isArray(raw) ? raw : (raw.data || []);
+    for (const it of arr) if (it.newsId && it.publishAt) out.push({ title: _cleanBody(String(it.title || '').replace(/<[^>]+>/g, '')), link: `https://news.cnyes.com/news/id/${it.newsId}`, at: it.publishAt * 1000, src: '鉅亨', body: _cleanBody(String(it.content || '').replace(/<[^>]+>/g, '')) });
+  } catch { /* 同上 */ }
+  return out;
+}
+/** 自由財經站內搜尋：依日期排序、列表帶日期（只到日，台北 00:00；文章頁會覆寫成精確時間） */
+async function fetchLtnTitles(keyword) {
+  const out = [];
+  if (breakerOpen('ltn')) return out;
+  try {
+    const r = await nfetch(`https://search.ltn.com.tw/list?keyword=${encodeURIComponent(keyword)}&type=business&sort=date`);
+    if (!r.ok) { breakerFail('ltn', new Error(`HTTP ${r.status}`)); return out; }
+    breakerOk('ltn');
+    for (const m of (await r.text()).matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)) {
+      const u = (m[1].match(/https?:\/\/ec\.ltn\.com\.tw\/article\/[a-z]+\/\d+/) || [])[0];
+      const d = (m[1].match(/(\d{4})\/(\d{2})\/(\d{2})/) || []);
+      const title = _cleanBody(((m[1].match(/<a[^>]+title="([^"]{4,160})"/) || m[1].match(/<a[^>]*>([^<]{4,160})<\/a>/) || [])[1] || ''));
+      if (!u || !d[1] || !title) continue;
+      out.push({ title, link: u, at: Date.UTC(+d[1], +d[2] - 1, +d[3]) - 8 * 3600000, src: '自由財經', body: '' });
+    }
+  } catch (e) { if (!/預算/.test(e.message)) breakerFail('ltn', e); }
+  return out;
+}
+
+const STORY_SIM = 0.5;               // 跨媒體改寫標題的相似門檻（實測同故事 0.5～0.97）
+const STORY_WINDOW_MS = 8 * 3600000; // 同故事發布時間差上限
+const STORIES_PER_STOCK = 2, STORIES_TRY_MAX = 4, SOURCES_PER_STORY = 3;   // 要 2 篇內文，最多試 4 個故事
+async function fetchStockNewsMulti(keyword, code) {
+  const out = [];
+  resetNewsReqBudget();
+  const FRESH_MS = newsFreshWindowMs(), MAX_BACK = 14 * 86400000, now = Date.now();
+  const isFresh = x => x.at && now - x.at <= FRESH_MS;
+
+  // ── 第一層：標題＋時間 ──
+  const cands = [];
+  try { for (const x of await newsIndexFor(code, keyword)) cands.push({ ...x }); } catch { /* 索引失敗不擋 */ }
+  // Google 個股 RSS 要吃滿（約 100 則）：它依相關性排序，只取前 20 會漏掉最新的（實測 40 檔覆蓋率 53%→）
+  try { for (const n of await fetchGoogleNewsRss(keyword, 100)) cands.push({ title: n.title, link: n.link, at: n.at, src: n.src || 'GoogleNews', body: '' }); } catch { /* 同上 */ }
+  try { for (const y of await fetchYahooRssItems(code)) cands.push({ title: y.title, link: y.link, at: y.at, src: 'Yahoo', body: '', perStock: true, relevant: true }); } catch { /* 同上 */ }
+  // 優先來源與其他財經網的逐檔標題（各 2 秒、彼此獨立、失敗不擋）
+  const perStockSrc = await Promise.all([
+    fetchUdnTitles(keyword),
+    fetchGoogleNewsRss(`site:ctee.com.tw ${keyword}`, 30).then(a => a.map(n => ({ title: n.title, link: n.link, at: n.at, src: '工商時報', body: '' }))).catch(() => []),
+    fetchCnyesTitles(keyword),
+    fetchLtnTitles(keyword),
+  ]);
+  for (const arr of perStockSrc) cands.push(...arr.map(x => ({ ...x, relevant: true })));   // 站內搜尋命中＝相關度高
+  const seen = new Set();
+  const l1 = cands
+    .filter(x => x.title && x.at && now - x.at <= MAX_BACK)
+    .filter(x => x.perStock || x.title.includes(keyword) || (x.codes || []).includes(code))
+    .map(x => ({ ...x, ...classifyNewsStory(x.title, x.body) }))
+    .filter(x => !x.noise)
+    .filter(x => { const k = `${x.title.replace(/\s/g, '').slice(0, 24)}|${x.link}`; if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => b.at - a.at);
+  // 故事挑選順序（實測 1259 安心：「安心」二字太常見，Google 泛搜尋抓來的育兒、食安新聞比站內搜尋的
+  //   還新，占走全部故事名額）：站內搜尋命中（相關度高）→ 來源優先序（工商／經濟 → Yahoo／Google → 其他）→ 時間。
+  //   時間視窗仍由 isFresh 把關，所以「近兩日」不變，只是同視窗內先信站內搜尋。
+  const storyOrder = (a, b) => (b.relevant ? 1 : 0) - (a.relevant ? 1 : 0) || srcPriority(a.src) - srcPriority(b.src) || b.at - a.at;
+
+  // ── 第二層：挑故事 → 找同故事出處 → 取內文合成 ──
+  const pickStories = (pool, n) => {
+    const st = [];
+    for (const c of pool) { if (st.length >= n) break; if (st.some(s => _dice(_bigrams(s.title), _bigrams(c.title)) >= TITLE_SIM)) continue; st.push(c); }
+    return st;
+  };
+  const freshStories = pickStories(l1.filter(isFresh).sort(storyOrder), STORIES_TRY_MAX);
+  const staleStories = pickStories(l1.filter(x => !isFresh(x)).sort(storyOrder), 2);   // 14 日回退：最新 2 個故事（第一個抓不到還有第二個）
+  // 近期故事先做；近期一則都湊不到內文時再做 14 日回退那一則（judgeOneStock 的 stale 判別要有東西可讀，
+  //   實測光頡／立端近期只有標題、但 14 日內有 Yahoo 公告可讀，不退就從 stale 掉成資訊不足）
+  const storyTitles = [];
+  const runStory = async (seed, stale) => {
+    const sg = _bigrams(seed.title);
+    const same = l1.filter(x => x !== seed && Math.abs(x.at - seed.at) <= STORY_WINDOW_MS && _dice(_bigrams(x.title), sg) >= STORY_SIM)
+      .filter((x, i, a) => a.findIndex(y => y.link === x.link) === i)
+      .sort((a, b) => srcPriority(a.src) - srcPriority(b.src)).slice(0, SOURCES_PER_STORY - 1);
+    const versions = [];
+    for (const it of [seed, ...same].sort((a, b) => srcPriority(a.src) - srcPriority(b.src))) {
+      if (_newsReq >= NEWS_REQ_BUDGET) break;
+      const q0 = _newsReq, t0 = Date.now();
+      try { const v = await fetchStoryBody(it, keyword); if (v) versions.push(v); if (process.env.NEWS_DEBUG) log(`      · ${stale ? '回退' : '近期'}「${it.title.slice(0, 30)}」${it.src} ${it.link.slice(0, 60)} → ${v ? `${v.body.length} 字@${v.host}` : '無'}（${_newsReq - q0} 請求／${Date.now() - t0}ms）`); }
+      catch (e) { if (process.env.NEWS_DEBUG) log(`      · 「${it.title.slice(0, 30)}」失敗：${(e.message || '').slice(0, 50)}`); }
+    }
+    const merged = mergeStoryBodies(versions);
+    storyTitles.push(seed.title);
+    if (merged) {
+      _newsSrcUsed.add(seed.src);
+      out.push({
+        title: seed.title, content: merged.body, at: seed.at || merged.at || null, link: merged.url || seed.link,
+        src: seed.src, hasBody: true, bodyFrom: merged.hosts.join('+'), bodyGeneric: !(seed.at || merged.at),
+        cat: seed.cat, sources: merged.n, added: merged.added, stale,
+      });
+    } else {
+      out.push({ title: seed.title, content: '', at: seed.at, link: seed.link, src: seed.src, hasBody: false, cat: seed.cat });
+    }
+  };
+  for (const seed of freshStories) { if (out.filter(x => x.hasBody).length >= STORIES_PER_STOCK) break; await runStory(seed, false); }
+  let stale = false;
+  if (!out.some(x => x.hasBody)) { for (const seed of staleStories) { await runStory(seed, true); if (out.some(x => x.hasBody)) break; } stale = staleStories.length > 0; }
+  const stories = [...freshStories, ...(stale ? staleStories : [])];
+  // 其餘近期標題照列（僅標題）：供畫面列出與 seenTitles 比對；不重複已成故事的
+  for (const x of l1) {
+    if (out.length >= 14) break;
+    if (!isFresh(x) || storyTitles.some(t => _dice(_bigrams(t), _bigrams(x.title)) >= STORY_SIM)) continue;
+    out.push({ title: x.title, content: '', at: x.at, link: x.link, src: x.src, hasBody: false, cat: x.cat });
+  }
+  const bodies = out.filter(x => x.hasBody);
+  if (bodies.length) {
+    log(`    ↳ ${keyword}：第一層 ${l1.length} 則 → 故事 ${stories.length}${stale ? '（14 日回退）' : ''} → 內文 ${bodies.length} 則（${bodies.map(b => `${b.cat}·${b.bodyFrom}${b.sources > 1 ? `×${b.sources}` : ''}`).join('・')}）｜請求 ${_newsReq}${_newsReqDenied ? `（預算用罄 ${_newsReqDenied}）` : ''}`);
+  } else if (l1.length) log(`    ↳ ${keyword}：第一層 ${l1.length} 則，第二層無可用內文｜請求 ${_newsReq}`);
+  return out;
+}
+
 
 // ── 新聞內文覆蓋率量測（唯讀·不呼叫 LLM·不寫 Firestore）──────────────────
 // 用途：回答「近兩個交易日拿得到**有內文**的報導的檔數比例」，修抓取前後用同一支比。
@@ -5183,8 +5020,8 @@ async function runNewsCoverageProbe() {
       const now = Date.now();
       const bySrc = {};
       for (const n of news) {
-        // Google News 條目的 src 是發布媒體名；歸成一組，跨站補到內文的另標 bodyFrom
-        const key = NEWS_SRC_ORDER.includes(n.src) ? n.src : (n.hasBody ? `跨站:${n.bodyFrom || '?'}` : 'GoogleNews標題');
+        // 兩層架構：有內文的依取得的網域分組，其餘一律「標題」
+        const key = n.hasBody ? `內文:${n.bodyFrom || '?'}` : '標題';
         const s = bySrc[key] ||= { items: 0, bodies: 0, fresh: 0 };
         s.items++;
         if (n.hasBody) s.bodies++;
