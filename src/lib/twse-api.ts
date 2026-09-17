@@ -141,7 +141,9 @@ export function parseStockDayData(d: StockDayData & { _changePercent?: string; _
     volume: parseInt(d.TradeVolume.replace(/,/g, '')) || 0,
     value: parseInt(d.TradeValue.replace(/,/g, '')) || 0,
     transactions: parseInt(d.Transaction?.replace(/,/g, '') || '0') || 0,
-    market: d._market === 'otc' ? 'otc' : d._market === 'tse' ? 'tse' : undefined,
+    // ⚠ 2026-09-18 實案（7947 補丁科）：這裡原本只認 tse/otc，興櫃的 esb 被丟成 undefined，
+    //   於是個股頁沒有「興」徽章、isExchangeListed 也認不出它沒有漲跌停。API 已回 _market=esb，照傳。
+    market: d._market === 'otc' ? 'otc' : d._market === 'tse' ? 'tse' : d._market === 'esb' ? 'esb' : undefined,
   };
 }
 
