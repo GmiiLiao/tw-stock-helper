@@ -93,6 +93,14 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
     }
   } catch { /* 讀不到就當作沒有新聞維度，不擋訓練 */ }
   const newsDays = Object.keys(newsByDate).length;
+  // ⚠ 對齊（2026-09-17 使用者質疑「比分是不是有問題」後查出）：判別文件鍵＝targetDate＝「這批判別給哪個交易日用」。
+  //   舊寫法把 targetDate=t 的判別掛在 t 日樣本上，再對 t+1 開盤——晚了一天，於是「利多／中性沒差」。
+  //   正確對齊分兩種，依交易模式：
+  //     · 當沖（t+1 開買）：用 targetDate=t+1 的判別（t 晚 23:00 盤後趟＋t+1 早 07:00 晨間趟，都在 t+1 開盤前）→ f.newsNext*
+  //     · 隔日沖／波段（t 收買）：t 收盤前只知道 targetDate=t 且 pass=intraday 的判別 → f.newsIntra*
+  //   舊的 f.newsLabel（targetDate=t，各趟）保留給相容，不再當因子。
+  const nextDate = {}; for (let i = 0; i + 1 < twDates.length; i++) nextDate[twDates[i]] = twDates[i + 1];
+  const newsNextDays = Object.keys(newsByDate).filter(d => Object.values(nextDate).includes(d)).length;
 
   // ── 事件股排除（§2.2，使用者 2026-09-17 決定「加入」）──────────────────
   //   減資／面額變更／分割／大額除權的股，事件日前後 ±30 個日曆日（≈20 個交易日）的樣本一律剔除——
@@ -137,10 +145,13 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
       if (!y) continue;
       const nvi = nv[code];
     if (nvi) { f.newsLabel = nvi.label; f.newsStrength = nvi.strength || null; f.newsPriced = nvi.priced || null; }
+    const nvNext = newsByDate[nextDate[days[t].date]]?.[code];
+    if (nvNext) { f.newsNextLabel = nvNext.label; f.newsNextStrength = nvNext.strength || null; f.newsNextPriced = nvNext.priced || null; f.newsNextConf = nvNext.confidence || null; f.newsNextCarried = !!nvNext.carriedFrom; }
+    if (nvi && nvi.pass === 'intraday') { f.newsIntraLabel = nvi.label; f.newsIntraStrength = nvi.strength || null; f.newsIntraPriced = nvi.priced || null; }
     samples.push({ t, date: days[t].date, code, f, g, y, rg, seg: t < T / 3 ? 0 : (t < 2 * T / 3 ? 1 : 2) });
     }
   }
-  return { samples, days, T, twDates, newsDays, excludedEvents, eventCodes: Object.keys(evByCode).length, regimeByDate, regimeCuts };
+  return { samples, days, T, twDates, newsDays, newsNextDays, excludedEvents, eventCodes: Object.keys(evByCode).length, regimeByDate, regimeCuts };
 }
 const C0 = 0;   // closeJson 列格式 [收, 量張, 開, 高, 低]
 const COST_PCT = 0.4425;   // 手續費（折讓前）＋證交稅，不含價差；A 段絕對報酬閘門用
@@ -271,11 +282,14 @@ function factorGrid(newsDays = 0, q = null) {
   add('韓股漲>1%', '國際', x => x.g.kospi_chg != null && x.g.kospi_chg > 1);
   add('台股大盤漲>0.5%', '國際', x => x.g.twii_chg != null && x.g.twii_chg > 0.5);
   add('台幣升值', '國際', x => x.g.usdtwd_chg != null && x.g.usdtwd_chg < 0);
-  if (newsDays >= NEWS_MIN_DAYS) {
-    add('新聞判利多', '聞', x => x.f.newsLabel === '利多');
-    add('新聞判利多且強度強以上', '聞', x => x.f.newsLabel === '利多' && (x.f.newsStrength === '強' || x.f.newsStrength === '極強'));
-    add('新聞判利多且市場未預期', '聞', x => x.f.newsLabel === '利多' && x.f.newsPriced === '否');
-    add('新聞非利空', '聞', x => x.f.newsLabel !== '利空');
+  // 新聞因子依交易模式取 PIT 合法的那份：當沖＝newsNext（t+1 開盤前已知）、隔日沖／波段＝newsIntra（t 收盤前已知的盤中判別）
+  if (newsDays >= NEWS_MIN_DAYS && q?.newsKey) {
+    const K = q.newsKey;   // 'newsNext' | 'newsIntra'
+    const L = x => x.f[`${K}Label`], S = x => x.f[`${K}Strength`], P = x => x.f[`${K}Priced`];
+    add('新聞判利多', '聞', x => L(x) === '利多');
+    add('新聞判利多且強度強以上', '聞', x => L(x) === '利多' && (S(x) === '強' || S(x) === '極強'));
+    add('新聞判利多且市場未預期', '聞', x => L(x) === '利多' && P(x) === '否');
+    add('新聞非利空', '聞', x => L(x) !== undefined && L(x) !== '利空');
   }
   return F;
 }
@@ -374,7 +388,9 @@ function trainMode(mode, samples, twDates, baseGrid, say) {
   const pool = samples.filter(x => mode.entryOk(x.y) && mode.ret(x.y) != null);
   const train = pool.filter(x => x.date < OOS_FROM), oot = pool.filter(x => x.date >= OOS_FROM);
   const q = quantiles(train.filter(x => x.f.chg >= 5));
-  const grid = [...baseGrid, ...factorGrid(0, q).filter(f => /P[28]0/.test(f.name))];   // 固定門檻＋分位數門檻
+  const newsKey = mode.key === 'daytrade' ? 'newsNext' : 'newsIntra';
+  const newsDaysMode = new Set(pool.filter(x => x.f[`${newsKey}Label`]).map(x => x.date)).size;
+  const grid = [...baseGrid, ...factorGrid(newsDaysMode, { ...q, newsKey }).filter(f => /P[28]0/.test(f.name) || f.group === '聞')];   // 固定門檻＋分位數門檻＋（達門檻時）新聞
   const trainDates = [...new Set(train.map(x => x.date))].sort();
   const segCut = [trainDates[Math.floor(trainDates.length / 3)], trainDates[Math.floor(trainDates.length * 2 / 3)]];
   const segOf = d => (d < segCut[0] ? 0 : d < segCut[1] ? 1 : 2);   // 三段在訓練段內切（§2.4）
@@ -483,15 +499,19 @@ function applyPromotion(modes, prev, say) {
 //   並列「跳空 ≥3% 的組成」——其中前一日被判利多的占幾成。
 //   ⚠ 「未判」≠沒有新聞：判別宇宙是來源監看到的 ~150 檔／日；未判只代表不在判別宇宙裡。每日累積，30 日後才有代表性。
 function gapNewsAudit(samples) {
-  const days = new Set(samples.filter(x => x.f.newsLabel).map(x => x.date));
+  // 對齊：t+1 開盤的跳空，對應 targetDate=t+1 的判別（newsNext），不是 targetDate=t
+  const days = new Set(samples.filter(x => x.f.newsNextLabel).map(x => x.date));
   const pool = samples.filter(x => days.has(x.date) && x.y.openRet != null && x.y.entryLocked === 0);
   if (!pool.length) return null;
-  const lab = x => x.f.newsLabel || '未判';
+  const lab = x => (x.f.newsNextLabel === '利多' && x.f.newsNextConf ? `利多·${x.f.newsNextConf}` : x.f.newsNextLabel) || '未判';
   const G = {}; for (const x of pool) { const g = (G[lab(x)] ||= { n: 0, gap2: 0, gap3: 0, lockOpen: 0, ret: 0 }); g.n++; if (x.y.openRet >= 2) g.gap2++; if (x.y.openRet >= 3) g.gap3++; if (x.y.buyable === 0) g.lockOpen++; g.ret += x.y.openRet; }
   const byLabel = {}; for (const k in G) { const g = G[k]; byLabel[k] = { n: g.n, gap2Pct: +(g.gap2 / g.n * 100).toFixed(1), gap3Pct: +(g.gap3 / g.n * 100).toFixed(1), lockOpenPct: +(g.lockOpen / g.n * 100).toFixed(1), avgOpenRet: +(g.ret / g.n).toFixed(2) }; }
   const gaps = pool.filter(x => x.y.openRet >= 3); const comp = {}; for (const x of gaps) comp[lab(x)] = (comp[lab(x)] || 0) + 1;
   const composition = {}; for (const k in comp) composition[k] = { n: comp[k], pct: +(comp[k] / gaps.length * 100).toFixed(1) };
+  const bullAll = pool.filter(x => x.f.newsNextLabel === '利多'); const bullGap3 = bullAll.filter(x => x.y.openRet >= 3).length;
   return { days: days.size, pool: pool.length, byLabel, gap3Total: gaps.length, gap3Composition: composition,
+    bullAll: { n: bullAll.length, gap3Pct: bullAll.length ? +(bullGap3 / bullAll.length * 100).toFixed(1) : null, share: gaps.length ? +(bullGap3 / gaps.length * 100).toFixed(1) : null },
+    alignment: 'targetDate = t+1（t 晚盤後趟＋t+1 晨間趟）→ t+1 開盤跳空',
     note: '跳空＝t+1 開盤相對 t 收。未判≠無新聞（判別宇宙約 150 檔/日）。判別自 2026-08-27 累積，未達 30 日前只供觀察。' };
 }
 
@@ -520,7 +540,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const modes = {};
   for (const k of Object.keys(TRADE_MODES)) modes[k] = trainMode(TRADE_MODES[k], samples, twDates, grid, say);
   const gapNews = gapNewsAudit(samples);
-  if (gapNews) say(`  · 跳空×前日新聞（${gapNews.days} 日）：利多 跳空≥3% ${gapNews.byLabel['利多']?.gap3Pct ?? '—'}%／中性 ${gapNews.byLabel['中性']?.gap3Pct ?? '—'}%／未判 ${gapNews.byLabel['未判']?.gap3Pct ?? '—'}%；跳空≥3% 中前日判利多占 ${gapNews.gap3Composition['利多']?.pct ?? 0}%`);
+  if (gapNews) say(`  · 跳空×前日新聞（${gapNews.days} 日·對齊 targetDate=t+1）：利多 跳空≥3% ${gapNews.bullAll.gap3Pct ?? '—'}%（高 ${gapNews.byLabel['利多·高']?.gap3Pct ?? '—'}／中 ${gapNews.byLabel['利多·中']?.gap3Pct ?? '—'}／低 ${gapNews.byLabel['利多·低']?.gap3Pct ?? '—'}）／中性 ${gapNews.byLabel['中性']?.gap3Pct ?? '—'}%／未判 ${gapNews.byLabel['未判']?.gap3Pct ?? '—'}%；跳空≥3% 中前日判利多占 ${gapNews.bullAll.share ?? 0}%`);
 
   // 第四段：版本化與換版規則
   let prev = null;
