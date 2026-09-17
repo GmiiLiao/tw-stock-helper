@@ -264,7 +264,49 @@ L3 整合層（進模型當特徵，與籌碼/技術/市況同層）
 - 不接（付費或抓不到）：DRAMeXchange 合約價、WitsView 面板、SCFI（頁面是圖片）、BDI（需授權）。缺就缺、不捏造。
 - 文件 `sectorSpot/{日}`＋`latest`；每日 15:10 班車；稽核契約 `sectorSpot`；API `/api/ai/sector-spot`。首輪 14 項。
 
-### 9.6 驗收狀態（依 wm-agent-task-mode 分級）
+### 9.6 近期內文覆蓋率：先量再修（2026-09-17 晚間·另開的「新聞資料不足」專案）
+**量測工具**（唯讀、不呼叫 LLM、不寫 Firestore）：`node scripts/ai-daemon.mjs --run newsCoverageProbe`
+（`NV_SAMPLE` 抽樣數、`NV_OUT` 輸出、`NV_FROM=上次輸出` 沿用同一批代號、`NV_CODES` 指定），
+再用 `node scripts/news-coverage-compare.mjs before.json after.json` 比前後。口徑與 `judgeOneStock` 同一把尺：
+「近期內文」＝兩個交易日視窗內、有內文、非機器稿（＝能以 basis=content 判別）。
+
+**基線**（09-11～09-17 五個交易日 newsVerdict 判過的 485 檔，等距抽 40 檔，19:10 量）：
+
+| 指標 | 修前 | 修後 |
+|---|---|---|
+| 近期內文 | 20/40（50%） | **31/40（78%）** |
+| 14 日內可回退 | 40/40 | 39/40（6245 立端唯一一篇 14 日內內文只有 Yahoo 有）→ 補 Yahoo 14 日退路後單檔重驗 1/1 |
+| 平均請求／檔 | 20.6（最大 34） | 13.3（最大 24） |
+| 平均耗時／檔 | 45.9s | 39.9s |
+| 由無→有 | — | 11 檔（0 檔由有→無） |
+| 最新內文 ≤3 日的檔數 | 21 | 31 |
+
+修前請求裡 DuckDuckGo 佔 208/822（25%），而它對工商時報定位只換到 2 篇內文、跨站補內文 0 篇——
+把判別品質綁在會擋機器人的搜尋引擎上，量出來就是這個樣子。
+
+**候選來源實測**（09-17 19:10～19:40，台積電／光頡各一次）：
+
+| 來源 | 結果 | 處置 |
+|---|---|---|
+| Yahoo 逐檔 RSS `tw.stock.yahoo.com/rss?s={code}.TW` | 20 則、有 pubDate、直連文章頁；冷門股也有 | **接上**，取代刮新聞頁（省 3～5 次請求，日期不再從內文猜） |
+| Google News 連結解碼 | 舊註解「id 已加密無法解出」是 base64 直解；改抓 `rss/articles/{id}` 頁取 sg/ts → `batchexecute` 換回原始網址，實測 100% 解出（鏡週刊／理財周刊／永豐金…） | **接上**：每篇 3 次請求，只對近期、非機器稿、無內文的標題做，每檔最多 2 篇；白名單網域才抓，論壇入口即擋 |
+| 經濟日報搜尋頁 | 內嵌 JSON-LD ItemList 帶 datePublished、依時間遞減 | **接上**：先讀日期再抓文章（舊版抓 cap+3 篇再排序） |
+| 自由財經 `search.ltn.com.tw/list?…&sort=date` | 可搜、列表帶日期、文章頁 736 字含公司名與 datePublished | **接上**（標籤「自由財經搜尋」，與 Google News 媒體名區分） |
+| 工商時報 tag／search／RSS／livenews | 全部 403／404 | 維持 DDG 定位，加熔斷（連續 3 次 0 結果冷卻 5 分鐘） |
+| 鉅亨搜尋 API | 無個股標籤欄（`market` 只在分類清單有），q=代號與 q=名稱結果相同 | 維持 |
+| 鉅亨個股頁 `cnyes.com/twstock/{code}/news` | JS 渲染、伺服器端 0 條連結 | 不接 |
+| 中央社 | 搜尋頁 JS 渲染、`WNewsList` API 是分類清單無關鍵字 | 不接（未找到可用端點） |
+| ETtoday 搜尋 | 台積電 5 篇、光頡 0 篇 | 不接（覆蓋不足） |
+| Google 解碼落到的非白名單網域 | cmnews.com.tw ×5、today.line.me ×3、n.yam.com、cdns.com.tw、peoplenews.tw | 記錄不抓；LINE TODAY 頁面未驗證能否伺服器端取內文 |
+| MOPS 重訊（資訊性） | 抽樣 40 檔近兩日有官方說明內文 3 檔，其中媒體端無近期內文、只有 MOPS 的 0 檔 | 本輪不接入判別（接入是改判別輸入，要分開驗證） |
+
+**請求上限**：所有新聞抓取改走 `nfetch()`，每檔預算 28 次（`NEWS_REQ_BUDGET`），超過即拒發並在日誌標「預算用罄」；
+新來源（自由財經／Google 解碼）都在「近期實質內文 <2」才打。判別規則（讀完內文、無內文不判多空、引用強制…）一字未動。
+
+**尚未證明**：對線上資訊不足率的實際降幅（要看接上後的盤後／晨間趟反查）；Google 解碼端點的長期穩定性
+（Google 改頁面結構就斷，已加熔斷 `gnews-decode`）；LINE TODAY 是否值得列白名單。
+
+### 9.7 驗收狀態（依 wm-agent-task-mode 分級）
 - 本機驗證：`node --check`、欄位契約、tsc 皆過；`--run mops`、`--run sectorSpot` 首輪成功並讀回文件核對。
 - 線上觀測：待 daemon 重啟後，看 23:00 盤後趟的資訊不足比例、breakdown 出現 eventType／pxc 分組、MOPS 每 30 分鐘一行日誌。
 - **尚未證明**：9.1 的修法對資訊不足率的實際降幅；MOPS 在季報截止日（上千則）的文件大小行為。
