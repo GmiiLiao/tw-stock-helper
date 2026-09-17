@@ -10825,6 +10825,39 @@ async function nameIndexMap() {
   const out = {}; for (const c in q) if (q[c]?.name) out[c] = q[c].name; return out;
 }
 
+// ── 借券賣出餘額歸檔（2026-09-18，軋空模型 E 段原料）──
+//   站上原本歸檔的 lendingJson 是 TWT96U「當日可借券賣出股數」（可借額度），不是借券餘額。
+//   真正的借券賣出餘額：上市 TWT93U 信用額度總量管制餘額表（欄 12「借券賣出當日餘額」、欄 9「當日賣出」，單位股），
+//   上櫃 openapi tpex_margin_sbl（SecuritiesBorrowingBalanceOfTheMarketDay／SecuritiesBorrowingSale）。
+//   兩者 21:30 後公布 ⇒ 排 21:45 班車；日期回聲驗證（TWSE date 欄、TPEx Date 民國）；寫 chipArchive/{日}.sblJson {code:[餘額張, 當日賣出張]}。
+async function archiveSblBalance() {
+  const tw = taipei();
+  // 目標日＝資料已公布的最近交易日：21:30 後才有當日；之前（含跨午夜的補跑）取前一個交易日。SBL_DATE=YYYY-MM-DD 可指定。
+  const mins = tw.getHours() * 60 + tw.getMinutes();
+  const iso = process.env.SBL_DATE || ((isTradingDay(tw) && mins >= 21 * 60 + 30) ? isoDate(tw) : (prevTradingIsos(isoDate(tw), 2)[1] || isoDate(tw)));
+  const ymd = iso.replace(/-/g, ''), roc = String(+iso.slice(0, 4) - 1911) + ymd.slice(4);
+  const out = {}; let tse = 0, otc = 0;
+  try {
+    const r = await fetch(`https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date=${ymd}&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(20000) });
+    const j = r.ok ? await r.json() : null;
+    if (j?.stat === 'OK' && String(j.date) === ymd && Array.isArray(j.fields) && j.fields[12] === '當日餘額' && j.fields[9] === '當日賣出') {
+      for (const row of (j.data || [])) { const c = String(row[0] || '').trim(); if (!/^\d{4}$/.test(c)) continue; const bal = _num(String(row[12]).replace(/,/g, '')), sell = _num(String(row[9]).replace(/,/g, '')); out[c] = [Math.round(bal / 1000), Math.round(sell / 1000)]; tse++; }
+    } else log(`  ⚠ 借券餘額(上市)：回聲不符或欄位變動（date=${j?.date}，fields[12]=${j?.fields?.[12]}），不寫入`);
+  } catch (e) { log('  ⚠ 借券餘額(上市)抓取失敗:', (e.message || '').slice(0, 60)); }
+  try {
+    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
+    const arr = r.ok ? await r.json() : null;
+    if (Array.isArray(arr) && arr.length && String(arr[0]?.Date) === roc) {
+      for (const x of arr) { const c = String(x.SecuritiesCompanyCode || '').trim(); if (!/^\d{4}$/.test(c) || out[c]) continue; const bal = _num(String(x.SecuritiesBorrowingBalanceOfTheMarketDay || '').replace(/,/g, '')), sell = _num(String(x.SecuritiesBorrowingSale || '').replace(/,/g, '')); out[c] = [Math.round(bal / 1000), Math.round(sell / 1000)]; otc++; }
+    } else log(`  ⚠ 借券餘額(上櫃)：回聲不符（Date=${arr?.[0]?.Date}≠${roc}），不寫入`);
+  } catch (e) { log('  ⚠ 借券餘額(上櫃)抓取失敗:', (e.message || '').slice(0, 60)); }
+  const n = Object.keys(out).length;
+  if (n < 500) { log(`  ⚠ 借券餘額：只有 ${n} 檔（上市 ${tse}／上櫃 ${otc}），不寫入`); return false; }
+  await db.collection('chipArchive').doc(iso).set({ date: iso, sblJson: JSON.stringify(out), sblN: n, updatedAt: Date.now() }, { merge: true });
+  log(`✓ 借券賣出餘額歸檔 ${iso}：${n} 檔（上市 ${tse}／上櫃 ${otc}）`);
+  return true;
+}
+
 async function archiveChipDaily() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
   const iso = isoDate(tw); const ymd = ymd8(tw);
@@ -13978,7 +14011,7 @@ async function runDailyJobs(boot = false) {
 // 官方盤後資料公布時間不同，光靠 15:10 一次會抓到前一日：T86 三大法人約 16:00、
 // 期交所/集保/除權息/借券/月營收約 16:30 前、融資融券約 21:30 才出。故加兩個補抓時段。
 const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['gapLimitUp', computeGapLimitUp], ['swingHold', computeSwingHold], ['dailySeq', computeDailySeq], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];   // gapLimitUp 排在 chipArchive 之後：15:10 版歸檔上櫃可能未併入（2026-09-07 實案 34→12 檔），16:30 併入後重算
-const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
+const MARGIN_CATCHUP = [['margin', computeMargin], ['sbl', archiveSblBalance], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) await timedJob(name, fn, tag);
 }
@@ -14653,6 +14686,7 @@ if (ONESHOT) {
     newsVerdictIntraday: () => computeIntradayNewsVerdict(),
     otcBackfill: () => backfillOtcPending(+(process.env.OTC_BACKFILL_DAYS || 15)),   // 歸檔 otcPending 補上櫃日 K（2026-09-17）→ 現走缺漏掃描
     gapScan: () => scanArchiveGaps(+(process.env.GAP_SCAN_DAYS || 15)),              // 資料缺漏偵測→補正→事件→通知（GAP_DRY=1 只偵測）
+    sbl: () => archiveSblBalance(),           // 借券賣出餘額歸檔（2026-09-18，E 段原料）
     priceEvents: () => computePriceEvents(),   // 價格結構事件表（減資／面額變更／分割／大額除權）只記錄（2026-09-17）
     mops: () => ingestMops(),                 // 公開資訊觀測站重大訊息抓取去重（2026-09-17）
     sectorSpot: () => computeSectorSpot(),    // 產業現貨／原物料報價（免費來源）

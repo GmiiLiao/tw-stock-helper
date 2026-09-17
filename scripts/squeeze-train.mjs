@@ -47,6 +47,7 @@ async function loadDays(db, limit) {
     margin: d.marginJson ? JSON.parse(d.marginJson) : null,
     inst: d.instJson ? JSON.parse(d.instJson) : null,
     lend: d.lendingJson ? JSON.parse(d.lendingJson) : null,
+    sbl: d.sblJson ? JSON.parse(d.sblJson) : null,   // E 段：借券賣出餘額 {code: [餘額張, 當日賣出張]}（2026-09-18 起）
   }));
 }
 
@@ -420,7 +421,8 @@ function squeezeCalibration(oot, grid, mode) {
 // ── B 段（docs/SQUEEZE-MODEL-VARIABLES §5-B，2026-09-18）：每日橫截面百分位因子 ──
 //   絕對門檻（法人淨買/均量≥5%、量比≥2）在不同市況命中比例天差地遠，沒有 regime 不變性。
 //   改成「當天純動能母體內的百分位」：同一天所有可買動能股裡排前 20%／後 20%。只用當天資料，無前視。
-const CS_KEYS = { volX: '量', instVsVol: '法', ret5: '價', pos: '價', chg: '價', ratio: '券', shVsVol: '券', relSector: '族群', sectorSync: '族群', distHi60: '位置', distLo60: '位置' };
+const CS_KEYS = { volX: '量', instVsVol: '法', ret5: '價', pos: '價', chg: '價', ratio: '券', shVsVol: '券', relSector: '族群', sectorSync: '族群', distHi60: '位置', distLo60: '位置',
+  lendVsVol: '借券', lendChgVsVol: '借券', sblVsVol: '借券', sblChgVsVol: '借券' };   // E 段：可借額度代理（有歷史）＋借券餘額（09-18 起累積）
 function attachCrossSection(pool, isMom) {
   const byDay = {}; for (const x of pool) if (isMom(x)) (byDay[x.date] ||= []).push(x);
   for (const d in byDay) {

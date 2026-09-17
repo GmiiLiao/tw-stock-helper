@@ -142,6 +142,20 @@ export function buildStockFeatures(days, t, code) {
     f.instVsVol = avgVol > 0 ? +((f.instNet / avgVol) * 100).toFixed(2) : null;
   }
   if (ln != null) { f.lend = ln; if (lnP != null) f.lendChg = ln - lnP; }
+  // E 段（2026-09-18）：借券
+  //   ① lend＝TWT96U「當日可借券賣出股數」（可借額度，不是借券餘額）——當代理：可借供給／均量、額度變化／均量
+  //   ② sblJson＝TWT93U／tpex_margin_sbl「借券賣出餘額」（真正的借券餘額，2026-09-18 起逐日歸檔）：餘額／均量、餘額變化／均量
+  //   兩者都是 t 日 21:30 後公布 ⇒ 對「t 收買」不是 PIT（只有 t-1 的可用）；這裡一律取 ≤t-1 的最近一筆。
+  if (avgVol > 0) {
+    const lnAt1 = (i) => { for (let k = i; k >= 0 && k > i - 6; k--) if (days[k].lend) return k; return -1; };
+    const a1 = lnAt1(t - 1), a2 = a1 > 0 ? lnAt1(a1 - 1) : -1;
+    const q1 = a1 >= 0 ? days[a1].lend[code] : null, q2 = a2 >= 0 ? days[a2].lend[code] : null;
+    if (q1 != null) { f.lendVsVol = +((q1 / 1000) / avgVol).toFixed(4); if (q2 != null) f.lendChgVsVol = +(((q1 - q2) / 1000) / avgVol).toFixed(4); }
+    const sbAt = (i) => { for (let k = i; k >= 0 && k > i - 6; k--) if (days[k].sbl) return k; return -1; };
+    const b1 = sbAt(t - 1), b2 = b1 > 0 ? sbAt(b1 - 1) : -1;
+    const s1 = b1 >= 0 ? days[b1].sbl[code]?.[0] : null, s2 = b2 >= 0 ? days[b2].sbl[code]?.[0] : null;
+    if (s1 != null) { f.sblVsVol = +(s1 / avgVol).toFixed(4); if (s2 != null) f.sblChgVsVol = +((s1 - s2) / avgVol).toFixed(4); }
+  }
   return f;
 }
 
