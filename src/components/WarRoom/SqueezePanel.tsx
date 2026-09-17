@@ -5,6 +5,7 @@
 // 若做成「軋空預測神器」的口吻，使用者會照著重押，那是我們造成的傷害。
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { Fragment, useEffect, useState } from 'react';
+import { isMarketOpen } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
@@ -13,6 +14,7 @@ import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 interface Item {
   code: string; name: string; price: number; chg: number;
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
+  prev?: number;               // 前日收盤（daemon 09-17 起提供；舊文件缺時由 price/chg 反推，四捨五入到 0.01）
   setup: number | null; band: string; weakBand?: boolean; brk20?: boolean; hi20?: number | null;
   shrtChg?: number | null; lend?: number | null; lendChg?: number | null; trueRatio?: number | null;
   fgn?: number | null; trust?: number | null; instNet?: number | null;
@@ -57,6 +59,7 @@ export default function SqueezePanel() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<Data | null>(null);
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
+  const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄、現價改標「即時」（09-17）
   const [rec, setRec] = useState<Rec | null>(null);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -314,7 +317,9 @@ export default function SqueezePanel() {
               <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
                 <th style={{ padding: '4px 4px', textAlign: 'left' }}>分級</th>
                 <th style={{ padding: '4px 4px', textAlign: 'left' }}>代號/名稱</th>
-                <th style={{ padding: '4px 4px' }}>現價</th>
+                {/* 盤中（2026-09-17 使用者指定）：現價欄改名「即時」並多一欄「前日價」對照；盤後維持原樣。以 market-clock 判定，不看文件 mode。 */}
+                <th style={{ padding: '4px 4px' }}>{marketOpenNow ? '即時' : '現價'}</th>
+                {marketOpenNow && <th style={{ padding: '4px 4px' }} title="前一交易日收盤價（daemon 提供；舊文件缺時由即時價÷(1+漲幅) 反推）">前日價</th>}
                 <th style={{ padding: '4px 4px' }}>漲幅</th>
                 <th style={{ padding: '4px 4px' }}>券資比</th>
                 <th style={{ padding: '4px 4px' }}>融券日增</th>
@@ -346,6 +351,7 @@ export default function SqueezePanel() {
                     <AddCandidateButton code={it.code} variant="icon" />
                   </td>
                   <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
+                  {marketOpenNow && <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-muted)' }}>{(it.prev ?? +(it.price / (1 + it.chg / 100)).toFixed(2)).toFixed(2)}</td>}
                   <td style={{ padding: '4px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>
                   <td style={{ padding: '4px 4px', fontWeight: 700, color: it.tier === 3 ? '#22c55e' : it.weakBand ? '#f59e0b' : 'var(--text-primary)' }}>
                     {it.ratio}%

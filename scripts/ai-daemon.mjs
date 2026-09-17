@@ -6796,6 +6796,7 @@ async function computeSqueezePicks() {
     for (const m of instDays) { const v = m[code]; if (v && (v[1] ?? 0) > 0) tStreak++; else break; }
     items.push({
       code, name: q?.name || '', price: +price.toFixed(2), chg: +chg.toFixed(2),
+      prev: +prev.toFixed(2),   // 前日收盤（2026-09-17 使用者：盤中表格要多一欄「前日價」對照即時價）
       fgn, trust, instNet: iv ? (fgn + trust) : null,
       fgn5: seen ? f5 : null, trust5: seen ? t5 : null, inst5: seen ? f5 + t5 : null,
       trustStreak: tStreak,
