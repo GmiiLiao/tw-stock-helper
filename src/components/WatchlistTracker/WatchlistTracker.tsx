@@ -1090,6 +1090,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
   const [disposition, setDisposition] = useState<RiskStockItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'disposition' | 'attention'>('all');
+  const [listDates, setListDates] = useState<{ twse?: string | null; tpex?: string | null }>({});
   const watchlistGroups = useAppStore(s => s.watchlistGroups);
 
   // Get all user's watchlist codes for cross-reference
@@ -1102,6 +1103,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
       .then(data => {
         if (data.attention) setAttention(data.attention);
         if (data.disposition) setDisposition(data.disposition);
+        setListDates({ twse: data.twseAttentionDate, tpex: data.tpexAttentionDate });
       })
       .catch(err => console.error('[RiskMonitor] fetch error:', err))
       .finally(() => setLoading(false));
@@ -1139,6 +1141,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
         </div>
         <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: '4px' }}>
           證交所/櫃買中心公告之注意與處置股票 · 共 {disposition.length + attention.length} 檔
+          {(listDates.twse || listDates.tpex) && <span title="注意股是公布日隔天生效的狀態；顯示的是最近一次已公布的名單，新名單通常在收盤後傍晚公布"> · 注意股名單日：上市 {listDates.twse?.slice(5) ?? '—'}／上櫃 {listDates.tpex?.slice(5) ?? '—'}</span>}
         </div>
       </div>
 

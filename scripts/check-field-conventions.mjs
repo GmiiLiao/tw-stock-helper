@@ -89,6 +89,9 @@ export const DATE_ALLOWLIST = new Set([
   // 收盤資料日）分開命名——盤後產出的次交易日清單，兩者必然差一天，
   // 混用就會把「8/26 的資料」講成「8/26 的推薦」。
   'targetDate',
+  // twseAttentionDate／tpexAttentionDate：注意股名單的「公布日」（API 回應欄位，非 Firestore 文件資料日）。
+  //   注意股是公布日隔天生效的狀態，畫面標的是最近一次已公布的名單日期（2026-09-17 上市名單整批消失事故）。
+  'twseAttentionDate', 'tpexAttentionDate',
   // 領域日期（交易/公司/新聞/處置）
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',

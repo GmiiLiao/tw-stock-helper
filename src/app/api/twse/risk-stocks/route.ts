@@ -25,6 +25,8 @@ interface RiskStocksResponse {
   disposition: RiskStock[];
   allCodes: string[];        // quick lookup: all codes on either list
   fetchedAt: string;
+  twseAttentionDate?: string | null;   // 上市注意股名單公布日（2026-09-17）
+  tpexAttentionDate?: string | null;
 }
 
 // ── In-memory cache (5 min TTL) ─────────────────────────────
@@ -44,7 +46,7 @@ export async function GET() {
   //   這段邏輯原本在此與 lib/scoring-server.ts 各有一份，兩份都接錯端點，
   //   而我只修了其中一份 —— 複本就是同一個 bug 會出現第二次的原因。
   //   新增消費端請 import 該模組，不要再複製解析。
-  const { attention, disposition } = await fetchRiskStocksSource();
+  const { attention, disposition, twseAttentionDate, tpexAttentionDate } = await fetchRiskStocksSource();
 
   const allCodes = [
     ...attention.map(a => a.code),
@@ -56,6 +58,8 @@ export async function GET() {
     disposition,
     allCodes: [...new Set(allCodes)],
     fetchedAt: new Date().toISOString(),
+    twseAttentionDate: twseAttentionDate ?? null,
+    tpexAttentionDate: tpexAttentionDate ?? null,
   };
 
   // Cache result

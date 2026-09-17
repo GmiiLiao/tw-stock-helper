@@ -43,6 +43,9 @@ export interface RiskStocksResult {
   attention: RiskStockInfo[];
   disposition: RiskStockInfo[];
   fetchedAt: string;
+  /** 上市／上櫃注意股名單的「公布日」（ISO）。注意股是公布日隔天生效的狀態，畫面要標名單日期，不能讓人以為是即時判定。 */
+  twseAttentionDate?: string | null;
+  tpexAttentionDate?: string | null;
 }
 
 const TTL = 5 * 60 * 1000;
@@ -116,10 +119,21 @@ function applyNewDispositionRegime(list: RiskStockInfo[]): RiskStockInfo[] {
 // 手寫快取 → memoize（同 fundamentals-server 的理由：in-flight 合流＋失敗負快取）。
 // 四個上游並行、各 8s 上限 ⇒ timeoutMs 12s。兩清單皆空視為降級（正常日極少見，
 // 走 30s 負快取重試的代價只是四次輕量 fetch）。
-const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResult> => {
+// ROC「115.09.16」／「1150916」→ ISO
+const rocToIso = (v: string) => { const d = v.replace(/\D/g, ''); return d.length >= 7 ? `${+d.slice(0, -4) + 1911}-${d.slice(-4, -2)}-${d.slice(-2)}` : ''; };
+const ymd = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }).replace(/-/g, '');
 
-  const [twAtt, twDisp, tpAtt, tpDisp] = await Promise.all([
+const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResult> => {
+  // ⚠ 上市注意股不能只讀 openapi「當日公布」端點（2026-09-17 實案：尖點／全友／光罩三檔不見）：
+  //   那支在新名單公布前（收盤後到傍晚，openapi 鏡像本來就落後一日）回一筆全空白佔位列，
+  //   於是每天有大半時間上市注意股整批為 0，畫面只是「清單變短」，不報錯。
+  //   注意股是「公布日隔天生效」的狀態 ⇒ 正解是 rwd 區間查詢最近 7 天、取**最新一個有資料的公布日**那批，
+  //   並把名單日期回給畫面；openapi 當日端點只當補充（若它已有今天的，會是更新的那批）。
+  const now = new Date(); const from = new Date(now.getTime() - 7 * 86400000);
+  const [twAttRange, twAtt, twNote, twDisp, tpAtt, tpDisp] = await Promise.all([
+    fetchJSON(`https://www.twse.com.tw/rwd/zh/announcement/notice?startDate=${ymd(from)}&endDate=${ymd(now)}&response=json`),
     fetchJSON('https://openapi.twse.com.tw/v1/announcement/notice'),
+    fetchJSON('https://openapi.twse.com.tw/v1/announcement/notetrans'),
     fetchJSON('https://openapi.twse.com.tw/v1/announcement/punish'),
     fetchJSON('https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information'),
     fetchJSON('https://www.tpex.org.tw/openapi/v1/tpex_disposal_information'),
@@ -128,14 +142,45 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
   const attention: RiskStockInfo[] = [];
   const disposition: RiskStockInfo[] = [];
   const rows = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  let twseAttentionDate: string | null = null;
+  let tpexAttentionDate: string | null = null;
 
-  // TWSE 注意（端點在無注意股時會回一筆全空白的佔位列，靠 code/reason 檢查濾掉）
-  for (const it of rows(twAtt)) {
-    const code = str(it.Code || it['證券代號']);
-    const reason = str(it.TradingInfoForAttention || it['注意交易資訊']);
-    if (isCode(code) && reason) {
-      attention.push({ code, name: str(it.Name || it['證券名稱']), type: 'attention', reason: reason.slice(0, 200), source: 'TWSE' });
+  // TWSE 注意：rwd 區間 → 依日期分組取最新一批。欄位順序以 fields 對名，不寫死索引（端點身分要驗）。
+  {
+    const j = (twAttRange && typeof twAttRange === 'object') ? (twAttRange as { stat?: string; fields?: string[]; data?: unknown[][] }) : null;
+    const fields = j?.fields || [];
+    const iCode = fields.indexOf('證券代號'), iName = fields.indexOf('證券名稱'), iReason = fields.indexOf('注意交易資訊'), iDate = fields.indexOf('日期'), iCnt = fields.indexOf('累計次數');
+    if (j?.stat === 'OK' && iCode >= 0 && iReason >= 0 && iDate >= 0) {
+      const rowsByDay: Record<string, unknown[][]> = {};
+      for (const r of (j.data || [])) { const d = rocToIso(str(r[iDate])); if (d) (rowsByDay[d] ||= []).push(r); }
+      const latest = Object.keys(rowsByDay).sort().pop();
+      if (latest) {
+        twseAttentionDate = latest;
+        for (const r of rowsByDay[latest]) {
+          const code = str(r[iCode]), reason = str(r[iReason]);
+          if (!isCode(code) || !reason) continue;
+          const cnt = iCnt >= 0 ? str(r[iCnt]) : '';
+          attention.push({ code, name: str(r[iName]), type: 'attention', reason: (cnt ? `累計 ${cnt} 次｜` : '') + reason.slice(0, 200), source: 'TWSE' });
+        }
+      }
     }
+  }
+  // openapi 當日端點：只有在區間查詢沒拿到、或它的日期更新時才用（無注意股時回一筆全空白佔位列，靠 code/reason 濾掉）
+  {
+    const list = rows(twAtt).filter(it => isCode(str(it.Code || it['證券代號'])) && str(it.TradingInfoForAttention || it['注意交易資訊']));
+    const d0 = list.length ? rocToIso(str(list[0].Date || list[0]['日期'])) : '';
+    if (list.length && (!twseAttentionDate || (d0 && d0 > twseAttentionDate))) {
+      attention.splice(0, attention.length);   // 換成更新的那批
+      twseAttentionDate = d0 || twseAttentionDate;
+      for (const it of list) {
+        attention.push({ code: str(it.Code || it['證券代號']), name: str(it.Name || it['證券名稱']), type: 'attention', reason: str(it.TradingInfoForAttention || it['注意交易資訊']).slice(0, 200), source: 'TWSE' });
+      }
+    }
+  }
+  // 注意累計次數可能達處置標準（notetrans）：只加註在已在名單上的檔，不把它當成注意股（不捏造身分）
+  {
+    const near = new Set(rows(twNote).map(it => str(it.Code)).filter(isCode));
+    for (const a of attention) if (a.source === 'TWSE' && near.has(a.code)) a.reason = `⚠近期符合注意標準、累計次數可能達處置｜${a.reason}`.slice(0, 200);
   }
   // TWSE 處置
   for (const it of rows(twDisp)) {
@@ -152,12 +197,13 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
       ...splitPeriod(str(it.DispositionPeriod || it['處置期間'])), source: 'TWSE',
     });
   }
-  // TPEx 注意
+  // TPEx 注意（openapi 保留最後公布的名單，帶 Date 欄）
   for (const it of rows(tpAtt)) {
     const code = str(it.SecuritiesCompanyCode || it.Code);
     const reason = str(it.TradingInformation || it.Reason);
     if (isCode(code) && reason) {
       attention.push({ code, name: str(it.CompanyName || it.Name), type: 'attention', reason: reason.slice(0, 200), source: 'TPEx' });
+      const d = rocToIso(str(it.Date || it['日期'])); if (d && (!tpexAttentionDate || d > tpexAttentionDate)) tpexAttentionDate = d;
     }
   }
   // TPEx 處置
@@ -173,7 +219,7 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
     });
   }
 
-  return { attention, disposition: applyNewDispositionRegime(disposition), fetchedAt: new Date().toISOString() };
+  return { attention, disposition: applyNewDispositionRegime(disposition), fetchedAt: new Date().toISOString(), twseAttentionDate, tpexAttentionDate };
 }, { timeoutMs: 12_000, isDegraded: v => {
   const r = v as RiskStocksResult; return !r.attention.length && !r.disposition.length;
 } });
