@@ -251,6 +251,13 @@ const FRESH_PROBES = [
   //   publishHour 22：BWIBBU 當日內容的確切發布時刻未實測；2026-08-12 17:05 PBR 反推
   //   實測內容仍為前一交易日（9/9 檔），故收盤後至 22:00 前接受前一交易日不算落後。
   { name: '殖利率(rwd)',   url: d => `https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${d}&response=json`,               from: 'title', publishHour: 22 },
+  // 注意股（2026-09-17 事故後補入，建議 2）：站上 risk-stocks-source.ts 的生產路徑。
+  //   上市走 rwd **區間**查詢（openapi「當日公布」端點在新名單公布前是全空白佔位列，三檔注意股因此消失）；
+  //   端點沒有頂層 date，資料日＝各列「日期」欄的**最大值**（115.09.16 格式）。名單於收盤後傍晚公布，
+  //   publishHour 17；forward 語意：最新公布日 ≥ 期待日即健康（假日／沒有新列時不誤報）。
+  { name: '注意股·上市(rwd區間)', url: d => { const e = d, s = new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}T00:00:00Z`); s.setUTCDate(s.getUTCDate() - 7); return `https://www.twse.com.tw/rwd/zh/announcement/notice?startDate=${s.toISOString().slice(0, 10).replace(/-/g, '')}&endDate=${e}&response=json`; }, from: 'rows', rowKey: '日期', mode: 'forward', publishHour: 17 },
+  // 上櫃 openapi（同一支生產路徑；Date 民國 7 碼），同樣取列的最大日期。
+  { name: '注意股·上櫃(openapi)', url: () => 'https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information', from: 'rows', rowKey: 'Date', mode: 'forward', publishHour: 17 },
 ];
 
 // 民國日期出現在 title 的兩種寫法都要吃（都是實測格式）：
@@ -289,8 +296,15 @@ async function probeFresh(ltd) {
       const t = await r.text();
       if (t.trim().startsWith('<')) { out.push({ name: p.name, status: 'ERROR', note: '回傳 HTML' }); continue; }
       const j = JSON.parse(t);
-      const n = (j.data || []).length || (j.tables || []).reduce((s2, x) => s2 + (x.data || []).length, 0);
-      const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : normDate(j.date);
+      const arr = Array.isArray(j) ? j : (j.data || []);
+      const n = arr.length || (j.tables || []).reduce((s2, x) => s2 + (x.data || []).length, 0);
+      // from:'rows'：沒有頂層日期的端點，資料日＝各列日期欄的最大值（rwd 以 fields 對名、openapi 以物件鍵）
+      const rowsDate = () => {
+        const idx = Array.isArray(j.fields) ? j.fields.indexOf(p.rowKey) : -1;
+        const ds = arr.map(r => normDate(Array.isArray(r) ? (idx >= 0 ? r[idx] : null) : r?.[p.rowKey])).filter(Boolean).sort();
+        return ds.length ? ds[ds.length - 1] : null;
+      };
+      const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : p.from === 'rows' ? rowsDate() : normDate(j.date);
       // 期待值＝實際查詢的那一天（見上方 askDate）
       const beforePublish = beforePub;
       const expect = beforePublish ? prevTradingDay(ltd) : ltd;
@@ -329,6 +343,7 @@ function normDate(v) {
   if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}`;
   if (/^\d{7}$/.test(s)) return `${+s.slice(0, 3) + 1911}-${s.slice(3, 5)}-${s.slice(5)}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{2,3}\.\d{2}\.\d{2}$/.test(s)) { const [y, m, d] = s.split('.'); return `${+y + 1911}-${m}-${d}`; }   // 注意股 rwd 的「115.09.16」
   return null;
 }
 
