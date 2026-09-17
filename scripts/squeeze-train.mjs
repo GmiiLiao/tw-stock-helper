@@ -115,6 +115,28 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   const nearEvent = (code, dateIso) => { const arr = evByCode[code]; if (!arr) return false; const t0 = Date.parse(dateIso); return arr.some(ev => Math.abs(t0 - ev) <= EV_WIN); };
   let excludedEvents = 0;
 
+  // ── C 段（docs/SQUEEZE-MODEL-VARIABLES §5-C，2026-09-18）：族群相對強度／同步率、位置／路徑、市況條件 ──
+  //   族群對照用 peerComps/latest（同業表，站上既有）；每日算族群中位漲幅、同步率（族群內漲≥3% 比例）、族群排名百分位。
+  //   位置／路徑：距 60 日高／低、連漲天數、首次突破 20 日高（昨日未突破、今日突破）。全部只用 ≤t 的收盤。
+  const groupOf = {};
+  try {
+    const pc = (await db.collection('peerComps').doc('latest').get()).data();
+    if (pc?.industriesJson) { const ind = JSON.parse(pc.industriesJson); for (const g in ind) for (const it of ind[g]) if (it?.code) groupOf[it.code] = g; }
+  } catch { /* 沒有族群表就沒有族群因子（欄位留 null） */ }
+  const sectorStatsOf = (t) => {
+    const acc = {};
+    for (const code in days[t].close) {
+      const g = groupOf[code]; if (!g) continue;
+      const c = days[t].close[code]?.[C0], p = days[t - 1]?.close[code]?.[C0]; if (!(c > 0) || !(p > 0)) continue;
+      (acc[g] ||= []).push((c - p) / p * 100);
+    }
+    const out = {}; const meds = [];
+    for (const g in acc) { const a = acc[g].sort((x, y) => x - y); if (a.length < 3) continue; const med = a[Math.floor(a.length / 2)]; out[g] = { med, sync: a.filter(v => v >= 3).length / a.length, n: a.length }; meds.push(med); }
+    meds.sort((x, y) => x - y);
+    for (const g in out) out[g].rank = meds.length > 1 ? meds.findIndex(v => v >= out[g].med) / (meds.length - 1) : null;
+    return out;
+  };
+
   // ── A 段（docs/SQUEEZE-MODEL-VARIABLES §4-4）：市況 regime＝當日漲家數比的三分位（多頭／中性／空頭）──
   //   用 t 日自己的漲家數比（t 日收盤後已知，PIT 合法）。每筆樣本帶 rg，評估時分層報告，主模型須多頭／空頭兩層都不為負。
   const regimeByDate = {};
@@ -136,11 +158,24 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
     const g = gRows[days[t].date] || {};
     const nv = newsByDate[days[t].date] || {};
     const rg = regimeByDate[days[t].date]?.rg || 'neutral';
+    const sec = sectorStatsOf(t);
     for (const code in days[t].close) {
       if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
       if (nearEvent(code, days[t].date)) { excludedEvents++; continue; }
       const f = buildStockFeatures(days, t, code);
       if (!f || !(f.close > minPrice) || !(f.avgVol >= minAvgVol)) continue;
+      // C 段：族群
+      const grp = groupOf[code]; const st = grp ? sec[grp] : null;
+      f.sector = grp || null; f.relSector = st ? +(f.chg - st.med).toFixed(2) : null; f.sectorSync = st ? +st.sync.toFixed(3) : null; f.sectorRank = st?.rank ?? null;
+      // C 段：位置／路徑（≤t）
+      let hi60 = 0, lo60 = Infinity, hi20prev = 0, up = 0;
+      for (let k = 1; k <= 60; k++) { const c = days[t - k]?.close[code]?.[C0]; if (!(c > 0)) continue; if (c > hi60) hi60 = c; if (c < lo60) lo60 = c; if (k >= 2 && k <= 21 && c > hi20prev) hi20prev = c; }
+      for (let k = 0; k < 15; k++) { const c = days[t - k]?.close[code]?.[C0], p = days[t - k - 1]?.close[code]?.[C0]; if (c > 0 && p > 0 && c > p) up++; else break; }
+      const prevClose = days[t - 1]?.close[code]?.[C0];
+      f.distHi60 = hi60 > 0 ? +((f.close / hi60 - 1) * 100).toFixed(2) : null;
+      f.distLo60 = Number.isFinite(lo60) && lo60 > 0 ? +((f.close / lo60 - 1) * 100).toFixed(2) : null;
+      f.upStreak = up;
+      f.firstBreak20 = f.brk20 === 1 && hi20prev > 0 && prevClose > 0 && prevClose <= hi20prev ? 1 : 0;
       const y = buildLabels(days, t, code);
       if (!y) continue;
       const nvi = nv[code];
@@ -385,7 +420,7 @@ function squeezeCalibration(oot, grid, mode) {
 // ── B 段（docs/SQUEEZE-MODEL-VARIABLES §5-B，2026-09-18）：每日橫截面百分位因子 ──
 //   絕對門檻（法人淨買/均量≥5%、量比≥2）在不同市況命中比例天差地遠，沒有 regime 不變性。
 //   改成「當天純動能母體內的百分位」：同一天所有可買動能股裡排前 20%／後 20%。只用當天資料，無前視。
-const CS_KEYS = { volX: '量', instVsVol: '法', ret5: '價', pos: '價', chg: '價', ratio: '券', shVsVol: '券' };
+const CS_KEYS = { volX: '量', instVsVol: '法', ret5: '價', pos: '價', chg: '價', ratio: '券', shVsVol: '券', relSector: '族群', sectorSync: '族群', distHi60: '位置', distLo60: '位置' };
 function attachCrossSection(pool, isMom) {
   const byDay = {}; for (const x of pool) if (isMom(x)) (byDay[x.date] ||= []).push(x);
   for (const d in byDay) {
@@ -396,6 +431,25 @@ function attachCrossSection(pool, isMom) {
       for (const x of arr) { const v = x.f[k]; (x.cs ||= {})[k] = (v == null || !Number.isFinite(v)) ? null : vals.findIndex(u => u >= v) / (vals.length - 1); }
     }
   }
+}
+function stageCGrid() {
+  const F = [];
+  const add = (name, group, sel) => F.push({ name, group, sel });
+  // 市況條件（可與其他族群組合：多頭日×法人、空頭日×縮量…）
+  add('多頭日', '市況', x => x.rg === 'bull'); add('空頭日', '市況', x => x.rg === 'bear'); add('非多頭日', '市況', x => x.rg !== 'bull');
+  // 族群
+  add('族群同步率≥30%', '族群', x => x.f.sectorSync != null && x.f.sectorSync >= 0.3);
+  add('族群同步率<10%（孤軍）', '族群', x => x.f.sectorSync != null && x.f.sectorSync < 0.1);
+  add('族群排名前20%', '族群', x => x.f.sectorRank != null && x.f.sectorRank >= 0.8);
+  add('強於族群中位≥3pp', '族群', x => x.f.relSector != null && x.f.relSector >= 3);
+  // 位置／路徑
+  add('距60日高≥-3%（貼高）', '位置', x => x.f.distHi60 != null && x.f.distHi60 >= -3);
+  add('距60日高<-20%（深回）', '位置', x => x.f.distHi60 != null && x.f.distHi60 < -20);
+  add('距60日低≤+10%（底部反彈）', '位置', x => x.f.distLo60 != null && x.f.distLo60 <= 10);
+  add('首次突破20日高', '位置', x => x.f.firstBreak20 === 1);
+  add('連漲1日（首根）', '位置', x => x.f.upStreak === 1);
+  add('連漲≥3日', '位置', x => x.f.upStreak >= 3);
+  return F;
 }
 function crossSectionGrid() {
   const F = [];
@@ -415,7 +469,7 @@ function trainMode(mode, samples, twDates, baseGrid, say) {
   const newsKey = mode.key === 'daytrade' ? 'newsNext' : 'newsIntra';
   const newsDaysMode = new Set(pool.filter(x => x.f[`${newsKey}Label`]).map(x => x.date)).size;
   attachCrossSection(pool, x => x.f.chg >= 5);   // B 段：每日橫截面百分位（只用當天）
-  const grid = [...baseGrid, ...factorGrid(newsDaysMode, { ...q, newsKey }).filter(f => /P[28]0/.test(f.name) || f.group === '聞'), ...crossSectionGrid()];   // 固定門檻＋分位數門檻＋橫截面百分位＋（達門檻時）新聞
+  const grid = [...baseGrid, ...factorGrid(newsDaysMode, { ...q, newsKey }).filter(f => /P[28]0/.test(f.name) || f.group === '聞'), ...crossSectionGrid(), ...stageCGrid()];   // 固定門檻＋分位數門檻＋橫截面百分位＋C 段（市況/族群/位置）＋（達門檻時）新聞
   const trainDates = [...new Set(train.map(x => x.date))].sort();
   const segCut = [trainDates[Math.floor(trainDates.length / 3)], trainDates[Math.floor(trainDates.length * 2 / 3)]];
   const segOf = d => (d < segCut[0] ? 0 : d < segCut[1] ? 1 : 2);   // 三段在訓練段內切（§2.4）
@@ -441,8 +495,19 @@ function trainMode(mode, samples, twDates, baseGrid, say) {
     const r = evalGroup(train.filter(x => isMom(x) && fi.sel(x) && fj.sel(x)), mode, baseTr, segOf);
     if (r.pass) combos.push({ ...r, name: `${fi.name} × ${fj.name}`, parts: [fi.name, fj.name] });
   }
+  // C 段：市況是**條件**不是因子——整天入選對同日基準的超額恆為 0，單因子閘門永遠過不了，得直接與通過的單因子配對。
+  //   同時把「訓練段通過但只差淨報酬／三段」的位置／族群因子也當條件配對，看是否在條件下成立。
+  const conditioners = grid.filter(g => g.group === '市況');
+  const conds2 = grid.filter(g => (g.group === '位置' || g.group === '族群') && !passed.some(p => p.name === g.name));
+  for (const p of passed) {
+    const fp = grid.find(g => g.name === p.name); if (!fp) continue;
+    for (const c of [...conditioners, ...conds2]) {
+      const r = evalGroup(train.filter(x => isMom(x) && fp.sel(x) && c.sel(x)), mode, baseTr, segOf);
+      if (r.pass) combos.push({ ...r, name: `${fp.name} × ${c.name}`, parts: [fp.name, c.name], conditioned: true });
+    }
+  }
   combos.sort((a, b) => b.excess - a.excess);
-  say(`      組合：${combos.length} 通過`);
+  say(`      組合：${combos.length} 通過（含條件配對 ${combos.filter(c => c.conditioned).length}）`);
 
   // 樣本外：同一把尺（CI 下界>0），不分段
   const selOf = parts => { const fs = parts.map(nm => grid.find(g => g.name === nm)).filter(Boolean); return x => isMom(x) && fs.every(f => f.sel(x)); };
