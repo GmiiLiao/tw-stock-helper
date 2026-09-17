@@ -478,6 +478,23 @@ function applyPromotion(modes, prev, say) {
   }
 }
 
+// ── 跳空漲 × 前一日新聞判別 稽核（使用者 2026-09-17：「回測跳空漲前一日的個股新聞是否佔大量加分比率」）──
+//   對「有判別存檔的交易日」：依 t 日判別標籤分組，看 t+1 開盤跳空 ≥2%／≥3%／鎖停的比例與平均開盤報酬；
+//   並列「跳空 ≥3% 的組成」——其中前一日被判利多的占幾成。
+//   ⚠ 「未判」≠沒有新聞：判別宇宙是來源監看到的 ~150 檔／日；未判只代表不在判別宇宙裡。每日累積，30 日後才有代表性。
+function gapNewsAudit(samples) {
+  const days = new Set(samples.filter(x => x.f.newsLabel).map(x => x.date));
+  const pool = samples.filter(x => days.has(x.date) && x.y.openRet != null && x.y.entryLocked === 0);
+  if (!pool.length) return null;
+  const lab = x => x.f.newsLabel || '未判';
+  const G = {}; for (const x of pool) { const g = (G[lab(x)] ||= { n: 0, gap2: 0, gap3: 0, lockOpen: 0, ret: 0 }); g.n++; if (x.y.openRet >= 2) g.gap2++; if (x.y.openRet >= 3) g.gap3++; if (x.y.buyable === 0) g.lockOpen++; g.ret += x.y.openRet; }
+  const byLabel = {}; for (const k in G) { const g = G[k]; byLabel[k] = { n: g.n, gap2Pct: +(g.gap2 / g.n * 100).toFixed(1), gap3Pct: +(g.gap3 / g.n * 100).toFixed(1), lockOpenPct: +(g.lockOpen / g.n * 100).toFixed(1), avgOpenRet: +(g.ret / g.n).toFixed(2) }; }
+  const gaps = pool.filter(x => x.y.openRet >= 3); const comp = {}; for (const x of gaps) comp[lab(x)] = (comp[lab(x)] || 0) + 1;
+  const composition = {}; for (const k in comp) composition[k] = { n: comp[k], pct: +(comp[k] / gaps.length * 100).toFixed(1) };
+  return { days: days.size, pool: pool.length, byLabel, gap3Total: gaps.length, gap3Composition: composition,
+    note: '跳空＝t+1 開盤相對 t 收。未判≠無新聞（判別宇宙約 150 檔/日）。判別自 2026-08-27 累積，未達 30 日前只供觀察。' };
+}
+
 // ── 6. 主流程 ───────────────────────────────────────────────────
 export async function runTraining({ days = 250, quiet = false } = {}) {
   const db = initDb();
@@ -502,6 +519,8 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
 
   const modes = {};
   for (const k of Object.keys(TRADE_MODES)) modes[k] = trainMode(TRADE_MODES[k], samples, twDates, grid, say);
+  const gapNews = gapNewsAudit(samples);
+  if (gapNews) say(`  · 跳空×前日新聞（${gapNews.days} 日）：利多 跳空≥3% ${gapNews.byLabel['利多']?.gap3Pct ?? '—'}%／中性 ${gapNews.byLabel['中性']?.gap3Pct ?? '—'}%／未判 ${gapNews.byLabel['未判']?.gap3Pct ?? '—'}%；跳空≥3% 中前日判利多占 ${gapNews.gap3Composition['利多']?.pct ?? 0}%`);
 
   // 第四段：版本化與換版規則
   let prev = null;
@@ -515,6 +534,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
   const model = {
     runId, modelVersion, updatedAt: Date.now(), trainMs: Date.now() - t0, rules: 'v2', datasetHash: hash,
     eventExclusion: { excluded: excludedEvents, codes: eventCodes, windowDays: 30, source: 'priceEvents/latest' },
+    gapNewsAudit: gapNews,
     regime: { rule: '漲家數比三分位（視窗自身）：上三分之一多頭／下三分之一空頭（t 日自身）', cuts: regimeCuts, days: rgCount, costPct: COST_PCT, gates: '超額 CI 下界>0 ＋ 淨報酬(扣費稅) CI 下界>0 ＋ 多頭/空頭兩層皆不為負' },
     period: { from: twDates[0], to: twDates[twDates.length - 1], days: twDates.length, oosFrom: OOS_FROM },
     tradeMode: 'nextday', modes: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, strip(m)])),
