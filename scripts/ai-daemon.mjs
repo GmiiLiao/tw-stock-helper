@@ -1549,7 +1549,8 @@ async function _fetchOtcDated(dateYmd) {
     for (const r2 of (tb?.data || [])) {
       const code = String(r2[0] || '').trim();
       if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) {
-        out.push({ code, name: String(r2[1] || '').trim(), market: 'otc', close: _num(r2[2]), change: _num(r2[3]), vol: _num(r2[8]) });
+        // open/high/low 供歸檔補洞組完整日 K（2026-09-17 加；既有兩個呼叫端只讀 close/change/vol，加欄位不影響）
+        out.push({ code, name: String(r2[1] || '').trim(), market: 'otc', close: _num(r2[2]), change: _num(r2[3]), vol: _num(r2[8]), open: _num(r2[4]), high: _num(r2[5]), low: _num(r2[6]) });
       }
     }
     return out;
@@ -10277,6 +10278,39 @@ async function fetchTpexDailyCloseValidated(expectYmd8) {
   } catch { return null; }
 }
 
+// ── 歸檔上櫃補洞（2026-09-17）──
+//   archiveChipDaily 只補「STOCK_DAY_ALL 現在報的那一天」的 otcPending；更早的日子若當天 TPEx 沒出
+//   就永遠停在 otcPending（實案 2026-08-20：1,091 檔、上櫃整批缺，四檔上櫃股在 08-21 被算成兩日 +20%，
+//   dailySeq／波段持有的 10 日序列跨過這個洞就少一天）。這裡掃最近 N 份文件，對 otcPending 的那幾天
+//   用**帶日期＋回聲驗證**的 TPEx 端點補上櫃日 K；只補缺的代號、不動已有的；補不到就留著下次再試。
+//   ⚠ 只補 closeJson；該日的其他上櫃欄位（法人等）各有自己的補抓路徑，不在這裡混做。
+async function backfillOtcPending(days = 15) {
+  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(days).get();
+  let fixed = 0, pending = 0;
+  for (const d of snap.docs) {
+    const x = d.data();
+    if (!x.otcPending || !x.closeJson) continue;
+    pending++;
+    const ymd = d.id.replace(/-/g, '');
+    const otc = await _fetchOtcDated(ymd);   // 回聲驗證：日期對不上回空
+    if (!otc.length) { log(`  ⚠ 上櫃補洞 ${d.id}：TPEx 帶日期端點無資料，留待下次`); continue; }
+    const close = JSON.parse(x.closeJson);
+    let added = 0;
+    for (const r of otc) {
+      if (!/^\d{4}$/.test(r.code) || !(r.close > 0) || close[r.code]) continue;
+      close[r.code] = [r.close, Math.round((r.vol || 0) / 1000), r.open || 0, r.high || 0, r.low || 0];
+      added++;
+    }
+    if (!added) { log(`  ⚠ 上櫃補洞 ${d.id}：端點有 ${otc.length} 列但無新代號可補`); continue; }
+    await d.ref.set({ closeJson: JSON.stringify(close), otcPending: false, otcFixedAt: Date.now() }, { merge: true });
+    fixed++;
+    log(`✓ 上櫃補洞 ${d.id}：補入 ${added} 檔（${Object.keys(close).length} 檔）`);
+    await sleep(500);
+  }
+  if (!pending) log(`  · 上櫃補洞：最近 ${days} 份歸檔無 otcPending`);
+  return fixed;
+}
+
 async function archiveChipDaily() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
   const iso = isoDate(tw); const ymd = ymd8(tw);
@@ -13963,6 +13997,7 @@ async function dailyJobsLoop() {
         try { await archiveOtcIndex(); otcOk = true; } catch (e) { log('✖ 櫃買指數歸檔（將於下一輪重試）:', e.message); }
         if (otcOk) _otcFixDate = today;
         try { await archiveChipDaily(); } catch (e) { log('✖ otc補跑 archive:', e.message); }
+        try { await backfillOtcPending(); } catch (e) { log('✖ 上櫃補洞:', (e.message || '').slice(0, 60)); }   // 更早日子的 otcPending（2026-08-20 型）
         try { await computeStrategyPicks(); } catch (e) { log('✖ otc補跑 strategyPicks:', e.message); }
         try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
         try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
@@ -14090,6 +14125,7 @@ if (ONESHOT) {
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
     newsVerdictIntraday: () => computeIntradayNewsVerdict(),
+    otcBackfill: () => backfillOtcPending(+(process.env.OTC_BACKFILL_DAYS || 15)),   // 歸檔 otcPending 補上櫃日 K（2026-09-17）
     mops: () => ingestMops(),                 // 公開資訊觀測站重大訊息抓取去重（2026-09-17）
     sectorSpot: () => computeSectorSpot(),    // 產業現貨／原物料報價（免費來源）
     newsVerdictNight: () => computeNightBackfill(),
