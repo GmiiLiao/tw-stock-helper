@@ -12,6 +12,8 @@ import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBan
 import PageHelp from '@/components/Help/PageHelp';
 import { useDayTradeStatus } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
+import { MaChipFor, SeqBarsFor } from '@/components/shared/SeqIndicators';
 
 // ─── Shared status badges (漲跌停 / 注意 / 處置) ───────────────────────────────
 // Risk codes (注意/處置) + disposition period fetched once at module level.
@@ -552,6 +554,9 @@ function StockRow({
             {stock.name || quote?.name || ''}
           </span>
           <StatusBadges code={stock.code} changePercent={quote?.changePercent} />
+          {/* 09-17 使用者：列上加候選、三線位置提示（自選各子分頁共用這個 StockRow） */}
+          <span onClick={e => e.stopPropagation()}><AddCandidateButton code={stock.code} variant="icon" /></span>
+          <MaChipFor code={stock.code} />
         </div>
       </div>
 
@@ -603,6 +608,8 @@ function StockRow({
                 </>
               )}
             </div>
+            {/* 近 10 日漲跌×成交量縮圖（09-17）：資料日為最近收盤，未回或無此檔不佔位 */}
+            <SeqBarsFor code={stock.code} width={72} />
           </>
         ) : (
           <span className={styles.noData}>載入中...</span>
@@ -947,6 +954,8 @@ function AiGroupPanel({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 'calc(14px * var(--fz))', color: '#f5a623', fontWeight: 700 }}>{ai.name}</span>
                   <StatusBadges code={ai.code} changePercent={pct} />
+                  <span onClick={e => e.stopPropagation()}><AddCandidateButton code={ai.code} variant="icon" /></span>
+                  <MaChipFor code={ai.code} />
                 </div>
                 {ai.reason && (
                   <span style={{
@@ -1000,6 +1009,7 @@ function AiGroupPanel({
                     </>
                   )}
                 </div>
+                <SeqBarsFor code={ai.code} width={72} />
                 {ai.buyPoint && (
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8' }}>買點 {ai.buyPoint.toFixed(2)} · 賣點 {ai.sellPoint?.toFixed(2) ?? '--'}</span>
                 )}

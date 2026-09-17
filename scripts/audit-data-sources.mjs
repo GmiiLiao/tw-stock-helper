@@ -77,6 +77,7 @@ const CONTRACTS = [
   { c: 'shortCandidates',  kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   { c: 'gapLimitUp',       kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },   // 🎯 縮量跳空漲停（2026-09-05）
   { c: 'swingHold',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate' },   // 📈 波段持有 5/10/20/60 日連續成長榜（2026-09-16）
+  { c: 'dailySeq',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate', minRecords: 1500, countField: 'byCodeJson' },   // 📊 每檔近 10 日漲跌×量＋三線（2026-09-17）
   // 訓練樣本：21:45 班車寫 dated doc。漏一天＝少一筆不可回補的樣本（特徵是
   // 當日快照，事後重建就不是 PIT）——這正是 bookDepth 壞半年教訓要防的。
   { c: 'shortTraining',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 100, countField: 'rowsJson', publishHour: 22 },   // 21:45 班車

@@ -12214,6 +12214,43 @@ let _gapLuDate = '';
 //   · 減資／除權息參考價未還原（chipArchive 既有限制），payload.caveats 明示。
 // 非投資建議。
 // ───────────────────────────────────────────────────────────
+// ── 📊 全市場每檔「近 10 日漲跌×成交量＋三線位置」（2026-09-17 使用者：自選各子分頁列上要有）──
+// 寫 dailySeq/latest 一份（~2,100 檔 × 23 個數字 ≈ 200KB），web 端 /api/twse/daily-seq 只回要的檔。
+// 形狀：[ma5, ma20, ma60, chg1, vol1, …, chg10, vol10]；ma 旗標 1=收盤站上、0=之下、-1=資料不足（不捏造）。
+// 資料日＝最新收盤歸檔日；與 computeSwingHold 同一班車（16:45 上櫃補跑後），以 dataDate 冪等。
+async function computeDailySeq({ force = false } = {}) {
+  const tw = taipei();
+  const arch = await readArchive(70, 'closeJson');
+  if (arch.length < 11) { log('  ⚠ dailySeq：chipArchive 不足 11 日'); return false; }
+  const days = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));
+  const latest = days[days.length - 1];
+  const cur = (await db.collection('dailySeq').doc('latest').get()).data();
+  // 冪等以「資料日相同且宇宙沒變大」為準：15:10 歸檔只有上市、16:45 才補上櫃——只看資料日會讓上櫃永遠補不進來（09-17 實案 1,089 檔）
+  const uniN = Object.keys(latest.m).filter(c => /^\d{4,6}$/.test(c)).length;
+  if (!force && cur?.dataDate === latest.date && (cur.n ?? 0) >= uniN * 0.95) { log(`  · dailySeq：${latest.date} 已產出（${cur.n} 檔），略過`); return true; }
+  const out = {};
+  for (const code of Object.keys(latest.m)) {
+    if (!/^\d{4,6}$/.test(code)) continue;
+    const cl = days.map(d => d.m[code]?.[0]).filter(v => v > 0);
+    if (cl.length < 2) continue;
+    const c = cl[cl.length - 1];
+    const ma = n => (cl.length >= n ? (c > cl.slice(-n).reduce((s2, v) => s2 + v, 0) / n ? 1 : 0) : -1);
+    const win = days.slice(-11);
+    const seq = [];
+    for (let i = 1; i < win.length; i++) {
+      const p = win[i - 1].m[code]?.[0], q = win[i].m[code];
+      if (!(p > 0) || !(q?.[0] > 0)) continue;
+      seq.push(+(((q[0] / p) - 1) * 100).toFixed(1), Math.round(q[1] || 0));
+    }
+    if (!seq.length) continue;
+    out[code] = [ma(5), ma(20), ma(60), ...seq];
+  }
+  const doc = { updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date, n: Object.keys(out).length, byCodeJson: JSON.stringify(out) };
+  await db.collection('dailySeq').doc('latest').set(doc);
+  log(`✓ dailySeq ${latest.date}：${doc.n} 檔（${Math.round(doc.byCodeJson.length / 1024)}KB）`);
+  return true;
+}
+
 const SWING_HOLD_WINDOWS = [5, 10, 20, 60];
 const SWING_HOLD_TOP = 25;
 const SWING_HOLD_MIN_AMT = 50_000_000;
@@ -12224,7 +12261,9 @@ async function computeSwingHold({ force = false } = {}) {
   const days = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));   // 舊→新
   const latest = days[days.length - 1];
   const cur = (await db.collection('swingHold').doc('latest').get()).data();
-  if (!force && cur?.dataDate === latest.date) { log(`  · 波段持有：${latest.date} 已產出，略過`); return true; }
+  // 冪等以「資料日相同且宇宙沒變大」為準（見 computeDailySeq 同註）：上櫃 16:45 才進歸檔，不能只看資料日
+  const uniNow = Object.keys(latest.m).filter(c => /^\d{4}$/.test(c)).length;
+  if (!force && cur?.dataDate === latest.date && (cur.universeAll ?? 0) >= uniNow * 0.95) { log(`  · 波段持有：${latest.date} 已產出（宇宙 ${cur.universeAll} 檔），略過`); return true; }
   // 名稱：宇宙清單優先，缺的用快照
   const names = {};
   for (const c of (_codesCache || [])) names[c.code] = { name: c.name, market: c.market };
@@ -12273,7 +12312,7 @@ async function computeSwingHold({ force = false } = {}) {
   const comboItems = Object.values(combo).sort((a, b) => b.boards - a.boards || b.score - a.score).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
   const doc = {
     updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date,
-    universe: universe.length, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
+    universe: universe.length, universeAll: uniNow, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
     method: '漲幅＝N 個交易日前收盤→最新收盤；上漲日／最長連漲／目前連漲（平盤不算漲也不中斷）＋期間最大回檔；穩健＝上漲日≥60% 且回檔≤8%，劇烈＝回檔>12%。整合榜＝四榜聯集，分數 Σ(26−名次)，先比上榜數再比分數。',
     caveats: ['漲幅是收盤對收盤，不含盤中高低；減資／除權息參考價未還原，近期有此類事件的個股會失真。', '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
     boards, combo: { items: comboItems },
@@ -13129,7 +13168,7 @@ async function runDailyJobs(boot = false) {
 }
 // 官方盤後資料公布時間不同，光靠 15:10 一次會抓到前一日：T86 三大法人約 16:00、
 // 期交所/集保/除權息/借券/月營收約 16:30 前、融資融券約 21:30 才出。故加兩個補抓時段。
-const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['gapLimitUp', computeGapLimitUp], ['swingHold', computeSwingHold], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];   // gapLimitUp 排在 chipArchive 之後：15:10 版歸檔上櫃可能未併入（2026-09-07 實案 34→12 檔），16:30 併入後重算
+const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['gapLimitUp', computeGapLimitUp], ['swingHold', computeSwingHold], ['dailySeq', computeDailySeq], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];   // gapLimitUp 排在 chipArchive 之後：15:10 版歸檔上櫃可能未併入（2026-09-07 實案 34→12 檔），16:30 併入後重算
 const MARGIN_CATCHUP = [['margin', computeMargin], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
 async function runJobSet(jobs, tag) {
   for (const [name, fn] of jobs) await timedJob(name, fn, tag);
@@ -13666,7 +13705,8 @@ async function dailyJobsLoop() {
         try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
         try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
         try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }
-        try { await computeSwingHold(); } catch (e) { log('✖ 波段持有:', e.message); }        // 5/10/20/60 日連續成長榜＋整合榜（收盤定版·存歷史）   // 收盤定版價出貨警示（盤中另有每分檢查）
+        try { await computeSwingHold(); } catch (e) { log('✖ 波段持有:', e.message); }        // 5/10/20/60 日連續成長榜＋整合榜（收盤定版·存歷史）
+        try { await computeDailySeq(); } catch (e) { log('✖ dailySeq:', e.message); }          // 全市場每檔近 10 日漲跌×量＋三線位置（自選列小提示）   // 收盤定版價出貨警示（盤中另有每分檢查）
         // 第2套預選：先對前幾天的答案（scoreSwingCurves 讀的是歸檔，與今日分型無關），
         // 再產今日分型。順序反過來也不會錯，但這樣 log 讀起來是「先結算再開盤」。
         try { await scoreSwingCurves(); } catch (e) { log('✖ 曲線記分板:', e.message); }
@@ -13781,6 +13821,7 @@ if (ONESHOT) {
     gapLimitUp: () => computeGapLimitUp({ push: process.env.GAPLU_PUSH === '1' }),   // GAPLU_DATE=YYYY-MM-DD 指定事件日
     gapLimitUpReview: () => computeGapLimitUpReview(),
     swingHold: () => computeSwingHold({ force: process.env.SWING_HOLD_FORCE === '1' }),   // 波段持有榜（SWING_HOLD_FORCE=1 強制重算）
+    dailySeq: () => computeDailySeq({ force: process.env.DAILY_SEQ_FORCE === '1' }),      // 全市場近 10 日漲跌×量＋三線位置
     // 新聞內文判別管線。第二個參數是死線（台北分鐘數），單次執行不設。
     // 測試用：NV_LIMIT 可縮小宇宙，避免驗證一次就跑滿 150 檔。
     newsVerdictEvening: () => computeNewsVerdictBatch('evening'),
