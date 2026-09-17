@@ -10311,6 +10311,64 @@ async function backfillOtcPending(days = 15) {
   return fixed;
 }
 
+// ── 價格結構事件偵測（2026-09-17，「chipArchive 減資未調整」待辦的第一步：先量、只記錄）──
+//   歸檔的收盤序列**沒有**做減資／面額變更／分割／大額除權的調整，這些日子的「漲跌幅」是假的
+//   （實案 6949 面額 10→0.5：1,490→67.1；2380 減資：6.6→21.5），均線位置、N 日連續成長、
+//   做空候選都會被污染。反查 2026-06-04～09-17：19 件（減資 6、面額變更 4、除權／分割類 9）。
+//   台股漲跌幅上限 10%，所以「相鄰兩個有收盤的日子」比值落在 [0.8, 1.2] 之外必是結構事件或資料錯誤，
+//   兩者都該被看見。這裡每日重算最近 90 個交易日的事件表寫 priceEvents/latest，並用 TWSE 減資恢復買賣
+//   參考價（rwd TWTAUU，上市）標註可對上的那幾件；其餘 kind 標「未對來源」不猜原因。
+//   ⚠ 這一步**不改任何消費端**：先把事件表放出來，各榜要不要用、怎麼用，逐榜驗證後再接。
+const PRICE_EVENT_LO = 0.8, PRICE_EVENT_HI = 1.2;
+async function computePriceEvents(days = 90) {
+  const arch = (await readArchive(days + 5, 'closeJson'))
+    .map(x => ({ date: x.date, close: JSON.parse(x.closeJson || '{}') }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (arch.length < 5) return false;
+  const last = {}; const events = [];
+  for (const d of arch) for (const c in d.close) {
+    const q = d.close[c]?.[0]; if (!(q > 0)) continue;
+    const L = last[c];
+    if (L && /^\d{4}$/.test(c)) {
+      const r = q / L.p;
+      if (r > PRICE_EVENT_HI || r < PRICE_EVENT_LO) events.push({ date: d.date, code: c, prevDate: L.d, prev: L.p, close: q, ratio: +r.toFixed(4), gapDays: Math.round((Date.parse(d.date) - Date.parse(L.d)) / 864e5), kind: '未對來源', ref: null });
+    }
+    last[c] = { p: q, d: d.date };
+  }
+  // 上市減資恢復買賣參考價（帶區間、回聲在 title）：對得上的標 kind=減資、ref=恢復買賣參考價
+  try {
+    const from = arch[0].date.replace(/-/g, ''), to = arch[arch.length - 1].date.replace(/-/g, '');
+    const r = await fetch(`https://www.twse.com.tw/rwd/zh/reducation/TWTAUU?startDate=${from}&endDate=${to}&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(15000) });
+    const j = r.ok ? await r.json() : null;
+    const fi = Array.isArray(j?.fields) ? j.fields : [];
+    const iDate = fi.indexOf('恢復買賣日期'), iCode = fi.indexOf('股票代號'), iRef = fi.indexOf('恢復買賣參考價'), iWhy = fi.indexOf('減資原因');
+    if (j?.stat === 'OK' && iDate >= 0 && iCode >= 0) {
+      for (const row of (j.data || [])) {
+        const m = String(row[iDate] || '').match(/^(\d{2,3})\/(\d{2})\/(\d{2})$/); if (!m) continue;
+        const iso = `${+m[1] + 1911}-${m[2]}-${m[3]}`;
+        const ev = events.find(e => e.code === String(row[iCode]).trim() && e.date === iso);
+        if (ev) { ev.kind = `減資(${row[iWhy] || '?'})`; ev.ref = _num(row[iRef]) || null; }
+      }
+    }
+  } catch (e) { log('  ⚠ 減資參考價對照失敗（事件表照寫，kind 留未對來源）:', (e.message || '').slice(0, 50)); }
+  const names = await nameIndexMap().catch(() => ({}));
+  for (const e of events) e.name = names[e.code] || null;
+  events.sort((a, b) => b.date.localeCompare(a.date));
+  await db.collection('priceEvents').doc('latest').set({
+    dataDate: arch[arch.length - 1].date, updatedAt: Date.now(), fetchedAt: Date.now(), n: events.length, items: events,
+    window: { from: arch[0].date, to: arch[arch.length - 1].date, days: arch.length }, band: [PRICE_EVENT_LO, PRICE_EVENT_HI],
+    note: '相鄰有收盤日比值超出 ±20% 的價格結構事件（減資／面額變更／分割／大額除權或資料錯誤）。只記錄，歸檔序列未調整；各消費端尚未引用。非投資建議。',
+  });
+  log(`✓ 價格結構事件：${events.length} 件（${arch[0].date}～${arch[arch.length - 1].date}；減資對上 ${events.filter(e => e.ref).length}）`);
+  return true;
+}
+// 代號→名稱（自快照；失敗回空表，呼叫端自行 catch）
+async function nameIndexMap() {
+  const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
+  const q = snap?.quotesJson ? JSON.parse(snap.quotesJson) : {};
+  const out = {}; for (const c in q) if (q[c]?.name) out[c] = q[c].name; return out;
+}
+
 async function archiveChipDaily() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
   const iso = isoDate(tw); const ymd = ymd8(tw);
@@ -13447,7 +13505,7 @@ async function runDailyJobs(boot = false) {
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
-  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['sectorSpot', computeSectorSpot], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['gapLimitUp', computeGapLimitUp], ['gapLimitUpReview', computeGapLimitUpReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
+  for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['sectorSpot', computeSectorSpot], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['priceEvents', computePriceEvents], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['gapLimitUp', computeGapLimitUp], ['gapLimitUpReview', computeGapLimitUpReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
     await timedJob(name, fn, tag);
   }
@@ -14126,6 +14184,7 @@ if (ONESHOT) {
     newsVerdictReview: () => computeNewsVerdictReview(),
     newsVerdictIntraday: () => computeIntradayNewsVerdict(),
     otcBackfill: () => backfillOtcPending(+(process.env.OTC_BACKFILL_DAYS || 15)),   // 歸檔 otcPending 補上櫃日 K（2026-09-17）
+    priceEvents: () => computePriceEvents(),   // 價格結構事件表（減資／面額變更／分割／大額除權）只記錄（2026-09-17）
     mops: () => ingestMops(),                 // 公開資訊觀測站重大訊息抓取去重（2026-09-17）
     sectorSpot: () => computeSectorSpot(),    // 產業現貨／原物料報價（免費來源）
     newsVerdictNight: () => computeNightBackfill(),

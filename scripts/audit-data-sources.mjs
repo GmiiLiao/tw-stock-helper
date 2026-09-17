@@ -81,6 +81,9 @@ const CONTRACTS = [
   // 📢 公開資訊觀測站重大訊息（2026-09-17 新聞計畫第一段）：07:00~23:30 每 30 分鐘一輪，非交易日也跑。
   //   latest 是「今日」索引，清晨 n=0 是正常（doc 自帶 note），故 allowEmpty；資料日＝今日日曆日。
   { c: 'mopsNews',         kind: 'latest',  maxStale: 3 * HOUR,  session: 'always', allowEmpty: true, dateField: 'dataDate', countField: 'items' },
+  // 📐 價格結構事件表（減資／面額變更／分割／大額除權，2026-09-17）：每日 15:10 班車、只記錄不調整；
+  //   90 日窗內 0 件在理論上可能（doc 自帶 note）故 allowEmpty。
+  { c: 'priceEvents',      kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 16, dateField: 'dataDate', allowEmpty: true, countField: 'items' },
   // 🛢 產業現貨／原物料報價（免費來源：Yahoo 期貨＋DRAMeXchange 現貨表）：每日 15:10 班車，只存檔不評分。
   { c: 'sectorSpot',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 16, dateField: 'dataDate', minRecords: 5, countField: 'items' },
   // 訓練樣本：21:45 班車寫 dated doc。漏一天＝少一筆不可回補的樣本（特徵是
