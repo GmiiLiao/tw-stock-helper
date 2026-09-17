@@ -8202,7 +8202,12 @@ async function checkAllocationDrift() {
             // ⚠鏡像警告：銀行錨點自動逐日滾動抄自 src/lib/tw-settlement.ts rollBankToToday
             //   （2026-08-14 使用者指正：輸入的餘額是錨點，之後的交割款進出系統都知道，
             //   要自動滾動；錨點視為已含錨點日當天早上的交割）。兩邊必須一致。
-            const anchorDate = new Date(led.bankAt || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+            // 錨點時刻缺失（只會是舊版存檔；2026-09-17 實查 2/2 份都有 bankAt）：**不滾動**任何交割，
+            //   等於以今天當錨點——與前端 CashLedger 同一分支同一結果（那邊會標示「錨點日未知」）。
+            //   寫成明確分支而不是 `|| Date.now()`，讓「沒有資料」與「資料就是今天」在程式裡分得開。
+            const anchorDate = led.bankAt > 0
+              ? new Date(led.bankAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+              : today;
             let est = led.bankBalance;
             for (const t of ts) {
               if ((t.type !== 'buy' && t.type !== 'sell') || !t.date) continue;

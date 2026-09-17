@@ -111,6 +111,9 @@ export default function CashLedger() {
     //    的交割款進出（交易紀錄＋T+2）與新記的入出金，系統自動滾上去。
     //    實案：8/12 輸入 837,959 → 8/13/8/14 交割後實際 342,751，
     //    畫面卻仍拿舊錨點算剩餘籌碼（虛胖 49 萬）。
+    // ⚠ 錨點時刻缺失（只會是舊版存檔）時**不捏造**：以今天當錨點＝不滾動任何交割，數字不變，
+    //   但要在畫面標示「錨點日未知」而不是印出今天的日期當錨點（A 族捏造預設值；daemon 同一分支同一做法）。
+    const anchorUnknown = bankAt == null;
     const roll = rollBankToToday(bankBalance, bankAt ?? Date.now(), tradeRecords, entries);
     const estBank = roll.estBank;
     // 交割後實際可動用 = 推算今日餘額 − 未交割買進待扣 + 未交割賣出待入
@@ -122,7 +125,7 @@ export default function CashLedger() {
       .reduce((s, t) => s + (t.totalAmount || 0), 0);
     const expectedAnchor = sumTo('deposit') - sumTo('withdraw') + sumTo('dividend') + settledByAnchor('sell') - settledByAnchor('buy');
     const diff = bankBalance - expectedAnchor;
-    return { investable, estBank, rolledNet: roll.rolledNet, rolledCount: roll.rolledCount, anchorDate: roll.anchorDate, expectedToday: expectedAnchor, diff };
+    return { investable, estBank, rolledNet: roll.rolledNet, rolledCount: roll.rolledCount, anchorDate: roll.anchorDate, anchorUnknown, expectedToday: expectedAnchor, diff };
   }, [bankBalance, bankAt, calc, tradeRecords, entries]);
 
   // ── 現金的唯一真相（2026-08-12 使用者對帳指正）───────────────────────
@@ -187,7 +190,9 @@ export default function CashLedger() {
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>🏦 銀行餘額（自動滾動至今日）</div>
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: '#38bdf8', fontFamily: "'JetBrains Mono',monospace" }}>{bank.estBank.toLocaleString()}</div>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
-              {bank.rolledCount > 0
+              {bank.anchorUnknown
+                ? `錨點日未知（舊版儲存未記時刻），未滾動任何交割；請重新輸入銀行餘額以建立錨點`
+                : bank.rolledCount > 0
                 ? `錨點 ${bank.anchorDate} 輸入 ${bankBalance?.toLocaleString()}，已滾動 ${bank.rolledCount} 筆交割/流水（${bank.rolledNet >= 0 ? '+' : ''}${bank.rolledNet.toLocaleString()}）`
                 : `錨點 ${bank.anchorDate} 輸入，尚無後續交割`}
             </div>
@@ -197,7 +202,7 @@ export default function CashLedger() {
             <div style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))', color: Math.abs(bank.diff) < 100 ? '#22c55e' : '#f59e0b', fontFamily: "'JetBrains Mono',monospace" }}>
               {Math.abs(bank.diff) < 100 ? '✓ 相符' : `${bank.diff >= 0 ? '+' : ''}${bank.diff.toLocaleString()} 元`}
             </div>
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>預期錨點日（{bank.anchorDate}）{wan(bank.expectedToday)}</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>預期錨點日（{bank.anchorUnknown ? '未知·暫以今日計' : bank.anchorDate}）{wan(bank.expectedToday)}</div>
           </div>
         </div>
       )}
