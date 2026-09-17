@@ -81,6 +81,8 @@ const CONTRACTS = [
   // 📢 公開資訊觀測站重大訊息（2026-09-17 新聞計畫第一段）：07:00~23:30 每 30 分鐘一輪，非交易日也跑。
   //   latest 是「今日」索引，清晨 n=0 是正常（doc 自帶 note），故 allowEmpty；資料日＝今日日曆日。
   { c: 'mopsNews',         kind: 'latest',  maxStale: 3 * HOUR,  session: 'always', allowEmpty: true, dateField: 'dataDate', countField: 'items' },
+  // 🚨 資料缺漏事件（2026-09-17 使用者硬規定「交易日不得缺漏」）：16:45 班車掃最近 15 份歸檔；open 非空＝仍有未補足的日子 ⇒ ALERT。
+  { c: 'dataGapEvents',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate', allowEmpty: true, alertField: 'open' },
   // 📐 價格結構事件表（減資／面額變更／分割／大額除權，2026-09-17）：每日 15:10 班車、只記錄不調整；
   //   90 日窗內 0 件在理論上可能（doc 自帶 note）故 allowEmpty。
   { c: 'priceEvents',      kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 16, dateField: 'dataDate', allowEmpty: true, countField: 'items' },
@@ -556,6 +558,11 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
     if (out.records === 0 && !spec.allowEmpty) {
       if (emptyReason) out.notes.push(`空榜（已說明）：${String(emptyReason).slice(0, 60)}`);
       else { out.status = 'EMPTY'; out.notes.push('筆數 0（且未說明原因）'); }
+    }
+    // alertField：該欄位是「待處理清單」，非空就是異常（2026-09-17 dataGapEvents.open：仍未補足的缺漏交易日）
+    if (spec.alertField && Array.isArray(data?.[spec.alertField]) && data[spec.alertField].length) {
+      out.status = 'ALERT';
+      out.notes.push(`${spec.alertField} 有 ${data[spec.alertField].length} 筆待處理：${data[spec.alertField].slice(0, 3).map(x => x?.date || JSON.stringify(x).slice(0, 20)).join('、')}`);
     }
     // ── 第四道：市場組成 ────────────────────────────────────────────────
     // 「總筆數夠」不等於「每個市場都在」。上櫃整批消失時總筆數仍有 1,229，

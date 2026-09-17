@@ -10586,47 +10586,102 @@ async function yahooDailyBar(code, sfx, iso) {
     return null;
   } catch { return null; }
 }
-async function backfillOtcPending(days = 15) {
-  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(days).get();
-  let fixed = 0, pending = 0;
-  for (const d of snap.docs) {
-    const x = d.data();
-    if (!x.otcPending || !x.closeJson) continue;
-    pending++;
-    const ymd = d.id.replace(/-/g, '');
-    const otc = await _fetchOtcDated(ymd);   // 回聲驗證：日期對不上回空
-    const close = JSON.parse(x.closeJson);
-    let added = 0, src = 'tpex';
-    for (const r of otc) {
-      if (!/^\d{4}$/.test(r.code) || !(r.close > 0) || close[r.code]) continue;
-      close[r.code] = [r.close, Math.round((r.vol || 0) / 1000), r.open || 0, r.high || 0, r.low || 0];
-      added++;
-    }
-    // TPEx 帶日期端點也沒有時，退到 Yahoo 逐檔日 K（使用者 2026-09-17 指示「檢查 yahoo 是否有資料能補上」；
-    // 實測 08-20 四檔上櫃股 Yahoo 都有當日 bar）。⚠ Yahoo 逐檔會漏日 K（漲停股尤甚，見 8d7d980），
-    // 所以每根 bar 必須**回聲驗證日期＝目標日**才收；缺的檔就缺、不拿鄰日冒充。上櫃宇宙來自快照的 market=otc。
-    if (!otc.length) {
-      const markets = await marketIndexMap().catch(() => ({}));
-      const want = Object.keys(markets).filter(c => markets[c] === 'otc' && /^\d{4}$/.test(c) && !close[c]);
-      if (!want.length) { log(`  ⚠ 上櫃補洞 ${d.id}：TPEx 無資料，且快照無可補的上櫃代號`); continue; }
-      let miss = 0;
-      for (const code of want.slice(0, 1200)) {
-        const bar = await yahooDailyBar(code, 'TWO', d.id);
-        if (bar) { close[code] = bar; added++; } else miss++;
-        await sleep(150);
-      }
-      src = 'yahoo';
-      log(`  ↳ 上櫃補洞 ${d.id}：TPEx 無資料，Yahoo 逐檔補 ${added} 檔、缺 ${miss} 檔（只收日期回聲相符的 bar）`);
-    }
-    if (!added) { log(`  ⚠ 上櫃補洞 ${d.id}：${otc.length ? `端點有 ${otc.length} 列但無新代號可補` : '兩個來源都補不到'}，留待下次`); continue; }
-    await d.ref.set({ closeJson: JSON.stringify(close), otcPending: false, otcFixedAt: Date.now(), otcFixSource: src }, { merge: true });
-    fixed++;
-    log(`✓ 上櫃補洞 ${d.id}：補入 ${added} 檔（${Object.keys(close).length} 檔·${src}）`);
-    await sleep(500);
-  }
-  if (!pending) log(`  · 上櫃補洞：最近 ${days} 份歸檔無 otcPending`);
-  return fixed;
+// ── 資料缺漏事件：偵測 → 補正 → 事件紀錄 → 通知開發者（2026-09-17 使用者硬規定）──
+//   「有交易日就不應該有缺漏；先補足（官方帶日期→第三方 Yahoo）再繼續、不捏造；補不到要出警示文件提醒開發者。」
+//   實案：2026-08-20 歸檔缺上櫃 1,091 檔，沒人知道——四檔上櫃股變假事件、波段持有 20/60 日榜整月沒有上櫃、
+//   跳空漲停 21 日窗同樣排除、漲停預測兩天沒有上櫃漲停集合。缺的那半市場只讓榜單「變短」，不報錯。
+//   偵測：每份歸檔依快照的市場別數上市／上櫃檔數，低於 GAP_MIN 即為缺漏（當日 17:00 前上櫃未出是正常，不算）。
+//   補正：上櫃→TPEx 帶日期端點（回聲驗證）→ Yahoo 逐檔（bar 日期回聲）；上市→Yahoo 逐檔 .TW（TWSE STOCK_DAY_ALL
+//         實測不吃 date 參數，只回今日）。每根 bar 都驗日期，缺的檔就缺、不拿鄰日冒充。
+//   紀錄：dataGapEvents/{日期}（before/after/tried/fixed/fixPlan）＋ latest（open 清單，稽核 alertField 會亮）；
+//         second-brain/data-gaps/{日期}.md 警示文件；daemon log ⚠；WebPush＋Telegram 推給管理員（NEXT_PUBLIC_ADMIN_EMAIL）。
+//   GAP_DRY=1 只偵測與列印，不補、不寫、不推（驗證偵測邏輯用）。
+const GAP_MIN = { tse: +(process.env.GAP_MIN_TSE || 900), otc: +(process.env.GAP_MIN_OTC || 700) };   // env 只供 GAP_DRY 驗證偵測用
+const GAP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'data-gaps');
+let _adminUidCache = null;
+async function adminUid() {
+  if (_adminUidCache !== null) return _adminUidCache;
+  const em = process.env.NEXT_PUBLIC_ADMIN_EMAIL || '';
+  if (!em) return (_adminUidCache = '');
+  try { const s = await db.collection('users').where('email', '==', em).limit(1).get(); _adminUidCache = s.size ? s.docs[0].id : ''; }
+  catch { _adminUidCache = ''; }
+  return _adminUidCache;
 }
+async function notifyDeveloper(text, id) {
+  const uid = await adminUid();
+  if (uid) { try { await pushAlerts(uid, [{ id, type: 'dataGap', message: text, code: null }]); } catch { /* 推播失敗不擋 */ } }
+  else log('  ⚠ 找不到管理員帳號（NEXT_PUBLIC_ADMIN_EMAIL），缺漏通知只寫 Firestore 與警示文件');
+}
+async function scanArchiveGaps(days = 15) {
+  const dry = process.env.GAP_DRY === '1';
+  const tw = taipei(); const today = isoDate(tw); const mins = tw.getHours() * 60 + tw.getMinutes();
+  const markets = await marketIndexMap().catch(() => ({}));
+  const uni = { tse: [], otc: [] };
+  for (const c in markets) if (/^\d{4}$/.test(c) && uni[markets[c]]) uni[markets[c]].push(c);
+  if (uni.tse.length < 900 || uni.otc.length < 700) { log(`  ⚠ 缺漏掃描：快照市場別不完整（上市 ${uni.tse.length}／上櫃 ${uni.otc.length}），本輪不掃以免誤判`); return { scanned: 0 }; }
+  const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(days).get();
+  const count = close => { const n = { tse: 0, otc: 0 }; for (const c in close) if (markets[c] && n[markets[c]] != null && /^\d{4}$/.test(c)) n[markets[c]]++; return n; };
+  const found = [];
+  for (const d of snap.docs) {
+    const x = d.data(); if (!x.closeJson) continue;
+    if (d.id === today && mins < 17 * 60) continue;   // 當日 16:45 前上櫃未併入是正常時序，不是缺漏
+    const close = JSON.parse(x.closeJson);
+    const before = count(close);
+    const lacking = ['tse', 'otc'].filter(m => before[m] < GAP_MIN[m]);
+    if (!lacking.length) continue;
+    log(`  ⚠ 資料缺漏 ${d.id}：上市 ${before.tse}／上櫃 ${before.otc}（門檻 ${GAP_MIN.tse}／${GAP_MIN.otc}）${dry ? '（dry：不補）' : ''}`);
+    if (dry) { found.push({ date: d.id, before, lacking }); continue; }
+    const tried = []; let added = 0;
+    const ymd = d.id.replace(/-/g, '');
+    for (const m of lacking) {
+      let got = 0;
+      if (m === 'otc') {
+        const otc = await _fetchOtcDated(ymd); tried.push(`tpex-dated(${otc.length})`);
+        for (const r of otc) { if (!/^\d{4}$/.test(r.code) || !(r.close > 0) || close[r.code]) continue; close[r.code] = [r.close, Math.round((r.vol || 0) / 1000), r.open || 0, r.high || 0, r.low || 0]; got++; }
+      }
+      if (!got) {
+        const sfx = m === 'otc' ? 'TWO' : 'TW';
+        const want = uni[m].filter(c => !close[c]).slice(0, 1300);
+        let miss = 0;
+        for (const c of want) { const bar = await yahooDailyBar(c, sfx, d.id); if (bar) { close[c] = bar; got++; } else miss++; await sleep(150); }
+        tried.push(`yahoo-${sfx}(補 ${got}·缺 ${miss})`);
+      }
+      added += got;
+    }
+    const after = count(close);
+    const fixed = ['tse', 'otc'].every(m => after[m] >= GAP_MIN[m]);
+    if (added) {
+      await d.ref.set({ closeJson: JSON.stringify(close), otcPending: after.otc < GAP_MIN.otc, otcFixedAt: Date.now(), gapFixSource: tried.join('+') }, { merge: true });
+    }
+    const ev = { date: d.id, before, after, added, fixed, tried, at: Date.now(), updatedAt: Date.now(),
+      fixPlan: fixed
+        ? '已補足；下游 latest 類文件每日重算會自癒。已定版的 dated 文件（swingHold/dailySeq/gapLimitUp/limitUpForecast pred）不回寫，需要時以 --run 指定日期重算。'
+        : '兩個來源都補不到：① 隔日再跑 scanArchiveGaps；② 手動 `node scripts/ai-daemon.mjs --run gapScan`（GAP_SCAN_DAYS 可加深）；③ 仍缺就要找第三個來源（TWSE 逐檔 STOCK_DAY?date=&stockNo=），不可用預設值填。' };
+    await db.collection('dataGapEvents').doc(d.id).set(ev, { merge: true });
+    found.push(ev);
+    log(`${fixed ? '✓' : '✖'} 資料缺漏 ${d.id}：${tried.join('＋') || '無來源'} → 上市 ${before.tse}→${after.tse}／上櫃 ${before.otc}→${after.otc}${fixed ? '（已補足）' : '（**仍有缺漏**，已記事件並通知）'}`);
+    try {
+      mkdirSync(GAP_DIR, { recursive: true });
+      writeFileSync(join(GAP_DIR, `${d.id}.md`), [
+        `# 資料缺漏事件 ${d.id}`, '', `- 偵測時間：${new Date().toISOString()}`, `- 缺漏市場：${lacking.join('、')}`,
+        `- 補正前：上市 ${before.tse}／上櫃 ${before.otc}；補正後：上市 ${after.tse}／上櫃 ${after.otc}`,
+        `- 嘗試來源：${tried.join('、') || '無'}`, `- 狀態：${fixed ? '已補足' : '**仍有缺漏**'}`, '', `## 補正方案`, ev.fixPlan, '',
+        '規則：有交易日就不應該有缺漏；先補足（官方帶日期→第三方）再繼續，不捏造；補不到要提醒開發者。非投資建議。', ''].join('\n'));
+    } catch (e) { log('  ⚠ 警示文件寫入失敗:', (e.message || '').slice(0, 50)); }
+    await notifyDeveloper(`${fixed ? '🩹' : '🚨'} 資料缺漏 ${d.id}：上市 ${before.tse}→${after.tse}／上櫃 ${before.otc}→${after.otc}（${tried.join('＋') || '無來源'}）${fixed ? '，已補足' : '，**仍缺**，見 second-brain/data-gaps/'}`, `gap-${d.id}`);
+  }
+  if (!dry) {
+    // latest：仍未補足的事件清單（稽核 alertField 會亮），全補足時 open 為空
+    const allEv = await db.collection('dataGapEvents').orderBy('date', 'desc').limit(60).get();
+    const open = allEv.docs.filter(x => x.id !== 'latest' && x.data().fixed === false).map(x => ({ date: x.id, before: x.data().before, after: x.data().after, tried: x.data().tried }));
+    await db.collection('dataGapEvents').doc('latest').set({ dataDate: today, updatedAt: Date.now(), fetchedAt: Date.now(), scanned: snap.size, found: found.length, open, n: open.length,
+      note: '歸檔缺漏事件（依快照市場別數上市／上櫃檔數，低於門檻即缺漏）。open 非空＝仍有未補足的交易日，開發者必須處理。非投資建議。' });
+  }
+  if (!found.length) log(`  · 缺漏掃描：最近 ${snap.size} 份歸檔上市／上櫃皆完整`);
+  return { scanned: snap.size, found: found.length };
+}
+// 舊名保留（16:45 班車與 --run otcBackfill 都改走缺漏掃描；掃描含 otcPending 之外的情況）
+async function backfillOtcPending(days = 15) { return scanArchiveGaps(days); }
 
 // ── 價格結構事件偵測（2026-09-17，「chipArchive 減資未調整」待辦的第一步：先量、只記錄）──
 //   歸檔的收盤序列**沒有**做減資／面額變更／分割／大額除權的調整，這些日子的「漲跌幅」是假的
@@ -14491,6 +14546,11 @@ async function dailyJobsLoop() {
         try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }
         try { await computeSwingHold(); } catch (e) { log('✖ 波段持有:', e.message); }        // 5/10/20/60 日連續成長榜＋整合榜（收盤定版·存歷史）
         try { await computeDailySeq(); } catch (e) { log('✖ dailySeq:', e.message); }          // 全市場每檔近 10 日漲跌×量＋三線位置（自選列小提示）   // 收盤定版價出貨警示（盤中另有每分檢查）
+        // 2026-09-17 缺漏審計：這三個原本只在 15:10 班車跑一次，當時歸檔還沒有上櫃 ⇒ 上櫃股整天沒有修正量／反轉訊號
+        //（今日實證：15:27 推薦修正量 571 檔全上市，靠重啟才補到 952）。上櫃併入後冪等重算。
+        try { await computeRecommendAdj(); } catch (e) { log('✖ otc補跑 recommendAdj:', (e.message || '').slice(0, 60)); }
+        try { await computeReversalSignals(); } catch (e) { log('✖ otc補跑 reversalSignals:', (e.message || '').slice(0, 60)); }
+        try { await computeWashoutMonitor(); } catch (e) { log('✖ otc補跑 washoutMonitor:', (e.message || '').slice(0, 60)); }
         // 第2套預選：先對前幾天的答案（scoreSwingCurves 讀的是歸檔，與今日分型無關），
         // 再產今日分型。順序反過來也不會錯，但這樣 log 讀起來是「先結算再開盤」。
         try { await scoreSwingCurves(); } catch (e) { log('✖ 曲線記分板:', e.message); }
@@ -14612,7 +14672,8 @@ if (ONESHOT) {
     newsVerdictMorning: () => computeNewsVerdictBatch('morning'),
     newsVerdictReview: () => computeNewsVerdictReview(),
     newsVerdictIntraday: () => computeIntradayNewsVerdict(),
-    otcBackfill: () => backfillOtcPending(+(process.env.OTC_BACKFILL_DAYS || 15)),   // 歸檔 otcPending 補上櫃日 K（2026-09-17）
+    otcBackfill: () => backfillOtcPending(+(process.env.OTC_BACKFILL_DAYS || 15)),   // 歸檔 otcPending 補上櫃日 K（2026-09-17）→ 現走缺漏掃描
+    gapScan: () => scanArchiveGaps(+(process.env.GAP_SCAN_DAYS || 15)),              // 資料缺漏偵測→補正→事件→通知（GAP_DRY=1 只偵測）
     priceEvents: () => computePriceEvents(),   // 價格結構事件表（減資／面額變更／分割／大額除權）只記錄（2026-09-17）
     mops: () => ingestMops(),                 // 公開資訊觀測站重大訊息抓取去重（2026-09-17）
     sectorSpot: () => computeSectorSpot(),    // 產業現貨／原物料報價（免費來源）
