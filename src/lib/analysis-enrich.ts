@@ -186,22 +186,23 @@ export function enrichScoredStock(
   //    proportion — so the score stands purely on technical/fundamentals.
   if (newsSentiment && newsSentiment.total > 0 && newsSentiment.adjustment !== 0) {
     enriched.news = true;
-    const newScore = Math.max(0, Math.min(100, stock.score + newsSentiment.adjustment));
-    stock.score = newScore;
-    stock.grade = gradeFromScore(newScore);
+    // ⚠ 2026-09-18 權值稽核 D3：新聞調分**不再改變分數與等級**，只呈現判別與「若計分會是幾分」。
+    //   ±20 是評分器最大單一槓桿，但幅度是設計值（EXPERIMENTS.md 待驗證表明寫「不要再調大」），
+    //   且 newsVerdictReview 的 c2c 口徑目前為負；幅度要等校準表（NEWS-VERDICT-LEARNING-PLAN 第二段）給。
+    //   利空的「壓成 WATCH」保留：那是刪掉爛的（風險提示），不是把好的排前面。
     if (newsSentiment.adjustment > 0) {
       // 把 AI 的判別理由帶出來——只寫「+N 分」等於要使用者盲信分數。
       // 沒有理由時退回原本的措辭，不編造。
       stock.reasons = [
         newsSentiment.verdictReason
-          ? `📰 新聞面偏多（AI讀內文：${newsSentiment.verdictReason}）+${newsSentiment.adjustment} 分`
-          : `📰 新聞面偏多（${newsSentiment.bull} 則利多，+${newsSentiment.adjustment} 分）`,
+          ? `📰 新聞面偏多（AI讀內文：${newsSentiment.verdictReason}）· 未計分（幅度待校準，參考值 +${newsSentiment.adjustment}）`
+          : `📰 新聞面偏多（${newsSentiment.bull} 則利多）· 未計分（幅度待校準，參考值 +${newsSentiment.adjustment}）`,
         ...stock.reasons].slice(0, 9);
     } else {
       stock.risks = [
         newsSentiment.verdictReason
-          ? `📰 新聞面偏空（AI讀內文：${newsSentiment.verdictReason}）${newsSentiment.adjustment} 分`
-          : `📰 新聞面偏空（${newsSentiment.bear} 則利空，${newsSentiment.adjustment} 分）`,
+          ? `📰 新聞面偏空（AI讀內文：${newsSentiment.verdictReason}）· 未計分（風險提示，參考值 ${newsSentiment.adjustment}）`
+          : `📰 新聞面偏空（${newsSentiment.bear} 則利空）· 未計分（風險提示，參考值 ${newsSentiment.adjustment}）`,
         ...stock.risks].slice(0, 9);
       // Strongly negative news caps an over-optimistic buy signal.
       if (newsSentiment.adjustment <= -10 && (stock.signal === 'STRONG_BUY' || stock.signal === 'BUY')) {

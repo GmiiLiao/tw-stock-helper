@@ -523,6 +523,9 @@ export function buildTradeSetup(s: ParsedStock, _buyZones: BuyZone[], sellTarget
 
 // ─── Main Scorer ──────────────────────────────────────────────
 
+// 權值版本章（2026-09-18 權值稽核 D9）：每次重定要更新；reviewBy 到期或記分板超額轉負時 daemon 會提醒重訓。
+export const SCORING_VERSION = { version: '2026-09-18.v2', trainedThrough: '2026-09-16', oosFrom: '2026-06-10', reviewBy: '2026-11-17', harness: 'scripts/screen-weights-v2.mjs' } as const;
+
 export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksData): ScoredStock {
   const reasons: string[] = [];
   const risks: string[] = [];
@@ -580,13 +583,18 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   //   · 甜蜜區 3~7% 給最高（與撿尾盤定版濾網的實測甜蜜區一致）
   //   · >8.5% 直接 0 分並標記不可買——買不到的東西給高分等於推薦幻想部位
   //     （實測 TOP20 有 37% 的推薦當日漲停，是記分板落後基準的主因之一）
+  // 2026-09-18 權值稽核 D1（screen-weights-v2.mjs·480 日·切點 06-10·日層級超額對可交易宇宙）：
+  //   3~7  訓練 +0.15pp CI[0.11,0.19] 三段皆正 → 唯一穩定正的桶，維持最高
+  //   7~8.5 訓練 +0.08 CI 跨 0、樣本外 −0.14 → 不得與 3~7 同分。⚠ 舊版 `chg >= 3` 寫在 `chg > 7` 之前，
+  //         7~8.5 永遠拿 16 分（分支不可達）——稽核抓到的排序錯誤，已改順序
+  //   0~3 ≈0；平盤 −0.09、−2~0 −0.06、<−2 −0.05（三桶皆顯著輸基準、彼此無差）→ 同分 6
   let momentumScore = 0;
   if (chg > 8.5)     { momentumScore = 0;  risks.push(`🚫 今日 +${chg.toFixed(2)}%（漲停或接近），收盤價買不到——不列入推薦`); }
+  else if (chg > 7)  { momentumScore = 10; reasons.push(`📈 今日漲 ${chg.toFixed(2)}%，動能強但已偏追高（實測 7~8.5% 隔日開盤無優勢）`); }
   else if (chg >= 3) { momentumScore = 16; reasons.push(`🔴 今日漲 ${chg.toFixed(2)}%，落在實測甜蜜區 3~7%`); }
-  else if (chg > 7)  { momentumScore = 10; reasons.push(`📈 今日漲 ${chg.toFixed(2)}%，動能強但已偏追高`); }
   else if (chg > 0)  { momentumScore = 10; reasons.push(`📊 今日小漲 ${chg.toFixed(2)}%，溫和向上`); }
-  else if (chg === 0){ momentumScore = 8; }
-  else if (chg > -2) { momentumScore = 8;  risks.push(`⚠️ 今日小跌 ${Math.abs(chg).toFixed(2)}%`); }
+  else if (chg === 0){ momentumScore = 6; }
+  else if (chg > -2) { momentumScore = 6;  risks.push(`⚠️ 今日小跌 ${Math.abs(chg).toFixed(2)}%`); }
   else               { momentumScore = 6;  risks.push(`🟢 今日下跌 ${Math.abs(chg).toFixed(2)}%，注意支撐`); }
 
   // Factor 2: Volume (20)
@@ -630,13 +638,17 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   // 高開加分：未通過檢定，保留但降為 1 分且不寫成「優點」
   if (s.open > s.prevClose * 1.005 && chg > 1) trendScore = Math.min(trendScore + 1, 20);
 
-  // Factor 4: Stability (20)
+  // ── Factor 4: 價位效應（20）── 2026-09-18 權值稽核 D1 重新定性 ──
+  //   原本理由「高價股法人持股高＝穩定」是設計假設，沒有回測。稽核用 v2 尺重量（480 日、切點 06-10、隔日開盤對可交易宇宙）：
+  //   ≥500 元 訓練 +0.17pp CI[0.10,0.24]（樣本外 +0.18）、100~500 +0.04、30~100 0、10~30 −0.05（顯著）、<10 −0.15（顯著）
+  //   ⇒ 階梯方向與實測**單調一致**，所以保留分數；但理由改成「價位效應（實測）」，不再宣稱穩定度。
+  //   稽核提案原本是歸零，改為保留的依據就是這組數字（Top20 排序鍵有無此因子樣本外 +0.29 vs +0.30，無差）。
   let stabilityScore = 0;
-  if (s.price >= 500)      { stabilityScore = 18; reasons.push('💎 高價股，法人持股比例通常較高'); }
-  else if (s.price >= 100) { stabilityScore = 16; reasons.push('🏢 中高價股，股性穩健'); }
+  if (s.price >= 500)      { stabilityScore = 18; reasons.push('💎 高價股：實測隔日開盤超額 +0.17pp（480 日·價位效應，非穩定度宣稱）'); }
+  else if (s.price >= 100) { stabilityScore = 16; reasons.push('🏢 中高價股：實測隔日開盤超額 +0.04pp'); }
   else if (s.price >= 30)  { stabilityScore = 14; }
   else if (s.price >= 10)  { stabilityScore = 10; }
-  else                     { stabilityScore = 6;  risks.push('⚠️ 低價股，波動可能較大'); }
+  else                     { stabilityScore = 6;  risks.push('⚠️ 低價股（<10 元）：實測隔日開盤超額 −0.15pp（顯著）'); }
 
   if (s.transactions > 50000) {
     stabilityScore = Math.min(stabilityScore + 2, 20);

@@ -60,18 +60,18 @@ export default function SignalBoards() {
   const M = MODES[mode];
 
   const [rs, setRs] = useState<RsItem[]>([]);
-  const [trade, setTrade] = useState<{ dayTrade: TradeItem[]; overnight: TradeItem[] } | null>(null);
+  const [trade, setTrade] = useState<{ dayTrade: TradeItem[]; overnight: TradeItem[]; observe?: boolean; observeWhy?: string | null } | null>(null);
   const [scanner, setScanner] = useState<{ newHigh52: ScanItem[]; volBreakout: ScanItem[]; maBull: ScanItem[]; strong: ScanItem[] } | null>(null);
   const [margin, setMargin] = useState<{ squeeze: MarginItem[] } | null>(null);
   const [rev, setRev] = useState<{ month: string; topYoY: RevItem[] } | null>(null);
   const [divStocks, setDivStocks] = useState<DivStock[]>([]);
-  const [swing, setSwing] = useState<{ items?: SwingItem[]; gate?: string; caveats?: string[]; evidence?: Record<string, string>; total?: number } | null>(null);
+  const [swing, setSwing] = useState<{ items?: SwingItem[]; gate?: string; caveats?: string[]; evidence?: Record<string, string>; total?: number; observe?: boolean; observeWhy?: string | null } | null>(null);
   const [strength, setStrength] = useState<{ items?: StrengthItem[]; caveats?: (string | null)[]; evidence?: Record<string, string>; total?: number } | null>(null);
 
   useEffect(() => {
     let live = true; const alive = () => live;
     get<{ top: RsItem[] }>('/api/ai/rs-ranking', d => setRs(d.top || []), alive);
-    get<{ dayTrade: TradeItem[]; overnight: TradeItem[] }>('/api/ai/trade-signals', d => setTrade({ dayTrade: d.dayTrade || [], overnight: d.overnight || [] }), alive);
+    get<{ dayTrade: TradeItem[]; overnight: TradeItem[]; observe?: boolean; observeWhy?: string | null }>('/api/ai/trade-signals', d => setTrade({ dayTrade: d.dayTrade || [], overnight: d.overnight || [], observe: d.observe, observeWhy: d.observeWhy }), alive);
     get<typeof scanner>('/api/ai/scanner', d => setScanner(d), alive);
     get<{ squeeze: MarginItem[] }>('/api/ai/margin-short', d => setMargin({ squeeze: d.squeeze || [] }), alive);
     get<{ month: string; topYoY: RevItem[] }>('/api/ai/revenue', d => setRev({ month: d.month, topYoY: d.topYoY || [] }), alive);
@@ -94,8 +94,9 @@ export default function SignalBoards() {
   const nextdayBoards = (
     <div style={grid}>
       <div style={card}>
-        <div style={title}>⚡ 隔日沖候選 <span style={sub}>今收買→明開賣</span></div>
+        <div style={title}>⚡ 隔日沖候選 <span style={sub}>今收買→明開賣</span>{trade?.observe && <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, padding: '1px 8px', borderRadius: 10, background: 'rgba(251,191,36,0.16)', color: '#fbbf24' }}>觀察清單</span>}</div>
         <HitRate list="overnight" label="隔日沖候選" horizons={[5]} />
+        {trade?.observe && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>⚠ {trade.observeWhy || 'v2 規則下本口徑無主模型通過樣本外——僅供觀察'}（2026-09-18 權值稽核 D7）</div>}
         {trade?.overnight?.length
           ? trade.overnight.slice(0, 8).map(x => (
             <Row key={x.code} code={x.code} name={x.name}
@@ -138,8 +139,9 @@ export default function SignalBoards() {
     <>
     <div style={grid}>
       <div style={card}>
-        <div style={title}>🌊 波段起漲 <span style={sub}>持有 5 個交易日·空頭日限定</span></div>
+        <div style={title}>🌊 波段起漲 <span style={sub}>持有 5 個交易日·空頭日限定</span>{swing?.observe && <span style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, padding: '1px 8px', borderRadius: 10, background: 'rgba(251,191,36,0.16)', color: '#fbbf24' }}>觀察清單</span>}</div>
         <HitRate list="swing" label="波段起漲" horizons={[5, 10]} />
+        {swing?.observe && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>⚠ {swing.observeWhy || 'v2 規則下本口徑無主模型通過樣本外——僅供觀察'}（2026-09-18 權值稽核 D7）</div>}
         {swing?.gate && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: swing.gate.startsWith('✅') ? up : '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>{swing.gate}</div>}
         {swing?.items?.length
           ? swing.items.slice(0, 10).map(x => (

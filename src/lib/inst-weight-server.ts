@@ -10,27 +10,32 @@
 
 import { getAdminDb } from './firebase-admin';
 
-interface InstWeights { map: Record<string, number>; date: string }
+// map ＝舊版完整權重（volSurge 等榜仍用同式，顯示用）；map2 ＝ 2026-09-18 權值稽核 D2 修剪版：
+//   只留外資方向（買+3／賣−6：480 日兩窗方向皆顯著），連買／三方同買／≥5000 張／投信／ETF 歸零
+//   （連買樣本外顯著為負 −0.05～−0.14pp；三方同買在歸檔無自營商欄位、從未可驗；其餘 CI 跨 0）。
+//   推薦榜排序鍵改用 map2×0.5（screen-weights-v2：五大+法人×1.5 樣本外 +0.21 < 五大 +0.29、×0.5 +0.27）。
+interface InstWeights { map: Record<string, number>; map2: Record<string, number>; date: string; version: string }
+export const INST_WEIGHT_VERSION = { version: '2026-09-18.v2', trainedThrough: '2026-09-16', oosFrom: '2026-06-10', reviewBy: '2026-11-17' } as const;
 
 let _cache: (InstWeights & { at: number }) | null = null;
 
 export async function getInstWeights(): Promise<InstWeights> {
   if (_cache && Date.now() - _cache.at < 5 * 60_000) return _cache;
   const db = getAdminDb();
-  if (!db) return { map: {}, date: '' };
+  if (!db) return { map: {}, map2: {}, date: '', version: INST_WEIGHT_VERSION.version };
   try {
     const snap = await db.collection('chipDaily').orderBy('date', 'desc').limit(8).get();
     const days = snap.docs.map(d => {
       const x = d.data();
       return { date: (x.date as string) || d.id, map: JSON.parse((x.codesJson as string) || '{}') as Record<string, number[]> };
     });
-    if (!days.length) return { map: {}, date: '' };
+    if (!days.length) return { map: {}, map2: {}, date: '', version: INST_WEIGHT_VERSION.version };
 
     let etf: Record<string, { bigEtf?: boolean; edge?: string }> = {};
     try { etf = ((await db.collection('etfInfluence').doc('latest').get()).data()?.byCode as typeof etf) || {}; } catch { /* optional */ }
 
     const latest = days[0].map;
-    const map: Record<string, number> = {};
+    const map: Record<string, number> = {}; const map2: Record<string, number> = {};
     for (const code in latest) {
       const row = latest[code] || [];
       const f = row[0] || 0, t = row[1] || 0, dd = row[2] || 0;
@@ -44,10 +49,12 @@ export async function getInstWeights(): Promise<InstWeights> {
       const e = etf[code];
       if (e && (e.bigEtf || e.edge)) w += 1.5;
       if (w !== 0) map[code] = w;
+      const w2 = f > 0 ? 3 : f < 0 ? -6 : 0;
+      if (w2 !== 0) map2[code] = w2;
     }
-    _cache = { at: Date.now(), map, date: days[0].date };
+    _cache = { at: Date.now(), map, map2, date: days[0].date, version: INST_WEIGHT_VERSION.version };
     return _cache;
   } catch {
-    return { map: {}, date: '' };
+    return { map: {}, map2: {}, date: '', version: INST_WEIGHT_VERSION.version };
   }
 }

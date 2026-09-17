@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
-import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/scoring-server';
+import { parseStock, scoreStock, fetchRiskStocks, isRegularStock, SCORING_VERSION } from '@/lib/scoring-server';
 import { getInstWeights } from '@/lib/inst-weight-server';
 import { getFinWeights } from '@/lib/fin-server';
 import { getRecommendAdj } from '@/lib/recommend-adj-server';
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       const r = scoreStock(s, mode, riskData);
       const f = fw.map[r.code];
       const a = ADJ.map[r.code];
-      return { ...r, instW: iw.map[r.code] ?? 0, finW: f?.w ?? 0, finScore: f?.s ?? null, pe: f?.pe ?? null,
+      return { ...r, instW: iw.map[r.code] ?? 0, instW2: iw.map2?.[r.code] ?? 0, finW: f?.w ?? 0, finScore: f?.s ?? null, pe: f?.pe ?? null,
         // 已驗證訊號修正量與其理由（透明呈現：使用者看得到為什麼被加/扣）
         adj: a?.a ?? 0, adjWhy: a?.w ?? [],
         // 新聞判別與它對排序的實際加減分（透明呈現：使用者看得到為什麼被加/扣）
@@ -108,13 +108,17 @@ export async function GET(request: NextRequest) {
     // ×3 是實測選出來的：×6 在主窗反而較差（Δ+0.233 vs ×3 的 +0.249）。
     // 對決全表見 recommend-adj-server.ts 檔頭與 model-core。
     const W = ADJ.weight ?? 3;
-    const key = (x: { score: number; instW: number; finW: number; adj: number }) =>
+    // 2026-09-18 權值稽核 D2：法人改用修剪版 map2（只留外資方向）×0.5；財報加權 finW **不再進排序**（無回測，只顯示）。
+    //   實證 screen-weights-v2.mjs（480 日·切點 06-10·每日前 20 名 vs 宇宙）：
+    //   五大 樣本外 +0.29pp｜五大+法人×1.5 +0.21｜五大+法人×0.5 +0.27｜只用法人 −0.13（顯著負）。
+    const INST_W = 0.5, FIN_W = 0;
+    const key = (x: { score: number; instW2: number; finW: number; adj: number }) =>
       // ⚠ newsAdj **刻意不加進來**（使用者 2026-08-29 決定：先看 newsLift 再決定）。
       //   它仍會算出來並回傳，讓使用者看得到「若納入會加減幾分」，
       //   但排序目前只用已驗證的因子。
       //   實測背景：前 20 名排序鍵只跨 9.3 分 ⇒ 每 1 分約等於 3 個名次，
       //   4 分就能移動 13 個名次。未驗證的訊號不該有這種份量。
-      x.score + (x.instW + x.finW) * 1.5 + x.adj * W;
+      x.score + x.instW2 * INST_W + x.finW * FIN_W + x.adj * W;
     const rank = (a: Parameters<typeof key>[0], b: Parameters<typeof key>[0]) => key(b) - key(a);
 
 
@@ -150,6 +154,7 @@ export async function GET(request: NextRequest) {
       generatedAt: new Date().toISOString(),
       dataDate,
       instDate: iw.date || null, // 法人加權資料日（t-1）
+      weightsVersion: { scoring: SCORING_VERSION, instWeight: iw.version, instW: INST_W, finW: FIN_W, adjW: W },   // 2026-09-18 D9：權值版本章
       mode,
       riskSummary: {
         attentionCount: riskData.attention.length,

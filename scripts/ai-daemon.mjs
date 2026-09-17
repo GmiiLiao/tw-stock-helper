@@ -2791,7 +2791,10 @@ async function computeTradeSignals() {
     .filter(x => x.changePct > 1.5 && x.changePct <= 8.5 && x.closePos >= 0.8)
     .sort((a, b) => (b.closePos - a.closePos) || (b.changePct - a.changePct))
     .slice(0, 15);
-  await db.collection('tradeSignals').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), dayTrade, overnight });
+  // 2026-09-18 權值稽核 D7：隔日沖候選前瞻 −0.41pp（n=390）且 v2 規則下隔日沖無主模型 ⇒ 掛「觀察」閘，榜照列但明示不建議依此進場；
+  //   v2 有主模型（squeezeModel.modes.nextday.status==='ok'）時自動解除。
+  const v2gate = await v2ObserveGate('nextday');
+  await db.collection('tradeSignals').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), dayTrade, overnight, observe: v2gate.observe, observeWhy: v2gate.why });
   const luDropped = enrich.filter(x => x.changePct > 8.5 && x.closePos >= 0.8).length;
   log(`✓ 當沖/隔日沖：當沖 ${dayTrade.length} 檔、隔日沖 ${overnight.length} 檔（因漲停買不到剔除 ${luDropped} 檔）`);
 }
@@ -8162,6 +8165,7 @@ async function computeSwingPicks() {
     await db.collection('swingPicks').doc('latest').set({
       updatedAt: Date.now(), date: isoDate(tw), dataDate: await boardDataDate(tw, marketOpen), mode: marketOpen ? 'live' : 'close',
       breadth, bearDay, instDate, instSameDay, total, crowded,
+      ...(await v2ObserveGate('swing')).asFields,   // 2026-09-18 D7：波段起漲前瞻 −0.6pp（n=53）且 v2 波段口徑無主模型 ⇒ 觀察閘
       horizon: '持有 5 個交易日（非隔日沖：本訊號隔日開賣 -0.06%／收賣 -0.44%，edge 全在第5日）·已套用 vol20≥1.5% 波動 gate',
       gate: bearDay === false ? '⚠今日為多頭日（上漲家數比 ' + breadth + '%）——實測多頭日此訊號 5日 -0.24%·真起漲僅14.4% 低於基準，本日不建議進場'
         : bearDay === true ? '✅今日為空頭日（上漲家數比 ' + breadth + '%）——此訊號的有效市況' : '大盤寬度資料不足',
@@ -9226,6 +9230,7 @@ async function trackPicks() {
     note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。netRet 已扣 0.4425% 來回費稅。',
   });
   log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
+  try { await weightsHealthCheck(aggV2); } catch (e) { log('  ⚠ 權值健康檢查失敗:', (e.message || '').slice(0, 60)); }
 }
 
 
@@ -10554,6 +10559,36 @@ async function adminUid() {
   try { const s = await db.collection('users').where('email', '==', em).limit(1).get(); _adminUidCache = s.size ? s.docs[0].id : ''; }
   catch { _adminUidCache = ''; }
   return _adminUidCache;
+}
+// ── 權值版本登記（2026-09-18 權值稽核 D9）：到期或記分板超額轉負就提醒重訓 ──
+const WEIGHTS_REGISTRY = [
+  { name: 'scoring 五大因子', version: '2026-09-18.v2', trainedThrough: '2026-09-16', reviewBy: '2026-11-17', board: 'top20' },
+  { name: 'instWeight 修剪版', version: '2026-09-18.v2', trainedThrough: '2026-09-16', reviewBy: '2026-11-17', board: 'top20' },
+  { name: 'limitUp lift 表', version: '2026-09-18.v2', trainedThrough: '2026-08-19', reviewBy: '2026-11-17', board: null },
+  { name: 'volSurge strength', version: '2026-08', trainedThrough: '2026-08', reviewBy: '2026-11-17', board: 'volSurge' },
+  { name: 'chipPicks', version: '2026-08', trainedThrough: '2026-08', reviewBy: '2026-11-17', board: 'chipPicks' },
+];
+async function weightsHealthCheck(aggV2) {
+  const today = isoDate(taipei()); const alerts = [];
+  for (const w of WEIGHTS_REGISTRY) {
+    if (w.reviewBy && today > w.reviewBy) alerts.push(`${w.name} ${w.version} 已過複審日 ${w.reviewBy}`);
+    const d5 = w.board ? aggV2?.[w.board]?.d5 : null;
+    if (d5 && d5.n >= 200 && d5.excess != null && d5.excess < 0) alerts.push(`${w.name}：記分板 ${w.board} 5 日超額 ${d5.excess}pp（n=${d5.n}）轉負`);
+  }
+  if (!alerts.length) return;
+  log(`  ⚠ 權值健康：${alerts.join('；')}`);
+  await db.collection('system').doc('weightsHealth').set({ updatedAt: Date.now(), dataDate: today, alerts, registry: WEIGHTS_REGISTRY }, { merge: true });
+  await notifyDeveloper(`⚖️ 權值需重訓：${alerts.slice(0, 3).join('；')}`, `weights-${today}`);
+}
+// v2 觀察閘：該交易模式在 squeezeModel（規則 v2）沒有主模型時，對應榜單標「觀察」（D7）
+async function v2ObserveGate(modeKey) {
+  try {
+    const m = (await db.collection('squeezeModel').doc('latest').get()).data();
+    const st = m?.rules === 'v2' ? m?.modes?.[modeKey]?.status : null;
+    const observe = st !== 'ok';
+    const why = observe ? `v2 規則（固定切點 ${m?.period?.oosFrom || '06-10'}、日層級 CI、淨報酬、市況分層）下本口徑無主模型通過樣本外——榜單僅供觀察，不建議依此進場` : null;
+    return { observe, why, asFields: { observe, observeWhy: why } };
+  } catch { return { observe: true, why: '無法讀取 v2 模型狀態', asFields: { observe: true, observeWhy: '無法讀取 v2 模型狀態' } }; }
 }
 async function notifyDeveloper(text, id) {
   const uid = await adminUid();
@@ -11960,27 +11995,30 @@ async function computeChipPicks() {
 // 模型＝分桶 lift 取 log2 加權（可解釋·確定性）。lift 權重為 2026-07 訓練期定案，
 // 每日預測自動存檔對答案（scoreboard），偏離時再回測換權重。
 // PIT：價量因子 = t 日收盤(盤中用即時價量)；法人 = chipDaily EOD(盤中即 t-1)。
-// 消息面＝sectorForecast 看漲族群小加分(+0.5，前瞻·未回測，明確標注)。
-const LU_LIFT = { // [label, predicate(升冪短路), lift]（來源：回測訓練集）
-  chg0:   [['<0', v => v < 0, 0.68], ['0~3', v => v < 3, 0.59], ['3~7', v => v < 7, 1.66], ['7~9.5', v => v < 9.5, 2.62], ['已漲停', () => true, 6.57]],
-  ret5:   [['5日<-3%', v => v < -3, 0.77], ['5日平淡', v => v < 3, 0.46], ['5日+3~10%', v => v < 10, 1.16], ['5日≥+10%', () => true, 3.29]],
-  ret20:  [['20日跌', v => v < 0, 0.47], ['20日+0~10%', v => v < 10, 0.64], ['20日+10~25%', v => v < 25, 1.54], ['20日≥+25%', () => true, 3.13]],
-  volX:   [['量縮', v => v < 1, 0.75], ['量平', v => v < 2, 1.05], ['量增2-4x', v => v < 4, 2.03], ['爆量≥4x', () => true, 2.68]],
-  nearHi: [['距高>10%', v => v < -10, 1.01], ['距高2~10%', v => v < -2, 0.63], ['貼近前高', v => v < 0, 0.73], ['創20日新高', () => true, 2.48]],
-  luCnt5: [['5日無板', v => v === 0, 0.63], ['5日1板', v => v === 1, 2.81], ['5日≥2板', () => true, 4.76]],
-  fShare: [['外資賣超', v => v < 0, 0.90], ['外資小買', v => v < 5, 1.35], ['外資佔量5-15%', v => v < 15, 1.32], ['外資重倉', () => true, 0.86]],
-  t0:     [['投信未買', v => v <= 0, 0.91], ['投信買超', () => true, 1.76]],
+// 消息面：2026-09-18 起不再進分數（標題極性違反硬規定、族群看漲未回測；權值稽核 D4／D6）。
+// 2026-09-18 權值稽核 D5：lift 表以 2022-08-15～2026-08-19 全期重訓（scripts/backtest-limitup.mjs，訓練 131 萬檔日、基準漲停率 1.73%），
+//   後 20 日 walk-forward Top10 18.5%／Top20 17.8%。舊表（2026-07 訓練 92 日）記分板 45 日 Top10 已衰退至 13.6%。
+//   桶界不變，只換 lift；版本章 LU_VERSION 寫進 limitUpForecast doc，記分板按版本分開看。
+const LU_VERSION = { version: '2026-09-18.v2', trainedFrom: '2022-08-15', trainedThrough: '2026-08-19', wf20: { top10: 18.5, top20: 17.8, top30: 15.3 }, prev: { version: '2026-07', top10bt: 20.5, top10live45d: 13.6 } };
+const LU_LIFT = { // [label, predicate(升冪短路), lift]（來源：回測訓練集 2022-08-15～2026-08-19）
+  chg0:   [['<0', v => v < 0, 0.78], ['0~3', v => v < 3, 0.61], ['3~7', v => v < 7, 1.89], ['7~9.5', v => v < 9.5, 3.08], ['已漲停', () => true, 11.23]],
+  ret5:   [['5日<-3%', v => v < -3, 1.08], ['5日平淡', v => v < 3, 0.45], ['5日+3~10%', v => v < 10, 1.28], ['5日≥+10%', () => true, 4.73]],
+  ret20:  [['20日跌', v => v < 0, 0.65], ['20日+0~10%', v => v < 10, 0.61], ['20日+10~25%', v => v < 25, 1.81], ['20日≥+25%', () => true, 4.81]],
+  volX:   [['量縮', v => v < 1, 0.66], ['量平', v => v < 2, 1.16], ['量增2-4x', v => v < 4, 2.46], ['爆量≥4x', () => true, 3.83]],
+  nearHi: [['距高>10%', v => v < -10, 1.31], ['距高2~10%', v => v < -2, 0.61], ['貼近前高', v => v < 0, 0.61], ['創20日新高', () => true, 2.57]],
+  luCnt5: [['5日無板', v => v === 0, 0.68], ['5日1板', v => v === 1, 4.11], ['5日≥2板', () => true, 8.66]],
+  fShare: [['外資賣超', v => v < 0, 1.59], ['外資小買', v => v < 5, 0.93], ['外資佔量5-15%', v => v < 15, 2.30], ['外資重倉', () => true, 1.39]],
+  t0:     [['投信未買', v => v <= 0, 0.98], ['投信買超', () => true, 2.80]],
   // 3個月漲停/族群風向因子（2026-07 變體回測：三因子×0.3 阻尼 → Top10 20.5%→21.5%(8.0x)；
   // 阻尼抑制與 luCnt5/ret20 的相關重複計分，全權重反而 Top10 降）
-  luCnt60: [['3月無板', v => v === 0, 0.30], ['3月1-2板', v => v <= 2, 1.21], ['3月3-5板', v => v <= 5, 2.18], ['3月≥6板', () => true, 2.93]],
-  indLU5:  [['族群冷', v => v === 0, 0.22], ['族群1-4板', v => v < 5, 0.55], ['族群5-14板', v => v < 15, 1.14], ['族群≥15板', () => true, 1.84]],
-  indHot:  [['非熱門族群', v => v === 0, 0.67], ['top3熱門族群', () => true, 1.91]],
-  // 消息面(newsDaily 22日校準：≥2則1.57x/正面1.64x；7日邊際驗證未見改善——內生性
-  // (新聞多在報導已漲停股)。依使用者指示以 0.3 阻尼納入，scoreboard 持續對答案再定去留)
-  newsN:   [['無新聞', v => v === 0, 0.98], ['新聞1則', v => v === 1, 1.22], ['新聞≥2則', () => true, 1.57]],
-  newsPol: [['負面新聞', v => v <= -1, 0.98], ['新聞中性', v => v === 0, 0.99], ['正面新聞', () => true, 1.64]],
+  luCnt60: [['3月無板', v => v === 0, 0.37], ['3月1-2板', v => v <= 2, 1.14], ['3月3-5板', v => v <= 5, 2.69], ['3月≥6板', () => true, 5.01]],
+  indLU5:  [['族群冷', v => v === 0, 0.97], ['族群1-4板', v => v < 5, 0.71], ['族群5-14板', v => v < 15, 1.24], ['族群≥15板', () => true, 2.68]],
+  indHot:  [['非熱門族群', v => v === 0, 0.93], ['top3熱門族群', () => true, 1.45]],
+  // ⛔ newsN／newsPol（標題關鍵字極性，0.3 阻尼）已於 2026-09-18 移除（權值稽核 D4）：
+  //   站上硬規定「標題關鍵字不得動分數」（feedback_news_score_requires_ai_content），阻尼不是豁免；
+  //   且 22 日校準自承內生性（新聞多在報導已漲停股）。消息面改由 newsVerdict／mopsNews 覆蓋數另案驗證後才回來。
 };
-const LU_NEW_SCALE = { luCnt60: 0.3, indLU5: 0.3, indHot: 0.3, newsN: 0.3, newsPol: 0.3 }; // 新因子阻尼(回測選定)
+const LU_NEW_SCALE = { luCnt60: 0.3, indLU5: 0.3, indHot: 0.3 }; // 新因子阻尼(回測選定)
 // 連板持續乘數（訓練基準 24.9%；驗證基準 21.5% → 用保守 22 起算）
 const LU_CONT_BASE = 22;
 const LU_CONT = {
@@ -12206,15 +12244,9 @@ async function computeLimitUpForecast() {
   const instWin = await loadChipWindow(8);
   const inst = instWin[0]?.map || {};
   const streakOf = c => { let s = 0; for (const w of instWin) { if ((w.map[c]?.[0] || 0) > 0) s++; else break; } return s; };
-  let bullishSet = new Set(), indMap = {};
+  let indMap = {};
   try { indMap = await getIndustryMap(); } catch { /* 族群因子可缺 */ }
-  try {
-    const fc = (await db.collection('sectorForecast').doc('latest').get()).data();
-    if (fc?.bullish?.length) bullishSet = new Set(fc.bullish.map(b => b.sector));
-  } catch { /* 前瞻加分可缺 */ }
-  // 消息面：當日(資料日)新聞提及/極性（newsDaily，缺文件時全 0 → 中性桶，無傷）
-  let newsMap = {};
-  try { const nd = (await db.collection('newsDaily').doc(today.date).get()).data(); if (nd?.mentionsJson) newsMap = JSON.parse(nd.mentionsJson); } catch { /* 可缺 */ }
+  // （2026-09-18 權值稽核 D4／D6：sectorForecast 看漲 +0.5 與 newsDaily 標題極性因子已移除，見 LU_LIFT 註解）
   // 每日漲停集合（3個月統計/族群風向因子，全部 ≤t，PIT 安全）
   const luSets = [null]; // k 對 k-1
   for (let k = 1; k < n; k++) {
@@ -12313,8 +12345,6 @@ async function computeLimitUpForecast() {
       luCnt60: lu60[code] || 0,
       indLU5: ind ? (indCnt5[ind] || 0) : 0,
       indHot: ind && hotTop3.has(ind) ? 1 : 0,
-      newsN: newsMap[code]?.[0] || 0,
-      newsPol: newsMap[code]?.[1] || 0,
     };
     let score = 0; const reasons = [];
     for (const k in LU_LIFT) {
@@ -12323,8 +12353,8 @@ async function computeLimitUpForecast() {
       score += Math.log2(Math.max(b.lift, 0.1)) * scale;
       if (b.lift >= 1.5) reasons.push(`${b.label}(${b.lift.toFixed(1)}x)`);
     }
-    let newsBonus = false;
-    if (bullishSet.size && bullishSet.has(indMap[code])) { score += 0.5; newsBonus = true; }
+    // ⛔ 族群看漲 +0.5 已於 2026-09-18 移除（權值稽核 D6）：註解自承「前瞻·未回測」，未驗證的加分不進排序。
+    const newsBonus = false;
     const q = quo[code];
     const name = (q?.name || '').trim() || code;
     const item = {
@@ -12464,6 +12494,7 @@ async function computeLimitUpForecast() {
 
   await db.collection('limitUpForecast').doc('latest').set({
     updatedAt: Date.now(), mode, dataDate: today.date, mktLU,
+    luVersion: LU_VERSION,   // 2026-09-18 D5／D9：lift 表版本章，記分板按版本分開看
     aList: top, bList: bList.slice(0, 40),
     stats: { windowDays: Math.min(60, n - 1), kings, indRank, wind },
     rotation, flow, flowDate: _luFlow.date,
