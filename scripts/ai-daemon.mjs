@@ -14133,6 +14133,7 @@ if (ONESHOT) {
           });
         }
         if (v) {
+          log(`      L1 抽取: 事件類型 ${v.eventType || '—'}｜確定性 ${v.certainty || '—'}｜新穎性 ${v.novelty || '—'}`);
           log(`      關鍵句: ${(v.keyQuote || '—').slice(0, 46)}`);
           log(`      影響路徑: ${(v.impactPath || '—').slice(0, 54)}`);
           log(`      初判挑戰: ${(v.challenge || '—').slice(0, 44)}`);
