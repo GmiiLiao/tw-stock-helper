@@ -6,7 +6,7 @@ import { isMarketOpen, shouldPollNow } from '@/lib/market-clock';
 import { type CandleData } from '@/lib/twse-api';
 import { format } from 'date-fns';
 import {
-  ResponsiveContainer, ComposedChart, Area, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
+  ResponsiveContainer, ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts';
 import styles from './WatchlistTracker.module.css';
 
@@ -448,6 +448,12 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
   const [kline, setKline] = useState<Candle[]>([]);                // 日/週/月蠟燭
   const [kView, setKView] = useState<{ highest: number; lowest: number; pct: number } | null>(null); // 蠟燭可視區間統計
   const [intradayPrevClose, setIntradayPrevClose] = useState<number | null>(null);
+  // ── 昨日盤勢對比（2026-09-17）：opt-in，預設關——本元件有 13 個消費端，預設行為不可變 ──
+  //   開啟才打 /api/twse/stock-intraday-prev（memoize 6h＋CDN daily），以 HH:mm 對齊疊成虛線。
+  type PrevDay = { date: string; open: number; high: number; low: number; close: number; ticks: { timeStr: string; close: number }[] };
+  const [showPrev, setShowPrev] = useState(false);
+  const [prevDay, setPrevDay] = useState<PrevDay | null>(null);
+  const [prevErr, setPrevErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -482,6 +488,16 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
     const t = setInterval(ping, 60000);
     return () => clearInterval(t);
   }, [code]);
+
+  useEffect(() => {
+    if (!showPrev || mode !== 'rt') return;
+    let live = true; setPrevErr(null);
+    fetch(`/api/twse/stock-intraday-prev?code=${code}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!live) return; if (d?.ticks?.length) setPrevDay(d); else { setPrevDay(null); setPrevErr('昨日分時取不到（Yahoo 無此檔或尚無資料）'); } })
+      .catch(() => { if (live) { setPrevDay(null); setPrevErr('昨日分時取不到'); } });
+    return () => { live = false; };
+  }, [showPrev, mode, code]);
 
   const loadKline = useCallback(async (m: Exclude<Mode, 'rt'>) => {
     setLoading(true); setError(null);
@@ -532,9 +548,17 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
     return candles;
   }, [candles, mode, livePrice]);
 
-  const chartData = useMemo(() => displayCandles.map(c => ({
-    date: format(new Date(c.time * 1000), 'HH:mm'), close: c.close, volume: c.volume,
-  })), [displayCandles]);
+  const chartData = useMemo(() => {
+    const today = displayCandles.map(c => ({ date: format(new Date(c.time * 1000), 'HH:mm'), close: c.close as number | undefined, volume: c.volume as number | undefined, prev: undefined as number | undefined }));
+    if (!showPrev || !prevDay) return today;
+    // 以 HH:mm 對齊：今天還沒走到的時間點也要留位子，昨日的線才能畫完整一天；今日欄位留 undefined，Area 自然停在現在。
+    const byTime = new Map(today.map(r => [r.date, r]));
+    for (const t of prevDay.ticks) {
+      const row = byTime.get(t.timeStr);
+      if (row) row.prev = t.close; else byTime.set(t.timeStr, { date: t.timeStr, close: undefined, volume: undefined, prev: t.close });
+    }
+    return [...byTime.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }, [displayCandles, showPrev, prevDay]);
 
   const stats = useMemo(() => {
     if (mode === 'rt') {
@@ -565,10 +589,14 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
 
   const yDomain = useMemo(() => {
     if (chartData.length === 0) return ['auto', 'auto'] as [number | string, number | string];
-    if (refPrev && refPrev > 0) return [+(refPrev * 0.85).toFixed(2), +(refPrev * 1.15).toFixed(2)];
-    const closes = chartData.map(d => d.close); const mn = Math.min(...closes), mx = Math.max(...closes);
+    if (refPrev && refPrev > 0) {
+      let lo = refPrev * 0.85, hi = refPrev * 1.15;
+      if (showPrev && prevDay) { lo = Math.min(lo, prevDay.low * 0.995); hi = Math.max(hi, prevDay.high * 1.005); }   // 昨日超出 ±15% 時撐開，不裁線
+      return [+lo.toFixed(2), +hi.toFixed(2)];
+    }
+    const closes = chartData.map(d => d.close).filter((v): v is number => v != null); const mn = Math.min(...closes), mx = Math.max(...closes);
     const p = (mx - mn) * 0.05 || 1; return [Math.floor(mn - p), Math.ceil(mx + p)];
-  }, [chartData, refPrev]);
+  }, [chartData, refPrev, showPrev, prevDay]);
 
   return (
     <div className={styles.trendChartContainer} onClick={e => e.stopPropagation()}>
@@ -586,6 +614,11 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
         )}
         <InstStrip code={code} changePercent={changePercent} volume={volume} />
         <div className={styles.periodTabs}>
+          {mode === 'rt' && (
+            <button className={`${styles.periodTab} ${showPrev ? styles.periodTabActive : ''}`} title="疊上前一個交易日的分時（虛線）做對比" onClick={() => setShowPrev(v => !v)}>
+              昨日對比
+            </button>
+          )}
           {(['rt', 'm1', 'm5', 'm10', 'm20', 'm60', 'day', 'week', 'month'] as Mode[]).map(m => (
             <button key={m} className={`${styles.periodTab} ${mode === m ? styles.periodTabActive : ''}`} onClick={() => setMode(m)}>
               {MODE_LABEL[m]}
@@ -594,6 +627,13 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
         </div>
       </div>
 
+      {mode === 'rt' && showPrev && (
+        <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: '#94a3b8', padding: '2px 8px 0' }}>
+          {prevDay
+            ? <>┈┈ 昨日 {prevDay.date}：開 {prevDay.open.toFixed(2)}・高 {prevDay.high.toFixed(2)}・低 {prevDay.low.toFixed(2)}・收 {prevDay.close.toFixed(2)}（虛線；以同一時刻對齊）</>
+            : prevErr ? <>⚠ {prevErr}</> : <>昨日分時載入中…</>}
+        </div>
+      )}
       <div className={styles.chartBody}>
         <div className={styles.chartMain}>
           {loading && ((mode === 'rt' && candles.length === 0) || (mode !== 'rt' && kline.length === 0)) ? (
@@ -617,12 +657,13 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
                 <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))', color: '#e2e8f0' }}
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 4 }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={(value: any, nm: any) => (nm === 'close' ? [parseFloat(String(value)).toFixed(2), '成交價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
+                  formatter={(value: any, nm: any) => (nm === 'prev' ? [parseFloat(String(value)).toFixed(2), `昨日 ${prevDay?.date?.slice(5) ?? ''}`] : nm === 'close' ? [parseFloat(String(value)).toFixed(2), '成交價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
                 {refPrev !== null && refPrev > 0 && (
                   <ReferenceLine y={refPrev} stroke="#fbbf24" strokeDasharray="5 4" strokeWidth={1.5} ifOverflow="extendDomain"
                     label={{ value: `平盤 ${refPrev.toFixed(2)}`, position: 'insideTopRight', fill: '#fbbf24', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }} />
                 )}
                 <Bar yAxisId="vol" dataKey="volume" name="volume" fill={chartColor} opacity={0.28} isAnimationActive={false} />
+                {showPrev && prevDay && <Line type="monotone" dataKey="prev" name="prev" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#94a3b8' }} connectNulls isAnimationActive={false} />}
                 <Area type="monotone" dataKey="close" name="close" stroke={chartColor} strokeWidth={2} fill={`url(#gradient-${code})`} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: chartColor }} />
               </ComposedChart>
             </ResponsiveContainer>
