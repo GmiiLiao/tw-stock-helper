@@ -13158,6 +13158,14 @@ async function computeSwingHold({ force = false } = {}) {
     c.boards++; c.score += SWING_HOLD_TOP + 1 - it.rank; c.ranks['d' + N] = it.rank; c.gains['d' + N] = it.gain;
   }
   const comboItems = Object.values(combo).sort((a, b) => b.boards - a.boards || b.score - a.score).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
+  // 每張淨額榜的整合榜（2026-09-18 使用者：金額榜同樣要有綜合／5／10／20／60）：同一套「上榜數＋Σ(26−名次)」，只是名次來自 byAmt
+  const comboAmt = {};
+  for (const N of SWING_HOLD_WINDOWS) for (const it of boards['d' + N].byAmt) {
+    const c = (comboAmt[it.code] ||= { code: it.code, name: it.name, market: it.market, price: it.price, boards: 0, score: 0, ranks: {}, gains: {}, amts: {}, streak: it.streak, amtM: it.amtM, ma: it.ma, seq: null, seqWin: 0 });
+    if (N === 20 || (c.seqWin !== 20 && N > c.seqWin)) { c.seq = it.seq; c.seqWin = N; }
+    c.boards++; c.score += SWING_HOLD_TOP + 1 - it.rank; c.ranks['d' + N] = it.rank; c.gains['d' + N] = it.gain; c.amts['d' + N] = it.amtNet;
+  }
+  const comboAmtItems = Object.values(comboAmt).sort((a, b) => b.boards - a.boards || b.score - a.score).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
   const doc = {
     updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date,
     universe: universe.length, universeAll: uniNow, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
@@ -13165,7 +13173,7 @@ async function computeSwingHold({ force = false } = {}) {
     caveats: [`漲幅是收盤對收盤，不含盤中高低；減資／面額變更／除權息以 priceEvents 係數還原（本次 ${Object.keys(factors).length} 檔），沒有係數的事件股仍會失真。`, '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
     priceEventsApplied: Object.keys(factors).length,
     costPct: SWING_HOLD_COST_PCT, amtMethod: '每張淨額＝(最新收盤−起點收盤)×1000 − 起點×1000×0.4425%（費稅，全站同尺）；連漲天數只當標記；高價股天生佔優，看「一張賺多少」不看報酬率',
-    boards, combo: { items: comboItems },
+    boards, combo: { items: comboItems, byAmt: comboAmtItems },
   };
   await db.collection('swingHold').doc(latest.date).set(doc);
   if (!cur?.dataDate || cur.dataDate <= latest.date) await db.collection('swingHold').doc('latest').set(doc);

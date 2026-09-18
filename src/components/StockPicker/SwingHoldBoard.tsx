@@ -17,8 +17,8 @@ import { storageGet, storageSet } from '@/lib/safe-storage';
 import { MaChip, SeqBars, type MaFlags, type Seq } from '@/components/shared/SeqIndicators';   // 09-17 抽成共用（自選各子分頁同款）
 interface Item { rank: number; code: string; name: string; market: string; c0: number; price: number; gain: number; amtLot?: number; amtNet?: number; up: number; maxStreak: number; streak: number; maxDD: number; type: '穩健' | '劇烈' | '一般'; amtM: number; ma?: MaFlags; seq?: Seq }
 interface Board { window: number; from: string; to: string; eligible: number; items: Item[]; byAmt?: Item[] }
-interface ComboItem { rank: number; code: string; name: string; market: string; price: number; boards: number; score: number; ranks: Record<string, number>; gains: Record<string, number>; streak: number; amtM: number; ma?: MaFlags; seq?: Seq | null; seqWin?: number }
-interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; amtMethod?: string; costPct?: number; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[] } }
+interface ComboItem { rank: number; code: string; name: string; market: string; price: number; boards: number; score: number; ranks: Record<string, number>; gains: Record<string, number>; amts?: Record<string, number>; streak: number; amtM: number; ma?: MaFlags; seq?: Seq | null; seqWin?: number }
+interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; amtMethod?: string; costPct?: number; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[]; byAmt?: ComboItem[] } }
 
 type Tab = 'combo' | 'd5' | 'd10' | 'd20' | 'd60';
 type Rank = 'gain' | 'amt';   // 窗內分流：漲幅榜／每張淨額榜（2026-09-18）
@@ -64,7 +64,8 @@ export default function SwingHoldBoard() {
 
   const board = tab === 'combo' ? null : data?.boards?.[tab];
   const amtList = rankBy === 'amt' ? board?.byAmt : undefined;   // 舊資料日沒有 byAmt → 退回漲幅榜並提示
-  const codes = useMemo(() => (tab === 'combo' ? data?.combo?.items : (rankBy === 'amt' && board?.byAmt) ? board.byAmt : board?.items)?.map(i => i.code) ?? [], [tab, data, board, rankBy]);
+  const comboAmt = rankBy === 'amt' ? data?.combo?.byAmt : undefined;
+  const codes = useMemo(() => (tab === 'combo' ? (rankBy === 'amt' && data?.combo?.byAmt ? data.combo.byAmt : data?.combo?.items) : (rankBy === 'amt' && board?.byAmt) ? board.byAmt : board?.items)?.map(i => i.code) ?? [], [tab, data, board, rankBy]);
   const quotes = useLiveQuotes(codes, 60, { register: false });   // 整張榜不搶快線名額；展開走勢那檔由圖自己登記
 
   if (err) return <div style={{ padding: 20, color: MUTED }}>⚠ 波段持有榜{err}（伺服器暫時讀不到，不是空榜）</div>;
@@ -105,10 +106,15 @@ export default function SwingHoldBoard() {
           </select>
         </label>
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setOpenCode(null); }} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, background: tab === t.id ? 'var(--bg-elevated)' : 'transparent', color: tab === t.id ? 'var(--text-primary)' : MUTED }}>{t.label}</button>
         ))}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+          {([['gain', '📈 漲幅榜'], ['amt', '💰 每張淨額榜']] as [Rank, string][]).map(([r, label]) => (
+            <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（扣 0.4425% 費稅）；連漲天數只是標記。整合榜與四個窗都有' : '以區間漲幅％排序'} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
+          ))}
+        </span>
       </div>
       {data.caveats?.length ? (
         <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>
@@ -118,7 +124,33 @@ export default function SwingHoldBoard() {
       <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, lineHeight: 1.5 }}>📐 {data.method}</div>
 
       <div style={{ overflowX: 'auto' }}>
-        {tab === 'combo' ? (
+        {tab === 'combo' && rankBy === 'amt' && !comboAmt ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無每張淨額整合榜（2026-09-18 起才產出），下方為漲幅整合榜。</div> : null}
+        {tab === 'combo' && comboAmt ? (
+          <>
+            <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}｜整合＝四窗每張淨額榜的上榜數＋Σ(26−名次)</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+              <thead><tr>
+                <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤</th><th style={head}>即時</th>
+                <th style={head} title="逐日漲跌×成交量縮圖（優先 20 日窗）">量序</th>
+                <th style={head} title="進了幾個窗的每張淨額榜（最多 4）">上榜</th><th style={head} title="Σ(26−名次)，越高越靠前">分數</th>
+                <th style={head} title="各窗每張淨額（元）與名次">5日</th><th style={head}>10日</th><th style={head}>20日</th><th style={head}>60日</th><th style={head} title="目前連漲天數（標記）">連漲標記</th><th style={head}>均額(百萬)</th>
+              </tr></thead>
+              <tbody>
+                {comboAmt.flatMap(it => [
+                  <tr key={it.code} data-anchor={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
+                    <td style={cell}>{it.rank}</td>{nameCell(it)}<td style={cell}>{it.price}</td><td style={cell}>{liveCell(it.code, it.price)}</td>
+                    <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={it.seqWin} /></td>
+                    <td style={{ ...cell, fontWeight: 700, color: it.boards >= 3 ? UP : 'var(--text-primary)' }}>{it.boards}/4</td><td style={cell}>{it.score}</td>
+                    {['d5', 'd10', 'd20', 'd60'].map(k => <td key={k} style={{ ...cell, color: it.amts?.[k] != null ? UP : MUTED }}>{it.amts?.[k] != null ? `${it.amts[k].toLocaleString()} (#${it.ranks[k]})` : '—'}</td>)}
+                    <td style={{ ...cell, fontFamily: 'inherit' }}>{it.streak >= 2 ? <span style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(240,62,62,0.14)', color: UP, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700 }}>🔥 連漲 {it.streak} 日</span> : <span style={{ color: MUTED }}>{it.streak} 日</span>}</td>
+                    <td style={cell}>{it.amtM.toLocaleString()}</td>
+                  </tr>,
+                  chartRow(it, 13),
+                ])}
+              </tbody>
+            </table>
+          </>
+        ) : tab === 'combo' ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead><tr>
               <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤</th><th style={head}>即時</th>
@@ -143,11 +175,6 @@ export default function SwingHoldBoard() {
           <>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>
               <span>區間 {board.from} → {board.to}（{board.window} 個交易日）｜正報酬 {board.eligible} 檔，取前 25</span>
-              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
-                {([['gain', '📈 漲幅榜'], ['amt', '💰 每張淨額榜']] as [Rank, string][]).map(([r, label]) => (
-                  <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（扣 0.4425% 費稅）；連漲天數只是標記' : '以區間漲幅％排序'} style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
-                ))}
-              </span>
             </div>
             {rankBy === 'amt' && !amtList ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無每張淨額榜（2026-09-18 起才產出），下方為漲幅榜。</div> : null}
             {amtList ? (
