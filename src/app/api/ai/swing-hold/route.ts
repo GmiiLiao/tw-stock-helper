@@ -1,6 +1,7 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { cacheHeader } from '@/lib/api-cache';
 import { NextRequest, NextResponse } from 'next/server';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 export const runtime = 'nodejs';
 
 // 📈 波段持有：近 5／10／20／60 日連續成長榜＋整合榜（選股頁「📈 波段持有」分頁）。
@@ -19,13 +20,13 @@ export async function GET(req: NextRequest) {
     if (sp.get('list') === '1') {
       const snap = await db.collection('swingHold').orderBy('dataDate', 'desc').limit(91).select('dataDate', 'updatedAt').get();
       const dates = snap.docs.filter(d => d.id !== 'latest').map(d => d.data().dataDate as string);
-      return NextResponse.json({ found: true, dates }, { headers: { 'Cache-Control': cacheHeader('daily') } });
+      return gzipJsonAuto({ found: true, dates }, { 'Cache-Control': cacheHeader('daily') });
     }
     const date = sp.get('date');
     const id = date && DATE_RE.test(date) ? date : 'latest';
     const doc = await db.collection('swingHold').doc(id).get();
     if (!doc.exists) return NextResponse.json({ found: false, date: id }, { headers: { 'Cache-Control': cacheHeader('daily') } });
-    return NextResponse.json({ found: true, ...doc.data() }, { headers: { 'Cache-Control': cacheHeader('daily') } });
+    return gzipJsonAuto({ found: true, ...doc.data() }, { 'Cache-Control': cacheHeader('daily') });   // 2026-09-18：四窗×兩榜含量序，未壓約 100KB → gzip
   } catch {
     return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
   }
