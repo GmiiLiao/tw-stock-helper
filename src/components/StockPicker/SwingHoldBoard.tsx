@@ -44,6 +44,7 @@ function bothAnywhere(hits: { tab: string; rank: string }[]): boolean {
 export default function SwingHoldBoard() {
   const dt = useDayTradeCodes();
   const navigateTo = useAppStore(s => s.navigateTo);
+  const allStocks = useAppStore(s => s.allStocks);   // 查榜可打股名：榜上名稱優先，其次全市場清單（2026-09-18 使用者）
   const [tab, setTabState] = useState<Tab>(() => { const v = storageGet('swingHoldTab'); return (['combo', 'd5', 'd10', 'd20', 'd60'] as string[]).includes(v || '') ? (v as Tab) : 'combo'; });
   const setTab = (t: Tab) => { setTabState(t); storageSet('swingHoldTab', t); };   // 子分頁記本機：返回時不重置，錨點列才在畫面上
   const [rankBy, setRankByState] = useState<Rank>(() => (storageGet('swingHoldRank') === 'amt' ? 'amt' : 'gain'));
@@ -54,8 +55,27 @@ export default function SwingHoldBoard() {
   const [openCode, setOpenCode] = useState<string | null>(null);
   // 🔍 搜股查榜（2026-09-18 使用者）：輸入代號，列出它在四窗與整合榜的漲幅榜／淨額榜名次；點結果可跳到該列。
   //   輸入框走非受控（CLAUDE.md：本元件樹被即時報價驅動重渲染，受控 value 在手機 IME 會把游標打回開頭）。
-  const [lookup, setLookup] = useState<string>('');
+  const [lookup, setLookup] = useState<string>('');            // 已解析的代號
+  const [lookupQ, setLookupQ] = useState<string>('');           // 原始輸入（股名模糊時列候選）
   const lookupRef = useRef<HTMLInputElement>(null);
+  // 股名 → 代號：榜上名稱（含整合榜）先比，再比全市場清單；完全相同優先，其次前綴，最後包含
+  const resolveLookup = (raw: string) => {
+    const q = raw.trim(); setLookupQ(q);
+    if (!q) { setLookup(''); return; }
+    if (/^\d{4,6}$/.test(q)) { setLookup(q); return; }
+    const pool = new Map<string, string>();
+    for (const b of Object.values(data?.boards || {})) for (const it of [...b.items, ...(b.byAmt || [])]) pool.set(it.code, it.name);
+    for (const it of [...(data?.combo?.items || []), ...(data?.combo?.byAmt || [])]) pool.set(it.code, it.name);
+    for (const st of allStocks) if (!pool.has(st.code)) pool.set(st.code, st.name);
+    const entries = [...pool.entries()];
+    const exact = entries.filter(([, n]) => n === q);
+    const prefix = entries.filter(([, n]) => n.startsWith(q));
+    const incl = entries.filter(([, n]) => n.includes(q));
+    const best = exact.length ? exact : prefix.length ? prefix : incl;
+    setLookup(best.length === 1 ? best[0][0] : '');
+    setLookupCands(best.length > 1 ? best.slice(0, 8) : []);
+  };
+  const [lookupCands, setLookupCands] = useState<[string, string][]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -156,11 +176,18 @@ export default function SwingHoldBoard() {
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))' }}>
         <label style={{ color: MUTED }}>🔍 搜股查榜：
-          <input ref={lookupRef} defaultValue="" placeholder="代號，如 3443" inputMode="numeric" maxLength={6}
-            onChange={e => { const v = e.target.value.replace(/\D/g, ''); if (v.length >= 4 || v.length === 0) setLookup(v); }}
-            onKeyDown={e => { if (e.key === 'Enter') setLookup((lookupRef.current?.value || '').replace(/\D/g, '')); }}
-            style={{ marginLeft: 4, width: 110, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '3px 8px', fontFamily: mono }} />
+          <input ref={lookupRef} defaultValue="" placeholder="代號或股名" maxLength={12}
+            onChange={e => { const v = e.target.value.trim(); if (/^\d{4,6}$/.test(v) || v.length === 0 || !/^\d*$/.test(v)) resolveLookup(v); }}
+            onKeyDown={e => { if (e.key === 'Enter') resolveLookup(lookupRef.current?.value || ''); }}
+            style={{ marginLeft: 4, width: 130, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '3px 8px', fontFamily: mono }} />
         </label>
+        {!lookup && lookupCands.length ? (
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+            <span style={{ color: MUTED }}>符合「{lookupQ}」的有：</span>
+            {lookupCands.map(([c, n]) => <button key={c} onClick={() => { setLookup(c); setLookupCands([]); if (lookupRef.current) lookupRef.current.value = `${c} ${n}`; }} style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontFamily: mono }}>{c} {n}</button>)}
+          </span>
+        ) : null}
+        {!lookup && lookupQ && !lookupCands.length && !/^\d+$/.test(lookupQ) ? <span style={{ color: MUTED }}>找不到名稱含「{lookupQ}」的股票</span> : null}
         {lookup ? (hits.length ? (
           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
             {hits.map(h => (
@@ -168,7 +195,7 @@ export default function SwingHoldBoard() {
             ))}
             {bothAnywhere(hits) ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>⭐雙榜</span> : null}
           </span>
-        ) : <span style={{ color: MUTED }}>{lookup} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>) : null}
+        ) : <span style={{ color: MUTED }}>{lookup} {allStocks.find(x => x.code === lookup)?.name || ''} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>) : null}
       </div>
       {data.caveats?.length ? (
         <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>
