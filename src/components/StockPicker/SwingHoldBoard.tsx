@@ -15,10 +15,10 @@ import { storageGet, storageSet } from '@/lib/safe-storage';
 // ⚠ 這是動能排行不是進場訊號——本站尚未對它做持有期回測，payload.caveats 一律原樣顯示。非投資建議。
 
 import { MaChip, SeqBars, type MaFlags, type Seq } from '@/components/shared/SeqIndicators';   // 09-17 抽成共用（自選各子分頁同款）
-interface Item { rank: number; code: string; name: string; market: string; c0: number; price: number; gain: number; amtLot?: number; amtNet?: number; up: number; maxStreak: number; streak: number; maxDD: number; type: '穩健' | '劇烈' | '一般'; amtM: number; ma?: MaFlags; seq?: Seq }
+interface Item { rank: number; code: string; name: string; market: string; c0: number; price: number; gain: number; amtNet?: number; up: number; maxStreak: number; streak: number; maxDD: number; type: '穩健' | '劇烈' | '一般'; amtM: number; ma?: MaFlags; seq?: Seq }
 interface Board { window: number; from: string; to: string; eligible: number; items: Item[]; byAmt?: Item[] }
 interface ComboItem { rank: number; code: string; name: string; market: string; price: number; boards: number; score: number; ranks: Record<string, number>; gains: Record<string, number>; amts?: Record<string, number>; streak: number; amtM: number; ma?: MaFlags; seq?: Seq | null; seqWin?: number }
-interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; amtMethod?: string; costPct?: number; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[]; byAmt?: ComboItem[] } }
+interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; amtMethod?: string; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[]; byAmt?: ComboItem[] } }
 
 type Tab = 'combo' | 'd5' | 'd10' | 'd20' | 'd60';
 type Rank = 'gain' | 'amt';   // 窗內分流：漲幅榜／每張淨額榜（2026-09-18）
@@ -111,8 +111,8 @@ export default function SwingHoldBoard() {
           <button key={t.id} onClick={() => { setTab(t.id); setOpenCode(null); }} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, background: tab === t.id ? 'var(--bg-elevated)' : 'transparent', color: tab === t.id ? 'var(--text-primary)' : MUTED }}>{t.label}</button>
         ))}
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
-          {([['gain', '📈 漲幅榜'], ['amt', '💰 每張淨額榜']] as [Rank, string][]).map(([r, label]) => (
-            <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（扣 0.4425% 費稅）；連漲天數只是標記。整合榜與四個窗都有' : '以區間漲幅％排序'} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
+          {([['gain', '📈 漲幅榜'], ['amt', '💰 淨額榜']] as [Rank, string][]).map(([r, label]) => (
+            <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（未扣費稅，請自行換算）；連漲天數只是標記。整合榜與四個窗都有' : '以區間漲幅％排序'} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
           ))}
         </span>
       </div>
@@ -124,7 +124,7 @@ export default function SwingHoldBoard() {
       <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, lineHeight: 1.5 }}>📐 {data.method}</div>
 
       <div style={{ overflowX: 'auto' }}>
-        {tab === 'combo' && rankBy === 'amt' && !comboAmt ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無每張淨額整合榜（2026-09-18 起才產出），下方為漲幅整合榜。</div> : null}
+        {tab === 'combo' && rankBy === 'amt' && !comboAmt ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無淨額整合榜（2026-09-18 起才產出），下方為漲幅整合榜。</div> : null}
         {tab === 'combo' && comboAmt ? (
           <>
             <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}｜整合＝四窗每張淨額榜的上榜數＋Σ(26−名次)</div>
@@ -176,15 +176,14 @@ export default function SwingHoldBoard() {
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>
               <span>區間 {board.from} → {board.to}（{board.window} 個交易日）｜正報酬 {board.eligible} 檔，取前 25</span>
             </div>
-            {rankBy === 'amt' && !amtList ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無每張淨額榜（2026-09-18 起才產出），下方為漲幅榜。</div> : null}
+            {rankBy === 'amt' && !amtList ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無淨額榜（2026-09-18 起才產出），下方為漲幅榜。</div> : null}
             {amtList ? (
               <>
                 <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
                   <thead><tr>
                     <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>起 → 收</th>
-                    <th style={head} title="(收−起)×1000 − 起×1000×0.4425%：一張從區間起點持有到資料日的淨賺（元）">每張淨額</th>
-                    <th style={head} title="扣費稅前的每張價差（元）">毛額</th><th style={head}>{board.window}日漲幅</th><th style={head}>即時</th>
+                    <th style={head} title="(收−起)×1000：一張從區間起點持有到資料日的價差（元），未扣手續費與證交稅">每張淨額</th><th style={head}>{board.window}日漲幅</th><th style={head}>即時</th>
                     <th style={head} title="區間逐日漲跌×成交量縮圖（舊→新）">量序</th>
                     <th style={head} title="目前連漲天數（標記，不是過濾條件）">連漲標記</th><th style={head}>最長連漲</th><th style={head}>最大回檔</th><th style={head}>型態</th><th style={head}>均額(百萬)</th>
                   </tr></thead>
@@ -193,7 +192,6 @@ export default function SwingHoldBoard() {
                       <tr key={it.code} data-anchor={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
                         <td style={cell}>{it.rank}</td>{nameCell(it)}<td style={cell}>{it.c0} → {it.price}</td>
                         <td style={{ ...cell, fontWeight: 800, color: UP }}>{(it.amtNet ?? 0).toLocaleString()}</td>
-                        <td style={{ ...cell, color: MUTED }}>{(it.amtLot ?? 0).toLocaleString()}</td>
                         <td style={{ ...cell, color: UP }}>+{it.gain}%</td><td style={cell}>{liveCell(it.code, it.price)}</td>
                         <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={board.window} /></td>
                         <td style={{ ...cell, fontFamily: 'inherit' }}>{it.streak >= 2 ? <span style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(240,62,62,0.14)', color: UP, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700 }}>🔥 連漲 {it.streak} 日</span> : <span style={{ color: MUTED }}>{it.streak} 日</span>}</td>
@@ -202,7 +200,7 @@ export default function SwingHoldBoard() {
                         <td style={{ ...cell, fontFamily: 'inherit' }}><span style={{ padding: '1px 6px', borderRadius: 6, background: typeStyle[it.type].bg, color: typeStyle[it.type].fg, fontSize: 'calc(11.5px * var(--fz))' }}>{it.type}</span></td>
                         <td style={cell}>{it.amtM.toLocaleString()}</td>
                       </tr>,
-                      chartRow(it, 13),
+                      chartRow(it, 12),
                     ])}
                   </tbody>
                 </table>
@@ -233,7 +231,7 @@ export default function SwingHoldBoard() {
           </>
         ) : <div style={{ color: MUTED }}>此窗無資料</div>}
       </div>
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額是還原價口徑的「報酬」，高價股天生佔優。兩榜都是回顧不是進場訊號。非投資建議。</div>
+      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額＝價差×1000，未扣費稅，還原價口徑，高價股天生佔優。兩榜都是回顧不是進場訊號。非投資建議。</div>
     </div>
   );
 }

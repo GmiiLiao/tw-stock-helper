@@ -13092,9 +13092,8 @@ async function computeDailySeq({ force = false } = {}) {
 const SWING_HOLD_WINDOWS = [5, 10, 20, 60];
 const SWING_HOLD_TOP = 25;
 const SWING_HOLD_MIN_AMT = 50_000_000;
-// 每張金額榜（2026-09-18 使用者）：同一窗改以「每張淨額」排序＝(收−起)×1000 − 起×1000×費稅；費稅 0.4425% 與全站成本尺一致。
+// 淨額榜（2026-09-18 使用者）：同一窗改以「每張淨額」排序＝(收−起)×1000；**不扣費稅**（使用者 17:30 定案：由用戶端自行換算）。
 // 連漲天數只當標記不當過濾（波段持有容忍中途回檔）。金額口徑是還原價（減資／除權係數），是「報酬」不是「當時真買一張」。
-const SWING_HOLD_COST_PCT = 0.4425;
 async function computeSwingHold({ force = false } = {}) {
   const tw = taipei();
   const arch = await readArchive(90, 'closeJson');          // 新→舊
@@ -13141,9 +13140,8 @@ async function computeSwingHold({ force = false } = {}) {
       const maAbove = [5, 20, 60].map(n => (allCl.length >= n ? c > allCl.slice(-n).reduce((s2, v) => s2 + v, 0) / n : null));
       // Firestore 不接受巢狀陣列 ⇒ 攤平成 [漲跌%, 張, 漲跌%, 張, …]，前端每 2 個一組還原
       const seq = win.slice(1).flatMap((d, i) => [+(((cl[i + 1] / cl[i]) - 1) * 100).toFixed(1), Math.round(d.m[code]?.[1] || 0)]);
-      const amtLot = Math.round((c - c0) * 1000);                                        // 每張毛額（元）
-      const amtNet = Math.round((c - c0) * 1000 - c0 * 1000 * SWING_HOLD_COST_PCT / 100);   // 每張淨額（扣 0.4425% 費稅，以進場市值計）
-      rows.push({ code, name: names[code]?.name || '', market: names[code]?.market || '', c0, price: c, gain: +gain.toFixed(1), amtLot, amtNet, up, maxStreak, streak, maxDD: +maxDD.toFixed(1), type, amtM: Math.round(amtOf[code] / 1e6), ma: maAbove, seq });
+      const amtNet = Math.round((c - c0) * 1000);   // 每張淨額（元）＝價差×1000，不扣費稅
+      rows.push({ code, name: names[code]?.name || '', market: names[code]?.market || '', c0, price: c, gain: +gain.toFixed(1), amtNet, up, maxStreak, streak, maxDD: +maxDD.toFixed(1), type, amtM: Math.round(amtOf[code] / 1e6), ma: maAbove, seq });
     }
     rows.sort((a, b) => b.gain - a.gain);
     // 分流兩榜：items＝漲幅榜（原有）、byAmt＝每張淨額榜（淨額為正才算獲利；同額以連漲天數決勝）
@@ -13172,7 +13170,7 @@ async function computeSwingHold({ force = false } = {}) {
     method: '漲幅＝N 個交易日前收盤→最新收盤；上漲日／最長連漲／目前連漲（平盤不算漲也不中斷）＋期間最大回檔；穩健＝上漲日≥60% 且回檔≤8%，劇烈＝回檔>12%。整合榜＝四榜聯集，分數 Σ(26−名次)，先比上榜數再比分數。',
     caveats: [`漲幅是收盤對收盤，不含盤中高低；減資／面額變更／除權息以 priceEvents 係數還原（本次 ${Object.keys(factors).length} 檔），沒有係數的事件股仍會失真。`, '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
     priceEventsApplied: Object.keys(factors).length,
-    costPct: SWING_HOLD_COST_PCT, amtMethod: '每張淨額＝(最新收盤−起點收盤)×1000 − 起點×1000×0.4425%（費稅，全站同尺）；連漲天數只當標記；高價股天生佔優，看「一張賺多少」不看報酬率',
+    amtMethod: '每張淨額＝(最新收盤−起點收盤)×1000，未扣手續費與證交稅（請依自己的費率換算）；連漲天數只當標記；高價股天生佔優，看「一張賺多少」不看報酬率',
     boards, combo: { items: comboItems, byAmt: comboAmtItems },
   };
   await db.collection('swingHold').doc(latest.date).set(doc);
