@@ -1,7 +1,7 @@
 'use client';
 
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
@@ -35,6 +35,12 @@ function LiveChip({ chg }: { chg?: number }) {
   return null;
 }
 
+function bothAnywhere(hits: { tab: string; rank: string }[]): boolean {
+  const byTab: Record<string, Set<string>> = {};
+  for (const h of hits) (byTab[h.tab] ||= new Set()).add(h.rank);
+  return Object.values(byTab).some(s => s.has('gain') && s.has('amt'));
+}
+
 export default function SwingHoldBoard() {
   const dt = useDayTradeCodes();
   const navigateTo = useAppStore(s => s.navigateTo);
@@ -46,6 +52,10 @@ export default function SwingHoldBoard() {
   const [dates, setDates] = useState<string[]>([]);
   const [pick, setPick] = useState<string>('');           // '' = latest
   const [openCode, setOpenCode] = useState<string | null>(null);
+  // 🔍 搜股查榜（2026-09-18 使用者）：輸入代號，列出它在四窗與整合榜的漲幅榜／淨額榜名次；點結果可跳到該列。
+  //   輸入框走非受控（CLAUDE.md：本元件樹被即時報價驅動重渲染，受控 value 在手機 IME 會把游標打回開頭）。
+  const [lookup, setLookup] = useState<string>('');
+  const lookupRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -81,6 +91,24 @@ export default function SwingHoldBoard() {
   if (!data) return <div style={{ padding: 20, color: MUTED }}>載入中…</div>;
   if (!data.found) return <div style={{ padding: 20, color: MUTED }}>波段持有榜尚未產出（daemon 每交易日 16:45 定版；{data.date && data.date !== 'latest' ? `${data.date} 無資料` : '首次上線需等下一個收盤'}）</div>;
 
+  type Hit = { tab: Tab; label: string; rank: 'gain' | 'amt'; pos: number; text: string };
+  const hits: Hit[] = (() => {
+    if (!lookup) return [];
+    const out: Hit[] = [];
+    const wins: [Tab, string][] = [['d5', '5日'], ['d10', '10日'], ['d20', '20日'], ['d60', '60日']];
+    for (const [t, label] of wins) {
+      const b = data.boards?.[t]; if (!b) continue;
+      const g = b.items.find(i => i.code === lookup); if (g) out.push({ tab: t, label, rank: 'gain', pos: g.rank, text: `漲幅榜 #${g.rank}（+${g.gain}%）` });
+      const a = b.byAmt?.find(i => i.code === lookup); if (a) out.push({ tab: t, label, rank: 'amt', pos: a.rank, text: `淨額榜 #${a.rank}（每張 ${(a.amtNet ?? 0).toLocaleString()} 元）` });
+    }
+    const cg = data.combo?.items.find(i => i.code === lookup); if (cg) out.push({ tab: 'combo', label: '整合榜', rank: 'gain', pos: cg.rank, text: `漲幅整合榜 #${cg.rank}（上榜 ${cg.boards}/4）` });
+    const ca = data.combo?.byAmt?.find(i => i.code === lookup); if (ca) out.push({ tab: 'combo', label: '整合榜', rank: 'amt', pos: ca.rank, text: `淨額整合榜 #${ca.rank}（上榜 ${ca.boards}/4）` });
+    return out;
+  })();
+  const jumpTo = (h: Hit) => {
+    setTab(h.tab); setRankBy(h.rank); setOpenCode(null);
+    setTimeout(() => document.querySelector(`[data-anchor="${lookup}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
+  };
   const cell: React.CSSProperties = { padding: '5px 6px', whiteSpace: 'nowrap', textAlign: 'right', fontFamily: mono, fontSize: 'calc(12.5px * var(--fz))' };
   const head: React.CSSProperties = { ...cell, fontFamily: 'inherit', color: MUTED, fontWeight: 400 };
   const liveCell = (code: string, price: number) => {
@@ -125,6 +153,22 @@ export default function SwingHoldBoard() {
             <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（未扣費稅，請自行換算）；連漲天數只是標記。整合榜與四個窗都有' : '以區間漲幅％排序'} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
           ))}
         </span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))' }}>
+        <label style={{ color: MUTED }}>🔍 搜股查榜：
+          <input ref={lookupRef} defaultValue="" placeholder="代號，如 3443" inputMode="numeric" maxLength={6}
+            onChange={e => { const v = e.target.value.replace(/\D/g, ''); if (v.length >= 4 || v.length === 0) setLookup(v); }}
+            onKeyDown={e => { if (e.key === 'Enter') setLookup((lookupRef.current?.value || '').replace(/\D/g, '')); }}
+            style={{ marginLeft: 4, width: 110, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '3px 8px', fontFamily: mono }} />
+        </label>
+        {lookup ? (hits.length ? (
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+            {hits.map(h => (
+              <button key={h.tab + h.rank} onClick={() => jumpTo(h)} title="跳到該列" style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: h.rank === 'amt' ? 'rgba(245,158,11,0.10)' : 'rgba(240,62,62,0.10)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))' }}>{h.label}｜{h.text}</button>
+            ))}
+            {bothAnywhere(hits) ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>⭐雙榜</span> : null}
+          </span>
+        ) : <span style={{ color: MUTED }}>{lookup} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>) : null}
       </div>
       {data.caveats?.length ? (
         <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>
