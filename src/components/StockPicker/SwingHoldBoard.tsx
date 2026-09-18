@@ -65,6 +65,15 @@ export default function SwingHoldBoard() {
   const board = tab === 'combo' ? null : data?.boards?.[tab];
   const amtList = rankBy === 'amt' ? board?.byAmt : undefined;   // 舊資料日沒有 byAmt → 退回漲幅榜並提示
   const comboAmt = rankBy === 'amt' ? data?.combo?.byAmt : undefined;
+  // ⭐ 雙榜：同窗（或整合榜）同時在漲幅榜與淨額榜前 25 名——兩榜交集才是「漲得多又是高價股」的訊息，不做第三個榜（2026-09-18 使用者採最小做法）
+  const bothSet = useMemo(() => {
+    const a = tab === 'combo' ? data?.combo?.items : board?.items;
+    const b = tab === 'combo' ? data?.combo?.byAmt : board?.byAmt;
+    if (!a || !b) return new Set<string>();
+    const ga = new Set(a.map(i => i.code));
+    return new Set(b.filter(i => ga.has(i.code)).map(i => i.code));
+  }, [tab, data, board]);
+  const bothMark = (code: string) => bothSet.has(code) ? <span title="雙榜：同窗同時進漲幅榜與淨額榜前 25 名（漲得多、每張也賺得多）" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(245,158,11,0.16)', color: '#f59e0b', fontWeight: 800 }}>⭐雙榜</span> : null;
   const codes = useMemo(() => (tab === 'combo' ? (rankBy === 'amt' && data?.combo?.byAmt ? data.combo.byAmt : data?.combo?.items) : (rankBy === 'amt' && board?.byAmt) ? board.byAmt : board?.items)?.map(i => i.code) ?? [], [tab, data, board, rankBy]);
   const quotes = useLiveQuotes(codes, 60, { register: false });   // 整張榜不搶快線名額；展開走勢那檔由圖自己登記
 
@@ -87,6 +96,7 @@ export default function SwingHoldBoard() {
       {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
       <span style={{ marginLeft: 6 }}><AddCandidateButton code={it.code} variant="icon" /></span>
       <MaChip ma={it.ma} />
+      {bothMark(it.code)}
       <LiveChip chg={quotes[it.code]?.changePercent} />
     </td>
   );
@@ -231,7 +241,7 @@ export default function SwingHoldBoard() {
           </>
         ) : <div style={{ color: MUTED }}>此窗無資料</div>}
       </div>
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額＝價差×1000，未扣費稅，還原價口徑，高價股天生佔優。兩榜都是回顧不是進場訊號。非投資建議。</div>
+      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額＝價差×1000，未扣費稅，還原價口徑，高價股天生佔優。⭐雙榜＝同窗同時進兩榜前 25 名。兩榜都是回顧不是進場訊號。非投資建議。</div>
     </div>
   );
 }
