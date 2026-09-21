@@ -8,6 +8,7 @@ import { MODES } from '@/lib/trading-mode';
 import HitRate from '@/components/shared/HitRate';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21：與波段持有榜同批補上注意/處置徽章（光鼎 6226 實案）
 
 // ── 📋 訊號榜單：所有選股清單的唯一入口（2026-08-03 頁面整理）────────
 //
@@ -84,7 +85,7 @@ export default function SignalBoards() {
   const Row = ({ code, name, right }: { code: string; name: string; right: React.ReactNode }) => (
     <div data-anchor={code} onClick={() => navigateTo('stock', code)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', padding: '4px 0', cursor: 'pointer' }}>
       <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <b style={{ color: 'var(--text-primary)' }}>{code}</b> {name} {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={code} variant="icon" />
+        <b style={{ color: 'var(--text-primary)' }}>{code}</b> {name} {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={code} size="xs" /> <AddCandidateButton code={code} variant="icon" />
       </span>
       <span style={{ whiteSpace: 'nowrap', marginLeft: 6 }}>{right}</span>
     </div>

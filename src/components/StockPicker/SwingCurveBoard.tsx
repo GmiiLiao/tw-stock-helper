@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21：與波段持有榜同批補上注意/處置徽章（光鼎 6226 實案）
 
 // ── 🧪 波段第 2 套預選機制：PID 斜率曲線分型 ──────────────────────────────
 // 使用者指定（2026-08-11）：用 PID 找出 5/20 日最高勝率漲幅的斜率曲線（至少 5 種），
@@ -132,7 +133,7 @@ export default function SwingCurveBoard() {
                       <div key={p.code} data-anchor={p.code} onClick={() => navigateTo('stock', p.code)}
                         style={{ display: 'flex', justifyContent: 'space-between', columnGap: 6, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', minWidth: 0 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <b style={{ color: '#7dd3fc' }}>{p.code}</b> {p.name} {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <AddCandidateButton code={p.code} variant="icon" />
+                          <b style={{ color: '#7dd3fc' }}>{p.code}</b> {p.name} {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={p.code} size="xs" /> <AddCandidateButton code={p.code} variant="icon" />
                         </span>
                         <span style={{ whiteSpace: 'nowrap', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-secondary)' }}>{p.price}</span>
                       </div>

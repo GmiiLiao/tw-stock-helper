@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21：與波段持有榜同批補上注意/處置徽章（光鼎 6226 實案）
 
 const UP = '#f03e3e', DOWN = '#2f9e44';
 
@@ -35,6 +36,7 @@ function TopicRow({ it }: { it: TopicItem }) {
         {it.code} {it.name}
       </button>
       {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+      <RiskBadge code={it.code} size="xs" />
       <AddCandidateButton code={it.code} variant="icon" />
       {it.triple && <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 8, background: 'rgba(240,62,62,0.18)', color: '#ff8787', fontWeight: 800 }} title="三重確認：RSI5<20 × 法人t-1買超 × 量比>1.5（網格唯一最強組合·5日淨均+1.11%·淨勝55%·兩窗同向）">⭐三重確認</span>}
       {it.dualRsi && <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 8, background: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontWeight: 800 }} title="RSI5與RSI10同時<10（影片定義的稀有極端超跌·樣本小存證觀察）">⚡雙RSI&lt;10</span>}
