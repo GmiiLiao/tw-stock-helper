@@ -7,6 +7,7 @@ import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21 使用者：光鼎 6226 處置中卻沒標示——本榜漏掛全站共用的注意/處置徽章
 import { storageGet, storageSet } from '@/lib/safe-storage';
 
 // ── 📈 波段持有：近 5／10／20／60 日連續成長榜＋整合榜（2026-09-16）──
@@ -142,6 +143,7 @@ export default function SwingHoldBoard() {
       <button onClick={() => setOpenCode(c => (c === it.code ? null : it.code))} title="展開／收合即時走勢" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, fontFamily: mono }}>{openCode === it.code ? '▾' : '▸'} {it.code}</button>
       <span style={{ marginLeft: 6, cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)} title="開個股頁">{it.name}</span>
       {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+      <span style={{ marginLeft: 4 }}><RiskBadge code={it.code} size="xs" /></span>
       <span style={{ marginLeft: 6 }}><AddCandidateButton code={it.code} variant="icon" /></span>
       <MaChip ma={it.ma} />
       {bothMark(it.code)}
@@ -194,6 +196,7 @@ export default function SwingHoldBoard() {
               <button key={h.tab + h.rank} onClick={() => jumpTo(h)} title="跳到該列" style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: h.rank === 'amt' ? 'rgba(245,158,11,0.10)' : 'rgba(240,62,62,0.10)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))' }}>{h.label}｜{h.text}</button>
             ))}
             {bothAnywhere(hits) ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>⭐雙榜</span> : null}
+            <RiskBadge code={lookup} size="xs" />
           </span>
         ) : <span style={{ color: MUTED }}>{lookup} {allStocks.find(x => x.code === lookup)?.name || ''} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>) : null}
       </div>
