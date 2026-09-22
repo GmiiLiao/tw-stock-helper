@@ -7148,6 +7148,20 @@ async function recordSqueezeTraining() {
   log(`✓ 軋空訓練資料 ${today}：漲停 ${nLU} 檔 + 對照 ${rows.length - nLU} 檔（國際盤 ${Object.keys(global).length} 項）`);
 }
 
+// MACD(12,26,9) 狀態（2026-09-22 使用者要求「0 線上且向上翻紅」）：只做**揭露＋可選過濾**，不當硬閘門——
+//   250 日稽核（scripts/squeeze-macd-audit.mjs）：可買口徑成功率 55.4%，使用者條件 54.5%、DIF>0 且翻紅 64.6%（n=79）；
+//   v2 尺樣本外皆 CI 跨 0，未通過；反例（DIF≤0 或柱下降）當沖樣本外顯著輸基準。詳見 docs/SQUEEZE-MACD-AUDIT-2026-09-22.md。
+function macdStateOf(closeMaps, code, L) {
+  const closes = []; for (let i = Math.max(0, L - 79); i <= L; i++) { const v = closeMaps[i]?.[code]?.[0]; closes.push(v > 0 ? v : (closes[closes.length - 1] ?? null)); }
+  if (closes.length < 40 || closes.some(v => !(v > 0))) return null;
+  const ema = (arr, n) => { const k = 2 / (n + 1); let e = null; return arr.map(v => (e = e == null ? v : v * k + e * (1 - k))); };
+  const e12 = ema(closes, 12), e26 = ema(closes, 26); const dif = closes.map((_, i) => e12[i] - e26[i]); const dea = ema(dif, 9);
+  const n = closes.length - 1; const hist = dif[n] - dea[n], histPrev = dif[n - 1] - dea[n - 1];
+  const above0 = dif[n] > 0, up = hist > histPrev, turn = hist > 0 && histPrev <= 0;
+  const label = (above0 ? '0上' : '0下') + '·' + (turn ? '翻紅' : hist > 0 ? (up ? '紅升' : '紅降') : (up ? '綠縮' : '綠增'));
+  return { dif: +dif[n].toFixed(3), hist: +hist.toFixed(3), histPrev: +histPrev.toFixed(3), above0, up, turn, ok: above0 && hist > 0 && up, label };
+}
+
 async function computeSqueezePicks() {
   const arch = await readArchive(30, 'closeJson');
   if (arch.length < 21) return;
@@ -7297,6 +7311,8 @@ async function computeSqueezePicks() {
       band: ratio < 10 ? '5~10%' : ratio < 15 ? '10~15%' : ratio < 20 ? '15~20%' : (ratio < 30 ? '20~30%' : '≥30%'),
       weakBand: ratio >= 15 && ratio < 20,       // 樣本外未過基準的區間，介面要標警示
       live: !!live,
+      macd: macdStateOf(closeMaps, code, L),     // 以最近歸檔收盤算（盤中不含今日即時價；標示用）
+      ret5: (() => { const b = closeMaps[live ? L - 4 : L - 5]?.[code]?.[0]; return b > 0 ? +((price / b - 1) * 100).toFixed(1) : null; })(),   // 5 日漲幅（錯誤學習過濾用：≥15% 已漲多）
     });
   }
   items.sort((a, b) => b.tier - a.tier || b.ratio - a.ratio || b.chg - a.chg);

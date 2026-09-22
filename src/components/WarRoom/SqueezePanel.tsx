@@ -9,12 +9,15 @@ import { isMarketOpen } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 import RiskBadge from '@/components/shared/RiskBadge';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
 interface Item {
   code: string; name: string; price: number; chg: number;
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
+  macd?: { dif: number; hist: number; histPrev: number; above0: boolean; up: boolean; turn: boolean; ok: boolean; label: string } | null;   // 2026-09-22 揭露＋可選過濾
+  ret5?: number | null;
   prev?: number;               // 前日收盤（daemon 09-17 起提供；舊文件缺時由 price/chg 反推，四捨五入到 0.01）
   setup: number | null; band: string; weakBand?: boolean; brk20?: boolean; hi20?: number | null;
   shrtChg?: number | null; lend?: number | null; lendChg?: number | null; trueRatio?: number | null;
@@ -61,6 +64,12 @@ const fmtSigned = (v?: number | null) =>
 export default function SqueezePanel() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<Data | null>(null);
+  // 可選過濾（2026-09-22 使用者）：預設關。兩條都只是「揭露＋你自己選」，沒有通過 v2 尺，不是模型的一部分。
+  //   MACD：DIF>0 且柱>0 且柱上升；錯誤學習：排除 5 日漲幅≥15%、量比≥3x、漲 7～9%（250 日可買口徑：成功率 55.4%→60.7%，樣本外 53.1%→63.2%，n=155，同批資料挖出、前瞻未驗）
+  const [fMacd, setFMacd] = useState<boolean>(() => storageGet('sqzFilterMacd') === '1');
+  const [fLearn, setFLearn] = useState<boolean>(() => storageGet('sqzFilterLearn') === '1');
+  const passLearn = (it: Item) => !((it.ret5 != null && it.ret5 >= 15) || (it.volX >= 3) || (it.chg >= 7 && it.chg < 9));
+  const passMacd = (it: Item) => !!it.macd?.ok;
   const [ledger, setLedger] = useState<Ledger | null>(null);   // 🚪 當日入選／離榜帳（2026-09-22）
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
   const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄、現價改標「即時」（09-17）
@@ -316,6 +325,14 @@ export default function SqueezePanel() {
       )}
 
       {d && d.items.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', margin: '6px 0' }}>
+          <span>可選過濾（預設關，未過 v2 尺，僅揭露）：</span>
+          <label style={{ cursor: 'pointer' }}><input type="checkbox" checked={fMacd} onChange={e => { setFMacd(e.target.checked); storageSet('sqzFilterMacd', e.target.checked ? '1' : '0'); }} /> MACD 0 線上且柱上升（稽核：成功率 54.5% vs 全體 55.4%，無分辨力）</label>
+          <label style={{ cursor: 'pointer' }}><input type="checkbox" checked={fLearn} onChange={e => { setFLearn(e.target.checked); storageSet('sqzFilterLearn', e.target.checked ? '1' : '0'); }} /> 錯誤學習：排除已漲多(5日≥15%)／爆量(量比≥3x)／漲7～9%（稽核：55.4%→60.7%，樣本外 63.2%，n=155，同批資料挖出、前瞻未驗）</label>
+          <span>顯示 {d.items.filter(it => (!fMacd || passMacd(it)) && (!fLearn || passLearn(it))).length}/{d.items.length}</span>
+        </div>
+      )}
+      {d && d.items.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 620 }}>
             <thead>
@@ -334,10 +351,11 @@ export default function SqueezePanel() {
                 <th style={{ padding: '4px 4px' }}>法人5日</th>
                 <th style={{ padding: '4px 4px' }}>融資/融券(張)</th>
                 <th style={{ padding: '4px 4px' }}>量增</th>
+                <th style={{ padding: '4px 4px' }} title="MACD(12,26,9) 以最近歸檔收盤計：0上/0下＝DIF 是否在 0 線上；翻紅＝柱由負轉正；紅升/紅降＝柱>0 且上升/下降；綠縮/綠增＝柱<0。稽核：可買口徑成功率 55.4%，DIF>0 且柱升 54.5%，DIF>0 且翻紅 64.6%（n=79）；v2 尺樣本外皆未通過">MACD</th>
               </tr>
             </thead>
             <tbody>
-              {d.items.map(it => (
+              {d.items.filter(it => (!fMacd || passMacd(it)) && (!fLearn || passLearn(it))).map(it => (
                 <Fragment key={it.code}>
                 <tr style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
                   <td style={{ padding: '4px 4px', textAlign: 'left', whiteSpace: 'nowrap' }}>
@@ -378,6 +396,7 @@ export default function SqueezePanel() {
                   <td style={{ padding: '4px 4px', color: numColor(it.inst5), fontWeight: 600 }}>{fmtSigned(it.inst5)}</td>
                   <td style={{ padding: '4px 4px', color: 'var(--text-muted)' }}>{it.mgn.toLocaleString()} / {it.shrt.toLocaleString()}</td>
                   <td style={{ padding: '4px 4px' }}>{it.volX}x</td>
+                  <td style={{ padding: '4px 4px', whiteSpace: 'nowrap', color: it.macd ? (it.macd.ok ? '#22c55e' : !it.macd.above0 ? 'var(--color-down)' : 'var(--text-muted)') : 'var(--text-muted)' }}>{it.macd?.label ?? '—'}</td>
                 </tr>
                 {openCode === it.code && (
                   <tr><td colSpan={12} style={{ padding: '6px 4px 10px' }}>
