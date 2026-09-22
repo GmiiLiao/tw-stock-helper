@@ -61,6 +61,10 @@ function isTwTradingHours(): boolean {
 // 數字欄樣式：固定寬、靠右、等寬字——每列的價格／漲跌／模型分／漲停價落在同一個 x 位置，掃讀不用對位
 const NUM_COL = (w: number, color: string, weight = 600): React.CSSProperties => ({ display: 'inline-block', minWidth: w, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', color, fontWeight: weight });
 
+// 漲停預測榜的欄位模板（表頭與每列共用，改欄寬只改這一處）。標籤放表頭，列上只放數字，數字才不會因「模型分 15.7」擠成兩行。
+const LU_GRID = '12px 22px 26px 52px minmax(80px, 110px) 30px 30px 72px 70px 72px 70px 62px minmax(72px, 1fr)';
+const LU_CELL = (extra: React.CSSProperties = {}): React.CSSProperties => ({ whiteSpace: 'nowrap', ...extra });
+
 export default function LimitUpPanel() {
   const [data, setData] = useState<LuData | null>(null);
   const [view, setView] = useState<'a' | 'b' | 'stats' | 'review'>('a');
@@ -288,32 +292,36 @@ export default function LimitUpPanel() {
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>此價格區間無標的。</div>
           ) : (
             <div style={{ display: 'grid', gap: 4 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: LU_GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
+                <span /><span /><span style={{ textAlign: 'right' }}>#</span><span>代號</span><span>名稱</span><span style={{ textAlign: 'center' }}>市</span>
+                <span title="收＝資料日收盤；即時＝盤中快線成交價" style={{ textAlign: 'center' }}>價</span><span style={{ textAlign: 'right' }}>現價</span><span style={{ textAlign: 'right' }}>漲跌</span>
+                <span title="資料日前一交易日收盤" style={{ textAlign: 'right' }}>昨收</span><span style={{ textAlign: 'right' }}>昨漲跌</span>
+                <span title="依回測加權的模型分（越高越前）" style={{ textAlign: 'right' }}>模型分</span><span title="資料日收盤推算的次日漲停價" style={{ textAlign: 'right' }}>漲停價</span>
+              </div>
               {aRows.map((p, i) => {
                 const b = mBadge(p.market);
                 const open = openCode === p.code;
                 const rankNo = ctl.band === 0 ? i + 1 : null;
                 return (
                   <div key={p.code} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.10)' : rankNo !== null && rankNo <= 10 ? 'rgba(240,62,62,0.06)' : 'rgba(148,163,184,0.06)', border: open ? '1px solid rgba(61,142,248,0.35)' : rankNo !== null && rankNo <= 10 ? '1px solid rgba(240,62,62,0.25)' : '1px solid transparent', ...(candSet.has(p.code) ? { boxShadow: '0 0 0 1.5px rgba(245,159,0,0.7)' } : {}) }}>
-                    {/* 齊頭分欄（使用者 2026-09-22 兩次指正）：改 CSS grid 固定欄寬，名稱欄固定寬＋截斷，名次欄永遠佔位；flex-wrap 會因名稱長短把後面所有欄推歪 */}
                     <div onClick={() => setOpenCode(c => c === p.code ? null : p.code)}
-                      style={{ display: 'grid', gridTemplateColumns: '12px 22px 20px 46px 92px 28px 30px 66px 64px 16px 66px 64px 96px 1fr', columnGap: 6, alignItems: 'center', padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', cursor: 'pointer', overflowX: 'auto' }}>
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
+                      style={{ display: 'grid', gridTemplateColumns: LU_GRID, columnGap: 8, alignItems: 'center', padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', cursor: 'pointer' }}>
+                      <span style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' })}>{open ? '▾' : '▸'}</span>
                       <span onClick={e => e.stopPropagation()}><AddCandidateButton code={p.code} variant="icon" /></span>
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: rankNo != null && rankNo <= 10 ? '#fda4af' : 'var(--text-muted)', textAlign: 'right' }}>{rankNo ?? ''}</span>
-                      <span style={{ fontWeight: 800, fontFamily: 'JetBrains Mono, monospace' }}>{p.code}</span>
-                      <span title={p.name} style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c, textAlign: 'center' }}>{b.t}</span>
-                      {/* 現價欄：盤中有即時成交就顯示即時價／今日漲跌（標「即時」），否則顯示資料日收盤（標「收」） */}
+                      <span style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: rankNo != null && rankNo <= 10 ? '#fda4af' : 'var(--text-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{rankNo ?? ''}</span>
+                      <span style={LU_CELL({ fontWeight: 800, fontFamily: 'JetBrains Mono, monospace' })}>{p.code}</span>
+                      <span title={p.name} style={LU_CELL({ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' })}>{p.name}</span>
+                      <span style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c, textAlign: 'center' })}>{b.t}</span>
+                      {/* 現價欄：盤中有即時成交且與資料日收盤不同＝即時價（標「即時」），否則資料日收盤（標「收」） */}
                       {(() => { const q = quotes[p.code]; const isLive = !!q?.price && q.price !== p.price; const px = isLive ? q!.price : p.price; const d = isLive ? (q!.changePercent ?? 0) : p.chg; return (<>
-                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={{ fontSize: 'calc(11.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)' }}>{isLive ? '即時' : '收'}</span>
+                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={LU_CELL({ fontSize: 'calc(11.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center' })}>{isLive ? '即時' : '收'}</span>
                         <span style={NUM_COL(0, 'var(--text-primary)', 700)}>{px}</span>
                         <span style={NUM_COL(0, d >= 0 ? '#f03e3e' : '#2f9e44', 800)}>{d >= 0 ? '+' : ''}{(+d).toFixed(2)}%</span>
                       </>); })()}
-                      <span title="資料日前一交易日的收盤與漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>昨</span>
                       <span style={NUM_COL(0, 'var(--text-muted)')}>{p.prevClose ?? '—'}</span>
                       <span style={NUM_COL(0, (p.prevChg ?? 0) >= 0 ? '#f03e3e' : '#2f9e44')}>{p.prevChg != null ? `${p.prevChg >= 0 ? '+' : ''}${p.prevChg}%` : '—'}</span>
-                      <span style={{ ...NUM_COL(0, '#fbbf24', 800), fontSize: 'calc(12.5px * var(--fz))', textAlign: 'left' }}>模型分 <span style={{ display: 'inline-block', minWidth: 44, textAlign: 'right' }}>{p.score}</span>{p.newsBonus && <span title="題材看漲加分(前瞻·未回測)" style={{ color: '#7dd3fc', marginLeft: 4 }}>📰</span>}</span>
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>漲停價 <span style={NUM_COL(64, 'var(--text-muted)')}>{p.limitPrice}</span></span>
+                      <span style={NUM_COL(0, '#fbbf24', 800)}>{p.score}{p.newsBonus && <span title="題材看漲加分(前瞻·未回測)" style={{ color: '#7dd3fc', marginLeft: 3 }}>📰</span>}</span>
+                      <span style={NUM_COL(0, 'var(--text-muted)')}>{p.limitPrice}</span>
                     </div>
                     {open && (
                       <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
