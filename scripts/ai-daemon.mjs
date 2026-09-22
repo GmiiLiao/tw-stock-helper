@@ -7166,6 +7166,8 @@ async function computeSqueezePicks() {
   const arch = await readArchive(30, 'closeJson');
   if (arch.length < 21) return;
   const ascClose = arch.slice().reverse();                      // 舊→新
+  // MACD 要 ≥40 根：另讀 80 日收盤，不動上面 30 日的 arch（其它指標的視窗不變）。缺 closeJson 的日子 readArchive 已排除。
+  const macdMaps = (await readArchive(80, 'closeJson')).slice().reverse().map(a => JSON.parse(a.closeJson));
   const marginDoc = (await readArchive(10, 'marginJson'))[0];    // 最近一個有資券的日子
   if (!marginDoc) { log('✖ 軋空候選：無資券歸檔'); return; }
   // ── 兩種模式，日期一定要標清楚（使用者指定 2026-08-26）──────────────
@@ -7311,7 +7313,7 @@ async function computeSqueezePicks() {
       band: ratio < 10 ? '5~10%' : ratio < 15 ? '10~15%' : ratio < 20 ? '15~20%' : (ratio < 30 ? '20~30%' : '≥30%'),
       weakBand: ratio >= 15 && ratio < 20,       // 樣本外未過基準的區間，介面要標警示
       live: !!live,
-      macd: macdStateOf(closeMaps, code, L),     // 以最近歸檔收盤算（盤中不含今日即時價；標示用）
+      macd: macdStateOf(macdMaps, code, macdMaps.length - 1),     // 以最近歸檔收盤算（盤中不含今日即時價；標示用）
       ret5: (() => { const b = closeMaps[live ? L - 4 : L - 5]?.[code]?.[0]; return b > 0 ? +((price / b - 1) * 100).toFixed(1) : null; })(),   // 5 日漲幅（錯誤學習過濾用：≥15% 已漲多）
     });
   }
