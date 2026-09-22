@@ -7373,10 +7373,15 @@ async function computeSqueezePicks() {
   // ── 🚪 當日入選／離榜對照（2026-09-22 使用者：戰情室也要離榜清單）──
   //   盤中每 3 分鐘重算，候選會進進出出；latest 只有「此刻在榜」，看不到「早上入選、現在掉了」。
   //   記一本當日帳 squeezePicksLedger/{日曆日}：每檔第一次入選的時間／價／漲幅／分級、最後在榜的值、離榜時間與離榜時的即時價，
-  //   再入選會清掉 dropped 並累計 reentries。只在 intraday 模式記（盤後 nextday 清單是給明天用的，不能把今天的全標成離榜）。
-  if (mode === 'intraday') {
-    try {
-      const day = isoDate(taipei()); const now = Date.now();
+  //   再入選會清掉 dropped 並累計 reentries。
+  //   ⚠ 閘門不是 mode：盤中大多數時候 mode 其實是 nextday（昨日資券已齊、targetDate＝今天），只有 15:10～21:45 才是 intraday。
+  //     正確的條件是「現在是交易時段」且「這份清單的適用日＝今天」；盤後給明天用的清單不能把今天的全標成離榜。
+  {
+    const twNow = taipei(); const minsNow = twNow.getHours() * 60 + twNow.getMinutes();
+    const sessionOpen = isTradingDay(twNow) && minsNow >= 9 * 60 && minsNow < 13 * 60 + 35;
+    const day = isoDate(twNow);
+    if (sessionOpen && targetDate === day) try {
+      const now = Date.now();
       const ref = db.collection('squeezePicksLedger').doc(day);
       const led = (await ref.get()).data() || { date: day, entries: {} };
       const cur = new Map(items.map(i => [i.code, i]));
