@@ -13120,6 +13120,7 @@ async function computeSwingHold({ force = false } = {}) {
   }
   const universe = Object.keys(latest.m).filter(c => /^\d{4}$/.test(c) && amtOf[c] >= SWING_HOLD_MIN_AMT);
   const boards = {};
+  const rowsByWin = {};   // 各窗「正報酬全體」（依漲幅排序），離榜清單要查現名次
   for (const N of SWING_HOLD_WINDOWS) {
     const win = days.slice(-(N + 1));
     const rows = [];
@@ -13144,6 +13145,7 @@ async function computeSwingHold({ force = false } = {}) {
       rows.push({ code, name: names[code]?.name || '', market: names[code]?.market || '', c0, price: c, gain: +gain.toFixed(1), amtNet, up, maxStreak, streak, maxDD: +maxDD.toFixed(1), type, amtM: Math.round(amtOf[code] / 1e6), ma: maAbove, seq });
     }
     rows.sort((a, b) => b.gain - a.gain);
+    rowsByWin['d' + N] = rows;
     // 分流兩榜：items＝漲幅榜（原有）、byAmt＝每張淨額榜（淨額為正才算獲利；同額以連漲天數決勝）
     const byAmt = rows.filter(r => r.amtNet > 0).sort((a, b) => b.amtNet - a.amtNet || b.streak - a.streak).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
     boards['d' + N] = { window: N, from: win[0].date, to: latest.date, eligible: rows.length, items: rows.slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r })), byAmt };
@@ -13164,6 +13166,49 @@ async function computeSwingHold({ force = false } = {}) {
     c.boards++; c.score += SWING_HOLD_TOP + 1 - it.rank; c.ranks['d' + N] = it.rank; c.gains['d' + N] = it.gain; c.amts['d' + N] = it.amtNet;
   }
   const comboAmtItems = Object.values(comboAmt).sort((a, b) => b.boards - a.boards || b.score - a.score).slice(0, SWING_HOLD_TOP).map((r, i) => ({ rank: i + 1, ...r }));
+  // ── 🚪 離榜清單（2026-09-22 使用者：提醒下車）──
+  //   與「上一個資料日」的定版比：昨天在榜（漲幅榜或淨額榜前 25）、今天不在 ⇒ 列出，附今日區間漲幅／現名次／自昨收的變動與離榜原因。
+  //   不做交易建議，只是「你追的那檔已經不在榜上」的事實；沒有上一日定版（首日或歷史缺口）就明說 prevDate=null。
+  const dropped = { prevDate: null, windows: {}, combo: [], note: '離榜＝上一資料日在該榜前 25、本資料日不在；原因：區間漲幅翻負／跌出前 25（附現名次）／只剩一榜。回顧不是進場或出場訊號。' };
+  try {
+    const pq = await db.collection('swingHold').where('dataDate', '<', latest.date).orderBy('dataDate', 'desc').limit(1).get();
+    const prev = pq.docs.find(d => d.id !== 'latest')?.data() || null;
+    if (prev?.boards) {
+      dropped.prevDate = prev.dataDate;
+      for (const N of SWING_HOLD_WINDOWS) {
+        const k = 'd' + N; const pb = prev.boards[k]; if (!pb) continue;
+        const curGain = new Set(boards[k].items.map(i => i.code)), curAmt = new Set(boards[k].byAmt.map(i => i.code));
+        const win = days.slice(-(N + 1)); const out = []; const seen = new Set();
+        const prevGainRank = new Map(pb.items.map(i => [i.code, i.rank])), prevAmtRank = new Map((pb.byAmt || []).map(i => [i.code, i.rank]));
+        for (const it of [...pb.items, ...(pb.byAmt || [])]) {
+          if (seen.has(it.code)) continue; seen.add(it.code);
+          const wasGain = prevGainRank.has(it.code), wasAmt = prevAmtRank.has(it.code);
+          const stillGain = curGain.has(it.code), stillAmt = curAmt.has(it.code);
+          // 「離榜」＝原本在的榜今天都不在了；一榜留一榜走算「只剩一榜」也列，讓使用者知道
+          if ((wasGain && stillGain) || (wasAmt && stillAmt)) { if (!((wasGain && !stillGain) || (wasAmt && !stillAmt))) continue; }
+          const c0 = win[0].m[it.code]?.[0], c = latest.m[it.code]?.[0];
+          const nowGain = c0 > 0 && c > 0 ? +((c / c0 - 1) * 100).toFixed(1) : null;
+          const idx = rowsByWin[k].findIndex(r => r.code === it.code); const nowRank = idx >= 0 ? idx + 1 : null;
+          const chgSincePrev = it.price > 0 && c > 0 ? +((c / it.price - 1) * 100).toFixed(1) : null;
+          const partial = (wasGain && stillGain) || (wasAmt && stillAmt);
+          const reason = partial ? '只剩一榜' : nowGain == null ? '本日無收盤資料' : nowGain <= 0 ? '區間漲幅翻負' : `跌出前 ${SWING_HOLD_TOP}（現 #${nowRank ?? '—'}）`;
+          out.push({ code: it.code, name: it.name, market: it.market || '', prevRank: prevGainRank.get(it.code) ?? null, prevAmtRank: prevAmtRank.get(it.code) ?? null, prevGain: it.gain, prevPrice: it.price, price: c ?? null, nowGain, nowRank, chgSincePrev, stillGain, stillAmt, reason });
+        }
+        out.sort((a, b) => (a.chgSincePrev ?? 0) - (b.chgSincePrev ?? 0));   // 跌最多的排前面＝最需要看的
+        dropped.windows[k] = out;
+      }
+      const curCombo = new Set(comboItems.map(i => i.code)), curComboAmt = new Set(comboAmtItems.map(i => i.code));
+      const onNow = code => SWING_HOLD_WINDOWS.filter(N => boards['d' + N].items.some(i => i.code === code) || boards['d' + N].byAmt.some(i => i.code === code)).length;
+      const seenC = new Set();
+      for (const it of [...(prev.combo?.items || []), ...(prev.combo?.byAmt || [])]) {
+        if (seenC.has(it.code)) continue; seenC.add(it.code);
+        if (curCombo.has(it.code) || curComboAmt.has(it.code)) continue;
+        const c = latest.m[it.code]?.[0]; const nowBoards = onNow(it.code);
+        dropped.combo.push({ code: it.code, name: it.name, market: it.market || '', prevRank: it.rank, prevBoards: it.boards, nowBoards, prevPrice: it.price, price: c ?? null, chgSincePrev: it.price > 0 && c > 0 ? +((c / it.price - 1) * 100).toFixed(1) : null, reason: nowBoards === 0 ? '四窗全離榜' : `上榜數 ${it.boards}→${nowBoards}，掉出整合榜前 ${SWING_HOLD_TOP}` });
+      }
+      dropped.combo.sort((a, b) => (a.chgSincePrev ?? 0) - (b.chgSincePrev ?? 0));
+    }
+  } catch (e) { log(`  ⚠ 波段持有離榜清單：${(e?.message || '').slice(0, 100)}`); dropped.error = '上一資料日讀取失敗，本日離榜清單缺'; }
   const doc = {
     updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date,
     universe: universe.length, universeAll: uniNow, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
@@ -13171,7 +13216,7 @@ async function computeSwingHold({ force = false } = {}) {
     caveats: [`漲幅是收盤對收盤，不含盤中高低；減資／面額變更／除權息以 priceEvents 係數還原（本次 ${Object.keys(factors).length} 檔），沒有係數的事件股仍會失真。`, '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
     priceEventsApplied: Object.keys(factors).length,
     amtMethod: '每張淨額＝(最新收盤−起點收盤)×1000，未扣手續費與證交稅（請依自己的費率換算）；連漲天數只當標記；高價股天生佔優，看「一張賺多少」不看報酬率',
-    boards, combo: { items: comboItems, byAmt: comboAmtItems },
+    boards, combo: { items: comboItems, byAmt: comboAmtItems }, dropped,
   };
   await db.collection('swingHold').doc(latest.date).set(doc);
   if (!cur?.dataDate || cur.dataDate <= latest.date) await db.collection('swingHold').doc('latest').set(doc);

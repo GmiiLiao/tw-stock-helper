@@ -19,7 +19,9 @@ import { MaChip, SeqBars, type MaFlags, type Seq } from '@/components/shared/Seq
 interface Item { rank: number; code: string; name: string; market: string; c0: number; price: number; gain: number; amtNet?: number; up: number; maxStreak: number; streak: number; maxDD: number; type: '穩健' | '劇烈' | '一般'; amtM: number; ma?: MaFlags; seq?: Seq }
 interface Board { window: number; from: string; to: string; eligible: number; items: Item[]; byAmt?: Item[] }
 interface ComboItem { rank: number; code: string; name: string; market: string; price: number; boards: number; score: number; ranks: Record<string, number>; gains: Record<string, number>; amts?: Record<string, number>; streak: number; amtM: number; ma?: MaFlags; seq?: Seq | null; seqWin?: number }
-interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; amtMethod?: string; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[]; byAmt?: ComboItem[] } }
+interface DropItem { code: string; name: string; market?: string; prevRank?: number | null; prevAmtRank?: number | null; prevGain?: number; prevPrice: number; price: number | null; nowGain?: number | null; nowRank?: number | null; chgSincePrev: number | null; stillGain?: boolean; stillAmt?: boolean; prevBoards?: number; nowBoards?: number; reason: string }
+interface Dropped { prevDate: string | null; windows: Record<string, DropItem[]>; combo: DropItem[]; note?: string; error?: string }
+interface Data { found: boolean; date?: string; dataDate?: string; universe?: number; liquidityGate?: string; method?: string; amtMethod?: string; caveats?: string[]; boards?: Record<string, Board>; combo?: { items: ComboItem[]; byAmt?: ComboItem[] }; dropped?: Dropped }
 
 type Tab = 'combo' | 'd5' | 'd10' | 'd20' | 'd60';
 type Rank = 'gain' | 'amt';   // 窗內分流：漲幅榜／每張淨額榜（2026-09-18）
@@ -105,7 +107,11 @@ export default function SwingHoldBoard() {
     return new Set(b.filter(i => ga.has(i.code)).map(i => i.code));
   }, [tab, data, board]);
   const bothMark = (code: string) => bothSet.has(code) ? <span title="雙榜：同窗同時進漲幅榜與淨額榜前 25 名（漲得多、每張也賺得多）" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(245,158,11,0.16)', color: '#f59e0b', fontWeight: 800 }}>⭐雙榜</span> : null;
-  const codes = useMemo(() => (tab === 'combo' ? (rankBy === 'amt' && data?.combo?.byAmt ? data.combo.byAmt : data?.combo?.items) : (rankBy === 'amt' && board?.byAmt) ? board.byAmt : board?.items)?.map(i => i.code) ?? [], [tab, data, board, rankBy]);
+  const codes = useMemo(() => {
+    const main = (tab === 'combo' ? (rankBy === 'amt' && data?.combo?.byAmt ? data.combo.byAmt : data?.combo?.items) : (rankBy === 'amt' && board?.byAmt) ? board.byAmt : board?.items)?.map(i => i.code) ?? [];
+    const drop = (tab === 'combo' ? data?.dropped?.combo : data?.dropped?.windows?.[tab])?.map(i => i.code) ?? [];
+    return [...new Set([...main, ...drop])];
+  }, [tab, data, board, rankBy]);
   const quotes = useLiveQuotes(codes, 60, { register: false });   // 整張榜不搶快線名額；展開走勢那檔由圖自己登記
 
   if (err) return <div style={{ padding: 20, color: MUTED }}>⚠ 波段持有榜{err}（伺服器暫時讀不到，不是空榜）</div>;
@@ -125,6 +131,13 @@ export default function SwingHoldBoard() {
     const cg = data.combo?.items.find(i => i.code === lookup); if (cg) out.push({ tab: 'combo', label: '整合榜', rank: 'gain', pos: cg.rank, text: `漲幅整合榜 #${cg.rank}（上榜 ${cg.boards}/4）` });
     const ca = data.combo?.byAmt?.find(i => i.code === lookup); if (ca) out.push({ tab: 'combo', label: '整合榜', rank: 'amt', pos: ca.rank, text: `淨額整合榜 #${ca.rank}（上榜 ${ca.boards}/4）` });
     return out;
+  })();
+  const dropHits: string[] = (() => {
+    if (!lookup || !data.dropped) return [];
+    const o: string[] = [];
+    for (const [k, label] of [['d5', '5日'], ['d10', '10日'], ['d20', '20日'], ['d60', '60日']] as [string, string][]) { const d = data.dropped.windows?.[k]?.find(i => i.code === lookup); if (d) o.push(`${label}｜🚪 已離榜（${d.reason}）`); }
+    const dc = data.dropped.combo?.find(i => i.code === lookup); if (dc) o.push(`整合榜｜🚪 已離榜（${dc.reason}）`);
+    return o;
   })();
   const jumpTo = (h: Hit) => {
     setTab(h.tab); setRankBy(h.rank); setOpenCode(null);
@@ -197,8 +210,9 @@ export default function SwingHoldBoard() {
             ))}
             {bothAnywhere(hits) ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>⭐雙榜</span> : null}
             <RiskBadge code={lookup} size="xs" />
+            {dropHits.map(t => <span key={t} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.12)', color: MUTED, fontSize: 'calc(12px * var(--fz))' }}>{t}</span>)}
           </span>
-        ) : <span style={{ color: MUTED }}>{lookup} {allStocks.find(x => x.code === lookup)?.name || ''} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>) : null}
+        ) : <span style={{ color: MUTED, display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}><span>{lookup} {allStocks.find(x => x.code === lookup)?.name || ''} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>{dropHits.map(t => <span key={t} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: 'calc(12px * var(--fz))' }}>{t}</span>)}</span>) : null}
       </div>
       {data.caveats?.length ? (
         <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>
@@ -315,6 +329,41 @@ export default function SwingHoldBoard() {
           </>
         ) : <div style={{ color: MUTED }}>此窗無資料</div>}
       </div>
+      {(() => {
+        const dr = data.dropped; if (!dr) return null;
+        const list = tab === 'combo' ? dr.combo : dr.windows?.[tab];
+        const title = tab === 'combo' ? '整合榜' : `${TABS.find(t => t.id === tab)?.label} 窗`;
+        return (
+          <div style={{ border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.05)', borderRadius: 8, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-primary)', fontWeight: 700 }}>🚪 離榜清單（提醒下車）— {title}｜{dr.prevDate ? `上一資料日 ${dr.prevDate} 在榜、本資料日 ${data.dataDate} 不在` : '沒有上一資料日的定版，無法比對'}{dr.error ? `｜⚠ ${dr.error}` : ''}</div>
+            {!dr.prevDate ? null : !list?.length ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED }}>本窗無離榜股。</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+                  <thead><tr>
+                    <th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>昨日名次</th><th style={head}>昨收 → 今收</th><th style={head} title="自上一資料日收盤到本資料日收盤">變動</th><th style={head}>即時</th>
+                    {tab === 'combo' ? <th style={head}>上榜數</th> : <><th style={head}>昨漲幅</th><th style={head}>今區間漲幅</th></>}
+                    <th style={{ ...head, textAlign: 'left' }}>離榜原因</th>
+                  </tr></thead>
+                  <tbody>
+                    {list.map(it => (
+                      <tr key={it.code} style={{ borderTop: '1px solid var(--border-primary)' }}>
+                        <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit' }}><span style={{ fontFamily: mono, fontWeight: 700, cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)}>{it.code}</span> <span style={{ cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)}>{it.name}</span> <RiskBadge code={it.code} size="xs" /></td>
+                        <td style={cell}>{tab === 'combo' ? `#${it.prevRank}` : [it.prevRank != null ? `漲幅 #${it.prevRank}` : null, it.prevAmtRank != null ? `淨額 #${it.prevAmtRank}` : null].filter(Boolean).join('／')}</td>
+                        <td style={cell}>{it.prevPrice} → {it.price ?? '—'}</td>
+                        <td style={{ ...cell, fontWeight: 700, color: it.chgSincePrev == null ? MUTED : it.chgSincePrev >= 0 ? UP : DOWN }}>{it.chgSincePrev == null ? '—' : `${it.chgSincePrev >= 0 ? '+' : ''}${it.chgSincePrev}%`}</td>
+                        <td style={cell}>{it.price ? liveCell(it.code, it.price) : '—'}</td>
+                        {tab === 'combo' ? <td style={cell}>{it.prevBoards}/4 → {it.nowBoards}/4</td> : <><td style={cell}>+{it.prevGain}%</td><td style={{ ...cell, color: (it.nowGain ?? 0) > 0 ? UP : DOWN }}>{it.nowGain == null ? '—' : `${it.nowGain >= 0 ? '+' : ''}${it.nowGain}%`}</td></>}
+                        <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit', color: MUTED }}>{it.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>{dr.note}</div>
+          </div>
+        );
+      })()}
       <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額＝價差×1000，未扣費稅，還原價口徑，高價股天生佔優。⭐雙榜＝同窗同時進兩榜前 25 名。兩榜都是回顧不是進場訊號。非投資建議。</div>
     </div>
   );
