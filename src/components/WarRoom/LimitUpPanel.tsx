@@ -58,6 +58,9 @@ function isTwTradingHours(): boolean {
   return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
 }
 
+// 數字欄樣式：固定寬、靠右、等寬字——每列的價格／漲跌／模型分／漲停價落在同一個 x 位置，掃讀不用對位
+const NUM_COL = (w: number, color: string, weight = 600): React.CSSProperties => ({ display: 'inline-block', minWidth: w, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', color, fontWeight: weight });
+
 export default function LimitUpPanel() {
   const [data, setData] = useState<LuData | null>(null);
   const [view, setView] = useState<'a' | 'b' | 'stats' | 'review'>('a');
@@ -299,13 +302,21 @@ export default function LimitUpPanel() {
                       <span style={{ fontWeight: 800, minWidth: 42 }}>{p.code}</span>
                       <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
-                      <span style={{ fontWeight: 800, color: p.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.chg >= 0 ? '+' : ''}{p.chg}%</span>
-                      {(() => { const q = quotes[p.code]; if (!q?.price) return null; const d = q.changePercent ?? 0; return <span title="即時價（共用快線）與今日漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>即時 <b>{q.price}</b> <span style={{ color: d >= 0 ? '#f03e3e' : '#2f9e44' }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}%</span></span>; })()}
-                      {p.prevClose != null && <span title="資料日前一交易日的收盤與漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>昨 {p.prevClose} {p.prevChg != null && <span style={{ color: p.prevChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.prevChg >= 0 ? '+' : ''}{p.prevChg}%</span>}</span>}
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>模型分 {p.score}</span>
+                      {/* 數字欄齊頭分欄（使用者 2026-09-22）：固定寬、靠右、等寬字，各列同位置 */}
+                      {/* 現價欄：盤中有即時成交就顯示即時價／今日漲跌（標「即時」），否則顯示資料日收盤（標「收」）——不再另列一組重複的即時欄 */}
+                      {(() => { const q = quotes[p.code]; const isLive = !!q?.price && q.price !== p.price; const px = isLive ? q!.price : p.price; const d = isLive ? (q!.changePercent ?? 0) : p.chg; return (<>
+                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={{ fontSize: 'calc(11.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', width: 26 }}>{isLive ? '即時' : '收'}</span>
+                        <span style={NUM_COL(64, 'var(--text-primary)', 700)}>{px}</span>
+                        <span style={NUM_COL(62, d >= 0 ? '#f03e3e' : '#2f9e44', 800)}>{d >= 0 ? '+' : ''}{(+d).toFixed(2)}%</span>
+                      </>); })()}
+                      <span title="資料日前一交易日的收盤與漲跌" style={{ display: 'inline-flex', gap: 4, alignItems: 'baseline', fontSize: 'calc(12.5px * var(--fz))' }}>
+                        <span style={{ color: 'var(--text-muted)', width: 14 }}>昨</span>
+                        <span style={NUM_COL(64, 'var(--text-muted)')}>{p.prevClose ?? '—'}</span>
+                        <span style={NUM_COL(62, (p.prevChg ?? 0) >= 0 ? '#f03e3e' : '#2f9e44')}>{p.prevChg != null ? `${p.prevChg >= 0 ? '+' : ''}${p.prevChg}%` : '—'}</span>
+                      </span>
+                      <span style={{ ...NUM_COL(92, '#fbbf24', 800), fontSize: 'calc(12.5px * var(--fz))' }}>模型分 {p.score}</span>
                       {p.newsBonus && <span title="題材看漲加分(前瞻·未回測)" style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc' }}>📰題材</span>}
-                      <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>漲停價 {p.limitPrice}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', display: 'inline-flex', gap: 4 }}>漲停價 <span style={NUM_COL(64, 'var(--text-muted)')}>{p.limitPrice}</span></span>
                     </div>
                     {open && (
                       <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
