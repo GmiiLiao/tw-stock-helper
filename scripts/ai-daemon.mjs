@@ -7370,6 +7370,34 @@ async function computeSqueezePicks() {
     count: items.length,
   });
   log(`✓ 軋空候選 ${items.length} 檔｜模式 ${mode}｜資料日 ${_archDate}｜適用交易日 ${targetDate}`);
+  // ── 🚪 當日入選／離榜對照（2026-09-22 使用者：戰情室也要離榜清單）──
+  //   盤中每 3 分鐘重算，候選會進進出出；latest 只有「此刻在榜」，看不到「早上入選、現在掉了」。
+  //   記一本當日帳 squeezePicksLedger/{日曆日}：每檔第一次入選的時間／價／漲幅／分級、最後在榜的值、離榜時間與離榜時的即時價，
+  //   再入選會清掉 dropped 並累計 reentries。只在 intraday 模式記（盤後 nextday 清單是給明天用的，不能把今天的全標成離榜）。
+  if (mode === 'intraday') {
+    try {
+      const day = isoDate(taipei()); const now = Date.now();
+      const ref = db.collection('squeezePicksLedger').doc(day);
+      const led = (await ref.get()).data() || { date: day, entries: {} };
+      const cur = new Map(items.map(i => [i.code, i]));
+      for (const it of items) {
+        const e = led.entries[it.code];
+        if (!e) led.entries[it.code] = { code: it.code, name: it.name, firstAt: now, entryPrice: it.price, entryChg: it.chg, entryTier: it.tier, entryRatio: it.ratio, lastAt: now, lastPrice: it.price, lastChg: it.chg, lastTier: it.tier, dropped: false, dropAt: null, dropPrice: null, dropChg: null, dropReason: null, reentries: 0 };
+        else { if (e.dropped) { e.dropped = false; e.dropAt = null; e.dropPrice = null; e.dropChg = null; e.dropReason = null; e.reentries = (e.reentries || 0) + 1; } e.lastAt = now; e.lastPrice = it.price; e.lastChg = it.chg; e.lastTier = it.tier; e.name = it.name || e.name; }
+      }
+      for (const code in led.entries) {
+        const e = led.entries[code]; if (cur.has(code) || e.dropped) continue;
+        const q = quo[code]; const chgNow = q?.changePercent;
+        e.dropped = true; e.dropAt = now; e.dropPrice = q?.price ?? e.lastPrice; e.dropChg = chgNow ?? e.lastChg;
+        e.dropReason = chgNow == null ? '離榜時無即時價，原因未知' : chgNow < 5 ? `漲幅跌破 5%（離榜時 ${chgNow.toFixed(2)}%）` : '漲幅仍≥5%，券資比／融券日增／量能條件已不符';
+      }
+      const entries = Object.values(led.entries);
+      const doc = { ...led, mode, updatedAt: now, count: entries.length, droppedCount: entries.filter(e => e.dropped).length, onBoard: entries.length - entries.filter(e => e.dropped).length,
+        note: '入選＝當日盤中第一次進入軋空候選；離榜＝之後某輪不在候選內。對照用入選時的價／漲幅 vs 離榜時的即時價／漲幅；再入選次數另計。回顧不是進出場訊號。' };
+      await ref.set(doc); await db.collection('squeezePicksLedger').doc('latest').set(doc);
+      log(`  · 軋空當日帳 ${day}：入選 ${doc.count} 檔，在榜 ${doc.onBoard}，離榜 ${doc.droppedCount}`);
+    } catch (e) { log(`  ⚠ 軋空當日帳：${(e?.message || '').slice(0, 100)}`); }
+  }
 }
 
 async function sectorLoop() {

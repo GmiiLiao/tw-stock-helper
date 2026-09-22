@@ -9,6 +9,7 @@ import { isMarketOpen } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
 interface Item {
@@ -40,6 +41,8 @@ interface Rec {
   intlRegime?: 'ok' | 'bear' | null; intlRegimeNote?: string;
   global?: Record<string, { chg?: number | null; date?: string }>;
 }
+interface LedgerEntry { code: string; name: string; firstAt: number; entryPrice: number; entryChg: number; entryTier: number; lastAt: number; lastPrice: number; lastChg: number; lastTier: number; dropped: boolean; dropAt: number | null; dropPrice: number | null; dropChg: number | null; dropReason: string | null; reentries: number }
+interface Ledger { date: string; mode?: string; updatedAt: number; count: number; droppedCount: number; onBoard: number; entries: Record<string, LedgerEntry>; note?: string }
 interface Data {
   updatedAt: number; priceDate: string; marginDate: string; rule: string;
   mode?: string; targetDate?: string | null; archDate?: string | null; instDate?: string | null;
@@ -58,6 +61,7 @@ const fmtSigned = (v?: number | null) =>
 export default function SqueezePanel() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<Data | null>(null);
+  const [ledger, setLedger] = useState<Ledger | null>(null);   // 🚪 當日入選／離榜帳（2026-09-22）
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
   const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄、現價改標「即時」（09-17）
   const [rec, setRec] = useState<Rec | null>(null);
@@ -71,6 +75,7 @@ export default function SqueezePanel() {
       fetch('/api/ai/squeeze-picks').then(r => (r.ok ? r.json() : null))
         .then(x => { if (live && x && !x.error) setD(x); }).catch(() => {})
         .finally(() => { if (live) setLoading(false); });
+      fetch('/api/ai/squeeze-ledger').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x && x.entries) setLedger(x); }).catch(() => {});
       fetch('/api/ai/squeeze-recommend').then(r => (r.ok ? r.json() : null))
         .then(x => { if (live && x && !x.error && x.items) setRec(x); }).catch(() => {});
       fetch('/api/twse/market-pulse').then(r => (r.ok ? r.json() : null))
@@ -386,6 +391,42 @@ export default function SqueezePanel() {
         </div>
       )}
 
+      {(() => {
+        if (!ledger) return null;
+        const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+        if (ledger.date !== today) return null;   // 只顯示當日帳；隔天沒新帳前不拿昨天的充數
+        const dropped = Object.values(ledger.entries).filter(e => e.dropped).sort((a, b) => (b.dropAt ?? 0) - (a.dropAt ?? 0));
+        const hhmm = (t: number | null) => (t ? new Date(t).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' }) : '—');
+        const pct = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
+        return (
+          <div style={{ marginTop: 12, border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.05)', borderRadius: 8, padding: '8px 12px' }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, marginBottom: 4 }}>🚪 當日離榜（入選 → 離榜對照）｜{ledger.date} 累計入選 {ledger.count} 檔，在榜 {ledger.onBoard}，離榜 {ledger.droppedCount}</div>
+            {!dropped.length ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>今日尚無離榜股。</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 620 }}>
+                  <thead><tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
+                    <th style={{ padding: '4px 4px', textAlign: 'left' }}>代號/名稱</th><th style={{ padding: '4px 4px' }}>入選</th><th style={{ padding: '4px 4px' }}>入選價／漲幅</th><th style={{ padding: '4px 4px' }}>離榜</th><th style={{ padding: '4px 4px' }}>離榜價／漲幅</th><th style={{ padding: '4px 4px' }} title="離榜價相對入選價">入選→離榜</th><th style={{ padding: '4px 4px' }}>再入選</th><th style={{ padding: '4px 4px', textAlign: 'left' }}>原因</th>
+                  </tr></thead>
+                  <tbody>
+                    {dropped.map(e => { const mv = e.dropPrice && e.entryPrice ? (e.dropPrice / e.entryPrice - 1) * 100 : null; return (
+                      <tr key={e.code} style={{ borderTop: '1px solid var(--border-primary)', textAlign: 'right' }}>
+                        <td style={{ padding: '4px 4px', textAlign: 'left', whiteSpace: 'nowrap' }}><span style={{ fontWeight: 700, cursor: 'pointer' }} onClick={() => navigateTo('stock', e.code)}>{e.code}</span> {e.name} {(() => { const st = statusOf(dt, e.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={e.code} size="xs" /></td>
+                        <td style={{ padding: '4px 4px' }}>{hhmm(e.firstAt)} {e.entryTier === 4 ? '⭐⭐⭐⭐' : e.entryTier === 3 ? '⭐⭐⭐' : e.entryTier === 2 ? '⭐⭐' : e.entryTier === 1 ? '⭐' : '⚠'}</td>
+                        <td style={{ padding: '4px 4px' }}>{e.entryPrice} <span style={{ color: numColor(e.entryChg) }}>{pct(e.entryChg)}</span></td>
+                        <td style={{ padding: '4px 4px' }}>{hhmm(e.dropAt)}</td>
+                        <td style={{ padding: '4px 4px' }}>{e.dropPrice ?? '—'} <span style={{ color: numColor(e.dropChg) }}>{pct(e.dropChg)}</span></td>
+                        <td style={{ padding: '4px 4px', fontWeight: 700, color: numColor(mv) }}>{pct(mv)}</td>
+                        <td style={{ padding: '4px 4px' }}>{e.reentries || 0}</td>
+                        <td style={{ padding: '4px 4px', textAlign: 'left', color: 'var(--text-muted)' }}>{e.dropReason || '—'}</td>
+                      </tr>); })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>{ledger.note}</div>
+          </div>
+        );
+      })()}
       <div style={{ marginTop: 10, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         規則：{d?.rule || '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10'}。
         「軋空啟動(A)」沿用站上撿尾盤既有的同名訊號（昨日融券增≥昨量0.5%，2 年稽核），不另立第二套定義。

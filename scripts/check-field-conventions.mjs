@@ -39,6 +39,8 @@ export const AT_ALLOWLIST = new Set([
   // pxAt：判別時點價（px）所取自的快照時刻（newsVerdict 各筆，2026-09-17 M1-b）。
   //   與 at（判別產出時刻）、verdictAt 分開——它記的是「這個價格是何時的」，對答案用。
   'pxAt',
+  // firstAt／lastAt／dropAt：軋空當日帳（squeezePicksLedger）每檔第一次入選、最後在榜、離榜的時刻（2026-09-22）。
+  'firstAt', 'lastAt', 'dropAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',

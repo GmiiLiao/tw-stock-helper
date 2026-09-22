@@ -66,6 +66,7 @@ const CONTRACTS = [
   // 軋空候選（2026-08-26）：允許 0 檔——條件嚴格，沒有符合的日子是正常結果，
   // 不可因為空榜就判定資料壞掉（allowEmpty）。
   { c: 'squeezePicks',     kind: 'latest',  maxStale: 40 * MIN,  session: 'intraday', allowEmpty: true },
+  { c: 'squeezePicksLedger', kind: 'latest', maxStale: 40 * MIN, session: 'intraday', allowEmpty: true },   // 🚪 軋空當日入選／離榜帳（2026-09-22）
   // 開盤前新聞判別（每交易日 08:00 由本機 AI 產出）：盤中查它會是「今早那份」，
   // 故放寬到 20 小時；空榜正常（沒有候選就沒有判別）。
   { c: 'squeezeRecommend', kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true, preopen: true },
