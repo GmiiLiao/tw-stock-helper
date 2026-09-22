@@ -5,15 +5,17 @@
 // B榜：今日已漲停者的連板持續評估（縮量鎖死連板 > 爆量首板）。
 // scoreboard：每日預測自動對答案的真實成績。資料：/api/ai/limitup-forecast。非投資建議。
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { useAppStore } from '@/lib/store';
+import { useLiveQuotes } from '@/lib/useLiveQuotes';
 
 interface APick {
   code: string; name: string; market: string; price: number; chg: number;
+  prevClose?: number; prevChg?: number | null;   // 昨日價格／漲跌（daemon 2026-09-22 起提供）
   score: number; reasons: string[]; newsBonus: boolean; volX: number; luCnt5: number; limitPrice: number;
 }
 interface BPick {
@@ -63,13 +65,19 @@ export default function LimitUpPanel() {
   const [ctl, setCtl] = usePickControls();
   const [onlyCand, setOnlyCand] = useState(false);
   const candSet = new Set(useAppStore(st => st.compareCodes));
+  // 即時價（2026-09-22 使用者）：hook 必須在任何 early return 之前；共用快線、不佔瀏覽名額
+  const liveCodes = useMemo(() => (data?.aList || []).map(x => x.code), [data]);
+  const quotes = useLiveQuotes(liveCodes, 60, { register: false });
 
   useEffect(() => {
     let live = true;
     const load = () => fetch('/api/ai/limitup-forecast').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
     load();
-    const t = setInterval(load, isTwTradingHours() ? 60000 : 300000);
-    return () => { live = false; clearInterval(t); };
+    // 間隔每拍重算（原本三元在掛載時算死：盤中掛的分頁收盤後仍每分鐘打，見 feedback 記憶）
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => { load(); t = setTimeout(tick, isTwTradingHours() ? 60000 : 300000); };
+    t = setTimeout(tick, isTwTradingHours() ? 60000 : 300000);
+    return () => { live = false; clearTimeout(t); };
   }, []);
 
   if (!data) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 4px' }}>載入漲停預測…</div>;
@@ -293,6 +301,8 @@ export default function LimitUpPanel() {
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                       <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
                       <span style={{ fontWeight: 800, color: p.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.chg >= 0 ? '+' : ''}{p.chg}%</span>
+                      {(() => { const q = quotes[p.code]; if (!q?.price) return null; const d = q.changePercent ?? 0; return <span title="即時價（共用快線）與今日漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>即時 <b>{q.price}</b> <span style={{ color: d >= 0 ? '#f03e3e' : '#2f9e44' }}>{d >= 0 ? '+' : ''}{d.toFixed(2)}%</span></span>; })()}
+                      {p.prevClose != null && <span title="資料日前一交易日的收盤與漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>昨 {p.prevClose} {p.prevChg != null && <span style={{ color: p.prevChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.prevChg >= 0 ? '+' : ''}{p.prevChg}%</span>}</span>}
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#fbbf24' }}>模型分 {p.score}</span>
                       {p.newsBonus && <span title="題材看漲加分(前瞻·未回測)" style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc' }}>📰題材</span>}
                       <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>漲停價 {p.limitPrice}</span>

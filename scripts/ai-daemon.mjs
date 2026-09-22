@@ -12554,6 +12554,9 @@ async function computeLimitUpForecast() {
     const name = (q?.name || '').trim() || code;
     const item = {
       code, name, market: q?.market || 'tse', price: +c0.toFixed(2), chg: +feats.chg0.toFixed(2),
+      // 昨日價格／漲跌（2026-09-22 使用者）：資料日前一交易日的收盤與其漲跌；即時價由前端快線帶入
+      prevClose: +pc.toFixed(2),
+      prevChg: (() => { const pp = series[t - 2]?.close[code]?.[0]; return pp > 0 ? +((pc / pp - 1) * 100).toFixed(2) : null; })(),
       score: +score.toFixed(2), reasons: reasons.slice(0, 5), newsBonus,
       volX: +feats.volX.toFixed(1), luCnt5, limitPrice: luLimitPrice(c0),
     };

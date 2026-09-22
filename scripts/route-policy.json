@@ -2,8 +2,8 @@
   "_doc": "scripts/audit-routes.mjs 的封閉世界政策。exemptMutating：無 auth 也無 rateLimit 的 mutating route 豁免＋理由（過期即紅）。getNoCacheBaseline：GET 無 cache 宣告的支數上限，雙向 Ratchet（多了紅、少了要降基線）。",
   "exemptMutating": {},
   "getNoCacheBaseline": 1,
-  "pollNoGateBaseline": 23,
-  "_pollNoGateNote": "2026-09-18 QuoteGrid 接 gate → 23；2026-09-04 量測 24 檔（docs/OPTIMIZATION-TODO.md 的 F5 清單）；每接一檔 gate 就把這個數字降 1，雙向 Ratchet 會逼你更新",
+  "pollNoGateBaseline": 22,
+  "_pollNoGateNote": "2026-09-22 LimitUpPanel 改遞迴 setTimeout → 22；2026-09-18 QuoteGrid 接 gate → 23；2026-09-04 量測 24 檔（docs/OPTIMIZATION-TODO.md 的 F5 清單）；每接一檔 gate 就把這個數字降 1，雙向 Ratchet 會逼你更新",
   "_getNoCacheKnown": [
     "/cron/daily-close（CRON_SECRET 保護的觸發端點，GET 只給手動觸發，不進 CDN）"
   ]
