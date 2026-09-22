@@ -37,8 +37,13 @@ interface Pulse {
   volNote?: string;
 }
 interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; chain?: string | null; basis: string; n?: number; nMaterial?: number; stale?: boolean; ageDays?: number | null }
-interface RecItem extends Item { verdict?: Verdict; primary?: boolean; events?: Array<{ date: string; title: string; type?: string; impact?: string }>; news?: { checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number }> } }
+interface ReasonType { types: string[]; tone: 'green' | 'grey' | 'none' }
+interface ChainLink { anchor?: string | null; anchorText?: string; n?: number; corr?: number | null; upRate?: number | null; upDays?: number; score: number | null; note?: string }
+interface ReviewStat { n: number; mean: number | null; win: number | null }
+interface Review { updatedAt: number; basis: string; days: number; bull: ReviewStat; neutral: ReviewStat; bear: ReviewStat; newsLift: number | null; byConf?: Record<string, ReviewStat>; byReasonType?: Record<string, ReviewStat>; byTone?: Record<string, ReviewStat>; conclusive?: boolean }
+interface RecItem extends Item { reasonType?: ReasonType; chainLink?: ChainLink | null; newsScore?: number; verdict?: Verdict; primary?: boolean; events?: Array<{ date: string; title: string; type?: string; impact?: string }>; news?: { stale?: boolean; ageDays?: number | null; checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number; from?: string; generic?: boolean }> } }
 interface Rec {
+  ranking?: string;
   updatedAt: number; targetDate: string | null; archDate: string | null; mode: string | null;
   modelMain: string | null; modelSqueeze: string | null; modelRunId: string | null;
   items: RecItem[]; primaryCount: number; newsSource?: string;
@@ -72,6 +77,7 @@ export default function SqueezePanel() {
   const passLearn = (it: Item) => !((it.ret5 != null && it.ret5 >= 15) || (it.volX >= 3) || (it.chg >= 7 && it.chg < 9));
   const passMacd = (it: Item) => !!it.macd?.ok;
   const [ledger, setLedger] = useState<Ledger | null>(null);   // 🚪 當日入選／離榜帳（2026-09-22）
+  const [review, setReview] = useState<Review | null>(null);   // 新聞判別對答案（今收→明開口徑）常駐頂部
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
   const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄、現價改標「即時」（09-17）
   const [rec, setRec] = useState<Rec | null>(null);
@@ -86,6 +92,7 @@ export default function SqueezePanel() {
         .then(x => { if (live && x && !x.error) setD(x); }).catch(() => {})
         .finally(() => { if (live) setLoading(false); });
       fetch('/api/ai/squeeze-ledger').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x && x.entries) setLedger(x); }).catch(() => {});
+      fetch('/api/ai/news-verdict-review').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x && x.bull) setReview(x); }).catch(() => {});
       fetch('/api/ai/squeeze-recommend').then(r => (r.ok ? r.json() : null))
         .then(x => { if (live && x && !x.error && x.items) setRec(x); }).catch(() => {});
       fetch('/api/twse/market-pulse').then(r => (r.ok ? r.json() : null))
@@ -240,10 +247,21 @@ export default function SqueezePanel() {
                   （41 個交易日、397 筆），與擲硬幣相當。建議減碼或觀望。
                 </div>
               )}
-              適用 <b>{rec.targetDate ?? '—'}</b> · 主力推薦 {rec.primaryCount} 檔 · 來源 {rec.newsSource ?? '—'} ·
+              適用 <b>{rec.targetDate ?? '—'}</b> · 排序＝<b>籌碼分級</b> → 新聞加權（理由類型＋連動量化）· 新聞只當註解，信心等級不進規則 · 來源 {rec.newsSource ?? '—'} ·
               {rec.modelMain ? <> 模型 <code>{rec.modelMain}</code></> : ' 尚無模型'}
             </span>
           </div>
+          {review && (() => {
+            const f = (st?: ReviewStat) => (st && st.n ? `${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '—');
+            const rt = review.byReasonType || {}; const bc = review.byConf || {}; const bt = review.byTone || {};
+            return (
+              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', lineHeight: 1.6 }}>
+                <div><b style={{ color: 'var(--text-primary)' }}>📊 對答案（{review.days} 個交易日，今收→明開）</b>：利多 {f(review.bull)}｜中性 {f(review.neutral)}｜利空 {f(review.bear)}｜newsLift <b style={{ color: (review.newsLift ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{review.newsLift ?? '—'}</b>{review.conclusive ? '' : '（樣本未達門檻）'}</div>
+                <div>利多×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['利多·' + c])}`).join('｜')}　中性×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['中性·' + c])}`).join('｜')}</div>
+                <div>利多理由類型：{['本業事實', '技術產品', '題材', '法人動作', '價格描述'].map(t => `${t} ${f(rt[t])}`).join('｜')}　色調：<span style={{ color: '#22c55e' }}>綠 {f(bt.green)}</span>｜灰 {f(bt.grey)}</div>
+              </div>
+            );
+          })()}
           {rec.global && Object.keys(rec.global).length > 0 && (
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
               昨夜國際盤：{['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
@@ -262,11 +280,10 @@ export default function SqueezePanel() {
               return (
                 <div key={it.code} data-anchor={it.code} style={{
                   padding: '7px 11px', borderRadius: 8,
-                  background: it.primary ? 'rgba(34,197,94,0.08)' : 'var(--bg-elevated)',
-                  border: `1px solid ${it.primary ? 'rgba(34,197,94,0.45)' : 'var(--border-primary)'}`,
+                  background: 'var(--bg-elevated)',
+                  border: `1px solid ${it.reasonType?.tone === 'green' && v?.bullish ? 'rgba(34,197,94,0.35)' : 'var(--border-primary)'}`,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    {it.primary && <span style={{ fontWeight: 800, color: '#22c55e' }}>★ 主力推薦</span>}
                     <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
                       style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
                       {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
@@ -277,12 +294,18 @@ export default function SqueezePanel() {
                     <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
                     <span style={{ color: 'var(--text-muted)' }}>券資比 {it.ratio}%</span>
                     <span style={{ padding: '1px 8px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' }}>
-                      {v?.label ?? '—'}{v?.confidence ? `·信心${v.confidence}` : ''}
+                      {v?.label ?? '—'}
                     </span>
+                    {v?.confidence && <span title="AI 自報信心，對答案顯示無分辨力（信心高反而比信心低差），已不進任何規則，僅供參考" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>信心{v.confidence}（不進規則）</span>}
+                    {it.reasonType?.types?.length ? it.reasonType.types.map(t => {
+                      const green = t === '本業事實' || t === '技術產品';
+                      return <span key={t} title={green ? '歷史：本業事實 +1.03%、技術產品 +2.95%（收盤均）' : '歷史為負：題材 −0.73%、法人動作 −0.56%、價格描述 −3.19%（收盤均）'} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, background: green ? 'rgba(34,197,94,0.16)' : 'rgba(148,163,184,0.16)', color: green ? '#22c55e' : '#94a3b8' }}>{t}{green ? '' : '·歷史為負'}</span>;
+                    }) : null}
+                    {it.newsScore != null && <span title="新聞加權＝理由類型（綠 +1／灰 −0.5）＋連動量化（0～1）；只在同一籌碼分級內排序" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>加權 {it.newsScore >= 0 ? '+' : ''}{it.newsScore}</span>}
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                       依據{v?.basis === 'content' ? '內文' : v?.basis === 'title' ? '僅標題' : v?.basis === 'event' ? '排定事件' : '無資料'}
                       {v?.stale && <span style={{ color: '#f59e0b', marginLeft: 3 }}>⏳{v.ageDays}天前舊聞</span>}
-                      {it.news ? `｜2日內 ${it.news.checked} 則（實質 ${it.news.material}／純行情 ${it.news.priceOnly} 不計）` : ''}
+                      {it.news ? `｜${it.news.stale ? '回溯' : '2日內'} ${it.news.checked} 則（實質 ${it.news.material}／純行情 ${it.news.priceOnly} 不計）` : ''}
                     </span>
                   </div>
                   <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -296,6 +319,11 @@ export default function SqueezePanel() {
                   {v?.chain && (
                     <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#a78bfa', marginTop: 1 }}>
                       🔗 連動：{v.chain}
+                      {it.chainLink ? (
+                        it.chainLink.score != null
+                          ? <span style={{ marginLeft: 6, color: 'var(--text-muted)' }} title="60 日日報酬相關係數（截到 0～1 當加權分）與「來源漲≥1.5% 時本檔同漲率」，由收盤資料算，不是 AI 猜">｜來源 {it.chainLink.anchor}：60 日相關 <b style={{ color: (it.chainLink.corr ?? 0) >= 0.4 ? '#22c55e' : 'var(--text-muted)' }}>{it.chainLink.corr}</b>{it.chainLink.upRate != null ? `，來源漲≥1.5% 時同漲 ${it.chainLink.upRate}%（${it.chainLink.upDays} 日）` : ''} → 加權 +{it.chainLink.score}</span>
+                          : <span style={{ marginLeft: 6, color: '#f59e0b' }}>｜{it.chainLink.note}{it.chainLink.anchorText ? `（AI 給的來源：${it.chainLink.anchorText}）` : ''}</span>
+                      ) : null}
                     </div>
                   )}
                   {v?.risk && v.risk !== '無' && (

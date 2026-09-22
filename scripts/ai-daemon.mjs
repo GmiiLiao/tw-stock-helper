@@ -5420,6 +5420,7 @@ ${body || '（近 2 日無實質新聞）'}
 信心: 高/中/低
 理由: （一句話，50 字內，須指出是哪一則新聞的什麼事實）
 連動: （一句話，60 字內，國際局勢或產業鏈的傳導路徑；沒有用到寫「無」）
+連動來源: （連動的來源標的：**台股代號**優先（如 2330），否則公司名或產業名；沒有連動寫「無」）
 風險: （一句話，50 字內，指出這個判斷最大的不確定性；無明顯風險寫「無」）`;
     // 判別是分類任務，低溫以求一致（見 _ollamaRaw 的溫度註解）
     const ans = await askOllama(prompt, { priority: 1, temperature: NEWS_TEMP });
@@ -5439,6 +5440,7 @@ ${body || '（近 2 日無實質新聞）'}
       const mr = ans.match(/理由\s*[:：]\s*(.+)/);
       const mk = ans.match(/風險\s*[:：]\s*(.+)/);
       const ml = ans.match(/連動\s*[:：]\s*(.+)/);
+      const mla = ans.match(/連動來源\s*[:：]\s*(.+)/);
       const label = mv ? mv[1] : '中性';
       verdict = {
         label, bullish: label === '利多',
@@ -5463,6 +5465,7 @@ ${body || '（近 2 日無實質新聞）'}
         chain: ml && !/^無$/.test(ml[1].trim())
           ? ml[1].trim().replace(/\$?\\(?:rightarrow|to|Rightarrow)\$?/g, '→').replace(/\s*->\s*/g, ' → ').replace(/\s+/g, ' ').slice(0, 80)
           : null,   // 國際局勢／產業鏈傳導路徑
+        chainAnchor: mla && !/^無/.test(mla[1].trim()) ? mla[1].trim().slice(0, 30) : null,   // 連動來源（代號／公司／產業），供量化連動加權
         basis, n: recent.length, nMaterial: material.length,
         stale, ageDays,
       };
@@ -6133,6 +6136,7 @@ async function computeNewsVerdictReview(days = 40) {
   if (arch.length < 2) return false;
   const byDate = {};
   for (const a of arch) byDate[a.date] = JSON.parse(a.closeJson || '{}');
+  const dsorted = Object.keys(byDate).sort(); const prevOf = {}; for (let i = 1; i < dsorted.length; i++) prevOf[dsorted[i]] = dsorted[i - 1];
 
   const snap = await db.collection('newsVerdict')
     .orderBy('targetDate', 'desc').limit(days).get();
@@ -6155,9 +6159,13 @@ async function computeNewsVerdictReview(days = 40) {
       if (!Array.isArray(row)) continue;
       const close = +row[0], open = +row[2];
       if (!(open > 0) || !(close > 0)) continue;  // 缺 OHLC 就跳過，不用收盤頂替
+      // 2026-09-22 使用者決策：口徑改「今收→明開」（前一交易日收盤→適用日開盤），與隔日沖的進出場一致；
+      //   原本的「開→收」是當沖口徑，量錯了對象。缺前一日收盤就跳過。
+      const prevClose = +(byDate[prevOf[day]]?.[code]?.[0] ?? 0);
+      if (!(prevClose > 0)) continue;
       const label = v[code].label;
       if (!groups[label]) continue;
-      groups[label].push({ day, code, ret: (close - open) / open * 100, conf: v[code].confidence });
+      groups[label].push({ day, code, ret: (open - prevClose) / prevClose * 100, dt: (close - open) / open * 100, conf: v[code].confidence || '?', rt: classifyReason(v[code]) });
       used++;
     }
     if (used) usedDays++;
@@ -6173,12 +6181,20 @@ async function computeNewsVerdictReview(days = 40) {
   // newsLift ＝ 判利多組相對中性組的超額。中性組是這條策略的對照組。
   const lift = (bull.mean != null && neu.mean != null) ? +(bull.mean - neu.mean).toFixed(3) : null;
 
+  // 分組：利多×信心、理由類型、色調（2026-09-22）；當沖口徑另存 intraday 供對照
+  const byConf = {}; for (const l of ['利多', '中性']) for (const c of ['高', '中', '低']) byConf[`${l}·${c}`] = stat(groups[l].filter(x => x.conf === c));
+  const byReasonType = {}; for (const t of ['本業事實', '技術產品', '題材', '法人動作', '價格描述']) byReasonType[t] = stat(groups.利多.filter(x => x.rt.types.includes(t)));
+  const byTone = {}; for (const t of ['green', 'grey', 'none']) byTone[t] = stat(groups.利多.filter(x => x.rt.tone === t));
+  const dtStat = arr => stat(arr.map(x => ({ ...x, ret: x.dt })));
+
   await db.collection('newsVerdictReview').doc('summary').set({
     updatedAt: Date.now(),
-    basis: '適用交易日的開盤→收盤報酬(%)；判別於開盤前既有，故可據以進場',
+    basis: '前一交易日收盤→適用交易日開盤報酬(%)（隔日沖口徑；2026-09-22 起）；判別於開盤前既有，故可據以進場',
     days: usedDays,
     bull, bear, neutral: neu,
     newsLift: lift,
+    byConf, byReasonType, byTone,
+    intraday: { basis: '適用日開盤→收盤（當沖口徑，僅對照）', bull: dtStat(groups.利多), neutral: dtStat(groups.中性), bear: dtStat(groups.利空) },
     // ⚠ 樣本不足時**不給結論**，也不要讓下游誤以為已驗證
     conclusive: !!(bull.n >= 200 && neu.n >= 200 && usedDays >= 15),
     note: '樣本未達門檻前不得據此調整係數。非投資建議。',
@@ -6565,9 +6581,10 @@ async function computeLimitUpNewsVerdict(deadlineMins = null) {
         stale, ageDays,
         checked: recent.length, material: material.length, priceOnly: recent.length - material.length,
         basis: verdict.basis,
-        top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at, from: n.bodyFrom || n.src || '', generic: !!n.bodyGeneric })),
+        top: (withBody.length ? withBody : material).slice().sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at, from: n.bodyFrom || n.src || '', generic: !!n.bodyGeneric })),
       },
       verdict,
+      reasonType: classifyReason(verdict),
       primary: verdict.bullish && verdict.confidence !== '低' && !stale,
     });
     await sleep(600);
@@ -6592,11 +6609,59 @@ async function computeLimitUpNewsVerdict(deadlineMins = null) {
   log(`✓ 漲停新聞判別（適用 ${targetDate ?? '?'}）：${out.length} 檔，讀到內文 ${doc.withContent} 檔，主力推薦 ${doc.primaryCount} 檔`);
 }
 
+// ── 理由類型（2026-09-22 使用者：信心等級不再用於規則，改用理由類型當標記）──
+//   138 筆事前判別對答案（隔日開盤對前一日收）：本業事實 +1.03%／技術產品 +2.95%（收盤均），
+//   題材 −0.73%／法人動作 −0.56%／價格描述 −3.19%。綠＝本業事實或技術產品；灰＝只有題材／法人／價格描述。
+const REASON_TYPES = [
+  ['本業事實', /營收|訂單|出貨|接單|獲利|EPS|合約|得標|產能|財測|擴產|併購|營運/],
+  ['技術產品', /技術|產品|發表|展示|導入|認證|量產|新品|平台|規格/],
+  ['法人動作', /外資|法人|買超|投信|自營|籌碼/],
+  ['價格描述', /漲停|大漲|強勢|股價|飆|亮燈|創高|漲勢|走勢/],
+  ['題材', /AI|人工智慧|資料中心|CoWoS|光通訊|概念|題材|族群|受惠|趨勢|需求/],
+];
+function classifyReason(v) {
+  const text = [v?.reason, v?.impactPath, v?.keyQuote, v?.eventType].filter(Boolean).join('｜');
+  const types = [];
+  if (['訂單', '財測', '擴產', '併購', '營收財報'].includes(v?.eventType)) types.push('本業事實');
+  if (v?.eventType === '新產品') types.push('技術產品');
+  for (const [name, re] of REASON_TYPES) if (!types.includes(name) && re.test(text)) types.push(name);
+  const green = types.includes('本業事實') || types.includes('技術產品');
+  const grey = !green && types.some(t => ['題材', '法人動作', '價格描述'].includes(t));
+  return { types, tone: green ? 'green' : grey ? 'grey' : 'none' };
+}
+// 連動來源 → 台股代號：代號直接用；否則用宇宙名稱比對（完全相同＞前綴＞包含）；產業名解析不到就回 null（不加分、明說）
+function resolveAnchorCode(text, selfCode) {
+  if (!text) return null;
+  const m = text.match(/\b(\d{4})\b/); if (m && m[1] !== selfCode) return m[1];
+  const q = text.replace(/[（(].*?[）)]/g, '').trim(); if (!q) return null;
+  const pool = (_codesCache || []).filter(c => c.code !== selfCode);
+  const hit = pool.find(c => c.name === q) || pool.find(c => c.name.length >= 2 && q.startsWith(c.name)) || pool.find(c => c.name.length >= 2 && q.includes(c.name));
+  return hit ? hit.code : null;
+}
+// 連動量化（2026-09-22 使用者：要精準的連動加權，不用大略分）：60 日日報酬相關係數＋「來源漲≥1.5% 時本檔同漲率」
+//   score＝相關係數截到 [0,1]，n<40 不給分。這是資料算出來的，不是 AI 猜的；prompt 的「連動」文字只當說明。
+function chainLinkScore(closeMaps, code, anchor) {
+  if (!anchor || !closeMaps?.length) return null;
+  const rs = [], ra = [];
+  for (let i = 1; i < closeMaps.length; i++) {
+    const s0 = closeMaps[i - 1]?.[code]?.[0], s1 = closeMaps[i]?.[code]?.[0], a0 = closeMaps[i - 1]?.[anchor]?.[0], a1 = closeMaps[i]?.[anchor]?.[0];
+    if (!(s0 > 0 && s1 > 0 && a0 > 0 && a1 > 0)) continue;
+    rs.push(s1 / s0 - 1); ra.push(a1 / a0 - 1);
+  }
+  const n = rs.length; if (n < 40) return { anchor, n, corr: null, upRate: null, score: null, note: `60 日內配對資料僅 ${n} 日，不足 40，不加分` };
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length; const ms = mean(rs), ma = mean(ra);
+  let cov = 0, vs = 0, va = 0; for (let i = 0; i < n; i++) { cov += (rs[i] - ms) * (ra[i] - ma); vs += (rs[i] - ms) ** 2; va += (ra[i] - ma) ** 2; }
+  const corr = vs > 0 && va > 0 ? cov / Math.sqrt(vs * va) : 0;
+  const upDays = ra.map((v, i) => [v, rs[i]]).filter(([v]) => v >= 0.015); const upRate = upDays.length >= 5 ? upDays.filter(([, sv]) => sv > 0).length / upDays.length : null;
+  return { anchor, n, corr: +corr.toFixed(2), upRate: upRate == null ? null : +(upRate * 100).toFixed(0), upDays: upDays.length, score: +Math.max(0, Math.min(1, corr)).toFixed(2) };
+}
+
 async function computeSqueezeNewsVerdict() {
   resetNewsSrcUsed();   // 每輪重算，避免標籤累積上一輪的來源
   const picks = (await db.collection('squeezePicks').doc('latest').get()).data();
   if (!picks?.items?.length) { log('  ⚠ 新聞判別：無候選'); return; }
   const model = (await db.collection('squeezeModel').doc('latest').get()).data();
+  const chainMaps = (await readArchive(65, 'closeJson')).slice().reverse().map(a => JSON.parse(a.closeJson));   // 連動量化用 60 日收盤
 
   // 國際盤（美股昨夜已收，此時最完整）
   let gToday = {};
@@ -6638,6 +6703,13 @@ async function computeSqueezeNewsVerdict() {
   for (const it of picks.items.slice(0, 12)) {
     const { verdict, events, stale, ageDays, recent, material, withBody } =
       await judgeOneStock(it, { calMap, gLine, indMap });
+    // 2026-09-22 使用者決策：取消「主力推薦」（利多×信心非低×非舊聞——對答案 60% vs 非主力 60%，信心高反而比信心低差）。
+    //   新聞改為**加權不定序**：newsScore＝理由類型（綠 +1／灰 −0.5／無 0）＋連動量化分（0～1，資料算的；只在判利多時計）。
+    //   排序：籌碼分級 → newsScore → 券資比 → 漲幅。信心等級不進任何規則。
+    const reasonType = classifyReason(verdict);
+    const anchorCode = resolveAnchorCode(verdict.chainAnchor, it.code);
+    const chainLink = verdict.chainAnchor ? (anchorCode ? chainLinkScore(chainMaps, it.code, anchorCode) : { anchor: null, anchorText: verdict.chainAnchor, score: null, note: '連動來源無法對應到台股代號（產業名／外國公司），不加分' }) : null;
+    const newsScore = +(((reasonType.tone === 'green' ? 1 : reasonType.tone === 'grey' ? -0.5 : 0) + (verdict.bullish ? (chainLink?.score ?? 0) : 0))).toFixed(2);
     out.push({
       ...it,
       events,
@@ -6645,15 +6717,15 @@ async function computeSqueezeNewsVerdict() {
         stale, ageDays,
         checked: recent.length, material: material.length, priceOnly: recent.length - material.length,   // priceOnly 現在的語意＝被剔除的機器速報
         basis: verdict.basis,
-        top: (withBody.length ? withBody : material).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at, from: n.bodyFrom || n.src || '', generic: !!n.bodyGeneric })),
+        top: (withBody.length ? withBody : material).slice().sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 3).map(n => ({ title: n.title, link: n.link, at: n.at, from: n.bodyFrom || n.src || '', generic: !!n.bodyGeneric })),   // 新到舊
       },
       verdict,                                   // 每一檔都有判別提示（含中性/資訊不足）
-      // 主力推薦要求：判利多 × 信心非低 × **非舊消息**（舊消息多半已反映）
-      primary: verdict.bullish && verdict.confidence !== '低' && !stale,
+      reasonType, chainLink, newsScore,
+      primary: false,                            // 標籤已取消；欄位留 false 讓舊前端不炸
     });
     await sleep(600);
   }
-  out.sort((a, b) => (b.primary - a.primary) || (b.tier - a.tier) || (b.chg - a.chg));
+  out.sort((a, b) => (b.tier - a.tier) || (b.newsScore - a.newsScore) || (b.ratio - a.ratio) || (b.chg - a.chg));
   // 逐日存檔：新聞判別的價值不能靠說的，要能對答案。存下「當時的判別」
   // 才可能在隔日算出「利多組 vs 中性組」的實際差異（使用者 2026-08-26 要求
   // 累積訓練內容的核心）。latest 供前端讀，日期檔供 squeezeReview 對答案。
@@ -6683,7 +6755,8 @@ async function computeSqueezeNewsVerdict() {
       + '（41 個交易日、397 筆）——與擲硬幣相當。此為揭露，非濾網：'
       + '試過的濾網均未通過安慰劑檢定，詳見實驗紀錄⑤。',
     items: out,
-    primaryCount: out.filter(x => x.primary).length,
+    primaryCount: 0,
+    ranking: '籌碼分級 → 新聞加權（理由類型：綠 +1／灰 −0.5；連動量化 0～1＝與來源標的 60 日相關係數，只在判利多時計）→ 券資比 → 漲幅；信心等級不進任何規則',
     newsSource: newsSourceLabel(),   // 據實回報本輪真正取到新聞的來源（優先序：工商／經濟 → Yahoo／Google → 鉅亨）
     note: '新聞判別由本機 AI 讀內文/標題後給出；機器速報不採計。判別僅為加權，非投資建議。',
   };
@@ -6697,7 +6770,7 @@ async function computeSqueezeNewsVerdict() {
   //   手動 CLI 一律只更新 latest。
   if (picks.targetDate && !ONESHOT) await db.collection('squeezeRecommend').doc(picks.targetDate).set(recDoc);
   else if (picks.targetDate) log(`  · 手動執行：只更新 latest，不覆蓋 ${picks.targetDate} 的事前判別存檔`);
-  log(`✓ 軋空新聞判別（適用 ${picks.targetDate ?? '?'}）：${out.length} 檔，主力推薦 ${out.filter(x => x.primary).length} 檔`);
+  log(`✓ 軋空新聞判別（適用 ${picks.targetDate ?? '?'}）：${out.length} 檔，綠標 ${out.filter(x => x.reasonType?.tone === 'green').length}、連動可量化 ${out.filter(x => x.chainLink?.score != null).length}`);
 }
 
 // ── 國際盤日線歷史：每日合併更新（軋空訓練與判讀的共同底料）──────────
