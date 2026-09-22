@@ -299,9 +299,11 @@ export default function SqueezePanel() {
                     {v?.confidence && <span title="AI 自報信心，對答案顯示無分辨力（信心高反而比信心低差），已不進任何規則，僅供參考" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>信心{v.confidence}（不進規則）</span>}
                     {it.reasonType?.types?.length ? it.reasonType.types.map(t => {
                       const green = t === '本業事實' || t === '技術產品';
-                      return <span key={t} title={green ? '歷史：本業事實 +1.03%、技術產品 +2.95%（收盤均）' : '歷史為負：題材 −0.73%、法人動作 −0.56%、價格描述 −3.19%（收盤均）'} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, background: green ? 'rgba(34,197,94,0.16)' : 'rgba(148,163,184,0.16)', color: green ? '#22c55e' : '#94a3b8' }}>{t}{green ? '' : '·歷史為負'}</span>;
+                      const st = review?.byReasonType?.[t];
+                      const hist = st && st.n ? `對答案 ${review!.days} 日：${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '對答案尚無此類樣本';
+                      return <span key={t} title={`${green ? '本業依據（加權 +1）' : '非本業依據（不加分）'}｜${hist}`} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, background: green ? 'rgba(34,197,94,0.16)' : 'rgba(148,163,184,0.16)', color: green ? '#22c55e' : '#94a3b8' }}>{t}</span>;
                     }) : null}
-                    {it.newsScore != null && <span title="新聞加權＝理由類型（綠 +1／灰 −0.5）＋連動量化（0～1）；只在同一籌碼分級內排序" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>加權 {it.newsScore >= 0 ? '+' : ''}{it.newsScore}</span>}
+                    {it.newsScore != null && <span title="新聞加權＝理由類型（本業事實／技術產品 +1，其它 0）＋連動量化（0～1）；只在同一籌碼分級內排序" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>加權 {it.newsScore >= 0 ? '+' : ''}{it.newsScore}</span>}
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                       依據{v?.basis === 'content' ? '內文' : v?.basis === 'title' ? '僅標題' : v?.basis === 'event' ? '排定事件' : '無資料'}
                       {v?.stale && <span style={{ color: '#f59e0b', marginLeft: 3 }}>⏳{v.ageDays}天前舊聞</span>}

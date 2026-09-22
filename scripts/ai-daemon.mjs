@@ -6610,8 +6610,9 @@ async function computeLimitUpNewsVerdict(deadlineMins = null) {
 }
 
 // ── 理由類型（2026-09-22 使用者：信心等級不再用於規則，改用理由類型當標記）──
-//   138 筆事前判別對答案（隔日開盤對前一日收）：本業事實 +1.03%／技術產品 +2.95%（收盤均），
-//   題材 −0.73%／法人動作 −0.56%／價格描述 −3.19%。綠＝本業事實或技術產品；灰＝只有題材／法人／價格描述。
+//   軋空子集 138 筆（12 日）：題材／法人／價格描述類收盤均為負；但**全母體** 17 日 n≈1,458 用正確口徑（今收→明開）：
+//   本業事實 +0.74%／技術產品 +0.89%／題材 +0.82%／法人 +0.73%／價格描述 +0.49%——差距小、題材不負。
+//   ⇒ 綠＝本業事實或技術產品（+1）；灰＝只有題材／法人／價格描述（**不扣分**，只標示「非本業依據」）。實際數字由 newsVerdictReview 每日更新，面板讀那份。
 const REASON_TYPES = [
   ['本業事實', /營收|訂單|出貨|接單|獲利|EPS|合約|得標|產能|財測|擴產|併購|營運/],
   ['技術產品', /技術|產品|發表|展示|導入|認證|量產|新品|平台|規格/],
@@ -6637,6 +6638,33 @@ function resolveAnchorCode(text, selfCode) {
   const pool = (_codesCache || []).filter(c => c.code !== selfCode);
   const hit = pool.find(c => c.name === q) || pool.find(c => c.name.length >= 2 && q.startsWith(c.name)) || pool.find(c => c.name.length >= 2 && q.includes(c.name));
   return hit ? hit.code : null;
+}
+// 來源是產業名（實測 AI 多半給「半導體產業」「光通訊產業」）→ 對到 peerComps 的產業群，取同群（不含自己）等權日報酬當來源籃
+function resolveAnchorIndustry(text, selfCode, indMap) {
+  if (!text || !indMap) return null;
+  const norm = x => String(x).replace(/產業|類股|族群|概念|業$/g, '').trim();
+  const q = norm(text); if (q.length < 2) return null;
+  const groups = {}; for (const c in indMap) (groups[indMap[c]] ||= []).push(c);
+  const names = Object.keys(groups).sort((a, b) => b.length - a.length);
+  const g = names.find(n => { const nn = norm(n); return nn.length >= 2 && (q.includes(nn) || nn.includes(q)); });
+  if (!g) return null;
+  const codes = groups[g].filter(c => c !== selfCode);
+  return codes.length >= 5 ? { industry: g, codes } : null;
+}
+function chainLinkScoreBasket(closeMaps, code, basket) {
+  if (!basket?.codes?.length || !closeMaps?.length) return null;
+  const rs = [], ra = [];
+  for (let i = 1; i < closeMaps.length; i++) {
+    const s0 = closeMaps[i - 1]?.[code]?.[0], s1 = closeMaps[i]?.[code]?.[0]; if (!(s0 > 0 && s1 > 0)) continue;
+    let sum = 0, k = 0; for (const c of basket.codes) { const a0 = closeMaps[i - 1]?.[c]?.[0], a1 = closeMaps[i]?.[c]?.[0]; if (a0 > 0 && a1 > 0) { sum += a1 / a0 - 1; k++; } }
+    if (k < 5) continue; rs.push(s1 / s0 - 1); ra.push(sum / k);
+  }
+  const n = rs.length; if (n < 40) return { anchor: `產業籃：${basket.industry}（${basket.codes.length} 檔）`, n, corr: null, upRate: null, score: null, note: `60 日內配對資料僅 ${n} 日，不足 40，不加分` };
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length; const ms = mean(rs), ma = mean(ra);
+  let cov = 0, vs = 0, va = 0; for (let i = 0; i < n; i++) { cov += (rs[i] - ms) * (ra[i] - ma); vs += (rs[i] - ms) ** 2; va += (ra[i] - ma) ** 2; }
+  const corr = vs > 0 && va > 0 ? cov / Math.sqrt(vs * va) : 0;
+  const upDays = ra.map((v, i) => [v, rs[i]]).filter(([v]) => v >= 0.015); const upRate = upDays.length >= 5 ? upDays.filter(([, sv]) => sv > 0).length / upDays.length : null;
+  return { anchor: `產業籃：${basket.industry}（${basket.codes.length} 檔）`, n, corr: +corr.toFixed(2), upRate: upRate == null ? null : +(upRate * 100).toFixed(0), upDays: upDays.length, score: +Math.max(0, Math.min(1, corr)).toFixed(2) };
 }
 // 連動量化（2026-09-22 使用者：要精準的連動加權，不用大略分）：60 日日報酬相關係數＋「來源漲≥1.5% 時本檔同漲率」
 //   score＝相關係數截到 [0,1]，n<40 不給分。這是資料算出來的，不是 AI 猜的；prompt 的「連動」文字只當說明。
@@ -6708,8 +6736,13 @@ async function computeSqueezeNewsVerdict() {
     //   排序：籌碼分級 → newsScore → 券資比 → 漲幅。信心等級不進任何規則。
     const reasonType = classifyReason(verdict);
     const anchorCode = resolveAnchorCode(verdict.chainAnchor, it.code);
-    const chainLink = verdict.chainAnchor ? (anchorCode ? chainLinkScore(chainMaps, it.code, anchorCode) : { anchor: null, anchorText: verdict.chainAnchor, score: null, note: '連動來源無法對應到台股代號（產業名／外國公司），不加分' }) : null;
-    const newsScore = +(((reasonType.tone === 'green' ? 1 : reasonType.tone === 'grey' ? -0.5 : 0) + (verdict.bullish ? (chainLink?.score ?? 0) : 0))).toFixed(2);
+    const basket = anchorCode ? null : resolveAnchorIndustry(verdict.chainAnchor, it.code, indMap);
+    const chainLink = verdict.chainAnchor
+      ? (anchorCode ? chainLinkScore(chainMaps, it.code, anchorCode)
+        : basket ? chainLinkScoreBasket(chainMaps, it.code, basket)
+        : { anchor: null, anchorText: verdict.chainAnchor, score: null, note: '連動來源對不到台股代號或本站產業群（外國公司／未收錄產業），不加分' })
+      : null;
+    const newsScore = +(((reasonType.tone === 'green' ? 1 : 0) + (verdict.bullish ? (chainLink?.score ?? 0) : 0))).toFixed(2);
     out.push({
       ...it,
       events,
@@ -6756,7 +6789,7 @@ async function computeSqueezeNewsVerdict() {
       + '試過的濾網均未通過安慰劑檢定，詳見實驗紀錄⑤。',
     items: out,
     primaryCount: 0,
-    ranking: '籌碼分級 → 新聞加權（理由類型：綠 +1／灰 −0.5；連動量化 0～1＝與來源標的 60 日相關係數，只在判利多時計）→ 券資比 → 漲幅；信心等級不進任何規則',
+    ranking: '籌碼分級 → 新聞加權（理由類型：本業事實／技術產品 +1，其它 0；連動量化 0～1＝與來源標的或產業籃 60 日相關係數，只在判利多時計）→ 券資比 → 漲幅；信心等級不進任何規則',
     newsSource: newsSourceLabel(),   // 據實回報本輪真正取到新聞的來源（優先序：工商／經濟 → Yahoo／Google → 鉅亨）
     note: '新聞判別由本機 AI 讀內文/標題後給出；機器速報不採計。判別僅為加權，非投資建議。',
   };
