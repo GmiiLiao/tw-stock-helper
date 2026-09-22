@@ -7315,6 +7315,8 @@ async function computeSqueezePicks() {
       live: !!live,
       macd: macdStateOf(macdMaps, code, macdMaps.length - 1),     // 以最近歸檔收盤算（盤中不含今日即時價；標示用）
       ret5: (() => { const b = closeMaps[live ? L - 4 : L - 5]?.[code]?.[0]; return b > 0 ? +((price / b - 1) * 100).toFixed(1) : null; })(),   // 5 日漲幅（錯誤學習過濾用：≥15% 已漲多）
+      // 昨日漲幅（2026-09-22 使用者）：prev 對「再前一日」收盤；盤中 prev＝最近歸檔日(L)，再前一日＝L-1；盤後 prev＝L-1，再前一日＝L-2
+      prevChg: (() => { const pp = closeMaps[live ? L - 1 : L - 2]?.[code]?.[0]; return pp > 0 && prev > 0 ? +((prev / pp - 1) * 100).toFixed(2) : null; })(),
     });
   }
   items.sort((a, b) => b.tier - a.tier || b.ratio - a.ratio || b.chg - a.chg);

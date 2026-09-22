@@ -18,6 +18,7 @@ interface Item {
   mgn: number; shrt: number; ratio: number; volX: number; tier: number; live: boolean;
   macd?: { dif: number; hist: number; histPrev: number; above0: boolean; up: boolean; turn: boolean; ok: boolean; label: string } | null;   // 2026-09-22 揭露＋可選過濾
   ret5?: number | null;
+  prevChg?: number | null;     // 昨日漲幅（前一交易日收盤對再前一日；2026-09-22 使用者）
   prev?: number;               // 前日收盤（daemon 09-17 起提供；舊文件缺時由 price/chg 反推，四捨五入到 0.01）
   setup: number | null; band: string; weakBand?: boolean; brk20?: boolean; hi20?: number | null;
   shrtChg?: number | null; lend?: number | null; lendChg?: number | null; trueRatio?: number | null;
@@ -343,6 +344,7 @@ export default function SqueezePanel() {
                 <th style={{ padding: '4px 4px' }}>{marketOpenNow ? '即時' : '現價'}</th>
                 {marketOpenNow && <th style={{ padding: '4px 4px' }} title="前一交易日收盤價（daemon 提供；舊文件缺時由即時價÷(1+漲幅) 反推）">前日價</th>}
                 <th style={{ padding: '4px 4px' }}>漲幅</th>
+                <th style={{ padding: '4px 4px' }} title="前一交易日的漲幅（收盤對再前一日收盤）：連兩天大漲＝已漲多的訊號之一">昨日漲幅</th>
                 <th style={{ padding: '4px 4px' }}>券資比</th>
                 <th style={{ padding: '4px 4px' }}>融券日增</th>
                 <th style={{ padding: '4px 4px' }}>借券賣出(增減)</th>
@@ -376,6 +378,7 @@ export default function SqueezePanel() {
                   <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
                   {marketOpenNow && <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-muted)' }}>{(it.prev ?? +(it.price / (1 + it.chg / 100)).toFixed(2)).toFixed(2)}</td>}
                   <td style={{ padding: '4px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>
+                  <td style={{ padding: '4px 4px', color: numColor(it.prevChg) }}>{it.prevChg == null ? '—' : `${it.prevChg > 0 ? '+' : ''}${it.prevChg}%`}</td>
                   <td style={{ padding: '4px 4px', fontWeight: 700, color: it.tier === 3 ? '#22c55e' : it.weakBand ? '#f59e0b' : 'var(--text-primary)' }}>
                     {it.ratio}%
                   </td>
