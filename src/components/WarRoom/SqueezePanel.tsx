@@ -77,7 +77,8 @@ export default function SqueezePanel() {
   const passLearn = (it: Item) => !((it.ret5 != null && it.ret5 >= 15) || (it.volX >= 3) || (it.chg >= 7 && it.chg < 9));
   const passMacd = (it: Item) => !!it.macd?.ok;
   const [ledger, setLedger] = useState<Ledger | null>(null);   // 🚪 當日入選／離榜帳（2026-09-22）
-  const [review, setReview] = useState<Review | null>(null);   // 新聞判別對答案（今收→明開口徑）常駐頂部
+  const [review, setReview] = useState<Review | null>(null);   // 新聞判別對答案（今收→明開口徑）
+  const [showReview, setShowReview] = useState(false);          // 使用者 2026-09-22：預設收起，不露出整塊數字
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
   const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄、現價改標「即時」（09-17）
   const [rec, setRec] = useState<Rec | null>(null);
@@ -255,10 +256,15 @@ export default function SqueezePanel() {
             const f = (st?: ReviewStat) => (st && st.n ? `${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '—');
             const rt = review.byReasonType || {}; const bc = review.byConf || {}; const bt = review.byTone || {};
             return (
-              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
+                <button onClick={() => setShowReview(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'inherit' }}>
+                  📊 對答案 {review.days} 日：newsLift <b style={{ color: (review.newsLift ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{review.newsLift ?? '—'}</b>（利多 {f(review.bull)}）{showReview ? '▴ 收起' : '▸ 明細'}
+                </button>
+                {showReview && <div style={{ border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', marginTop: 4 }}>
                 <div><b style={{ color: 'var(--text-primary)' }}>📊 對答案（{review.days} 個交易日，今收→明開）</b>：利多 {f(review.bull)}｜中性 {f(review.neutral)}｜利空 {f(review.bear)}｜newsLift <b style={{ color: (review.newsLift ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{review.newsLift ?? '—'}</b>{review.conclusive ? '' : '（樣本未達門檻）'}</div>
                 <div>利多×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['利多·' + c])}`).join('｜')}　中性×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['中性·' + c])}`).join('｜')}</div>
                 <div>利多理由類型：{['本業事實', '技術產品', '題材', '法人動作', '價格描述'].map(t => `${t} ${f(rt[t])}`).join('｜')}　色調：<span style={{ color: '#22c55e' }}>綠 {f(bt.green)}</span>｜灰 {f(bt.grey)}</div>
+                </div>}
               </div>
             );
           })()}

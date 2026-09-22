@@ -13956,6 +13956,16 @@ async function getIndustryMap() {
     } catch { /* skip */ }
     await sleep(300);
   }
+  // 2026-09-22：openapi 兩支都失敗時 map 是空的，連動量化的產業籃就整天對不到（佳大「半導體產業」實案）。
+  //   後備：peerComps/latest 的 industriesJson（站上自家分群，37 群），名稱與 TWSE 產業別同一套字。
+  if (Object.keys(map).length < 300) {
+    try {
+      const pc = (await db.collection('peerComps').doc('latest').get()).data();
+      const ind = pc?.industriesJson ? JSON.parse(pc.industriesJson) : {};
+      for (const g in ind) for (const it of ind[g]) if (it?.code && !map[it.code]) map[it.code] = g;
+      if (Object.keys(map).length >= 300) log(`  · 產業別改用 peerComps 後備（${Object.keys(map).length} 檔）`);
+    } catch { /* 沒有後備就維持空，下游會明說對不到 */ }
+  }
   if (Object.keys(map).length > 300) _indMap = { date: today, map };
   return _indMap.map || map;
 }
