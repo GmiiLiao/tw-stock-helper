@@ -203,12 +203,16 @@
 /* Heatmap */
 .heatmap {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* minmax(0,1fr)：1fr 的最小值是內容寬，長名稱（日月光投控、京元電子）會把欄撐寬、第 5 欄被裁掉（2026-09-23 使用者截圖）。
+     改成可縮到 0，名稱在格內截斷，每格等寬。 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
   padding: 12px;
 }
 
 .heatmapCell {
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -235,6 +239,10 @@
 }
 
 .heatName {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: calc(12.5px * var(--fz));
   color: var(--text-secondary);
   white-space: nowrap;
@@ -339,7 +347,7 @@
     font-size: calc(12.5px * var(--fz));
   }
   /* 手機熱力圖 3 欄，磚內文字才有可讀空間（原 5 欄擠壓） */
-  .heatmap { grid-template-columns: repeat(3, 1fr); }
+  .heatmap { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .heatCode, .heatChange { font-size: calc(0.9rem * var(--fz)); }
   .heatName { font-size: calc(12.5px * var(--fz)); }
 }
