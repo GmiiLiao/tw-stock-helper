@@ -47,6 +47,9 @@ export const AT_ALLOWLIST = new Set([
   'stopAt', 'monitorAt',
   // formedAt：當沖工作台開盤區間（ORB）形成的 1 分 K 時刻（2026-09-23）。
   'formedAt',
+  // 當沖 AI 實驗 aiDaytradeLab（2026-09-24）：triggerAt 規則觸發 K 棒時刻、askedAt 送出 Ollama、exitAt 模擬出場、
+  //   adminNotesAt 超級管理員人工檢討、notesSyncedAt 人工檢討同步到第二大腦。
+  'triggerAt', 'askedAt', 'exitAt', 'adminNotesAt', 'notesSyncedAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',

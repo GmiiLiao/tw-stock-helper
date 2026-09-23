@@ -59,7 +59,8 @@ export function pickShortMonitor(liveQuotes, n = DT_MONITOR_EACH, allow = () => 
 
 // ── 引擎（2026-09-23 v2：改用當沖工作台 setup 掃描＋M/S/E 規則符合度；舊的單純突破觸發已退役）──
 // 每收一根 1 分 K：scanDesk（./daytrade-setups.mjs）重掃當日 → 警示狀態（閃爍＝Trigger、🏁＝出場）＋評分＋日誌。
-export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS } = {}) {
+// onTrigger：規則通過全部否決而觸發新交易時呼叫（🤖 當沖 AI 實驗的決策點）；例外不影響引擎
+export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS, onTrigger = null } = {}) {
   let date = '';
   let mon = { long: [], short: [], at: 0 };
   let books = {};                        // code → 1 分 K 累積器（收完的 K 棒帶 vw＝當時取樣 VWAP）
@@ -107,6 +108,7 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS } =
     rows[side][code] = row;
     if ((prevRow?.st?.phase ?? null) !== (st?.phase ?? null) || prevRow?.st?.since !== st?.since) {
       if (st) events = [{ t: st.phase === 'stop' ? st.stopAt : st.since, code, name: row.name, side, kind: st.phase, px: st.phase === 'stop' ? st.stopPx : st.entry, room: st.room, ret: st.phase === 'stop' ? st.ret : null, reason: st.reason || null, type: plan?.type || null }, ...events].slice(0, 60);
+      if (st?.phase === 'on' && tr && onTrigger) { try { onTrigger({ side, code, name: row.name, row, trade: tr, id: `${side}:${code}:${tr.type}:${tr.t}` }); } catch { /* 實驗失敗不影響工作台 */ } }
     }
     // ── 日誌：候選（首次評估的分數凍結）、每一筆觸發／否決／假突破（觸發當下的分數凍結，出場另填）──
     const ck = `${side}:${code}`;
@@ -163,6 +165,8 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS } =
         long: pick('long'), short: pick('short'), events,
       };
     },
+    /** 日誌條目（id＝side:code:type:t），供 AI 實驗結算 */
+    journalEntry(id) { return journal.entries[id] || null; },
     journalDoc(force = false) {
       if (!jDirty && !force) return null;
       jDirty = false;

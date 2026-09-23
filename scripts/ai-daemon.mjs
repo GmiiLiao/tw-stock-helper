@@ -27,7 +27,8 @@ import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 import { judgePagoda } from './lib/pagoda.mjs';
-import { DESK_EVIDENCE } from './lib/daytrade-setups.mjs';
+import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
+import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -1700,7 +1701,11 @@ let _prioCache = null, _prioAt = 0;
 const _lastLive = {};
 // 當沖即時警示（2026-09-23）：VWAP 取樣累積＋1 分 K 警示引擎。規則在 scripts/lib/daytrade-signals.mjs。
 const _vwapBook = createVwapBook();
-const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
+// 🤖 當沖 AI 實驗（2026-09-24）：工作台觸發 → 本機 Ollama 決定做／不做（多空各 ≤5）→ 模擬成交 → 盤後凍結＋檢討
+const AI_LAB_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'daytrade-ai-lab');
+const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE, onTrigger: evt => _aiLab.consider(evt, isoDate(taipei())) });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
+const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE });
+let _aiLabFinalDate = '', _aiNotesAt = 0;
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
 let _dtElig = null, _dtEligDay = '';
@@ -2119,6 +2124,7 @@ async function publishIndexFromHot(t, o) {
 }
 
 async function hotQuoteLoop() {
+  await _aiLab.restore(isoDate(taipei()));   // 盤中重啟：接回當沖 AI 實驗今日記錄
   let _hotN = 0, _hotFresh = 0;
   // 2026-09-17 量測：固定 120 檔批次的回應被 MIS 凍住約 30 秒（120 檔揭示時戳同時跳）。主迴圈批次組成每輪不同，
   // 落後只有 P50 約 20 秒 ⇒ 每輪把優先集「輪轉」一個起點，讓 ex_ch 字串每輪不同。上游請求數不變。
@@ -2177,6 +2183,8 @@ async function hotQuoteLoop() {
           const doc = _dtEngine.snapshot();
           if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
         }
+        _aiLab.tick(isoDate(tw), _dtEngine);
+        await _aiLab.writeLive();
         // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
         if (Date.now() - _dtJournalAt >= 60000) {
           const j = _dtEngine.journalDoc();
@@ -14530,6 +14538,12 @@ async function dailyJobsLoop() {
         _shortCandAt = Date.now();   // 先標記：週期性工作，失敗等下一輪
         try { await computeShortCandidates(); } catch (e) { log('✖ 做空候選:', (e.message || '').slice(0, 60)); }
       }
+      // 🤖 當沖 AI 實驗盤後凍結（13:40 起；工作台 13:20 已強制沖銷，出場都已結算）＋人工檢討同步第二大腦（15 分鐘一次）
+      if (isTradingDay(tw) && mins >= 13 * 60 + 40 && mins < 18 * 60 && _aiLabFinalDate !== today) {
+        try { await _aiLab.writeLive(true); if (await _aiLab.finalize(today, _dtEngine)) _aiLabFinalDate = today; }
+        catch (e) { log('✖ 當沖 AI 實驗凍結（將重試）:', (e.message || '').slice(0, 60)); }
+      }
+      if (Date.now() - _aiNotesAt > 15 * 60000) { _aiNotesAt = Date.now(); _aiLab.syncNotes().catch(e => log('✖ 人工檢討同步:', (e.message || '').slice(0, 60))); }
       // 🎯 縮量跳空漲停（2026-09-05）：13:36 收盤試撮結束後從快照定榜＋推播，每日一次；15:10 歸檔後由 daily jobs 重算不推播。
       if (isTradingDay(tw) && mins >= 13 * 60 + 36 && mins < 14 * 60 + 10 && _gapLuDate !== today) {
         try { if (await computeGapLimitUp({ push: true })) _gapLuDate = today; } catch (e) { log('✖ 跳空漲停:', (e.message || '').slice(0, 60)); }

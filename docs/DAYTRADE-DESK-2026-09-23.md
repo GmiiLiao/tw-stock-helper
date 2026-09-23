@@ -26,3 +26,20 @@
 ## 升版規則
 
 改任何參數或規則都要升 `DESK_VERSION`；提案要寫假設、只動一至兩個權重或門檻、train→validation 依時間、同成本假設比較現行版與候選版的樣本外淨 R／回撤／假突破率／連敗／交易數。非投資建議。
+
+## 🤖 當沖 AI 實驗（2026-09-24 加）
+
+使用者要求：每個交易日盤中由本機 Ollama 依當沖方法挑選可當沖標的、做模擬交易、凍結成交易記錄檔存第二大腦；做多、做空各最多 5 檔；超級管理員後台查對並留檢討與改進說明，做為迭代依據。
+
+| 項目 | 設計 |
+|---|---|
+| 決策點 | 工作台規則**通過全部否決而觸發**時（`onTrigger`）；AI 只能在規則已觸發的名單裡決定做／不做，不能自創進場點 |
+| 額度與時段 | 多、空各 ≤5（含等待回覆中），09:05–12:30；額度滿與時段外也記錄 |
+| 模擬成交 | 進場價＝AI 回覆當下即時價（與觸發價的差＝決策延遲成本）；回覆逾 3 分鐘＝錯過不成交；出場沿用工作台規則的時點與價格 |
+| 反事實 | AI 不做的觸發也記規則照做的結果——判斷 AI 有沒有用看「做的」vs「不做的」 |
+| 凍結 | 13:40 起寫一次：`aiDaytradeLab/{date}` ＋ `second-brain/daytrade-ai-lab/{date}.md／.json`（已存在不覆寫）；盤中即時狀態在 `aiDaytradeLab/live` |
+| 檢討 | 做對／做錯由**程式判定**；AI 只寫總評與最多 3 條可檢驗的改進（實測 gemma4 會把「不做但錯失 +1.3R」寫成做對，故對錯不交給 AI） |
+| 人工檢討 | 後台「🤖 當沖 AI 實驗」（僅 superadmin／站主）留言 → 只寫 `adminNotes*` 欄位不改 AI 記錄 → daemon 15 分鐘內同步成 `{date}-人工檢討.md` |
+| 不阻塞 | 決策走 daemon 的 Ollama 單一佇列（priority 5，僅次互動問答），5 秒快線不等它 |
+
+程式：`scripts/lib/ai-daytrade-lab.mjs`（純函式）、`scripts/lib/ai-daytrade-runner.mjs`（daemon I/O）、`/api/admin/ai-daytrade-lab`、`src/components/Admin/AiDaytradeLab.tsx`；測試 `node --test scripts/lib/ai-daytrade-lab.test.mjs`。
