@@ -13776,12 +13776,12 @@ async function computeMarketWind() {
   const ctx = await getWindCtx();
 
   // ── 第1層：強勢股統計（確定性）──
-  let up = 0, down = 0, flat = 0, totalValue = 0;
+  let up = 0, down = 0, flat = 0, totalValue = 0, valueChg = 0;
   const strong = {}; // code -> {cp, volX, value, limitUp}
   for (const code in q) {
     if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
     const x = q[code]; if (!x || !(x.price > 0)) continue;
-    const cp = x.changePercent || 0; const v = x.value || 0; totalValue += v;
+    const cp = x.changePercent || 0; const v = x.value || (x.price * (x.volume || 0)); totalValue += v; valueChg += v * cp;
     if (cp > 0.15) up++; else if (cp < -0.15) down++; else flat++;
     const av = ctx.avgVol?.[code] || 0;
     const volX = av > 0 ? (x.volume / 1000) / av : 0;
@@ -13791,6 +13791,8 @@ async function computeMarketWind() {
   const strongCodes = new Set(Object.keys(strong));
   if (up + down + flat < 500) return; // 快照異常保護
 
+  const _windP0 = (up + down + flat) > 0 ? Object.keys(strong).length / (up + down + flat) : 0.1;   // 全市場強勢率（收縮先驗）
+  const mktWChg = totalValue > 0 ? valueChg / totalValue : 0;   // 成交值加權漲跌（資金面的大盤方向）
   // ── 第2層：題材鏈聚集度＋上下游驗證 ──
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const themes = [];
@@ -13800,9 +13802,15 @@ async function computeMarketWind() {
     if (members.length < 2) continue;
     const chgs = members.map(c => q[c].changePercent || 0).sort((a, b) => a - b);
     const medChg = chgs[Math.floor(chgs.length / 2)];
+    // 2026-09-23 使用者：「盤中不準、無法把風向表達出來」——實測 09-23 水泥（2 檔、1 檔強勢）排第一，
+    //   而占成交 50% 的半導體＋電子零組件（+1.0%／+2.3%）不見。兩個原因：① 聚集度沒有樣本數收縮，
+    //   小題材 1/2 就是 50%；② 中位數等權，看不到資金流向。⇒ 聚集度向全市場強勢率收縮（k=4），漲跌改用成交值加權。
+    let tv = 0, tvc = 0; for (const c of members) { const x = q[c]; const v = x.value || (x.price * (x.volume || 0)); tv += v; tvc += v * (x.changePercent || 0); }
+    const wChg = tv > 0 ? tvc / tv : medChg;
     const strongM = members.filter(c => strong[c]);
     const limitUps = strongM.filter(c => strong[c].limitUp).length;
-    const conc = strongM.length / members.length;                       // 聚集度 0..1
+    const conc = strongM.length / members.length;                       // 聚集度 0..1（顯示用原值）
+    const concShr = (strongM.length + 4 * _windP0) / (members.length + 4);   // 評分用：向全市場強勢率收縮
     let yNet = 0; for (const c of members) { const i = ctx.yInst?.[c]; if (i) yNet += (i[0] || 0) + (i[1] || 0); }
     // 上下游驗證：每段 avgChg 與強勢數
     const segs = ch.segs.map(s => {
@@ -13821,10 +13829,15 @@ async function computeMarketWind() {
       else chainStatus = '未連動';
     }
     const chipTilt = clamp(yNet / 5000, -1, 1);
-    const score = +clamp(conc * 48 + medChg * 6 + (chainStatus === '全鏈齊漲' ? 15 : 0) + chipTilt * 10 + limitUps * 4, 0, 100).toFixed(1);
+    // 資金權重：題材成交值占比（%）。小題材（<2%）的漲幅按比例打折，大資金題材另加「資金流入／流出」分（上限 14）——
+    //   風向要看「錢往哪裡走」，0.3% 成交的 2 檔水泥不該壓過 17% 成交的 AI 伺服器鏈。
+    const vShare = totalValue > 0 ? tv / totalValue * 100 : 0;
+    const moneyW = clamp(vShare / 2, 0.15, 1);
+    const moneyFlow = clamp(vShare, 0, 20) * 0.7 * Math.sign(wChg);
+    const score = +clamp(concShr * 48 + wChg * 6 * moneyW + moneyFlow + (chainStatus === '全鏈齊漲' ? 15 : 0) + chipTilt * 10 + limitUps * 4, 0, 100).toFixed(1);
     const leaders = strongM.sort((a, b) => strong[b].cp - strong[a].cp).slice(0, 4)
       .map(c => ({ code: c, name: q[c].name, cp: +strong[c].cp.toFixed(2), volX: strong[c].volX, limitUp: strong[c].limitUp }));
-    themes.push({ key: ch.key, name: ch.name, score, strong: strongM.length, members: members.length, medChg: +medChg.toFixed(2), limitUps, yNet: Math.round(yNet), chainStatus, segs, leaders });
+    themes.push({ key: ch.key, name: ch.name, score, strong: strongM.length, members: members.length, medChg: +medChg.toFixed(2), wChg: +wChg.toFixed(2), valueShare: totalValue > 0 ? +(tv / totalValue * 100).toFixed(1) : null, limitUps, yNet: Math.round(yNet), chainStatus, segs, leaders });
   }
   themes.sort((a, b) => b.score - a.score);
 
@@ -13836,11 +13849,15 @@ async function computeMarketWind() {
   const top3Strong = themes.slice(0, 3).reduce((t, x) => t + x.strong, 0);
   const topShare = themedStrongN > 0 ? +Math.min(1, top3Strong / themedStrongN).toFixed(2) : 0;
   const breadth = up + down > 0 ? up / (up + down) : 0.5;
+  // 方向＝家數廣度 × 成交值加權漲跌（2026-09-23：只看家數會把「權值／主流撐盤、中小型偏弱」誤判成偏空，
+  //   09-23 實例：廣度 42% 判偏空防守，但成交值加權 +0.49%、半導體＋電子零組件占成交 50% 且上漲）。
+  //   前綴維持 全面多頭／結構／多空／偏空，前端以前綴上色（MarketWind、WindHub）。
   let dirLabel;
-  if (breadth >= 0.62 || (breadth >= 0.55 && strongN >= 300)) dirLabel = '全面多頭（遍地開花）';
+  if (breadth >= 0.62 || (breadth >= 0.55 && strongN >= 300)) dirLabel = mktWChg <= -0.3 ? '多空拉鋸（個股普漲但權值拖累）' : '全面多頭（遍地開花）';
+  else if (breadth < 0.48 && mktWChg >= 0.3) dirLabel = '結構行情（主流權值撐盤，中小型偏弱，勿追弱勢股）';
   else if (breadth >= 0.48 && topShare >= 0.35) dirLabel = '結構行情（資金集中少數鏈，勿追弱勢股）';
-  else if (breadth >= 0.45) dirLabel = '多空拉鋸（強弱分化）';
-  else dirLabel = '偏空防守（強勢股為逆勢，追價風險高）';
+  else if (breadth >= 0.45) dirLabel = mktWChg <= -0.5 ? '偏空防守（權值走弱，追價風險高）' : '多空拉鋸（強弱分化）';
+  else dirLabel = mktWChg > -0.3 ? '多空拉鋸（中小型偏弱、權值持平）' : '偏空防守（強勢股為逆勢，追價風險高）';
 
   // 今日加權指數（MIS t00）——敘事的權威錨點，防止 LLM 從舊新聞標題撿昨日點位
   let idxLine = '';
@@ -13880,7 +13897,7 @@ async function computeMarketWind() {
     const evid = [
       ...(idxLine ? [idxLine] : []),
       ...(instLine ? [instLine] : []),
-      `大盤：漲${up}/跌${down}，強勢股${strongN}檔，前3題材佔題材強勢股${Math.round(topShare * 100)}%，判定=${dirLabel}`,
+      `大盤：漲${up}/跌${down}，成交值加權漲跌${mktWChg >= 0 ? '+' : ''}${mktWChg.toFixed(2)}%，強勢股${strongN}檔，前3題材佔題材強勢股${Math.round(topShare * 100)}%，判定=${dirLabel}`,
       ...top.map(t => `題材[${t.name}] 強勢${t.strong}/${t.members}檔 中位漲幅${t.medChg}% 漲停${t.limitUps} 鏈驗證=${t.chainStatus} 領漲=${t.leaders.map(l => l.name).join('、')}`),
       '【市場新聞標題】', ...mktNews.map(s => `- ${s}`),
       ...Object.entries(themeNews).flatMap(([k, arr]) => [`【${top.find(t => t.key === k)?.name}新聞標題】`, ...arr.map(s => `- ${s}`)]),
@@ -13913,12 +13930,12 @@ ${evid}`;
   const payload = {
     dataDate: await currentDataDate(),   // 資料日（≠ 產生日）
     updatedAt: Date.now(), date: today, marketOpen,
-    direction: { label: dirLabel, up, down, flat, strongCount: strongN, topShare, breadth: +breadth.toFixed(2) },
+    direction: { label: dirLabel, up, down, flat, strongCount: strongN, topShare, breadth: +breadth.toFixed(2), wChg: +mktWChg.toFixed(2) },
     themes: themes.slice(0, 14),
     narrative: _windNarr.date === today ? { text: _windNarr.text, at: _windNarr.at, drivers: _windNarr.drivers, newsUsed: _windNarr.newsUsed } : null,
   };
   await db.collection('marketWind').doc('latest').set(payload);
-  if (isTradingDay(tw) && mins >= 13 * 60 + 40) await db.collection('marketWind').doc(today).set(payload); // 收盤定案存歷史
+  if (isTradingDay(tw) && mins >= 13 * 60 + 40 && !ONESHOT) await db.collection('marketWind').doc(today).set(payload); // 收盤定案存歷史（手動重跑不改歷史）
   log(`✓ 風向2.0：${dirLabel.slice(0, 8)} 強勢${strongN}檔 Top=${themes[0]?.name || '-'}(${themes[0]?.score ?? 0})${_windNarr.date === today ? ' +敘事' : ''}`);
 }
 
@@ -15050,6 +15067,7 @@ if (ONESHOT) {
     },
     squeezeRec: () => computeSqueezeNewsVerdict(),
     limitUpRec: () => computeLimitUpNewsVerdict(),   // 漲停預測的新聞判別    // 手動產出新聞判別(讀內文+AI)
+    marketWind: () => computeMarketWind(),           // 大盤風向重算（手動：只寫 latest，不改收盤歷史）
     limitUpForecast: () => computeLimitUpForecast(), // 漲停預測榜重算（機器模型，不用 LLM；盤外自動用歸檔模式）
     shortCandidates: () => computeShortCandidates(), // 做空風控候選榜（2026-09-03 第一期）
     shortTraining: () => recordShortTraining(),      // 手動補做空訓練樣本

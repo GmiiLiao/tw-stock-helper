@@ -13,10 +13,10 @@ import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 interface Leader { code: string; name: string; cp: number; volX: number; limitUp: boolean }
 interface Seg { role: string; label: string; avgChg: number; strong: number; n: number }
-interface Theme { key: string; name: string; score: number; strong: number; members: number; medChg: number; limitUps: number; yNet: number; chainStatus: string; segs: Seg[]; leaders: Leader[] }
+interface Theme { key: string; name: string; score: number; strong: number; members: number; medChg: number; wChg?: number; valueShare?: number | null; limitUps: number; yNet: number; chainStatus: string; segs: Seg[]; leaders: Leader[] }
 interface WindData {
   updatedAt: number; date: string; marketOpen: boolean;
-  direction: { label: string; up: number; down: number; flat: number; strongCount: number; topShare: number; breadth: number };
+  direction: { label: string; up: number; down: number; flat: number; strongCount: number; topShare: number; breadth: number; wChg?: number };
   themes: Theme[];
   narrative: { text: string; at: number; drivers: Record<string, { type: string; text: string }>; newsUsed: string[] } | null;
 }
@@ -76,7 +76,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
       <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', marginBottom: 8 }}>
         <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: dirColor, marginBottom: 3 }}>{dir.label}</div>
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
-          漲 {dir.up} / 跌 {dir.down} · 強勢股 {dir.strongCount} 檔 · 前3題材佔強勢股 {Math.round(dir.topShare * 100)}%
+          漲 {dir.up} / 跌 {dir.down}{dir.wChg != null && <> · <span title="全市場成交值加權漲跌：資金面的大盤方向（家數只看多數個股，這個看錢往哪裡走）">成交加權 <b style={{ color: dir.wChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{dir.wChg >= 0 ? '+' : ''}{dir.wChg}%</b></span></>} · 強勢股 {dir.strongCount} 檔 · 前3題材佔強勢股 {Math.round(dir.topShare * 100)}%
         </div>
       </div>
 
@@ -110,6 +110,8 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                   <b style={{ minWidth: 30, color: t.score >= 55 ? '#f03e3e' : 'var(--text-secondary)' }}>{t.score}</b>
                 </span>
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>強勢 {t.strong}/{t.members}</span>
+                {t.wChg != null && <span title="題材成員成交值加權漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono', monospace", color: t.wChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{t.wChg >= 0 ? '+' : ''}{t.wChg}%</span>}
+                {t.valueShare != null && <span title="題材成交值占全市場比重——越大代表越多資金在這裡" style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>資金 {t.valueShare}%</span>}
                 {t.limitUps > 0 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f03e3e', fontWeight: 800 }}>漲停{t.limitUps}</span>}
                 {cb && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: cb.color, fontWeight: 700 }}>{cb.text}</span>}
                 {dm && <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: dm.color, fontWeight: 700 }}>{dm.icon} {drv!.type}</span>}
