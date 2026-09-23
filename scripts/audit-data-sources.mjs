@@ -56,7 +56,9 @@ const CONTRACTS = [
     maxStale: 60 * MIN, session: 'intraday', minRecords: 200, countField: 'quotesJson' },
   { c: 'marketIntraday',   kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
   { c: 'intradayRadar',    kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
-  { c: 'limitUpForecast',  kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday' },
+  // 2026-09-22 凍結：latest＝盤後定案（當天盤中不更新）；盤中即時預測另寫 live（戰情「⚡ 盤中漲停預測」頁）
+  { c: 'limitUpForecast',  kind: 'latest',  maxStale: 30 * HOUR, session: 'always' },
+  { c: 'limitUpForecast',  kind: 'latest',  docId: 'live', label: 'limitUpForecast/live', maxStale: 15 * MIN,  session: 'intraday' },
   // allowEmpty（2026-08-27）：computeVolSurge 是**盤中限定**（09:00~13:35 之外
   // 直接 return 不寫入），所以收盤後那份就停在最後一次計算的結果——當時沒有爆量
   // 就是 0 檔，於是**每天傍晚到隔天開盤都會紅**。這正是今天早上修 dayTradeRatio
@@ -65,7 +67,9 @@ const CONTRACTS = [
   { c: 'volSurge',         kind: 'latest',  maxStale: 15 * MIN,  session: 'intraday', allowEmpty: true },
   // 軋空候選（2026-08-26）：允許 0 檔——條件嚴格，沒有符合的日子是正常結果，
   // 不可因為空榜就判定資料壞掉（allowEmpty）。
-  { c: 'squeezePicks',     kind: 'latest',  maxStale: 40 * MIN,  session: 'intraday', allowEmpty: true },
+  // 2026-09-22 凍結：latest＝適用日開盤前定案（盤中不更新）；盤中重篩寫 live（當日離榜帳用它）
+  { c: 'squeezePicks',     kind: 'latest',  maxStale: 30 * HOUR, session: 'always', allowEmpty: true },
+  { c: 'squeezePicks',     kind: 'latest',  docId: 'live', label: 'squeezePicks/live', maxStale: 40 * MIN,  session: 'intraday', allowEmpty: true },
   { c: 'squeezePicksLedger', kind: 'latest', maxStale: 40 * MIN, session: 'intraday', allowEmpty: true },   // 🚪 軋空當日入選／離榜帳（2026-09-22）
   // 開盤前新聞判別（每交易日 08:00 由本機 AI 產出）：盤中查它會是「今早那份」，
   // 故放寬到 20 小時；空榜正常（沒有候選就沒有判別）。

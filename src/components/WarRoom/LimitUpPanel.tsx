@@ -65,7 +65,8 @@ const NUM_COL = (w: number, color: string, weight = 600): React.CSSProperties =>
 const LU_GRID = '12px 22px 26px 52px minmax(80px, 110px) 30px 30px 72px 70px 72px 70px 62px minmax(72px, 1fr)';
 const LU_CELL = (extra: React.CSSProperties = {}): React.CSSProperties => ({ whiteSpace: 'nowrap', ...extra });
 
-export default function LimitUpPanel() {
+// source：frozen＝盤後定案（凍結一整天，預設）；live＝盤中即時重算（戰情「⚡ 盤中漲停預測」新頁）
+export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' | 'live' } = {}) {
   const [data, setData] = useState<LuData | null>(null);
   const [view, setView] = useState<'a' | 'b' | 'stats' | 'review'>('a');
   const [openCode, setOpenCode] = useState<string | null>(null);
@@ -78,14 +79,14 @@ export default function LimitUpPanel() {
 
   useEffect(() => {
     let live = true;
-    const load = () => fetch('/api/ai/limitup-forecast').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
+    const load = () => fetch(source === 'live' ? '/api/ai/limitup-live' : '/api/ai/limitup-forecast').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
     load();
     // 間隔每拍重算（原本三元在掛載時算死：盤中掛的分頁收盤後仍每分鐘打，見 feedback 記憶）
     let t: ReturnType<typeof setTimeout>;
     const tick = () => { load(); t = setTimeout(tick, isTwTradingHours() ? 60000 : 300000); };
     t = setTimeout(tick, isTwTradingHours() ? 60000 : 300000);
     return () => { live = false; clearTimeout(t); };
-  }, []);
+  }, [source]);
 
   if (!data) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 4px' }}>載入漲停預測…</div>;
   if (!data.found) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 4px' }}>漲停預測尚無資料（常駐服務下一週期產生）。</div>;
@@ -99,7 +100,8 @@ export default function LimitUpPanel() {
   return (
     <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(240,62,62,0.05)', border: '1px solid rgba(240,62,62,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#fda4af' }}>🚀 漲停預測</span>
+        <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#fda4af' }}>{source === 'live' ? '⚡ 盤中漲停預測' : '🚀 漲停預測'}</span>
+        <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '1px 6px', borderRadius: 5, background: source === 'live' ? 'rgba(56,189,248,0.15)' : 'rgba(34,197,94,0.15)', color: source === 'live' ? '#38bdf8' : '#22c55e' }}>{source === 'live' ? '即時重算·名單會變' : '盤後定案·當天不變'}</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {data.mode === 'live' ? '盤中即時（預測今日收盤漲停）' : `盤後定案（預測下一交易日）· 資料日 ${data.dataDate}`} · 今日市場漲停 {data.mktLU} 家
         </span>

@@ -4,7 +4,8 @@
 // 這一頁的設計原則：**把邊際效益講清楚**。券資比的貢獻只有約 +1.5pp，
 // 若做成「軋空預測神器」的口吻，使用者會照著重押，那是我們造成的傷害。
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { isMarketOpen } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
@@ -80,7 +81,10 @@ export default function SqueezePanel() {
   const [review, setReview] = useState<Review | null>(null);   // 新聞判別對答案（今收→明開口徑）
   const [showReview, setShowReview] = useState(false);          // 使用者 2026-09-22：預設收起，不露出整塊數字
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁·使用者 2026-09-05）
-  const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄、現價改標「即時」（09-17）
+  const marketOpenNow = isMarketOpen();   // 盤中：表格多「前日價」欄（09-17）
+  // 2026-09-22 凍結：本表是「定案名單」（適用日開盤前定稿、當天不變），即時價與今日漲跌另欄顯示——看的是這份預測今天的表現
+  const sqCodes = useMemo(() => (d?.items || []).map(x => x.code), [d]);
+  const sqQuotes = useLiveQuotes(sqCodes, 60, { register: false });
   const [rec, setRec] = useState<Rec | null>(null);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -377,9 +381,11 @@ export default function SqueezePanel() {
                 <th style={{ padding: '4px 4px', textAlign: 'left' }}>分級</th>
                 <th style={{ padding: '4px 4px', textAlign: 'left' }}>代號/名稱</th>
                 {/* 盤中（2026-09-17 使用者指定）：現價欄改名「即時」並多一欄「前日價」對照；盤後維持原樣。以 market-clock 判定，不看文件 mode。 */}
-                <th style={{ padding: '4px 4px' }}>{marketOpenNow ? '即時' : '現價'}</th>
+                <th style={{ padding: '4px 4px' }} title="定案名單所根據的資料日收盤價（名單當天不變）">定案價</th>
+                <th style={{ padding: '4px 4px' }} title="即時價（共用快線）">即時</th>
+                <th style={{ padding: '4px 4px' }} title="今日漲跌（即時價對前一交易日收盤）">今日漲跌</th>
                 {marketOpenNow && <th style={{ padding: '4px 4px' }} title="前一交易日收盤價（daemon 提供；舊文件缺時由即時價÷(1+漲幅) 反推）">前日價</th>}
-                <th style={{ padding: '4px 4px' }}>漲幅</th>
+                <th style={{ padding: '4px 4px' }} title="定案資料日的漲幅">定案日漲幅</th>
                 <th style={{ padding: '4px 4px' }} title="前一交易日的漲幅（收盤對再前一日收盤）：連兩天大漲＝已漲多的訊號之一">昨日漲幅</th>
                 <th style={{ padding: '4px 4px' }}>券資比</th>
                 <th style={{ padding: '4px 4px' }}>融券日增</th>
@@ -412,6 +418,10 @@ export default function SqueezePanel() {
                     <AddCandidateButton code={it.code} variant="icon" />
                   </td>
                   <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace" }}>{it.price}</td>
+                  {(() => { const q = sqQuotes[it.code]; const c = q?.changePercent; return (<>
+                    <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700 }}>{q?.price ?? '—'}</td>
+                    <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace", color: numColor(c) }}>{c == null || !q?.price ? '—' : `${c > 0 ? '+' : ''}${c.toFixed(2)}%`}</td>
+                  </>); })()}
                   {marketOpenNow && <td style={{ padding: '4px 4px', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-muted)' }}>{(it.prev ?? +(it.price / (1 + it.chg / 100)).toFixed(2)).toFixed(2)}</td>}
                   <td style={{ padding: '4px 4px', color: 'var(--color-up)', fontWeight: 700 }}>+{it.chg}%</td>
                   <td style={{ padding: '4px 4px', color: numColor(it.prevChg) }}>{it.prevChg == null ? '—' : `${it.prevChg > 0 ? '+' : ''}${it.prevChg}%`}</td>
@@ -438,7 +448,7 @@ export default function SqueezePanel() {
                   <td style={{ padding: '4px 4px', whiteSpace: 'nowrap', color: it.macd ? (it.macd.ok ? '#22c55e' : !it.macd.above0 ? 'var(--color-down)' : 'var(--text-muted)') : 'var(--text-muted)' }}>{it.macd?.label ?? '—'}</td>
                 </tr>
                 {openCode === it.code && (
-                  <tr><td colSpan={12} style={{ padding: '6px 4px 10px' }}>
+                  <tr><td colSpan={marketOpenNow ? 17 : 16} style={{ padding: '6px 4px 10px' }}>
                     <StockTrendChart code={it.code} name={it.name} closePrice={it.price} changePercent={it.chg} />
                   </td></tr>
                 )}

@@ -6793,7 +6793,7 @@ async function computeSqueezeNewsVerdict() {
     newsSource: newsSourceLabel(),   // 據實回報本輪真正取到新聞的來源（優先序：工商／經濟 → Yahoo／Google → 鉅亨）
     note: '新聞判別由本機 AI 讀內文/標題後給出；機器速報不採計。判別僅為加權，非投資建議。',
   };
-  await db.collection('squeezeRecommend').doc('latest').set(recDoc);
+  await db.collection('squeezeRecommend').doc(ONESHOT ? 'live' : 'latest').set(recDoc);   // 手動重跑不碰定案（2026-09-22 使用者）
   // ⚠ **手動重跑不得覆蓋當日存檔**（2026-08-27 我自己踩到）：
   //   doc(targetDate) 是 squeezeReview 的 newsLift 用來對答案的「事前判別」存檔。
   //   我為了測試新聞內文改動，用 `--run squeezeRec` 重跑了數次——那時
@@ -7466,7 +7466,9 @@ async function computeSqueezePicks() {
     if (cnt > 0) recent = { n: cnt, days: sigDays, avgNextDay: +(sum / cnt).toFixed(2), winRate: Math.round((win / cnt) * 100) };
   } catch { /* 戰績算不出來不擋榜單 */ }
 
-  await db.collection('squeezePicks').doc('latest').set({
+  // ⛔ 凍結規則（2026-09-22 使用者）：定案名單（latest＋squeezePicks/{targetDate}）只在「適用日開盤前（targetDate 08:30 前）」由排程寫；
+  //   盤中每 3 分鐘用即時價重篩的結果、15:10～21:45 的 intraday 版、手動 --run，一律只寫 live（當日離榜帳也用 live 那份）。
+  const sqDoc = {
     mode, targetDate,               // 這份清單「是給哪一天用的」
     archDate: _archDate,            // 分析所根據的收盤資料日
     marginDate: marginDoc.date,     // 融資券資料日
@@ -7497,7 +7499,16 @@ async function computeSqueezePicks() {
     },
     items: items.slice(0, 40),
     count: items.length,
-  });
+  };
+  await db.collection('squeezePicks').doc('live').set(sqDoc);
+  {
+    const twF = taipei(); const minsF = twF.getHours() * 60 + twF.getMinutes(); const todayF = isoDate(twF);
+    const beforeTargetOpen = targetDate > todayF || (targetDate === todayF && minsF < 8 * 60 + 30);
+    if (!ONESHOT && beforeTargetOpen) {
+      await db.collection('squeezePicks').doc('latest').set(sqDoc);
+      await db.collection('squeezePicks').doc(targetDate).set({ ...sqDoc, frozenAt: Date.now() });
+    } else log(`  · 軋空候選：${ONESHOT ? '手動執行' : '適用日已開盤'}只寫 live，不動定案名單（${targetDate}）`);
+  }
   log(`✓ 軋空候選 ${items.length} 檔｜模式 ${mode}｜資料日 ${_archDate}｜適用交易日 ${targetDate}`);
   // ── 🚪 當日入選／離榜對照（2026-09-22 使用者：戰情室也要離榜清單）──
   //   盤中每 3 分鐘重算，候選會進進出出；latest 只有「此刻在榜」，看不到「早上入選、現在掉了」。
@@ -12480,7 +12491,7 @@ async function computeLimitUpForecast() {
   if (_luFlow.date !== todayIso) {
     _luFlow = { date: todayIso, seen: new Map() };
     try {
-      const old = (await db.collection('limitUpForecast').doc('latest').get()).data();
+      const old = (await db.collection('limitUpForecast').doc('live').get()).data();   // 順序流是盤中累積的，存在 live
       if (old?.flowDate === todayIso) for (const f of (old.flow || [])) _luFlow.seen.set(f.code, f);
     } catch { /* 回補可缺 */ }
   }
@@ -12690,7 +12701,10 @@ async function computeLimitUpForecast() {
     return { ind, cnt5: c5, prev5: p5, trend: c5 >= p5 * 1.5 && c5 >= 5 ? '升溫' : c5 * 1.5 <= p5 ? '降溫' : '持平', hot: hotTop3.has(ind) };
   });
 
-  await db.collection('limitUpForecast').doc('latest').set({
+  // ⛔ 凍結規則（2026-09-22 使用者：盤後定案的預測名單要凍結一整天；即時預測另做戰情新頁）：
+  //   每次計算都寫 live（盤中即時預測頁讀它）；latest＝盤後定案、只由**排程的 close 模式**寫，
+  //   且交易日 08:30～13:35 一律不寫（名單在當天盤中不得被改）；手動 --run 一律只寫 live（我自己踩過兩次）。
+  const luDoc = {
     updatedAt: Date.now(), mode, dataDate: today.date, mktLU,
     luVersion: LU_VERSION,   // 2026-09-18 D5／D9：lift 表版本章，記分板按版本分開看
     aList: top, bList: bList.slice(0, 40),
@@ -12699,7 +12713,11 @@ async function computeLimitUpForecast() {
     review: scoreboard?.lastReview || null,
     scoreboard: scoreboard?.agg ? { ...scoreboard.agg, last: (scoreboard.history || [])[0] || null } : null,
     backtest: { top10: 21.5, top30: 17.0, lift10: 8.0, base: 2.7 }, // 驗證期實測(v2 +3月漲停/族群風向·阻尼0.3)
-  });
+  };
+  await db.collection('limitUpForecast').doc('live').set(luDoc);
+  const luFrozenOK = mode === 'close' && !ONESHOT && !(isTradingDay(tw) && mins >= 8 * 60 + 30 && mins < 13 * 60 + 35);
+  if (luFrozenOK) await db.collection('limitUpForecast').doc('latest').set(luDoc);
+  else log(`  · 漲停預測：${ONESHOT ? '手動執行' : mode === 'live' ? '盤中即時' : '盤中時段'}只寫 live，不動盤後定案（latest）`);
   log(`✓ 漲停預測 ${mode} ${today.date}：A榜${top.length}(最高分${top[0]?.score ?? '—'})／B榜連板${bList.length}／市場漲停${mktLU}家／漲停王 ${kings[0]?.code ?? '—'}×${kings[0]?.n ?? 0}／熱門族群 ${[...hotTop3].join('、') || '—'}`);
 }
 

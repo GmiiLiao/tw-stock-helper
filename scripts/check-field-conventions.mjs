@@ -41,6 +41,8 @@ export const AT_ALLOWLIST = new Set([
   'pxAt',
   // firstAt／lastAt／dropAt：軋空當日帳（squeezePicksLedger）每檔第一次入選、最後在榜、離榜的時刻（2026-09-22）。
   'firstAt', 'lastAt', 'dropAt',
+  // frozenAt：軋空候選定案名單 squeezePicks/{targetDate} 的凍結時刻（2026-09-22）。
+  'frozenAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',
