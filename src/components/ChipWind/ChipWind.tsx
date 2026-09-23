@@ -61,7 +61,7 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
 
   // ⓘ 說明按鈕
   const info = (k: string) => (
-    <button onClick={() => toggle(k)} aria-label="說明" style={{ marginLeft: 6, width: 17, height: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === k ? '#3d8ef8' : 'transparent', color: open === k ? '#fff' : 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
+    <button onClick={() => toggle(k)} aria-label="說明" style={{ marginLeft: 6, width: '1.35em', height: '1.35em', minWidth: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === k ? '#3d8ef8' : 'transparent', color: open === k ? '#fff' : 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
   );
   const explainBox = (k: string) => open === k && EXPLAIN[k] ? (
     <div style={{ margin: '6px 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
@@ -157,7 +157,7 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
           //   規則同前：要斷就在整段邊界斷，絕不在數值中間斷。
           //   ⇒ 整列可 wrap；數值與明細 nowrap 且不被壓；股名 flex:1 讓位。
           <div key={it.code} onClick={() => navigateTo('stock', it.code)} style={{ display: 'flex', alignItems: 'center', gap: 8, rowGap: 2, flexWrap: 'wrap', padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--fz))', background: dayTradeTintOf(dt, it.code) ?? (i % 2 ? 'transparent' : 'rgba(148,163,184,0.04)') }}>
-            <span style={{ color: 'var(--text-muted)', width: 18, fontSize: 'calc(12.5px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
+            <span style={{ color: 'var(--text-muted)', minWidth: '2ch', fontSize: 'calc(12.5px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
             <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
             <b style={{ color: col(it.net), textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmt(it.net)}</b>
             <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flexShrink: 0 }}>張</span>

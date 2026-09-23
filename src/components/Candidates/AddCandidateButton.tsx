@@ -37,7 +37,7 @@ export default function AddCandidateButton({ code, variant = 'chip', className }
     return (
       <button type="button" onClick={onClick} title={on ? '已在候選便條' : '加入候選便條'} aria-pressed={on}
         className={className}
-        style={{ ...base, width: 18, height: 18, borderRadius: 5, fontSize: 'calc(12.5px * var(--fz))', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        style={{ ...base, width: '1.45em', height: '1.45em', minWidth: 18, minHeight: 18, borderRadius: 5, fontSize: 'calc(12.5px * var(--fz))', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
         {on ? '✓' : '＋'}
       </button>
     );

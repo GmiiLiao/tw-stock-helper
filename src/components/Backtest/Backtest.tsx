@@ -797,7 +797,7 @@ export default function Backtest() {
                   onChange={e => setField('exitTakeProfitPct', parseFloat(e.target.value) || 10)}
                   onClick={e => e.stopPropagation()}
                 />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>%</span>
+                <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>%</span>
               </label>
 
               {/* Stop Loss */}
@@ -820,7 +820,7 @@ export default function Backtest() {
                   onChange={e => setField('exitStopLossPct', parseFloat(e.target.value) || 5)}
                   onClick={e => e.stopPropagation()}
                 />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>%</span>
+                <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>%</span>
               </label>
 
               {/* Time Limit */}
@@ -843,7 +843,7 @@ export default function Backtest() {
                   onChange={e => setField('exitTimeLimitDays', parseInt(e.target.value) || 20)}
                   onClick={e => e.stopPropagation()}
                 />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>日</span>
+                <span style={{ fontSize: 'calc(0.75rem * var(--fz))', color: 'var(--text-muted)' }}>日</span>
               </label>
 
               {/* Signal Reverse */}
@@ -1036,7 +1036,7 @@ export default function Backtest() {
                 <div className={styles.chartHeader}>
                   <div className={styles.chartTitle}>
                     📈 資產曲線
-                    <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                    <span style={{ fontSize: 'calc(0.75rem * var(--fz))', fontWeight: 400, color: 'var(--text-muted)' }}>
                       · 藍點=進場 · 彩點=出場
                     </span>
                   </div>
@@ -1060,7 +1060,7 @@ export default function Backtest() {
                 <div className={styles.tableHeader}>
                   <div className={styles.tableTitle}>
                     📋 交易明細
-                    <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                    <span style={{ fontSize: 'calc(0.75rem * var(--fz))', fontWeight: 400, color: 'var(--text-muted)' }}>
                       {displayTrades.length} 筆
                     </span>
                   </div>

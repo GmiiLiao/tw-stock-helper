@@ -532,8 +532,8 @@ export default function IndexAnalysis() {
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
         {loading ? <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>
           : all.length ? <MultiPaneChart all={all} iv={iv} initSize={win} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>{loadErr ? `無資料：${loadErr}` : '無資料'}</div>}
-        {loadErr && all.length > 0 && <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4 }}>⚠ {loadErr}，顯示的是上次成功載入的資料</div>}
-        {note && <div style={{ fontSize: 11, color: '#cbd5f5', marginTop: 4 }}>ℹ {note}</div>}
+        {loadErr && all.length > 0 && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginTop: 4 }}>⚠ {loadErr}，顯示的是上次成功載入的資料</div>}
+        {note && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', marginTop: 4 }}>ℹ {note}</div>}
       </div>
 
       {read.lines.length > 0 && (
@@ -544,12 +544,12 @@ export default function IndexAnalysis() {
             <div style={{ fontWeight: 900, margin: '8px 0 2px' }}>📐 指標讀數（描述性·非買賣訊號）</div>
             {read.ind.map((l, i) => <div key={'i' + i} style={{ color: '#dbe4f5' }}>· {l}</div>)}
           </>}
-          <div style={{ marginTop: 6, fontSize: 11, color: '#cbd5f5' }}>判讀為技術面描述，非預測、非投資建議。MACD/KD 交叉類為確認型指標，本站回測無預測增量。</div>
+          <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>判讀為技術面描述，非預測、非投資建議。MACD/KD 交叉類為確認型指標，本站回測無預測增量。</div>
         </div>
       )}
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-        <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 6 }}>📋 歷史資料（近 20 根{INTERVALS.find(i => i.id === iv)?.label}）</div>
+        <div style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', marginBottom: 6 }}>📋 歷史資料（近 20 根{INTERVALS.find(i => i.id === iv)?.label}）</div>
         <div className="mobile-only" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 4 }}>← 左右滑動可看完 9 個欄位</div>
         <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {/* ⚠ 這張表**必須**給 td/th padding（2026-08-11 使用者：「歷史資料的數字都粘在一起了，無法判讀」）：

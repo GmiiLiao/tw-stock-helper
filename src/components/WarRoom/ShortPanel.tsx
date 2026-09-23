@@ -90,7 +90,7 @@ export default function ShortPanel() {
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: 10, padding: '6px 10px', borderRadius: 6,
           background: 'rgba(30,41,59,0.6)', color: 'var(--text-secondary, #cbd5e1)' }}>
           📋 昨日榜回顧（{review.latestDay.boardDate}·{review.latestDay.n} 檔）：
-          今日<b style={{ color: review.latestDay.winRate >= 50 ? '#4ade80' : '#f87171' }}>勝率 {review.latestDay.winRate}%</b>
+          今日<b style={{ color: review.latestDay.winRate >= 50 ? 'var(--color-up)' : 'var(--color-down)' }}>勝率 {review.latestDay.winRate}%</b>
           ·平均 {review.latestDay.avgChg}%（空方勝=跌）
           {(review.history?.length ?? 0) >= 5 && (() => {
             const h = review.history!.slice(0, 20);

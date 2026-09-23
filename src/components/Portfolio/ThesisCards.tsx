@@ -66,7 +66,7 @@ export default function ThesisCards() {
             </div>
             {editCode === code ? (
               <div style={{ marginTop: 6 }}>
-                <textarea className="input" value={draft} rows={2} maxLength={200} onChange={e => setDraft(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
+                <textarea className="input" value={draft} rows={2} maxLength={200} onChange={e => setDraft(e.target.value)} style={{ width: '100%', fontSize: 'calc(13.5px * var(--fz))' }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <button className="btn btn-buy" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '3px 12px' }} onClick={() => { save(code, { thesis: draft }); setEditCode(null); }}>儲存</button>
                   <button style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '3px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }} onClick={() => setEditCode(null)}>取消</button>

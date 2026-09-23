@@ -77,8 +77,8 @@ export default function DayTradeAnalysis() {
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={report.monthly.slice(-12)}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
-              <XAxis dataKey="month" tick={{ fontSize: 10, fill: MUTED }} tickFormatter={(v: string) => v.slice(5)} />
-              <YAxis tick={{ fontSize: 10, fill: MUTED }} tickFormatter={(v: number) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(0)}萬` : v.toLocaleString())} />
+              <XAxis dataKey="month" tick={{ fontSize: 12, fill: MUTED }} tickFormatter={(v: string) => v.slice(5)} />
+              <YAxis tick={{ fontSize: 12, fill: MUTED }} tickFormatter={(v: number) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(0)}萬` : v.toLocaleString())} />
               <Tooltip
                 contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: 8, fontSize: 'calc(12px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800 }}

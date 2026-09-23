@@ -335,7 +335,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                     <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                       <button
                         className={styles.btnSecondary}
-                        style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: '24px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                        style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', minHeight: '24px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
                         onClick={() => handleStartEdit(group)}
                       >
                         ✏️ 編輯
@@ -343,7 +343,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                       {group.id !== 'default' && (
                         <button
                           className={styles.btnSecondary}
-                          style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: '24px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                          style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', minHeight: '24px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
                           onClick={() => handleDelete(group.id, group.name)}
                         >
                           🗑️ 刪除
@@ -1911,7 +1911,7 @@ function InstitutionalPanel({
 
       {/* Column header */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr 70px',
+        display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr minmax(70px, auto)',
         padding: '8px 16px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
         borderBottom: '1px solid var(--border-primary)', letterSpacing: '0.04em',
       }}>
@@ -1945,7 +1945,7 @@ function InstitutionalPanel({
             <div
               onClick={() => onToggleExpand(s.code)}
               style={{
-                display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr 70px',
+                display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr minmax(70px, auto)',
                 padding: '11px 16px', alignItems: 'center',
                 borderBottom: '1px solid var(--border-primary)',
                 background: isExpanded ? 'rgba(99,102,241,0.03)' : (idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.013)'),

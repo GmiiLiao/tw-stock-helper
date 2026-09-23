@@ -226,7 +226,7 @@
 
 .tableHeader {
   display: grid;
-  grid-template-columns: 170px 1fr 80px 36px;
+  grid-template-columns: minmax(170px, 13em) minmax(0, 1fr) minmax(80px, 6em) 36px;
   align-items: center;
   padding: 8px 14px;
   border-radius: 8px;
@@ -249,7 +249,7 @@
 /* ── Stock Row ────────────────────────────────────────────────────────────── */
 .stockRow {
   display: grid;
-  grid-template-columns: 170px 1fr 80px 36px;
+  grid-template-columns: minmax(170px, 13em) minmax(0, 1fr) minmax(80px, 6em) 36px;
   align-items: center;
   padding: 10px 14px;
   border-radius: 10px;

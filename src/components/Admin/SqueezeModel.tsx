@@ -150,7 +150,7 @@ export default function SqueezeModel() {
             </table>
             {m.main.oot.net && (
               <div style={{ marginTop: 4 }}>
-                A 段閘門：樣本外淨報酬（扣費稅 0.4425%）<b style={{ color: (m.main.oot.net.ci?.[0] ?? -1) > 0 ? '#22c55e' : '#ef4444' }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
+                A 段閘門：樣本外淨報酬（扣費稅 0.4425%）<b style={{ color: (m.main.oot.net.ci?.[0] ?? -1) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
                 {m.main.oot.byRegime && <>　市況分層超額：多頭 <b>{pp(m.main.oot.byRegime.bull.excess)}</b>（{m.main.oot.byRegime.bull.days} 日）／空頭 <b>{pp(m.main.oot.byRegime.bear.excess)}</b>（{m.main.oot.byRegime.bear.days} 日）</>}
               </div>
             )}
@@ -180,7 +180,7 @@ export default function SqueezeModel() {
               </tbody>
             </table>
             <div style={{ marginTop: 4 }}>
-              樣本外淨勝純動能 <b style={{ color: m.main.edgeVsMomentum >= 0 ? '#22c55e' : '#ef4444' }}>{m.main.edgeVsMomentum >= 0 ? '+' : ''}{m.main.edgeVsMomentum}pp</b>
+              樣本外淨勝純動能 <b style={{ color: m.main.edgeVsMomentum >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{m.main.edgeVsMomentum >= 0 ? '+' : ''}{m.main.edgeVsMomentum}pp</b>
               　可買比例 <b>{m.main.oot.buyRate}%</b>
               <span style={{ color: 'var(--text-muted)' }}>（其餘為隔日開盤即漲停鎖死、買不到，已排除不計）</span>
             </div>
@@ -390,7 +390,7 @@ export default function SqueezeModel() {
                   <td style={{ ...td, textAlign: 'left', whiteSpace: 'nowrap' }}>{fmtT(r.updatedAt)}</td>
                   <td style={{ ...td, textAlign: 'left' }}>{r.mainName ?? <span style={{ color: '#ef4444' }}>無</span>}</td>
                   <td style={td}>{r.mainOot?.meanBuyable != null ? pn(r.mainOot.meanBuyable) : '—'}</td>
-                  <td style={{ ...td, color: (r.edge ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>{r.edge != null ? `${r.edge >= 0 ? '+' : ''}${r.edge}pp` : '—'}</td>
+                  <td style={{ ...td, color: (r.edge ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{r.edge != null ? `${r.edge >= 0 ? '+' : ''}${r.edge}pp` : '—'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>{r.sqName ?? '—'}</td>
                   <td style={td}>{r.sqLift != null ? `${r.sqLift >= 0 ? '+' : ''}${r.sqLift}pp` : '—'}</td>
                 </tr>

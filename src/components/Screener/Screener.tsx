@@ -326,7 +326,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                     <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                       <button
                         className="btn btn-secondary btn-sm"
-                        style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: '24px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                        style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', minHeight: '24px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
                         onClick={() => handleStartEdit(group)}
                       >
                         ✏️ 編輯
@@ -334,7 +334,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                       {group.id !== 'default' && (
                         <button
                           className="btn btn-secondary btn-sm"
-                          style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', height: '24px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                          style={{ padding: '3px 8px', fontSize: 'calc(13px * var(--fz))', borderRadius: '6px', minHeight: '24px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
                           onClick={() => handleDelete(group.id, group.name)}
                         >
                           🗑️ 刪除
@@ -509,17 +509,17 @@ export default function Screener() {
     for (let line of lines) {
       if (line.startsWith('### ')) {
         if (inList) { resultLines.push('</ul>'); inList = false; }
-        resultLines.push(`<h4 style="margin: 18px 0 8px 0; color: var(--accent-blue); font-size: 1.1rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">${line.substring(4)}</h4>`);
+        resultLines.push(`<h4 style="margin: 18px 0 8px 0; color: var(--accent-blue); font-size: calc(1.1rem * var(--fz)); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">${line.substring(4)}</h4>`);
         continue;
       }
       if (line.startsWith('## ')) {
         if (inList) { resultLines.push('</ul>'); inList = false; }
-        resultLines.push(`<h3 style="margin: 22px 0 10px 0; color: var(--text-primary); font-size: 1.25rem; font-weight: 700;">${line.substring(3)}</h3>`);
+        resultLines.push(`<h3 style="margin: 22px 0 10px 0; color: var(--text-primary); font-size: calc(1.25rem * var(--fz)); font-weight: 700;">${line.substring(3)}</h3>`);
         continue;
       }
       if (line.startsWith('# ')) {
         if (inList) { resultLines.push('</ul>'); inList = false; }
-        resultLines.push(`<h2 style="margin: 26px 0 12px 0; color: var(--text-primary); font-size: 1.4rem; font-weight: 800;">${line.substring(2)}</h2>`);
+        resultLines.push(`<h2 style="margin: 26px 0 12px 0; color: var(--text-primary); font-size: calc(1.4rem * var(--fz)); font-weight: 800;">${line.substring(2)}</h2>`);
         continue;
       }
 
@@ -537,7 +537,7 @@ export default function Screener() {
         }
         let content = bulletMatch[3];
         content = formatInlineMarkdown(content);
-        resultLines.push(`<li style="margin: 6px 0; font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">${content}</li>`);
+        resultLines.push(`<li style="margin: 6px 0; font-size: calc(0.9rem * var(--fz)); line-height: 1.5; color: var(--text-secondary);">${content}</li>`);
         continue;
       } else {
         if (inList) {
@@ -550,7 +550,7 @@ export default function Screener() {
         resultLines.push('<br />');
       } else {
         let content = formatInlineMarkdown(line);
-        resultLines.push(`<p style="margin: 8px 0; font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);">${content}</p>`);
+        resultLines.push(`<p style="margin: 8px 0; font-size: calc(0.9rem * var(--fz)); line-height: 1.6; color: var(--text-secondary);">${content}</p>`);
       }
     }
 

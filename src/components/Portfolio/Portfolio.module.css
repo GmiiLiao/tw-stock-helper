@@ -391,7 +391,7 @@
    固定 px 欄在窄螢幕上是負債，寧可堆疊。 */
 .gaugeRow {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) 92px;
+  grid-template-columns: minmax(120px, 9em) minmax(0, 1fr) minmax(92px, auto);
   gap: 14px;
   align-items: center;
 }

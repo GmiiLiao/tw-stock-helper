@@ -650,8 +650,8 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fill: '#7e8ba3', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis domain={yDomain as [number, number]} tick={{ fill: '#7e8ba3', fontSize: 10 }} axisLine={false} tickLine={false} orientation="left" tickFormatter={v => v.toFixed(0)} />
+                <XAxis dataKey="date" tick={{ fill: '#7e8ba3', fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis domain={yDomain as [number, number]} tick={{ fill: '#7e8ba3', fontSize: 12 }} axisLine={false} tickLine={false} orientation="left" tickFormatter={v => v.toFixed(0)} />
                 {/* 量軸（隱藏）：domain 放大 4 倍→量棒只佔圖表下方約 1/4，不干擾價格線 */}
                 <YAxis yAxisId="vol" hide domain={[0, (dMax: number) => (dMax || 1) * 4]} />
                 <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))', color: '#e2e8f0' }}

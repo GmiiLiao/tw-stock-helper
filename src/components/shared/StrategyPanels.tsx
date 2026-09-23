@@ -113,7 +113,7 @@ function DayLabels({ dayMin, dayMax, step }: { dayMin: number; dayMax: number; s
   for (let d = Math.ceil(dayMin / step) * step; d <= dayMax; d += step) labels.push(d);
   if (!labels.includes(0)) labels.push(0);
   return (
-    <div style={{ position: 'relative', height: 14, marginTop: 1, fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+    <div style={{ position: 'relative', height: '1.4em', marginTop: 1, fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
       {labels.sort((a, b) => a - b).map(d => (
         <span key={d} style={{ position: 'absolute', left: `${((d - dayMin) / (dayMax - dayMin)) * 100}%`, transform: 'translateX(-50%)', color: d === 0 ? 'var(--text-secondary)' : undefined, fontWeight: d === 0 ? 700 : 400 }}>
           {d === 0 ? '今' : d > 0 ? `+${d}` : d}

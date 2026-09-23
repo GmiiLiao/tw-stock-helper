@@ -264,7 +264,7 @@
 
 .moversHeader {
   display: grid;
-  grid-template-columns: 24px 56px 1fr 80px 80px 72px;
+  grid-template-columns: 1.8em 4.8em minmax(0, 1fr) 6em 6em 5.4em;
   gap: 8px;
   padding: 8px 14px;
   font-size: calc(12.5px * var(--fz));
@@ -278,7 +278,7 @@
 
 .moversRow {
   display: grid;
-  grid-template-columns: 24px 56px 1fr 80px 80px 72px;
+  grid-template-columns: 1.8em 4.8em minmax(0, 1fr) 6em 6em 5.4em;
   gap: 8px;
   padding: 9px 14px;
   align-items: center;
@@ -342,7 +342,7 @@
   .mainGrid { gap: 12px; }
   .moversHeader,
   .moversRow {
-    grid-template-columns: 20px 48px 1fr 58px 58px 60px;
+    grid-template-columns: 1.6em 4.2em minmax(0, 1fr) 4.8em 4.8em 4.8em;
     gap: 6px;
     font-size: calc(12.5px * var(--fz));
   }
@@ -363,7 +363,7 @@
      欄數、表頭格數、資料列格數三者必須一致；改這裡前先數一次格子。 */
   .moversHeader,
   .moversRow {
-    grid-template-columns: 18px 44px 1fr 48px 52px 50px;
+    grid-template-columns: 1.5em 4em minmax(0, 1fr) 4.4em 4.6em 4.4em;
     gap: 4px;
     font-size: calc(12.5px * var(--fz));
   }
@@ -395,8 +395,8 @@
   background: rgba(125, 211, 252, .14);
   color: var(--text-primary);
 }
-.dashTabTop { font-size: .88rem; font-weight: 900; }
-.dashTabHint { font-size: .68rem; color: var(--text-muted); font-weight: 400; }
+.dashTabTop { font-size: calc(.88rem * var(--fz)); font-weight: 900; }
+.dashTabHint { font-size: calc(12px * var(--fz)); color: var(--text-muted); font-weight: 400; }
 
 /* ── 市場結構三欄：風向總覽 × 籌碼訊號 × 第四法人 ──────────────────
    auto-fit 讓寬螢幕三欄、中等兩欄、手機單欄；align-items:start 避免

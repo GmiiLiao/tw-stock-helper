@@ -62,7 +62,8 @@ function isTwTradingHours(): boolean {
 const NUM_COL = (w: number, color: string, weight = 600): React.CSSProperties => ({ display: 'inline-block', minWidth: w, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', color, fontWeight: weight });
 
 // 漲停預測榜的欄位模板（表頭與每列共用，改欄寬只改這一處）。標籤放表頭，列上只放數字，數字才不會因「模型分 15.7」擠成兩行。
-const LU_GRID = '12px 22px 26px 52px minmax(80px, 110px) 30px 30px 72px 70px 72px 70px 62px minmax(72px, 1fr)';
+// 欄寬用 em：字級（--fz）放大時欄寬同比例放大，數字不被擠出（2026-09-23 全站字級調整）
+const LU_GRID = '12px 1.7em 1.9em 3.8em minmax(5.8em, 8em) 2.2em 2.2em 5.2em 5em 5.2em 5em 4.4em minmax(5em, 1fr)';
 const LU_CELL = (extra: React.CSSProperties = {}): React.CSSProperties => ({ whiteSpace: 'nowrap', ...extra });
 
 // source：frozen＝盤後定案（凍結一整天，預設）；live＝盤中即時重算（戰情「⚡ 盤中漲停預測」新頁）
@@ -162,7 +163,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
               const max = data.stats?.indRank?.[0]?.n || 1;
               return (
                 <div key={r.ind} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))' }}>
-                  <span style={{ width: 18, fontWeight: 800, color: i < 3 ? '#fda4af' : 'var(--text-muted)' }}>{i + 1}</span>
+                  <span style={{ minWidth: '2ch', fontWeight: 800, color: i < 3 ? '#fda4af' : 'var(--text-muted)' }}>{i + 1}</span>
                   <span style={{ minWidth: 92, fontWeight: 600 }}>{r.ind}</span>
                   <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'rgba(148,163,184,0.10)', overflow: 'hidden' }}>
                     <div style={{ width: `${Math.round(r.n / max * 100)}%`, height: '100%', background: i < 3 ? '#f03e3e' : '#64748b' }} />

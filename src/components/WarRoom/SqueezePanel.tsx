@@ -184,7 +184,7 @@ export default function SqueezePanel() {
           border: `1px solid ${d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.4)'}`,
           fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.65,
         }}>
-          <div style={{ fontWeight: 700, marginBottom: 2, color: d.recent.avgNextDay >= 0 ? '#22c55e' : '#ef4444' }}>
+          <div style={{ fontWeight: 700, marginBottom: 2, color: d.recent.avgNextDay >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
             近 30 個交易日實際戰績（同一條規則回放）
           </div>
           <div>

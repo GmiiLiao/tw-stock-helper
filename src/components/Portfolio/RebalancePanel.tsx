@@ -69,7 +69,7 @@ export default function RebalancePanel() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
         {data.weights.slice(0, 10).map(w => (
-          <div key={w.code} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 46px', gap: 8, alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))' }}>
+          <div key={w.code} style={{ display: 'grid', gridTemplateColumns: '8em minmax(0, 1fr) auto', gap: 8, alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))' }}>
             <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.code} {w.name}</span>
             <div style={{ position: 'relative', height: 12, background: 'var(--bg-tertiary)', borderRadius: 6, overflow: 'hidden' }}>
               <div style={{ position: 'absolute', inset: 0, width: `${Math.min(w.pct / Math.max(lim.maxStockPct * 1.4, 1) * 100, 100)}%`, background: w.pct > lim.maxStockPct ? '#ef4444' : '#38bdf8', opacity: 0.85, borderRadius: 6 }} />

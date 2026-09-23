@@ -862,11 +862,11 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
               <XAxis
                 dataKey="month"
-                tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
+                tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
                 tickFormatter={(v: string) => v.slice(5)} // Show MM only
               />
               <YAxis
-                tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
+                tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
                 // 單位一致：先前是 `v>=1000 ? k : 原值`，負值走不到 k 分支 →
                 // 同一條軸上出現「1100k」與「-1100000」兩種寫法。改為依絕對值
                 // 統一縮放，並用台股慣用的「萬」（220萬 比 2200k 好讀）。

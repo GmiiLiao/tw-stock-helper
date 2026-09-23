@@ -291,21 +291,21 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fill: '#b8c6e4', fontSize: 11 }}
+              tick={{ fill: '#b8c6e4', fontSize: 12 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v, i) => chartData.length > 60 && i % Math.floor(chartData.length / 8) !== 0 ? '' : v}
             />
             <YAxis
               domain={yDomain as [number, number]}
-              tick={{ fill: '#b8c6e4', fontSize: 11 }}
+              tick={{ fill: '#b8c6e4', fontSize: 12 }}
               axisLine={false}
               tickLine={false}
               orientation="right"
               tickFormatter={v => v.toFixed(0)}
             />
             <Tooltip
-              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
               labelStyle={{ color: 'var(--text-secondary)', marginBottom: 4 }}
               itemStyle={{ padding: '2px 0' }}
               formatter={(value, name) => {
@@ -396,7 +396,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <div className={styles.subChart}>
           <div className={styles.chartTitle}>
             三大法人買賣超（張）
-            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
               <span style={{ color: '#f59e0b' }}>▌</span>外資　<span style={{ color: '#a78bfa' }}>▌</span>投信
               <span style={{ marginLeft: 8, opacity: 0.75 }}>收盤後歸檔，非盤中即時</span>
             </span>
@@ -409,17 +409,17 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <ResponsiveContainer width="100%" height={110}>
               <ComposedChart data={instSeries} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <XAxis dataKey="date" hide />
-                <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+                <YAxis tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} orientation="right" />
                 <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
                 <Bar dataKey="fgn" name="外資" fill="#f59e0b" fillOpacity={0.75} isAnimationActive={false} />
                 <Bar dataKey="trust" name="投信" fill="#a78bfa" fillOpacity={0.75} isAnimationActive={false} />
                 <Tooltip
                   cursor={{ fill: 'rgba(148,163,184,0.12)' }}
-                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                   formatter={(v, n) => [`${(v as number).toLocaleString()} 張`, n as string]}
                 />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 'calc(12px * var(--fz))' }} />
               </ComposedChart>
             </ResponsiveContainer>
           )}
@@ -431,7 +431,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <div className={styles.subChart}>
           <div className={styles.chartTitle}>
             融資／融券
-            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
               <span style={{ color: '#f03e3e' }}>▌</span>融資日增減　<span style={{ color: '#22d3ee' }}>▌</span>融券日增減　
               <span style={{ color: '#f59e0b' }}>—</span>融資餘額（右軸·張）
             </span>
@@ -444,19 +444,19 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <ResponsiveContainer width="100%" height={110}>
               <ComposedChart data={marginSeries} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <XAxis dataKey="date" hide />
-                <YAxis yAxisId="chg" tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="bal" orientation="right" tick={{ fill: '#f59e0b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="chg" tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="bal" orientation="right" tick={{ fill: '#f59e0b', fontSize: 12 }} axisLine={false} tickLine={false} />
                 <ReferenceLine yAxisId="chg" y={0} stroke="#64748b" strokeWidth={1} />
                 <Bar yAxisId="chg" dataKey="mgnChg" name="融資日增減" fill="#f03e3e" fillOpacity={0.7} isAnimationActive={false} />
                 <Bar yAxisId="chg" dataKey="shrtChg" name="融券日增減" fill="#22d3ee" fillOpacity={0.7} isAnimationActive={false} />
                 <Line yAxisId="bal" type="monotone" dataKey="mgn" name="融資餘額" stroke="#f59e0b" dot={false} strokeWidth={1.5} isAnimationActive={false} />
                 <Tooltip
                   cursor={{ fill: 'rgba(148,163,184,0.12)' }}
-                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                   formatter={(v, n) => [`${(v as number).toLocaleString()} 張`, n as string]}
                 />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 'calc(12px * var(--fz))' }} />
               </ComposedChart>
             </ResponsiveContainer>
           )}
@@ -468,7 +468,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <div className={styles.subChart}>
           <div className={styles.chartTitle}>
             千張大戶持股比例（%）
-            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
               集保<b>週</b>資料 · 每週一次
               {chip?.holdersFrom ? ` · 本站自 ${chip.holdersFrom} 起累積` : ''}
             </span>
@@ -482,11 +482,11 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <ResponsiveContainer width="100%" height={110}>
                 <LineChart data={chip!.holders} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-                  <XAxis dataKey="week" tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v as number).toFixed(1)}%`} />
+                  <XAxis dataKey="week" tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v as number).toFixed(1)}%`} />
                   <Line type="monotone" dataKey="ratio" name="千張大戶" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
                   <Tooltip
-                    contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                    contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                     labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                     formatter={(v) => [`${(v as number).toFixed(2)}%`, '千張大戶']}
                   />
@@ -507,7 +507,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       <div className={styles.subChart}>
         <div className={styles.chartTitle}>
           成交量
-          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: '#cbd5f5' }}>
+          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
             <span style={{ color: '#f03e3e' }}>▌</span>收紅　<span style={{ color: '#2f9e44' }}>▌</span>收綠
             {(() => {
               const last = chartData[chartData.length - 1];
@@ -518,7 +518,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <ResponsiveContainer width="100%" height={80}>
           <BarChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
             <XAxis dataKey="date" hide />
-            <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
+            <YAxis tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => `${(v / 1000).toFixed(0)}K`} />
             <Bar
               dataKey="volume"
               isAnimationActive={false}
@@ -533,7 +533,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 單位換算：資料是「股」，台股習慣看「張」＝股/1000。 */}
             <Tooltip
               cursor={{ fill: 'rgba(148,163,184,0.12)' }}
-              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+              contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
               labelFormatter={(l) => String(l)}
               formatter={(v) => [`${Math.round((v as number) / 1000).toLocaleString()} 張`, '成交量']}
@@ -552,7 +552,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               const last = chartData[chartData.length - 1];
               const f = (x: unknown) => (typeof x === 'number' ? x.toFixed(2) : '—');
               return (
-                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))' }}>
                   <span style={{ color: '#3d8ef8' }}>— DIF {f(last?.macd)}</span>
                   <span style={{ color: '#f59e0b', marginLeft: 8 }}>— 訊號線 {f(last?.macdSignal)}</span>
                   <span style={{ color: '#cbd5f5', marginLeft: 8 }}>▌柱 {f(last?.macdHist)}（紅=正·綠=負）</span>
@@ -564,7 +564,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <ComposedChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
               <XAxis dataKey="date" hide />
-              <YAxis tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => v.toFixed(2)} />
+              <YAxis tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} orientation="right" tickFormatter={v => v.toFixed(2)} />
               <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
               <Bar
                 dataKey="macdHist"
@@ -580,7 +580,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               <Line type="monotone" dataKey="macd" dot={false} stroke="#3d8ef8" strokeWidth={1.5} name="DIF" connectNulls />
               <Line type="monotone" dataKey="macdSignal" dot={false} stroke="#f59e0b" strokeWidth={1.5} name="訊號線" connectNulls />
               <Tooltip
-                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
@@ -612,14 +612,14 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
           <ResponsiveContainer width="100%" height={80}>
             <ComposedChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
-              <YAxis domain={[0, 100]} tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+              <YAxis domain={[0, 100]} tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} orientation="right" />
               <ReferenceLine y={90} stroke="rgba(239,68,68,0.35)" strokeDasharray="4 4" />
               <ReferenceLine y={50} stroke="rgba(255,255,255,0.08)" />
               <ReferenceLine y={10} stroke="rgba(251,191,36,0.35)" strokeDasharray="4 4" />
               <Line type="monotone" dataKey="rsi5" dot={false} stroke="#fbbf24" strokeWidth={1.5} name="RSI5" connectNulls />
               <Line type="monotone" dataKey="rsi10" dot={false} stroke="#fb923c" strokeWidth={1.5} name="RSI10" connectNulls />
               <Tooltip
-                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />
@@ -637,7 +637,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               const last = chartData[chartData.length - 1];
               const f = (x: unknown) => (typeof x === 'number' ? x.toFixed(1) : '—');
               return (
-                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))' }}>
                   <span style={{ color: '#22c55e' }}>— K {f(last?.k)}</span>
                   <span style={{ color: '#f97316', marginLeft: 8 }}>— D {f(last?.d)}</span>
                   {showJ && <span style={{ color: '#e879f9', marginLeft: 8 }}>— J {f(last?.j)}</span>}
@@ -649,14 +649,14 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
             <LineChart data={chartData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
               <XAxis dataKey="date" hide />
               {/* 開了 J 就不能鎖 0~100——J=3K−2D 會衝出區間，鎖死會被截斷成一條直線 */}
-              <YAxis domain={showJ ? ['auto', 'auto'] : [0, 100]} tick={{ fill: '#b8c6e4', fontSize: 10 }} axisLine={false} tickLine={false} orientation="right" />
+              <YAxis domain={showJ ? ['auto', 'auto'] : [0, 100]} tick={{ fill: '#b8c6e4', fontSize: 12 }} axisLine={false} tickLine={false} orientation="right" />
               <ReferenceLine y={80} stroke="rgba(239,68,68,0.2)" strokeDasharray="4 4" />
               <ReferenceLine y={20} stroke="rgba(34,197,94,0.2)" strokeDasharray="4 4" />
               <Line type="monotone" dataKey="k" dot={false} stroke="#22c55e" strokeWidth={1.5} name="K值" connectNulls />
               <Line type="monotone" dataKey="d" dot={false} stroke="#f97316" strokeWidth={1.5} name="D值" connectNulls />
               {showJ && <Line type="monotone" dataKey="j" dot={false} stroke="#e879f9" strokeWidth={1.2} name="J值" connectNulls />}
               <Tooltip
-                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: '12px' }}
+                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                 formatter={(v, nm) => [(v as number)?.toFixed(2) ?? '--', String(nm)]}
               />

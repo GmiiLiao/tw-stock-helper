@@ -246,7 +246,7 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
                 <span style={{ width: 52, height: 7, borderRadius: 4, background: 'rgba(148,163,184,0.15)', overflow: 'hidden', display: 'inline-block' }}>
                   <span style={{ display: 'block', width: `${specBar}%`, height: '100%', background: specBar >= 62 ? '#f03e3e' : specBar >= 40 ? '#f59e0b' : '#94a3b8' }} />
                 </span>
-                <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: specBar >= 62 ? '#f03e3e' : 'var(--text-secondary)', width: 20 }}>{r.spec ?? '—'}</span>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: specBar >= 62 ? '#f03e3e' : 'var(--text-secondary)', minWidth: '2.5ch' }}>{r.spec ?? '—'}</span>
                 {r.corr != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>領先{r.corr.toFixed(2)}</span>}
               </span>
             </div>
@@ -456,7 +456,7 @@ export default function ChipPicksPanel() {
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', flexWrap: 'wrap', cursor: 'pointer' }}>
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', width: 12 }}>{open ? '▾' : '▸'}</span>
                   <span onClick={e => e.stopPropagation()}><AddCandidateButton code={p.code} variant="icon" /></span>
-                  {rankNo && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', width: 18 }}>{rankNo}</span>}
+                  {rankNo && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', minWidth: '2ch' }}>{rankNo}</span>}
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 900, padding: '1px 6px', borderRadius: 6, background: ts.bg, color: ts.c }}>{p.tier}</span>
                   <span style={{ fontWeight: 800, minWidth: 42 }}>{p.code}</span>
                   <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>

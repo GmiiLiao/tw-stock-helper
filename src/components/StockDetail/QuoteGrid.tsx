@@ -157,7 +157,7 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
             名稱寫錯會讓人用錯口徑做判斷。 */}
       {bidPct != null ? (
         <div style={{ marginTop: 4 }} title={`五檔委買合計 ${bidSum} 張 vs 委賣合計 ${askSum} 張。這是掛單力道，不是成交的內外盤。`}>
-          <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', display: 'flex' }}>
+          <div style={{ position: 'relative', height: 'calc(18px * var(--fz))', borderRadius: 11, overflow: 'hidden', display: 'flex' }}>
             {/* ⚠ 標籤要看得下才印（2026-08-10）：一面倒時另一段寬度是 0%，
                 但文字照樣被塞進 0 寬的盒子 →「委賣 0%」被壓成一字一行糊在條上。
                 低於 18% 就不印文字，數字改由整條的 title 提示提供。 */}
@@ -172,7 +172,7 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
       ) : stock.high > stock.low ? (
         <div style={{ marginTop: 4 }}
           title="日內位階＝(收−最低)÷(最高−最低)。此檔不在即時五檔掃描範圍，故以日內位階替代。">
-          <div style={{ position: 'relative', height: 22, borderRadius: 11, overflow: 'hidden', background: `linear-gradient(90deg, ${DOWN}55, #64748b33 50%, ${UP}55)` }}>
+          <div style={{ position: 'relative', height: 'calc(18px * var(--fz))', borderRadius: 11, overflow: 'hidden', background: `linear-gradient(90deg, ${DOWN}55, #64748b33 50%, ${UP}55)` }}>
             <div style={{ position: 'absolute', left: `calc(${((pos ?? 0.5) * 100).toFixed(1)}% - 2px)`, top: 0, bottom: 0, width: 4, background: '#fff', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '0 8px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden' }}>
