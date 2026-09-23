@@ -11,7 +11,7 @@ import { AI_LAB_VERSION, AI_LAB_QUOTA, AI_LAB_MAX_LAG_MS, buildDecisionPrompt, p
 
 const twMin = t => { const d = new Date(t + 8 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
 
-export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, deskVersion, evidence }) {
+export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, deskVersion, evidence, getModelInfo = async () => null }) {
   let date = '';
   let records = [];
   let dirty = false, lastWrite = 0;
@@ -76,7 +76,7 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
     async writeLive(force = false) {
       if (!date || (!dirty && !force) || (!force && Date.now() - lastWrite < 30_000)) return;
       dirty = false; lastWrite = Date.now();
-      await db.collection('aiDaytradeLab').doc('live').set({ date, version: AI_LAB_VERSION, model, deskVersion, quota: AI_LAB_QUOTA, updatedAt: Date.now(), records, stats: labStats(records) });
+      await db.collection('aiDaytradeLab').doc('live').set({ date, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, updatedAt: Date.now(), records, stats: labStats(records) });
     },
 
     /** 盤後凍結（寫一次）。回傳 true＝已完成（含今天本來就凍結過） */
@@ -92,7 +92,7 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
         review = parseReview(text);
         if (!review) log('⚠ 當沖 AI 檢討：Ollama 未回覆或格式錯誤，凍結檔記為缺');
       }
-      const doc = { date: today, version: AI_LAB_VERSION, model, deskVersion, quota: AI_LAB_QUOTA, records: recs, stats, facts: factsOf(recs), review, reviewNote: recs.length ? null : '今日無規則觸發（或常駐服務未在盤中運行），無交易可檢討', frozenAt: Date.now() };
+      const doc = { date: today, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, records: recs, stats, facts: factsOf(recs), review, reviewNote: recs.length ? null : '今日無規則觸發（或常駐服務未在盤中運行），無交易可檢討', frozenAt: Date.now() };
       await ref.set(doc);
       try {
         mkdirSync(dir, { recursive: true });

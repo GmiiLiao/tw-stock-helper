@@ -8,7 +8,7 @@ import styles from './AdminPanel.module.css';
 
 import OpsPanel from './OpsPanel';
 import SwingLab from './SwingLab';
-import AiDaytradeLab from './AiDaytradeLab';
+import AiLabHub from './AiLabHub';
 import SqueezeModel from './SqueezeModel';
 import ViewAsPanel from './ViewAsPanel';
 import { useShallow } from 'zustand/react/shallow';
@@ -505,7 +505,7 @@ export default function AdminPanel() {
                 className={`${styles.tabBtn} ${activeTab === 'dtlab' ? styles.tabBtnActive : ''}`}
                 onClick={() => setActiveTab('dtlab')}
               >
-                🤖 當沖 AI 實驗
+                🤖 AI 實驗
               </button>
             )}
           </div>
@@ -517,10 +517,10 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {/* ── TAB: 🤖 當沖 AI 實驗（超級管理員）── */}
+          {/* ── TAB: 🤖 AI 實驗（超級管理員）：當沖／波段持有 ── */}
           {activeTab === 'dtlab' && isSuper && (
             <div className={styles.tabContent}>
-              <AiDaytradeLab />
+              <AiLabHub />
             </div>
           )}
 

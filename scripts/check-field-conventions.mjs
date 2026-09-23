@@ -50,6 +50,8 @@ export const AT_ALLOWLIST = new Set([
   // 當沖 AI 實驗 aiDaytradeLab（2026-09-24）：triggerAt 規則觸發 K 棒時刻、askedAt 送出 Ollama、exitAt 模擬出場、
   //   adminNotesAt 超級管理員人工檢討、notesSyncedAt 人工檢討同步到第二大腦。
   'triggerAt', 'askedAt', 'exitAt', 'adminNotesAt', 'notesSyncedAt',
+  // AI 實驗·波段持有 aiSwingLab（2026-09-24）：settledAt 持有期到期結算時刻；modifiedAt＝Ollama 模型檔的修改時間（/api/tags 原欄位，ISO 字串）。
+  'settledAt', 'modifiedAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',

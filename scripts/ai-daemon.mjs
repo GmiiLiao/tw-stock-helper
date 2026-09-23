@@ -29,6 +29,7 @@ import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } fro
 import { judgePagoda } from './lib/pagoda.mjs';
 import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
+import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -1704,8 +1705,32 @@ const _vwapBook = createVwapBook();
 // 🤖 當沖 AI 實驗（2026-09-24）：工作台觸發 → 本機 Ollama 決定做／不做（多空各 ≤5）→ 模擬成交 → 盤後凍結＋檢討
 const AI_LAB_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'daytrade-ai-lab');
 const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE, onTrigger: evt => _aiLab.consider(evt, isoDate(taipei())) });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
-const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE });
+const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE, getModelInfo: () => getOllamaModelInfo() });
 let _aiLabFinalDate = '', _aiNotesAt = 0;
+// 使用中的 LLM 模型身分（名稱＋digest＋家族／參數量／量化）——AI 實驗每筆記錄都要記（使用者 2026-09-24）。1 小時快取。
+let _ollamaInfo = { at: 0, v: null };
+async function getOllamaModelInfo() {
+  if (_ollamaInfo.v && Date.now() - _ollamaInfo.at < 3600_000) return _ollamaInfo.v;
+  try {
+    const j = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) }).then(r => r.json());
+    const m = (j.models || []).find(x => x.name === OLLAMA_MODEL);
+    _ollamaInfo = { at: Date.now(), v: { name: OLLAMA_MODEL, digest: m?.digest || null, family: m?.details?.family || null, parameterSize: m?.details?.parameter_size || null, quantization: m?.details?.quantization_level || null, modifiedAt: m?.modified_at || null } };
+  } catch { _ollamaInfo = { at: Date.now(), v: { name: OLLAMA_MODEL, digest: null, family: null, parameterSize: null, quantization: null, modifiedAt: null } }; }
+  return _ollamaInfo.v;
+}
+// 處置（進行中＋已公告待生效）與注意股（盤後選股用；讀自家 API、8 秒逾時）
+async function fetchRiskSets() {
+  const today = isoDate(taipei());
+  try {
+    const rs = await fetch(`${APP_BASE}/api/twse/risk-stocks`, { signal: AbortSignal.timeout(8000) }).then(x => (x.ok ? x.json() : null));
+    return { disp: new Set((rs?.disposition || []).filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)), attention: new Set((rs?.attention || []).map(x => x.code).filter(Boolean)) };
+  } catch { return { disp: new Set(), attention: new Set() }; }
+}
+// 🤖 AI 實驗·波段持有（2026-09-24）：盤後 Ollama 從波段榜挑 ≤5 檔 → D+1 開盤模擬買 → 5/10/20/60/120 日結算
+const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'swing-ai-lab'),
+  getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(),
+  loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors().catch(() => ({}))); } });
+let _aiSwingDate = '', _aiSwingTryAt = 0;
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
 let _dtElig = null, _dtEligDay = '';
@@ -14543,7 +14568,13 @@ async function dailyJobsLoop() {
         try { await _aiLab.writeLive(true); if (await _aiLab.finalize(today, _dtEngine)) _aiLabFinalDate = today; }
         catch (e) { log('✖ 當沖 AI 實驗凍結（將重試）:', (e.message || '').slice(0, 60)); }
       }
-      if (Date.now() - _aiNotesAt > 15 * 60000) { _aiNotesAt = Date.now(); _aiLab.syncNotes().catch(e => log('✖ 人工檢討同步:', (e.message || '').slice(0, 60))); }
+      if (Date.now() - _aiNotesAt > 15 * 60000) { _aiNotesAt = Date.now(); _aiLab.syncNotes().catch(e => log('✖ 人工檢討同步:', (e.message || '').slice(0, 60))); _aiSwing.syncNotes().catch(e => log('✖ 波段人工檢討同步:', (e.message || '').slice(0, 60))); }
+      // 🤖 AI 實驗·波段持有：17:00 起（兩榜收盤版都算完）每 10 分鐘試一次選股，成功後當天結算所有到期的持有期
+      if (isTradingDay(tw) && mins >= 17 * 60 && mins < 23 * 60 && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {
+        _aiSwingTryAt = Date.now();
+        try { if (await _aiSwing.pick()) { _aiSwingDate = today; await _aiSwing.settle(); } }
+        catch (e) { log('✖ 波段 AI 實驗（將重試）:', (e.message || '').slice(0, 60)); }
+      }
       // 🎯 縮量跳空漲停（2026-09-05）：13:36 收盤試撮結束後從快照定榜＋推播，每日一次；15:10 歸檔後由 daily jobs 重算不推播。
       if (isTradingDay(tw) && mins >= 13 * 60 + 36 && mins < 14 * 60 + 10 && _gapLuDate !== today) {
         try { if (await computeGapLimitUp({ push: true })) _gapLuDate = today; } catch (e) { log('✖ 跳空漲停:', (e.message || '').slice(0, 60)); }
