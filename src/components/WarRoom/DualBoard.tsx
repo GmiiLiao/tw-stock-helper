@@ -37,13 +37,14 @@ interface DualRow {
   price: number | null; chg: number | null;
   vwapDev: number | null; volX1m: number | null; room: number | null; hiUp: number | null; give: number | null;
   score: string; scoreColor: string; reason: string;
-  alert: AlertSt | null; blocked: string | null;
+  alert: AlertSt | null;
 }
 
 const FLASH_ON_MS = 90_000;     // 成立後強閃 90 秒，之後常亮
 const FLASH_STOP_MS = 60_000;   // 現象停止後琥珀閃 60 秒
 const STOP_KEEP_MS = 15 * 60_000;   // 出貨/回補 icon 置頂 15 分鐘
-const M_FRESH_MS = 3 * 60_000;  // 1 分 K 指標超過 3 分鐘視為過期（不顯示量比）
+const M_FRESH_MS = 3 * 60_000;
+const SHORT_N = 30;   // 做空欄與做多欄同為 30 檔  // 1 分 K 指標超過 3 分鐘視為過期（不顯示量比）
 const LINE1 = '2em 1.6em 3.7em minmax(0, 1fr) 5em 5.4em';
 const LINE2 = 'repeat(6, minmax(0, 1fr))';
 const NUM: React.CSSProperties = { textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
@@ -100,7 +101,6 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
       const price = s?.price ?? mFresh?.c ?? p?.price ?? null;
       const prev = s ? s.price - s.change : p ? p.price / (1 + p.chg / 100) : null;
       const vwap = s?.vwap ?? mFresh?.vwap ?? null;
-      const st = statusOf(dt, code);
       return {
         side: 'long', code, name, market, rank,
         price, chg: s?.changePercent ?? p?.chg ?? mFresh?.chg ?? null,
@@ -111,17 +111,21 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
         give: s && prev ? (s.high - s.price) / prev * 100 : mFresh?.give ?? null,
         score: p ? p.score.toFixed(1) : '—', scoreColor: '#fbbf24',
         reason: p ? p.reasons.slice(0, 4).join('·') : '1 分 K 監控（不在預測榜）',
-        alert: a?.st ?? null, blocked: st === 0 ? '不可現股當沖' : null,
+        alert: a?.st ?? null,
       };
     };
-    lu.slice(0, 30).forEach((p, i) => { seen.add(p.code); out.push(build(p.code, p.name, p.market, i + 1, p)); });
-    for (const r of doc?.long || []) if (r.st && !seen.has(r.code)) out.push(build(r.code, r.name, snapMap[r.code]?.market || 'tse', null, null));
+    // 只列能當沖的（使用者 2026-09-23）：做多＝可先買後賣（1 可當沖、2 僅先買後賣）。名單未載入前一律不列。
+    const canLong = (code: string) => { const st = statusOf(dt, code); return st === 1 || st === 2; };
+    let rank = 0;
+    for (const p of lu) { if (rank >= 30) break; if (!canLong(p.code)) continue; seen.add(p.code); out.push(build(p.code, p.name, p.market, ++rank, p)); }
+    for (const r of doc?.long || []) if (r.st && !seen.has(r.code) && canLong(r.code)) out.push(build(r.code, r.name, snapMap[r.code]?.market || 'tse', null, null));
     return out;
   }, [lu, snapMap, alertMap, doc, dt, now]);
 
   const shortRows = useMemo<DualRow[]>(() => {
-    const { rows } = classifyFade(snaps, marketOpen, dt);
-    const picked = rows.filter(r => TIER_RANK[r.main.tier] <= TIER_RANK.B).sort((a, b) => TIER_RANK[a.main.tier] - TIER_RANK[b.main.tier] || b.m.give - a.m.give).slice(0, 30);
+    const { rows, avoid } = classifyFade(snaps, marketOpen, dt);
+    // 30 檔（與做多同數，使用者 2026-09-23）：型態全層級（強→中→弱→12 點後降級）優先
+    const picked = rows.sort((a, b) => TIER_RANK[a.main.tier] - TIER_RANK[b.main.tier] || b.m.give - a.m.give);
     const out: DualRow[] = []; const seen = new Set<string>();
     const build = (s: FadeSnap | undefined, code: string, name: string, rank: number | null, tier: { t: string; c: string; label: string; oos: string } | null): DualRow => {
       const a = alertMap.short[code];
@@ -130,7 +134,6 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
       const prev = s ? s.price - s.change : null;
       const vwap = s?.vwap ?? mFresh?.vwap ?? null;
       const target = prev != null ? Math.max(vwap ?? 0, prev) : null;
-      const st = statusOf(dt, code);
       return {
         side: 'short', code, name, market: s?.market || 'tse', rank,
         price, chg: s?.changePercent ?? mFresh?.chg ?? null,
@@ -141,11 +144,26 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
         give: s && prev ? (s.high - s.price) / prev * 100 : mFresh?.give ?? null,
         score: tier ? tier.t : '—', scoreColor: tier ? tier.c : 'var(--text-muted)',
         reason: tier ? `${tier.label}｜${tier.oos}` : '1 分 K 監控（未成立轉空型態）',
-        alert: a?.st ?? null, blocked: st != null && st !== 1 ? (st === 2 ? '僅先買後賣：無法放空' : '不可現股當沖：無法放空') : null,
+        alert: a?.st ?? null,
       };
     };
-    picked.forEach((r, i) => { seen.add(r.s.code); const ts = TIER_STYLE[r.main.tier]; out.push(build(r.s, r.s.code, r.s.name, i + 1, { t: ts.t, c: ts.c, label: r.main.label, oos: r.main.oos })); });
-    for (const r of doc?.short || []) if (r.st && !seen.has(r.code)) out.push(build(snapMap[r.code], r.code, r.name, null, null));
+    // 只列能先賣當沖的（狀態 1）；classifyFade 在名單未載入時會放行 null，這裡一律擋下
+    const canShort = (code: string) => statusOf(dt, code) === 1;
+    let rank = 0;
+    for (const r of picked) { if (rank >= SHORT_N) break; if (!canShort(r.s.code)) continue; seen.add(r.s.code); const ts = TIER_STYLE[r.main.tier]; out.push(build(r.s, r.s.code, r.s.name, ++rank, { t: ts.t, c: ts.c, label: r.main.label, oos: r.main.oos })); }
+    // 補足：今日曾漲≥5%、尚未成立型態的「觀察」股（與 daemon 做空監控同一母體，依成交值）；
+    //   最後才用回放兩段皆負的「不建議放空」股墊底，並把理由寫在第 3 行——不讓它們冒充候選。
+    const avoidWhy = new Map(avoid.map(a => [a.s.code, a.why]));
+    const watch = snaps.filter(q => {
+      if (seen.has(q.code) || avoidWhy.has(q.code) || !/^\d{4}$/.test(q.code) || q.code.startsWith('00') || !canShort(q.code)) return false;
+      const prev = q.price - q.change;
+      return prev > 10 && q.high > 0 && (q.volume || 0) / 1000 >= 500 && (q.high / prev - 1) * 100 >= 5;
+    }).sort((a, b) => b.price * b.volume - a.price * a.volume);
+    for (const q of watch) { if (rank >= SHORT_N) break; seen.add(q.code); out.push(build(q, q.code, q.name, ++rank, { t: '觀察', c: 'var(--text-muted)', label: '曾漲≥5%·尚未成立轉空型態', oos: '回放未驗證，僅監控' })); }
+    for (const a of avoid.filter(x => canShort(x.s.code) && !seen.has(x.s.code)).sort((x, y) => y.s.price * y.s.volume - x.s.price * x.s.volume)) {
+      if (rank >= SHORT_N) break; seen.add(a.s.code); out.push(build(a.s, a.s.code, a.s.name, ++rank, { t: '避', c: '#f59e0b', label: '⚠ 不建議放空', oos: a.why }));
+    }
+    for (const r of doc?.short || []) if (r.st && !seen.has(r.code) && canShort(r.code)) out.push(build(snapMap[r.code], r.code, r.name, null, null));
     return out;
   }, [snaps, marketOpen, dt, alertMap, doc, snapMap, now]);
 
@@ -176,8 +194,8 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: wide ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', gap: 12 }}>
-        <DualColumn side="long" rows={order(longRows)} now={now} evidence={doc?.evidence?.long ?? null} ev={doc?.evidence ?? null} />
-        <DualColumn side="short" rows={order(shortRows)} now={now} evidence={doc?.evidence?.short ?? null} ev={doc?.evidence ?? null} />
+        <DualColumn side="long" rows={order(longRows)} now={now} evidence={doc?.evidence?.long ?? null} ev={doc?.evidence ?? null} dtLoaded={dt.loaded} />
+        <DualColumn side="short" rows={order(shortRows)} now={now} evidence={doc?.evidence?.short ?? null} ev={doc?.evidence ?? null} dtLoaded={dt.loaded} />
       </div>
 
       <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
@@ -191,7 +209,7 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
   );
 }
 
-function DualColumn({ side, rows, now, evidence, ev }: { side: Side; rows: DualRow[]; now: number; evidence: SideEvidence | null; ev: Evidence | null }) {
+function DualColumn({ side, rows, now, evidence, ev, dtLoaded }: { side: Side; rows: DualRow[]; now: number; evidence: SideEvidence | null; ev: Evidence | null; dtLoaded: boolean }) {
   const isLong = side === 'long';
   const color = isLong ? 'var(--color-up)' : 'var(--color-down)';
   const [openCode, setOpenCode] = useState<string | null>(null);
@@ -201,7 +219,7 @@ function DualColumn({ side, rows, now, evidence, ev }: { side: Side; rows: DualR
       <div style={{ padding: '8px 10px 4px', minHeight: '3.6em' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 900, color, fontSize: 'calc(14px * var(--fz))' }}>{isLong ? '▲ 做多當沖' : '▼ 做空當沖'}</span>
-          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{isLong ? '盤中漲停預測 A 榜' : '即時轉空型態（強＋中）'} · {rows.length} 檔{active ? <b style={{ color }}> · 成立中 {active}</b> : null}</span>
+          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{isLong ? '盤中漲停預測 A 榜·僅列可先買後賣當沖' : '即時轉空型態→觀察→不建議·僅列可先賣當沖'} · {rows.length} 檔{active ? <b style={{ color }}> · 成立中 {active}</b> : null}</span>
         </div>
         <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
           {evidence && ev
@@ -221,11 +239,11 @@ function DualColumn({ side, rows, now, evidence, ev }: { side: Side; rows: DualR
             <span title={isLong ? '距漲停價的空間；<2% 不發警示（回放：貼漲停者 0% 能再漲 2%）' : '距下檔目標（VWAP 與昨收取高者）的空間，僅供參考'} style={{ textAlign: 'right' }}>空間</span>
             <span style={{ textAlign: 'right' }}>最高漲幅</span>
             <span title="自今日最高回吐（以昨收為基準，百分點）" style={{ textAlign: 'right' }}>回吐</span>
-            <span title={isLong ? '漲停預測模型分' : '轉空型態強度（回放兩段皆正者）'} style={{ textAlign: 'right' }}>{isLong ? '模型分' : '型態'}</span>
+            <span title={isLong ? '漲停預測模型分' : '轉空型態強度：強／中／弱＝回放兩段皆正；觀察＝未成立型態；避＝回放兩段皆負'} style={{ textAlign: 'right' }}>{isLong ? '模型分' : '型態'}</span>
           </div>
         </div>
         {!rows.length
-          ? <div style={{ padding: '16px 8px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{isLong ? '盤中漲停預測尚無名單。' : '目前沒有符合的做空型態。'}</div>
+          ? <div style={{ padding: '16px 8px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{!dtLoaded ? '當沖資格名單載入中（或暫時無法取得）：確認可當沖前不列任何個股。' : isLong ? '盤中漲停預測名單中目前沒有可當沖的個股。' : '目前沒有可先賣當沖且符合的做空型態。'}</div>
           : rows.map(r => <DualRowView key={r.code} r={r} now={now} ev={evidence} open={openCode === r.code} onToggle={() => setOpenCode(c => (c === r.code ? null : r.code))} />)}
       </div>
     </section>
@@ -237,8 +255,8 @@ function DualRowView({ r, now, ev, open, onToggle }: { r: DualRow; now: number; 
   const dt = useDayTradeCodes();
   const isLong = r.side === 'long';
   const a = r.alert;
-  const isOn = a?.phase === 'on' && !r.blocked;
-  const isStop = a?.phase === 'stop' && !r.blocked && !!a.stopAt && now - a.stopAt < STOP_KEEP_MS;
+  const isOn = a?.phase === 'on';
+  const isStop = a?.phase === 'stop' && !!a.stopAt && now - a.stopAt < STOP_KEEP_MS;
   const flash = (isOn && now - a!.since < FLASH_ON_MS) || (isStop && now - a!.stopAt! < FLASH_STOP_MS);
   const cls = ['dt-row', isOn ? (isLong ? 'dt-on-long' : 'dt-on-short') : isStop ? 'dt-stop' : '', flash ? 'dt-flash' : ''].filter(Boolean).join(' ');
   const dts = statusOf(dt, r.code);
@@ -249,8 +267,7 @@ function DualRowView({ r, now, ev, open, onToggle }: { r: DualRow; now: number; 
   // 該警示所屬時段的回放兌現率（10 點前／後差很多：多 54% vs 31%）
   const bucket = a && ev ? (new Date(a.since + 8 * 3600000).getUTCHours() < 10 ? ev.early : ev.late) : null;
   const odds = bucket ? ` · 歷史達+2% ${bucket.teHit2}%` : '';
-  const line3 = r.blocked ? <span style={{ color: '#f59e0b' }}>⛔ {r.blocked}（訊號不適用）</span>
-    : isOn ? <span style={{ color: isLong ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 800 }}>{isLong ? '▲ 轉強' : '▼ 轉弱'} {hhmm(a!.since)} · {isLong ? '進' : '空'} {a!.entry} · 空間 {a!.room.toFixed(1)}% · 至今{isLong ? '最高' : '最大'} {pct(bestMove)}{odds}</span>
+  const line3 = isOn ? <span style={{ color: isLong ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 800 }}>{isLong ? '▲ 轉強' : '▼ 轉弱'} {hhmm(a!.since)} · {isLong ? '進' : '空'} {a!.entry} · 空間 {a!.room.toFixed(1)}% · 至今{isLong ? '最高' : '最大'} {pct(bestMove)}{odds}</span>
     : isStop ? <span style={{ color: '#f59e0b', fontWeight: 800 }}>🏁 {isLong ? '出貨' : '回補'} {hhmm(a!.stopAt)} @{a!.stopPx} · 訊號區間 {pct(a!.ret)}（未扣成本）</span>
     : <span style={{ color: 'var(--text-muted)' }}>{r.reason}</span>;
   return (

@@ -40,12 +40,12 @@ export function restoreVwap(book, doc, today) {
 }
 
 // ── 監控名單 ─────────────────────────────────────────────────────────
-/** 做空監控：今日曾漲≥5%、昨收>10、量≥500 張，依成交值排序（與做空訊號母體一致） */
-export function pickShortMonitor(liveQuotes, n = DT_MONITOR_EACH) {
+/** 做空監控：今日曾漲≥5%、昨收>10、量≥500 張，依成交值排序（與做空訊號母體一致）。allow：當沖資格判斷（先濾再取前 n） */
+export function pickShortMonitor(liveQuotes, n = DT_MONITOR_EACH, allow = () => true) {
   const arr = [];
   for (const k in liveQuotes) {
     const q = liveQuotes[k];
-    if (!/^\d{4}$/.test(k) || k.startsWith('00') || !q?.live) continue;
+    if (!/^\d{4}$/.test(k) || k.startsWith('00') || !q?.live || !allow(k)) continue;
     const prev = q.price - q.change;
     if (!(prev > 10) || !(q.high > 0)) continue;
     if ((q.volume || 0) < 500_000) continue;

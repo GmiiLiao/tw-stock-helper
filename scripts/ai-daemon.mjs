@@ -1702,23 +1702,36 @@ const _lastLive = {};
 const _vwapBook = createVwapBook();
 const _dtEngine = createDaytradeEngine({ params: ALERT_PARAMS, evidence: ALERT_EVIDENCE });
 let _dtWriteAt = 0;
+let _dtElig = null, _dtEligDay = '';   // 當沖資格名單（code→1|2），每日讀一次
 // 監控名單：做多＝盤中漲停預測 A 榜（距漲停仍≥2% 者）、做空＝今日曾漲≥5% 依成交值。每分鐘隨優先集重算。
 async function refreshDaytradeMonitor() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   if (!isTradingDay(tw) || mins < 9 * 60 || mins >= 13 * 60 + 30) return;
   const today = isoDate(tw);
+  // 只監控能當沖的（2026-09-23 使用者「多空同屏只有能當沖的才能上榜」）：多＝可先買後賣（1、2）、空＝可先賣後買（僅 1）。
+  // 名單缺席或殘缺（<500 檔）時不過濾——前端同樣不列，這裡只是不浪費快線名額，寧可多監控也不要誤刪。
+  if (_dtEligDay !== today) {
+    try {
+      const d = (await db.collection('dayTradeEligible').doc('latest').get()).data();
+      const m = d?.codesJson ? JSON.parse(d.codesJson) : null;
+      _dtElig = m && Object.keys(m).length >= 500 ? m : null; _dtEligDay = _dtElig ? today : '';
+    } catch { _dtElig = null; }
+  }
+  const canLong = c => !_dtElig || _dtElig[c] === 1 || _dtElig[c] === 2;
+  const canShort = c => !_dtElig || _dtElig[c] === 1;
   const live = {}; for (const k in _lastLive) { const v = _lastLive[k]; if (v?.liveAt && isoDate(new Date(v.liveAt)) === today) live[k] = v; }
   let long = [];
   try {
     const lu = (await db.collection('limitUpForecast').doc('live').get()).data();
     for (const p of (lu?.aList || [])) {
       if (long.length >= DT_MONITOR_EACH) break;
+      if (!canLong(p.code)) continue;
       const q = live[p.code]; const px = q?.price || p.price; const prev = q ? q.price - q.change : p.price / (1 + (p.chg || 0) / 100);
       if (px > 0 && prev > 0 && (dtLimitPrices(prev).up - px) / px * 100 < ALERT_PARAMS.minRoom) continue;   // 已貼漲停：空間<門檻，不佔快線
       long.push(p.code);
     }
   } catch { /* 預測缺席時只監控做空 */ }
-  _dtEngine.setMonitor(today, long, pickShortMonitor(live));
+  _dtEngine.setMonitor(today, long, pickShortMonitor(live, DT_MONITOR_EACH, canShort));
 }
 let _rotIdx = 0; // 全市場輪掃游標（優先集外代碼循環掃描）
 
