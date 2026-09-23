@@ -262,11 +262,11 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
         <div style={{ display: 'grid', gridTemplateColumns: vw >= 1500 ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', gap: 12, alignItems: 'flex-start' }}>
           <section style={{ minWidth: 0, borderRadius: 10, border: '1px solid rgba(240,62,62,0.35)', padding: '8px 10px', background: 'rgba(240,62,62,0.04)' }}>
             <div style={{ fontWeight: 900, color: 'var(--color-up)', marginBottom: 6, fontSize: 'calc(13.5px * var(--fz))' }}>▲ 做多當沖：盤中漲停預測</div>
-            <div style={{ overflowX: 'auto' }}><LimitUpPanel source="live" /></div>
+            <LimitUpPanel source="live" compact={vw >= 1500} />
           </section>
           <section style={{ minWidth: 0, borderRadius: 10, border: '1px solid rgba(47,158,68,0.35)', padding: '8px 10px', background: 'rgba(47,158,68,0.04)' }}>
             <div style={{ fontWeight: 900, color: 'var(--color-down)', marginBottom: 6, fontSize: 'calc(13.5px * var(--fz))' }}>▼ 做空當沖：即時轉空預測</div>
-            <FadeWatch snaps={pool} marketOpen={marketOpen} />
+            <FadeWatch snaps={pool} marketOpen={marketOpen} compact={vw >= 1500} />
           </section>
         </div>
       ) : <>

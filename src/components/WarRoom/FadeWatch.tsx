@@ -56,10 +56,18 @@ function sessionClock(marketOpen: boolean): { hm: number; frac: number } {
   return { hm, frac: Math.min(1, Math.max(0.05, (hm - 540) / 270)) };
 }
 
+// compact 時數字欄包成第二行（跨整列、自己一套欄寬）
+function FadeNums({ compact, children }: { compact: boolean; children: React.ReactNode }) {
+  if (!compact) return <>{children}</>;
+  return <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: GRID_C2, columnGap: 8, alignItems: 'center', paddingLeft: '3.2em' }}>{children}</div>;
+}
 type Row = { s: FadeSnap; m: Metrics; main: Pattern; also: Pattern[]; demote?: string };
 type AvoidRow = { s: FadeSnap; m: Metrics; why: string };
 
-export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; marketOpen: boolean }) {
+// compact（多空同屏半寬欄）：每檔兩行——代號名稱＋型態一行、數字一行，560px 內全部欄位可見
+const GRID_C1 = '12px 1.7em 3.8em minmax(0, 1fr) 2em';
+const GRID_C2 = '5em 4.8em 4.8em 4.4em 4.2em 3em';
+export default function FadeWatch({ snaps, marketOpen, compact = false }: { snaps: FadeSnap[]; marketOpen: boolean; compact?: boolean }) {
   const navigateTo = useAppStore(s => s.navigateTo);
   const dt = useDayTradeCodes();
   const [openCode, setOpenCode] = useState<string | null>(null);
@@ -107,19 +115,21 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
     return (
       <div key={s.code} data-anchor={s.code} style={{ borderRadius: 8, background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.05)', marginBottom: 3 }}>
         <div onClick={() => setOpenCode(c => (c === s.code ? null : s.code))} title="點列展開即時走勢；點代號開個股"
-          style={{ display: 'grid', gridTemplateColumns: GRID, columnGap: 8, alignItems: 'center', padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', cursor: 'pointer' }}>
+          style={{ display: 'grid', gridTemplateColumns: compact ? GRID_C1 : GRID, columnGap: 8, rowGap: 3, alignItems: 'center', padding: '5px 8px', fontSize: 'calc(13.5px * var(--fz))', cursor: 'pointer' }}>
           <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
           <span onClick={e => e.stopPropagation()}><AddCandidateButton code={s.code} variant="icon" /></span>
           <span onClick={e => { e.stopPropagation(); navigateTo('stock', s.code); }} style={{ fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", textDecoration: 'underline dotted' }}>{s.code}</span>
           <span title={s.name} style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name} {(() => { const st = statusOf(dt, s.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={s.code} size="xs" /></span>
           <span style={{ fontSize: 'calc(12px * var(--fz))', textAlign: 'center', color: s.market === 'otc' ? '#f59e0b' : '#3d8ef8' }}>{s.market === 'otc' ? '櫃' : '市'}</span>
+          <FadeNums compact={compact}>
           <span style={NUM('var(--text-primary)', 700)}>{s.price}</span>
           <span style={NUM(m.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)', 800)}>{pct(m.chg)}</span>
           <span style={NUM('var(--color-up)')}>{pct(m.hiUp)}</span>
           <span style={NUM('var(--color-down)', 800)}>−{m.give.toFixed(1)}</span>
           <span title={`量比 ${m.volX.toFixed(1)}x ÷ 已過時段 → 全日節奏 ${m.pace.toFixed(1)}x`} style={NUM(m.pace >= 2 ? '#f59e0b' : 'var(--text-muted)')}>{m.pace ? `${m.pace.toFixed(1)}x` : '—'}</span>
           <span style={NUM(m.aboveVwap == null ? 'var(--text-muted)' : m.aboveVwap ? 'var(--color-up)' : 'var(--color-down)')}>{m.aboveVwap == null ? '—' : m.aboveVwap ? '上' : '下'}</span>
-          <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12px * var(--fz))' }}>{tag}</span>
+          </FadeNums>
+          <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12px * var(--fz))', gridColumn: compact ? '1 / -1' : undefined, paddingLeft: compact ? '3.2em' : undefined }}>{tag}</span>
         </div>
         {open && (
           <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
@@ -130,7 +140,11 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
     );
   };
 
-  const header = (
+  const header = compact ? (
+    <div style={{ display: 'grid', gridTemplateColumns: GRID_C2, columnGap: 8, padding: '2px 8px 4px 3.2em', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
+      <span style={{ textAlign: 'right' }}>即時</span><span style={{ textAlign: 'right' }}>漲跌</span><span style={{ textAlign: 'right' }}>最高漲幅</span><span style={{ textAlign: 'right' }}>回吐</span><span style={{ textAlign: 'right' }}>量節奏</span><span style={{ textAlign: 'right' }}>VWAP</span>
+    </div>
+  ) : (
     <div style={{ display: 'grid', gridTemplateColumns: GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
       <span /><span /><span>代號</span><span>名稱</span><span style={{ textAlign: 'center' }}>市</span>
       <span style={{ textAlign: 'right' }}>即時</span><span style={{ textAlign: 'right' }}>漲跌</span>
@@ -159,7 +173,7 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 820 }}>
+        <div style={{ minWidth: compact ? 0 : 820 }}>
           {header}
           {!rows.length
             ? <div style={{ padding: '14px 8px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>目前沒有符合的做空型態。</div>
