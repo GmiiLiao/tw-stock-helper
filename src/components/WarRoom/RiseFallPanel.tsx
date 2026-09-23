@@ -158,10 +158,11 @@ import FadeWatch from '@/components/WarRoom/FadeWatch';
 //   漲跌分布（原頁）／盤中漲停預測（limitUpForecast/live）。同一頁、同一個標題、一個入口；
 //   切到預測時暫停 308KB 全市場快照輪詢（不看的東西不下載，見下載量記憶）。選擇記本機。
 // 2026-09-23 再加第三段「📉 即時轉空預測」：與漲跌分布共用同一份全市場快照，前端計算、不新增上游請求。
-type RfView = 'board' | 'forecast' | 'fade';
+// 第四段「⚔️ 多空同屏」（2026-09-23 使用者：做多當沖看漲停預測、做空看即時轉空，要同時即時監控）。
+type RfView = 'board' | 'forecast' | 'fade' | 'dual';
 
 export default function RiseFallPanel({ initialView }: { initialView?: RfView } = {}) {
-  const [view, setViewState] = useState<RfView>(() => { const v = storageGet('rfView'); return initialView ?? (v === 'forecast' || v === 'fade' ? v : 'board'); });
+  const [view, setViewState] = useState<RfView>(() => { const v = storageGet('rfView'); return initialView ?? (v === 'forecast' || v === 'fade' || v === 'dual' ? v : 'board'); });
   const setView = (v: RfView) => { setViewState(v); storageSet('rfView', v); };
   const [snaps, setSnaps] = useState<Snap[]>([]);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
@@ -235,11 +236,11 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#7dd3fc' }}>📈 即時漲跌</span>
         <span role="tablist" aria-label="即時漲跌檢視" style={{ display: 'inline-flex', padding: 2, borderRadius: 999, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}>
-          {([['board', '漲跌分布'], ['forecast', '⚡ 盤中漲停預測'], ['fade', '📉 即時轉空預測']] as [RfView, string][]).map(([k, label]) => (
+          {([['board', '漲跌分布'], ['forecast', '⚡ 盤中漲停預測'], ['fade', '📉 即時轉空預測'], ['dual', '⚔️ 多空同屏']] as [RfView, string][]).map(([k, label]) => (
             <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
               style={{ padding: '3px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700,
-                background: view === k ? (k === 'forecast' ? 'rgba(253,164,175,0.18)' : k === 'fade' ? 'rgba(74,222,128,0.16)' : 'rgba(125,211,252,0.18)') : 'transparent',
-                color: view === k ? (k === 'forecast' ? '#fda4af' : k === 'fade' ? '#4ade80' : '#7dd3fc') : 'var(--text-muted)' }}>{label}</button>
+                background: view === k ? (k === 'forecast' ? 'rgba(253,164,175,0.18)' : k === 'fade' ? 'rgba(74,222,128,0.16)' : k === 'dual' ? 'rgba(251,191,36,0.16)' : 'rgba(125,211,252,0.18)') : 'transparent',
+                color: view === k ? (k === 'forecast' ? '#fda4af' : k === 'fade' ? '#4ade80' : k === 'dual' ? '#fbbf24' : '#7dd3fc') : 'var(--text-muted)' }}>{label}</button>
           ))}
         </span>
         {view !== 'forecast' && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
@@ -256,7 +257,19 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
           <span>· 點方塊看即時K線</span>
         </span>}
       </div>
-      {view === 'forecast' ? <LimitUpPanel source="live" /> : view === 'fade' ? <FadeWatch snaps={pool} marketOpen={marketOpen} /> : <>
+      {view === 'forecast' ? <LimitUpPanel source="live" /> : view === 'fade' ? <FadeWatch snaps={pool} marketOpen={marketOpen} /> : view === 'dual' ? (
+        // 寬螢幕左右並排（左多右空，對應紅漲綠跌的閱讀習慣），窄螢幕上下排；各欄內容過寬時各自橫向捲動，互不擠壓
+        <div style={{ display: 'grid', gridTemplateColumns: vw >= 1500 ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', gap: 12, alignItems: 'flex-start' }}>
+          <section style={{ minWidth: 0, borderRadius: 10, border: '1px solid rgba(240,62,62,0.35)', padding: '8px 10px', background: 'rgba(240,62,62,0.04)' }}>
+            <div style={{ fontWeight: 900, color: 'var(--color-up)', marginBottom: 6, fontSize: 'calc(13.5px * var(--fz))' }}>▲ 做多當沖：盤中漲停預測</div>
+            <div style={{ overflowX: 'auto' }}><LimitUpPanel source="live" /></div>
+          </section>
+          <section style={{ minWidth: 0, borderRadius: 10, border: '1px solid rgba(47,158,68,0.35)', padding: '8px 10px', background: 'rgba(47,158,68,0.04)' }}>
+            <div style={{ fontWeight: 900, color: 'var(--color-down)', marginBottom: 6, fontSize: 'calc(13.5px * var(--fz))' }}>▼ 做空當沖：即時轉空預測</div>
+            <FadeWatch snaps={pool} marketOpen={marketOpen} />
+          </section>
+        </div>
+      ) : <>
       {/* 版面規則（2026-08-11 更新）：
           桌機＝漲左跌右並排；**手機＝上漲整區在上、下跌整區在下**。
           先前的定案是「一律並排、不換上下排」，但實機驗證下來，
