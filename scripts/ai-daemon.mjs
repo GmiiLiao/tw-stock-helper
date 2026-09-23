@@ -1702,7 +1702,8 @@ const _lastLive = {};
 const _vwapBook = createVwapBook();
 const _dtEngine = createDaytradeEngine({ params: ALERT_PARAMS, evidence: ALERT_EVIDENCE });
 let _dtWriteAt = 0;
-let _dtElig = null, _dtEligDay = '';   // 當沖資格名單（code→1|2），每日讀一次
+let _dtElig = null, _dtEligDay = '';
+let _disp = new Set(), _dispAt = 0;     // 處置股（進行中＋待生效），30 分鐘刷新   // 當沖資格名單（code→1|2），每日讀一次
 // 監控名單：做多＝盤中漲停預測 A 榜（距漲停仍≥2% 者）、做空＝今日曾漲≥5% 依成交值。每分鐘隨優先集重算。
 async function refreshDaytradeMonitor() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
@@ -1717,13 +1718,20 @@ async function refreshDaytradeMonitor() {
       _dtElig = m && Object.keys(m).length >= 500 ? m : null; _dtEligDay = _dtElig ? today : '';
     } catch { _dtElig = null; }
   }
-  const canLong = c => !_dtElig || _dtElig[c] === 1 || _dtElig[c] === 2;
-  const canShort = c => !_dtElig || _dtElig[c] === 1;
+  // 處置股（進行中＋已公告待生效）一律排除：交易所當沖名單在處置生效前一天仍列為可當沖（2026-09-23 大甲 2221 實案）
+  if (Date.now() - _dispAt > 30 * 60000) {
+    try {
+      const rs = await fetch(`${APP_BASE}/api/twse/risk-stocks`, { signal: AbortSignal.timeout(8000) }).then(x => (x.ok ? x.json() : null));
+      if (rs?.disposition) { _disp = new Set(rs.disposition.filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)); _dispAt = Date.now(); }
+    } catch { /* 取不到沿用上一份；名單本身另由當沖資格把關 */ }
+  }
+  const canLong = c => !_disp.has(c) && (!_dtElig || _dtElig[c] === 1 || _dtElig[c] === 2);
+  const canShort = c => !_disp.has(c) && (!_dtElig || _dtElig[c] === 1);
   const live = {}; for (const k in _lastLive) { const v = _lastLive[k]; if (v?.liveAt && isoDate(new Date(v.liveAt)) === today) live[k] = v; }
   let long = [];
   try {
     const lu = (await db.collection('limitUpForecast').doc('live').get()).data();
-    for (const p of (lu?.aList || [])) {
+    for (const p of [...(lu?.aList || []), ...(lu?.aMore || [])]) {
       if (long.length >= DT_MONITOR_EACH) break;
       if (!canLong(p.code)) continue;
       const q = live[p.code]; const px = q?.price || p.price; const prev = q ? q.price - q.change : p.price / (1 + (p.chg || 0) / 100);
@@ -12768,6 +12776,9 @@ async function computeLimitUpForecast() {
     updatedAt: Date.now(), mode, dataDate: today.date, mktLU,
     luVersion: LU_VERSION,   // 2026-09-18 D5／D9：lift 表版本章，記分板按版本分開看
     aList: top, bList: bList.slice(0, 40),
+    // 備位 31～60 名（2026-09-23）：多空同屏只列可當沖者，前 30 有不可當沖／處置股時由此遞補。
+    //   不併入 aList——Top30 命中率、記分板、預測檔都以 aList 為準，口徑不動。
+    aMore: aList.slice(30, 60),
     stats: { windowDays: Math.min(60, n - 1), kings, indRank, wind },
     rotation, flow, flowDate: _luFlow.date,
     review: scoreboard?.lastReview || null,

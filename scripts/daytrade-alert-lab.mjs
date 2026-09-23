@@ -231,6 +231,48 @@ if (process.argv.includes('--explore')) {
     writeFileSync(`${CACHE}/_explore_${side}.json`, JSON.stringify(T));
   }
 }
+
+// ── 5. 開盤型態（--gap，2026-09-23 使用者問「開高走低／開低走高」）──
+// 母體＝做多母體（昨漲≥5%、均量≥1000 張），是**開盤前就已知**的名單，不以當日走勢選股。
+// 開低走高：開盤 ≤ 昨收−1%，11:00 前第一根收盤翻紅（>昨收）＝買進。
+// 開高走低：開盤 ≥ 昨收+2%，11:00 前第一根收盤跌破開盤−2%＝先賣。另測「跌破 VWAP」版。
+// 出場：抱到收盤；或反向穿越前 3 根高低（與警示 🏁 同規則）。淨已扣 0.435%。
+if (process.argv.includes('--gap')) {
+  const setups = [
+    ['開低走高·翻紅', 'long', (B, i, m, p) => B[0].o <= p.pc * 0.99 && m.c > p.pc],
+    ['開低走高·站上VWAP且翻紅', 'long', (B, i, m, p) => B[0].o <= p.pc * 0.99 && m.c > p.pc && m.vwap != null && m.c > m.vwap],
+    ['開低≥3%走高·翻紅', 'long', (B, i, m, p) => B[0].o <= p.pc * 0.97 && m.c > p.pc],
+    ['開高走低·跌破開盤−2%', 'short', (B, i, m, p) => B[0].o >= p.pc * 1.02 && m.c < B[0].o * 0.98],
+    ['開高走低·跌破VWAP', 'short', (B, i, m, p) => B[0].o >= p.pc * 1.02 && m.vwap != null && m.c < m.vwap && m.c < B[0].o],
+    ['開高≥5%走低·翻黑', 'short', (B, i, m, p) => B[0].o >= p.pc * 1.05 && m.c < p.pc],
+  ];
+  console.log('\n══ 開盤型態（母體：昨漲≥5%，開盤前已知；11:00 前第一次成立；淨已扣成本）══');
+  console.log('型態'.padEnd(24) + '段    n   達+2%   抱收盤  3根出場  勝率(抱收)');
+  for (const [label, side, test] of setups) {
+    const T = [];
+    for (const p of pairs) {
+      if (!p.longU) continue;
+      const B = dayBars[p.code]?.[p.date]; if (!B || B.length < 60) continue;
+      for (let i = 1; i < B.length; i++) {
+        const m = metricsAt(B, i, { prevClose: p.pc });
+        if (m.minute >= 660) break;
+        if (!test(B, i, m, p)) continue;
+        const sg = side === 'long' ? 1 : -1, e = m.c; let best = e, ex = null;
+        for (let j = i + 1; j < B.length; j++) {
+          best = side === 'long' ? Math.max(best, B[j].h) : Math.min(best, B[j].l);
+          if (ex == null && j >= 3) { const lo = Math.min(B[j - 1].l, B[j - 2].l, B[j - 3].l), hi = Math.max(B[j - 1].h, B[j - 2].h, B[j - 3].h); if (side === 'long' ? B[j].c < lo : B[j].c > hi) ex = sg * (B[j].c / e - 1) * 100 - DT_COST; }
+        }
+        const close = sg * (p.close / e - 1) * 100 - DT_COST;
+        T.push({ oos: p.date >= cut, hit: sg * (best / e - 1) * 100 >= 2, close, bar3: ex ?? close });
+        break;
+      }
+    }
+    for (const seg of [false, true]) {
+      const x = T.filter(t => t.oos === seg); if (!x.length) continue;
+      console.log(`${(seg ? '' : label).padEnd(24)}${seg ? '外' : '訓'} ${String(x.length).padStart(5)} ${(x.filter(t => t.hit).length / x.length * 100).toFixed(0).padStart(5)}% ${f2(mean(x.map(t => t.close))).padStart(7)} ${f2(mean(x.map(t => t.bar3))).padStart(7)} ${(x.filter(t => t.close > 0).length / x.length * 100).toFixed(0).padStart(6)}%`);
+    }
+  }
+}
 writeFileSync(`${CACHE}/_results.json`, JSON.stringify({ cut, dates, results }, null, 1));
 console.log('\n非投資建議。');
 process.exit(0);

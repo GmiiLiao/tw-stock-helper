@@ -18,6 +18,7 @@ import RiskBadge from '@/components/shared/RiskBadge';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
+import { useRiskCodes, taipeiToday } from '@/lib/useRiskCodes';
 import { startLiveLoop, isForeground, getSession } from '@/lib/market-clock';
 import { classifyFade, TIER_STYLE, TIER_RANK, type FadeSnap } from '@/lib/fade-patterns';
 
@@ -73,7 +74,8 @@ function useLuLive(): LuPick[] {
   const [list, setList] = useState<LuPick[]>([]);
   useEffect(() => {
     let alive = true;
-    const load = () => fetch('/api/ai/limitup-live').then(r => (r.ok ? r.json() : null)).then(d => { if (alive && d?.found) setList((d.aList || []) as LuPick[]); }).catch(() => {});
+    // aMore＝備位 31～60 名：前 30 有不可當沖／處置股時遞補，做多欄才湊得滿 30 檔
+    const load = () => fetch('/api/ai/limitup-live').then(r => (r.ok ? r.json() : null)).then(d => { if (alive && d?.found) setList([...(d.aList || []), ...(d.aMore || [])] as LuPick[]); }).catch(() => {});
     load();
     const stop = startLiveLoop(load, () => (isForeground() && getSession() !== 'closed' ? 60_000 : 600_000));   // 每拍重算
     return () => { alive = false; stop(); };
@@ -85,6 +87,9 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
   const [doc, now] = useAlertDoc();
   const lu = useLuLive();
   const dt = useDayTradeCodes();
+  const risk = useRiskCodes();
+  // 處置股（進行中＋已公告待生效）一律不列：交易所當沖名單在處置生效前一天仍列可當沖（2026-09-23 大甲實案）
+  const disp = useMemo(() => { const t = taipeiToday(); return new Set([...risk.disposition].filter(c => (risk.dispEnd.get(c) ?? '9999') >= t)); }, [risk]);
   const snapMap = useMemo(() => { const m: Record<string, FadeSnap> = {}; for (const s of snaps) m[s.code] = s; return m; }, [snaps]);
   const alertMap = useMemo(() => {
     const m: Record<Side, Record<string, AlertRow>> = { long: {}, short: {} };
@@ -115,12 +120,12 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
       };
     };
     // 只列能當沖的（使用者 2026-09-23）：做多＝可先買後賣（1 可當沖、2 僅先買後賣）。名單未載入前一律不列。
-    const canLong = (code: string) => { const st = statusOf(dt, code); return st === 1 || st === 2; };
+    const canLong = (code: string) => { if (disp.has(code)) return false; const st = statusOf(dt, code); return st === 1 || st === 2; };
     let rank = 0;
     for (const p of lu) { if (rank >= 30) break; if (!canLong(p.code)) continue; seen.add(p.code); out.push(build(p.code, p.name, p.market, ++rank, p)); }
     for (const r of doc?.long || []) if (r.st && !seen.has(r.code) && canLong(r.code)) out.push(build(r.code, r.name, snapMap[r.code]?.market || 'tse', null, null));
     return out;
-  }, [lu, snapMap, alertMap, doc, dt, now]);
+  }, [lu, snapMap, alertMap, doc, dt, disp, now]);
 
   const shortRows = useMemo<DualRow[]>(() => {
     const { rows, avoid } = classifyFade(snaps, marketOpen, dt);
@@ -148,7 +153,7 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
       };
     };
     // 只列能先賣當沖的（狀態 1）；classifyFade 在名單未載入時會放行 null，這裡一律擋下
-    const canShort = (code: string) => statusOf(dt, code) === 1;
+    const canShort = (code: string) => !disp.has(code) && statusOf(dt, code) === 1;
     let rank = 0;
     for (const r of picked) { if (rank >= SHORT_N) break; if (!canShort(r.s.code)) continue; seen.add(r.s.code); const ts = TIER_STYLE[r.main.tier]; out.push(build(r.s, r.s.code, r.s.name, ++rank, { t: ts.t, c: ts.c, label: r.main.label, oos: r.main.oos })); }
     // 補足：今日曾漲≥5%、尚未成立型態的「觀察」股（與 daemon 做空監控同一母體，依成交值）；
@@ -165,7 +170,7 @@ export default function DualBoard({ snaps, marketOpen, wide }: { snaps: FadeSnap
     }
     for (const r of doc?.short || []) if (r.st && !seen.has(r.code) && canShort(r.code)) out.push(build(snapMap[r.code], r.code, r.name, null, null));
     return out;
-  }, [snaps, marketOpen, dt, alertMap, doc, snapMap, now]);
+  }, [snaps, marketOpen, dt, disp, alertMap, doc, snapMap, now]);
 
   // 排序：成立中（新→舊）→ 15 分鐘內的出貨/回補 → 其餘依原名次
   const order = (rows: DualRow[]) => {
@@ -219,7 +224,7 @@ function DualColumn({ side, rows, now, evidence, ev, dtLoaded }: { side: Side; r
       <div style={{ padding: '8px 10px 4px', minHeight: '3.6em' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 900, color, fontSize: 'calc(14px * var(--fz))' }}>{isLong ? '▲ 做多當沖' : '▼ 做空當沖'}</span>
-          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{isLong ? '盤中漲停預測 A 榜·僅列可先買後賣當沖' : '即時轉空型態→觀察→不建議·僅列可先賣當沖'} · {rows.length} 檔{active ? <b style={{ color }}> · 成立中 {active}</b> : null}</span>
+          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{isLong ? '盤中漲停預測（A 榜＋備位）·僅列可先買後賣當沖、排除處置股' : '即時轉空型態→觀察→不建議·僅列可先賣當沖、排除處置股'} · {rows.length} 檔{active ? <b style={{ color }}> · 成立中 {active}</b> : null}</span>
         </div>
         <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>
           {evidence && ev
