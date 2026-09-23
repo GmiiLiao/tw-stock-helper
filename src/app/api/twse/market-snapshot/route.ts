@@ -38,7 +38,9 @@ export async function GET() {
         code, name: (x.name || '').trim(), price: x.price, change: x.change ?? 0,
         changePercent: x.changePercent ?? 0, volume: x.volume ?? 0, volX,
         market: x.market || 'tse', open: x.open ?? 0, high: x.high ?? 0, low: x.low ?? 0,
-        value: (x as { value?: number }).value ?? null,   // 成交金額：即時轉空用 VWAP＝value/volume（2026-09-23）
+        // VWAP：daemon 取樣累積（Σ價×Δ量÷Σ量）。⚠ 不可再用 value/volume——MIS 沒有個股成交金額，
+        //   daemon 的 value 是 price×volume，相除恆等於現價（2026-09-23 實測 getStockInfo 無 m 欄）。
+        vwap: (x as { vwap?: number }).vwap ?? null,
       });
     }
     // 2026-09-18：308KB 未壓縮＋戰情室每 10 秒輪詢＝Hosting 下載量主因，改 gzip（約 −80%）

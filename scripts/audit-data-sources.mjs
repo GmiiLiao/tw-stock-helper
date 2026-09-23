@@ -59,6 +59,10 @@ const CONTRACTS = [
   // 2026-09-22 凍結：latest＝盤後定案（當天盤中不更新）；盤中即時預測另寫 live（戰情「⚡ 盤中漲停預測」頁）
   { c: 'limitUpForecast',  kind: 'latest',  maxStale: 30 * HOUR, session: 'always' },
   { c: 'limitUpForecast',  kind: 'latest',  docId: 'live', label: 'limitUpForecast/live', maxStale: 15 * MIN,  session: 'intraday' },
+  // 當沖即時警示（2026-09-23）：daemon 快線每收一根 1 分 K 寫一次；盤中超過 10 分鐘沒寫＝引擎停擺
+  { c: 'daytradeAlerts',   kind: 'latest',  docId: 'live', label: 'daytradeAlerts/live', maxStale: 10 * MIN,  session: 'intraday' },
+  // VWAP 取樣累積器（重啟還原用）：盤中每輪快照寫一次
+  { c: 'marketSnapshot',   kind: 'latest',  docId: 'vwap', label: 'marketSnapshot/vwap', maxStale: 10 * MIN,  session: 'intraday' },
   // allowEmpty（2026-08-27）：computeVolSurge 是**盤中限定**（09:00~13:35 之外
   // 直接 return 不寫入），所以收盤後那份就停在最後一次計算的結果——當時沒有爆量
   // 就是 0 檔，於是**每天傍晚到隔天開盤都會紅**。這正是今天早上修 dayTradeRatio

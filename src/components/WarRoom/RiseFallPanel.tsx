@@ -16,6 +16,7 @@ import { useAppStore } from '@/lib/store';
 interface Snap {
   code: string; name: string; price: number; change: number; changePercent: number;
   volume: number; volX: number | null; market: string; open: number; high: number; low: number;
+  vwap?: number | null;   // daemon 取樣累積 VWAP（即時轉空／多空同屏用）
 }
 type SortKey = 'chg' | 'score' | 'value' | 'vol' | 'price';
 const SORTS: { key: SortKey; label: string }[] = [
@@ -153,6 +154,7 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
 
 import LimitUpPanel from '@/components/WarRoom/LimitUpPanel';
 import FadeWatch from '@/components/WarRoom/FadeWatch';
+import DualBoard from './DualBoard';
 
 // 2026-09-23 使用者：「⚡ 盤中漲停預測」併入即時漲跌頁。版面：標題列右側一組二段切換——
 //   漲跌分布（原頁）／盤中漲停預測（limitUpForecast/live）。同一頁、同一個標題、一個入口；
@@ -258,17 +260,8 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
         </span>}
       </div>
       {view === 'forecast' ? <LimitUpPanel source="live" /> : view === 'fade' ? <FadeWatch snaps={pool} marketOpen={marketOpen} /> : view === 'dual' ? (
-        // 寬螢幕左右並排（左多右空，對應紅漲綠跌的閱讀習慣），窄螢幕上下排；各欄內容過寬時各自橫向捲動，互不擠壓
-        <div style={{ display: 'grid', gridTemplateColumns: vw >= 1500 ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', gap: 12, alignItems: 'flex-start' }}>
-          <section style={{ minWidth: 0, borderRadius: 10, border: '1px solid rgba(240,62,62,0.35)', padding: '8px 10px', background: 'rgba(240,62,62,0.04)' }}>
-            <div style={{ fontWeight: 900, color: 'var(--color-up)', marginBottom: 6, fontSize: 'calc(13.5px * var(--fz))' }}>▲ 做多當沖：盤中漲停預測</div>
-            <LimitUpPanel source="live" compact={vw >= 1500} />
-          </section>
-          <section style={{ minWidth: 0, borderRadius: 10, border: '1px solid rgba(47,158,68,0.35)', padding: '8px 10px', background: 'rgba(47,158,68,0.04)' }}>
-            <div style={{ fontWeight: 900, color: 'var(--color-down)', marginBottom: 6, fontSize: 'calc(13.5px * var(--fz))' }}>▼ 做空當沖：即時轉空預測</div>
-            <FadeWatch snaps={pool} marketOpen={marketOpen} compact={vw >= 1500} />
-          </section>
-        </div>
+        // 多空同屏（2026-09-23）：兩欄同一列模板、同一高度＋1 分 K 即時警示（閃爍／🏁），見 DualBoard
+        <DualBoard snaps={pool} marketOpen={marketOpen} wide={vw >= 1500} />
       ) : <>
       {/* 版面規則（2026-08-11 更新）：
           桌機＝漲左跌右並排；**手機＝上漲整區在上、下跌整區在下**。

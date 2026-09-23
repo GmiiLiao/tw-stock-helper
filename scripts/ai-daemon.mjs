@@ -27,6 +27,8 @@ import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 import { judgePagoda } from './lib/pagoda.mjs';
+import { ALERT_PARAMS, ALERT_EVIDENCE } from './lib/daytrade-signals.mjs';
+import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -1676,7 +1678,11 @@ async function writeSnapshot(quotes, marketOpen, source, sweeping = marketOpen) 
   const flowOut = {};
   for (const c in _flow.by) { const e = _flow.by[c]; if (e.in + e.out + e.mid > 0) flowOut[c] = [e.in, e.out, e.mid, e.since]; }
   try { await db.collection('marketSnapshot').doc('flow').set({ date: _flow.date, n: Object.keys(flowOut).length, byCodeJson: JSON.stringify(flowOut), at: Date.now() }); } catch { /* optional */ }
-  try { await db.collection('marketSnapshot').doc('latest').set({ dataDate: await boardDataDate(taipei(), marketOpen), quotesJson: JSON.stringify(quotes), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()), seedDateTse: _codesCloseDate || null, seedDateOtc: _otcCloseDate || null }); }
+  // VWAP 欄（取樣累積；覆蓋不足當日量 80% 為 null）＋盤中持久化累積器（重啟還原，同 restoreLastLive 教訓）
+  const qOut = {};
+  for (const k in quotes) { const q = quotes[k]; const vw = q?.live ? vwapOf(_vwapBook, k, q.volume) : null; qOut[k] = vw ? { ...q, vwap: vw } : q; }
+  if (marketOpen && _vwapBook.date) { try { await db.collection('marketSnapshot').doc('vwap').set({ ...serializeVwap(_vwapBook), at: Date.now() }); } catch { /* 下一輪再寫 */ } }
+  try { await db.collection('marketSnapshot').doc('latest').set({ dataDate: await boardDataDate(taipei(), marketOpen), quotesJson: JSON.stringify(qOut), count, liveCount, sweepAt, marketOpen, sweeping, source, updatedAt: Date.now(), date: isoDate(taipei()), seedDateTse: _codesCloseDate || null, seedDateOtc: _otcCloseDate || null }); }
   catch (e) { log('  ✖ snapshot write', (e.message || '').slice(0, 60)); }
   try { mkdirSync(MARKET_DIR, { recursive: true }); writeFileSync(join(MARKET_DIR, 'snapshot.json'), JSON.stringify({ count, liveCount, sweepAt, marketOpen, source, quotes }, null, 2)); } catch { /* ignore */ }
 }
@@ -1692,6 +1698,28 @@ let _prioCache = null, _prioAt = 0;
 // Last REAL live price per code — used to bridge closing-auction gaps where MIS
 // returns z='-' AND pz='-' momentarily (avoids the price flickering to 昨收/0%).
 const _lastLive = {};
+// 當沖即時警示（2026-09-23）：VWAP 取樣累積＋1 分 K 警示引擎。規則在 scripts/lib/daytrade-signals.mjs。
+const _vwapBook = createVwapBook();
+const _dtEngine = createDaytradeEngine({ params: ALERT_PARAMS, evidence: ALERT_EVIDENCE });
+let _dtWriteAt = 0;
+// 監控名單：做多＝盤中漲停預測 A 榜（距漲停仍≥2% 者）、做空＝今日曾漲≥5% 依成交值。每分鐘隨優先集重算。
+async function refreshDaytradeMonitor() {
+  const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
+  if (!isTradingDay(tw) || mins < 9 * 60 || mins >= 13 * 60 + 30) return;
+  const today = isoDate(tw);
+  const live = {}; for (const k in _lastLive) { const v = _lastLive[k]; if (v?.liveAt && isoDate(new Date(v.liveAt)) === today) live[k] = v; }
+  let long = [];
+  try {
+    const lu = (await db.collection('limitUpForecast').doc('live').get()).data();
+    for (const p of (lu?.aList || [])) {
+      if (long.length >= DT_MONITOR_EACH) break;
+      const q = live[p.code]; const px = q?.price || p.price; const prev = q ? q.price - q.change : p.price / (1 + (p.chg || 0) / 100);
+      if (px > 0 && prev > 0 && (dtLimitPrices(prev).up - px) / px * 100 < ALERT_PARAMS.minRoom) continue;   // 已貼漲停：空間<門檻，不佔快線
+      long.push(p.code);
+    }
+  } catch { /* 預測缺席時只監控做空 */ }
+  _dtEngine.setMonitor(today, long, pickShortMonitor(live));
+}
 let _rotIdx = 0; // 全市場輪掃游標（優先集外代碼循環掃描）
 
 // ── 尾盤五檔累積窗（委買賣失衡的歷史原料）─────────────────────────────
@@ -1804,6 +1832,14 @@ async function buildPriorityCodes(codes) {
     }
   } catch { /* ignore */ }
   for (const code of await readViewedCodes()) if (valid.has(code) && set.size < PRIORITY_CAP) set.add(code);
+  // 2.2) 當沖即時警示監控名單（多、空各 ≤18 檔）：排在自選/持股/瀏覽中之後，確保不擠掉使用者正在看的股票；
+  //      必須落在前 120 格（快線單一請求）才有 5 秒取樣——擠不進去的只記 log，不另加請求。
+  try {
+    await refreshDaytradeMonitor();
+    let miss = 0;
+    for (const code of _dtEngine.monitorCodes()) { if (!valid.has(code)) continue; if (set.size < 120) set.add(code); else if (!set.has(code)) miss++; }
+    if (miss) log(`  ⚠ 當沖監控 ${miss} 檔擠不進快線 120 格（自選/瀏覽中已佔滿），這些檔不發 1 分 K 警示`);
+  } catch (e) { log('✖ 當沖監控名單:', (e.message || '').slice(0, 80)); }
   // 2.5) 昨日策略榜個股：早盤起漲提醒(earlyBird)與潛力榜需要它們的即時報價，
   //      否則中小型飆股不在掃描範圍、漲停了才後知後覺。
   try {
@@ -2053,8 +2089,9 @@ async function hotQuoteLoop() {
         if (c.code === 't00' || c.code === 'o00') continue;   // 指數不進個股報價
         const k = c.code; const q = mis[k];
         if (q?.hasLive) {
+          accVwap(_vwapBook, k, q, isoDate(tw));
           const merged = { code: k, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent,
-            open: q.open, high: q.high, low: q.low, volume: q.volume, value: q.value,
+            open: q.open, high: q.high, low: q.low, volume: q.volume, value: q.value, vwap: vwapOf(_vwapBook, k, q.volume),
             market: c.market, live: true, liveAt: Date.now(), revealAt: q.revealAt ?? null };
           _lastLive[k] = merged;            // 主迴圈快照下一輪也直接受益
           out[k] = merged;
@@ -2062,6 +2099,14 @@ async function hotQuoteLoop() {
           out[k] = _lastLive[k];            // 兩筆撮合之間沿用最後真實價
         }
       }
+      // 當沖即時警示：快線取樣組 1 分 K → 收完一根就判訊號（零額外上游請求）
+      try {
+        _dtEngine.onQuotes(isoDate(tw), out, (c, v) => vwapOf(_vwapBook, c, v));
+        if (Date.now() - _dtWriteAt >= 15000) {
+          const doc = _dtEngine.snapshot();
+          if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
+        }
+      } catch (e) { log('✖ 當沖警示:', (e.message || '').slice(0, 80)); }
       if (Object.keys(out).length) {
         await db.collection('marketSnapshot').doc('hot').set({
           quotesJson: JSON.stringify(out), n: Object.keys(out).length, at: Date.now(), date: isoDate(tw),
@@ -2355,6 +2400,7 @@ async function agentTick(quotes, marketNow) {
 
 async function marketSnapshotLoop() {
   await restoreLastLive();
+  try { const n = restoreVwap(_vwapBook, (await db.collection('marketSnapshot').doc('vwap').get()).data(), isoDate(taipei())); if (n) log(`✓ 還原今日 VWAP 累積器 ${n} 檔`); } catch { /* 無則從現在起累積 */ }
   for (;;) {
     try {
       const tw = taipei();
@@ -2421,6 +2467,7 @@ async function marketSnapshotLoop() {
             }
             if (hasLive) {
               if (q.realTrade) accumulateFlow(k, { ...q, hasLive, bid, ask }, tw);   // 內外盤只取真成交（中價無主動方向）
+              accVwap(_vwapBook, k, q, isoDate(tw));   // VWAP 取樣（MIS 無個股成交金額）
               quotes[k] = { ...q, market: byCode[k]?.market || quotes[k]?.market || null, live: true, liveAt: Date.now() };
               _lastLive[k] = quotes[k];                 // remember the last REAL price
               if (captureDepth && (bid?.length || ask?.length)) depthOut[k] = { bid, ask };

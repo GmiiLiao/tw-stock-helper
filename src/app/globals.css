@@ -640,3 +640,20 @@ body {
   padding: 5px 9px;
   white-space: nowrap;
 }
+
+/* ── 當沖即時警示（多空同屏 DualBoard，2026-09-23）──
+   成立（on）：前 90 秒強閃，之後常亮底色＋左邊線；現象停止（stop）：琥珀色短閃＋🏁 icon。
+   紅漲綠跌：做多紅、做空綠。減少動態偏好者只保留常亮底色。 */
+@keyframes dt-flash-long { 0%, 100% { background: rgba(240, 62, 62, 0.10); } 50% { background: rgba(240, 62, 62, 0.42); } }
+@keyframes dt-flash-short { 0%, 100% { background: rgba(47, 158, 68, 0.10); } 50% { background: rgba(47, 158, 68, 0.42); } }
+@keyframes dt-flash-stop { 0%, 100% { background: rgba(245, 158, 11, 0.08); } 50% { background: rgba(245, 158, 11, 0.34); } }
+.dt-row { border-left: 3px solid transparent; }
+.dt-on-long { background: rgba(240, 62, 62, 0.16); border-left-color: var(--color-up); }
+.dt-on-short { background: rgba(47, 158, 68, 0.16); border-left-color: var(--color-down); }
+.dt-stop { background: rgba(245, 158, 11, 0.08); border-left-color: #f59e0b; }
+.dt-flash.dt-on-long { animation: dt-flash-long 0.9s ease-in-out infinite; }
+.dt-flash.dt-on-short { animation: dt-flash-short 0.9s ease-in-out infinite; }
+.dt-flash.dt-stop { animation: dt-flash-stop 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dt-flash.dt-on-long, .dt-flash.dt-on-short, .dt-flash.dt-stop { animation: none; }
+}

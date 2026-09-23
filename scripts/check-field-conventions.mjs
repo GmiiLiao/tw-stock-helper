@@ -43,6 +43,8 @@ export const AT_ALLOWLIST = new Set([
   'firstAt', 'lastAt', 'dropAt',
   // frozenAt：軋空候選定案名單 squeezePicks/{targetDate} 的凍結時刻（2026-09-22）。
   'frozenAt',
+  // stopAt／monitorAt：當沖即時警示 daytradeAlerts/live——訊號「現象停止」的 1 分 K 時刻、監控名單重算時刻（2026-09-23）。
+  'stopAt', 'monitorAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',
