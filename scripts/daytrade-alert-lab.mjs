@@ -18,6 +18,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { DEFAULT_PARAMS, ALERT_PARAMS, DT_COST, metricsAt, stepAlert, twMinute } from './lib/daytrade-signals.mjs';
+import { scanDesk, DESK_PARAMS, DESK_VERSION } from './lib/daytrade-setups.mjs';
 
 if (!getApps().length) initializeApp({ credential: cert(JSON.parse(readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'))) });
 const db = getFirestore();
@@ -47,7 +48,8 @@ for (let t = 21; t < days.length; t++) {
     const longU = ppc > 0 && (pc / ppc - 1) * 100 >= 5 && av >= 1000;
     const shortU = (hi / pc - 1) * 100 >= 5 && av >= 500;
     if (!longU && !shortU) continue;
-    pairs.push({ date: days[t].date, code: c, pc, close: cl, longU, shortU });
+    const Pr = P[c] || [];
+    pairs.push({ date: days[t].date, code: c, pc, close: cl, longU, shortU, prevHigh: Pr[3] || null, prevLow: Pr[4] || null });
     codes.add(c);
   }
 }
@@ -271,6 +273,37 @@ if (process.argv.includes('--gap')) {
       const x = T.filter(t => t.oos === seg); if (!x.length) continue;
       console.log(`${(seg ? '' : label).padEnd(24)}${seg ? '外' : '訓'} ${String(x.length).padStart(5)} ${(x.filter(t => t.hit).length / x.length * 100).toFixed(0).padStart(5)}% ${f2(mean(x.map(t => t.close))).padStart(7)} ${f2(mean(x.map(t => t.bar3))).padStart(7)} ${(x.filter(t => t.close > 0).length / x.length * 100).toFixed(0).padStart(6)}%`);
     }
+  }
+}
+
+// ── 6. 當沖工作台 setup（--desk）：scanDesk 逐日回放（與 daemon 同一函式）──
+// 母體（兩側相同、開盤前已知）：昨漲≥5%、20 日均量≥1000 張。R＝每股風險 d；淨 R 已扣成本（${DESK_PARAMS.costPct}%）。
+if (process.argv.includes('--desk')) {
+  console.log(`\n══ 當沖工作台 ${DESK_VERSION}（ORB／突破回踩／開低反轉·出場計畫 1R 保本、2R 追蹤、3R 出場）══`);
+  for (const side of ['long', 'short']) {
+    const T = [], V = [], FB = []; let setupsSeen = 0;
+    for (const p of pairs) {
+      if (!p.longU) continue;
+      const B = dayBars[p.code]?.[p.date]; if (!B || B.length < 60) continue;
+      const res = scanDesk(B, side, { prevClose: p.pc, prevHigh: p.prevHigh, prevLow: p.prevLow });
+      setupsSeen++;
+      for (const t of res.trades) if (t.exit) T.push({ ...t, oos: p.date >= cut, date: p.date });
+      for (const v of res.vetoed) V.push({ ...v, oos: p.date >= cut });
+      for (const fb of res.falseBreaks) FB.push({ ...fb, oos: p.date >= cut });
+    }
+    const types = [...new Set(T.map(t => t.type))];
+    console.log(`\n${side === 'long' ? '做多' : '做空（鏡像）'}：掃描 ${setupsSeen} 個(股,日)｜觸發 ${T.length}｜否決 ${V.length}｜假突破 ${FB.length}`);
+    console.log('型態'.padEnd(12) + '段    n  勝率  平均淨R  中位淨R  達1R  達2R  連敗  出場原因前三');
+    const med = a => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : NaN; };
+    for (const ty of ['全部', ...types]) for (const seg of [false, true]) {
+      const x = T.filter(t => t.oos === seg && (ty === '全部' || t.type === ty)).sort((a, b) => a.t - b.t); if (!x.length) continue;
+      let streak = 0, maxS = 0; for (const t of x) { streak = t.netR < 0 ? streak + 1 : 0; maxS = Math.max(maxS, streak); }
+      const reasons = {}; for (const t of x) reasons[t.exit.reason] = (reasons[t.exit.reason] || 0) + 1;
+      const top = Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}${v}`).join('、');
+      console.log(`${(seg ? '' : ty).padEnd(12)}${seg ? '外' : '訓'} ${String(x.length).padStart(5)} ${(x.filter(t => t.netR > 0).length / x.length * 100).toFixed(0).padStart(4)}% ${f2(mean(x.map(t => t.netR))).padStart(7)} ${f2(med(x.map(t => t.netR))).padStart(7)} ${(x.filter(t => t.hit[0]).length / x.length * 100).toFixed(0).padStart(4)}% ${(x.filter(t => t.hit[1]).length / x.length * 100).toFixed(0).padStart(4)}% ${String(maxS).padStart(4)}  ${top}`);
+    }
+    const vr = {}; for (const v of V) for (const w of v.veto) { const k = w.replace(/[\d.]+/g, '#'); vr[k] = (vr[k] || 0) + 1; }
+    console.log('  否決原因：' + Object.entries(vr).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}×${v}`).join('；'));
   }
 }
 writeFileSync(`${CACHE}/_results.json`, JSON.stringify({ cut, dates, results }, null, 1));

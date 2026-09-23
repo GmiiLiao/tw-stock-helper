@@ -191,7 +191,7 @@ export default function SignalBoards() {
       <div style={card}>
         <div style={title}>⚡ 當沖候選 <span style={sub}>觀察用·本模式無評分模型</span></div>
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginBottom: 6, lineHeight: 1.6 }}>
-          ⚠當沖尚無經驗證的評分模型（原料不足·見模式切換器的進度）。以下只是高振幅候選，**不是訊號**，請自行用三關法逐關檢核。
+          ⚠當沖尚無經驗證的評分模型。以下只是高振幅候選，**不是訊號**。盤中請到「盤中戰情 → 即時漲跌 → ⏳ 當沖工作台」：依 ORB／突破回踩／開低反轉寫定觸發價與結構停損、依你的風控算整張，並記日誌。
         </div>
         {trade?.dayTrade?.length
           ? trade.dayTrade.slice(0, 10).map(x => (

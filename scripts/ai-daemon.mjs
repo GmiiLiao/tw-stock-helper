@@ -27,7 +27,7 @@ import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 import { judgePagoda } from './lib/pagoda.mjs';
-import { ALERT_PARAMS, ALERT_EVIDENCE } from './lib/daytrade-signals.mjs';
+import { DESK_EVIDENCE } from './lib/daytrade-setups.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -1700,7 +1700,8 @@ let _prioCache = null, _prioAt = 0;
 const _lastLive = {};
 // 當沖即時警示（2026-09-23）：VWAP 取樣累積＋1 分 K 警示引擎。規則在 scripts/lib/daytrade-signals.mjs。
 const _vwapBook = createVwapBook();
-const _dtEngine = createDaytradeEngine({ params: ALERT_PARAMS, evidence: ALERT_EVIDENCE });
+const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
+let _dtJournalAt = 0;
 let _dtWriteAt = 0;
 let _dtElig = null, _dtEligDay = '';
 let _disp = new Set(), _dispAt = 0;     // 處置股（進行中＋待生效），30 分鐘刷新   // 當沖資格名單（code→1|2），每日讀一次
@@ -1735,11 +1736,59 @@ async function refreshDaytradeMonitor() {
       if (long.length >= DT_MONITOR_EACH) break;
       if (!canLong(p.code)) continue;
       const q = live[p.code]; const px = q?.price || p.price; const prev = q ? q.price - q.change : p.price / (1 + (p.chg || 0) / 100);
-      if (px > 0 && prev > 0 && (dtLimitPrices(prev).up - px) / px * 100 < ALERT_PARAMS.minRoom) continue;   // 已貼漲停：空間<門檻，不佔快線
+      if (px > 0 && prev > 0 && (dtLimitPrices(prev).up - px) / px * 100 < 2) continue;   // 已貼漲停（<2%）：必被否決，不佔快線
       long.push(p.code);
     }
   } catch { /* 預測缺席時只監控做空 */ }
   _dtEngine.setMonitor(today, long, pickShortMonitor(live, DT_MONITOR_EACH, canShort));
+  try { _dtEngine.setContext(await buildDeskContext(today, live)); } catch (e) { log('✖ 當沖工作台情境:', (e.message || '').slice(0, 80)); }
+}
+
+// ── 當沖工作台評分情境（Market／Stock 所需）：每分鐘隨監控名單重算，只讀 Firestore／記憶體，零上游請求 ──
+const _deskDaily = { day: '', prev: null, avg20: null, ind: null };
+const _deskNews = { at: 0, map: null };
+async function buildDeskContext(today, live) {
+  const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
+  if (_deskDaily.day !== today) {
+    try { const arch = await readArchive(4, 'closeJson'); const y = arch.find(a => a.date < today); _deskDaily.prev = y ? JSON.parse(y.closeJson) : null; } catch { _deskDaily.prev = null; }
+    try { const va = (await db.collection('volAvg20').doc('latest').get()).data(); _deskDaily.avg20 = va?.avgJson ? JSON.parse(va.avgJson) : null; } catch { _deskDaily.avg20 = null; }
+    try { _deskDaily.ind = await getIndustryMap(); } catch { _deskDaily.ind = null; }
+    if (_deskDaily.prev) _deskDaily.day = today;   // 昨日 K 沒取到就下一分鐘再試
+  }
+  if (Date.now() - _deskNews.at > 30 * 60000) {
+    try {
+      const nv = (await db.collection('newsVerdict').doc('latest').get()).data();
+      const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : {};
+      const map = {}; for (const c in v) { const x = v[c]; if (x?.label) map[c] = { label: x.label, certainty: x.certainty || null, priced: x.priced || null, at: x.at || null }; }
+      _deskNews.map = map; _deskNews.at = Date.now();
+    } catch { /* 缺就是未知 */ }
+  }
+  const idxOf = (arr, prev) => {
+    if (!arr?.length || !(prev > 0)) return null;
+    const last = arr[arr.length - 1]; const cut = last[0] - 15 * 60000; let base = arr[0];
+    for (const p of arr) { if (p[0] <= cut) base = p; else break; }
+    return { chg: +((last[1] / prev - 1) * 100).toFixed(2), slope15: +((last[1] / base[1] - 1) * 100).toFixed(2) };
+  };
+  let regime = null;
+  try { regime = (await db.collection('marketWind').doc('latest').get()).data()?.direction?.label || null; } catch { /* 未知 */ }
+  let up = 0, down = 0; const bySector = {};
+  const ind = _deskDaily.ind || {};
+  for (const k in live) {
+    const q = live[k]; if (!/^\d{4}$/.test(k)) continue;
+    if (q.changePercent > 0) up++; else if (q.changePercent < 0) down++;
+    const g = ind[k]; if (g) (bySector[g] ||= []).push([k, q.changePercent]);
+  }
+  const sectorOf = (code, side) => {
+    const g = ind[code]; const arr = g ? bySector[g] : null; if (!arr || arr.length < 3) return null;
+    const sorted = [...arr].sort((a, b) => (side === 'long' ? b[1] - a[1] : a[1] - b[1]));
+    const rank = sorted.findIndex(x => x[0] === code) + 1; if (!rank) return null;
+    return { name: g, n: arr.length, upRatio: arr.filter(x => x[1] > 0).length / arr.length, avgChg: arr.reduce((a, x) => a + x[1], 0) / arr.length, rank };
+  };
+  return {
+    index: { tse: idxOf(_idxIntra.tse, _idxIntra.prevTse), otc: idxOf(_idxIntra.otc, _idxIntra.prevOtc) },
+    regime, breadth: { up, down }, sectorOf, prev: _deskDaily.prev, avg20: _deskDaily.avg20, news: _deskNews.map,
+    elapsedFrac: Math.min(1, Math.max(0.05, (mins - 540) / 270)),
+  };
 }
 let _rotIdx = 0; // 全市場輪掃游標（優先集外代碼循環掃描）
 
@@ -2122,10 +2171,16 @@ async function hotQuoteLoop() {
       }
       // 當沖即時警示：快線取樣組 1 分 K → 收完一根就判訊號（零額外上游請求）
       try {
-        _dtEngine.onQuotes(isoDate(tw), out, (c, v) => vwapOf(_vwapBook, c, v));
+        const depth = {}; for (const k in mis) { const b1 = mis[k]?.bid?.[0]?.[0], a1 = mis[k]?.ask?.[0]?.[0]; if (b1 > 0 && a1 > 0) depth[k] = [b1, a1]; }
+        _dtEngine.onQuotes(isoDate(tw), out, (c, v) => vwapOf(_vwapBook, c, v), depth);
         if (Date.now() - _dtWriteAt >= 15000) {
           const doc = _dtEngine.snapshot();
           if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
+        }
+        // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
+        if (Date.now() - _dtJournalAt >= 60000) {
+          const j = _dtEngine.journalDoc();
+          if (j?.date) { _dtJournalAt = Date.now(); await db.collection('daytradeJournal').doc(j.date).set(j); }
         }
       } catch (e) { log('✖ 當沖警示:', (e.message || '').slice(0, 80)); }
       if (Object.keys(out).length) {

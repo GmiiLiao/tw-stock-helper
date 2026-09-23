@@ -59,10 +59,10 @@ export const MODES: Record<ModeKey, ModeCaliber> = {
   daytrade: {
     key: 'daytrade', label: '當沖', icon: '⏳',
     horizon: '當日內',
-    entry: '盤中（三關法逐關檢核）',
+    entry: '盤中（當沖工作台：ORB／突破回踩／開低反轉·事前寫定觸發價與結構停損）',
     exit: '當日平倉',
     costPct: 0.2925,        // 當沖證交稅減半 0.15%
-    hasScoreModel: false,   // ⚠原料不足，**不可給分數**
+    hasScoreModel: false,   // ⚠無經驗證的評分模型。當沖工作台的 M/S/E 是「規則符合度」清單分（tw-day-trading 技巧），明示非機率、有缺項不給分級——不等於評分模型
     baseline: '尚無經驗證的基準——原料不足，不做宣稱',
     dataGate: {
       have: 0, need: 480,

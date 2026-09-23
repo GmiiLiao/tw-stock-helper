@@ -45,6 +45,8 @@ export const AT_ALLOWLIST = new Set([
   'frozenAt',
   // stopAt／monitorAt：當沖即時警示 daytradeAlerts/live——訊號「現象停止」的 1 分 K 時刻、監控名單重算時刻（2026-09-23）。
   'stopAt', 'monitorAt',
+  // formedAt：當沖工作台開盤區間（ORB）形成的 1 分 K 時刻（2026-09-23）。
+  'formedAt',
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',

@@ -154,7 +154,7 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
 
 import LimitUpPanel from '@/components/WarRoom/LimitUpPanel';
 import FadeWatch from '@/components/WarRoom/FadeWatch';
-import DualBoard from './DualBoard';
+import DayTradeDesk from './daytrade/DayTradeDesk';
 
 // 2026-09-23 使用者：「⚡ 盤中漲停預測」併入即時漲跌頁。版面：標題列右側一組二段切換——
 //   漲跌分布（原頁）／盤中漲停預測（limitUpForecast/live）。同一頁、同一個標題、一個入口；
@@ -238,7 +238,7 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#7dd3fc' }}>📈 即時漲跌</span>
         <span role="tablist" aria-label="即時漲跌檢視" style={{ display: 'inline-flex', padding: 2, borderRadius: 999, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}>
-          {([['board', '漲跌分布'], ['forecast', '⚡ 盤中漲停預測'], ['fade', '📉 即時轉空預測'], ['dual', '⚔️ 多空同屏']] as [RfView, string][]).map(([k, label]) => (
+          {([['board', '漲跌分布'], ['forecast', '⚡ 盤中漲停預測'], ['fade', '📉 即時轉空預測'], ['dual', '⏳ 當沖工作台']] as [RfView, string][]).map(([k, label]) => (
             <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
               style={{ padding: '3px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700,
                 background: view === k ? (k === 'forecast' ? 'rgba(253,164,175,0.18)' : k === 'fade' ? 'rgba(74,222,128,0.16)' : k === 'dual' ? 'rgba(251,191,36,0.16)' : 'rgba(125,211,252,0.18)') : 'transparent',
@@ -260,8 +260,8 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
         </span>}
       </div>
       {view === 'forecast' ? <LimitUpPanel source="live" /> : view === 'fade' ? <FadeWatch snaps={pool} marketOpen={marketOpen} /> : view === 'dual' ? (
-        // 多空同屏（2026-09-23）：兩欄同一列模板、同一高度＋1 分 K 即時警示（閃爍／🏁），見 DualBoard
-        <DualBoard snaps={pool} marketOpen={marketOpen} wide={vw >= 1500} />
+        // ⏳ 當沖工作台（2026-09-23 依 tw-day-trading 技巧重新設計；原「多空同屏」）：見 daytrade/DayTradeDesk
+        <DayTradeDesk snaps={pool} marketOpen={marketOpen} wide={vw >= 1500} />
       ) : <>
       {/* 版面規則（2026-08-11 更新）：
           桌機＝漲左跌右並排；**手機＝上漲整區在上、下跌整區在下**。
