@@ -151,7 +151,16 @@ function Column({ title, icon, color, items, sort, setSort, cols, openCode, setO
   );
 }
 
-export default function RiseFallPanel() {
+import LimitUpPanel from '@/components/WarRoom/LimitUpPanel';
+
+// 2026-09-23 使用者：「⚡ 盤中漲停預測」併入即時漲跌頁。版面：標題列右側一組二段切換——
+//   漲跌分布（原頁）／盤中漲停預測（limitUpForecast/live）。同一頁、同一個標題、一個入口；
+//   切到預測時暫停 308KB 全市場快照輪詢（不看的東西不下載，見下載量記憶）。選擇記本機。
+type RfView = 'board' | 'forecast';
+
+export default function RiseFallPanel({ initialView }: { initialView?: RfView } = {}) {
+  const [view, setViewState] = useState<RfView>(() => initialView ?? (storageGet('rfView') === 'forecast' ? 'forecast' : 'board'));
+  const setView = (v: RfView) => { setViewState(v); storageSet('rfView', v); };
   const [snaps, setSnaps] = useState<Snap[]>([]);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [marketOpen, setMarketOpen] = useState(false);
@@ -187,6 +196,7 @@ export default function RiseFallPanel() {
     // force=true 用於**首次載入**：收盤後也要載入，才顯示得出當日最終結算資料。
     // 舊寫法連第一次都被 shouldPollNow 擋掉 ⇒ 盤後畫面永遠是 0 檔
     // （使用者 2026-08-31 截圖：晚上 8 點看到「全市場 0 檔·無」，當日資訊整個消失）。
+    if (view !== 'board') return () => { live = false; };   // 預測檢視不輪詢全市場快照
     const load = (force = false) => {
       // 開盤前 5 分鐘清空：昨日資料已無參考價值，今日尚未開始
       if (inPreOpenBlackout()) { setSnaps([]); return; }
@@ -204,7 +214,7 @@ export default function RiseFallPanel() {
     const tick = () => { load(); t = setTimeout(tick, isTwTradingHours() ? 10000 : 120000); };
     t = setTimeout(tick, isTwTradingHours() ? 10000 : 120000);
     return () => { live = false; clearTimeout(t); };
-  }, []);
+  }, [view]);
 
   const sorter = (k: SortKey, up: boolean) => (a: Snap, b: Snap) =>
     k === 'chg' ? (up ? b.changePercent - a.changePercent : a.changePercent - b.changePercent)
@@ -222,20 +232,29 @@ export default function RiseFallPanel() {
     <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.05)', border: '1px solid rgba(61,142,248,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#7dd3fc' }}>📈 即時漲跌</span>
-        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span role="tablist" aria-label="即時漲跌檢視" style={{ display: 'inline-flex', padding: 2, borderRadius: 999, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}>
+          {([['board', '漲跌分布'], ['forecast', '⚡ 盤中漲停預測']] as [RfView, string][]).map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
+              style={{ padding: '3px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700,
+                background: view === k ? (k === 'forecast' ? 'rgba(253,164,175,0.18)' : 'rgba(125,211,252,0.18)') : 'transparent',
+                color: view === k ? (k === 'forecast' ? '#fda4af' : '#7dd3fc') : 'var(--text-muted)' }}>{label}</button>
+          ))}
+        </span>
+        {view === 'board' && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           全市場 {snaps.length.toLocaleString()} 檔 · ▲{risers.length.toLocaleString()} ▼{fallers.length.toLocaleString()} 平{flat}
           {updatedAt ? ` · ${new Date(updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : ''}{!marketOpen ? ' · ⏸ 非盤中(最後快照)' : ''}
-        </span>
-        <OnlyCandidatesToggle on={onlyCand} setOn={setOnlyCand} />
-        <span className="mobile-hide" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        </span>}
+        {view === 'board' && <OnlyCandidatesToggle on={onlyCand} setOn={setOnlyCand} />}
+        {view === 'board' && <span className="mobile-hide" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           欄數
           <select value={cols} onChange={e => saveCols(+e.target.value)}
             style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 6, fontSize: 'calc(12.5px * var(--fz))', padding: '2px 4px' }}>
             {[2, 3, 4, 5, 6, 8, 10].map(v => <option key={v} value={v}>{v}</option>)}
           </select>
           <span>· 點方塊看即時K線</span>
-        </span>
+        </span>}
       </div>
+      {view === 'forecast' ? <LimitUpPanel source="live" /> : <>
       {/* 版面規則（2026-08-11 更新）：
           桌機＝漲左跌右並排；**手機＝上漲整區在上、下跌整區在下**。
           先前的定案是「一律並排、不換上下排」，但實機驗證下來，
@@ -248,6 +267,7 @@ export default function RiseFallPanel() {
       <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         底色深淺＝漲跌幅強度（紅漲綠跌）；漲跌兩區各自獨立排序（手機為上下排、桌機為左右並排）；每 30 秒更新。非投資建議。
       </div>
+      </>}
     </div>
   );
 }

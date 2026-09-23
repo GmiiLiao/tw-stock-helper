@@ -208,7 +208,7 @@ export default function WarRoom() {
 
       {/* ── 主分頁切換（置頂：手機上才不會被下方卡片埋掉）── */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', overflowX: 'auto', marginBottom: 10, paddingBottom: 2, scrollbarWidth: 'none' }}>
-        {([['radar', '📡 盤中雷達'], ['risefall', '📈 即時漲跌'], ['chip', '🧬 籌碼推選'], ['limitup', '🚀 漲停預測'], ['lulive', '⚡ 盤中漲停預測'], ['squeeze', '🩳 軋空候選'], ['short', '🐻 空方候選'], ['gaplu', '🎯 跳空漲停'], ['volsurge', '⚡ 盤中爆量'], ['desk', '🗒️ 決策工作台']] as const).map(([k, label]) => {
+        {([['radar', '📡 盤中雷達'], ['risefall', '📈 即時漲跌'], ['chip', '🧬 籌碼推選'], ['limitup', '🚀 漲停預測'], ['squeeze', '🩳 軋空候選'], ['short', '🐻 空方候選'], ['gaplu', '🎯 跳空漲停'], ['volsurge', '⚡ 盤中爆量'], ['desk', '🗒️ 決策工作台']] as const).map(([k, label]) => {
           const on = mainTab === k;
           return (
             <button key={k} onClick={() => { setMainTab(k); logActivity('war_tab', { tab: k }); }}
@@ -261,7 +261,7 @@ export default function WarRoom() {
         </>
       )}
 
-      {mainTab === 'desk' ? <DecisionDesk /> : mainTab === 'risefall' ? <RiseFallPanel /> : mainTab === 'volsurge' ? <VolSurgePanel /> : mainTab === 'limitup' ? <LimitUpPanel /> : mainTab === 'lulive' ? <LimitUpPanel source="live" /> : mainTab === 'squeeze' ? <SqueezePanel /> : mainTab === 'short' ? <ShortPanel /> : mainTab === 'gaplu' ? <GapLimitUpPanel /> : mainTab === 'chip' ? <ChipPicksPanel /> : (
+      {mainTab === 'desk' ? <DecisionDesk /> : mainTab === 'risefall' ? <RiseFallPanel /> : mainTab === 'lulive' ? <RiseFallPanel initialView="forecast" /> : mainTab === 'volsurge' ? <VolSurgePanel /> : mainTab === 'limitup' ? <LimitUpPanel /> :  mainTab === 'squeeze' ? <SqueezePanel /> : mainTab === 'short' ? <ShortPanel /> : mainTab === 'gaplu' ? <GapLimitUpPanel /> : mainTab === 'chip' ? <ChipPicksPanel /> : (
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* ── 主榜：盤中雷達（多策略開關篩選） ── */}
         <div style={{ flex: '1 1 640px', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(61,142,248,0.06)', border: '1px solid rgba(61,142,248,0.25)' }}>
