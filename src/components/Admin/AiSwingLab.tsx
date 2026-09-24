@@ -6,12 +6,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import type { SwingLabDoc, SwingHorizonStat, SwingPick } from '../../../scripts/lib/ai-swing-lab.mjs';
-import { Kpi, TradeSlip, NotesBox, Section, MONO, upDn, twd, pct, tw } from './AiLabParts';
+import { Kpi, TradeSlip, NotesBox, Section, ListTable, MONO, upDn, twd, pct, tw } from './AiLabParts';
 
 const HS = [5, 10, 20, 60, 120];
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number }
 interface OpenPos { date: string; code: string; name: string; shares: number; estCost: number; exitH: number }
-interface Resp { account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
+interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
+interface Holding { date: string; code: string; name: string; shares: number; exitH: number; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number; daysLeft: number }
+interface Closed { date: string; code: string; name: string; shares: number; exitH: number; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
+interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[] }
+interface Resp { snapshot?: Snapshot | null; account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
 
 async function authed(input: string, init: RequestInit = {}) {
   const token = (await auth.currentUser?.getIdToken()) ?? '';
@@ -54,9 +58,30 @@ export default function AiSwingLab() {
           <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="單筆上限 10 萬、可零股、低於 1 萬不建倉" />
         </div>
       )}
-      {!!data.openPositions?.length && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
-        持倉：{data.openPositions.map(o => `${o.code} ${o.name} ${o.shares.toLocaleString()} 股（約 ${o.estCost.toLocaleString()} 元，${o.date} 選·${o.exitH} 日出場）`).join('｜')}
-      </div>}
+      <Section title="📋 持有清單" sub={data.snapshot?.dataDate ? `市值以 ${data.snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新'}>
+        <ListTable head={['選股日', '個股', '狀態', '股數', '買進 時間·價', '成本', '最新收盤', '市值', '未實現損益', '已持有／剩餘']} right={[3, 5, 6, 7, 8]}
+          empty="目前沒有持倉"
+          rows={(data.snapshot?.holdings || []).map(h => [
+            h.date.slice(5), `${h.code} ${h.name}`, <span key="s" style={{ color: h.entryPx ? 'var(--text-primary)' : '#7dd3fc' }}>{h.status}</span>, h.shares.toLocaleString(),
+            h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}</span> : '—', h.cost.toLocaleString(), h.lastPx ?? '—',
+            h.mktValue != null ? h.mktValue.toLocaleString() : '—', <b key="u" style={{ color: upDn(h.unrealized) }}>{h.unrealized != null ? `${twd(h.unrealized)}（${pct(h.unrealizedPct)}）` : '—'}</b>,
+            `${h.heldDays} 日／剩 ${h.daysLeft} 日（${h.exitH} 日出場）`,
+          ])}
+          foot={data.snapshot?.holdings?.length ? ['合計', `${data.snapshot.holdings.length} 檔`, '', '', '', data.snapshot.holdings.reduce((a, h) => a + h.cost, 0).toLocaleString(), '',
+            data.snapshot.holdings.reduce((a, h) => a + (h.mktValue ?? 0), 0).toLocaleString() || '—', twd(data.snapshot.holdings.reduce((a, h) => a + (h.unrealized ?? 0), 0)), ''] : undefined} />
+      </Section>
+
+      <Section title="✅ 結算清單" sub="帳戶在 AI 指定持有期出場的實際交易單（新→舊）">
+        <ListTable head={['選股日', '個股', '股數', '買進 時間·價·金額', '賣出 時間·價·金額', '費稅', '淨損益', '報酬', '持有']} right={[2, 5, 6, 7]}
+          empty="尚無已結算部位（最快在進場後第 5 個交易日收盤）"
+          rows={(data.snapshot?.closed || []).map(c => [
+            c.date.slice(5), `${c.code} ${c.name}`, c.shares.toLocaleString(),
+            <span key="b" style={MONO}>{tw(c.buy.at, true)} · {c.buy.px} · {c.buy.amount.toLocaleString()}</span>,
+            <span key="s" style={MONO}>{tw(c.sell.at, true)} · {c.sell.px} · {c.sell.amount.toLocaleString()}</span>,
+            c.costTwd.toLocaleString(), <b key="p" style={{ color: upDn(c.pnlTwd) }}>{twd(c.pnlTwd)}</b>, <span key="r" style={{ color: upDn(c.retPct) }}>{pct(c.retPct)}</span>, `${c.exitH} 日`,
+          ])}
+          foot={data.snapshot?.closed?.length ? ['合計', `${data.snapshot.closed.length} 筆`, '', '', '', data.snapshot.closed.reduce((a, c) => a + c.costTwd, 0).toLocaleString(), twd(data.snapshot.closed.reduce((a, c) => a + c.pnlTwd, 0)), '', ''] : undefined} />
+      </Section>
       {data.found && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {HS.map(h => { const s = data.stats[h]; return (

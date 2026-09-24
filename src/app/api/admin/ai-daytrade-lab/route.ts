@@ -43,9 +43,22 @@ export async function GET(request: Request) {
     const acctTrades = [...all, ...liveRecs].filter(r => r.status === 'filled').map(r => (r.ledger ? { pnlTwd: r.ledger.pnlTwd } : { open: true, cost: Math.round((r.fillPx || 0) * (r.shares || 1000)) }));
     const realized = acctTrades.reduce((a, t) => a + (t.pnlTwd ?? 0), 0), openCost = acctTrades.reduce((a, t) => a + (t.cost ?? 0), 0);
     const account = { initial: 500000, realized, equity: 500000 + realized, openCost, cash: 500000 + realized - openCost, retPct: +(realized / 500000 * 100).toFixed(2), trades: acctTrades.length };
+    // 交易時間清單（新→舊）＋每日結算（舊→新累計帳戶淨值）——只列 AI 實際成交（有交易單）者
+    const dated = [...docs.map(d => ({ date: d.date, recs: d.records || [] })), ...(liveRecs.length ? [{ date: today, recs: liveRecs }] : [])];
+    const tradeList = dated.flatMap(d => d.recs.filter(r => r.status === 'filled').map(r => ({
+      date: d.date, code: r.code, name: r.name, side: r.side, type: r.type, decidedAt: r.decidedAt ?? null, shares: r.shares ?? r.ledger?.shares ?? 1000,
+      buy: r.ledger?.buy ?? null, sell: r.ledger?.sell ?? null, legs: r.ledger?.legs?.length ?? null, costTwd: r.ledger?.costTwd ?? null,
+      pnlTwd: r.ledger?.pnlTwd ?? null, retPct: r.ledger?.retPct ?? null, exitReason: r.exitReason ?? null, open: !r.ledger, noLookahead: r.ledger?.noLookahead ?? null,
+    }))).sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0));
+    let eq = 500000;
+    const daily = dated.map(d => {
+      const ls = d.recs.filter(r => r.status === 'filled' && r.ledger).map(r => r.ledger!);
+      const sum = (f: (l: NonNullable<AiLabRecord['ledger']>) => number) => ls.reduce((a, l) => a + f(l), 0);
+      return { date: d.date, n: ls.length, open: d.recs.filter(r => r.status === 'filled' && !r.ledger).length, buyAmt: sum(l => l.buy.amount), sellAmt: sum(l => l.sell.amount), fee: sum(l => l.buy.fee + l.sell.fee), tax: sum(l => l.sell.tax), pnl: sum(l => l.pnlTwd) };
+    }).sort((a, b) => a.date.localeCompare(b.date)).map(x => { eq += x.pnl; return { ...x, equity: eq }; }).reverse();
     return NextResponse.json({
       found: docs.length > 0 || !!live,
-      account,
+      account, tradeList, daily,
       days: docs.map(d => ({ date: d.date, n: (d.records || []).length, stats: labStats(d.records || []).all, summary: d.review?.summary || null, hasNotes: !!d.adminNotes, frozenAt: d.frozenAt || null })),
       cumulative: labStats(all), confidence: [conf(80, 101), conf(60, 80), conf(0, 60)],
       live, detail,

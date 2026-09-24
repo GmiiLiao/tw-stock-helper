@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, swingAccount, sizePicks } from './ai-swing-lab.mjs';
+import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, swingAccount, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
 
 const MAX_ATTEMPTS = 3;
 
@@ -56,6 +56,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       await ref.set(doc);
       writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
       log(`✓ 波段 AI 選股 ${date}（${model?.name || '?'}）：池 ${pool.length} 檔 → 選 ${picks.map(p => p.code).join('、') || '無'}`);
+      await this.writeAccount();
       return true;
     },
 
@@ -63,7 +64,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
     async settle() {
       const snap = await col().orderBy('date', 'desc').limit(200).get();
       const open = snap.docs.filter(d => !d.data().settledAll);
-      if (!open.length) return 0;
+      if (!open.length) { await this.writeAccount(); return 0; }
       const days = await loadDays(Math.max(...SWING_HORIZONS) + 15);   // 還原後 舊→新
       if (!days.length) return 0;
       let n = 0;
@@ -88,7 +89,17 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         }
       }
       if (n) log(`✓ 波段 AI 結算：新增 ${n} 個持有期結果`);
+      await this.writeAccount(days);
       return n;
+    },
+
+    /** 帳戶快照（持有清單 marked-to-market＋結算清單）→ aiLabAccounts/swing；後台讀這一份 */
+    async writeAccount(daysIn = null) {
+      try {
+        const days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
+        const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+        await db.collection('aiLabAccounts').doc('swing').set(swingAccountSnapshot(docs, days));
+      } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
     },
 
     async syncNotes() {

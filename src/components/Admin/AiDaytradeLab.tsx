@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import type { AiLabRecord, AiLabStats } from '../../../scripts/lib/ai-daytrade-lab.mjs';
-import { Kpi, TradeSlip, NotesBox, Section, MONO, upDn, twd, pct, tw } from './AiLabParts';
+import { Kpi, TradeSlip, NotesBox, Section, ListTable, MONO, upDn, twd, pct, tw } from './AiLabParts';
 
 interface DayRow { date: string; n: number; stats: AiLabStats['all']; summary: string | null; hasNotes: boolean; frozenAt: number | null }
 interface LabDoc {
@@ -15,7 +15,10 @@ interface LabDoc {
   reviewNote?: string | null; frozenAt?: number; adminNotes?: string; adminNotesAt?: number; adminBy?: string; updatedAt?: number;
 }
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; retPct: number; trades: number }
-interface Resp { account?: Acct; found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
+interface Leg { at: number | null; px: number; amount: number; fee: number; tax?: number }
+interface TradeRow { date: string; code: string; name: string; side: 'long' | 'short'; type: string; decidedAt: number | null; shares: number; buy: Leg | null; sell: Leg | null; legs: number | null; costTwd: number | null; pnlTwd: number | null; retPct: number | null; exitReason: string | null; open: boolean; noLookahead: boolean | null }
+interface DailyRow { date: string; n: number; open: number; buyAmt: number; sellAmt: number; fee: number; tax: number; pnl: number; equity: number }
+interface Resp { tradeList?: TradeRow[]; daily?: DailyRow[]; account?: Acct; found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
 
 const R = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}R`);
 const STATUS: Record<string, { t: string; c: string }> = {
@@ -70,6 +73,30 @@ export default function AiDaytradeLab() {
           <Kpi label="錯過／失敗" value={String(c.missed)} sub="回覆逾 3 分鐘或格式錯" />
         </div>
       )}
+
+      <Section title="🕒 交易時間清單" sub="AI 實際成交（新→舊）；做空為先賣後買">
+        <ListTable head={['日期', 'AI 決定', '方向', '個股', '股數', '買進 時間·價·金額', '賣出 時間·價·金額', '費稅', '淨損益', '報酬', '出場原因', '查核']} right={[4, 7, 8, 9]}
+          empty="尚無 AI 成交（AI 放棄的觸發在下方「日期」逐筆查看反事實交易單）"
+          rows={(data.tradeList || []).map(t => [
+            t.date.slice(5), <span key="d" style={MONO}>{tw(t.decidedAt)}</span>,
+            <span key="s" style={{ fontWeight: 800, color: t.side === 'long' ? 'var(--color-up)' : 'var(--color-down)' }}>{t.side === 'long' ? '多' : '空'}</span>,
+            `${t.code} ${t.name}`, t.shares.toLocaleString(),
+            t.buy ? <span key="b" style={MONO}>{tw(t.buy.at)} · {t.buy.px} · {t.buy.amount.toLocaleString()}</span> : '—',
+            t.sell ? <span key="x" style={MONO}>{tw(t.sell.at)} · {t.sell.px} · {t.sell.amount.toLocaleString()}</span> : (t.open ? '持倉中' : '—'),
+            t.costTwd != null ? t.costTwd.toLocaleString() : '—',
+            <b key="p" style={{ color: upDn(t.pnlTwd) }}>{twd(t.pnlTwd)}</b>, <span key="r" style={{ color: upDn(t.retPct) }}>{pct(t.retPct)}</span>,
+            t.exitReason ? `${t.exitReason}${t.legs && t.legs > 2 ? '（分批）' : ''}` : '—',
+            t.noLookahead == null ? '—' : t.noLookahead ? <span key="v" style={{ color: '#22c55e' }}>✓</span> : <span key="v" style={{ color: '#ef4444' }}>⚠</span>,
+          ])} />
+      </Section>
+
+      <Section title="📒 每日結算" sub="AI 成交的買賣總額、費稅、淨損益與結算後帳戶淨值">
+        <ListTable head={['日期', '成交筆數', '買進總額', '賣出總額', '手續費', '證交稅', '淨損益', '結算後淨值']} right={[1, 2, 3, 4, 5, 6, 7]}
+          rows={(data.daily || []).map(x => [x.date, `${x.n}${x.open ? `（持倉 ${x.open}）` : ''}`, x.buyAmt.toLocaleString(), x.sellAmt.toLocaleString(), x.fee.toLocaleString(), x.tax.toLocaleString(),
+            <b key="p" style={{ color: upDn(x.pnl) }}>{twd(x.pnl)}</b>, x.equity.toLocaleString()])}
+          foot={data.daily?.length ? ['合計', String(data.daily.reduce((a, x) => a + x.n, 0)), data.daily.reduce((a, x) => a + x.buyAmt, 0).toLocaleString(), data.daily.reduce((a, x) => a + x.sellAmt, 0).toLocaleString(),
+            data.daily.reduce((a, x) => a + x.fee, 0).toLocaleString(), data.daily.reduce((a, x) => a + x.tax, 0).toLocaleString(), twd(data.daily.reduce((a, x) => a + x.pnl, 0)), (data.daily[0]?.equity ?? 500000).toLocaleString()] : undefined} />
+      </Section>
 
       <Section title="日期" sub="點日期看當天每一筆交易單">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

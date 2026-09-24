@@ -103,3 +103,18 @@ export function Section({ title, sub, children }: { title: string; sub?: string;
     </section>
   );
 }
+
+/** 清單表格：表頭固定、欄位對齊、窄螢幕橫向捲動；right＝靠右的數字欄 */
+export function ListTable({ head, rows, right = [], foot, empty = '無', maxHeight = 420 }: { head: string[]; rows: React.ReactNode[][]; right?: number[]; foot?: React.ReactNode[]; empty?: string; maxHeight?: number }) {
+  const cell = (i: number): React.CSSProperties => ({ padding: '4px 8px', whiteSpace: 'nowrap', textAlign: right.includes(i) ? 'right' : 'left', ...(right.includes(i) ? MONO : {}) });
+  if (!rows.length) return <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{empty}</div>;
+  return (
+    <div style={{ overflow: 'auto', maxHeight, border: '1px solid var(--border-primary)', borderRadius: 10 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 'calc(12.5px * var(--fz))' }}>
+        <thead><tr>{head.map((h, i) => <th key={i} style={{ ...cell(i), position: 'sticky', top: 0, background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontWeight: 700, borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}</tr></thead>
+        <tbody>{rows.map((r, k) => <tr key={k} style={{ borderBottom: '1px dashed var(--border-primary)' }}>{r.map((c, i) => <td key={i} style={cell(i)}>{c}</td>)}</tr>)}</tbody>
+        {foot && <tfoot><tr style={{ fontWeight: 900, background: 'var(--bg-secondary)' }}>{foot.map((c, i) => <td key={i} style={cell(i)}>{c}</td>)}</tr></tfoot>}
+      </table>
+    </div>
+  );
+}

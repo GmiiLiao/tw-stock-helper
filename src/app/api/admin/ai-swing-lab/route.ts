@@ -31,9 +31,11 @@ export async function GET(request: Request) {
     const byModel: Record<string, ReturnType<typeof swingStats>> = {};
     for (const name of [...new Set(docs.map(d => d.model?.name || '未知'))]) byModel[name] = swingStats(docs.filter(d => (d.model?.name || '未知') === name));
     const detail = want && DATE_RE.test(want) ? docs.find(d => d.date === want) || null : docs[0] || null;
+    // 持有清單（最新收盤計市值）與結算清單：daemon 每日結算後寫 aiLabAccounts/swing
+    const snapshot = (await db.collection('aiLabAccounts').doc('swing').get()).data() || null;
     return NextResponse.json({
       found: docs.length > 0,
-      stats: swingStats(docs), byModel,
+      stats: swingStats(docs), byModel, snapshot,
       // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由記錄重算；持倉＝尚未到帳戶出場期的部位
       account: swingAccount(docs),
       openPositions: docs.flatMap(d => (d.picks || []).filter(p => p.position?.shares && !d.outcomes?.[p.position.exitH]).map(p => ({ date: d.date, code: p.code, name: p.name, shares: p.position!.shares, estCost: p.position!.estCost, exitH: p.position!.exitH }))),

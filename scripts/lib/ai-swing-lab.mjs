@@ -195,3 +195,40 @@ export function renderSwingMarkdown(doc) {
   ];
   return L.join('\n');
 }
+
+/**
+ * 波段帳戶快照（持有清單＋結算清單）：docs＝全部選股記錄、days＝還原後日線（舊→新）。
+ * 持有＝有部位且帳戶出場期尚未結算；未進場（D+1 還沒到）標「待進場」；市值用最新收盤。
+ */
+export function swingAccountSnapshot(docs, days) {
+  const last = days[days.length - 1];
+  const holdings = [], closed = [];
+  for (const d of docs) {
+    for (const p of d.picks || []) {
+      const pos = p.position; if (!pos?.shares) continue;
+      const acct = d.outcomes?.[pos.exitH]?.picks?.find(x => x.code === p.code);
+      if (acct?.ledger) {
+        const L = acct.ledger;
+        closed.push({ date: d.date, code: p.code, name: p.name, shares: L.shares, exitH: pos.exitH, buy: L.buy, sell: L.sell, costTwd: L.costTwd, pnlTwd: L.pnlTwd, retPct: L.retPct, exitDate: acct.exitDate });
+        continue;
+      }
+      const d0 = days.findIndex(x => x.date > d.date);
+      const entryRow = d0 >= 0 ? days[d0].m[p.code] : null;
+      const entryPx = entryRow ? (entryRow[2] > 0 ? entryRow[2] : entryRow[0]) : null;
+      const lastPx = last?.m[p.code]?.[0] ?? null;
+      const cost = entryPx ? Math.round(entryPx * pos.shares) : pos.estCost;
+      const mkt = lastPx && entryPx ? Math.round(lastPx * pos.shares) : null;
+      const heldDays = d0 >= 0 ? days.length - d0 : 0;
+      holdings.push({
+        date: d.date, code: p.code, name: p.name, shares: pos.shares, exitH: pos.exitH,
+        status: entryPx ? '持有中' : '待進場（下一交易日 09:00 開盤）',
+        entryDate: d0 >= 0 ? days[d0].date : null, entryAt: d0 >= 0 ? twAt(days[d0].date, entryRow?.[2] > 0 ? '09:00' : '13:30') : null, entryPx, cost,
+        lastDate: entryPx ? last.date : null, lastPx: entryPx ? lastPx : null, mktValue: mkt, unrealized: mkt != null ? mkt - cost : null,
+        unrealizedPct: mkt != null && cost ? +((mkt / cost - 1) * 100).toFixed(2) : null,
+        heldDays, daysLeft: Math.max(0, pos.exitH - heldDays),
+      });
+    }
+  }
+  const trades = [...closed.map(c => ({ pnlTwd: c.pnlTwd })), ...holdings.map(h => ({ open: true, cost: h.cost }))];
+  return { at: Date.now(), dataDate: last?.date || null, account: accountOf(trades), holdings: holdings.sort((a, b) => a.date.localeCompare(b.date)), closed: closed.sort((a, b) => (b.sell.at || 0) - (a.sell.at || 0)) };
+}

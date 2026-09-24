@@ -125,3 +125,17 @@ test('波段帳戶：單筆上限 10 萬、貴股用零股、錢用完記資金�
   assert.equal(a.realized, 3000); assert.equal(a.openCost, 49500); assert.equal(a.cash, 500000 + 3000 - 49500);
   assert.equal(swingAccount(docs, '2026-01-02').equity, 500000, '只算決策日以前的記錄');
 });
+
+test('帳戶快照：持有清單以最新收盤計市值、未進場標待進場、結算清單列交易單', async () => {
+  const { swingAccountSnapshot } = await import('./ai-swing-lab.mjs');
+  const days = mkDays(20);
+  const docs = [
+    { date: days[5].date, picks: [{ code: '1111', name: 'A', position: { shares: 1000, exitH: 60, estCost: 105000 } }], outcomes: {} },
+    { date: days[19].date, picks: [{ code: '2222', name: 'B', position: { shares: 2000, exitH: 20, estCost: 100000 } }], outcomes: {} },
+  ];
+  const s = swingAccountSnapshot(docs, days);
+  const a = s.holdings.find(h => h.code === '1111');
+  assert.equal(a.entryPx, 105); assert.equal(a.lastPx, 119); assert.equal(a.unrealized, 14000);
+  assert.equal(s.holdings.find(h => h.code === '2222').status.startsWith('待進場'), true);
+  assert.equal(s.account.openCost, 105000 + 100000);
+});
