@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ledgerOf, twAt } from './sim-ledger.mjs';
+import { sizeShares, accountOf, SWING_PER_PICK, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
 
 export const SWING_LAB_VERSION = 'ai-swing-lab-v2';   // v2（2026-09-24）：結算附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
 export const SWING_HORIZONS = Object.freeze([5, 10, 20, 60, 120]);
@@ -113,9 +114,37 @@ export function poolBaseline(days, decisionDate, codes, h) {
 
 /** 跨日統計：每個持有期的 AI 選股 vs 整池 */
 /** 交易單（1 張、一般交易稅 0.3%）；decidedAt＝選股凍結時刻，必須早於進場（盤後決定、隔日開盤買） */
-export function swingLedger(o, decidedAt) {
-  if (!o?.entryPx) return null;
-  return ledgerOf({ side: 'long', entry: { at: o.entryAt, px: o.entryPx }, exit: { at: o.exitAt, px: o.exitPx }, dayTrade: false, decidedAt });
+export function swingLedger(o, decidedAt, shares = 1000) {
+  if (!o?.entryPx || !(shares > 0)) return null;
+  return ledgerOf({ side: 'long', entry: { at: o.entryAt, px: o.entryPx }, exit: { at: o.exitAt, px: o.exitPx }, dayTrade: false, decidedAt, shares });
+}
+
+/** 波段帳戶（由記錄重算）：每檔以 position.exitH（AI 指定持有期）為帳戶出場；未到期＝未平倉 */
+export function swingAccount(docs, beforeDate = null) {
+  const trades = [];
+  for (const d of docs) {
+    if (beforeDate && !(d.date < beforeDate)) continue;
+    for (const p of d.picks || []) {
+      const pos = p.position; if (!pos?.shares) continue;
+      const o = d.outcomes?.[pos.exitH]?.picks?.find(x => x.code === p.code);
+      if (o?.ledger) trades.push({ pnlTwd: o.ledger.pnlTwd });
+      else if (o) trades.push({ pnlTwd: 0 });   // 到期但資料缺：以 0 計並在明細註明
+      else { const e = d.outcomes?.[5]?.picks?.find(x => x.code === p.code); trades.push({ open: true, cost: Math.round((e?.entryPx || p.priceAtDecision || 0) * pos.shares) }); }
+    }
+  }
+  return accountOf(trades);
+}
+
+/** 依可用現金為當天的選股定股數（單筆上限 10 萬、可零股）；以 AI 決定當下的價格計，凍結寫入 */
+export function sizePicks(picks, cash) {
+  let left = cash;
+  return picks.map(p => {
+    const budget = Math.max(0, Math.min(left, SWING_PER_PICK));
+    const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget, true) : 0;
+    const est = Math.round(shares * (p.priceAtDecision || 0));
+    left -= est;
+    return { ...p, position: { shares, budget: Math.round(budget), estCost: est, exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
+  });
 }
 
 export function swingStats(docs) {

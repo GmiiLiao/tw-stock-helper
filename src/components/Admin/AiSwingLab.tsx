@@ -9,7 +9,9 @@ import type { SwingLabDoc, SwingHorizonStat, SwingPick } from '../../../scripts/
 import { Kpi, TradeSlip, NotesBox, Section, MONO, upDn, twd, pct, tw } from './AiLabParts';
 
 const HS = [5, 10, 20, 60, 120];
-interface Resp { found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
+interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number }
+interface OpenPos { date: string; code: string; name: string; shares: number; estCost: number; exitH: number }
+interface Resp { account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
 
 async function authed(input: string, init: RequestInit = {}) {
   const token = (await auth.currentUser?.getIdToken()) ?? '';
@@ -42,10 +44,19 @@ export default function AiSwingLab() {
   return (
     <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
-        每個交易日 17:00 後，本機 Ollama 從本站波段榜（排除處置股）挑最多 5 檔。每檔模擬 <b>1 張</b>：<b>隔日 09:00 開盤買進</b>，持有 5／10／20／60／120 個交易日後 <b>13:30 收盤賣出</b>（除權息還原價）。
+        每個交易日 17:00 後，本機 Ollama 從本站波段榜（排除處置股）挑最多 5 檔。模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通）：單筆上限 10 萬、可零股、低於 1 萬不建倉；<b>隔日 09:00 開盤買進</b>，帳戶在 AI 指定的持有期（🏦）<b>13:30 收盤賣出</b>，其他持有期（5／10／20／60／120 日）為同部位的研究數字（除權息還原價）。
         選股在盤後凍結，時間早於隔日開盤——交易單上的「✓ 先選後買」就是查核。<b>AI 有沒有用：看「超額」（選中的 − 整池平均）。</b>模擬交易，非投資建議。
       </div>
 
+      {data.account && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <Kpi label="🏦 波段帳戶淨值（起始 50 萬·與當沖不互通）" value={`${Math.round(data.account.equity).toLocaleString()} 元`} color={upDn(data.account.realized)} sub={`已實現 ${twd(data.account.realized)}（${pct(data.account.retPct)}）· 已平倉 ${data.account.closedN} 筆`} />
+          <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="單筆上限 10 萬、可零股、低於 1 萬不建倉" />
+        </div>
+      )}
+      {!!data.openPositions?.length && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
+        持倉：{data.openPositions.map(o => `${o.code} ${o.name} ${o.shares.toLocaleString()} 股（約 ${o.estCost.toLocaleString()} 元，${o.date} 選·${o.exitH} 日出場）`).join('｜')}
+      </div>}
       {data.found && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {HS.map(h => { const s = data.stats[h]; return (
@@ -110,11 +121,17 @@ function PickCard({ p, doc }: { p: SwingPick; doc: SwingLabDoc }) {
         <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{p.sources.join('、')}</span>
       </div>
       <div style={{ marginTop: 2 }}><b>選股原因</b>：{p.reason}　<span style={{ color: '#f59e0b' }}>風險：{p.risk}</span></div>
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>預計買進：{doc.date} 之後第一個交易日 09:00 開盤，1 張</div>
+      <div style={{ fontSize: 'calc(12px * var(--fz))', color: p.position && !p.position.shares ? '#f59e0b' : 'var(--text-muted)' }}>
+        {p.position
+          ? p.position.shares
+            ? `🏦 部位：${p.position.lots ? `${p.position.lots} 張` : ''}${p.position.oddShares ? `${p.position.lots ? '＋' : ''}${p.position.oddShares} 股零股` : ''}（約 ${p.position.estCost.toLocaleString()} 元，預算 ${p.position.budget.toLocaleString()}）· ${doc.date} 之後第一個交易日 09:00 開盤買 · 帳戶於 ${p.position.exitH} 日出場${p.position.note ? `｜${p.position.note}` : ''}`
+            : `💰 ${p.position.reason || '資金不足'}，未建倉（研究數字仍照算報酬率）`
+          : '預計買進：隔一交易日 09:00 開盤（本筆為帳戶設定前的記錄，以 1 張計）'}
+      </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
         {HS.map(h => { const o = doc.outcomes?.[h]?.picks.find(x => x.code === p.code); return (
-          <span key={h} style={{ ...MONO, padding: '2px 8px', borderRadius: 999, fontSize: 'calc(12px * var(--fz))', border: `1px solid ${p.horizon === h ? '#fbbf24' : 'var(--border-primary)'}`, color: o?.ledger ? upDn(o.ledger.pnlTwd) : 'var(--text-muted)' }}>
-            {h} 日 {o?.ledger ? `${twd(o.ledger.pnlTwd)}（${pct(o.ledger.retPct)}）` : o ? o.note || '資料缺' : '未到期'}
+          <span key={h} title={(p.position?.exitH ?? null) === h ? '帳戶實際在這一期出場' : '研究用：同部位若在這一期出場的結果'} style={{ ...MONO, padding: '2px 8px', borderRadius: 999, fontSize: 'calc(12px * var(--fz))', border: `1px solid ${(p.position?.exitH ?? p.horizon) === h ? '#fbbf24' : 'var(--border-primary)'}`, color: o?.ledger ? upDn(o.ledger.pnlTwd) : 'var(--text-muted)' }}>
+            {(p.position?.exitH ?? null) === h ? '🏦 ' : ''}{h} 日 {o?.ledger ? `${twd(o.ledger.pnlTwd)}（${pct(o.ledger.retPct)}）` : o ? o.note || '資料缺' : '未到期'}
           </span>); })}
       </div>
       {HS.some(h => doc.outcomes?.[h]?.picks.find(x => x.code === p.code)?.ledger) && (

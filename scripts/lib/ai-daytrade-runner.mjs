@@ -7,7 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AI_LAB_VERSION, AI_LAB_QUOTA, AI_LAB_MAX_LAG_MS, buildDecisionPrompt, parseDecision, settle, labStats, buildReviewPrompt, parseReview, renderMarkdown, factsOf } from './ai-daytrade-lab.mjs';
+import { AI_LAB_VERSION, AI_LAB_QUOTA, AI_LAB_MAX_LAG_MS, buildDecisionPrompt, parseDecision, settle, labStats, buildReviewPrompt, parseReview, renderMarkdown, factsOf, dtAccount } from './ai-daytrade-lab.mjs';
+import { sizeShares, DT_MAX_PER_TRADE } from './sim-account.mjs';
 
 const twMin = t => { const d = new Date(t + 8 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
 
@@ -15,11 +16,24 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
   let date = '';
   let records = [];
   let dirty = false, lastWrite = 0;
+  let past = { date: '', realized: 0 };   // 今天以前（已凍結各日）AI 成交的已實現損益合計——帳戶淨值起點
   const reset = today => { date = today; records = []; dirty = true; };
 
   const used = side => records.filter(r => r.side === side && (r.status === 'pending' || r.status === 'filled')).length;
 
   return {
+    /** 每日開盤前（或重啟後）由凍結記錄重算帳戶起點；當沖帳戶 50 萬、不與波段帳戶互通 */
+    async prepareDay(today) {
+      if (past.date === today) return;
+      let realized = 0;
+      try {
+        const snap = await db.collection('aiDaytradeLab').orderBy('date', 'desc').limit(400).get();
+        for (const d of snap.docs) { if (d.id === 'live') continue; const x = d.data(); if (!(x.date < today)) continue; for (const r of x.records || []) if (r.status === 'filled' && r.ledger) realized += r.ledger.pnlTwd; }
+        past = { date: today, realized };
+      } catch (e) { log('✖ 當沖 AI 帳戶起點:', (e.message || '').slice(0, 60)); }
+    },
+    account() { return dtAccount(records, past.realized); },
+
     /** daemon 重啟：接回今日的盤中記錄（等待中的決策已隨行程中斷，標為 error 並寫明） */
     async restore(today) {
       try {
@@ -55,7 +69,15 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
         if (!p) next = { ...records[i], status: 'error', reason: text ? `回覆格式錯誤：${String(text).slice(0, 40)}` : 'Ollama 無回覆', lagMs: lag, decidedAt: at };
         else if (p.decision === 'skip') next = { ...records[i], ...p, status: 'skipped', lagMs: lag, decidedAt: at };
         else if (lag > AI_LAB_MAX_LAG_MS) next = { ...records[i], ...p, status: 'missed', lagMs: lag, decidedAt: at, reason: `${p.reason}（回覆延遲 ${Math.round(lag / 1000)} 秒，錯過不成交）` };
-        else { const q = getQuote(code); next = { ...records[i], ...p, status: 'filled', lagMs: lag, decidedAt: at, fillAt: at, fillQuoteAt: q?.revealAt || q?.liveAt || null, fillPx: q?.price > 0 ? q.price : trade.entry, fillSource: q?.price > 0 ? '快線即時價' : '無即時價·用觸發價' }; }
+        else {
+          const q = getQuote(code); const px = q?.price > 0 ? q.price : trade.entry;
+          const acct = dtAccount(records, past.realized);   // 成交前的可用現金（淨值－未平倉成本）
+          const budget = Math.max(0, Math.min(acct.cash, DT_MAX_PER_TRADE));
+          const shares = sizeShares(px, budget, false);
+          next = shares > 0
+            ? { ...records[i], ...p, status: 'filled', lagMs: lag, decidedAt: at, fillAt: at, fillQuoteAt: q?.revealAt || q?.liveAt || null, fillPx: px, fillSource: q?.price > 0 ? '快線即時價' : '無即時價·用觸發價', shares, budget: Math.round(budget), cashBefore: Math.round(acct.cash) }
+            : { ...records[i], ...p, status: 'no-cash', lagMs: lag, decidedAt: at, reason: `${p.reason}（資金不足：1 張 ${Math.round(px * 1000).toLocaleString()} 元 > 可用 ${Math.round(budget).toLocaleString()} 元，未成交）` };
+        }
         records = records.map((r, k) => (k === i ? next : r)); dirty = true;
         log(`🤖 當沖 AI：${side === 'long' ? '多' : '空'} ${code}${name} ${trade.type} → ${next.status}${next.confidence != null ? `(${next.confidence})` : ''}`);
       }).catch(() => {});
@@ -77,7 +99,7 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
     async writeLive(force = false) {
       if (!date || (!dirty && !force) || (!force && Date.now() - lastWrite < 30_000)) return;
       dirty = false; lastWrite = Date.now();
-      await db.collection('aiDaytradeLab').doc('live').set({ date, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, updatedAt: Date.now(), records, stats: labStats(records) });
+      await db.collection('aiDaytradeLab').doc('live').set({ date, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, updatedAt: Date.now(), records, stats: labStats(records), account: dtAccount(records, past.realized) });
     },
 
     /** 盤後凍結（寫一次）。回傳 true＝已完成（含今天本來就凍結過） */
@@ -93,7 +115,8 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
         review = parseReview(text);
         if (!review) log('⚠ 當沖 AI 檢討：Ollama 未回覆或格式錯誤，凍結檔記為缺');
       }
-      const doc = { date: today, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, records: recs, stats, facts: factsOf(recs), review, reviewNote: recs.length ? null : '今日無規則觸發（或常駐服務未在盤中運行），無交易可檢討', frozenAt: Date.now() };
+      await this.prepareDay(today);
+      const doc = { date: today, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, records: recs, stats, account: dtAccount(recs, past.realized), facts: factsOf(recs), review, reviewNote: recs.length ? null : '今日無規則觸發（或常駐服務未在盤中運行），無交易可檢討', frozenAt: Date.now() };
       await ref.set(doc);
       try {
         mkdirSync(dir, { recursive: true });

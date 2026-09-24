@@ -5,9 +5,10 @@ export interface AiLabRecord {
   score: { total: number; knownMax: number; tier: string | null; missing: string[] };
   warnings: string[]; askedAt: number;
   decision: 'take' | 'skip' | null; confidence: number | null; reason: string | null; risk: string | null;
-  status: 'pending' | 'filled' | 'skipped' | 'missed' | 'error' | 'quota' | 'out-of-window';
+  status: 'pending' | 'filled' | 'skipped' | 'missed' | 'error' | 'quota' | 'out-of-window' | 'no-cash';
   fillPx: number | null; lagMs: number | null;
   exitAt?: number; exitPx?: number; exitReason?: string; ruleNetR?: number | null; mfeR?: number | null; aiNetPct?: number; aiNetR?: number | null;
+  shares?: number; budget?: number; cashBefore?: number; cfNote?: string;
   decidedAt?: number; fillAt?: number; fillQuoteAt?: number | null; fillSource?: string;
   ledger?: import('./ai-swing-lab.mjs').SimLedger | null; cfLedger?: import('./ai-swing-lab.mjs').SimLedger | null; ledgerNote?: string;
 }

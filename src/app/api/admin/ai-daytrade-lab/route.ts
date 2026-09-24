@@ -37,8 +37,15 @@ export async function GET(request: Request) {
     };
     const live = (await db.collection('aiDaytradeLab').doc('live').get()).data() || null;
     const detail = want && DATE_RE.test(want) ? (docs.find(d => d.date === want) || null) : (docs[0] || null);
+    // 當沖帳戶 50 萬（與波段帳戶分開、不互通）：已凍結各日＋今日盤中的 AI 成交交易單重算
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const liveRecs = live && (live as LabDoc).date === today && !docs.some(d => d.date === today) ? ((live as LabDoc).records || []) : [];
+    const acctTrades = [...all, ...liveRecs].filter(r => r.status === 'filled').map(r => (r.ledger ? { pnlTwd: r.ledger.pnlTwd } : { open: true, cost: Math.round((r.fillPx || 0) * (r.shares || 1000)) }));
+    const realized = acctTrades.reduce((a, t) => a + (t.pnlTwd ?? 0), 0), openCost = acctTrades.reduce((a, t) => a + (t.cost ?? 0), 0);
+    const account = { initial: 500000, realized, equity: 500000 + realized, openCost, cash: 500000 + realized - openCost, retPct: +(realized / 500000 * 100).toFixed(2), trades: acctTrades.length };
     return NextResponse.json({
       found: docs.length > 0 || !!live,
+      account,
       days: docs.map(d => ({ date: d.date, n: (d.records || []).length, stats: labStats(d.records || []).all, summary: d.review?.summary || null, hasNotes: !!d.adminNotes, frozenAt: d.frozenAt || null })),
       cumulative: labStats(all), confidence: [conf(80, 101), conf(60, 80), conf(0, 60)],
       live, detail,

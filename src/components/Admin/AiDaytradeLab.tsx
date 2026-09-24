@@ -14,12 +14,13 @@ interface LabDoc {
   records: AiLabRecord[]; stats: AiLabStats; review?: { summary: string; improvements: string[] } | null; facts?: { worked: string[]; failed: string[] };
   reviewNote?: string | null; frozenAt?: number; adminNotes?: string; adminNotesAt?: number; adminBy?: string; updatedAt?: number;
 }
-interface Resp { found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
+interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; retPct: number; trades: number }
+interface Resp { account?: Acct; found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
 
 const R = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}R`);
 const STATUS: Record<string, { t: string; c: string }> = {
   filled: { t: '✅ AI 成交', c: '#22c55e' }, skipped: { t: '⏭ AI 放棄', c: 'var(--text-muted)' }, missed: { t: '⌛ 回覆太慢·錯過', c: '#f59e0b' },
-  error: { t: '⚠ 決策失敗', c: '#ef4444' }, quota: { t: '額度已滿', c: 'var(--text-muted)' }, 'out-of-window': { t: '時段外', c: 'var(--text-muted)' }, pending: { t: '… 決策中', c: '#7dd3fc' },
+  error: { t: '⚠ 決策失敗', c: '#ef4444' }, 'no-cash': { t: '💰 資金不足·未成交', c: '#f59e0b' }, quota: { t: '額度已滿', c: 'var(--text-muted)' }, 'out-of-window': { t: '時段外', c: 'var(--text-muted)' }, pending: { t: '… 決策中', c: '#7dd3fc' },
 };
 
 async function authed(input: string, init: RequestInit = {}) {
@@ -56,12 +57,13 @@ export default function AiDaytradeLab() {
   return (
     <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
-        盤中當沖工作台規則觸發後，由本機 Ollama 決定做或不做（多、空各 ≤5 筆）。每筆模擬 <b>1 張</b>；成交＝AI 回覆當下的快線即時價，出場沿用工作台規則。
+        盤中當沖工作台規則觸發後，由本機 Ollama 決定做或不做（多、空各 ≤5 筆）。模擬帳戶 <b>50 萬</b>（與波段帳戶不互通）：單筆上限 25 萬、只下整張，買不起 1 張記「資金不足」；成交＝AI 回覆當下的快線即時價，出場沿用工作台規則（1R／2R／3R 各賣 1/3）。
         AI 放棄的觸發另列「反事實」交易單（規則照做會怎樣）。<b>AI 有沒有用：看「成交」是否比「放棄」好。</b>模擬交易，非投資建議。
       </div>
 
       {c && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {data.account && <Kpi label="🏦 當沖帳戶淨值（起始 50 萬·與波段不互通）" value={`${Math.round(data.account.equity).toLocaleString()} 元`} color={upDn(data.account.realized)} sub={`已實現 ${twd(data.account.realized)}（${pct(data.account.retPct)}）· 可用 ${Math.round(data.account.cash).toLocaleString()} 元`} hint="單筆上限 25 萬、只下整張；買不起 1 張記資金不足" />}
           <Kpi label="AI 成交·累積淨損益" value={twd(c.taken.pnlTwd)} color={upDn(c.taken.pnlTwd)} sub={`${c.taken.n} 筆 · 勝率 ${c.taken.aiWin ?? '—'}% · 平均 ${R(c.taken.aiAvgR)}`} />
           <Kpi label="AI 放棄·反事實淨損益" value={twd(c.skipped.cfPnlTwd)} color={upDn(c.skipped.cfPnlTwd)} sub={`${c.skipped.n} 筆 · 規則照做平均 ${R(c.skipped.ruleAvgR)}`} hint="AI 沒做的觸發，如果照規則做會賺賠多少" />
           <Kpi label="AI 判斷加值" value={gain == null ? '—' : R(gain)} color={upDn(gain)} sub={c.taken.n + c.skipped.n < 30 ? '樣本 < 30，只當假設' : '成交平均 − 放棄反事實平均'} />
@@ -145,11 +147,13 @@ function TradeCard({ r }: { r: AiLabRecord }) {
         <span style={{ color: 'var(--text-muted)' }}>{r.type}</span>
         <span style={{ fontWeight: 800, color: st?.c }}>{st?.t}</span>
         {r.confidence != null && <span style={{ color: 'var(--text-muted)' }}>信心 {r.confidence}</span>}
+        {r.shares ? <span style={{ ...MONO, fontWeight: 800 }}>{r.shares / 1000} 張</span> : null}
         <span style={{ color: 'var(--text-muted)' }}>AI 決定 {tw(r.decidedAt ?? null)}{r.lagMs != null ? `（觸發後 ${Math.round(r.lagMs / 1000)} 秒）` : ''}</span>
         <span style={{ marginLeft: 'auto', ...MONO, color: upDn(r.ruleNetR) }}>規則 {R(r.ruleNetR)}{r.aiNetR != null ? <span style={{ color: upDn(r.aiNetR) }}>　AI {R(r.aiNetR)}</span> : null}</span>
       </div>
       <div style={{ marginTop: 6 }}>
-        {L ? <TradeSlip L={L} muted={!r.ledger} note={r.ledgerNote} /> : <span style={{ color: 'var(--text-muted)' }}>{r.exitAt ? '無交易單' : '尚未出場'}</span>}
+        {L ? <TradeSlip L={L} muted={!r.ledger} note={r.ledgerNote} /> : <span style={{ color: 'var(--text-muted)' }}>{r.status === 'no-cash' ? r.reason : r.cfNote || (r.exitAt ? '無交易單' : '尚未出場')}</span>}
+        {r.ledger && r.cashBefore != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>成交前可用現金 {r.cashBefore.toLocaleString()} 元 · 本筆預算 {r.budget?.toLocaleString()} 元（上限 25 萬、整張）</div>}
       </div>
       {r.exitReason && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>出場原因：{r.exitReason}（工作台規則）· 結構停損 {r.stop} · 觸發價 {r.triggerPx}{r.fillPx != null ? ` · AI 成交價 ${r.fillPx}${r.fillSource ? `（${r.fillSource}${r.fillQuoteAt ? `，報價時戳 ${tw(r.fillQuoteAt)}` : ''}）` : ''}` : ''}</div>}
       <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12px * var(--fz))' }}>{open ? '▾' : '▸'} AI 理由與觸發條件</button>

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/require-admin';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { swingStats, type SwingLabDoc } from '../../../../../scripts/lib/ai-swing-lab.mjs';
+import { swingStats, swingAccount, type SwingLabDoc } from '../../../../../scripts/lib/ai-swing-lab.mjs';
 
 // ── 🤖 AI 實驗·波段持有（**超級管理員專用**）──────────────────────────
 // GET：各持有期（5/10/20/60/120 日）AI 選股 vs 整池、依模型分組、逐日列表與明細（含選股原因、prompt 與原始回覆供稽核）。
@@ -34,6 +34,9 @@ export async function GET(request: Request) {
     return NextResponse.json({
       found: docs.length > 0,
       stats: swingStats(docs), byModel,
+      // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由記錄重算；持倉＝尚未到帳戶出場期的部位
+      account: swingAccount(docs),
+      openPositions: docs.flatMap(d => (d.picks || []).filter(p => p.position?.shares && !d.outcomes?.[p.position.exitH]).map(p => ({ date: d.date, code: p.code, name: p.name, shares: p.position!.shares, estCost: p.position!.estCost, exitH: p.position!.exitH }))),
       days: docs.map(d => ({ date: d.date, model: d.model?.name || null, picks: d.picks.map(p => p.code), settled: Object.keys(d.outcomes || {}).map(Number), hasNotes: !!d.adminNotes })),
       detail,
     }, { headers: { 'Cache-Control': 'no-store' } });

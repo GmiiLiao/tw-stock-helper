@@ -2220,7 +2220,7 @@ async function hotQuoteLoop() {
         const doc = _dtEngine.snapshot();
         if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
       });
-      await dtStep('AI 實驗', async () => { _aiLab.tick(isoDate(tw), _dtEngine); await _aiLab.writeLive(); });
+      await dtStep('AI 實驗', async () => { await _aiLab.prepareDay(isoDate(tw)); _aiLab.tick(isoDate(tw), _dtEngine); await _aiLab.writeLive(); });
       // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
       await dtStep('日誌寫入', async () => {
         if (Date.now() - _dtJournalAt < 60000) return;
@@ -14583,7 +14583,7 @@ async function dailyJobsLoop() {
       // 🤖 AI 實驗·波段持有：17:00 起（兩榜收盤版都算完）每 10 分鐘試一次選股，成功後當天結算所有到期的持有期
       if (isTradingDay(tw) && mins >= 17 * 60 && mins < 23 * 60 && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {
         _aiSwingTryAt = Date.now();
-        try { if (await _aiSwing.pick()) { _aiSwingDate = today; await _aiSwing.settle(); } }
+        try { await _aiSwing.settle(); if (await _aiSwing.pick()) _aiSwingDate = today; }   // 先結算（到期部位釋放現金）再選股定部位
         catch (e) { log('✖ 波段 AI 實驗（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 🎯 縮量跳空漲停（2026-09-05）：13:36 收盤試撮結束後從快照定榜＋推播，每日一次；15:10 歸檔後由 daily jobs 重算不推播。

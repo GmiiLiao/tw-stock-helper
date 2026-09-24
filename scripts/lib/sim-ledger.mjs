@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // 模擬交易帳（AI 實驗共用；2026-09-24 使用者：「記錄裡要包含買賣時間與金額標記，才能查看不是作弊」）
 //   每筆模擬交易都產生一張可查核的交易單：買進／賣出的時間、價格、股數、金額、手續費、稅、淨損益（元）。
-//   口徑：每筆固定 1 張（1,000 股）；手續費 0.1425% 無折讓、單筆最低 20 元、元以下捨去；
+//   口徑：股數由模擬帳戶決定（./sim-account.mjs，各 50 萬）；未給股數時以 1 張計。手續費 0.1425% 無折讓、整張單筆最低 20 元、零股最低 1 元（同站上 tw-fee），元以下捨去；
 //   證交稅賣出那一邊收：現股當沖 0.15%、一般 0.3%；元以下捨去。做空（先賣後買）＝先賣出、後買回。
 //   防作弊查核：decidedAt（AI 做出決定的時刻）必須早於或等於進場時刻，noLookahead 由程式判定寫進記錄。
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ export const SIM_SHARES = 1000 * SIM_LOTS;
 export const FEE_RATE = 0.001425;
 export const MIN_FEE = 20;
 
-const fee = amount => Math.max(Math.floor(amount * FEE_RATE), MIN_FEE);
+const fee = (amount, shares = 1000) => Math.max(Math.floor(amount * FEE_RATE), shares < 1000 ? 1 : MIN_FEE);
 
 /**
  * @param side 'long'（先買後賣）| 'short'（先賣後買）
@@ -25,7 +25,7 @@ export function ledgerOf({ side, entry, exit, exits = null, dayTrade, decidedAt 
   const outs = (exits && exits.length ? exits : exit ? [{ ...exit, shares }] : []).filter(x => x?.px > 0 && x.shares > 0);
   if (!(entry?.px > 0) || !outs.length) return null;
   const taxRate = dayTrade ? 0.0015 : 0.003;
-  const mk = (kind, at, px, n) => { const amount = Math.round(px * n); return { side: kind, at, px, shares: n, amount, fee: fee(amount), tax: kind === 'sell' ? Math.floor(amount * taxRate) : 0 }; };
+  const mk = (kind, at, px, n) => { const amount = Math.round(px * n); return { side: kind, at, px, shares: n, amount, fee: fee(amount, n), tax: kind === 'sell' ? Math.floor(amount * taxRate) : 0 }; };
   const entryKind = side === 'long' ? 'buy' : 'sell', exitKind = side === 'long' ? 'sell' : 'buy';
   const legs = [mk(entryKind, entry.at, entry.px, shares), ...outs.map(x => mk(exitKind, x.at, x.px, x.shares))];
   const agg = kind => {

@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ledgerOf, planExits, SIM_SHARES } from './sim-ledger.mjs';
+import { sizeShares, accountOf, DT_MAX_PER_TRADE } from './sim-account.mjs';
 
 export const AI_LAB_VERSION = 'ai-dt-lab-v2';   // v2（2026-09-24）：每筆附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
 export const AI_LAB_QUOTA = Object.freeze({ long: 5, short: 5 });
@@ -74,14 +75,25 @@ export function settle(rec, entry) {
   if (rec.status === 'filled') {
     const pct = s * (entry.exit.px / rec.fillPx - 1) * 100 - AI_LAB_COST_PCT;
     // 交易單照工作台出場計畫分批（1R／2R／3R 各 1/3），AI 的 R 由交易單淨損益回推——卡片上的數字彼此一致
-    out.ledger = ledgerOf({ side: rec.side, entry: { at: rec.fillAt ?? rec.decidedAt, px: rec.fillPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px }), dayTrade: true, decidedAt: rec.decidedAt ?? null });
+    const sh = rec.shares || SIM_SHARES;   // 帳戶定的股數（v2 前的記錄沒有 ⇒ 以 1 張計）
+    out.ledger = ledgerOf({ side: rec.side, entry: { at: rec.fillAt ?? rec.decidedAt, px: rec.fillPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px, shares: sh }), dayTrade: true, decidedAt: rec.decidedAt ?? null, shares: sh });
     out.aiNetPct = out.ledger ? out.ledger.retPct : +pct.toFixed(2);
-    out.aiNetR = out.ledger && rec.d > 0 ? +(out.ledger.pnlTwd / (rec.d * SIM_SHARES)).toFixed(2) : null;
+    out.aiNetR = out.ledger && rec.d > 0 ? +(out.ledger.pnlTwd / (rec.d * sh)).toFixed(2) : null;
   } else if (rec.status === 'skipped' || rec.status === 'missed') {
     // 反事實交易單：規則照做（觸發 K 收盤價進場、同樣分批出場）會怎樣——標明是反事實，不是 AI 的交易
-    out.cfLedger = ledgerOf({ side: rec.side, entry: { at: rec.triggerAt + 60_000, px: rec.triggerPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px }), dayTrade: true });
+    // 反事實股數＝同樣的單筆上限（25 萬、整張）；買不起 1 張就不開反事實單，寫明原因
+    const csh = sizeShares(rec.triggerPx, DT_MAX_PER_TRADE, false);
+    if (csh > 0) out.cfLedger = ledgerOf({ side: rec.side, entry: { at: rec.triggerAt + 60_000, px: rec.triggerPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px, shares: csh }), dayTrade: true, shares: csh });
+    else out.cfNote = `單筆上限 ${DT_MAX_PER_TRADE.toLocaleString()} 元買不起 1 張（${Math.round(rec.triggerPx * 1000).toLocaleString()} 元），不開反事實單`;
   }
   return out;
+}
+
+/** 帳戶（由記錄重算）：base＝今天以前的已實現損益累計後的淨值起點 */
+export function dtAccount(records, pastRealized = 0) {
+  const trades = records.filter(r => r.status === 'filled').map(r => (r.ledger ? { pnlTwd: r.ledger.pnlTwd } : { open: true, cost: Math.round((r.fillPx || 0) * (r.shares || SIM_SHARES)) }));
+  const a = accountOf(trades);
+  return { ...a, realized: a.realized + pastRealized, equity: a.equity + pastRealized, cash: a.cash + pastRealized, retPct: +(((a.realized + pastRealized) / a.initial) * 100).toFixed(2), pastRealized };
 }
 
 /** 統計（每日與累積共用）：AI 做的 vs 不做的（反事實）vs 規則全做 */

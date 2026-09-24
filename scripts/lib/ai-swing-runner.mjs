@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger } from './ai-swing-lab.mjs';
+import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, swingAccount, sizePicks } from './ai-swing-lab.mjs';
 
 const MAX_ATTEMPTS = 3;
 
@@ -47,8 +47,12 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       attempts[date] = (attempts[date] || 0) + 1;
       if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 選股：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
       const byCode = new Map(pool.map(c => [c.code, c]));
-      const picks = (parsed?.picks || []).map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code)?.price ?? null }));
-      const doc = { ...base, picks, note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日無選股`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
+      const raw0 = (parsed?.picks || []).map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code)?.price ?? null }));
+      // 波段帳戶 50 萬（不與當沖互通）：由既有記錄重算可用現金後定股數，凍結
+      const prevDocs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+      const account = swingAccount(prevDocs, date);
+      const picks = sizePicks(raw0, account.cash);
+      const doc = { ...base, picks, account, note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日無選股`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
       await ref.set(doc);
       writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
       log(`✓ 波段 AI 選股 ${date}（${model?.name || '?'}）：池 ${pool.length} 檔 → 選 ${picks.map(p => p.code).join('、') || '無'}`);
@@ -71,7 +75,9 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
           if (outcomes[h]) continue;
           const d0 = days.findIndex(v => v.date > x.date);
           if (d0 < 0 || d0 + h - 1 >= days.length) continue;               // 尚未到期
-          const picks = (x.picks || []).map(p => { const o = horizonOutcome(days, x.date, p.code, h); return o ? { code: p.code, ...o, ledger: swingLedger(o, x.frozenAt) } : { code: p.code, net: null, note: '該期間資料缺（停牌／下市等）' }; });
+          // 交易單股數＝帳戶定的部位（v2 前無部位的記錄以 1 張計）；account=true 的那一期才是帳戶實際出場，其他期為研究用
+          const picks = (x.picks || []).map(p => { const o = horizonOutcome(days, x.date, p.code, h); const sh = p.position ? p.position.shares : 1000; const acct = p.position ? p.position.exitH === h : false;
+            return o ? { code: p.code, ...o, account: acct, ledger: sh > 0 ? swingLedger(o, p.position?.sizedAt ?? x.frozenAt, sh) : null, ...(sh > 0 ? {} : { note: '資金不足未進場（研究數字仍照算報酬率）' }) } : { code: p.code, net: null, account: acct, note: '該期間資料缺（停牌／下市等）' }; });
           const o = { h, exitDate: days[d0 + h - 1].date, settledAt: Date.now(), picks, pool: poolBaseline(days, x.date, (x.pool || []).map(c => c.code), h) };
           outcomes[h] = o; upd[`outcomes.${h}`] = o; n++;
         }

@@ -81,10 +81,28 @@ test('執行器：做 → 以即時價成交 → 出場結算 → 盤後凍結�
   assert.equal(db.store['2026-09-24'].frozenAt, frozenAt, '凍結後不再覆寫');
   assert.match(readFileSync(join(dir, '2026-09-24.md'), 'utf8'), /當沖 AI 實驗 2026-09-24/);
   const L = doc.records[0].ledger;
-  assert.equal(L.buy.at, T + 70_000); assert.equal(L.buy.px, 41.05); assert.equal(L.buy.amount, 41050);
+  // 帳戶 50 萬、單筆上限 25 萬 ⇒ 41.05 元買 6 張（246,300 元）
+  assert.equal(doc.records[0].shares, 6000);
+  assert.equal(L.buy.at, T + 70_000); assert.equal(L.buy.px, 41.05); assert.equal(L.buy.amount, 246300);
   assert.equal(L.sell.px, 42.9); assert.equal(L.sell.at, T + 600_000 + 60_000);
   assert.equal(L.noLookahead, true);
-  assert.equal(L.pnlTwd, 42900 - 41050 - 58 - 61 - 64);
+  assert.equal(L.pnlTwd, 257400 - 246300 - 350 - 366 - 386);
+  assert.equal(doc.account.initial, 500000);
+  assert.equal(doc.account.equity, 500000 + L.pnlTwd);
+  } finally { Date.now = realNow; }
+});
+
+test('執行器：可用現金不足 1 張 ⇒ 記資金不足、不成交、不佔額度', async () => {
+  const db = fakeDb(); const realNow = Date.now; Date.now = () => T + 70_000;
+  try {
+    const lab = createAiDaytradeLab({ db, askOllama: async () => '{"decision":"take","confidence":60,"reason":"r","risk":"k"}', log: () => {}, getQuote: () => ({ price: 800 }), dir: mkdtempSync(join(tmpdir(), 'ailab-')), model: 'm', deskVersion: 'v', evidence: null });
+    lab.consider({ side: 'long', code: '5555', name: '貴', row, trade: { ...trade(T), entry: 800 }, id: 'x' }, '2026-09-24', T + 70_000);
+    await new Promise(r => setTimeout(r, 5));
+    await lab.writeLive(true);
+    const rec = db.store.live.records[0];
+    assert.equal(rec.status, 'no-cash');
+    assert.match(rec.reason, /資金不足/);
+    assert.equal(db.store.live.account.cash, 500000);
   } finally { Date.now = realNow; }
 });
 
@@ -96,7 +114,9 @@ test('執行器：回覆逾 3 分鐘＝錯過不成交；做多額度 5 筆後�
     clock = T + 60_000 + 4 * 60_000;   // 觸發 K 收完後 4 分鐘才回覆
     lab.consider({ side: 'long', code: '2222', name: '慢', row, trade: trade(T), id: 'a' }, '2026-09-24', T + 70_000);
     await new Promise(r => setTimeout(r, 5));
-    for (let k = 0; k < AI_LAB_QUOTA.long + 1; k++) { clock = T + k * 60_000 + 70_000; lab.consider({ side: 'long', code: `3${k}`, name: 'q', row, trade: trade(T + k * 60_000), id: `b${k}` }, '2026-09-24', T + k * 60_000 + 70_000); await new Promise(r => setTimeout(r, 2)); }
+    // 每筆成交後立刻出場（把現金還回帳戶），只測額度
+    const eng = { journalEntry: id => ({ exit: { t: T, px: 41, reason: '結構停損' }, netR: -1, fills: [] }) };
+    for (let k = 0; k < AI_LAB_QUOTA.long + 1; k++) { clock = T + k * 60_000 + 70_000; lab.consider({ side: 'long', code: `3${k}`, name: 'q', row, trade: trade(T + k * 60_000), id: `b${k}` }, '2026-09-24', T + k * 60_000 + 70_000); await new Promise(r => setTimeout(r, 2)); lab.tick('2026-09-24', eng); }
     await lab.writeLive(true);
     const recs = db.store.live.records;
     assert.equal(recs.find(r => r.id === 'a').status, 'missed');
