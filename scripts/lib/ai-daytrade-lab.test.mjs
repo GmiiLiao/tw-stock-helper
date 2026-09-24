@@ -59,6 +59,8 @@ const row = { m: { c: 41, chg: 3, vwap: 40.5, vwapDev: 1.2 }, warnings: [], scor
 const trade = (t, code) => ({ type: 'ORB', why: 'x', t, entry: 41, stop: 40.05, d: 0.95, costR: 0.19, targets: [41.95, 42.9, 43.85] });
 
 test('執行器：做 → 以即時價成交 → 出場結算 → 盤後凍結寫第二大腦（寫一次）', async () => {
+  const realNow = Date.now; Date.now = () => T + 70_000;   // 固定時鐘：原本依賴真實時間，盤中以後跑就變成「錯過」
+  try {
   const db = fakeDb(); const dir = mkdtempSync(join(tmpdir(), 'ailab-'));
   const lab = createAiDaytradeLab({ db, askOllama: async p => (/檢討|教練/.test(p) ? '{"summary":"ok","improvements":["b"]}' : '{"decision":"take","confidence":70,"reason":"r","risk":"k"}'),
     log: () => {}, getQuote: () => ({ price: 41.05 }), dir, model: 'm', deskVersion: 'v', evidence: null });
@@ -78,6 +80,12 @@ test('執行器：做 → 以即時價成交 → 出場結算 → 盤後凍結�
   await lab.finalize('2026-09-24', engine);
   assert.equal(db.store['2026-09-24'].frozenAt, frozenAt, '凍結後不再覆寫');
   assert.match(readFileSync(join(dir, '2026-09-24.md'), 'utf8'), /當沖 AI 實驗 2026-09-24/);
+  const L = doc.records[0].ledger;
+  assert.equal(L.buy.at, T + 70_000); assert.equal(L.buy.px, 41.05); assert.equal(L.buy.amount, 41050);
+  assert.equal(L.sell.px, 42.9); assert.equal(L.sell.at, T + 600_000 + 60_000);
+  assert.equal(L.noLookahead, true);
+  assert.equal(L.pnlTwd, 42900 - 41050 - 58 - 61 - 64);
+  } finally { Date.now = realNow; }
 });
 
 test('執行器：回覆逾 3 分鐘＝錯過不成交；做多額度 5 筆後標額度滿', async () => {
@@ -95,4 +103,17 @@ test('執行器：回覆逾 3 分鐘＝錯過不成交；做多額度 5 筆後�
     assert.equal(recs.filter(r => r.status === 'filled').length, AI_LAB_QUOTA.long);
     assert.equal(recs.filter(r => r.status === 'quota').length, 1);
   } finally { Date.now = realNow; }
+});
+
+test('分批出場交易單：1R 賣 333 股、其餘在保本出場；AI R 由交易單回推，與交易單一致', async () => {
+  const { ledgerOf, planExits } = await import('./sim-ledger.mjs');
+  const exits = planExits({ fills: [{ k: 0, px: 41.95, at: 2000 }], exitAt: 3000, exitPx: 41 });
+  assert.deepEqual(exits.map(e => e.shares), [333, 667]);
+  const L = ledgerOf({ side: 'long', entry: { at: 1000, px: 41 }, exits, dayTrade: true, decidedAt: 1000 });
+  assert.equal(L.legs.length, 3);
+  assert.equal(L.sell.amount, Math.round(41.95 * 333) + Math.round(41 * 667));
+  assert.equal(L.pnlTwd, L.sell.amount - L.buy.amount - L.costTwd);
+  const r = settle({ side: 'long', status: 'filled', fillPx: 41, fillAt: 1000, decidedAt: 1000, d: 0.95 }, { exit: { t: 2940, px: 41, reason: '回到成本（保本停損）' }, netR: 0.2, fills: [{ k: 0, px: 41.95, at: 2000 }] });
+  assert.equal(r.ledger.legs.length, 3);
+  assert.equal(r.aiNetR, +(r.ledger.pnlTwd / (0.95 * 1000)).toFixed(2));
 });

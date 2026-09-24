@@ -1733,6 +1733,7 @@ const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileUR
 let _aiSwingDate = '', _aiSwingTryAt = 0;
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
+const _dtFail = {}, _dtFailNotified = {};   // 當沖各步驟連續失敗次數／當日已通知
 let _dtElig = null, _dtEligDay = '';
 let _disp = new Set(), _dispAt = 0;     // 處置股（進行中＋待生效），30 分鐘刷新   // 當沖資格名單（code→1|2），每日讀一次
 // 監控名單：做多＝盤中漲停預測 A 榜（距漲停仍≥2% 者）、做空＝今日曾漲≥5% 依成交值。每分鐘隨優先集重算。
@@ -2201,21 +2202,31 @@ async function hotQuoteLoop() {
         }
       }
       // 當沖即時警示：快線取樣組 1 分 K → 收完一根就判訊號（零額外上游請求）
-      try {
+      // ⚠ 各步驟各自 try：2026-09-24 警示文件寫入失敗時，同一個 try 裡的 AI 實驗結算與日誌也一起被跳過一整天
+      const dtStep = async (name, fn) => {
+        try { await fn(); _dtFail[name] = 0; }
+        catch (e) {
+          const k = (_dtFail[name] = (_dtFail[name] || 0) + 1);
+          if (k === 1 || k % 60 === 0) log(`✖ 當沖${name}（連續第 ${k} 次）:`, (e.message || '').slice(0, 100));
+          if (k === 3 && _dtFailNotified[name] !== isoDate(tw)) { _dtFailNotified[name] = isoDate(tw); notifyDeveloper(`🚨 當沖${name}連續失敗：${(e.message || '').slice(0, 80)}`, `dt-${name}`).catch(() => {}); }
+        }
+      };
+      await dtStep('評估', async () => {
         const depth = {}; for (const k in mis) { const b1 = mis[k]?.bid?.[0]?.[0], a1 = mis[k]?.ask?.[0]?.[0]; if (b1 > 0 && a1 > 0) depth[k] = [b1, a1]; }
         _dtEngine.onQuotes(isoDate(tw), out, (c, v) => vwapOf(_vwapBook, c, v), depth);
-        if (Date.now() - _dtWriteAt >= 15000) {
-          const doc = _dtEngine.snapshot();
-          if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
-        }
-        _aiLab.tick(isoDate(tw), _dtEngine);
-        await _aiLab.writeLive();
-        // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
-        if (Date.now() - _dtJournalAt >= 60000) {
-          const j = _dtEngine.journalDoc();
-          if (j?.date) { _dtJournalAt = Date.now(); await db.collection('daytradeJournal').doc(j.date).set(j); }
-        }
-      } catch (e) { log('✖ 當沖警示:', (e.message || '').slice(0, 80)); }
+      });
+      await dtStep('警示寫入', async () => {
+        if (Date.now() - _dtWriteAt < 15000) return;
+        const doc = _dtEngine.snapshot();
+        if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
+      });
+      await dtStep('AI 實驗', async () => { _aiLab.tick(isoDate(tw), _dtEngine); await _aiLab.writeLive(); });
+      // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
+      await dtStep('日誌寫入', async () => {
+        if (Date.now() - _dtJournalAt < 60000) return;
+        const j = _dtEngine.journalDoc();
+        if (j?.date) { _dtJournalAt = Date.now(); await db.collection('daytradeJournal').doc(j.date).set(j); }
+      });
       if (Object.keys(out).length) {
         await db.collection('marketSnapshot').doc('hot').set({
           quotesJson: JSON.stringify(out), n: Object.keys(out).length, at: Date.now(), date: isoDate(tw),

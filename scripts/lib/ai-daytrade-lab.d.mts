@@ -8,8 +8,10 @@ export interface AiLabRecord {
   status: 'pending' | 'filled' | 'skipped' | 'missed' | 'error' | 'quota' | 'out-of-window';
   fillPx: number | null; lagMs: number | null;
   exitAt?: number; exitPx?: number; exitReason?: string; ruleNetR?: number | null; mfeR?: number | null; aiNetPct?: number; aiNetR?: number | null;
+  decidedAt?: number; fillAt?: number; fillQuoteAt?: number | null; fillSource?: string;
+  ledger?: import('./ai-swing-lab.mjs').SimLedger | null; cfLedger?: import('./ai-swing-lab.mjs').SimLedger | null; ledgerNote?: string;
 }
-export interface AiLabGroup { n: number; settled: number; ruleAvgR: number | null; ruleWin: number | null; aiAvgR: number | null; aiWin: number | null }
+export interface AiLabGroup { n: number; settled: number; ruleAvgR: number | null; ruleWin: number | null; aiAvgR: number | null; aiWin: number | null; pnlTwd?: number | null; cfPnlTwd?: number | null }
 export interface AiLabSideStats { taken: AiLabGroup; skipped: AiLabGroup; missed: number; allRule: AiLabGroup }
 export interface AiLabStats { long: AiLabSideStats; short: AiLabSideStats; all: AiLabSideStats }
 export const AI_LAB_VERSION: string;

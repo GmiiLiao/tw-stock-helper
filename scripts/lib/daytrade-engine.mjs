@@ -70,6 +70,8 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS, on
   let events = [];                       // 最近 60 筆 on/stop
   let journal = { entries: {}, candidates: {}, falseBreaks: {} };
   let dirty = false, jDirty = false;
+  // ⚠ Firestore 拒收 undefined 欄位（2026-09-24 實案：{...params, split: undefined} 讓 daytradeAlerts 整天寫入失敗 956 次）
+  const { split: _split, ...paramsOut } = params;
   const reset = today => { date = today; books = {}; rows = { long: {}, short: {} }; events = []; journal = { entries: {}, candidates: {}, falseBreaks: {} }; dirty = jDirty = true; };
 
   function evaluate(code, side, q, depth) {
@@ -121,7 +123,7 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS, on
           score: { total: score.total, knownMax: score.knownMax, tier: score.tier, parts: score.parts, missing: score.missing }, warnings,
           sector: ctx.sectorOf?.(code, side)?.name || null, regime: ctx.regime || null, news: ctx.news?.[code]?.label || null, exit: null, netR: null, mfeR: null, hit: null };
         jDirty = true;
-      } else if (!e.exit && t.exit) { e.exit = t.exit; e.netR = t.netR; e.mfeR = t.mfeR; e.hit = t.hit; jDirty = true; }
+      } else if (!e.exit && t.exit) { e.exit = t.exit; e.netR = t.netR; e.mfeR = t.mfeR; e.hit = t.hit; e.fills = (t.fills || []).map(x => ({ k: x.k, px: x.px, at: x.t + 60_000 })); jDirty = true; }   // 分批成交：at＝達標那根 K 收盤
     }
     if ((journal.falseBreaks[ck] || 0) !== scan.falseBreaks.length) { journal.falseBreaks[ck] = scan.falseBreaks.length; jDirty = true; }
     dirty = true;
@@ -161,7 +163,7 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS, on
       const pick = side => [...new Set([...mon[side], ...Object.keys(rows[side]).filter(c => rows[side][c]?.st?.phase === 'on')])].map(c => rows[side][c]).filter(Boolean);
       return {
         date, at: Date.now(), monitorAt: mon.at, version: DESK_VERSION,
-        params: { ...params, split: undefined }, evidence,
+        params: paramsOut, evidence,
         long: pick('long'), short: pick('short'), events,
       };
     },
@@ -170,7 +172,7 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS, on
     journalDoc(force = false) {
       if (!jDirty && !force) return null;
       jDirty = false;
-      return { date, version: DESK_VERSION, at: Date.now(), params: { ...params, split: undefined }, entriesJson: JSON.stringify(journal.entries), candidatesJson: JSON.stringify(journal.candidates), falseBreaksJson: JSON.stringify(journal.falseBreaks) };
+      return { date, version: DESK_VERSION, at: Date.now(), params: paramsOut, entriesJson: JSON.stringify(journal.entries), candidatesJson: JSON.stringify(journal.candidates), falseBreaksJson: JSON.stringify(journal.falseBreaks) };
     },
   };
 }

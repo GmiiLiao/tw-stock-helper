@@ -51,10 +51,11 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
         const p = parseDecision(text);
         const lag = at - (trade.t + 60_000);   // 自觸發那根 K 收完起算
         let next;
-        if (!p) next = { ...records[i], status: 'error', reason: text ? `回覆格式錯誤：${String(text).slice(0, 40)}` : 'Ollama 無回覆', lagMs: lag };
-        else if (p.decision === 'skip') next = { ...records[i], ...p, status: 'skipped', lagMs: lag };
-        else if (lag > AI_LAB_MAX_LAG_MS) next = { ...records[i], ...p, status: 'missed', lagMs: lag, reason: `${p.reason}（回覆延遲 ${Math.round(lag / 1000)} 秒，錯過不成交）` };
-        else { const q = getQuote(code); next = { ...records[i], ...p, status: 'filled', lagMs: lag, fillPx: q?.price > 0 ? q.price : trade.entry }; }
+        // decidedAt＝AI 回覆（做出決定）的時刻；成交時刻＝同一刻，成交價＝該刻快線報價並記報價時戳——兩者可查核「先決定、後成交」
+        if (!p) next = { ...records[i], status: 'error', reason: text ? `回覆格式錯誤：${String(text).slice(0, 40)}` : 'Ollama 無回覆', lagMs: lag, decidedAt: at };
+        else if (p.decision === 'skip') next = { ...records[i], ...p, status: 'skipped', lagMs: lag, decidedAt: at };
+        else if (lag > AI_LAB_MAX_LAG_MS) next = { ...records[i], ...p, status: 'missed', lagMs: lag, decidedAt: at, reason: `${p.reason}（回覆延遲 ${Math.round(lag / 1000)} 秒，錯過不成交）` };
+        else { const q = getQuote(code); next = { ...records[i], ...p, status: 'filled', lagMs: lag, decidedAt: at, fillAt: at, fillQuoteAt: q?.revealAt || q?.liveAt || null, fillPx: q?.price > 0 ? q.price : trade.entry, fillSource: q?.price > 0 ? '快線即時價' : '無即時價·用觸發價' }; }
         records = records.map((r, k) => (k === i ? next : r)); dirty = true;
         log(`🤖 當沖 AI：${side === 'long' ? '多' : '空'} ${code}${name} ${trade.type} → ${next.status}${next.confidence != null ? `(${next.confidence})` : ''}`);
       }).catch(() => {});

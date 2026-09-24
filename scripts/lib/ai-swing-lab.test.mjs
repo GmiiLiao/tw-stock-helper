@@ -96,3 +96,17 @@ test('執行器：回覆無法解析會重試，第 3 次才以失敗凍結', as
   assert.equal(db.store[`aiSwingLab/${D}`].picks.length, 0);
   assert.match(db.store[`aiSwingLab/${D}`].note, /無法解析/);
 });
+
+test('波段交易單：09:00 開盤買、13:30 收盤賣、一般稅 0.3%、先選後買查核', async () => {
+  const { swingLedger } = await import('./ai-swing-lab.mjs');
+  const days = mkDays(); const D = days[10].date;
+  const o = horizonOutcome(days, D, '1111', 5);
+  const L = swingLedger(o, Date.parse(`${D}T20:00:00+08:00`));
+  assert.equal(L.buy.at, Date.parse(`${days[11].date}T09:00:00+08:00`));
+  assert.equal(L.sell.at, Date.parse(`${days[15].date}T13:30:00+08:00`));
+  assert.equal(L.buy.amount, 110000); assert.equal(L.sell.amount, 115000);
+  assert.equal(L.sell.tax, 345);
+  assert.equal(L.pnlTwd, 115000 - 110000 - 156 - 163 - 345);
+  assert.equal(L.noLookahead, true);
+  assert.equal(swingLedger(o, Date.parse(`${days[12].date}T10:00:00+08:00`)).noLookahead, false, '買進後才決定＝作弊，必須標出');
+});

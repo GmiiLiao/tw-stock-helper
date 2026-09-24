@@ -12,7 +12,9 @@
 //   · 候選池只收網站當天的波段榜單（波段起漲＋波段持有整合榜），排除處置股（含已公告待生效）。
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SWING_LAB_VERSION = 'ai-swing-lab-v1';
+import { ledgerOf, twAt } from './sim-ledger.mjs';
+
+export const SWING_LAB_VERSION = 'ai-swing-lab-v2';   // v2（2026-09-24）：結算附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
 export const SWING_HORIZONS = Object.freeze([5, 10, 20, 60, 120]);
 export const SWING_MAX_PICKS = 5;
 export const SWING_POOL_MAX = 30;
@@ -97,7 +99,9 @@ export function horizonOutcome(days, decisionDate, code, h) {
   let low = entry, high = entry;
   for (let k = d0; k <= d0 + h - 1; k++) { const r = days[k].m[code]; if (r?.[0] > 0) { low = Math.min(low, r[4] > 0 ? r[4] : r[0]); high = Math.max(high, r[3] > 0 ? r[3] : r[0]); } }
   const net = (x[0] / entry - 1) * 100 - SWING_COST_PCT;
-  return { entryDate: days[d0].date, entryPx: entry, openMissing, exitDate: days[d0 + h - 1].date, exitPx: x[0], net: +net.toFixed(2), maxDD: +((low / entry - 1) * 100).toFixed(2), maxUp: +((high / entry - 1) * 100).toFixed(2) };
+  // 買賣時刻：開盤 09:00（無開盤價改用收盤 13:30）；賣在第 h 日收盤 13:30
+  const entryAt = twAt(days[d0].date, openMissing ? '13:30' : '09:00'), exitAt = twAt(days[d0 + h - 1].date, '13:30');
+  return { entryDate: days[d0].date, entryAt, entryPx: entry, openMissing, exitDate: days[d0 + h - 1].date, exitAt, exitPx: x[0], net: +net.toFixed(2), maxDD: +((low / entry - 1) * 100).toFixed(2), maxUp: +((high / entry - 1) * 100).toFixed(2) };
 }
 
 /** 整池等權基準（同口徑）；池內有結果的檔數也回傳 */
@@ -108,18 +112,24 @@ export function poolBaseline(days, decisionDate, codes, h) {
 }
 
 /** 跨日統計：每個持有期的 AI 選股 vs 整池 */
+/** 交易單（1 張、一般交易稅 0.3%）；decidedAt＝選股凍結時刻，必須早於進場（盤後決定、隔日開盤買） */
+export function swingLedger(o, decidedAt) {
+  if (!o?.entryPx) return null;
+  return ledgerOf({ side: 'long', entry: { at: o.entryAt, px: o.entryPx }, exit: { at: o.exitAt, px: o.exitPx }, dayTrade: false, decidedAt });
+}
+
 export function swingStats(docs) {
   const out = {};
   for (const h of SWING_HORIZONS) {
-    const picks = [], excess = []; let poolSum = 0, poolN = 0, days = 0;
+    const picks = [], excess = []; let poolSum = 0, poolN = 0, days = 0, pnlTwd = 0, pnlN = 0;
     for (const d of docs) {
       const o = d.outcomes?.[h]; if (!o) continue;
       days++;
-      for (const p of o.picks || []) if (p.net != null) { picks.push(p.net); if (o.pool) excess.push(p.net - o.pool.avg); }
+      for (const p of o.picks || []) if (p.net != null) { picks.push(p.net); if (o.pool) excess.push(p.net - o.pool.avg); if (p.ledger) { pnlTwd += p.ledger.pnlTwd; pnlN++; } }
       if (o.pool) { poolSum += o.pool.avg; poolN++; }
     }
     const mean = a => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null);
-    out[h] = { days, n: picks.length, avg: mean(picks), win: picks.length ? Math.round(picks.filter(v => v > 0).length / picks.length * 100) : null, poolAvg: poolN ? +(poolSum / poolN).toFixed(2) : null, excess: mean(excess), beatPool: excess.length ? Math.round(excess.filter(v => v > 0).length / excess.length * 100) : null };
+    out[h] = { pnlTwd: pnlN ? pnlTwd : null, days, n: picks.length, avg: mean(picks), win: picks.length ? Math.round(picks.filter(v => v > 0).length / picks.length * 100) : null, poolAvg: poolN ? +(poolSum / poolN).toFixed(2) : null, excess: mean(excess), beatPool: excess.length ? Math.round(excess.filter(v => v > 0).length / excess.length * 100) : null };
   }
   return out;
 }
@@ -149,7 +159,7 @@ export function renderSwingMarkdown(doc) {
       if (!o) return `| ${h} 日 | 未到期 | — | — | — | — |`;
       const ps = (o.picks || []).filter(p => p.net != null);
       const avg = ps.length ? ps.reduce((a, p) => a + p.net, 0) / ps.length : null;
-      return `| ${h} 日 | ${o.exitDate || '—'} 結算 | ${f1(avg)}% | ${f1(o.pool?.avg)}% | ${avg != null && o.pool ? f1(avg - o.pool.avg) : '—'}pp | ${(o.picks || []).map(p => `${p.code} ${f1(p.net)}%（最深 ${f1(p.maxDD)}%）`).join('、')} |`;
+      return `| ${h} 日 | ${o.exitDate || '—'} 結算 | ${f1(avg)}% | ${f1(o.pool?.avg)}% | ${avg != null && o.pool ? f1(avg - o.pool.avg) : '—'}pp | ${(o.picks || []).map(p => p.ledger ? `${p.code} 買 ${p.entryDate} ${p.openMissing ? '13:30' : '09:00'} @${p.ledger.buy.px}×1000=${p.ledger.buy.amount.toLocaleString()}元 → 賣 ${p.exitDate} 13:30 @${p.ledger.sell.px}=${p.ledger.sell.amount.toLocaleString()}元·費稅 ${p.ledger.costTwd} 元·淨 ${p.ledger.pnlTwd.toLocaleString()} 元（${f1(p.ledger.retPct)}%）${p.ledger.noLookahead ? '·✓先選後買' : '·⚠時序異常'}` : `${p.code} ${p.note || '—'}`).join('<br>')} |`;
     }),
     ``,
     `> 模擬交易，非實際下單；非投資建議。`,

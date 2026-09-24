@@ -76,3 +76,25 @@ test('評分：缺資料記未知、不給分級，已知滿分只算已知子�
 test('參數凍結：DESK_PARAMS 不可被改（改規則必須升版）', () => {
   assert.throws(() => { 'use strict'; DESK_PARAMS.volK = 9; });
 });
+
+// 2026-09-24 實案：snapshot() 帶 split: undefined，Firestore 整天拒收 956 次——文件裡不得有任何 undefined
+import { createDaytradeEngine, createVwapBook, accVwap, vwapOf } from './daytrade-engine.mjs';
+const findUndefined = (v, path = '') => {
+  if (v === undefined) return path || '(root)';
+  if (v && typeof v === 'object') for (const k of Object.keys(v)) { const p = findUndefined(v[k], `${path}.${k}`); if (p) return p; }
+  return null;
+};
+test('引擎輸出的 Firestore 文件（警示、日誌）不含 undefined', () => {
+  const eng = createDaytradeEngine({ evidence: null }); const vb = createVwapBook(); const today = '2026-09-24';
+  eng.setMonitor(today, ['1111'], ['1111']);
+  eng.setContext({ index: { tse: { chg: 0.5, slope15: 0.1 }, otc: null }, regime: null, breadth: { up: 1, down: 1 }, sectorOf: () => null, prev: { 1111: [39.5, 1, 39, 45, 38] }, avg20: {}, news: {}, elapsedFrac: 0.2 });
+  const px = m => (m < 10 ? 40 : m === 10 ? 40.4 : m === 11 ? 40.35 : 41);
+  let vol = 0;
+  for (let s = 0; s < 20 * 12; s++) {
+    const m = Math.floor(s / 12), t = T0 + s * 5000; vol += m === 10 || m === 12 ? 60000 : 4000;
+    const q = { code: '1111', name: 'x', price: px(m), change: px(m) - 39.5, changePercent: (px(m) / 39.5 - 1) * 100, high: 41.1, volume: vol, live: true, revealAt: t, market: 'tse' };
+    accVwap(vb, '1111', q, today); eng.onQuotes(today, { 1111: q }, (c, v) => vwapOf(vb, c, v), {});
+  }
+  assert.equal(findUndefined(eng.snapshot(true)), null);
+  assert.equal(findUndefined(eng.journalDoc(true)), null);
+});

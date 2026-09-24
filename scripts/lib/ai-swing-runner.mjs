@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown } from './ai-swing-lab.mjs';
+import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger } from './ai-swing-lab.mjs';
 
 const MAX_ATTEMPTS = 3;
 
@@ -71,7 +71,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
           if (outcomes[h]) continue;
           const d0 = days.findIndex(v => v.date > x.date);
           if (d0 < 0 || d0 + h - 1 >= days.length) continue;               // 尚未到期
-          const picks = (x.picks || []).map(p => { const o = horizonOutcome(days, x.date, p.code, h); return o ? { code: p.code, ...o } : { code: p.code, net: null, note: '該期間資料缺（停牌／下市等）' }; });
+          const picks = (x.picks || []).map(p => { const o = horizonOutcome(days, x.date, p.code, h); return o ? { code: p.code, ...o, ledger: swingLedger(o, x.frozenAt) } : { code: p.code, net: null, note: '該期間資料缺（停牌／下市等）' }; });
           const o = { h, exitDate: days[d0 + h - 1].date, settledAt: Date.now(), picks, pool: poolBaseline(days, x.date, (x.pool || []).map(c => c.code), h) };
           outcomes[h] = o; upd[`outcomes.${h}`] = o; n++;
         }

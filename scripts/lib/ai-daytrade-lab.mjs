@@ -14,13 +14,16 @@
 //   · 凍結：盤後 13:40 起產生檢討，寫一次就不再改（frozenAt）；人工檢討另存欄位，不改 AI 原始記錄。
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const AI_LAB_VERSION = 'ai-dt-lab-v1';
+import { ledgerOf, planExits, SIM_SHARES } from './sim-ledger.mjs';
+
+export const AI_LAB_VERSION = 'ai-dt-lab-v2';   // v2（2026-09-24）：每筆附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
 export const AI_LAB_QUOTA = Object.freeze({ long: 5, short: 5 });
 export const AI_LAB_MAX_LAG_MS = 3 * 60_000;   // AI 回覆逾 3 分鐘：錯過，不成交
 export const AI_LAB_COST_PCT = 0.435;           // 日誌口徑成本（與工作台同）
 
 const f2 = v => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}`);
 const hhmm = t => (t ? new Date(t + 8 * 3600000).toISOString().slice(11, 16) : '—');
+const hhmmss = t => (t ? new Date(t + 8 * 3600000).toISOString().slice(11, 19) : '—');
 
 /** 決策 prompt：只給觸發當下凍結的事實，要求回 JSON */
 export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken, evidence, now }) {
@@ -65,11 +68,18 @@ export function parseDecision(text) {
 export function settle(rec, entry) {
   if (!entry?.exit) return rec;
   const s = rec.side === 'long' ? 1 : -1;
-  const out = { ...rec, exitAt: entry.exit.t, exitPx: entry.exit.px, exitReason: entry.exit.reason, ruleNetR: entry.netR, mfeR: entry.mfeR };
+  // 出場時刻＝出場那根 1 分 K 的收盤（K 棒時間 t 是該分鐘起點）
+  const exitAt = entry.exit.t + 60_000;
+  const out = { ...rec, exitAt, exitPx: entry.exit.px, exitReason: entry.exit.reason, ruleNetR: entry.netR, mfeR: entry.mfeR };
   if (rec.status === 'filled') {
     const pct = s * (entry.exit.px / rec.fillPx - 1) * 100 - AI_LAB_COST_PCT;
-    out.aiNetPct = +pct.toFixed(2);
-    out.aiNetR = rec.d > 0 ? +((pct / 100) * rec.fillPx / rec.d).toFixed(2) : null;
+    // 交易單照工作台出場計畫分批（1R／2R／3R 各 1/3），AI 的 R 由交易單淨損益回推——卡片上的數字彼此一致
+    out.ledger = ledgerOf({ side: rec.side, entry: { at: rec.fillAt ?? rec.decidedAt, px: rec.fillPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px }), dayTrade: true, decidedAt: rec.decidedAt ?? null });
+    out.aiNetPct = out.ledger ? out.ledger.retPct : +pct.toFixed(2);
+    out.aiNetR = out.ledger && rec.d > 0 ? +(out.ledger.pnlTwd / (rec.d * SIM_SHARES)).toFixed(2) : null;
+  } else if (rec.status === 'skipped' || rec.status === 'missed') {
+    // 反事實交易單：規則照做（觸發 K 收盤價進場、同樣分批出場）會怎樣——標明是反事實，不是 AI 的交易
+    out.cfLedger = ledgerOf({ side: rec.side, entry: { at: rec.triggerAt + 60_000, px: rec.triggerPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px }), dayTrade: true });
   }
   return out;
 }
@@ -80,7 +90,9 @@ export function labStats(records) {
     const r = xs.map(x => x.ruleNetR).filter(v => v != null);
     const a = xs.map(x => x.aiNetR).filter(v => v != null);
     const mean = v => (v.length ? +(v.reduce((p, q) => p + q, 0) / v.length).toFixed(2) : null);
-    return { n: xs.length, settled: r.length, ruleAvgR: mean(r), ruleWin: r.length ? Math.round(r.filter(v => v > 0).length / r.length * 100) : null, aiAvgR: mean(a), aiWin: a.length ? Math.round(a.filter(v => v > 0).length / a.length * 100) : null };
+    const sum = v => (v.length ? v.reduce((p, q) => p + q, 0) : null);
+    return { n: xs.length, settled: r.length, ruleAvgR: mean(r), ruleWin: r.length ? Math.round(r.filter(v => v > 0).length / r.length * 100) : null, aiAvgR: mean(a), aiWin: a.length ? Math.round(a.filter(v => v > 0).length / a.length * 100) : null,
+      pnlTwd: sum(xs.map(x => x.ledger?.pnlTwd).filter(v => v != null)), cfPnlTwd: sum(xs.map(x => x.cfLedger?.pnlTwd).filter(v => v != null)) };
   };
   const out = {};
   for (const side of ['long', 'short', 'all']) {
@@ -144,9 +156,10 @@ export function renderMarkdown(doc) {
     ``,
     `## 交易記錄`,
     ``,
-    `| 觸發 | 方向 | 代號 | Setup | AI | 信心 | 理由 | 觸發價 | 成交價 | 停損 | 出場 | 規則R | AI R |`,
-    `|---|---|---|---|---|---|---|---|---|---|---|---|---|`,
-    ...doc.records.map(r => `| ${hhmm(r.triggerAt)} | ${r.side === 'long' ? '多' : '空'} | ${r.code} ${r.name} | ${r.type} | ${r.decision ?? r.status} | ${r.confidence ?? '—'} | ${(r.reason || '').replace(/\|/g, '／')} | ${r.triggerPx} | ${r.fillPx ?? '—'} | ${r.stop} | ${r.exitReason ? `${hhmm(r.exitAt)} ${r.exitReason} @${r.exitPx}` : '—'} | ${r.ruleNetR ?? '—'} | ${r.aiNetR ?? '—'} |`),
+    `| 觸發 | 方向 | 代號 | Setup | AI 決定 | 信心 | 理由 | 交易單（1 張·買／賣時間·價·金額·費稅·淨損益） | 規則R | AI R |`,
+    `|---|---|---|---|---|---|---|---|---|---|`,
+    ...doc.records.map(r => { const L = r.ledger || r.cfLedger; const tag = r.ledger ? 'AI 成交' : r.cfLedger ? '反事實（AI 未做）' : ''; const slip = L ? `${tag}：買 ${hhmmss(L.buy.at)} @${L.buy.px}＝${L.buy.amount.toLocaleString()}元／賣 ${hhmmss(L.sell.at)} @${L.sell.px}＝${L.sell.amount.toLocaleString()}元·費稅 ${L.costTwd} 元·淨 ${L.pnlTwd.toLocaleString()} 元${r.decidedAt ? `·決定 ${hhmmss(r.decidedAt)}` : ''}${L.noLookahead === true ? '·✓先決定後成交' : L.noLookahead === false ? '·⚠時序異常' : ''}` : '—';
+      return `| ${hhmm(r.triggerAt)} | ${r.side === 'long' ? '多' : '空'} | ${r.code} ${r.name} | ${r.type} | ${r.decision ?? r.status} | ${r.confidence ?? '—'} | ${(r.reason || '').replace(/\|/g, '／')} | ${slip} | ${r.ruleNetR ?? '—'} | ${r.aiNetR ?? '—'} |`; }),
     ``,
     `## AI 檢討`,
     ``,
