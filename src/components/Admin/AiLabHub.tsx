@@ -4,11 +4,13 @@
 import { useState } from 'react';
 import AiDaytradeLab from './AiDaytradeLab';
 import AiSwingLab from './AiSwingLab';
+import AiLabTargets from './AiLabTargets';
 
 export default function AiLabHub() {
   const [kind, setKind] = useState<'daytrade' | 'swing'>('daytrade');
   return (
     <div>
+      <AiLabTargets />
       <div role="tablist" style={{ display: 'inline-flex', padding: 2, borderRadius: 999, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', marginBottom: 10 }}>
         {([['daytrade', '⏳ 當沖'], ['swing', '🌊 波段持有']] as const).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={kind === k} onClick={() => setKind(k)}
