@@ -139,3 +139,14 @@ test('帳戶快照：持有清單以最新收盤計市值、未進場標待進�
   assert.equal(s.holdings.find(h => h.code === '2222').status.startsWith('待進場'), true);
   assert.equal(s.account.openCost, 105000 + 100000);
 });
+
+test('每日戰績：同資料日覆蓋不重複、當日損益＝總值變化', async () => {
+  const { upsertHistory } = await import('./ai-swing-lab.mjs');
+  const snap = (date, cash, mkt) => ({ dataDate: date, account: { initial: 500000, cash, realized: 0 }, holdings: [{ entryPx: 10, entryDate: date, cost: 100000, mktValue: mkt, unrealized: mkt - 100000 }], closed: [] });
+  let h = upsertHistory([], snap('2026-09-25', 400000, 100000));
+  assert.equal(h[0].total, 500000); assert.equal(h[0].dayPnl, 0);
+  h = upsertHistory(h, snap('2026-09-26', 400000, 105000));
+  assert.equal(h[1].dayPnl, 5000); assert.equal(h[1].cumRetPct, 1);
+  h = upsertHistory(h, snap('2026-09-26', 400000, 103000));
+  assert.equal(h.length, 2); assert.equal(h[1].dayPnl, 3000);
+});

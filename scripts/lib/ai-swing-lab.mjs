@@ -232,3 +232,26 @@ export function swingAccountSnapshot(docs, days) {
   const trades = [...closed.map(c => ({ pnlTwd: c.pnlTwd })), ...holdings.map(h => ({ open: true, cost: h.cost }))];
   return { at: Date.now(), dataDate: last?.date || null, account: accountOf(trades), holdings: holdings.sort((a, b) => a.date.localeCompare(b.date)), closed: closed.sort((a, b) => (b.sell.at || 0) - (a.sell.at || 0)) };
 }
+
+/**
+ * 每日戰績：以快照的資料日為鍵 upsert 一列（同一資料日重算就覆蓋，不重複）。
+ * 帳戶總值＝現金＋持倉市值（待進場／無價者以成本計）；當日損益＝總值較前一列的變化。
+ */
+export function upsertHistory(history = [], snap) {
+  if (!snap?.dataDate) return history;
+  const hs = snap.holdings || [];
+  const mkt = hs.reduce((a, h) => a + (h.mktValue ?? h.cost), 0);
+  const unreal = hs.reduce((a, h) => a + (h.unrealized ?? 0), 0);
+  const total = Math.round(snap.account.cash + mkt);
+  const prev = [...history].filter(r => r.date < snap.dataDate).sort((a, b) => a.date.localeCompare(b.date)).pop();
+  const row = {
+    date: snap.dataDate, holdings: hs.filter(h => h.entryPx).length, pending: hs.filter(h => !h.entryPx).length,
+    opened: hs.filter(h => h.entryDate === snap.dataDate && h.entryPx).length + (snap.closed || []).filter(c => c.buy?.at && new Date(c.buy.at + 8 * 3600000).toISOString().slice(0, 10) === snap.dataDate).length,
+    closed: (snap.closed || []).filter(c => c.exitDate === snap.dataDate).length,
+    closedPnl: (snap.closed || []).filter(c => c.exitDate === snap.dataDate).reduce((a, c) => a + c.pnlTwd, 0),
+    realized: snap.account.realized, unrealized: unreal, cash: Math.round(snap.account.cash), mktValue: Math.round(mkt), total,
+    dayPnl: prev ? total - prev.total : total - snap.account.initial,
+    cumRetPct: +((total / snap.account.initial - 1) * 100).toFixed(2),
+  };
+  return [...history.filter(r => r.date !== snap.dataDate), row].sort((a, b) => a.date.localeCompare(b.date)).slice(-400);
+}

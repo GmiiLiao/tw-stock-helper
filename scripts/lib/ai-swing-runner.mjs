@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, swingAccount, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
+import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, swingAccount, sizePicks, swingAccountSnapshot, upsertHistory } from './ai-swing-lab.mjs';
 
 const MAX_ATTEMPTS = 3;
 
@@ -98,7 +98,10 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       try {
         const days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
         const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
-        await db.collection('aiLabAccounts').doc('swing').set(swingAccountSnapshot(docs, days));
+        const ref = db.collection('aiLabAccounts').doc('swing');
+        const prevHist = (await ref.get()).data()?.history || [];
+        const snap = swingAccountSnapshot(docs, days);
+        await ref.set({ ...snap, history: upsertHistory(prevHist, snap) });   // 每日戰績：每個資料日一列
       } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
     },
 

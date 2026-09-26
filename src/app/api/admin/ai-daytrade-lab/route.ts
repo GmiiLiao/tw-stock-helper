@@ -54,8 +54,8 @@ export async function GET(request: Request) {
     const daily = dated.map(d => {
       const ls = d.recs.filter(r => r.status === 'filled' && r.ledger).map(r => r.ledger!);
       const sum = (f: (l: NonNullable<AiLabRecord['ledger']>) => number) => ls.reduce((a, l) => a + f(l), 0);
-      return { date: d.date, n: ls.length, open: d.recs.filter(r => r.status === 'filled' && !r.ledger).length, buyAmt: sum(l => l.buy.amount), sellAmt: sum(l => l.sell.amount), fee: sum(l => l.buy.fee + l.sell.fee), tax: sum(l => l.sell.tax), pnl: sum(l => l.pnlTwd) };
-    }).sort((a, b) => a.date.localeCompare(b.date)).map(x => { eq += x.pnl; return { ...x, equity: eq }; }).reverse();
+      return { date: d.date, wins: ls.filter(l => l.pnlTwd > 0).length, losses: ls.filter(l => l.pnlTwd < 0).length, n: ls.length, open: d.recs.filter(r => r.status === 'filled' && !r.ledger).length, buyAmt: sum(l => l.buy.amount), sellAmt: sum(l => l.sell.amount), fee: sum(l => l.buy.fee + l.sell.fee), tax: sum(l => l.sell.tax), pnl: sum(l => l.pnlTwd) };
+    }).sort((a, b) => a.date.localeCompare(b.date)).map(x => { const before = eq; eq += x.pnl; return { ...x, equity: eq, dayRetPct: +((x.pnl / before) * 100).toFixed(2), cumRetPct: +((eq / 500000 - 1) * 100).toFixed(2) }; }).reverse();
     return NextResponse.json({
       found: docs.length > 0 || !!live,
       account, tradeList, daily,

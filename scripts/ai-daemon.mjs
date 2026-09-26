@@ -1730,7 +1730,7 @@ async function fetchRiskSets() {
 const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'swing-ai-lab'),
   getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(),
   loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors().catch(() => ({}))); } });
-let _aiSwingDate = '', _aiSwingTryAt = 0;
+let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0;
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
 const _dtFail = {}, _dtFailNotified = {};   // 當沖各步驟連續失敗次數／當日已通知
@@ -14580,8 +14580,11 @@ async function dailyJobsLoop() {
         catch (e) { log('✖ 當沖 AI 實驗凍結（將重試）:', (e.message || '').slice(0, 60)); }
       }
       if (Date.now() - _aiNotesAt > 15 * 60000) { _aiNotesAt = Date.now(); _aiLab.syncNotes().catch(e => log('✖ 人工檢討同步:', (e.message || '').slice(0, 60))); _aiSwing.syncNotes().catch(e => log('✖ 波段人工檢討同步:', (e.message || '').slice(0, 60))); }
+      // 🤖 AI 實驗·波段持有：持有清單／每日戰績快照不綁選股時段——啟動時與每小時各刷新一次（2026-09-25：17–23 點窗被晚間長任務擠掉，清單整晚空白）
+      if (Date.now() - _aiSwingAcctAt > 3600_000) { _aiSwingAcctAt = Date.now(); _aiSwing.writeAccount().catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60))); }
       // 🤖 AI 實驗·波段持有：17:00 起（兩榜收盤版都算完）每 10 分鐘試一次選股，成功後當天結算所有到期的持有期
-      if (isTradingDay(tw) && mins >= 17 * 60 && mins < 23 * 60 && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {
+      // 窗＝17:00～次日 08:30（仍早於下一交易日 09:00 開盤，先選後買不變）；pick() 以榜單資料日冪等，跨午夜不會重選
+      if (((isTradingDay(tw) && mins >= 17 * 60) || mins < 8 * 60 + 30) && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {
         _aiSwingTryAt = Date.now();
         try { await _aiSwing.settle(); if (await _aiSwing.pick()) _aiSwingDate = today; }   // 先結算（到期部位釋放現金）再選股定部位
         catch (e) { log('✖ 波段 AI 實驗（將重試）:', (e.message || '').slice(0, 60)); }

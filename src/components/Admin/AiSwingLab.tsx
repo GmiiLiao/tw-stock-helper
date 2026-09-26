@@ -14,7 +14,8 @@ interface OpenPos { date: string; code: string; name: string; shares: number; es
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
 interface Holding { date: string; code: string; name: string; shares: number; exitH: number; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number; daysLeft: number }
 interface Closed { date: string; code: string; name: string; shares: number; exitH: number; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
-interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[] }
+interface HistRow { date: string; holdings: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; total: number; dayPnl: number; cumRetPct: number }
+interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[] }
 interface Resp { snapshot?: Snapshot | null; account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
 
 async function authed(input: string, init: RequestInit = {}) {
@@ -58,6 +59,14 @@ export default function AiSwingLab() {
           <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="單筆上限 10 萬、可零股、低於 1 萬不建倉" />
         </div>
       )}
+      <Section title="📈 每日戰績" sub="帳戶總值＝現金＋持倉市值（待進場以成本計）；每個收盤資料日一列">
+        <ListTable head={['日期', '持倉', '新建倉', '平倉', '平倉損益', '已實現累計', '未實現', '現金', '持倉市值', '帳戶總值', '當日損益', '累計報酬']} right={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]}
+          empty="尚無戰績（每日收盤資料歸檔後更新）"
+          rows={[...(data.snapshot?.history || [])].reverse().map(r => [r.date, `${r.holdings}${r.pending ? `＋待進場 ${r.pending}` : ''}`, r.opened, r.closed, r.closed ? twd(r.closedPnl) : '—', twd(r.realized),
+            <span key="u" style={{ color: upDn(r.unrealized) }}>{twd(r.unrealized)}</span>, r.cash.toLocaleString(), r.mktValue.toLocaleString(), <b key="t">{r.total.toLocaleString()}</b>,
+            <b key="d" style={{ color: upDn(r.dayPnl) }}>{twd(r.dayPnl)}</b>, <span key="c" style={{ color: upDn(r.cumRetPct) }}>{pct(r.cumRetPct)}</span>])} />
+      </Section>
+
       <Section title="📋 持有清單" sub={data.snapshot?.dataDate ? `市值以 ${data.snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新'}>
         <ListTable head={['選股日', '個股', '狀態', '股數', '買進 時間·價', '成本', '最新收盤', '市值', '未實現損益', '已持有／剩餘']} right={[3, 5, 6, 7, 8]}
           empty="目前沒有持倉"

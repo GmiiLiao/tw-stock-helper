@@ -17,7 +17,7 @@ interface LabDoc {
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; retPct: number; trades: number }
 interface Leg { at: number | null; px: number; amount: number; fee: number; tax?: number }
 interface TradeRow { date: string; code: string; name: string; side: 'long' | 'short'; type: string; decidedAt: number | null; shares: number; buy: Leg | null; sell: Leg | null; legs: number | null; costTwd: number | null; pnlTwd: number | null; retPct: number | null; exitReason: string | null; open: boolean; noLookahead: boolean | null }
-interface DailyRow { date: string; n: number; open: number; buyAmt: number; sellAmt: number; fee: number; tax: number; pnl: number; equity: number }
+interface DailyRow { wins: number; losses: number; dayRetPct: number; cumRetPct: number; date: string; n: number; open: number; buyAmt: number; sellAmt: number; fee: number; tax: number; pnl: number; equity: number }
 interface Resp { tradeList?: TradeRow[]; daily?: DailyRow[]; account?: Acct; found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
 
 const R = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}R`);
@@ -90,12 +90,12 @@ export default function AiDaytradeLab() {
           ])} />
       </Section>
 
-      <Section title="📒 每日結算" sub="AI 成交的買賣總額、費稅、淨損益與結算後帳戶淨值">
-        <ListTable head={['日期', '成交筆數', '買進總額', '賣出總額', '手續費', '證交稅', '淨損益', '結算後淨值']} right={[1, 2, 3, 4, 5, 6, 7]}
-          rows={(data.daily || []).map(x => [x.date, `${x.n}${x.open ? `（持倉 ${x.open}）` : ''}`, x.buyAmt.toLocaleString(), x.sellAmt.toLocaleString(), x.fee.toLocaleString(), x.tax.toLocaleString(),
-            <b key="p" style={{ color: upDn(x.pnl) }}>{twd(x.pnl)}</b>, x.equity.toLocaleString()])}
-          foot={data.daily?.length ? ['合計', String(data.daily.reduce((a, x) => a + x.n, 0)), data.daily.reduce((a, x) => a + x.buyAmt, 0).toLocaleString(), data.daily.reduce((a, x) => a + x.sellAmt, 0).toLocaleString(),
-            data.daily.reduce((a, x) => a + x.fee, 0).toLocaleString(), data.daily.reduce((a, x) => a + x.tax, 0).toLocaleString(), twd(data.daily.reduce((a, x) => a + x.pnl, 0)), (data.daily[0]?.equity ?? 500000).toLocaleString()] : undefined} />
+      <Section title="📈 每日戰績與結算" sub="AI 成交的勝負、買賣總額、費稅、淨損益、當日與累計報酬、結算後帳戶淨值（無成交的日子也列出）">
+        <ListTable head={['日期', '成交', '勝／負', '買進總額', '賣出總額', '手續費', '證交稅', '淨損益', '當日報酬', '累計報酬', '結算後淨值']} right={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
+          rows={(data.daily || []).map(x => [x.date, `${x.n}${x.open ? `（持倉 ${x.open}）` : ''}`, x.n ? `${x.wins}／${x.losses}` : '—', x.buyAmt.toLocaleString(), x.sellAmt.toLocaleString(), x.fee.toLocaleString(), x.tax.toLocaleString(),
+            <b key="p" style={{ color: upDn(x.pnl) }}>{twd(x.pnl)}</b>, <span key="d" style={{ color: upDn(x.dayRetPct) }}>{pct(x.dayRetPct)}</span>, <span key="c" style={{ color: upDn(x.cumRetPct) }}>{pct(x.cumRetPct)}</span>, x.equity.toLocaleString()])}
+          foot={data.daily?.length ? ['合計', String(data.daily.reduce((a, x) => a + x.n, 0)), `${data.daily.reduce((a, x) => a + x.wins, 0)}／${data.daily.reduce((a, x) => a + x.losses, 0)}`, data.daily.reduce((a, x) => a + x.buyAmt, 0).toLocaleString(), data.daily.reduce((a, x) => a + x.sellAmt, 0).toLocaleString(),
+            data.daily.reduce((a, x) => a + x.fee, 0).toLocaleString(), data.daily.reduce((a, x) => a + x.tax, 0).toLocaleString(), twd(data.daily.reduce((a, x) => a + x.pnl, 0)), '', pct(data.daily[0]?.cumRetPct), (data.daily[0]?.equity ?? 500000).toLocaleString()] : undefined} />
       </Section>
 
       <Section title="日期" sub="點日期看當天每一筆交易單">
