@@ -4,7 +4,7 @@ description: 熔斷器與降級存活——失敗計數→冷卻狀態機、tri-
 ---
 # wm-resilience-circuit-breaker｜熔斷與降級
 
-**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`src/utils/circuit-breaker.ts`（697 行；預設 maxFailures 2、cooldown 5 分、cacheTtl 10 分、persistent stale ceiling 24h、recovery probe 30s）、`src/services/smart-poll-loop.ts`。**適用度：部分（F1 進行中）**。
+**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`src/utils/circuit-breaker.ts`（697 行；預設 maxFailures 2、cooldown 5 分、cacheTtl 10 分、persistent stale ceiling 24h、recovery probe 30s）、`src/services/smart-poll-loop.ts`。**適用度：部分（F1 進行中）**。
 
 ## 原則
 - 狀態機：`failures` 達 maxFailures → `cooldownUntil`；冷卻期內直接回快取（mode=cached）或 unavailable，不打上游。
@@ -26,3 +26,12 @@ description: 熔斷器與降級存活——失敗計數→冷卻狀態機、tri-
 
 ## 掃描探針
 - 反向：`rg -n "failures|cooldown" scripts/ai-daemon.mjs | wc -l`（0＝無熔斷）；`rg -n "fetch\(" scripts/ai-daemon.mjs | rg -v "timeout|AbortSignal" | head`（無逾時的抓取）
+
+## 2026-09-27 週更增補（上游 02f2115→90dc23a）
+
+- **`maxServeAgeMs`：每條供應路徑都有年齡上限**（`src/utils/circuit-breaker.ts` +24 行：fresh hit、stale-while-revalidate、cooldown、recovery-probe fallback 全部過 `isServable()`；超齡或 **timestamp 非有限數（例：持久化信封缺 `updatedAt`）** 的項目一律從記憶體與持久層逐出，當作沒有快取；消費端 `src/services/gdelt-intel.ts:207,340` 帶 `STALE_MAX`）。這是 finite stale grace 從「持久層 24h 天花板」擴到「**失敗後的 fallback 也要驗年齡**」。
+  - 台股助手對應：`src/lib/singleflight.ts:57-58,69,78` 冷卻期／降級／失敗三條路徑都回 `hit.value`，**不看 `hit.at` 距今多久**——instance 活多久，舊值就能被供應多久，且呼叫端分不出 live 或 stale。前端 `src/lib/useDayTradeCodes.ts:28-49`、`src/lib/useRiskCodes.ts:25-46` 的模組級快取與 promise **永不過期**（跨日掛著的分頁用昨天的當沖資格／處置名單），失敗結果也被永久記住（一次失敗＝整個分頁生命期不再重試）。
+  - 規則：①任何「給舊值」的分支都要比對資料時刻與該層上限；②沒有時間戳的快取項目＝不可供應；③負快取必須有 TTL，不得以模組級 promise 永久記住失敗。
+- **Fetch Phase Budget**（CONCEPTS 新詞條）：以「次數」限制重試、而外層以「牆鐘」殺行程時，重試迴圈可能吃光時間，迴圈**之後**的 fallback（正是為這種失敗寫的）永遠跑不到。上限要在「決定發動下一次嘗試之前」先扣掉那一次自己的逾時；兩個數字寫在不同檔時，要有檢查同時讀兩邊。本站對應：route timeout 120s（`firebase.json`）與 memoize 8s、daemon backfill 重試＋每日任務時段；新增重試迴圈時列出「最壞總時長 ≤ 外層上限 − fallback 所需」。上游實例：`.github/workflows/live-video-source-audit.yml` 逐步 `timeout-minutes` 且由 `tests/report-live-video-audit.test.mjs` 驗總和＋5 分餘裕 ≤ job 上限。
+- **Seed-Owned Key 讀取端改寫**（CONCEPTS）：讀取端遇 miss 時，可推導者回短 TTL 計算值，**必要鍵則回明確 unavailable——捏造的空值會被當成資料讀**。本站實例：`useRiskCodes.ts:31-40` 非 2xx 時組出空名單並寫入 `_riskCache`，消費端 `WarRoom/daytrade/useDeskData.ts:62,46-47` 以「處置名單為空」判定全部可當沖 ⇒ **fail-open**。
+- ⚠ **與既有本地規則的張力（記錄，不改）**：本技能 daemon 條「冷卻中回 null 與『無資料』同形狀，呼叫端退避邏輯不變」（2026-09-04 F1）是刻意選擇，理由是不改呼叫端。上游本週在 Seed-Owned Key 明確區分「可推導的 fallback」與「必要鍵的 unavailable」。上游已改為「必要鍵 miss 回明確 unavailable」；本站 daemon 熔斷是否跟進（改三態回傳、逐一改呼叫端）待使用者決定。影響面：`rg -n "breakerOpen\(" scripts/ai-daemon.mjs` 的所有呼叫端。

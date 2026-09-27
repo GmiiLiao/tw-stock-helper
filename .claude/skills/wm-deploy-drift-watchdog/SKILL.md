@@ -4,7 +4,7 @@ description: 部署漂移看門狗——「線上跑的是不是 main 的 head�
 ---
 # wm-deploy-drift-watchdog｜部署漂移
 
-**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`scripts/check-railway-deploy-drift.mjs`（每服務問一題：跑的是 head 嗎？非肯定即回報；lag p50 0h／p90 19h／max 62.6h 實測）、`scripts/check-postmerge-deploys.mjs`、workflows `railway-deploy-drift／trigger-watchdog／reconcile-manual-recovery／postmerge-deploy-monitor`。**適用度：部分（單機 daemon＋App Hosting）**。
+**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`scripts/check-railway-deploy-drift.mjs`（每服務問一題：跑的是 head 嗎？非肯定即回報；lag p50 0h／p90 19h／max 62.6h 實測）、`scripts/check-postmerge-deploys.mjs`、workflows `railway-deploy-drift／trigger-watchdog／reconcile-manual-recovery／postmerge-deploy-monitor`。**適用度：部分（單機 daemon＋App Hosting）**。
 
 ## 原則
 - 所有 repo 閘門綠燈時服務仍可能跑舊 image（watch-path 拒推、整合掉訊息、合併後 build 失敗）；舊碼上的容器會發布「看起來很新」的資料，健康檢查看不出來。
@@ -22,3 +22,14 @@ description: 部署漂移看門狗——「線上跑的是不是 main 的 head�
 
 ## 掃描探針
 - 正向：`ls src/app/api/system`（無 version 即未做）；`node scripts/can-restart-daemon.mjs` 的 hash 一致與否
+
+## 2026-09-27 週更增補（上游 02f2115→90dc23a）
+
+- ⚠ **本技能既有文字與程式不符（記錄衝突，不刪原文）**：上文「`can-restart-daemon.mjs` 比對 disk 檔案 hash 與執行中 hash」與掃描探針末句不成立——該腳本只判保護窗（`WINDOWS`），全檔無 hash。實際比對在 `scripts/audit-data-sources.mjs:793-810`（讀 `system/daemonBuild.codeHash` 對磁碟 `ai-daemon.mjs` 的 sha256 前 16 碼），寫入端 `scripts/ai-daemon.mjs:126-136`。同一錯誤敘述也在 `docs/外部工具追蹤.md:84`。更正方式待使用者決定（改技能措辭，或把比對搬進 can-restart）。
+- **雜湊要涵蓋實際會執行的全部碼**：`codeHash` 只雜湊 `ai-daemon.mjs` 本體，但 daemon 靜態 import `scripts/lib/*.mjs`（`ai-daytrade-runner`、`ai-swing-runner`、`daytrade-engine`…，`scripts/ai-daemon.mjs:26-33`）與動態 import `squeeze-data.mjs`。只改 lib 的 commit（例 `a9db863` 2026-09-24 只動 `ai-swing-runner.mjs`）不會觸發漂移警告。規則：雜湊集合＝daemon 的本地 import 閉包。
+- **偵測網的判定不可建立在單次「成功但未佐證」的讀取上**（上游 `scripts/check-postmerge-deploys.mjs`：GitHub 間歇回舊索引快照，HTTP 200、`total_count` 1366 對實際 3168，120 次中 21 次誤報；解法＝每 tick 取 3 樣本、以單調的 `total_count` 丟棄已證明過期者、警報需 2 樣本一致，否則回 UNKNOWN 而非警報；`CONCEPTS.md` Detection Net）。台股助手對應：判斷「daemon 落後」或「線上 sha≠HEAD」若只讀一次 Firestore／一次 curl（CDN 可能回舊版），結論應寫「單次讀取」；會觸發動作（重啟、重部署）的判定至少再讀一次、或以單調欄位（`startedAt`、`builtAt`）確認不是舊值。
+- **看門狗本身要有牆鐘預算，且逾時＝「無法判定」而非「失敗」**（同檔 `MONITOR_WALL_BUDGET_MS`、`createDeadlineGh`：截止時間檢查放在每次嘗試前，逾時標為不可讀、不重試）。台股助手：漂移檢查 `catch { /* 取不到不擋稽核 */ }`（`audit-data-sources.mjs:810`）目前讀不到就完全靜默——應輸出「⚠ 無法判定 daemon 版本」而不是什麼都不說（Read Outcome 三態）。
+- **漂移結果要寫進可被觀測的地方**：比對在 `dataHealth` 寫入（`audit-data-sources.mjs:790`）之後才執行且只 `console.log`，線上看不到。建議把 `daemonDrift: { running, disk, checkedAt }` 併入同一次寫入。
+- **瀏覽器端也有部署漂移**（上游 `CONCEPTS.md` Stale Bundle／Modal-Open Guard、新 gate `lint:overlay-reload-policy`）：開著的分頁跑舊 JS 對新 API 形狀。台股助手 `/api/system/version` 目前無前端消費端；若要做，比對 `sha` 不同時提示重載，且輸入中（持倉記錄、搜尋框非受控輸入）不可自動重載。
+- **web 部署身分要能分辨髒樹**：`next.config.ts:5-8` 的 `git rev-parse --short HEAD` 不標 `-dirty`，從有未提交改動的工作樹 build 時，線上 `sha` 仍等於 HEAD——「sha＝HEAD 才可宣稱已部署」這條在髒樹下會假陽性。
+- 部署形態註記：`firebase.json` 為 Hosting＋`frameworksBackend`（region asia-east1），repo 無 `apphosting.yaml`；本技能與 CLAUDE.md 稱「App Hosting」，實際產品名待使用者確認後再統一措辭。

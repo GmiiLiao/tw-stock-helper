@@ -4,7 +4,7 @@ description: Edge 閘道請求管線——先便宜後昂貴的固定順序（or
 ---
 # wm-edge-gateway｜閘道管線
 
-**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`server/gateway.ts`（2,421 行 `createDomainGateway`）、`api/_cors.js`（雙 profile allowlist）、`api/_api-key.js`、`api/_relay.js`。**適用度：部分（Next.js route 各自為政）**。
+**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`server/gateway.ts`（2,421 行 `createDomainGateway`）、`api/_cors.js`（雙 profile allowlist）、`api/_api-key.js`、`api/_relay.js`。**適用度：部分（Next.js route 各自為政）**。
 
 ## 原則
 - 管線順序固定且**先便宜後昂貴**：拒絕的 origin 不帶 CORS header；CORS 產生失敗即 fail-closed。
@@ -25,3 +25,17 @@ description: Edge 閘道請求管線——先便宜後昂貴的固定順序（or
 
 ## 掃描探針
 - 反向：`rg -L "AbortSignal.timeout" $(rg -l "fetch\(" src/app/api)`（無逾時）；`rg -n "from '@/lib/firebase'" src/app/api`
+
+## 2026-09-27 週更增補（上游 02f2115→90dc23a）
+
+- **trust marker 剝除清單隨內部標頭同步擴充**（`server/gateway.ts` `stripClientTrustedHeaders`）：新增 `x-wm-rl-principal`（gateway 認證完成後才蓋章的限流身分），進場一律刪除 client 自帶的副本；之後每次重建 request 都必須從已剝除版本出發（檔內稱 Mutation invariant）。本站 server 端只讀 `accept-encoding`／`authorization`／`x-cron-secret`／`x-forwarded-for`／`host` 五種標頭，無內部信任標頭。規則：**新增任何「只有我方能設」的標頭前，先寫剝除**，並在 `audit-routes.mjs` 表格加一欄。
+- **server 端扇出要在派發前向「入站呼叫者」扣額**（`server/_shared/rate-limit.ts` `resolveServerSubRequestCharge`／`chargeServerSubRequestOperation`，#8399）：同源 fetch 自家 API 時，子請求在 origin 看到的是平台出口 IP（所有使用者同一個），在子請求裡限流＝全體共用一桶、呼叫者自己的額度永遠不動；無法歸屬就 429 `unattributed-sub-request`，不落出口 IP 桶。本站 route 內自呼叫 `/api/*` 0 處（2026-09-27 grep）。規則：**route 內不 fetch 自家 API，直接 import `src/lib` 函式**；非不得已時限流在外層扣。
+- **管線順序細化**（`server/gateway.ts`、`server/_shared/rate-limit.ts`）：IP 型預算的「來源證明」檢查 → 限流器可用性 → 認證解析 → principal 型預算 → handler。本站對照：`user/trading-mode:18`、`ai-analysis:104/425` 實作是「IP rateLimit → verifyIdToken」，與本技能上方「驗證 → rateLimit」文字不一致；但 `verifyIdToken(token, true)` 會打 Google 撤銷檢查，IP 限流在前＝先便宜後昂貴，反而較貼近上游。**上游順序為 IP 限流在前、principal 預算在認證後；本站規則是否改寫為「IP rateLimit → 驗證 → uid rateLimit → 邏輯」待使用者決定**（不改寫原文）。
+- **「哪些標頭算憑證」只有一份清單**（`server/gateway.ts` `CREDENTIAL_BEARING_HEADERS`，#8400）：快取層（帶憑證的請求不可進共享快取）與 auth 讀取端共用同一常數，並有 divergence test 釘住。本站：帶 `Authorization` 的 route（admin/*、trading-mode、ai-analysis POST/DELETE、system/version）必須 `no-store` 或 `cacheHeader('private')`；新增 per-user route 時同規則。
+- **拒絕／降級回應一律 no-store**（`server/_shared/rate-limit.ts`：503 degraded 與 403 edge-proof 本週補上 `Cache-Control: no-store`）。本站 429 已 no-store ✓；延伸為**所有 4xx/5xx 都 no-store**。
+- **身分驗證服務暫時不可用 → 503，不降級成匿名或 401**（`server/gateway.ts` `sessionVerificationUnavailableResponse`）。本站 `require-admin.ts:42-44` 把 `verifyIdToken` 的所有例外（含網路逾時）都回 401「Invalid or expired token」——暫時性故障被說成憑證壞掉。規則：`auth/id-token-expired|id-token-revoked|argument-error` 才回 401，其餘回 503。
+- **本地模式例外要精確到路徑**（`server/gateway.ts` `isSidecarProviderLookup`）：跳過限流的條件逐條列出 path，且以環境旗標把關，雲端請求保留原限額。本站對應：`ALLOW_DIRECT_MIS` 範本維持。
+
+### 掃描探針（本週新增）
+- 無逾時的上游呼叫（逐呼叫，不是逐檔）：`rg -n -A6 "fetch\(" src/app/api src/lib/*-server.ts | rg -v signal` 後人工確認
+- 自呼叫：`rg -n "fetch\(.*(/api/|origin)" src/app/api src/lib`

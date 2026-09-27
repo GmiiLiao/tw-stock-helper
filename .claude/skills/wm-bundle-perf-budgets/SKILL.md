@@ -4,7 +4,7 @@ description: 前端效能預算——三套 bundle budget（main/pro/embed）CI 
 ---
 # wm-bundle-perf-budgets｜效能預算（參考）
 
-**上游依據**（基線 v2.10.0 · 02f2115 · 2026-09-12（第二大腦 second-brain/worldmonitor/））：`package.json` `bundle:budgets|check|*pro|*embed`、`scripts/check-style-layout-budget.mjs`、`perf-style-layout-budget` workflow、`CONCEPTS.md` Panel Mounting（Immediate/Deferred tier、Shift Victim/Mover、Late-Mount Window）。**適用度：參考**。
+**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`package.json` `bundle:budgets|check|*pro|*embed`、`scripts/check-style-layout-budget.mjs`、`perf-style-layout-budget` workflow、`CONCEPTS.md` Panel Mounting（Immediate/Deferred tier、Shift Victim/Mover、Late-Mount Window）。**適用度：參考**。
 
 ## 原則
 - 預算是數字且 CI 紅燈，不是建議；每個變體一套。
