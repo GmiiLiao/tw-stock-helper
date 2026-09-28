@@ -7,6 +7,8 @@
 // MoneyDJ/自由財經/中央社 + 經濟部/國發會/國科會/金管會. Paid sites dropped.
 // ============================================================
 
+import { memoize } from '@/lib/singleflight';
+
 export interface NewsItem {
   id: string;
   title: string;
@@ -72,8 +74,43 @@ const ALLOW_KEYWORDS = [
 
 // Per-code in-memory cache (TTL 5 min) — dedupes Google News RSS hits across
 // the rating pipeline, the news route and the daemon → fewer rate-limits.
+// G1-02（2026-09-28）：
+//   · 有界：鍵含呼叫端帶入的 name／industry，無上限會讓 Map 無限成長 ⇒ 超過上限淘汰最舊的。
+//   · 負快取：空結果（多半是 Google 限流）不做 5 分鐘正快取（避免長時間顯示空白），
+//     但記 60 秒冷卻，冷卻內重複請求直接回空、不再對上游扇出 11 次。
+//   · in-flight 合流：同鍵併發只打一次上游。
 const _newsCache = new Map<string, { at: number; items: NewsItem[] }>();
+const _newsNegative = new Map<string, number>();
+const _newsInflight = new Map<string, Promise<NewsItem[]>>();
 const NEWS_TTL = 5 * 60 * 1000;
+const NEWS_NEGATIVE_TTL = 60 * 1000;
+const NEWS_CACHE_MAX_KEYS = 500;
+const UPSTREAM_TIMEOUT_MS = 8000;
+
+/** 有界寫入：先刪再寫（刷新插入序），超過上限從最舊的開始淘汰（Map 迭代序＝插入序）。 */
+function boundedSet<V>(map: Map<string, V>, key: string, value: V) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > NEWS_CACHE_MAX_KEYS) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+// MOPS 重大訊息是「全市場一份清單」，與代號無關 ⇒ 全站共用一份，不隨查詢的代號數放大。
+// TTL 與新聞快取相同（5 分鐘），新鮮度不變；失敗時 memoize 走負快取、回 null（＝本次無 MOPS 項，與舊版出錯時行為相同）。
+const getMopsAnnouncements = memoize('news-server:mops-t187ap04_L', NEWS_TTL, async () => {
+  const mopsRes = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap04_L', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
+  if (!mopsRes.ok) throw new Error(`MOPS HTTP ${mopsRes.status}`);
+  const data: unknown = await mopsRes.json();
+  if (!Array.isArray(data)) throw new Error('MOPS payload is not an array');
+  return data as Record<string, string>[];
+});
 
 /** Fetch and filter stock news. Returns up to 25 allow-listed items, newest first. */
 export async function getStockNews(code: string, stockName = '', industry = ''): Promise<NewsItem[]> {
@@ -82,32 +119,46 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
   const cacheKey = `${code}|${stockName}|${industry}`;
   const cached = _newsCache.get(cacheKey);
   if (cached && Date.now() - cached.at < NEWS_TTL) return cached.items;
+  const negUntil = _newsNegative.get(cacheKey);
+  if (negUntil && Date.now() < negUntil) return [];
+  const inflight = _newsInflight.get(cacheKey);
+  if (inflight) return inflight;
 
+  const task = fetchStockNewsUncached(code, stockName, industry)
+    .then(result => {
+      if (result.length > 0) {
+        boundedSet(_newsCache, cacheKey, { at: Date.now(), items: result });
+        _newsNegative.delete(cacheKey);
+      } else {
+        boundedSet(_newsNegative, cacheKey, Date.now() + NEWS_NEGATIVE_TTL);
+      }
+      return result;
+    })
+    .finally(() => { _newsInflight.delete(cacheKey); });
+  _newsInflight.set(cacheKey, task);
+  return task;
+}
+
+async function fetchStockNewsUncached(code: string, stockName: string, industry: string): Promise<NewsItem[]> {
   const allNews: NewsItem[] = [];
 
   // 1. TWSE MOPS 重大訊息 (company-specific)
   try {
-    const mopsRes = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap04_L', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)' },
-      cache: 'no-store',
-    });
-    if (mopsRes.ok) {
-      const data = await mopsRes.json();
-      if (Array.isArray(data)) {
-        data.filter((item: Record<string, string>) => (item['公司代號'] || item.CODE || item.Code || '') === code)
-          .slice(0, 5)
-          .forEach((item: Record<string, string>, idx: number) => {
-            allNews.push({
-              id: `mops-${code}-${idx}`,
-              title: (item['主旨 '] || item['主旨'] || item.SUBJECT || '公司重大訊息').trim(),
-              source: '證交所公告',
-              time: parseROCDateTime(item['發言日期'] || item.DATE || '', item['發言時間'] || item.TIME || ''),
-              url: 'https://mops.twse.com.tw/mops/web/t05st02_1',
-              category: 'company',
-              snippet: `${item['公司名稱'] || ''} (${code}) 重大訊息公告`,
-            });
+    const data = await getMopsAnnouncements();
+    if (Array.isArray(data)) {
+      data.filter((item: Record<string, string>) => (item['公司代號'] || item.CODE || item.Code || '') === code)
+        .slice(0, 5)
+        .forEach((item: Record<string, string>, idx: number) => {
+          allNews.push({
+            id: `mops-${code}-${idx}`,
+            title: (item['主旨 '] || item['主旨'] || item.SUBJECT || '公司重大訊息').trim(),
+            source: '證交所公告',
+            time: parseROCDateTime(item['發言日期'] || item.DATE || '', item['發言時間'] || item.TIME || ''),
+            url: 'https://mops.twse.com.tw/mops/web/t05st02_1',
+            category: 'company',
+            snippet: `${item['公司名稱'] || ''} (${code}) 重大訊息公告`,
           });
-      }
+        });
     }
   } catch (e) {
     console.error('[news-server] MOPS fetch error:', e);
@@ -180,8 +231,7 @@ export async function getStockNews(code: string, stockName = '', industry = ''):
   const rest = filtered.filter(n => n.category !== 'policy');
   const result = [...rest.slice(0, CAP - Math.min(POLICY_QUOTA, pol.length)), ...pol.slice(0, POLICY_QUOTA)]
     .sort(cmp);   // 保留名額後再依同一把尺重排，維持清單順序一致
-  // Cache non-empty results only (don't cache a rate-limited empty fetch).
-  if (result.length > 0) _newsCache.set(cacheKey, { at: Date.now(), items: result });
+  // 快取寫入（正快取／負快取）在 getStockNews 統一處理。
   return result;
 }
 

@@ -191,6 +191,19 @@ const CONTRACTS = [
   //   週六的新聞，date 本來就該是日曆日。對它套「資料日 vs 最近交易日」的
   //   標準是我 2026-08-29 一度判錯的——它不該進第三道閘門，故 session:'always'。
   { c: 'newsDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'always' },
+  // ── 🤖 AI 實驗與當沖日誌（2026-09-28·WM-SCAN G2-02）──
+  // 前三者都是 PIT 凍結／當日檔：漏一天就永久缺一天（09-24 daytradeJournal 已實際缺過一次）。
+  // 當沖 AI 實驗：13:40 起 finalize() 寫一次凍結檔 {date}（只有 frozenAt）。零觸發的日子 records=[] 是合法結果 ⇒ allowEmpty。
+  //   ⚠ 同 collection 的 live 盤中檔「有變動才寫」，不設新鮮度閘門；dated 讀取已跳過 live。
+  { c: 'aiDaytradeLab',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 14, countField: 'records', allowEmpty: true },
+  // 波段 AI 實驗：選股窗 17:00～次日 08:30（pick() 以榜單資料日冪等）⇒ 凍結可能拖到隔天清晨，maxStale 放寬到 40h。
+  //   Ollama 三次失敗或候選池空也會凍結成 picks=[]＋note ⇒ allowEmpty。publishHour 23：晚間長任務可能把選股擠到深夜。
+  { c: 'aiSwingLab',       kind: 'dated',   maxStale: 40 * HOUR, session: 'daily', publishHour: 23, allowEmpty: true },
+  // 當沖工作台交易日誌：盤中每分鐘（有變動才）寫 {date}，開盤換日即建檔；收盤出場結算約 13:35 後定稿。
+  //   沒有任何候選的日子 entriesJson='{}' 是合法結果 ⇒ allowEmpty。
+  { c: 'daytradeJournal',  kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 14, countField: 'entriesJson', allowEmpty: true },
+  // 波段 AI 帳戶快照：daemon 啟動時與每小時刷新（不綁交易日）⇒ 3h＝容忍兩輪失敗。0 持股合法 ⇒ allowEmpty。
+  { c: 'aiLabAccounts',    kind: 'latest',  docId: 'swing', label: 'aiLabAccounts/swing', maxStale: 3 * HOUR, session: 'always', dateField: 'dataDate', countField: 'holdings', allowEmpty: true },
   { c: 'marketReports',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 18.5 },   // daemon 18:05 打 /api/cron/daily-close   // 收盤盤勢分析（2026-08-01 事故後納管：曾停更2日無人察覺）
 
   // ── 低頻（週/月/季）──
@@ -346,9 +359,20 @@ function publishHourOf(spec) {
   return spec.publishHour != null ? spec.publishHour : (spec.session === 'daily' ? 16.75 : null);
 }
 
+// 休市日（lastTradingDay() 讀 system/tradingCalendar 時順便填入；讀不到＝空集合，退回只擋週末）。
+// ⚠ 2026-09-28（連假 09-25、09-28 實測）：舊版只扣週末 ⇒ 假日傍晚手動稽核時
+//   ① 「上一次應公布時刻」落在休市日（今天或 09-25），sincePub 只剩 1~2 小時 ⇒ 24 個 daily 來源集體假 STALE；
+//   ② 假日隔天盤前的期待資料日也會退到休市日。只會讓上限變寬（基準日往前），不會讓原本通過的變紅。
+let HOLIDAYS = new Set();
+const isTradingIso = iso => { const wd = new Date(iso + 'T00:00:00Z').getUTCDay(); return wd !== 0 && wd !== 6 && !HOLIDAYS.has(iso); };
+
 function prevTradingDay(iso) {
   const d = new Date(iso + 'T00:00:00Z');
-  do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  for (let i = 0; i < 20; i++) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    const s = d.toISOString().slice(0, 10);
+    if (isTradingIso(s)) return s;
+  }
   return d.toISOString().slice(0, 10);
 }
 
@@ -429,6 +453,7 @@ async function lastTradingDay() {
     const d = (await db.collection('system').doc('tradingCalendar').get()).data();
     if (Array.isArray(d?.holidays)) holidays = new Set(d.holidays);
   } catch { /* fail-open */ }
+  HOLIDAYS = holidays;   // 供 prevTradingDay／isTradingIso 共用同一份日曆
   const t = taipeiNow();
   // 13:30 收盤前，「最近一個完整交易日」是前一天
   if (t.getHours() * 60 + t.getMinutes() < 13 * 60 + 30) t.setDate(t.getDate() - 1);
@@ -445,7 +470,8 @@ function pickTimestamp(d) {
   //   寫入端可用的「文件級新鮮度戳」名字都必須在這裡——少一個就是
   //   bookDepthArchive 事故重演（資料好好的、稽核紅一整天「缺 fetchedAt」）。
   //   單方面改任一邊，欄位命名契約檢查會失敗。
-  for (const k of ['updatedAt', 'at', 'generatedAt', 'fetchedAt', 'topupAt', 'archivedAt']) {
+  //   frozenAt（2026-09-28）：PIT 凍結檔（aiDaytradeLab／aiSwingLab/{date}）只蓋這一個章。
+  for (const k of ['updatedAt', 'at', 'generatedAt', 'fetchedAt', 'topupAt', 'archivedAt', 'frozenAt']) {
     const v = d?.[k];
     if (typeof v === 'number' && v > 1e12) return v;
     if (typeof v === 'string') { const t = Date.parse(v); if (!Number.isNaN(t)) return t; }
@@ -496,8 +522,12 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
       docId = spec.docId || 'latest';
       data = (await db.collection(spec.c).doc(docId).get()).data() || null;
     } else if (spec.kind === 'dated') {
-      const s = await db.collection(spec.c).orderBy('date', 'desc').limit(1).get();
-      if (!s.empty) { data = s.docs[0].data(); docId = s.docs[0].id; }
+      // ⚠ 跳過 docId='live'（2026-09-28·WM-SCAN G2-03）：aiDaytradeLab 同一 collection 裡
+      //   有盤中即時檔 live（date＝今天），orderBy date 同日時 live 排在凍結檔前面
+      //   ⇒ limit(1) 會把 live 當成「最新凍結檔」，凍結檔缺了也照樣綠燈。取 3 筆挑第一個非 live。
+      const s = await db.collection(spec.c).orderBy('date', 'desc').limit(3).get();
+      const first = s.docs.find(x => x.id !== 'live');
+      if (first) { data = first.data(); docId = first.id; }
     } else if (spec.kind === 'perCode') {
       const s = await db.collection(spec.c).get();
       const dates = {};
@@ -526,7 +556,8 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
         if (_ph != null) {
           const t3 = taipeiNow();
           const nowH = t3.getHours() + t3.getMinutes() / 60;
-          const base = nowH >= _ph ? isoOf(t3) : prevTradingDay(isoOf(t3));
+          // 今天休市（週末／假日）就沒有「今天的公布時刻」，基準退回上一個交易日（2026-09-28）
+          const base = nowH >= _ph && isTradingIso(isoOf(t3)) ? isoOf(t3) : prevTradingDay(isoOf(t3));
           sincePubMs = Math.max(0, Date.now()
             - new Date(`${base}T${String(Math.floor(_ph)).padStart(2, '0')}:00:00+08:00`).getTime());
         }
@@ -773,7 +804,9 @@ async function main() {
   // ⚠ 刻意**不改 exit code**：daemon 對本腳本是「成功才標記、失敗每 5 分鐘重試」，
   //   exit 1 會讓它整天重跑完整稽核（含外部 probe）。防護放在標記層：
   //   dataHealth 帶 auditIncomplete，daemon 告警段據此吼出來（見 ai-daemon 16:10 段）。
-  const MIN_SOURCES = 60;                       // 2026-09-04 現況 72；低於此值＝範圍異常
+  // 2026-09-04 現況 72 設 60；2026-09-28 契約 88 條（WM-SCAN G2-13：60 的餘裕大到契約表悄悄縮掉 20 多條也不會吼）
+  // ⇒ 改「現況減 4」。新增契約時順手上調；刪契約要同時下調並寫明理由。低於此值＝範圍異常。
+  const MIN_SOURCES = 84;
   const auditIncomplete = results.length < MIN_SOURCES;
   if (auditIncomplete) console.log(`\n❌ 稽核範圍異常：只檢查了 ${results.length} 個資料源（下限 ${MIN_SOURCES}）——契約表或 probe 流程有問題，本次「全綠」不可信`);
 
@@ -795,12 +828,13 @@ async function main() {
   // 沒有錯誤、沒有告警，只是修正沒有生效（2026-08-30 實際發生過一次）。
   // ⚠ 用**內容雜湊**而非 mtime：git checkout / touch 這類不改內容的操作
   //   也會更新 mtime ⇒ 假警報。我第一版就是 mtime，寫完當場誤報。
+  // ⚠ 2026-09-28（G4-02）：daemon 端改用 lib/daemon-code-hash.mjs（本檔＋遞迴 import 的 scripts/lib）寫 codeHash，
+  //   這裡**必須**用同一個函式算磁碟版——兩端各算各的，daemon 重啟後就會永遠報「落後」（修A錯B）。
   try {
-    const { readFileSync } = await import('node:fs');
-    const { createHash } = await import('node:crypto');
-    const cur = createHash('sha256')
-      .update(readFileSync(new URL('./ai-daemon.mjs', import.meta.url))).digest('hex').slice(0, 16);
-    const b = (await db.collection('system').doc('daemonBuild').get()).data();
+    const { fileURLToPath } = await import('node:url');
+    const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
+    const cur = daemonCodeHash(fileURLToPath(new URL('./ai-daemon.mjs', import.meta.url))).hash;
+    const b =(await db.collection('system').doc('daemonBuild').get()).data();
     if (!b?.codeHash) {
       console.log('\n⚠ 無 daemon 版本紀錄（system/daemonBuild）——無法確認跑的是不是最新碼');
     } else if (b.codeHash !== cur) {

@@ -35,12 +35,21 @@ export async function requireAdmin(request: Request): Promise<AdminCheck> {
   if (!auth || !db) return { ok: false, status: 503, error: 'Auth unavailable' };
 
   let uid: string;
+  let tokenEmail: string | null = null;
   try {
     // checkRevoked=true：帳號被停用或 token 被撤銷時立即失效，不等 1 小時到期
     const decoded = await auth.verifyIdToken(token, true);
     uid = decoded.uid;
-  } catch {
-    return { ok: false, status: 401, error: 'Invalid or expired token' };
+    // 站主身分只認「已驗證的 token email」（2026-09-28 WM-SCAN G1-01）
+    tokenEmail = decoded.email && decoded.email_verified ? decoded.email : null;
+  } catch (e) {
+    // G1-12：只有 token 本身的問題才回 401；驗證服務暫時失效（網路、憑證抓取）回 503，前端可重試
+    const code = (e as { code?: string })?.code || '';
+    if (/auth\/(id-token-expired|id-token-revoked|argument-error|invalid-id-token|user-disabled|user-not-found)/.test(code)) {
+      return { ok: false, status: 401, error: 'Invalid or expired token' };
+    }
+    console.error('[requireAdmin] verifyIdToken 非 token 錯誤', code || (e as Error)?.message);
+    return { ok: false, status: 503, error: 'Auth temporarily unavailable' };
   }
 
   const snap = await db.collection('users').doc(uid).get();
@@ -48,9 +57,11 @@ export async function requireAdmin(request: Request): Promise<AdminCheck> {
 
   const data = snap.data() ?? {};
   const level = String(data.level ?? '');
-  const email = typeof data.email === 'string' ? data.email : null;
-  const isAdmin = level === 'superadmin' || level === 'admin' || email === ADMIN_EMAIL;
+  // ⚠ 2026-09-28 WM-SCAN G1-01（提權漏洞）：原本比對 users/{uid}.email，但該欄是使用者自己可寫的
+  //   ⇒ 任何登入者把 email 欄改成站主信箱就通過所有管理 API。現在站主身分只看 verifyIdToken 的
+  //   已驗證 email；level 欄由 rules 鎖定（只有管理員／Admin SDK 能改），仍可作為授權依據。
+  const isAdmin = level === 'superadmin' || level === 'admin' || tokenEmail === ADMIN_EMAIL;
   if (!isAdmin) return { ok: false, status: 403, error: 'Permission denied' };
 
-  return { ok: true, uid, email, level };
+  return { ok: true, uid, email: tokenEmail, level };
 }

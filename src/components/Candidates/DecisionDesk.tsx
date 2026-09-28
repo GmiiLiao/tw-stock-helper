@@ -21,6 +21,7 @@ import OrderBookDepth from '@/components/shared/OrderBookDepth';
 import { METRIC_TIPS } from '@/lib/metric-tips';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { startLiveLoop, shouldPollThroughClose, isForeground, getSession } from '@/lib/market-clock';
 
 interface CharRow { label?: string; spec?: number; corr?: number; f20?: number; t20?: number; d20?: number; fStreak?: number; tStreak?: number; dStreak?: number }
 
@@ -120,20 +121,24 @@ export default function DecisionDesk() {
       const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
       return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
     };
-    const tick = async () => {
-      try {
+    // gated=false：首次載入不設閘（盤後打開也要看到資料）；之後每拍：
+    //   即時報價/加權指數只在盤中變 ⇒ shouldPollThroughClose（含 13:30–13:45 收盤定價窗）；大盤寬度 daemon 盤後批次仍會重算 ⇒ 只擋背景分頁。
+    const tick = async (gated: boolean) => {
+      const tw = !gated || shouldPollThroughClose();
+      if (tw) try {
         const j = await fetch(`/api/twse/mis-quote?codes=${codes.slice(0, 30).join(',')}`).then(r => (r.ok ? r.json() : null));
-        if (!live || !Array.isArray(j?.quotes)) return;
+        if (!live || !Array.isArray(j?.quotes)) return;   // 沿用原行為：報價回應無效時本拍不續打
         const m: Record<string, { price: number; changePercent: number; high?: number; low?: number; volume?: number }> = {};
         for (const q of j.quotes) if (q.price > 0) m[q.code] = { price: q.price, changePercent: q.changePercent, high: q.high, low: q.low, volume: q.volume };
         setLiveQ(m); setLiveAt(Date.now());
       } catch { /* 保留上次 */ }
-      try { const h = await fetch('/api/ai/market-health').then(r => (r.ok ? r.json() : null)); if (live && h) setHealth(h); } catch { /* 保留 */ }
-      try { const ix = await fetch('/api/twse/market-index').then(r => (r.ok ? r.json() : null)); if (live && ix?.weightedChangePercent != null) setIdxChg(+ix.weightedChangePercent); } catch { /* 保留 */ }
+      if (!gated || isForeground()) try { const h = await fetch('/api/ai/market-health').then(r => (r.ok ? r.json() : null)); if (live && h) setHealth(h); } catch { /* 保留 */ }
+      if (tw) try { const ix = await fetch('/api/twse/market-index').then(r => (r.ok ? r.json() : null)); if (live && ix?.weightedChangePercent != null) setIdxChg(+ix.weightedChangePercent); } catch { /* 保留 */ }
     };
-    tick();
-    const t = setInterval(tick, inHours() ? 30000 : 300000);
-    return () => { live = false; clearInterval(t); };
+    tick(false);
+    // 間隔每拍重算（G3-04：原本三元在掛載時算死）
+    const stop = startLiveLoop(() => { void tick(true); }, () => (inHours() ? 30000 : 300000));
+    return () => { live = false; stop(); };
   }, [codes.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -166,12 +171,13 @@ export default function DecisionDesk() {
       } catch { /* 非盤中/無資料：榜單行顯示 — */ }
     })();
     // 盤中每 60 秒更新榜單（撿尾盤/雷達盤中會變動）
-    const inHours = () => {
-      const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-      const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-      return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-    };
-    const t = inHours() ? setInterval(() => {
+    // G3-04：原本掛載當下決定要不要建計時器 ⇒ 盤前打開整天不更新、盤中打開收盤後仍每分鐘打。
+    // 改為計時器常駐、每拍判時段：盤中＋收盤定價窗＋盤後定案窗（post-close）才打，背景分頁不打。
+    // 盤前（pre-open）刻意不打：原本盤前打開的頁面從不輪詢，避免盤前空榜把首載的名次清掉。
+    const stop = startLiveLoop(() => {
+      const s = getSession();
+      const closeWin = s === 'closed' && shouldPollThroughClose();   // 13:30–13:45 收盤定價窗（原本打到 13:35）
+      if (!isForeground() || (s !== 'regular' && s !== 'post-close' && !closeWin)) return;
       Promise.all([
         fetch('/api/twse/intraday-picks').then(r => (r.ok ? r.json() : null)).catch(() => null),
         fetch('/api/ai/intraday-radar').then(r => (r.ok ? r.json() : null)).catch(() => null),
@@ -186,8 +192,8 @@ export default function DecisionDesk() {
           return { tail: t2, lu: prev.lu, radar: Object.keys(rd).length || !radar ? rd : prev.radar };
         });
       });
-    }, 60000) : null;
-    return () => { live = false; if (t) clearInterval(t); };
+    }, () => 60000);
+    return () => { live = false; stop(); };
   }, [codes.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 事件檢查（近3日除權息/法說等）＋處置/注意＋個股產業（隨候選變化）

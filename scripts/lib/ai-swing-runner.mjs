@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { dropUndefined } from './firestore-clean.mjs';
 import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, parsePicks, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, swingAccount, sizePicks, swingAccountSnapshot, upsertHistory } from './ai-swing-lab.mjs';
 
 const MAX_ATTEMPTS = 3;
@@ -30,6 +31,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const ref = col().doc(date);
       if ((await ref.get()).exists) return true;
       const risk = await getRisk();
+      if (!risk) { log('⚠ 波段 AI 選股：處置名單取不到或殘缺，稍後重試（不以空名單選股）'); return false; }
       let news = {}; try { const nv = (await db.collection('newsVerdict').doc('latest').get()).data(); const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : {}; for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; } catch { news = {}; }
       let market = null; try { const w = (await db.collection('marketWind').doc('latest').get()).data(); market = w?.direction ? `${w.direction.label}（上漲 ${w.direction.up}／下跌 ${w.direction.down}）` : null; } catch { market = null; }
       const industry = await getIndustry().catch(() => ({}));
@@ -38,7 +40,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const base = { date, version: SWING_LAB_VERSION, model, market, swingMeta: { bearDay: !!sp.bearDay, crowded: !!sp.crowded, observe: !!sp.observe, observeWhy: sp.observeWhy || null }, pool, outcomes: {} };
       if (!pool.length) {
         const doc = { ...base, picks: [], note: '候選池為空（兩榜皆無可選或皆為處置股）', prompt: null, raw: null, frozenAt: Date.now() };
-        await ref.set(doc); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
+        await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
         return true;
       }
       const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta });
@@ -53,7 +55,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const account = swingAccount(prevDocs, date);
       const picks = sizePicks(raw0, account.cash);
       const doc = { ...base, picks, account, note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日無選股`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
-      await ref.set(doc);
+      await ref.set(dropUndefined(doc));
       writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
       log(`✓ 波段 AI 選股 ${date}（${model?.name || '?'}）：池 ${pool.length} 檔 → 選 ${picks.map(p => p.code).join('、') || '無'}`);
       await this.writeAccount();
@@ -84,7 +86,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         }
         if (Object.keys(upd).length) {
           if (SWING_HORIZONS.every(h => outcomes[h])) upd.settledAll = true;
-          await d.ref.update(upd);
+          await d.ref.update(dropUndefined(upd));
           writeFile(`${x.date}-結算.md`, renderSwingMarkdown({ ...x, outcomes }), true);
         }
       }
@@ -101,7 +103,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         const ref = db.collection('aiLabAccounts').doc('swing');
         const prevHist = (await ref.get()).data()?.history || [];
         const snap = swingAccountSnapshot(docs, days);
-        await ref.set({ ...snap, history: upsertHistory(prevHist, snap) });   // 每日戰績：每個資料日一列
+        await ref.set(dropUndefined({ ...snap, history: upsertHistory(prevHist, snap) }));   // 每日戰績：每個資料日一列
       } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
     },
 

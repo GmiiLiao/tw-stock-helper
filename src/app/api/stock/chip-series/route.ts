@@ -144,6 +144,8 @@ export async function GET(req: NextRequest) {
       { headers: { 'Cache-Control': cacheHeader('daily') } },
     );
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message || 'failed' }, { status: 500 });
+    // G1-13：錯誤細節只進 server log，不回給公開呼叫端。
+    console.error('[chip-series] failed:', e);
+    return NextResponse.json({ error: 'failed' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

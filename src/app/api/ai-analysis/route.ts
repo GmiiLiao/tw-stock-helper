@@ -104,7 +104,9 @@ export async function POST(request: NextRequest) {
     const limited = await rateLimit(request, 'ai-analysis-post', 10);
     if (limited) return limited;
 
-    const body = await request.json().catch(() => ({}));
+    const parsed = await request.json().catch(() => ({}));
+    // JSON 可能是 null／純值 ⇒ 一律當空物件，避免在下方屬性存取丟例外、被當成 500。
+    const body = parsed && typeof parsed === 'object' ? parsed : {};
 
     // 1. Handle manual trigger action
     if (body.action === 'trigger') {
@@ -338,6 +340,15 @@ ${newsText}
     }
 
     // 2. Original POST logic (External Agent Push Message)
+    // 🔒 2026-07-31：推送路徑原本零授權 —— 任何人 POST 一段文字就會出現在
+    //   **全體使用者**的跑馬燈上（GET 是公開的），等於匿名內容注入。
+    //   沒有任何瀏覽器端呼叫這條路徑，所以用 server-to-server 的共享密鑰即可。
+    // 🔒 2026-09-28（G1-03）：驗證必須在**任何寫入之前**——舊版把它放在下方，
+    //   匿名 POST 會先寫 system/monitor-agent.lastHeartbeat ⇒ 已死的 agent 可被顯示為在線。
+    if (!hasCronSecret(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const now = Date.now();
     if (now - lastPushAt < RATE_LIMIT_MS) {
       return NextResponse.json({ error: 'rate limited', retryAfter: RATE_LIMIT_MS }, { status: 429 });
@@ -380,13 +391,6 @@ ${newsText}
       trend:       { label: '趨勢分析',   emoji: '📈' },
     };
 
-    // 🔒 2026-07-31：推送路徑原本零授權 —— 任何人 POST 一段文字就會出現在
-    //   **全體使用者**的跑馬燈上（GET 是公開的），等於匿名內容注入。
-    //   沒有任何瀏覽器端呼叫這條路徑，所以用 server-to-server 的共享密鑰即可。
-    if (!hasCronSecret(request)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const typeInfo = typeMap[body.type] ?? { label: '分析', emoji: '🤖' };
 
     const msg: AgentMessage = {
@@ -415,7 +419,9 @@ ${newsText}
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 400 });
+    // G1-13：不回傳內部錯誤細節給公開呼叫端；細節只進 server log。
+    console.error('[ai-analysis] POST failed:', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 

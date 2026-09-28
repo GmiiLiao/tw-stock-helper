@@ -20,10 +20,15 @@ service cloud.firestore {
       //   等於任何登入者都能對自己的 user doc 寫 `level: 'superadmin'` 自我提權。
       //   現在：建檔只能給 registered；更新時 level 必須與現值相同（＝不准自己改）。
       //   改等級只有兩條合法路徑——管理員後台（isAdmin）與 daemon（Admin SDK 繞過規則）。
+      // ⚠**email 欄防線（2026-09-28 WM-SCAN G1-01）**：server 端曾以此欄判站主 ⇒ 自改 email 即提權。
+      //   server 已改看 token，但此欄仍被 daemon 用來找站主（通知對象），故只准寫「自己的登入 email」或不動。
       allow create: if isAdmin() ||
-        (isOwner(userId) && request.resource.data.get('level', 'registered') == 'registered');
+        (isOwner(userId) && request.resource.data.get('level', 'registered') == 'registered'
+          && request.resource.data.get('email', null) in [null, request.auth.token.get('email', null)]);
       allow update: if isAdmin() ||
-        (isOwner(userId) && request.resource.data.get('level', null) == resource.data.get('level', null));
+        (isOwner(userId) && request.resource.data.get('level', null) == resource.data.get('level', null)
+          && (request.resource.data.get('email', null) == resource.data.get('email', null)
+              || request.resource.data.get('email', null) == request.auth.token.get('email', null)));
       allow delete: if isAdmin();
 
       match /data/{document} {

@@ -9,9 +9,13 @@ export type RiskInfo = {
   dispEnd: Map<string, string>;
   dispStart: Map<string, string>;
   attEnd: Map<string, string>;
+  /** 已成功取得名單（2026-09-28 WM-SCAN G3-01）。false＝載入中或抓取失敗——空集合不代表「沒有處置股」 */
+  loaded: boolean;
+  /** 上市＋上櫃處置來源皆完整（API 的 dispositionComplete）；需要「排除處置股」的地方要求 loaded && complete */
+  complete: boolean;
 };
 
-const emptyRisk = (): RiskInfo => ({ attention: new Set(), disposition: new Set(), dispEnd: new Map(), dispStart: new Map(), attEnd: new Map() });
+const emptyRisk = (): RiskInfo => ({ attention: new Set(), disposition: new Set(), dispEnd: new Map(), dispStart: new Map(), attEnd: new Map(), loaded: false, complete: false });
 
 /** 台北日曆日 YYYY-MM-DD */
 export const taipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
@@ -30,17 +34,19 @@ export function fetchRiskCodes(): Promise<RiskInfo> {
     _riskPromise = fetch('/api/twse/risk-stocks', { cache: 'no-store' })
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        const r = emptyRisk();
+        if (!d) throw new Error('risk-stocks unavailable');
+        const r: RiskInfo = { ...emptyRisk(), loaded: true, complete: d.dispositionComplete !== false };
         for (const x of (d?.disposition || []) as Array<{ code: string; startDate?: string; endDate?: string }>) {
           if (x.code) { r.disposition.add(x.code); if (x.endDate) r.dispEnd.set(x.code, x.endDate); if (x.startDate) r.dispStart.set(x.code, x.startDate); }
         }
         for (const x of (d?.attention || []) as Array<{ code: string; endDate?: string }>) {
           if (x.code) { r.attention.add(x.code); if (x.endDate) r.attEnd.set(x.code, x.endDate); }
         }
-        _riskCache = r;
+        // 名單殘缺不進模組快取：下一個掛載的元件會重抓（API 端 no-store，不會打穿到上游——上游由 memoize 合流）
+        if (r.complete) _riskCache = r; else _riskPromise = null;
         return r;
       })
-      .catch(() => emptyRisk());
+      .catch(() => { _riskPromise = null; return emptyRisk(); });   // 失敗不快取，下次重試
   }
   return _riskPromise;
 }

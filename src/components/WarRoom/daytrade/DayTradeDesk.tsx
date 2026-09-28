@@ -138,7 +138,7 @@ function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market 
         </div>
       </div>
       <div style={{ height: 'max(520px, calc(100vh - 360px))', overflowY: 'auto', padding: '0 6px 6px' }}>
-        {!dtLoaded ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>當沖資格名單載入中（或暫時無法取得）：確認可當沖前不列任何個股。</div>
+        {!dtLoaded ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>當沖資格／處置股名單載入中（或暫時無法取得）：確認可當沖且非處置股前不列任何個股。</div>
           : !rows.length ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>目前沒有符合的個股。</div>
           : rows.map(r => <DeskRow key={(r.base?.code ?? r.desk!.code)} base={r.base ?? { side, code: r.desk!.code, name: r.desk!.name, market: 'tse', rank: 0, price: null, chg: null, hiUp: null, give: null, vwapDev: null, label: '監控', labelColor: 'var(--text-muted)', reason: '5 秒監控中（不在名單前 30）' }}
             desk={r.desk} now={now} risk={risk} broker={broker} dtStatus={statusOf(dt, r.base?.code ?? r.desk!.code)} />)}

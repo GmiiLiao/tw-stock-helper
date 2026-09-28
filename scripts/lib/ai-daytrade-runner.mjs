@@ -5,6 +5,7 @@
 //   aiDaytradeLab/{date} ＋ second-brain/daytrade-ai-lab/{date}.md／.json（已存在就不覆寫）。
 //   syncNotes()：超級管理員在後台留的人工檢討，同步成 second-brain/daytrade-ai-lab/{date}-人工檢討.md。
 // ─────────────────────────────────────────────────────────────────────────────
+import { dropUndefined } from './firestore-clean.mjs';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AI_LAB_VERSION, AI_LAB_QUOTA, AI_LAB_MAX_LAG_MS, buildDecisionPrompt, parseDecision, settle, labStats, buildReviewPrompt, parseReview, renderMarkdown, factsOf, dtAccount } from './ai-daytrade-lab.mjs';
@@ -23,14 +24,16 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
 
   return {
     /** 每日開盤前（或重啟後）由凍結記錄重算帳戶起點；當沖帳戶 50 萬、不與波段帳戶互通 */
+    /** 回傳 true＝帳戶起點已是今天的；false＝讀取失敗（past 仍是舊值，凍結要放棄、稍後重試·G2-19） */
     async prepareDay(today) {
-      if (past.date === today) return;
+      if (past.date === today) return true;
       let realized = 0;
       try {
         const snap = await db.collection('aiDaytradeLab').orderBy('date', 'desc').limit(400).get();
         for (const d of snap.docs) { if (d.id === 'live') continue; const x = d.data(); if (!(x.date < today)) continue; for (const r of x.records || []) if (r.status === 'filled' && r.ledger) realized += r.ledger.pnlTwd; }
         past = { date: today, realized };
-      } catch (e) { log('✖ 當沖 AI 帳戶起點:', (e.message || '').slice(0, 60)); }
+        return true;
+      } catch (e) { log('✖ 當沖 AI 帳戶起點:', (e.message || '').slice(0, 60)); return false; }
     },
     account() { return dtAccount(records, past.realized); },
 
@@ -99,13 +102,15 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
     async writeLive(force = false) {
       if (!date || (!dirty && !force) || (!force && Date.now() - lastWrite < 30_000)) return;
       dirty = false; lastWrite = Date.now();
-      await db.collection('aiDaytradeLab').doc('live').set({ date, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, updatedAt: Date.now(), records, stats: labStats(records), account: dtAccount(records, past.realized) });
+      await db.collection('aiDaytradeLab').doc('live').set(dropUndefined({ date, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, updatedAt: Date.now(), records, stats: labStats(records), account: dtAccount(records, past.realized) }));
     },
 
     /** 盤後凍結（寫一次）。回傳 true＝已完成（含今天本來就凍結過） */
     async finalize(today, engine) {
       const ref = db.collection('aiDaytradeLab').doc(today);
       if ((await ref.get()).exists) return true;
+      // 帳戶起點讀不到就不凍結（凍結檔寫一次不改，舊起點會永久化）；呼叫端下一輪重試
+      if (!(await this.prepareDay(today))) return false;
       if (date === today && engine) this.tick(today, engine);
       const recs = date === today ? records : [];
       const stats = labStats(recs);
@@ -115,9 +120,15 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
         review = parseReview(text);
         if (!review) log('⚠ 當沖 AI 檢討：Ollama 未回覆或格式錯誤，凍結檔記為缺');
       }
-      await this.prepareDay(today);
-      const doc = { date: today, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, records: recs, stats, account: dtAccount(recs, past.realized), facts: factsOf(recs), review, reviewNote: recs.length ? null : '今日無規則觸發（或常駐服務未在盤中運行），無交易可檢討', frozenAt: Date.now() };
-      await ref.set(doc);
+      // 無記錄時分清「工作台有跑但沒觸發」與「工作台今天沒有盤中紀錄」（G4-11）：看 daytradeAlerts/live 是否為今天
+      let reviewNote = null;
+      if (!recs.length) {
+        let ran = false;
+        try { ran = (await db.collection('daytradeAlerts').doc('live').get()).data()?.date === today; } catch { ran = false; }
+        reviewNote = ran ? '今日工作台盤中有運行，但沒有規則觸發，無交易可檢討' : '今日工作台無盤中紀錄（常駐服務可能未在盤中運行），無交易可檢討';
+      }
+      const doc = { date: today, version: AI_LAB_VERSION, model, modelInfo: await getModelInfo(), deskVersion, quota: AI_LAB_QUOTA, records: recs, stats, account: dtAccount(recs, past.realized), facts: factsOf(recs), review, reviewNote, frozenAt: Date.now() };
+      await ref.set(dropUndefined(doc));
       try {
         mkdirSync(dir, { recursive: true });
         const md = join(dir, `${today}.md`), js = join(dir, `${today}.json`);

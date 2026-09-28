@@ -75,12 +75,14 @@ export default function QuoteGrid({ stock, allTimeHigh, rsi, book }: {
   const [flow, setFlow] = useState<{ inner: number; outer: number; total: number; outerPct: number | null; since: number } | null>(null);
   useEffect(() => {
     let live = true;
+    setFlow(null);   // 換股票時先清掉前一檔的內外盤（失敗保留舊值只限同一檔）
     // 內外盤只在盤中變；休市或分頁在背景就跳過（原本 24/7 每 15 秒打，個股頁掛一夜＝5,760 次）
     const load = (force = false) => {
       if (!force && !shouldPollNow()) return;
       fetch(`/api/twse/order-flow?code=${stock.code}`)
         .then(r => (r.ok ? r.json() : null))
-        .then(j => { if (live && j?.found) setFlow(j); else if (live) setFlow(null); }).catch(() => {});
+        // G3-14：只有明確 found:false 才清空；非 2xx／無效回應保留上一次的內外盤
+        .then(j => { if (!live || !j) return; if (j.found) setFlow(j); else if (j.found === false) setFlow(null); }).catch(() => {});
     };
     load(true);
     const t = setInterval(() => load(), 15000);

@@ -122,6 +122,7 @@ export async function GET(request: NextRequest) {
         'Referer': 'https://www.twse.com.tw/',
       },
       next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!res.ok) throw new Error(`TWSE responded with ${res.status}`);

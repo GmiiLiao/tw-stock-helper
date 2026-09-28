@@ -50,9 +50,17 @@ test('swingStats：選股 vs 整池超額', () => {
   assert.equal(s[5].avg, 1); assert.equal(s[5].excess, 0.5); assert.equal(s[20].n, 0);
 });
 
+// 嚴格假物件（2026-09-28·WM-SCAN G3-09）：真 Firestore 拒收任何層級的 undefined
+// （2026-09-24 daytradeAlerts 956 次寫入失敗的原因）。假物件不拒收＝測試綠、線上紅，所以這裡照真的丟錯。
+function assertNoUndefined(v, path = '') {
+  if (v === undefined) throw new Error(`Cannot use "undefined" as a Firestore value${path ? ` (found in field "${path}")` : ''}`);
+  if (Array.isArray(v)) v.forEach((x, i) => assertNoUndefined(x, `${path}[${i}]`));
+  else if (v && typeof v === 'object') for (const k of Object.keys(v)) assertNoUndefined(v[k], path ? `${path}.${k}` : k);
+}
 function fakeDb(init = {}) {
   const store = { ...init };
-  const ref = (c, id) => ({ id, async get() { return { exists: `${c}/${id}` in store, data: () => store[`${c}/${id}`] }; }, async set(v) { store[`${c}/${id}`] = v; }, async update(v) {
+  const ref = (c, id) => ({ id, async get() { return { exists: `${c}/${id}` in store, data: () => store[`${c}/${id}`] }; }, async set(v) { assertNoUndefined(v); store[`${c}/${id}`] = v; }, async update(v) {
+    assertNoUndefined(v);
     const cur = { ...(store[`${c}/${id}`] || {}) };
     for (const k in v) { if (k.includes('.')) { const [a, b] = k.split('.'); cur[a] = { ...(cur[a] || {}), [b]: v[k] }; } else cur[k] = v[k]; }
     store[`${c}/${id}`] = cur;
@@ -95,6 +103,19 @@ test('執行器：回覆無法解析會重試，第 3 次才以失敗凍結', as
   assert.equal(await lab.pick(), true);
   assert.equal(db.store[`aiSwingLab/${D}`].picks.length, 0);
   assert.match(db.store[`aiSwingLab/${D}`].note, /無法解析/);
+});
+
+test('執行器：處置名單取不到（null）不選股、不凍結，稍後重試（WM-SCAN G2-07）', async () => {
+  const days = mkDays(); const D = days[10].date;
+  const db = fakeDb({ 'swingPicks/latest': { dataDate: D, mode: 'close', items: [{ code: '1111', name: 'A', tier: 1 }] }, 'swingHold/latest': { dataDate: D, combo: { items: [] } } });
+  let calls = 0; let risk = null;
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => { calls++; return '{"picks":[],"note":"ok"}'; }, getModelInfo: async () => ({ name: 'm' }), getRisk: async () => risk, getIndustry: async () => ({}), loadDays: async () => days });
+  assert.equal(await lab.pick(), false);
+  assert.equal(calls, 0, '名單缺席不問 Ollama');
+  assert.equal(db.store[`aiSwingLab/${D}`], undefined, '不凍結');
+  risk = { disp: new Set(), attention: new Set() };
+  assert.equal(await lab.pick(), true);
+  assert.equal(calls, 1);
 });
 
 test('波段交易單：09:00 開盤買、13:30 收盤賣、一般稅 0.3%、先選後買查核', async () => {

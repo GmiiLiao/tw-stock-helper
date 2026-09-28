@@ -139,6 +139,17 @@ export function shouldPollNow(now?: Date): boolean {
   return getSession(now) !== 'closed';
 }
 
+/** shouldPollNow 再加上收盤定價窗 13:30–13:45（2026-09-28）：getSession 把 13:30–14:00 算休市，
+ *  但收盤集合競價結果 13:30 後才揭示——盤中才變的即時資料（報價、雷達、五檔、量增）若在 13:30 停輪詢，
+ *  畫面會停在收盤前最後一拍直到 14:00。新接閘的即時輪詢用這支；shouldPollNow 本身語意不動。 */
+export function shouldPollThroughClose(now: Date = new Date()): boolean {
+  if (shouldPollNow(now)) return true;
+  if (typeof document !== 'undefined' && document.hidden) return false;
+  if (!isTradingDay(now)) return false;
+  const { minutes } = taipei(now);
+  return minutes >= M(13, 30) && minutes < M(13, 45);
+}
+
 /** 只擋背景分頁，不擋休市 —— 給美股/daemon 驅動、休市時仍會更新的資料用 */
 export function isForeground(): boolean {
   return typeof document === 'undefined' || !document.hidden;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark, dayTradeTintOf } from '@/components/shared/DayTradeBadge';
@@ -48,9 +49,10 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
   useEffect(() => {
     let live = true;
     const load = () => fetch('/api/ai/chip-wind').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
-    load();
-    const t = setInterval(load, isTwTradingHours() ? 120000 : 600000);
-    return () => { live = false; clearInterval(t); };
+    load();   // 首次載入不設閘
+    // 間隔每拍重算（G3-05）；法人籌碼 daemon 盤後/休市仍會重算 ⇒ 只擋背景分頁、不擋休市
+    const stop = startLiveLoop(() => { if (isForeground()) load(); }, () => (isTwTradingHours() ? 120000 : 600000));
+    return () => { live = false; stop(); };
   }, []);
 
   if (!data?.timeframes) return null;

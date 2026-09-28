@@ -473,6 +473,8 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
           'Accept': 'application/json',
         },
         cache: 'no-store',
+        // G1-04：此 fetch 位於共用 in-flight promise 內，一次 hang 會卡住全部等待者。
+        signal: AbortSignal.timeout(8000),
       }).then(async r => {
         if (!r.ok) throw new Error(`TPEx API error status: ${r.status}`);
         const data = await r.json();
@@ -977,6 +979,7 @@ export async function getMarketNewsDataInternal(): Promise<NewsData> {
       fetch('https://openapi.twse.com.tw/v1/opendata/t187ap04_L', {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)' },
         cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
       }),
     ]);
 

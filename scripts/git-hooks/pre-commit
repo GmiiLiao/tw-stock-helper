@@ -15,5 +15,14 @@ if git diff --cached --name-only | grep -qE '^src/'; then
   node scripts/audit-ratchets.mjs >/tmp/rt.out 2>&1 || { cat /tmp/rt.out; echo "❌ Ratchet 違規（setInterval 未接 gate）"; fail=1; }
   node scripts/enforce-safe-storage.mjs >/tmp/ss.out 2>&1 || { cat /tmp/ss.out; echo "❌ 原生 localStorage 呼叫（改用 @/lib/safe-storage）"; fail=1; }
 fi
+# scripts/lib 單元測試（2026-09-28·WM-SCAN G3-08／G4-14）：daemon 的純函式與執行器都在 scripts/lib，
+# 測試原本沒接任何閘門 ⇒ 改壞了照樣 commit、disk 即部署。只在動到 scripts/lib/ 時跑（~0.2 秒）。
+if git diff --cached --name-only | grep -qE '^scripts/lib/'; then
+  set -- scripts/lib/*.test.mjs
+  if [ -e "$1" ]; then
+    node --test "$@" >/tmp/lt.out 2>&1 || { cat /tmp/lt.out; echo "❌ scripts/lib 單元測試失敗（node --test scripts/lib/*.test.mjs）"; fail=1; }
+    [ $fail -eq 0 ] && echo "✓ scripts/lib 單元測試通過（$# 檔）"
+  fi
+fi
 [ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet＋safe-storage 通過"
 exit $fail

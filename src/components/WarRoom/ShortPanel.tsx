@@ -2,6 +2,7 @@
 
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
+import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { tickSize, isLimitUp, isLimitDown } from '@/lib/twse-api';
@@ -55,8 +56,9 @@ export default function ShortPanel() {
       .catch(() => { /* 無 review 不擋榜 */ });
     load(); loadReview();
     // 榜單 10 分鐘一更，60 秒輪詢足夠（非逐拍報價，不接 revealTick）
-    const t = setInterval(load, isTwTradingHours() ? 60_000 : 300_000);
-    return () => { live = false; clearInterval(t); };
+    // 間隔每拍重算（G3-05）；盤後定榜在收盤後才寫 ⇒ 只擋背景分頁、不擋休市
+    const stop = startLiveLoop(() => { if (isForeground()) load(); }, () => (isTwTradingHours() ? 60_000 : 300_000));
+    return () => { live = false; stop(); };
   }, []);
 
   if (!data) return <div style={{ padding: 20, color: 'var(--text-muted)' }}>載入中…</div>;

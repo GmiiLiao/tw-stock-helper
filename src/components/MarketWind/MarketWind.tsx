@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import SectorWind from '@/components/SectorWind/SectorWind';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
@@ -52,9 +53,10 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
   useEffect(() => {
     let live = true;
     const load = () => fetch('/api/ai/market-wind').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
-    load();
-    const t = setInterval(load, isTwTradingHours() ? 90000 : 600000);
-    return () => { live = false; clearInterval(t); };
+    load();   // 首次載入不設閘
+    // 間隔每拍重算（G3-05）；daemon sectorLoop 休市仍每 30 分重算（含收盤定案）⇒ 只擋背景分頁、不擋休市
+    const stop = startLiveLoop(() => { if (isForeground()) load(); }, () => (isTwTradingHours() ? 90000 : 600000));
+    return () => { live = false; stop(); };
   }, []);
 
   if (!data?.themes?.length) return null;

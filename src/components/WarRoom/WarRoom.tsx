@@ -22,7 +22,7 @@ import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
-import { startLiveLoop, revealTick } from '@/lib/market-clock';
+import { startLiveLoop, revealTick, shouldPollThroughClose, isForeground } from '@/lib/market-clock';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
@@ -148,13 +148,24 @@ export default function WarRoom() {
     const loadBreadth = async () => {
       try { const b = await fetch('/api/ai/market-health').then(x => (x.ok ? x.json() : null)); if (live && b) setBreadth(b); } catch { /* ignore */ }
     };
-    load(); quotes(); loadBreadth();
-    const iv = setInterval(() => { load(); loadBreadth(); }, isTwTradingHours() ? 30000 : 300000);
+    // 備選區逾時修剪原本搭在 load() 裡；休市跳過雷達請求時仍要照常修剪（不打網路）
+    const pruneOnly = () => setBench(cur => {
+      const next = prune(cur, ttlMin, benchMax);
+      storageSet('warBench', JSON.stringify({ date: todayTw(), items: next }));
+      return next;
+    });
+    load(); quotes(); loadBreadth();   // 首次載入不設閘：盤後打開也要看到資料
+    // 間隔每拍重算（G3-03：原本三元在掛載時算死）＋閘門：
+    //   雷達只在盤中變 ⇒ shouldPollThroughClose（含 13:30–13:45 收盤定價窗）；大盤寬度 daemon 盤後批次仍會重算 ⇒ 只擋背景分頁。
+    const stopL = startLiveLoop(() => {
+      if (shouldPollThroughClose()) load(); else pruneOnly();
+      if (isForeground()) loadBreadth();
+    }, () => (isTwTradingHours() ? 30000 : 300000));
     // 報價與榜單分離（使用者 2026-09-02「盤中為 3 秒更新」）：榜單/寬度 30 秒即可，
     // 但**價格**要鎖相在 MIS 揭示邊界+3s——揭示 5 秒一拍，邊界+1s 快線已抓、
     // +3s 時各層快取已回填，此時打恰好每拍都拿到最新價。盤外退回 5 分鐘。
-    const stopQ = startLiveLoop(quotes);   // 鎖相＋回前景立即恢復（標準件）
-    return () => { live = false; clearInterval(iv); stopQ(); };
+    const stopQ = startLiveLoop(() => { if (shouldPollThroughClose()) quotes(); });   // 鎖相＋回前景立即恢復（標準件）
+    return () => { live = false; stopL(); stopQ(); };
   }, [ttlMin, benchMax, prune]);
 
   // 點選(展開)主榜列 → 釘住到備選區（之後掉榜也保留）

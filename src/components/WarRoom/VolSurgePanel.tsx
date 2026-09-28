@@ -5,6 +5,7 @@
 // 此為單位時間量能暴增（上市≥500張級、上櫃依比例），官方三大法人 15:00 後才公布。
 
 import { useEffect, useState } from 'react';
+import { startLiveLoop, shouldPollThroughClose } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
@@ -34,9 +35,10 @@ export default function VolSurgePanel() {
   useEffect(() => {
     let live = true;
     const load = () => fetch('/api/ai/vol-surge').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
-    load();
-    const t = setInterval(load, isTwTradingHours() ? 30000 : 120000);
-    return () => { live = false; clearInterval(t); };
+    load();   // 首次載入不設閘：盤後打開也要看到最後結果
+    // 間隔每拍重算（G3-05）；爆量偵測只在盤中跑 ⇒ 休市或背景分頁不打
+    const stop = startLiveLoop(() => { if (shouldPollThroughClose()) load(); }, () => (isTwTradingHours() ? 30000 : 120000));
+    return () => { live = false; stop(); };
   }, []);
 
   const mBadge = (m: string) => m === 'otc' ? { t: '櫃', c: '#f59e0b' } : { t: '市', c: '#3d8ef8' };

@@ -11,7 +11,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SRC = join(ROOT, 'src');
 const POLICY_PATH = join(ROOT, 'scripts/route-policy.json');
 const LIST = process.argv.includes('--list');
-const GATE = /shouldPollNow\(|isForeground\(\)|startLiveLoop\(|liveQuoteInterval\(|useSharedPoll\(/;
+const GATE = /shouldPollNow\(|shouldPollThroughClose\(|isForeground\(\)|startLiveLoop\(|liveQuoteInterval\(|useSharedPoll\(/;
 
 function walk(dir, out = []) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {

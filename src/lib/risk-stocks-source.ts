@@ -48,6 +48,9 @@ export interface RiskStocksResult {
   /** 上市／上櫃注意股名單的「公布日」（ISO）。注意股是公布日隔天生效的狀態，畫面要標名單日期，不能讓人以為是即時判定。 */
   twseAttentionDate?: string | null;
   tpexAttentionDate?: string | null;
+  /** 上市＋上櫃兩個處置來源本輪都成功取得（2026-09-28 WM-SCAN G2-05）。
+   *  false＝至少一邊抓取失敗，清單可能缺漏——消費端不可把「不在清單上」當成「不是處置股」。 */
+  dispositionComplete?: boolean;
 }
 
 const TTL = 5 * 60 * 1000;
@@ -226,11 +229,14 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
     });
   }
 
-  return { attention, disposition: applyNewDispositionRegime(disposition), fetchedAt: new Date().toISOString(), twseAttentionDate, tpexAttentionDate };
+  // 處置端點抓取失敗時 rows() 回 []，與「今日無處置股」無法區分 ⇒ 另記來源是否真的回了陣列
+  const dispositionComplete = Array.isArray(twDisp) && Array.isArray(tpDisp);
+  return { attention, disposition: applyNewDispositionRegime(disposition), fetchedAt: new Date().toISOString(), twseAttentionDate, tpexAttentionDate, dispositionComplete };
 }, { timeoutMs: 12_000, isDegraded: v => {
-  const r = v as RiskStocksResult; return !r.attention.length && !r.disposition.length;
+  // 降級 ⇒ memoize 回上一份完整結果（沒有就回 null），30s 後重試；不讓殘缺名單蓋掉好的
+  const r = v as RiskStocksResult; return !r.dispositionComplete || (!r.attention.length && !r.disposition.length);
 } });
 
 export async function fetchRiskStocks(): Promise<RiskStocksResult> {
-  return (await _riskStocks()) ?? { attention: [], disposition: [], fetchedAt: new Date().toISOString() };
+  return (await _riskStocks()) ?? { attention: [], disposition: [], fetchedAt: new Date().toISOString(), dispositionComplete: false };
 }

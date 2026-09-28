@@ -32,15 +32,22 @@ function Cell({ w }: { w: WindowStat }) {
 }
 
 export default function AiLabTargets() {
-  const [boards, setBoards] = useState<{ dt: TargetBoard | null; sw: TargetBoard | null } | null>(null);
+  // G3-16：抓取失敗（非 2xx／網路錯）要顯示「載入失敗」，不可被當成空序列顯示成「尚無資料」
+  const [boards, setBoards] = useState<{ dt: TargetBoard | null; sw: TargetBoard | null; dtFail: boolean; swFail: boolean } | null>(null);
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [dt, sw] = await Promise.all([authedJson('/api/admin/ai-daytrade-lab'), authedJson('/api/admin/ai-swing-lab')]).catch(() => [null, null]);
+      const [dt, sw] = await Promise.all([
+        authedJson('/api/admin/ai-daytrade-lab').catch(() => null),
+        authedJson('/api/admin/ai-swing-lab').catch(() => null),
+      ]);
       if (!alive) return;
       const dtSeries = ((dt?.daily || []) as { date: string; equity: number }[]).map(x => ({ date: x.date, total: x.equity }));
       const swSeries = ((sw?.snapshot?.history || []) as { date: string; total: number }[]).map(x => ({ date: x.date, total: x.total }));
-      setBoards({ dt: targetBoard(dtSeries, INITIAL), sw: targetBoard(swSeries, INITIAL) });
+      setBoards({
+        dt: dt ? targetBoard(dtSeries, INITIAL) : null, sw: sw ? targetBoard(swSeries, INITIAL) : null,
+        dtFail: !dt, swFail: !sw,
+      });
     })();
     return () => { alive = false; };
   }, []);
@@ -61,7 +68,12 @@ export default function AiLabTargets() {
               {['帳戶', '帳戶總值', '累積報酬', '近 5 日（目標 ≥35%）', '近 20 日（目標 ≥70%）', '近 60 日（目標 ≥120%）'].map(h => <th key={h} style={{ padding: '4px 10px', textAlign: 'left', borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {([['⏳ 當沖', boards.dt], ['🌊 波段持有', boards.sw]] as const).map(([name, b]) => b && (
+              {([['⏳ 當沖', boards.dt, boards.dtFail], ['🌊 波段持有', boards.sw, boards.swFail]] as const).map(([name, b, failed]) => failed ? (
+                <tr key={name} style={{ borderBottom: '1px dashed var(--border-primary)' }}>
+                  <td style={{ padding: '6px 10px', fontWeight: 900, whiteSpace: 'nowrap' }}>{name}</td>
+                  <td colSpan={5} style={{ padding: '6px 10px', color: '#ef4444' }}>載入失敗</td>
+                </tr>
+              ) : b && (
                 <tr key={name} style={{ borderBottom: '1px dashed var(--border-primary)' }}>
                   <td style={{ padding: '6px 10px', fontWeight: 900, whiteSpace: 'nowrap' }}>{name}<div style={{ fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>已記錄 {b.tradingDays} 個交易日</div></td>
                   <td style={{ ...MONO, padding: '6px 10px', fontWeight: 800 }}>{Math.round(b.total).toLocaleString()} 元</td>

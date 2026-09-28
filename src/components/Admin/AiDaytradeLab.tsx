@@ -3,7 +3,7 @@
 // ── 🤖 AI 實驗·當沖（超級管理員專用；2026-09-24 UX 重整）─────────────────────
 // 閱讀順序：①結論數字（AI 成交淨損益、AI 放棄的反事實、判斷加值）②挑日期 ③逐筆交易單（買賣時間／金額／費稅／淨損益＋先決定後成交查核）
 //          ④AI 理由收合 ⑤程式判定的對錯與 AI 總評 ⑥我的檢討。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import type { AiLabRecord, AiLabStats } from '../../../scripts/lib/ai-daytrade-lab.mjs';
 import { Kpi, TradeSlip, NotesBox, Section, ListTable, MONO, upDn, twd, pct, tw } from './AiLabParts';
@@ -35,9 +35,24 @@ export default function AiDaytradeLab() {
   const [data, setData] = useState<Resp | null>(null);
   const [date, setDate] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
+  // G3-15：重載失敗時若已有資料就保留、只顯示小字錯誤（不整頁換成「載入失敗」）；
+  //   請求序號擋亂序——只採用最後發出的那一次回應。
+  const [loadErr, setLoadErr] = useState('');
+  const seq = useRef(0);
   const load = useCallback(async (d: string | null) => {
-    try { const r = await authed(`/api/admin/ai-daytrade-lab${d ? `?date=${d}` : ''}`); const j = await r.json(); setData(r.ok ? j : { ...j, found: false }); }
-    catch { setData({ found: false, days: [], cumulative: null, confidence: [], live: null, detail: null, error: '載入失敗' }); }
+    const my = ++seq.current;
+    const fail = (next: Resp, why: string) => {
+      setData(prev => (prev && !prev.error ? prev : next));
+      setLoadErr(why);
+    };
+    try {
+      const r = await authed(`/api/admin/ai-daytrade-lab${d ? `?date=${d}` : ''}`); const j = await r.json();
+      if (my !== seq.current) return;
+      if (r.ok) { setData(j); setLoadErr(''); } else fail({ ...j, found: false }, j?.error || '載入失敗');
+    } catch {
+      if (my !== seq.current) return;
+      fail({ found: false, days: [], cumulative: null, confidence: [], live: null, detail: null, error: '載入失敗' }, '載入失敗');
+    }
   }, []);
   useEffect(() => { load(date); }, [load, date]);
 
@@ -63,6 +78,7 @@ export default function AiDaytradeLab() {
         盤中當沖工作台規則觸發後，由本機 Ollama 決定做或不做（多、空各 ≤5 筆）。模擬帳戶 <b>50 萬</b>（與波段帳戶不互通）：單筆上限 25 萬、只下整張，買不起 1 張記「資金不足」；成交＝AI 回覆當下的快線即時價，出場沿用工作台規則（1R／2R／3R 各賣 1/3）。
         AI 放棄的觸發另列「反事實」交易單（規則照做會怎樣）。<b>AI 有沒有用：看「成交」是否比「放棄」好。</b>模擬交易，非投資建議。
       </div>
+      {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
       {c && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -153,7 +169,7 @@ function DayView({ doc, live, onSave, msg }: { doc: LabDoc; live: boolean; onSav
             ? <div style={{ marginTop: 4 }}><b>AI 總評</b><span style={{ color: 'var(--text-muted)' }}>（AI 撰寫、未經驗證，數字以上方為準）</span>：{doc.review.summary}
                 {doc.review.improvements.length > 0 && <ol style={{ margin: '2px 0 0 1.2em', padding: 0 }}>{doc.review.improvements.map((x, i) => <li key={i}>{x}</li>)}</ol>}</div>
             : <div style={{ color: 'var(--text-muted)' }}>{doc.reviewNote || 'AI 總評產生失敗'}</div>}
-          <NotesBox initial={doc.adminNotes || ''} meta={doc.adminNotesAt ? `${doc.adminBy}·${tw(doc.adminNotesAt, true)}` : undefined} onSave={onSave} msg={msg}
+          <NotesBox key={doc.date} initial={doc.adminNotes || ''} meta={doc.adminNotesAt ? `${doc.adminBy}·${tw(doc.adminNotesAt, true)}` : undefined} onSave={onSave} msg={msg}
             placeholder="例：AI 放棄的 3 筆突破回踩反事實都賺（+0.8R、+0.82R、+1.32R），下一版 prompt 對「分數≥60 的突破回踩」降低放棄傾向" />
         </Section>
       )}

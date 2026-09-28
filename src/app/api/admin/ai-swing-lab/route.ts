@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/require-admin';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 import { swingStats, swingAccount, type SwingLabDoc } from '../../../../../scripts/lib/ai-swing-lab.mjs';
 
 // ── 🤖 AI 實驗·波段持有（**超級管理員專用**）──────────────────────────
@@ -33,7 +34,8 @@ export async function GET(request: Request) {
     const detail = want && DATE_RE.test(want) ? docs.find(d => d.date === want) || null : docs[0] || null;
     // 持有清單（最新收盤計市值）與結算清單：daemon 每日結算後寫 aiLabAccounts/swing
     const snapshot = (await db.collection('aiLabAccounts').doc('swing').get()).data() || null;
-    return NextResponse.json({
+    // G2-11：下載資料一律壓縮（Cloud Run 前無自動 gzip）；JSON 內容與舊版相同。
+    return gzipJsonAuto({
       found: docs.length > 0,
       stats: swingStats(docs), byModel, snapshot,
       // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由記錄重算；持倉＝尚未到帳戶出場期的部位
@@ -41,7 +43,7 @@ export async function GET(request: Request) {
       openPositions: docs.flatMap(d => (d.picks || []).filter(p => p.position?.shares && !d.outcomes?.[p.position.exitH]).map(p => ({ date: d.date, code: p.code, name: p.name, shares: p.position!.shares, estCost: p.position!.estCost, exitH: p.position!.exitH }))),
       days: docs.map(d => ({ date: d.date, model: d.model?.name || null, picks: d.picks.map(p => p.code), settled: Object.keys(d.outcomes || {}).map(Number), hasNotes: !!d.adminNotes })),
       detail,
-    }, { headers: { 'Cache-Control': 'no-store' } });
+    }, { 'Cache-Control': 'no-store' });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

@@ -93,7 +93,10 @@ export async function GET(request: Request) {
   db.collection('activity_logs').add({
     type: 'admin_impersonate_read', adminUid: gate.uid, adminEmail: gate.email,
     targetUid: target, targetEmail: u.email ?? null, timestamp: Date.now(),
-  }).catch(() => {});
+  }).catch((e) => {
+    // G1-14：稽核紀錄寫入失敗不擋回應，但不可靜默——要留下可 grep 的 log。
+    console.error('[admin/impersonate] audit log write failed:', { adminUid: gate.uid, targetUid: target }, e);
+  });
 
   return NextResponse.json({
     profile: { uid: target, email: u.email ?? null, level: u.level ?? 'registered', lastLogin: u.lastLogin ?? null },

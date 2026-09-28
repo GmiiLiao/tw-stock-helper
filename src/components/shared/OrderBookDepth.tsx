@@ -8,6 +8,7 @@
 // 顏色刻意不用紅/綠（那是漲跌語意）：委買＝藍、委賣＝橙，避免與漲跌顏色混淆。
 
 import { useEffect, useState } from 'react';
+import { startLiveLoop, shouldPollThroughClose } from '@/lib/market-clock';
 
 interface DepthRow { bid: [number, number][]; ask: [number, number][] }
 
@@ -18,7 +19,13 @@ function isTwTradingHours(): boolean {
 }
 
 export default function OrderBookDepth({ code, price }: { code: string; price?: number }) {
-  const tradingNow = isTwTradingHours();
+  // G3-19：原本 tradingNow 只在 render 時算——元件沒重繪就不會跨過 13:35 關閉（收盤後續打），
+  // 盤前打開的也不會在 09:00 啟動。改成狀態＋每 30 秒對時（純本地判斷，不打網路；值不變時 React 不重繪）。
+  const [tradingNow, setTradingNow] = useState(isTwTradingHours);
+  useEffect(() => {
+    const t = setInterval(() => setTradingNow(isTwTradingHours()), 30_000);
+    return () => clearInterval(t);
+  }, []);
   const [collapsed, setCollapsed] = useState(false); // 盤中預設展開，使用者可自行收合
   const [row, setRow] = useState<DepthRow | null>(null);
   const [at, setAt] = useState<number | null>(null);
@@ -33,9 +40,10 @@ export default function OrderBookDepth({ code, price }: { code: string; price?: 
       if (!live) return;
       if (x?.found && x.row) { setRow(x.row); setAt(x.at ?? null); } else setMiss(!x?.row);
     }).catch(() => { if (live) setMiss(true); });
-    tick();
-    const t = setInterval(tick, 5000);
-    return () => { live = false; clearInterval(t); };
+    tick();   // 首次不設閘
+    // 之後每拍：休市（含 13:30 後）或背景分頁不打；回前景立即補一次（startLiveLoop）
+    const stop = startLiveLoop(() => { if (shouldPollThroughClose()) void tick(); }, () => 5000);
+    return () => { live = false; stop(); };
   }, [code, tradingNow]);
 
   // 非盤中：功能關閉，僅留一行說明（不佔版面、不誤導）

@@ -54,16 +54,18 @@ function baseRow(side: 'long' | 'short', s: FadeSnap | undefined, code: string, 
   };
 }
 
-/** 兩側名單＋可當沖／處置判斷。dtLoaded=false 時兩側皆空（確認可當沖前不列任何個股）。 */
+/** 兩側名單＋可當沖／處置判斷。dtLoaded=false 時兩側皆空（確認可當沖、且處置名單完整取得前不列任何個股）。 */
 export function useDeskLists(snaps: FadeSnap[], marketOpen: boolean) {
   const lu = useLuLive();
   const dt = useDayTradeCodes();
   const risk = useRiskCodes();
   const disp = useMemo(() => { const t = taipeiToday(); return new Set([...risk.disposition].filter(c => (risk.dispEnd.get(c) ?? '9999') >= t)); }, [risk]);
   const snapMap = useMemo(() => { const m: Record<string, FadeSnap> = {}; for (const s of snaps) m[s.code] = s; return m; }, [snaps]);
+  // 處置名單抓取失敗或殘缺時空集合≠沒有處置股（2026-09-28 WM-SCAN G3-01）⇒ 與當沖資格同樣 fail-closed
+  const ready = dt.loaded && risk.loaded && risk.complete;
 
   const long = useMemo<BaseRow[]>(() => {
-    if (!dt.loaded) return [];
+    if (!ready) return [];
     const out: BaseRow[] = [];
     for (const p of lu) {
       if (out.length >= LIST_N) break;
@@ -71,10 +73,10 @@ export function useDeskLists(snaps: FadeSnap[], marketOpen: boolean) {
       out.push(baseRow('long', snapMap[p.code], p.code, p.name, p.market, out.length + 1, `模型 ${p.score.toFixed(1)}`, '#fbbf24', p.reasons.slice(0, 4).join('·'), { price: p.price, chg: p.chg }));
     }
     return out;
-  }, [lu, snapMap, dt, disp]);
+  }, [lu, snapMap, dt, disp, ready]);
 
   const short = useMemo<BaseRow[]>(() => {
-    if (!dt.loaded) return [];
+    if (!ready) return [];
     const { rows, avoid } = classifyFade(snaps, marketOpen, dt);
     const out: BaseRow[] = []; const seen = new Set<string>();
     for (const r of [...rows].sort((a, b) => TIER_RANK[a.main.tier] - TIER_RANK[b.main.tier] || b.m.give - a.m.give)) {
@@ -93,9 +95,9 @@ export function useDeskLists(snaps: FadeSnap[], marketOpen: boolean) {
       if (out.length >= LIST_N) break; seen.add(a.s.code); out.push(baseRow('short', a.s, a.s.code, a.s.name, a.s.market, out.length + 1, '避', '#f59e0b', `⚠ 不建議放空：${a.why}`));
     }
     return out;
-  }, [snaps, marketOpen, dt, disp]);
+  }, [snaps, marketOpen, dt, disp, ready]);
 
-  const canLong = (code: string) => canLongOf(dt, disp, code);
-  const canShort = (code: string) => canShortOf(dt, disp, code);
-  return { long, short, dtLoaded: dt.loaded, canLong, canShort };
+  const canLong = (code: string) => ready && canLongOf(dt, disp, code);
+  const canShort = (code: string) => ready && canShortOf(dt, disp, code);
+  return { long, short, dtLoaded: ready, canLong, canShort };
 }

@@ -241,6 +241,45 @@ grep -rnE "T00:00:00\+08:00'\)\.getTime\(\)" src/ scripts/
 - 日期解析要對 **0 日／0 月／13 月**這類上游髒值有明確處置（換算或拒收，不可默吞）
 - 每月首個交易日的盤前，值得把日期敏感的 probe 都掃一輪——那是全年僅 12 次的觀測窗
 
+### M. Firestore 拒收 undefined＋同一 try 區塊連坐（2026-09-28 補入·WM-SCAN G4-12）
+
+**特徵**：寫入 payload 裡**任何一層**出現 `undefined`（常見於 `{...obj, x: undefined}`、
+`{ a: src.a }` 而 `src` 缺那個鍵、陣列元素物件缺欄位），daemon 端 admin SDK
+**沒有**設 `ignoreUndefinedProperties`（前端 `src/lib/firebase.ts` 有設，兩端行為不同）⇒ `set()`/`update()` 直接丟錯。
+單獨看只是一次寫入失敗；致命的是**好幾個互不相干的寫入包在同一個 try** 裡——
+第一個丟錯，後面的全部被跳過，而 catch 只記一行 log，畫面上是「那一頁沒資料」，不是錯誤。
+測試抓不到的原因：假 Firestore 的 `set(v){ store[id]=v }` 什麼都收 ⇒ 測試綠、線上紅。
+
+```bash
+# ① 物件鍵位置明寫 undefined（逐一看是否流進 Firestore 寫入；JSX／函式參數位置是良性）
+grep -rnE ':\s*undefined\b' scripts/ src/ --include='*.mjs' --include='*.ts' | grep -v '\.test\.'
+# ② 把別的物件整包展開進寫入——被展開的物件只要有一個欄位是 undefined 就中
+grep -rnE '\.(set|update)\(\{ *\.\.\.' scripts/ src/ --include='*.mjs' --include='*.ts' | grep -v '\.test\.'
+# ③ 哪一端的 SDK 會吞 undefined（沒列到的都是嚴格端）
+grep -rn 'ignoreUndefinedProperties' scripts/ src/
+# ④ 同一個 try 之後 12 行內有兩個以上寫入（啟發式只能縮範圍，命中要人工看；2026-09-28 跑出 2 處：:897、:1284）
+awk '/try \{/{t=NR} t && NR-t<=12 && /\.(set|update)\(/{c[t]++} END{for(k in c) if(c[k]>1) print FILENAME":"k" 同一 try 內 "c[k]" 個寫入"}' scripts/ai-daemon.mjs
+# ⑤ 測試的假 Firestore 是否照真的拒收 undefined
+grep -rnE 'async set\(v\)' scripts/lib/*.test.mjs
+```
+
+**2026-09-24 實案**：`daytradeAlerts/live` 從 08:55 到收盤寫入失敗 **956 次**（`{...params, split: undefined}`），
+同一個 try 裡的 AI 實驗結算與交易日誌一併被跳過 ⇒ 當沖工作台整天無資料、
+當日 `daytradeJournal` 永久缺（PIT 檔，事後無法重建）。詳見 [`AI-LAB-2026-09-24.md`](AI-LAB-2026-09-24.md)「事故」節。
+稽核當時也看不到：`daytradeJournal` 不在 CONTRACTS 表裡（2026-09-28 已補契約）。
+
+**2026-09-28 追加**：把 `ai-daytrade-lab.test.mjs`／`ai-swing-lab.test.mjs` 的假 Firestore 改嚴格（照真的拒收 undefined）後，
+立刻有 4 個既有測試轉紅——`settle()` 寫出 `mfeR: undefined`、`buildPool()` 寫出 `pool[].price／chg: undefined`
+（上游榜單缺欄位時就會在線上重演）。**假物件寬鬆＝這一族的保護傘**。
+
+**修法（三件缺一不可）**：
+- **每個獨立寫入各自一個 try**（或 `dtStep(name, fn)` 這種逐步包裝），一步失敗不連坐其他步；連續失敗要推播，不可只記 log。
+- **寫入前正規化**：可缺的欄位一律 `?? null`（null 是合法值、undefined 不是）；不要展開來源不明的物件，要逐欄挑。
+- **測試的假 Firestore 要跟真的一樣嚴格**：`set`／`update` 遞迴檢查 undefined 就丟錯（見上述兩個 test 檔的 `assertNoUndefined`）。
+  另外對「引擎產出的文件」加一條逐欄不含 undefined 的斷言（`daytrade-desk.test.mjs` 已有）。
+
+**判準**：凡是「把好幾件事放進同一個 try」的地方，先問「第一件丟錯時，後面幾件該不該一起不做？」答案是否就拆開。
+
 ---
 
 ## 執行時的紀律

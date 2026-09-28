@@ -126,9 +126,9 @@ function unverifiedNumbers(answer, sourceText, mode = 'quote') {
 let _daemonCodeHash = null;
 async function _recordDaemonBuild() {
   try {
-    const { readFileSync } = await import('node:fs');
-    const { createHash } = await import('node:crypto');
-    _daemonCodeHash = createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex').slice(0, 16);
+    // 含 scripts/lib 相依（G4-02）；audit-data-sources 用同一函式比對
+    const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
+    _daemonCodeHash = daemonCodeHash(fileURLToPath(import.meta.url)).hash;
     await db.collection('system').doc('daemonBuild').set({
       codeHash: _daemonCodeHash, startedAt: Date.now(), host: os.hostname(), updatedAt: Date.now(),
     });
@@ -1719,17 +1719,20 @@ async function getOllamaModelInfo() {
   return _ollamaInfo.v;
 }
 // 處置（進行中＋已公告待生效）與注意股（盤後選股用；讀自家 API、8 秒逾時）
+// ⚠ 抓取失敗或處置名單殘缺（dispositionComplete:false）回 null，不回空集合（2026-09-28 WM-SCAN G2-07）：
+//   空集合＝「沒有處置股」，會讓處置股安靜地混進候選池；呼叫端拿到 null 要稍後重試。
 async function fetchRiskSets() {
   const today = isoDate(taipei());
   try {
     const rs = await fetch(`${APP_BASE}/api/twse/risk-stocks`, { signal: AbortSignal.timeout(8000) }).then(x => (x.ok ? x.json() : null));
-    return { disp: new Set((rs?.disposition || []).filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)), attention: new Set((rs?.attention || []).map(x => x.code).filter(Boolean)) };
-  } catch { return { disp: new Set(), attention: new Set() }; }
+    if (!rs || !Array.isArray(rs.disposition) || rs.dispositionComplete === false) { log('⚠ 處置/注意名單取不到或殘缺，稍後重試'); return null; }
+    return { disp: new Set(rs.disposition.filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)), attention: new Set((rs.attention || []).map(x => x.code).filter(Boolean)) };
+  } catch (e) { log('⚠ 處置/注意名單抓取失敗:', (e.message || '').slice(0, 80)); return null; }
 }
 // 🤖 AI 實驗·波段持有（2026-09-24）：盤後 Ollama 從波段榜挑 ≤5 檔 → D+1 開盤模擬買 → 5/10/20/60/120 日結算
 const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'swing-ai-lab'),
   getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(),
-  loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors().catch(() => ({}))); } });
+  loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors()); } });   // 讀失敗就拋出、本輪不結算（結算寫一次不改，未還原價會永久化·G2-06）
 let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0;
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
@@ -1751,12 +1754,12 @@ async function refreshDaytradeMonitor() {
     } catch { _dtElig = null; }
   }
   // 處置股（進行中＋已公告待生效）一律排除：交易所當沖名單在處置生效前一天仍列為可當沖（2026-09-23 大甲 2221 實案）
+  // 只用完整名單更新；取不到沿用上一份。從未取得或上一份完整名單逾 24 小時 ⇒ 不監控（fail-closed，2026-09-28 WM-SCAN G2-07）
   if (Date.now() - _dispAt > 30 * 60000) {
-    try {
-      const rs = await fetch(`${APP_BASE}/api/twse/risk-stocks`, { signal: AbortSignal.timeout(8000) }).then(x => (x.ok ? x.json() : null));
-      if (rs?.disposition) { _disp = new Set(rs.disposition.filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)); _dispAt = Date.now(); }
-    } catch { /* 取不到沿用上一份；名單本身另由當沖資格把關 */ }
+    const rs = await fetchRiskSets();
+    if (rs) { _disp = rs.disp; _dispAt = Date.now(); }
   }
+  if (!_dispAt || Date.now() - _dispAt > 24 * 3600000) { _dtEngine.setMonitor(today, [], []); return; }
   const canLong = c => !_disp.has(c) && (!_dtElig || _dtElig[c] === 1 || _dtElig[c] === 2);
   const canShort = c => !_disp.has(c) && (!_dtElig || _dtElig[c] === 1);
   const live = {}; for (const k in _lastLive) { const v = _lastLive[k]; if (v?.liveAt && isoDate(new Date(v.liveAt)) === today) live[k] = v; }
@@ -8971,7 +8974,7 @@ async function pushAlerts(uid, newAlerts) {
         for (const a of newAlerts.slice(0, 5)) {
           // 點擊通知直接開對應個股頁：帶 ?code=，前端解析後導向個股分析
           const url = /^\d{4,6}$/.test(String(a.code || '')) ? `/?code=${a.code}` : '/';
-          await webpush.sendNotification(sub, JSON.stringify({ title: `台股助手警報`, body: a.message, tag: `${a.type}-${a.code}`, url }));
+          await webpush.sendNotification(sub, JSON.stringify({ title: `台股助手警報`, body: a.message, tag: `${a.type}-${a.code ?? a.id ?? 'x'}`, url }));   // 開發者通知 code=null ⇒ 用通知 id，否則同 tag 互相覆蓋（G1-17）
           sent++;
         }
         alive.push(raw);
@@ -9114,9 +9117,15 @@ async function analyzeShadowAccount() {
 // 開機 getMe → 寫 botUsername 到 config/telegram 供前端組 deep link；
 // tgLinkLoop 長輪詢 getUpdates 處理「/start <uid>」自動綁定 chatId。
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+// 失敗仍回 null（呼叫端語意不變），但要留 log 且設逾時（2026-09-28 WM-SCAN G1-04／G1-08）。
+// getUpdates 是 25 秒長輪詢 ⇒ 逾時 35 秒；其餘 15 秒。log 不含 token。
+const _tgLogAt = {};   // 同一 method 的失敗 log 每 10 分鐘最多一次（getUpdates 斷網時每 2 秒重試）
+const tgLog = (method, msg) => { if (Date.now() - (_tgLogAt[method] || 0) < 600000) return; _tgLogAt[method] = Date.now(); log(`✖ Telegram ${method}${msg}`); };
 const tgApi = (method, body) => fetch(`https://api.telegram.org/bot${TG_TOKEN}/${method}`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-}).then(r => r.json()).catch(() => null);
+  signal: AbortSignal.timeout(method === 'getUpdates' ? 35000 : 15000),
+}).then(r => r.json()).then(j => { if (j && j.ok === false) tgLog(method, `: ${String(j.description || j.error_code || '').slice(0, 80)}`); return j; })
+  .catch(e => { tgLog(method, ` 失敗: ${(e?.name === 'TimeoutError' ? '逾時' : (e?.message || '')).slice(0, 80)}`); return null; });
 const _tgChat = new Map(); // uid -> {chatId, at}（5 分快取，省 Firestore 讀）
 async function tgChatIdOf(uid) {
   const c = _tgChat.get(uid); if (c && Date.now() - c.at < 300000) return c.chatId;
@@ -10891,14 +10900,21 @@ async function yahooDailyBar(code, sfx, iso) {
 //   GAP_DRY=1 只偵測與列印，不補、不寫、不推（驗證偵測邏輯用）。
 const GAP_MIN = { tse: +(process.env.GAP_MIN_TSE || 900), otc: +(process.env.GAP_MIN_OTC || 700) };   // env 只供 GAP_DRY 驗證偵測用
 const GAP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'data-gaps');
-let _adminUidCache = null;
+// 只快取成功查到的 uid；查詢失敗或查無不快取（2026-09-28 WM-SCAN G1-08：一次失敗曾讓開發者通知失效到重啟）。
+// 查無時 10 分鐘內不重查，避免每則通知都打一次 Firestore。
+let _adminUidCache = null, _adminUidMissAt = 0;
 async function adminUid() {
-  if (_adminUidCache !== null) return _adminUidCache;
+  if (_adminUidCache) return _adminUidCache;
   const em = process.env.NEXT_PUBLIC_ADMIN_EMAIL || '';
-  if (!em) return (_adminUidCache = '');
-  try { const s = await db.collection('users').where('email', '==', em).limit(1).get(); _adminUidCache = s.size ? s.docs[0].id : ''; }
-  catch { _adminUidCache = ''; }
-  return _adminUidCache;
+  if (!em) return '';
+  if (Date.now() - _adminUidMissAt < 10 * 60000) return '';
+  try {
+    const s = await db.collection('users').where('email', '==', em).limit(1).get();
+    if (s.size) return (_adminUidCache = s.docs[0].id);
+    log('⚠ 開發者通知：users 查無管理員 email 對應文件');
+  } catch (e) { log('✖ 開發者通知：查管理員 uid 失敗:', (e.message || '').slice(0, 80)); }
+  _adminUidMissAt = Date.now();
+  return '';
 }
 // ── 權值版本登記（2026-09-18 權值稽核 D9）：到期或記分板超額轉負就提醒重訓 ──
 const WEIGHTS_REGISTRY = [
@@ -11142,6 +11158,12 @@ async function loadPriceFactors() {
   const out = {};
   for (const e of (d?.items || [])) if (e.factor > 0 && e.code && e.date) (out[e.code] ||= []).push({ date: e.date, factor: e.factor });
   return out;
+}
+// 每日／每 10 分鐘重算的榜單用：讀失敗仍以未還原價算（下一輪自癒），但要留 log，不再靜默（G2-06）。
+// 寫一次就不改的結算（AI 波段）不可用這支——直接 loadPriceFactors() 讓錯誤拋出。
+async function loadPriceFactorsOrWarn() {
+  try { return await loadPriceFactors(); }
+  catch (e) { log('⚠ 價格結構事件讀取失敗，本輪用未還原價:', (e.message || '').slice(0, 60)); return {}; }
 }
 function applyPriceFactors(days, factors) {
   const codes = Object.keys(factors || {});
@@ -13130,7 +13152,7 @@ async function computeShortCandidates() {
   // readArchive 回 raw doc（closeJson 是字串）——先 parse 成 {date, map}
   // 價格結構事件還原（2026-09-17 第二批接入）：減資股事件前價格偏低會被誤判「弱勢」、面額變更股反之；
   //   只用收盤序列判弱勢，張數不動。沒有係數的事件不動。
-  const factors = await loadPriceFactors().catch(() => ({}));
+  const factors = await loadPriceFactorsOrWarn();
   const arch = applyPriceFactors(archRaw.map(d => ({ date: d.date, m: JSON.parse(d.closeJson) })), factors).map(d => ({ date: d.date, map: d.m }));
   const asc = arch.slice().reverse();                          // 舊→新
   const latest = arch[0];
@@ -13412,7 +13434,7 @@ async function computeDailySeq({ force = false } = {}) {
   const arch = await readArchive(70, 'closeJson');
   if (arch.length < 11) { log('  ⚠ dailySeq：chipArchive 不足 11 日'); return false; }
   // 價格結構事件還原（2026-09-17 第一批接入）：事件日前的價格乘係數，張數不動；沒有係數的事件不動
-  const factors = await loadPriceFactors().catch(() => ({}));
+  const factors = await loadPriceFactorsOrWarn();
   const days = applyPriceFactors(arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })), factors);
   const latest = days[days.length - 1];
   const cur = (await db.collection('dailySeq').doc('latest').get()).data();
@@ -13453,7 +13475,7 @@ async function computeSwingHold({ force = false } = {}) {
   if (arch.length < 61) { log('  ⚠ 波段持有：chipArchive 不足 61 日'); return false; }
   const daysRaw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));   // 舊→新（原始，算成交額用）
   // 價格結構事件還原（2026-09-17 第一批接入）：漲幅／連漲／回檔／均線都用還原後價格；成交額用原始價×原始張數
-  const factors = await loadPriceFactors().catch(() => ({}));
+  const factors = await loadPriceFactorsOrWarn();
   const days = applyPriceFactors(daysRaw, factors);
   const latest = days[days.length - 1];
   const cur = (await db.collection('swingHold').doc('latest').get()).data();

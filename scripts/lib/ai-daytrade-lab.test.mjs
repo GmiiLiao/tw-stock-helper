@@ -46,11 +46,18 @@ test('parseReview：最多 3 條改進；對錯由程式判定（不採 AI 的 w
 });
 
 // ── 執行器整合：假 Firestore、假 Ollama、假工作台日誌 ──
+// 嚴格假物件（2026-09-28·WM-SCAN G3-09）：真 Firestore 拒收任何層級的 undefined
+// （2026-09-24 daytradeAlerts 956 次寫入失敗的原因）。假物件不拒收＝測試綠、線上紅，所以這裡照真的丟錯。
+function assertNoUndefined(v, path = '') {
+  if (v === undefined) throw new Error(`Cannot use "undefined" as a Firestore value${path ? ` (found in field "${path}")` : ''}`);
+  if (Array.isArray(v)) v.forEach((x, i) => assertNoUndefined(x, `${path}[${i}]`));
+  else if (v && typeof v === 'object') for (const k of Object.keys(v)) assertNoUndefined(v[k], path ? `${path}.${k}` : k);
+}
 function fakeDb() {
   const store = {};
   const ref = id => ({
     id, async get() { return { exists: id in store, data: () => store[id] }; },
-    async set(v) { store[id] = v; }, async update(v) { store[id] = { ...store[id], ...v }; },
+    async set(v) { assertNoUndefined(v); store[id] = v; }, async update(v) { assertNoUndefined(v); store[id] = { ...store[id], ...v }; },
   });
   return { store, collection: () => ({ doc: ref, orderBy: () => ({ limit: () => ({ async get() { return { docs: Object.keys(store).map(k => ({ ...ref(k), data: () => store[k] })) }; } }) }) }) };
 }
@@ -136,4 +143,16 @@ test('分批出場交易單：1R 賣 333 股、其餘在保本出場；AI R 由�
   const r = settle({ side: 'long', status: 'filled', fillPx: 41, fillAt: 1000, decidedAt: 1000, d: 0.95 }, { exit: { t: 2940, px: 41, reason: '回到成本（保本停損）' }, netR: 0.2, fills: [{ k: 0, px: 41.95, at: 2000 }] });
   assert.equal(r.ledger.legs.length, 3);
   assert.equal(r.aiNetR, +(r.ledger.pnlTwd / (0.95 * 1000)).toFixed(2));
+});
+
+test('執行器：帳戶起點讀取失敗不凍結（G2-19）；無記錄時分清工作台有無運行（G4-11）', async () => {
+  const db = fakeDb(); let fail = true;
+  const col = db.collection;
+  db.collection = name => { const c = col(name); return { ...c, orderBy: () => ({ limit: () => ({ async get() { if (fail) throw new Error('unavailable'); return { docs: [] }; } }) }) }; };
+  const lab = createAiDaytradeLab({ db, askOllama: async () => null, log: () => {}, getQuote: () => null, dir: mkdtempSync(join(tmpdir(), 'ailab-')), model: 'm', deskVersion: 'v', evidence: null });
+  assert.equal(await lab.finalize('2026-09-24', null), false);
+  assert.equal(db.store['2026-09-24'], undefined, '不凍結');
+  fail = false;
+  assert.equal(await lab.finalize('2026-09-24', null), true);
+  assert.match(db.store['2026-09-24'].reviewNote, /無盤中紀錄/);
 });

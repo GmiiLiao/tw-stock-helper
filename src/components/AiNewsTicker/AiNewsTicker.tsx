@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getSession, isForeground, msToNextReveal, startLiveLoop, revealTick } from '@/lib/market-clock';
 import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
 import { useAppStore } from '@/lib/store';
@@ -257,7 +257,6 @@ export default function AiNewsTicker() {
   const [lastFetch, setLastFetch] = useState<number | null>(null);
   const [agentActive, setAgentActive] = useState(false);
   const [heartbeat, setHeartbeat] = useState(0);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Poll /api/ai-analysis every 15s ──────────────────────
   const fetchMessages = useCallback(async () => {
@@ -278,11 +277,10 @@ export default function AiNewsTicker() {
 
   useEffect(() => {
     fetchMessages();
-    // 盤中 15 秒；休市時 daemon 產出頻率低很多，60 秒足夠
-    pollRef.current = setInterval(fetchMessages, getSession() === 'closed' ? 60_000 : 15_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    // 盤中 15 秒；休市時 daemon 產出頻率低很多，60 秒足夠。
+    // 間隔每拍重算（G3-05：原本掛載時算死，盤中開的分頁整夜仍 15 秒打）；閘門在 fetchMessages 內（isForeground）
+    const stop = startLiveLoop(() => { void fetchMessages(); }, () => (getSession() === 'closed' ? 60_000 : 15_000));
+    return () => stop();
   }, [fetchMessages]);
 
   // ── Check agent status (ping agentId in messages) ──────

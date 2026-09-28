@@ -45,6 +45,10 @@ export async function GET(request: NextRequest) {
     );
   } catch (e) {
     console.error('[mis-quote] API error:', e);
-    return NextResponse.json({ error: String(e), quotes: [], isRealtime: false }, { status: 500 });
+    // G1-13：錯誤細節只進 server log，不回給公開呼叫端。
+    return NextResponse.json(
+      { error: 'internal error', quotes: [], isRealtime: false },
+      { status: 500, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
 }

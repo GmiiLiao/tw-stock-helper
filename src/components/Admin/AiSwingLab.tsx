@@ -3,7 +3,7 @@
 // ── 🤖 AI 實驗·波段持有（超級管理員專用；2026-09-24 UX 重整）───────────────
 // 閱讀順序：①各持有期結論卡（AI 平均、超額、淨損益元）②挑日期 ③每檔一張卡：選股原因 → 預計買進 → 5/10/20/60/120 日交易單
 //          （買進 09:00 開盤／賣出 13:30 收盤、金額、費稅、淨損益、先選後買查核）④整池基準 ⑤稽核（prompt 與原始回覆）⑥我的檢討。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import type { SwingLabDoc, SwingHorizonStat, SwingPick } from '../../../scripts/lib/ai-swing-lab.mjs';
 import { Kpi, TradeSlip, NotesBox, Section, ListTable, MONO, upDn, twd, pct, tw } from './AiLabParts';
@@ -28,9 +28,24 @@ export default function AiSwingLab() {
   const [date, setDate] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [audit, setAudit] = useState(false);
+  // G3-15：重載失敗時若已有資料就保留、只顯示小字錯誤（不整頁換成「載入失敗」）；
+  //   請求序號擋亂序——只採用最後發出的那一次回應。
+  const [loadErr, setLoadErr] = useState('');
+  const seq = useRef(0);
   const load = useCallback(async (d: string | null) => {
-    try { const r = await authed(`/api/admin/ai-swing-lab${d ? `?date=${d}` : ''}`); const j = await r.json(); setData(r.ok ? j : { ...j, found: false }); }
-    catch { setData({ found: false, stats: {}, byModel: {}, days: [], detail: null, error: '載入失敗' }); }
+    const my = ++seq.current;
+    const fail = (next: Resp, why: string) => {
+      setData(prev => (prev && !prev.error ? prev : next));
+      setLoadErr(why);
+    };
+    try {
+      const r = await authed(`/api/admin/ai-swing-lab${d ? `?date=${d}` : ''}`); const j = await r.json();
+      if (my !== seq.current) return;
+      if (r.ok) { setData(j); setLoadErr(''); } else fail({ ...j, found: false }, j?.error || '載入失敗');
+    } catch {
+      if (my !== seq.current) return;
+      fail({ found: false, stats: {}, byModel: {}, days: [], detail: null, error: '載入失敗' }, '載入失敗');
+    }
   }, []);
   useEffect(() => { load(date); }, [load, date]);
 
@@ -52,6 +67,7 @@ export default function AiSwingLab() {
         每個交易日 17:00 後，本機 Ollama 從本站波段榜（排除處置股）挑最多 5 檔。模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通）：單筆上限 10 萬、可零股、低於 1 萬不建倉；<b>隔日 09:00 開盤買進</b>，帳戶在 AI 指定的持有期（🏦）<b>13:30 收盤賣出</b>，其他持有期（5／10／20／60／120 日）為同部位的研究數字（除權息還原價）。
         選股在盤後凍結，時間早於隔日開盤——交易單上的「✓ 先選後買」就是查核。<b>AI 有沒有用：看「超額」（選中的 − 整池平均）。</b>模擬交易，非投資建議。
       </div>
+      {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
       {data.account && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>

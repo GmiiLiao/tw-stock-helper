@@ -12,6 +12,7 @@ import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
+import { startLiveLoop, shouldPollThroughClose, isForeground } from '@/lib/market-clock';
 
 interface APick {
   code: string; name: string; market: string; price: number; chg: number;
@@ -81,12 +82,14 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
   useEffect(() => {
     let live = true;
     const load = () => fetch(source === 'live' ? '/api/ai/limitup-live' : '/api/ai/limitup-forecast').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setData(x); }).catch(() => {});
-    load();
+    load();   // 首次載入不設閘
     // 間隔每拍重算（原本三元在掛載時算死：盤中掛的分頁收盤後仍每分鐘打，見 feedback 記憶）
-    let t: ReturnType<typeof setTimeout>;
-    const tick = () => { load(); t = setTimeout(tick, isTwTradingHours() ? 60000 : 300000); };
-    t = setTimeout(tick, isTwTradingHours() ? 60000 : 300000);
-    return () => { live = false; clearTimeout(t); };
+    // G3-06 閘門：盤中即時重算（live）只在盤中變 ⇒ shouldPollThroughClose（含 13:30–13:45 收盤定價窗）；
+    //   盤後定案（frozen）daemon 收盤後批次才寫 ⇒ 只擋背景分頁、不擋休市。
+    const stop = startLiveLoop(() => {
+      if (source === 'live' ? shouldPollThroughClose() : isForeground()) load();
+    }, () => (isTwTradingHours() ? 60000 : 300000));
+    return () => { live = false; stop(); };
   }, [source]);
 
   if (!data) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 4px' }}>載入漲停預測…</div>;

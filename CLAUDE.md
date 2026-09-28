@@ -3,7 +3,7 @@
 # 台股助手 tw-stock-app
 
 Next.js 15 App Router + React 19 + zustand + Firebase（Auth / Firestore / App Hosting）。
-80 支 API route、33k 行 TS/TSX。
+116 支 API route（`find src/app/api -name route.ts | wc -l`，2026-09-28 量測；舊值 80 已過時）、33k 行 TS/TSX。
 
 > **版控歸屬（進場先看）**：本專案的 git 根是 `tw-stock-app/` 本身，不是家目錄。
 > 先跑 `git rev-parse --show-toplevel` 確認輸出是 `.../股票助手app/tw-stock-app`。
@@ -188,10 +188,12 @@ const poll = async () => {
 ```
 
 只擋背景分頁、休市仍要更新的資料（美股、daemon 產出）用 `isForeground()`。
+盤中才變、但收盤價 13:30 後才揭示的即時資料（報價、雷達、五檔）用 `shouldPollThroughClose()`
+（= shouldPollNow ＋ 13:30–13:45 收盤定價窗；getSession 把 13:30–14:00 算休市，只用 shouldPollNow 會停在收盤前最後一拍到 14:00）。
 
-**進度：26 個含 `setInterval` 的檔案裡，目前只有 3 個接上 gate**
-（`AlertEngine` / `Header` / `AiNewsTicker`，加上 `lib/useLiveQuotes.ts` 用遞迴 setTimeout）。
-其餘 23 個清單在 `docs/OPTIMIZATION-TODO.md`。新增輪詢時請直接加 gate。
+**進度：以 `node scripts/audit-ratchets.mjs` 的輸出為準**（它是 pre-commit 閘門、逐檔計數未接 gate 的輪詢；
+不要再在這裡寫死數字——舊文「26 個裡只有 3 個接上 gate」早已過時，2026-09-28 量測）。
+早期清單在 `docs/OPTIMIZATION-TODO.md`（歷史，可能過時）。新增輪詢時請直接加 gate。
 
 `src/hooks/useSharedPoll.ts` 是**已寫好但尚未採用**的替代方案（目前零呼叫點）。
 它多做的是：多元件共用一條輪詢、間隔每次重算、失敗指數退避、jitter。

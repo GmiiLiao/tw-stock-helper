@@ -28,24 +28,18 @@ interface RiskStocksResponse {
   fetchedAt: string;
   twseAttentionDate?: string | null;   // 上市注意股名單公布日（2026-09-17）
   tpexAttentionDate?: string | null;
+  dispositionComplete: boolean;       // false＝處置來源抓取失敗、名單可能缺漏（G2-05）
 }
 
-// ── In-memory cache (5 min TTL) ─────────────────────────────
-let cachedResult: RiskStocksResponse | null = null;
-let cachedAt = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
+// 快取與合流由 @/lib/risk-stocks-source 的 memoize 負責（2026-09-28 WM-SCAN G2-10：移除手寫 let cached）。
+// 處置名單殘缺（任一處置來源抓取失敗且無上一份完整結果）時回 no-store 並標 dispositionComplete:false，
+// 不讓 CDN 把殘缺名單快取 5 分鐘、也讓前端／daemon 知道「不在清單上」不代表「不是處置股」（G2-05）。
 export async function GET() {
-  // Return cache if still fresh
-  if (cachedResult && Date.now() - cachedAt < CACHE_TTL) {
-    return gzipJsonAuto(cachedResult, { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' });
-  }
-
   // ⚠ 抓取與解析已抽到 @/lib/risk-stocks-source（2026-08-11）：
   //   這段邏輯原本在此與 lib/scoring-server.ts 各有一份，兩份都接錯端點，
   //   而我只修了其中一份 —— 複本就是同一個 bug 會出現第二次的原因。
   //   新增消費端請 import 該模組，不要再複製解析。
-  const { attention, disposition, twseAttentionDate, tpexAttentionDate } = await fetchRiskStocksSource();
+  const { attention, disposition, twseAttentionDate, tpexAttentionDate, dispositionComplete } = await fetchRiskStocksSource();
 
   const allCodes = [
     ...attention.map(a => a.code),
@@ -59,13 +53,10 @@ export async function GET() {
     fetchedAt: new Date().toISOString(),
     twseAttentionDate: twseAttentionDate ?? null,
     tpexAttentionDate: tpexAttentionDate ?? null,
+    dispositionComplete: dispositionComplete === true,
   };
 
-  // Cache result
-  cachedResult = result;
-  cachedAt = Date.now();
-
-  return gzipJsonAuto(result, { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' });
+  return gzipJsonAuto(result, { 'Cache-Control': result.dispositionComplete ? 'public, s-maxage=300, stale-while-revalidate=60' : 'no-store' });
 }
 
 // ── Helpers ──────────────────────────────────────────────────

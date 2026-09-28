@@ -19,14 +19,17 @@ export async function GET(request: NextRequest) {
       fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         next: { revalidate: 3600 },
+        signal: AbortSignal.timeout(8000),
       }),
       fetch('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O', {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         next: { revalidate: 3600 },
+        signal: AbortSignal.timeout(8000),
       }),
       fetch('https://www.twse.com.tw/rwd/zh/announcement/announcement?response=json', {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         next: { revalidate: 300 },
+        signal: AbortSignal.timeout(8000),
       }),
     ]);
 

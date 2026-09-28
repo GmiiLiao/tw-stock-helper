@@ -120,7 +120,8 @@ export const DATE_ALLOWLIST = new Set([
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，
 // 健康稽核都必須認得，否則就是 bookDepthArchive 事故重演。
-export const REQUIRED_AUDIT_ALIASES = ['updatedAt', 'at', 'generatedAt', 'fetchedAt', 'topupAt', 'archivedAt'];
+// frozenAt（2026-09-28）：AI 實驗 PIT 凍結檔 aiDaytradeLab／aiSwingLab/{date} 唯一的文件級時間戳。
+export const REQUIRED_AUDIT_ALIASES = ['updatedAt', 'at', 'generatedAt', 'fetchedAt', 'topupAt', 'archivedAt', 'frozenAt'];
 
 const SCAN_DIRS = ['scripts', 'src'];
 const EXT = /\.(mjs|ts|tsx)$/;

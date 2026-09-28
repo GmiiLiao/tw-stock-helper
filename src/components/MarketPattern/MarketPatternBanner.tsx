@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { storageGet, storageSet } from '@/lib/safe-storage';
+import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 
@@ -68,10 +69,12 @@ function useMarketPattern(): MpData | null {
   const [mp, setMp] = useState<MpData | null>(null);
   useEffect(() => {
     let live = true;
-    const load = () => fetch('/api/ai/market-pattern').then(r => (r.ok ? r.json() : null)).then(x => { if (live) setMp(x); }).catch(() => {});
-    load();
-    const t = setInterval(load, isTwTradingHours() ? 60000 : 600000);
-    return () => { live = false; clearInterval(t); };
+    // G3-13：只有拿到有效內容才替換——非 2xx／空回應保留上一份，橫幅不因一次失敗消失
+    const load = () => fetch('/api/ai/market-pattern').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x) setMp(x); }).catch(() => {});
+    load();   // 首次載入不設閘
+    // 間隔每拍重算（G3-05）；盤型/撿尾盤 daemon 盤後批次仍會重算 ⇒ 只擋背景分頁、不擋休市
+    const stop = startLiveLoop(() => { if (isForeground()) load(); }, () => (isTwTradingHours() ? 60000 : 600000));
+    return () => { live = false; stop(); };
   }, []);
   return mp;
 }

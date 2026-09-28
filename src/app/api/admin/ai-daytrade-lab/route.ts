@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/require-admin';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 import { labStats, type AiLabRecord } from '../../../../../scripts/lib/ai-daytrade-lab.mjs';
 
 // ── 🤖 當沖 AI 實驗（**超級管理員專用**）──────────────────────────────
@@ -56,13 +57,14 @@ export async function GET(request: Request) {
       const sum = (f: (l: NonNullable<AiLabRecord['ledger']>) => number) => ls.reduce((a, l) => a + f(l), 0);
       return { date: d.date, wins: ls.filter(l => l.pnlTwd > 0).length, losses: ls.filter(l => l.pnlTwd < 0).length, n: ls.length, open: d.recs.filter(r => r.status === 'filled' && !r.ledger).length, buyAmt: sum(l => l.buy.amount), sellAmt: sum(l => l.sell.amount), fee: sum(l => l.buy.fee + l.sell.fee), tax: sum(l => l.sell.tax), pnl: sum(l => l.pnlTwd) };
     }).sort((a, b) => a.date.localeCompare(b.date)).map(x => { const before = eq; eq += x.pnl; return { ...x, equity: eq, dayRetPct: +((x.pnl / before) * 100).toFixed(2), cumRetPct: +((eq / 500000 - 1) * 100).toFixed(2) }; }).reverse();
-    return NextResponse.json({
+    // G2-11：下載資料一律壓縮（Cloud Run 前無自動 gzip）；JSON 內容與舊版相同。
+    return gzipJsonAuto({
       found: docs.length > 0 || !!live,
       account, tradeList, daily,
       days: docs.map(d => ({ date: d.date, n: (d.records || []).length, stats: labStats(d.records || []).all, summary: d.review?.summary || null, hasNotes: !!d.adminNotes, frozenAt: d.frozenAt || null })),
       cumulative: labStats(all), confidence: [conf(80, 101), conf(60, 80), conf(0, 60)],
       live, detail,
-    }, { headers: { 'Cache-Control': 'no-store' } });
+    }, { 'Cache-Control': 'no-store' });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
