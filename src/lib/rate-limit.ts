@@ -70,7 +70,7 @@ async function upstashHit(key: string, limit: number): Promise<{ ok: boolean; re
     const j = await r.json();
     const count = Number(j?.[0]?.result ?? 0);
     return { ok: count <= limit, remaining: Math.max(0, limit - count), resetMs: WINDOW_MS - (Date.now() % WINDOW_MS) };
-  } catch { return null; }   // Upstash 掛掉 → 退回 in-memory
+  } catch (e) { console.error('[rateLimit] Upstash 故障，退回 in-memory', (e as Error)?.message); return null; }
 }
 
 /**
@@ -99,5 +99,9 @@ export async function rateLimit(request: Request, name: string, limit: number): 
         },
       },
     );
-  } catch { return null; }   // fail-open
+  } catch (e) {
+    // fail-open（使用者 2026-09-28 定案：限流故障不阻擋請求），但要留 log——降級要可觀測
+    console.error('[rateLimit] 限流器故障，放行', name, (e as Error)?.message);
+    return null;
+  }
 }

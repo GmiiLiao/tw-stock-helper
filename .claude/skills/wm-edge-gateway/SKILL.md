@@ -39,3 +39,7 @@ description: Edge 閘道請求管線——先便宜後昂貴的固定順序（or
 ### 掃描探針（本週新增）
 - 無逾時的上游呼叫（逐呼叫，不是逐檔）：`rg -n -A6 "fetch\(" src/app/api src/lib/*-server.ts | rg -v signal` 後人工確認
 - 自呼叫：`rg -n "fetch\(.*(/api/|origin)" src/app/api src/lib`
+
+## 2026-09-28 使用者定案（G1-15）
+
+- 上方「mutating route 的順序＝驗證 → rateLimit → 邏輯」**改為：IP rateLimit（便宜）→ 驗證（verifyIdToken，會打 Google）→ principal 預算（如需要）→ 邏輯**。現有 `user/trading-mode`、`ai-analysis`、`ai/strategy-picks` 皆符合；原文保留作歷史，以本節為準。

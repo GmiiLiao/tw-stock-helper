@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { getAdminDb } from '@/lib/firebase-admin';
 export const runtime = 'nodejs';
 
@@ -10,10 +10,10 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code') || '';
   const industryQ = request.nextUrl.searchParams.get('industry') || '';
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('peer-comps');
   try {
     const snap = await db.collection('peerComps').doc('latest').get();
-    if (!snap.exists) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+    if (!snap.exists) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });   // 尚未寫入≠故障
     const d = snap.data()!;
     const industries: Record<string, Peer[]> = JSON.parse(d.industriesJson || '{}');
     const summary: Record<string, unknown> = JSON.parse(d.summaryJson || '{}');
@@ -36,5 +36,5 @@ export async function GET(request: NextRequest) {
       }
     }
     return NextResponse.json({ updatedAt: d.updatedAt, month: d.month, industry: null, peers: [] }, { headers: { 'Cache-Control': cacheHeader('daily') } });
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('peer-comps'); }
 }

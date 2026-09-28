@@ -87,11 +87,20 @@ export default function StrategyPicks() {
   const [loading, setLoading] = useState(true);
   const [opsOpen, setOpsOpen] = useState<string | null>(null);
 
+  // 2026-09-28 WM-SCAN G1-07：API 改為伺服器端驗會員資格 ⇒ 帶 ID token，且只有有權限時才抓
   useEffect(() => {
+    if (!allowed) return;
     let live = true;
-    fetch('/api/ai/strategy-picks').then(r => (r.ok ? r.json() : null)).then(x => { if (live) { setD(x); setLoading(false); } }).catch(() => setLoading(false));
+    (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const r = await fetch('/api/ai/strategy-picks', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        const x = r.ok ? await r.json() : null;
+        if (live) { setD(x); setLoading(false); }
+      } catch { if (live) setLoading(false); }
+    })();
     return () => { live = false; };
-  }, []);
+  }, [allowed, user?.uid]);
 
   // 多重共識：同一檔出現在 ≥2 張策略卡（多重訊號驗證，優先關注）
   const consensus = useMemo(() => {

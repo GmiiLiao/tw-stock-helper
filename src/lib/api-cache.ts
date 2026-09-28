@@ -102,6 +102,17 @@ export const primeHolidays = memoize<string[]>('trading-calendar', 6 * 3600_000,
   return list;
 });
 
+/**
+ * 讀取故障（Firestore／Admin SDK 不可用、讀取丟錯且無舊值可降級）的統一回應（2026-09-28 WM-SCAN G1-05／G2-08）。
+ * 舊版回 200 null，與「daemon 尚未寫入」分不出、也沒有 log。改為 **503＋no-store＋X-Data-Status: unavailable**，
+ * body 仍是 null——前端 `r.ok ? r.json() : null` 與直接 `r.json()` 兩種寫法拿到的都還是 null，不會因為換 body 形狀而壞掉。
+ * 「文件不存在」仍是 200 null（正常狀態，可快取），只有故障走這裡。
+ */
+export function unavailable(where: string, err?: unknown): Response {
+  console.error(`[unavailable] ${where}`, err instanceof Error ? err.message : err ?? '');
+  return NextResponse.json(null, { status: 503, headers: { ...NO_STORE, 'X-Data-Status': 'unavailable' } });
+}
+
 export async function latestDoc(
   collection: string,
   tier: Tier = 'intraday',
@@ -138,7 +149,7 @@ export async function latestDoc(
 
   // null = 讀失敗且沒有可供降級的舊值。有舊值時 memoize 會回舊值（stale-serve），
   // 那種情況仍走正常快取路徑，這是我們要的行為。
-  if (!result) return NextResponse.json(null, { headers: NO_STORE });
+  if (!result) return unavailable(`latestDoc ${collection}/${docId}`);
 
   const header = cacheHeader(tier);
   if (opts.request) return gzipJson(opts.request, result.data, header);

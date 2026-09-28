@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
 
     const headers: Record<string, string> = {
       'Cache-Control': header,
-      'Access-Control-Allow-Origin': '*',
       'X-Data-Date': data[0]?.Date ?? 'unknown',
       'X-MIS-Merged': misCount.toString(),
     };

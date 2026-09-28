@@ -22,7 +22,7 @@ export const runtime = 'nodejs';
 // ⚠ 只套在**成功**回應；400/404/500 一律不帶標頭，錯誤不該被快取。
 // 數值收斂到 api-cache 'hot' 層級（s-maxage=2·使用者指定的保守值），
 // 這裡不再手寫字串；每個 request 現算是因為收盤後 cacheHeader 會自動切長 TTL。
-const CORS = { 'Access-Control-Allow-Origin': '*' };
+// 2026-09-28 WM-SCAN G1-11：移除萬用 CORS（同源前端不需要；無跨站呼叫端）
 const taipeiDate = () => {
   const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
   return `${tw.getFullYear()}-${String(tw.getMonth() + 1).padStart(2, '0')}-${String(tw.getDate()).padStart(2, '0')}`;
@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
     //   尾端超過 3 分鐘沒新點就改走一般路徑（Yahoo 主幹＋daemon 尾段），回應形狀不變。
     const lastTickAgeSec = daemon?.ticks?.length ? Date.now() / 1000 - daemon.ticks[daemon.ticks.length - 1].time : Infinity;
     if (marketOpen && daemon && firstTickMin <= 9 * 60 + 10 && lastTickAgeSec <= 180) {
-      return gzipJsonAuto({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, cacheHeader('hot'), CORS);
+      return gzipJsonAuto({ code, prevClose: daemon.prevClose, ticks: daemon.ticks, source: 'mis-fast' }, cacheHeader('hot'));
     }
 
     // 一般路徑：以 Yahoo 全日為主幹，盤中再把 daemon 更即時的尾段接上，兼顧完整與即時。
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No data found' }, { status: 404 });
     }
 
-    return gzipJsonAuto({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, cacheHeader('hot'), CORS);
+    return gzipJsonAuto({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, cacheHeader('hot'));
   } catch (error) {
     console.error(`Stock intraday proxy error for ${code}:`, error);
     return NextResponse.json({ error: 'Failed to fetch stock intraday data' }, { status: 500 });

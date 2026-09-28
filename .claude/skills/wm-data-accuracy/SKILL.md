@@ -40,3 +40,7 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 - **Candidate Release：截斷會先砍掉最重的列**（`CONCEPTS.md` 新詞條）：來源除了逐筆事件還夾帶整期彙總列，依新近度裁切會先刪彙總列；payload 的期總量必須等於來源自己的總量，做不到就是資料遺失不是瘦身。台股助手：任何 `.slice(0, N)` 前先算總數／合計，並與來源自報的筆數或合計比對。
 - **Reference Period：最新期可能倒退、分類可能重疊**（`CONCEPTS.md` 新詞條）：偏好來源掛掉、後備來源缺最新一期時，「最新期」會退回上一期而本輪看起來很新；各分類若非互斥，期總量不是分類加總。台股助手：月營收（openapi 落後一個月）與注意股名單日（`twseAttentionDate`／`tpexAttentionDate` 各自為政）都屬此類——跨源比較只能在同一資料期上做，最新期不可倒退（forward-only）。
 - **Stale Class Claim：修正分類器也要修正持久化快照**（`CONCEPTS.md` 新詞條）：快照活得比部署久，只改計算端，重啟還原的使用者仍看到舊判定。本站 `restoreLastLive` 還原時先驗檔位（CLAUDE.md）是正例；`restoreVwap`、AI 實驗 `restore()` 等還原路徑新增時同樣要過當前版本的驗證。
+
+## 2026-09-28 使用者定案
+
+- Seed-owned key 讀取端：本站採「故障回明確 unavailable（503＋X-Data-Status）、未寫入回 null」，不捏造後備值。見 wm-multi-tier-cache 同日定案。

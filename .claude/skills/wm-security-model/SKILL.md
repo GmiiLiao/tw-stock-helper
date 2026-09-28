@@ -47,3 +47,9 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 - `rg -n "data\.email|u\.email" src/lib/require-admin.ts scripts/ai-daemon.mjs`（授權讀 user doc email）
 - `rg -n "Access-Control-Allow-Origin" src/app/api`（萬用 CORS）
 - 外打上游且參數可控卻無 rateLimit：`node scripts/audit-routes.mjs --table` 對照 `rg -l "searchParams.get" src/app/api` ∩ 呼叫 `news-server`／外部 `fetch(` 的 route
+
+## 2026-09-28 使用者定案
+
+- **限流器故障一律 fail-open（不阻擋請求）**——使用者明示。上方「LLM／checkout 類 fail-closed」的上游做法本站**不採用**；`src/lib/rate-limit.ts` 維持故障放行，但要留 log（降級可觀測）。新增 route 不得自行改成 fail-closed。
+- **高級會員功能伺服器端驗資格（G1-07）**：`src/lib/require-premium.ts`（premium/admin/superadmin 或註冊 14 天內體驗期，與前端 access.ts 同規則；站主只認已驗證 token email）。首例 `/api/ai/strategy-picks`，回應 `cacheHeader('private')`；daemon 付費判斷 `isPremiumUser()` 同納入體驗期。**新增付費 API 一律走 requirePremium，不可只在 UI 擋。**
+- **萬用 CORS 移除（G1-11）**：5 支 route 的 `Access-Control-Allow-Origin: *` 已刪（同源前端不需要、查無跨站呼叫端）。新增 route 不加 CORS；真有跨站需求時列舉 origin。

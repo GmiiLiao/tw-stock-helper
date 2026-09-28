@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 //   前端務必保留 latest.note 與 scoreboard.note 的揭露文字。非投資建議。
 export async function GET() {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('swing-curves');
   try {
     const [latest, board] = await Promise.all([
       db.collection('swingCurvePicks').doc('latest').get(),
@@ -21,6 +21,6 @@ export async function GET() {
     return NextResponse.json({ found: true, ...latest.data(), scoreboard: board.exists ? board.data() : null },
       { headers: { 'Cache-Control': cacheHeader('intraday') } });
   } catch {
-    return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+    return unavailable('swing-curves');
   }
 }

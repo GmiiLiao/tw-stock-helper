@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     // ⚠ memoize 回傳的是「取值函式」，要再呼叫一次（第一版 await 了工廠本身 → 序列化函式物件 → 500）
     const data = await memoize(`intraday-prev:${code}`, 6 * 3600_000, () => buildPrevDay(code))();
     if (!data) return NextResponse.json({ error: 'No previous-day intraday' }, { status: 404 });
-    return NextResponse.json(data, { headers: { 'Cache-Control': cacheHeader('daily'), 'Access-Control-Allow-Origin': '*' } });
+    return NextResponse.json(data, { headers: { 'Cache-Control': cacheHeader('daily') } });
   } catch (error) {
     console.error(`stock-intraday-prev error for ${code}:`, error);
     return NextResponse.json({ error: 'Failed to fetch previous-day intraday' }, { status: 500 });

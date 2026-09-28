@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
 import { NextResponse } from 'next/server';
@@ -20,9 +20,9 @@ const getLiveAlerts = memoize('daytrade-alerts:live', ALERTS_TTL_MS, async () =>
 
 export async function GET() {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('daytrade-alerts');
   // memoize 內部已吞錯並記 log；讀失敗且無舊值 ⇒ null（與舊版 catch 分支同樣回 null＋no-store）。
   const payload = await getLiveAlerts();
-  if (!payload) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!payload) return unavailable('daytrade-alerts');
   return gzipJsonAuto(payload, { 'Cache-Control': cacheHeader('tick') });
 }

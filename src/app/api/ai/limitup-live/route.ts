@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
@@ -10,12 +10,12 @@ export const runtime = 'nodejs';
 //   2026-09-23 首版改用 latestDoc 回原始文件、少了 found ⇒ 面板一律顯示「尚無資料」（使用者截圖）。
 export async function GET() {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('limitup-live');
   try {
     const doc = await db.collection('limitUpForecast').doc('live').get();
     if (!doc.exists) return gzipJsonAuto({ found: false }, { 'Cache-Control': cacheHeader('intraday') });
     return gzipJsonAuto({ found: true, ...doc.data() }, { 'Cache-Control': cacheHeader('intraday') });
   } catch {
-    return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+    return unavailable('limitup-live');
   }
 }

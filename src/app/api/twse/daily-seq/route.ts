@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rate-limit';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { memoize } from '@/lib/singleflight';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 
 export const runtime = 'nodejs';
 
@@ -31,6 +31,6 @@ export async function GET(request: NextRequest) {
     for (const c of codes) if (doc.map[c]) seq[c] = doc.map[c];
     return NextResponse.json({ found: true, dataDate: doc.dataDate, updatedAt: doc.updatedAt, seq }, { headers: { 'Cache-Control': cacheHeader('daily') } });
   } catch {
-    return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+    return unavailable('daily-seq');
   }
 }

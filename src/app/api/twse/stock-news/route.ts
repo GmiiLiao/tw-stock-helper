@@ -47,6 +47,6 @@ export async function GET(request: NextRequest) {
       sources: [...FREE_SOURCES.map(s => s.label), ...POLICY_SOURCES.map(s => s.label)],
       fetchedAt: new Date().toISOString(),
     },
-    { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60', 'Access-Control-Allow-Origin': '*' } },
+    { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' } },
   );
 }

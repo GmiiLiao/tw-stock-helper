@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 
 // ── 內外盤（取樣）───────────────────────────────────────────────────
 // ⚠ 這不是券商等級的逐筆內外盤。TWSE MIS **沒有內外盤欄位**
@@ -12,7 +12,7 @@ import { cacheHeader } from '@/lib/api-cache';
 //   前面的量不在樣本內，不標出來會被誤讀成全日累計。
 export async function GET(req: Request) {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('order-flow');
   const code = new URL(req.url).searchParams.get('code') || '';
   if (!/^\d{4}$/.test(code)) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': 'no-store' } });
   try {
@@ -30,5 +30,5 @@ export async function GET(req: Request) {
         since, at: d.at },
       { headers: { 'Cache-Control': cacheHeader('quote') } },
     );
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('order-flow'); }
 }

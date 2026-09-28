@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
@@ -70,6 +71,27 @@ try {
   process.exit(1);
 }
 const db = getFirestore(app);
+// ── 付費判斷（2026-09-28 WM-SCAN G1-07）：高級會員＝premium/admin/superadmin，或**註冊 14 天內的體驗期**。
+//   前端（src/lib/access.ts）一直有 14 天體驗，daemon 的 10 處判斷只看 level ⇒ 體驗期會員看得到付費頁面，
+//   卻收不到 daemon 替付費會員產生的分析／警報。註冊時間取 Firebase Auth（與前端同一來源），1 小時快取；
+//   讀取失敗沿用上一份（首次失敗＝空集合，只少了體驗會員，不影響付費會員）。
+const PAID_LEVELS = ['premium', 'admin', 'superadmin'];
+const TRIAL_DAYS = 14;
+let _trialCache = { at: 0, set: new Set() };
+async function trialUids() {
+  if (Date.now() - _trialCache.at < 3600_000) return _trialCache.set;
+  try {
+    const set = new Set(); let pageToken;
+    do {
+      const r = await getAuth(app).listUsers(1000, pageToken);
+      for (const u of r.users) { const ct = Date.parse(u.metadata.creationTime); if (ct && Date.now() - ct < TRIAL_DAYS * 86400_000) set.add(u.uid); }
+      pageToken = r.pageToken;
+    } while (pageToken);
+    _trialCache = { at: Date.now(), set };
+  } catch (e) { console.error('✖ 體驗期會員名單讀取失敗（沿用上一份）:', (e.message || '').slice(0, 80)); _trialCache = { ..._trialCache, at: Date.now() - 3300_000 }; }
+  return _trialCache.set;
+}
+const isPremiumUser = (docSnap, trial) => PAID_LEVELS.includes(docSnap.data().level || 'registered') || trial.has(docSnap.id);
 // 單次執行模式：`node scripts/ai-daemon.mjs --run <job>`。
 // 本 daemon 原本無法單獨測試任何一個 job——只能等排程時間到、或改窗口再重啟，
 // 於是「上線前驗證」變成猜謎（2026-08-03 為此卡了兩次，第一次還差點讓錯誤數字過夜）。
@@ -1283,7 +1305,8 @@ async function resolveWatchCodes() {
   const wanted = new Map();
   try {
     const usersSnap = await db.collection('users').get();
-    const premium = usersSnap.docs.filter(d => ['premium', 'admin', 'superadmin'].includes((d.data().level) || 'registered'));
+    const trial = await trialUids();
+    const premium = usersSnap.docs.filter(d => isPremiumUser(d, trial));
     for (const u of premium) {
       const [wl, hd] = await Promise.all([
         db.collection('users').doc(u.id).collection('data').doc('watchlist').get(),
@@ -8841,7 +8864,7 @@ async function _userCodes() {
   const codes = new Set();
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
-    if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+    if (!isPremiumUser(u, await trialUids())) continue;
     try {
       const hd = (await db.collection('users').doc(u.id).collection('data').doc('holdings').get()).data();
       for (const h of (hd?.holdings || [])) codes.add(h.code);
@@ -8952,7 +8975,8 @@ let _premiumCache = { at: 0, users: [] };
 async function getPremiumUsers() {
   if (Date.now() - _premiumCache.at < 5 * 60000) return _premiumCache.users;
   const snap = await db.collection('users').get();
-  _premiumCache = { at: Date.now(), users: snap.docs.filter(d => ['premium', 'admin', 'superadmin'].includes((d.data().level) || 'registered')).map(d => ({ id: d.id })) };
+  const trial = await trialUids();
+  _premiumCache = { at: Date.now(), users: snap.docs.filter(d => isPremiumUser(d, trial)).map(d => ({ id: d.id })) };
   return _premiumCache.users;
 }
 
@@ -10052,7 +10076,7 @@ async function _refreshHoldingsCache() {
   try {
     const usersSnap = await db.collection('users').get();
     for (const u of usersSnap.docs) {
-      if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+      if (!isPremiumUser(u, await trialUids())) continue;
       const hd = (await db.collection('users').doc(u.id).collection('data').doc('holdings').get()).data();
       for (const h of (hd?.holdings || [])) { if (!byCode.has(h.code)) byCode.set(h.code, new Set()); byCode.get(h.code).add(u.id); }
     }
@@ -10101,7 +10125,7 @@ async function checkAnomalies(quotes, trackedCodes) {
     // 找出關注此股的用戶
     const usersSnap = await db.collection('users').get();
     for (const u of usersSnap.docs) {
-      if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+      if (!isPremiumUser(u, await trialUids())) continue;
       const uid = u.id;
       try {
         const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
@@ -10211,7 +10235,7 @@ async function computeDayTradeRatio() {
   const highSet = new Map(high.map(x => [x.code, x.ratio]));
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
-    if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+    if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
@@ -10347,7 +10371,7 @@ async function computeEtfPremium() {
   const devMap = new Map(items.filter(x => Math.abs(x.premium) >= 1).map(x => [x.code, x]));
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
-    if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+    if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
@@ -10377,7 +10401,7 @@ async function hintDca() {
   const ym = isoDate(taipei()).slice(0, 7);
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
-    if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+    if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
     if (_dcaHinted[uid] === ym) continue;
     try {
@@ -10451,7 +10475,7 @@ async function computeAdrPremium() {
   if (!big.length) return;
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
-    if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+    if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
@@ -10824,7 +10848,7 @@ async function forecastSectors() {
   const bull = new Set(bullish.map(x => x.sector)), bear = new Set(bearish.map(x => x.sector));
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
-    if (!['premium', 'admin', 'superadmin'].includes((u.data().level) || 'registered')) continue;
+    if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();

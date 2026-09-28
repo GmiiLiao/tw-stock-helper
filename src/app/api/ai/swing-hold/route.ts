@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 export const runtime = 'nodejs';
@@ -14,7 +14,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: NextRequest) {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('swing-hold');
   const sp = req.nextUrl.searchParams;
   try {
     if (sp.get('list') === '1') {
@@ -28,6 +28,6 @@ export async function GET(req: NextRequest) {
     if (!doc.exists) return NextResponse.json({ found: false, date: id }, { headers: { 'Cache-Control': cacheHeader('daily') } });
     return gzipJsonAuto({ found: true, ...doc.data() }, { 'Cache-Control': cacheHeader('daily') });   // 2026-09-18：四窗×兩榜含量序，未壓約 100KB → gzip
   } catch {
-    return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+    return unavailable('swing-hold');
   }
 }

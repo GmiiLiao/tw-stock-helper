@@ -1,6 +1,6 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { readMarketSnapshot } from '@/lib/market-snapshot-store';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 // 精簡欄位陣列以壓體積；s-maxage=30 收斂讀取。
 export async function GET() {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('market-snapshot');
   try {
     // 走統一 reader：含 5 秒快線覆蓋（使用者正在看的 ~120 檔）＋3 秒實例快取。
     const snap = await readMarketSnapshot();
@@ -49,5 +49,5 @@ export async function GET() {
       // hot 層（s-maxage=2）：內容含 5 秒快線，10 秒層會把快線的增益吃掉一半
       cacheHeader('hot'),
     );
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('market-snapshot'); }
 }

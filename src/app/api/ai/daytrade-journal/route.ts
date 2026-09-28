@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
 import { NextResponse } from 'next/server';
@@ -34,10 +34,10 @@ const getJournalSummary = memoize('daytrade-journal:summary', JOURNAL_TTL_MS, bu
 
 export async function GET() {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('daytrade-journal');
   // memoize 內部已吞錯並記 log；失敗且無舊值 ⇒ null（與舊版 catch 分支同樣回 null＋no-store）。
   const payload = await getJournalSummary();
-  if (!payload) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!payload) return unavailable('daytrade-journal');
   return gzipJsonAuto(payload, { 'Cache-Control': cacheHeader('intraday') });
 }
 

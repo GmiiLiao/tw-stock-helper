@@ -38,7 +38,6 @@ export async function GET(request: NextRequest) {
           // 慢時的容錯，不再是常態路徑（先前 swr=10 讓鎖相請求常吃一兩拍前殘影，
           // 實測平均資料齡 7.9s、僅 1/8 拍 ≤5s）。
           'Cache-Control': marketOpen ? 'public, s-maxage=5, stale-while-revalidate=5' : 'public, max-age=60',
-          'Access-Control-Allow-Origin': '*',
           'X-Data-Source': result.source,
         },
       }

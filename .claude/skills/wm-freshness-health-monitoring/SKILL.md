@@ -46,3 +46,7 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 - **天窗預算照來源行事曆量**（`api/health.js`：日頻 4320 分＝72h 涵蓋週五→週一＋一次漏跑）：與本站 publishHour＋offHoursMs 做法方向一致，不衝突。
 - **監控碼與被監控的 API 同版**（`.github/workflows/seed-freshness-monitor.yml` 改為 probe 永遠跑 workflow revision）：本站 audit 由 daemon `execScript` 從磁碟執行＝永遠是最新碼 ✓；daemon 本身落後由 `system/daemonBuild` 雜湊比對負責。
 - **更正紀錄（不改上文，待使用者確認）**：上方 2026-09-12 增補寫「`latestDoc()` 找不到文件回 404 是對的」——**與現行程式不符**：`src/lib/api-cache.ts` 找不到文件回 200 `null`（帶層級快取），Firestore 讀失敗且無舊值時回 200 `null`＋no-store（:141），兩者只差在標頭。詳見 wm-data-accuracy 本週增補；是否改為 503／`{unavailable:true}` 待使用者決定。
+
+## 2026-09-28 使用者定案
+
+- 上方更正紀錄的待確認事項已定：latestDoc **找不到文件回 200 null（正常、可快取）；讀取故障回 503 unavailable（no-store、有 log）**。見 wm-multi-tier-cache 同日定案。

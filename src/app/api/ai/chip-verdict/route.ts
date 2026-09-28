@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 // >減碼(連賣)>可加碼(S/A/B+ 47-50%·2年實測)>續抱。法人為 t-1 EOD。非投資建議。
 export async function GET(request: Request) {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('chip-verdict');
   try {
     const codesParam = new URL(request.url).searchParams.get('codes');
     const doc = (await db.collection('chipVerdicts').doc('latest').get()).data();
@@ -25,5 +25,5 @@ export async function GET(request: Request) {
       { found: true, updatedAt: doc.updatedAt, dataDate: doc.dataDate, byCode },
       { headers: { 'Cache-Control': cacheHeader('intraday') } },
     );
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('chip-verdict'); }
 }

@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { getAdminDb } from '@/lib/firebase-admin';
 export const runtime = 'nodejs';
 
 // 三大法人累計籌碼：daemon 逐日累加證交所 T86。?code=2330 回傳單檔；否則回傳彙總 meta。
 export async function GET(request: Request) {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('chip-cumulative');
   try {
     const code = new URL(request.url).searchParams.get('code')?.trim();
     const snap = await db.collection('chipCumulative').doc('latest').get();
@@ -22,5 +22,5 @@ export async function GET(request: Request) {
       { ...meta, code, found: true, foreign, trust, dealer, total: foreign + trust + dealer },
       { headers: { 'Cache-Control': cacheHeader('intraday') } },
     );
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('chip-cumulative'); }
 }

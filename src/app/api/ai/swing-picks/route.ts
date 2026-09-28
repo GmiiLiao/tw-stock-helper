@@ -1,5 +1,5 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
@@ -8,12 +8,12 @@ export const runtime = 'nodejs';
 // 三層分級＋空頭日 gate，實證見 payload.evidence。非投資建議。
 export async function GET() {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('swing-picks');
   try {
     const doc = await db.collection('swingPicks').doc('latest').get();
     if (!doc.exists) return NextResponse.json({ found: false }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
     return NextResponse.json({ found: true, ...doc.data() }, { headers: { 'Cache-Control': cacheHeader('intraday') } });
   } catch {
-    return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+    return unavailable('swing-picks');
   }
 }

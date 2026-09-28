@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { cacheHeader } from '@/lib/api-cache';
+import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJson } from '@/lib/gzip-response';
 export const runtime = 'nodejs';
@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 // 第四法人：ETF 被動買賣盤影響。?code= 回單檔(市值排名/ETF權重/邊緣)；否則回全景。
 export async function GET(request: Request) {
   const db = getAdminDb();
-  if (!db) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('etf-influence');
   try {
     const code = new URL(request.url).searchParams.get('code')?.trim();
     const snap = await db.collection('etfInfluence').doc('latest').get();
@@ -20,5 +20,5 @@ export async function GET(request: Request) {
     const { byCode, ...rest } = d;
     void byCode;
     return gzipJson(request, rest, cacheHeader('intraday'));
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('etf-influence'); }
 }

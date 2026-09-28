@@ -42,3 +42,8 @@ description: 多層快取——四層瀑布、single-flight 合流、leader/foll
 - **Refresh lock 只削峰不序列化**（`CONCEPTS.md` Verdict Snapshot）：搶不到鎖的呼叫短暫等待贏家，逾時就自己做，不可把「可達的儲存」當成不可達。本站 memoize follower 直接共用 leader promise（8s 硬逾時）同義 ✓。
 - **帶憑證的請求一律不進共享層，憑證標頭清單只有一份並有測試釘住**（`server/gateway.ts` `CREDENTIAL_BEARING_HEADERS` #8400）：本站 09-27 掃描：讀 `Authorization`／`requireAdmin`／`verifyIdToken` 的 route 中，只有 `ai-analysis` 帶 public 層級，而它的 GET 本身不驗身分 ✓。可把「讀憑證標頭的 handler 不得發 public 層」接進 `scripts/audit-routes.mjs`。
 - **compare-and-delete 腳本全站只留一份**（`shared/compare-and-delete-script.cjs`，redis.ts 與 _seed-utils 共用）：同一段並發控制邏輯複製兩份就會分岔——本站同理，手寫 `let cachedX; let cachedAt`（例：`src/app/api/twse/risk-stocks/route.ts:34`、`src/lib/scoring-server.ts:777`）疊在已 memoize 的來源上，等於第二份快取策略。
+
+## 2026-09-28 使用者定案（G2-08／G1-05）
+
+- **讀取故障≠尚未寫入**：`latestDoc` 與 25 支手寫 route 的故障分支改走 `unavailable(where, err)`（`src/lib/api-cache.ts`）：**503＋no-store＋`X-Data-Status: unavailable`＋console.error**，body 仍為 `null`（既有前端 `r.ok ? json : null` 與直接 `r.json()` 行為不變）。
+- 文件不存在（daemon 尚未寫入）、參數不合法仍回 200 null／原樣——那是正常狀態，不是故障。

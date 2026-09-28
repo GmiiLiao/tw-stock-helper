@@ -1,12 +1,14 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { NextResponse } from 'next/server';
+import { unavailable } from '@/lib/api-cache';
 export const runtime = 'nodejs';
 
 // 個股當日三大法人 + 外資連買天數（讀 chipDaily，全個股皆有，PIT：EOD/盤中即 t-1）。
 export async function GET(request: Request) {
   const db = getAdminDb();
   const code = new URL(request.url).searchParams.get('code')?.trim();
-  if (!db || !code) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });
+  if (!db) return unavailable('inst-daily');
+  if (!code) return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } });   // 參數缺≠故障
   try {
     const snap = await db.collection('chipDaily').orderBy('date', 'desc').limit(8).get();
     const days = snap.docs.map(d => {
@@ -32,5 +34,5 @@ export async function GET(request: Request) {
       { code, found: true, dataDate: days[0].date, foreign: row[0] || 0, trust: row[1] || 0, dealer: row[2] || 0, streak, vol, foreignCum: fCum, trustCum: tCum, dealerCum: dCum },
       { headers: { 'Cache-Control': 'public, s-maxage=300' } },
     );
-  } catch { return NextResponse.json(null, { headers: { 'Cache-Control': 'no-store' } }); }
+  } catch { return unavailable('inst-daily'); }
 }
