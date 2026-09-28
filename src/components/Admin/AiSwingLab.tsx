@@ -64,7 +64,7 @@ export default function AiSwingLab() {
   return (
     <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
-        每個交易日 17:00 後，本機 Ollama 從本站波段榜（排除處置股）挑最多 5 檔。模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通）：單筆上限 10 萬、可零股、低於 1 萬不建倉；<b>隔日 09:00 開盤買進</b>，帳戶在 AI 指定的持有期（🏦）<b>13:30 收盤賣出</b>，其他持有期（5／10／20／60／120 日）為同部位的研究數字（除權息還原價）。
+        每個交易日 17:00 後，本機 Ollama 從本站波段榜（排除處置股）挑最多 5 檔。模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通）：<b>不設單檔上限</b>，當天可用現金依選股數平均分配、可零股、低於 1 萬不建倉；出場後本金與獲利併入可用現金供後續選股（09-24～09-28 的記錄為當時單筆 10 萬口徑）；<b>隔日 09:00 開盤買進</b>，帳戶在 AI 指定的持有期（🏦）<b>13:30 收盤賣出</b>，其他持有期（5／10／20／60／120 日）為同部位的研究數字（除權息還原價）。
         選股在盤後凍結，時間早於隔日開盤——交易單上的「✓ 先選後買」就是查核。<b>AI 有沒有用：看「超額」（選中的 − 整池平均）。</b>模擬交易，非投資建議。
       </div>
       {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
@@ -72,7 +72,7 @@ export default function AiSwingLab() {
       {data.account && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           <Kpi label="🏦 波段帳戶淨值（起始 50 萬·與當沖不互通）" value={`${Math.round(data.account.equity).toLocaleString()} 元`} color={upDn(data.account.realized)} sub={`已實現 ${twd(data.account.realized)}（${pct(data.account.retPct)}）· 已平倉 ${data.account.closedN} 筆`} />
-          <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="單筆上限 10 萬、可零股、低於 1 萬不建倉" />
+          <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="可用現金＝50 萬＋已實現損益（含獲利）－持倉成本；不設單檔上限、依當天選股數平均分配、可零股、低於 1 萬不建倉" />
         </div>
       )}
       <Section title="📈 每日戰績" sub="帳戶總值＝現金＋持倉市值（待進場以成本計）；每個收盤資料日一列">

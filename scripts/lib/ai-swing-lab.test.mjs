@@ -132,18 +132,23 @@ test('波段交易單：09:00 開盤買、13:30 收盤賣、一般稅 0.3%、先
   assert.equal(swingLedger(o, Date.parse(`${days[12].date}T10:00:00+08:00`)).noLookahead, false, '買進後才決定＝作弊，必須標出');
 });
 
-test('波段帳戶：單筆上限 10 萬、貴股用零股、錢用完記資金不足；帳戶由記錄重算', async () => {
+test('波段帳戶：不設單檔上限、可用現金依當天選股數平均分配、貴股用零股、低於 1 萬不建倉；帳戶由記錄重算（獲利可再投入）', async () => {
   const { sizePicks, swingAccount } = await import('./ai-swing-lab.mjs');
   const ps = sizePicks([{ code: 'A', priceAtDecision: 50, horizon: 10 }, { code: 'B', priceAtDecision: 1500, horizon: null }, { code: 'C', priceAtDecision: 30 }], 150000);
-  assert.equal(ps[0].position.shares, 2000);            // 10 萬／50 元 ⇒ 2 張
-  assert.equal(ps[1].position.shares, 33);              // 剩 5 萬、1 張 150 萬 ⇒ 零股 33 股
+  assert.equal(ps[0].position.shares, 1000);            // 15 萬÷3 檔＝5 萬／50 元 ⇒ 1 張
+  assert.equal(ps[1].position.shares, 33);              // 剩 10 萬÷2＝5 萬、1 張 150 萬 ⇒ 零股 33 股
   assert.equal(ps[1].position.exitH, 20);               // 未指定 ⇒ 20 日
-  assert.equal(ps[2].position.shares, 0);               // 剩 500 元 < 單筆最低 1 萬 ⇒ 不建倉
-  assert.match(ps[2].position.reason, /資金不足/);
+  assert.equal(ps[2].position.shares, 1000);            // 剩 50,500 全給最後一檔／30 元 ⇒ 1 張
+  const one = sizePicks([{ code: 'A', priceAtDecision: 50 }], 500000);
+  assert.equal(one[0].position.shares, 10000, '只選 1 檔 ⇒ 可用現金全部投入（無單檔上限）');
+  const poor = sizePicks([{ code: 'A', priceAtDecision: 50 }, { code: 'B', priceAtDecision: 50 }], 15000);
+  assert.equal(poor[0].position.shares, 0);             // 7,500 < 單筆最低 1 萬 ⇒ 不建倉
+  assert.match(poor[0].position.reason, /資金不足/);
+  assert.equal(poor[1].position.shares, 300, '前一檔沒買，錢留給下一檔（15,000／50 元＝300 股零股）');
   // 帳戶：A 已在 10 日出場賺 3,000；B 未到期（成本 33×1500）
   const docs = [{ date: '2026-01-02', picks: ps.slice(0, 2), outcomes: { 5: { picks: [{ code: 'B', entryPx: 1500 }] }, 10: { picks: [{ code: 'A', ledger: { pnlTwd: 3000 } }] } } }];
   const a = swingAccount(docs, '2026-02-01');
-  assert.equal(a.realized, 3000); assert.equal(a.openCost, 49500); assert.equal(a.cash, 500000 + 3000 - 49500);
+  assert.equal(a.realized, 3000); assert.equal(a.openCost, 49500); assert.equal(a.cash, 500000 + 3000 - 49500, '已實現獲利併入可用現金供後續選股');
   assert.equal(swingAccount(docs, '2026-01-02').equity, 500000, '只算決策日以前的記錄');
 });
 

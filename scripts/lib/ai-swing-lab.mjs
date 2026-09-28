@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ledgerOf, twAt } from './sim-ledger.mjs';
-import { sizeShares, accountOf, SWING_PER_PICK, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
+import { sizeShares, accountOf, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
 
 export const SWING_LAB_VERSION = 'ai-swing-lab-v2';   // v2（2026-09-24）：結算附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
 export const SWING_HORIZONS = Object.freeze([5, 10, 20, 60, 120]);
@@ -135,15 +135,17 @@ export function swingAccount(docs, beforeDate = null) {
   return accountOf(trades);
 }
 
-/** 依可用現金為當天的選股定股數（單筆上限 10 萬、可零股）；以 AI 決定當下的價格計，凍結寫入 */
+export const SWING_SIZING_RULE = 'equal-split-no-cap';   // 2026-09-28 起：可用現金依當天選股數平均分配、不設單檔上限
+
+/** 依可用現金為當天的選股定股數（不設單檔上限：剩餘現金÷剩餘檔數、可零股）；以 AI 決定當下的價格計，凍結寫入 */
 export function sizePicks(picks, cash) {
   let left = cash;
-  return picks.map(p => {
-    const budget = Math.max(0, Math.min(left, SWING_PER_PICK));
+  return picks.map((p, i) => {
+    const budget = Math.max(0, left / (picks.length - i));
     const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget, true) : 0;
     const est = Math.round(shares * (p.priceAtDecision || 0));
     left -= est;
-    return { ...p, position: { shares, budget: Math.round(budget), estCost: est, exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
+    return { ...p, position: { shares, budget: Math.round(budget), estCost: est, sizing: SWING_SIZING_RULE, exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
   });
 }
 
