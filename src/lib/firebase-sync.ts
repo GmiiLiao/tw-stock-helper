@@ -2,7 +2,10 @@ import { useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { useAppStore } from './store';
+import { useAppStore, blankUserData, setSyncReadOnly } from './store';
+
+// 讀取失敗時為保護雲端資料而上的同步鎖；只解除自己上的鎖（身分模擬另有自己的鎖，不可誤解）
+let _lockedByLoadFailure = false;
 
 export function useFirebaseSync() {
   const setUser = useAppStore((s) => s.setUser);
@@ -73,67 +76,49 @@ export function useFirebaseSync() {
           ]);
 
           const store = useAppStore.getState();
+          // ⚠ 本機資料擁有者（2026-09-28 WM-SCAN G3-11；使用者：新用戶應預設空白資料）：
+          //   localStorage 的持股／交易／自選／警報沒有擁有者，舊版在「雲端還沒有該文件」時直接上傳本機那份——
+          //   同一台瀏覽器上一位使用者（沒按登出就關掉、token 過期、直接切換帳號）或訪客試用的資料，
+          //   就會變成新帳號的資料。現在只有本機擁有者＝這個 uid 才上傳（自己尚未同步成功的資料），
+          //   其餘一律以空白起始；雲端已有的文件照舊以雲端為準。
+          const ownLocal = store.dataOwnerUid === uid;
+          const blank = blankUserData();
+          const next: Partial<ReturnType<typeof blankUserData>> = {};
+          const writes: Promise<void>[] = [];
+          const fill = <K extends keyof ReturnType<typeof blankUserData>>(key: K, cloud: ReturnType<typeof blankUserData>[K] | undefined, local: ReturnType<typeof blankUserData>[K]) => {
+            (next as Record<string, unknown>)[key] = cloud ?? (ownLocal ? local : blank[key]);
+          };
 
-          // watchlist sync
           if (watchlistSnap.exists()) {
             const data = watchlistSnap.data();
-            useAppStore.setState({
-              watchlist: data.watchlist || [],
-              watchlistGroups: data.watchlistGroups || [],
-            });
+            fill('watchlist', data.watchlist || [], store.watchlist);
+            fill('watchlistGroups', data.watchlistGroups || [], store.watchlistGroups);
           } else {
-            // New user: upload current local guest watchlist
-            await setDoc(doc(db, 'users', uid, 'data', 'watchlist'), {
-              watchlist: store.watchlist,
-              watchlistGroups: store.watchlistGroups,
-            });
+            fill('watchlist', undefined, store.watchlist);
+            fill('watchlistGroups', undefined, store.watchlistGroups);
+            writes.push(setDoc(doc(db, 'users', uid, 'data', 'watchlist'), { watchlist: next.watchlist, watchlistGroups: next.watchlistGroups }));
           }
+          if (holdingsSnap.exists()) fill('holdings', holdingsSnap.data().holdings || [], store.holdings);
+          else { fill('holdings', undefined, store.holdings); writes.push(setDoc(doc(db, 'users', uid, 'data', 'holdings'), { holdings: next.holdings })); }
+          if (alertsSnap.exists()) fill('alerts', alertsSnap.data().alerts || [], store.alerts);
+          else { fill('alerts', undefined, store.alerts); writes.push(setDoc(doc(db, 'users', uid, 'data', 'alerts'), { alerts: next.alerts })); }
+          if (notificationsSnap.exists()) fill('notifications', notificationsSnap.data().notifications || [], store.notifications);
+          else { fill('notifications', undefined, store.notifications); writes.push(setDoc(doc(db, 'users', uid, 'data', 'notifications'), { notifications: next.notifications })); }
+          if (tradesSnap.exists()) fill('tradeRecords', tradesSnap.data().tradeRecords || [], store.tradeRecords || []);
+          else { fill('tradeRecords', undefined, store.tradeRecords || []); writes.push(setDoc(doc(db, 'users', uid, 'data', 'trades'), { tradeRecords: next.tradeRecords })); }
 
-          // holdings sync
-          if (holdingsSnap.exists()) {
-            const data = holdingsSnap.data();
-            useAppStore.setState({ holdings: data.holdings || [] });
-          } else {
-            // New user: upload guest holdings
-            await setDoc(doc(db, 'users', uid, 'data', 'holdings'), {
-              holdings: store.holdings,
-            });
-          }
-
-          // alerts sync
-          if (alertsSnap.exists()) {
-            const data = alertsSnap.data();
-            useAppStore.setState({ alerts: data.alerts || [] });
-          } else {
-            // New user: upload guest alerts
-            await setDoc(doc(db, 'users', uid, 'data', 'alerts'), {
-              alerts: store.alerts,
-            });
-          }
-
-          // notifications sync
-          if (notificationsSnap.exists()) {
-            const data = notificationsSnap.data();
-            useAppStore.setState({ notifications: data.notifications || [] });
-          } else {
-            // New user: upload guest notifications
-            await setDoc(doc(db, 'users', uid, 'data', 'notifications'), {
-              notifications: store.notifications,
-            });
-          }
-
-          // trade records sync
-          if (tradesSnap.exists()) {
-            const data = tradesSnap.data();
-            useAppStore.setState({ tradeRecords: data.tradeRecords || [] });
-          } else {
-            // New user: upload guest trade records
-            await setDoc(doc(db, 'users', uid, 'data', 'trades'), {
-              tradeRecords: store.tradeRecords || [],
-            });
-          }
+          // 先換上這個帳號的資料並標擁有者，再寫雲端（寫入失敗不影響畫面；下次登入擁有者已相符會補寫）
+          if (_lockedByLoadFailure) { setSyncReadOnly(false); _lockedByLoadFailure = false; }
+          useAppStore.setState({ ...next, dataOwnerUid: uid });
+          await Promise.all(writes);
         } catch (e) {
           console.error('Error loading user data from Firestore:', e);
+          // 讀取失敗且本機資料不是這個帳號的：畫面換成空白並鎖住同步寫入，
+          // 否則別人的本機資料會掛在這個帳號名下顯示、一操作就同步蓋掉他雲端的真資料。重新整理即重試。
+          if (useAppStore.getState().dataOwnerUid !== uid) {
+            setSyncReadOnly(true); _lockedByLoadFailure = true;
+            useAppStore.setState(blankUserData());
+          }
         }
 
         // Set user in store
@@ -174,6 +159,7 @@ export function useFirebaseSync() {
             tradeRecords: [],
             alerts: [],
             notifications: [],
+            dataOwnerUid: null,
           });
         }
       }

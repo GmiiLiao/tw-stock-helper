@@ -166,6 +166,9 @@ interface AppState {
 
   // Auth
   user: { uid: string; email: string | null; displayName: string | null; level: string } | null;
+  /** 本機（localStorage）持股／交易／自選／警報屬於哪個帳號（2026-09-28 WM-SCAN G3-11）。
+   *  null＝訪客或舊版資料（擁有者不明）。登入時只有擁有者相符才可把本機資料補上雲端，否則新帳號一律從空白開始。 */
+  dataOwnerUid: string | null;
   // 🎭 身分模擬（僅 superadmin·唯讀·不持久化——重新整理即自動結束）
   viewAs: { level: string | null; uid: string | null; email: string | null; at: number } | null;
   authLoading: boolean;
@@ -290,6 +293,17 @@ const DEFAULT_GROUPS: WatchlistGroup[] = [
     createdAt: Date.now(),
   },
 ];
+
+/** 新帳號的起始資料（2026-09-28 使用者：新用戶應預設空白）：自選清單空白、保留一個空的「我的自選」群組供加入。
+ *  訪客（未登入）仍看 DEFAULT_STOCKS 示範清單。 */
+export const blankUserData = () => ({
+  watchlist: [] as WatchlistItem[],
+  watchlistGroups: [{ id: 'default', name: '我的自選', color: '#f03e3e', stocks: [] as WatchlistItem[], createdAt: Date.now() }] as WatchlistGroup[],
+  holdings: [] as AppState['holdings'],
+  tradeRecords: [] as AppState['tradeRecords'],
+  alerts: [] as AppState['alerts'],
+  notifications: [] as AppState['notifications'],
+});
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -418,6 +432,7 @@ export const useAppStore = create<AppState>()(
         }
       },
       viewAs: null,
+      dataOwnerUid: null,
       enterViewAs: ({ level = null, uid = null, email = null, data }) => {
         setSyncReadOnly(true);                       // 先鎖寫入，再換資料——順序不可顛倒
         set({ viewAs: { level, uid, email, at: Date.now() }, ...(data ?? {}) });
@@ -831,6 +846,7 @@ export const useAppStore = create<AppState>()(
       //   localStorage 卻留著會員的持倉，會被當成管理員自己的並同步回其帳號。
       partialize: (state) => (state.viewAs ? { tradingMode: state.tradingMode } : {
         tradingMode: state.tradingMode,
+        dataOwnerUid: state.dataOwnerUid,
         watchlist: state.watchlist,
         watchlistGroups: state.watchlistGroups,
         holdings: state.holdings,

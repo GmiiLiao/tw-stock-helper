@@ -6,6 +6,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { useDataUid, canWriteUserData } from './view-as';
 import { DEFAULT_BROKER, type BrokerSettings } from './tw-fee';
+import { useAppStore } from './store';
 
 // 券商成本設定（手續費折讓/最低手續費）。
 // 2026-08-14 改存 Firestore（users/{uid}/data/cashLedger.broker）——原本存
@@ -45,8 +46,10 @@ export function useBrokerSettings(): [BrokerSettings, (s: BrokerSettings) => voi
         setSettings(s);
         storageSet(KEY, JSON.stringify(s));
       } else {
-        // 雲端沒有 → 本機有就用並上傳（一次性遷移），都沒有用預設
-        const local = readLocal();
+        // 雲端沒有 → 本機有、且本機資料確定屬於這個帳號才用並上傳（一次性遷移），否則用預設。
+        // ⚠ 2026-09-28 WM-SCAN G3-11：localStorage 沒有擁有者，同一瀏覽器上一位使用者的折讓
+        //   會被當成新帳號的設定上傳（使用者：新用戶應預設空白資料）。擁有者由 firebase-sync 登入載入時標記。
+        const local = useAppStore.getState().dataOwnerUid === dataUid ? readLocal() : null;
         setSettings(local ?? DEFAULT_BROKER);
         if (local && canWriteUserData()) {
           setDoc(ref, { broker: local, updatedAt: Date.now() }, { merge: true }).catch(() => {});
