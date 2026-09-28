@@ -12,8 +12,13 @@ export interface SwingLabDoc {
   date: string; version: string; model: SwingModelInfo | null; market: string | null; pool: { code: string; name: string; sources: string[] }[];
   picks: SwingPick[]; note: string; outcomes: Record<string, SwingOutcome>; frozenAt: number; settledAll?: boolean;
   adminNotes?: string; adminNotesAt?: number; adminBy?: string; prompt?: string | null; raw?: string | null; account?: SimAccount;
+  review?: SwingReview; cashForBuys?: number; equityAtDecision?: number;
+  buyFills?: Record<string, SwingFill>; sellFills?: Record<string, SwingFill & { ledger?: SimLedger | null; sellNoLookahead?: boolean | null }>;
 }
+export interface SwingFill { date: string; at?: number; px?: number; openMissing?: boolean; failed?: boolean; reason?: string }
+export interface SwingReview { holdings: { key: string; code: string; name: string; shares: number; buyPx: number; lastPx: number | null; pnlPct: number | null; heldDays: number | null; onList: boolean }[]; sells: { key: string; code: string; name: string; shares: number; reason: string; estPx: number | null; estProceeds: number }[] }
+export interface SwingLot { key: string; date: string; code: string; name: string; shares: number; status: 'pending' | 'held' | 'selling' | 'closed' | 'void' }
 export const SWING_HORIZONS: readonly number[];
 export const SWING_LAB_VERSION: string;
-export function swingAccount(docs: SwingLabDoc[], beforeDate?: string | null): SimAccount;
+export function swingAccount(docs: SwingLabDoc[], beforeDate?: string | null, days?: unknown[] | null): SimAccount;
 export function swingStats(docs: { outcomes?: Record<string, SwingOutcome> }[]): Record<string, SwingHorizonStat>;

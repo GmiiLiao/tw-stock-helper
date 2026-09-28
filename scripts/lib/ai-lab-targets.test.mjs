@@ -1,7 +1,7 @@
 // AI 實驗目標追蹤測試：node --test scripts/lib/ai-lab-targets.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { windowStats, targetBoard, LAB_TARGETS } from './ai-lab-targets.mjs';
+import { windowStats, targetBoard, LAB_TARGETS, SWING_CUM_TARGET } from './ai-lab-targets.mjs';
 
 const series = totals => totals.map((t, i) => ({ date: `2026-10-${String(i + 1).padStart(2, '0')}`, total: t }));
 
@@ -26,4 +26,13 @@ test('完整窗：近 5 日＝最新 ÷ 5 個交易日前；滾動窗獲利率�
 test('targetBoard：累計報酬與三個窗', () => {
   const b = targetBoard(series([500000, 550000]), 500000);
   assert.equal(b.cumRetPct, 10); assert.equal(b.windows.length, 3); assert.equal(b.tradingDays, 2);
+});
+
+test('targetBoard：累積目標（波段 +200%＝50 萬成長到 150 萬）的達成進度', () => {
+  const b = targetBoard(series([500000, 600000]), 500000, { cumTarget: SWING_CUM_TARGET });
+  assert.equal(b.cumTarget, 200); assert.equal(b.cumMet, false);
+  assert.equal(b.targetTotal, 1500000);
+  assert.equal(b.cumProgress, 10, '已達成 20%／200% 的 10%');
+  assert.equal(targetBoard(series([500000, 1600000]), 500000, { cumTarget: 200 }).cumMet, true);
+  assert.equal(targetBoard(series([500000]), 500000).cumTarget, null, '未設累積目標就不判定');
 });

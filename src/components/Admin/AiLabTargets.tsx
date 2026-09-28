@@ -5,7 +5,7 @@
 //   計算在 scripts/lib/ai-lab-targets.mjs（唯一實作、有測試）；這裡只取兩帳戶的逐日總值並呈現。
 import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
-import { targetBoard, type TargetBoard, type WindowStat } from '../../../scripts/lib/ai-lab-targets.mjs';
+import { targetBoard, SWING_CUM_TARGET, type TargetBoard, type WindowStat } from '../../../scripts/lib/ai-lab-targets.mjs';
 import { MONO, upDn, pct } from './AiLabParts';
 
 const INITIAL = 500000;
@@ -45,7 +45,7 @@ export default function AiLabTargets() {
       const dtSeries = ((dt?.daily || []) as { date: string; equity: number }[]).map(x => ({ date: x.date, total: x.equity }));
       const swSeries = ((sw?.snapshot?.history || []) as { date: string; total: number }[]).map(x => ({ date: x.date, total: x.total }));
       setBoards({
-        dt: dt ? targetBoard(dtSeries, INITIAL) : null, sw: sw ? targetBoard(swSeries, INITIAL) : null,
+        dt: dt ? targetBoard(dtSeries, INITIAL) : null, sw: sw ? targetBoard(swSeries, INITIAL, { cumTarget: SWING_CUM_TARGET }) : null,
         dtFail: !dt, swFail: !sw,
       });
     })();
@@ -57,7 +57,7 @@ export default function AiLabTargets() {
       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 6 }}>
         <b style={{ fontSize: 'calc(15px * var(--fz))' }}>🎯 目標追蹤</b>
         <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
-          兩帳戶各 50 萬、互不挪用。近 N 日報酬＝最新帳戶總值 ÷ N 個交易日前的總值 − 1。目標由使用者訂定（5 日 ≥35%、20 日 ≥70%、60 日 ≥120%），
+          兩帳戶各 50 萬、互不挪用。近 N 日報酬＝最新帳戶總值 ÷ N 個交易日前的總值 − 1。目標由使用者訂定（5 日 ≥35%、20 日 ≥70%、60 日 ≥120%；波段帳戶累積 ≥200%＝總值 150 萬），
           遠高於本站回測可見水準（波段起漲⭐ 5 日約 +1.1%、當沖規則 v1 約 −0.33R），此表只如實呈現是否達成。模擬交易，非投資建議。
         </span>
       </div>
@@ -77,7 +77,11 @@ export default function AiLabTargets() {
                 <tr key={name} style={{ borderBottom: '1px dashed var(--border-primary)' }}>
                   <td style={{ padding: '6px 10px', fontWeight: 900, whiteSpace: 'nowrap' }}>{name}<div style={{ fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>已記錄 {b.tradingDays} 個交易日</div></td>
                   <td style={{ ...MONO, padding: '6px 10px', fontWeight: 800 }}>{Math.round(b.total).toLocaleString()} 元</td>
-                  <td style={{ ...MONO, padding: '6px 10px', fontWeight: 900, color: upDn(b.cumRetPct) }}>{pct(b.cumRetPct)}</td>
+                  <td style={{ ...MONO, padding: '6px 10px', fontWeight: 900, color: upDn(b.cumRetPct), verticalAlign: 'top' }}>{pct(b.cumRetPct)}
+                    {b.cumTarget != null && <div style={{ fontFamily: 'inherit', fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: b.cumMet ? '#22c55e' : 'var(--text-muted)' }}>
+                      {b.cumMet ? `✅ 達成累積目標 ≥${b.cumTarget}%` : `累積目標 ≥${b.cumTarget}%（總值 ${(b.targetTotal ?? 0).toLocaleString()} 元）·進度 ${b.cumProgress}%`}
+                    </div>}
+                  </td>
                   {b.windows.map(w => <Cell key={w.n} w={w} />)}
                 </tr>
               ))}

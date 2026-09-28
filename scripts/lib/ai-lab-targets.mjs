@@ -7,6 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LAB_TARGETS = Object.freeze({ 5: 35, 20: 70, 60: 120 });
+// 波段帳戶累積目標（2026-09-28 使用者：「能達到 50 萬成長 200% 以上為目標」）＝帳戶總值 ≥ 150 萬
+export const SWING_CUM_TARGET = 200;
 
 export function windowStats(series, initial, n, target = LAB_TARGETS[n]) {
   const s = [...series].sort((a, b) => a.date.localeCompare(b.date));
@@ -27,11 +29,14 @@ export function windowStats(series, initial, n, target = LAB_TARGETS[n]) {
   };
 }
 
-export function targetBoard(series, initial) {
+export function targetBoard(series, initial, { cumTarget = null } = {}) {
   const s = [...series].sort((a, b) => a.date.localeCompare(b.date));
   const last = s[s.length - 1];
+  const cumRetPct = last ? +((last.total / initial - 1) * 100).toFixed(2) : 0;
   return {
-    total: last?.total ?? initial, cumRetPct: last ? +((last.total / initial - 1) * 100).toFixed(2) : 0, tradingDays: s.length,
+    total: last?.total ?? initial, cumRetPct, tradingDays: s.length,
+    cumTarget, targetTotal: cumTarget != null ? Math.round(initial * (1 + cumTarget / 100)) : null,
+    cumMet: cumTarget != null && cumRetPct >= cumTarget, cumProgress: cumTarget ? +(Math.max(0, cumRetPct) / cumTarget * 100).toFixed(1) : null,
     windows: Object.keys(LAB_TARGETS).map(Number).map(n => windowStats(s, initial, n)),
   };
 }

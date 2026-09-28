@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/require-admin';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { swingStats, swingAccount, type SwingLabDoc } from '../../../../../scripts/lib/ai-swing-lab.mjs';
+import { portfolioState } from '../../../../../scripts/lib/ai-swing-portfolio.mjs';
 
 // ── 🤖 AI 實驗·波段持有（**超級管理員專用**）──────────────────────────
 // GET：各持有期（5/10/20/60/120 日）AI 選股 vs 整池、依模型分組、逐日列表與明細（含選股原因、prompt 與原始回覆供稽核）。
@@ -38,9 +39,10 @@ export async function GET(request: Request) {
     return gzipJsonAuto({
       found: docs.length > 0,
       stats: swingStats(docs), byModel, snapshot,
-      // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由記錄重算；持倉＝尚未到帳戶出場期的部位
+      // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由成交記錄重算（v3 AI 主動操作）
       account: swingAccount(docs),
-      openPositions: docs.flatMap(d => (d.picks || []).filter(p => p.position?.shares && !d.outcomes?.[p.position.exitH]).map(p => ({ date: d.date, code: p.code, name: p.name, shares: p.position!.shares, estCost: p.position!.estCost, exitH: p.position!.exitH }))),
+      // v3：持倉＝AI 尚未賣出成交的部位（待進場／持有中／賣出委託中），由成交記錄重建
+      openPositions: portfolioState(docs).lots.filter(l => l.status === 'pending' || l.status === 'held' || l.status === 'selling').map(l => ({ date: l.date, code: l.code, name: l.name, shares: l.shares, status: l.status })),
       days: docs.map(d => ({ date: d.date, model: d.model?.name || null, picks: d.picks.map(p => p.code), settled: Object.keys(d.outcomes || {}).map(Number), hasNotes: !!d.adminNotes })),
       detail,
     }, { 'Cache-Control': 'no-store' });

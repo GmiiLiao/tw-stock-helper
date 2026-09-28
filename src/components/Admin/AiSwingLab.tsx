@@ -10,10 +10,10 @@ import { Kpi, TradeSlip, NotesBox, Section, ListTable, MONO, upDn, twd, pct, tw 
 
 const HS = [5, 10, 20, 60, 120];
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number }
-interface OpenPos { date: string; code: string; name: string; shares: number; estCost: number; exitH: number }
+interface OpenPos { date: string; code: string; name: string; shares: number; status: string }
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
-interface Holding { date: string; code: string; name: string; shares: number; exitH: number; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number; daysLeft: number }
-interface Closed { date: string; code: string; name: string; shares: number; exitH: number; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
+interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
+interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; sellOrderDate?: string; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
 interface HistRow { date: string; holdings: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; total: number; dayPnl: number; cumRetPct: number }
 interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[] }
 interface Resp { snapshot?: Snapshot | null; account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
@@ -64,8 +64,9 @@ export default function AiSwingLab() {
   return (
     <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
-        每個交易日 17:00 後，本機 Ollama 從本站波段榜（排除處置股）挑最多 5 檔。模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通）：<b>不設單檔上限</b>，當天可用現金依選股數平均分配、可零股、低於 1 萬不建倉；出場後本金與獲利併入可用現金供後續選股（09-24～09-28 的記錄為當時單筆 10 萬口徑）；<b>隔日 09:00 開盤買進</b>，帳戶在 AI 指定的持有期（🏦）<b>13:30 收盤賣出</b>，其他持有期（5／10／20／60／120 日）為同部位的研究數字（除權息還原價）。
-        選股在盤後凍結，時間早於隔日開盤——交易單上的「✓ 先選後買」就是查核。<b>AI 有沒有用：看「超額」（選中的 − 整池平均）。</b>模擬交易，非投資建議。
+        模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通），<b>由 AI 主動操作</b>（2026-09-28 起）：每個交易日 17:00 後，本機 Ollama 先檢視現有持股決定<b>續抱或賣出換股</b>，再從本站波段榜（排除處置股）挑最多 5 檔買進；
+        買賣都在<b>下一交易日 09:00 開盤成交</b>（盤後決定、防偷看）。不設單檔上限，可用現金依買進檔數平均分配、可零股、低於 1 萬不建倉；賣出的本金與獲利再投入（09-24～09-28 的部位為當時單筆 10 萬口徑，已一併交由 AI 管理）。
+        <b>AI 交易能力：看帳戶總值與目標追蹤</b>；<b>選股眼光：看各持有期「超額」</b>（同部位若持有 h 日 vs 整池平均，研究用）。決策在盤後凍結、早於成交——交易單「✓ 先選後買」即查核。模擬交易，非投資建議。
       </div>
       {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
@@ -84,26 +85,26 @@ export default function AiSwingLab() {
       </Section>
 
       <Section title="📋 持有清單" sub={data.snapshot?.dataDate ? `市值以 ${data.snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新'}>
-        <ListTable head={['選股日', '個股', '狀態', '股數', '買進 時間·價', '成本', '最新收盤', '市值', '未實現損益', '已持有／剩餘']} right={[3, 5, 6, 7, 8]}
+        <ListTable head={['選股日', '個股', '狀態', '股數', '買進 時間·價', '成本', '最新收盤', '市值', '未實現損益', '已持有·AI 預期']} right={[3, 5, 6, 7, 8]}
           empty="目前沒有持倉"
           rows={(data.snapshot?.holdings || []).map(h => [
-            h.date.slice(5), `${h.code} ${h.name}`, <span key="s" style={{ color: h.entryPx ? 'var(--text-primary)' : '#7dd3fc' }}>{h.status}</span>, h.shares.toLocaleString(),
+            h.date.slice(5), `${h.code} ${h.name}`, <span key="s" style={{ color: h.sellReason ? '#f59e0b' : h.entryPx ? 'var(--text-primary)' : '#7dd3fc' }} title={h.sellReason ? `賣出理由：${h.sellReason}` : h.reason ? `買進理由：${h.reason}` : undefined}>{h.status}</span>, h.shares.toLocaleString(),
             h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}</span> : '—', h.cost.toLocaleString(), h.lastPx ?? '—',
             h.mktValue != null ? h.mktValue.toLocaleString() : '—', <b key="u" style={{ color: upDn(h.unrealized) }}>{h.unrealized != null ? `${twd(h.unrealized)}（${pct(h.unrealizedPct)}）` : '—'}</b>,
-            `${h.heldDays} 日／剩 ${h.daysLeft} 日（${h.exitH} 日出場）`,
+            `${h.heldDays} 日·預期 ${h.horizon ? `${h.horizon} 日` : '—'}`,
           ])}
           foot={data.snapshot?.holdings?.length ? ['合計', `${data.snapshot.holdings.length} 檔`, '', '', '', data.snapshot.holdings.reduce((a, h) => a + h.cost, 0).toLocaleString(), '',
             data.snapshot.holdings.reduce((a, h) => a + (h.mktValue ?? 0), 0).toLocaleString() || '—', twd(data.snapshot.holdings.reduce((a, h) => a + (h.unrealized ?? 0), 0)), ''] : undefined} />
       </Section>
 
-      <Section title="✅ 結算清單" sub="帳戶在 AI 指定持有期出場的實際交易單（新→舊）">
-        <ListTable head={['選股日', '個股', '股數', '買進 時間·價·金額', '賣出 時間·價·金額', '費稅', '淨損益', '報酬', '持有']} right={[2, 5, 6, 7]}
-          empty="尚無已結算部位（最快在進場後第 5 個交易日收盤）"
+      <Section title="✅ 已賣出清單" sub="AI 下賣單、下一交易日開盤成交的實際交易單（新→舊）">
+        <ListTable head={['選股日', '個股', '股數', '買進 時間·價·金額', '賣出 時間·價·金額', '費稅', '淨損益', '報酬', 'AI 賣出理由']} right={[2, 5, 6, 7]}
+          empty="尚無賣出（AI 每日盤後檢視持股，決定賣出後於下一交易日開盤成交）"
           rows={(data.snapshot?.closed || []).map(c => [
             c.date.slice(5), `${c.code} ${c.name}`, c.shares.toLocaleString(),
             <span key="b" style={MONO}>{tw(c.buy.at, true)} · {c.buy.px} · {c.buy.amount.toLocaleString()}</span>,
             <span key="s" style={MONO}>{tw(c.sell.at, true)} · {c.sell.px} · {c.sell.amount.toLocaleString()}</span>,
-            c.costTwd.toLocaleString(), <b key="p" style={{ color: upDn(c.pnlTwd) }}>{twd(c.pnlTwd)}</b>, <span key="r" style={{ color: upDn(c.retPct) }}>{pct(c.retPct)}</span>, `${c.exitH} 日`,
+            c.costTwd.toLocaleString(), <b key="p" style={{ color: upDn(c.pnlTwd) }}>{twd(c.pnlTwd)}</b>, <span key="r" style={{ color: upDn(c.retPct) }}>{pct(c.retPct)}</span>, <span key="w" title={c.sellOrderDate ? `${c.sellOrderDate} 盤後決定` : undefined}>{c.sellReason || '—'}</span>,
           ])}
           foot={data.snapshot?.closed?.length ? ['合計', `${data.snapshot.closed.length} 筆`, '', '', '', data.snapshot.closed.reduce((a, c) => a + c.costTwd, 0).toLocaleString(), twd(data.snapshot.closed.reduce((a, c) => a + c.pnlTwd, 0)), '', ''] : undefined} />
       </Section>
@@ -134,14 +135,22 @@ export default function AiSwingLab() {
       {d && (
         <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: '1px solid var(--border-primary)' }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <span style={{ fontWeight: 900, fontSize: 'calc(16px * var(--fz))' }}>🔒 {d.date} 盤後選股</span>
+            <span style={{ fontWeight: 900, fontSize: 'calc(16px * var(--fz))' }}>🔒 {d.date} 盤後決策</span>
             <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
               凍結 {tw(d.frozenAt, true)} · 模型 <b>{d.model?.name || '未知'}</b>{d.model?.parameterSize ? `·${d.model.parameterSize}·${d.model.quantization}` : ''}{d.model?.digest ? `·${d.model.digest.slice(0, 12)}` : ''} · 候選池 {d.pool.length} 檔 · {d.version}
             </span>
           </div>
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>大盤：{d.market || '—'}　AI 看法：{d.note || '—'}</div>
 
-          {!d.picks.length && <div style={{ marginTop: 10, color: 'var(--text-muted)' }}>當天未選股。</div>}
+          {d.review && (
+            <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+              <div style={{ fontWeight: 900 }}>🔄 持股檢視：{d.review.holdings.length} 檔 → 賣出 {d.review.sells.length} 檔、續抱 {d.review.holdings.length - d.review.sells.length} 檔
+                {d.cashForBuys != null && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>　買進資金 {d.cashForBuys.toLocaleString()} 元（含賣出估計回收款）</span>}</div>
+              {d.review.sells.map(x => <div key={x.key} style={{ fontSize: 'calc(12.5px * var(--fz))' }}>🔻 賣出 <b>{x.code} {x.name}</b> {x.shares.toLocaleString()} 股（決定時收盤 {x.estPx ?? '—'}）：{x.reason}</div>)}
+              {d.review.holdings.filter(h => !d.review!.sells.some(x => x.key === h.key)).map(h => <div key={h.key} style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>✋ 續抱 {h.code} {h.name}（{pct(h.pnlPct)}·已持有 {h.heldDays ?? '—'} 日）</div>)}
+            </div>
+          )}
+          {!d.picks.length && <div style={{ marginTop: 10, color: 'var(--text-muted)' }}>當天未買進。</div>}
           {d.picks.map(p => <PickCard key={p.code} p={p} doc={d} />)}
 
           <Section title="整池基準" sub="同一天丟給 AI 的所有候選，同口徑等權平均">
@@ -174,14 +183,14 @@ function PickCard({ p, doc }: { p: SwingPick; doc: SwingLabDoc }) {
       <div style={{ fontSize: 'calc(12px * var(--fz))', color: p.position && !p.position.shares ? '#f59e0b' : 'var(--text-muted)' }}>
         {p.position
           ? p.position.shares
-            ? `🏦 部位：${p.position.lots ? `${p.position.lots} 張` : ''}${p.position.oddShares ? `${p.position.lots ? '＋' : ''}${p.position.oddShares} 股零股` : ''}（約 ${p.position.estCost.toLocaleString()} 元，預算 ${p.position.budget.toLocaleString()}）· ${doc.date} 之後第一個交易日 09:00 開盤買 · 帳戶於 ${p.position.exitH} 日出場${p.position.note ? `｜${p.position.note}` : ''}`
+            ? `🏦 部位：${p.position.lots ? `${p.position.lots} 張` : ''}${p.position.oddShares ? `${p.position.lots ? '＋' : ''}${p.position.oddShares} 股零股` : ''}（約 ${p.position.estCost.toLocaleString()} 元，預算 ${p.position.budget.toLocaleString()}）· ${doc.date} 之後第一個交易日 09:00 開盤買 · 之後由 AI 每日檢視決定何時賣出${p.position.note ? `｜${p.position.note}` : ''}`
             : `💰 ${p.position.reason || '資金不足'}，未建倉（研究數字仍照算報酬率）`
           : '預計買進：隔一交易日 09:00 開盤（本筆為帳戶設定前的記錄，以 1 張計）'}
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
         {HS.map(h => { const o = doc.outcomes?.[h]?.picks.find(x => x.code === p.code); return (
-          <span key={h} title={(p.position?.exitH ?? null) === h ? '帳戶實際在這一期出場' : '研究用：同部位若在這一期出場的結果'} style={{ ...MONO, padding: '2px 8px', borderRadius: 999, fontSize: 'calc(12px * var(--fz))', border: `1px solid ${(p.position?.exitH ?? p.horizon) === h ? '#fbbf24' : 'var(--border-primary)'}`, color: o?.ledger ? upDn(o.ledger.pnlTwd) : 'var(--text-muted)' }}>
-            {(p.position?.exitH ?? null) === h ? '🏦 ' : ''}{h} 日 {o?.ledger ? `${twd(o.ledger.pnlTwd)}（${pct(o.ledger.retPct)}）` : o ? o.note || '資料缺' : '未到期'}
+          <span key={h} title="研究用：同部位若持有這一期的結果（帳戶實際出場以 AI 賣單為準）" style={{ ...MONO, padding: '2px 8px', borderRadius: 999, fontSize: 'calc(12px * var(--fz))', border: `1px solid ${p.horizon === h ? '#fbbf24' : 'var(--border-primary)'}`, color: o?.ledger ? upDn(o.ledger.pnlTwd) : 'var(--text-muted)' }}>
+            {h} 日 {o?.ledger ? `${twd(o.ledger.pnlTwd)}（${pct(o.ledger.retPct)}）` : o ? o.note || '資料缺' : '未到期'}
           </span>); })}
       </div>
       {HS.some(h => doc.outcomes?.[h]?.picks.find(x => x.code === p.code)?.ledger) && (

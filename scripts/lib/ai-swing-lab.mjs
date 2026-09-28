@@ -13,9 +13,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ledgerOf, twAt } from './sim-ledger.mjs';
-import { sizeShares, accountOf, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
+import { portfolioState, portfolioSnapshot } from './ai-swing-portfolio.mjs';
+import { sizeShares, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
 
-export const SWING_LAB_VERSION = 'ai-swing-lab-v2';   // v2（2026-09-24）：結算附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
+export const SWING_LAB_VERSION = 'ai-swing-lab-v3';   // v3（2026-09-28）：帳戶改由 AI 主動操作（每日檢視持股可賣出換股，./ai-swing-portfolio.mjs）；v2：結算附交易單與防作弊時間戳
 export const SWING_HORIZONS = Object.freeze([5, 10, 20, 60, 120]);
 export const SWING_MAX_PICKS = 5;
 export const SWING_POOL_MAX = 30;
@@ -49,20 +50,27 @@ const line = c => {
   return `- ${parts.join('｜')}`;
 };
 
-/** 選股 prompt */
-export function buildPickPrompt({ date, pool, market, swingPicksMeta }) {
+const f2 = v => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}`);
+const holdLine = h => `- ${h.code} ${h.name}｜${h.shares.toLocaleString()} 股、${h.buyDate} 以 ${h.buyPx} 買進、最新收盤 ${h.lastPx ?? '—'}（${f2(h.pnlPct)}%）、已持有 ${h.heldDays ?? '—'} 個交易日、持有期間最高 ${f2(h.maxUp)}%／最低 ${f2(h.maxDD)}%`
+  + `｜${h.onList ? '今天仍在波段榜上' : '已不在今天的波段榜'}${h.news ? `｜新聞判讀：${h.news}` : ''}${h.disposition ? '｜⚠已列處置股' : ''}｜當初買進理由：${h.reason || '—'}`;
+
+/** 每日決策 prompt：檢視持股（可賣出換股）＋從候選池買進。holdings 空＝只選股 */
+export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null }) {
   return [
-    `你是台股波段交易的選股研究員。以下是本站 ${date} 盤後的波段候選池（只能從中挑選），請挑出最適合「波段持有」的股票，最多 ${SWING_MAX_PICKS} 檔；沒有好標的可以少挑或不挑。`,
-    `模擬規則：隔一個交易日開盤買進，之後分別看持有 5、10、20、60、120 個交易日的報酬（扣費稅 ${SWING_COST_PCT}%），並與整個候選池的平均比較。`,
+    `你是台股波段交易員，管理一個模擬帳戶（起始 50 萬元）。現在是 ${date} 盤後。你的任務是主動操作讓帳戶獲利：檢視現有持股決定續抱或賣出，並從本站今天的波段候選池挑選要買進的股票（最多 ${SWING_MAX_PICKS} 檔，沒有好標的可以不買）。`,
+    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。可用資金依買進檔數平均分配，賣出的本金與獲利可再投入。`,
     `只能根據提供的資料，不得編造新聞或數字。`,
     ``,
+    `【帳戶】${equity != null ? `總值約 ${Math.round(equity).toLocaleString()} 元、` : ''}${cash != null ? `可用現金 ${Math.round(cash).toLocaleString()} 元（不含今天賣出的回收款）` : ''}`,
     `【大盤】${market || '未知'}${swingPicksMeta?.bearDay ? '；今日為空頭日（波段起漲訊號在空頭日較可靠）' : ''}${swingPicksMeta?.crowded ? '；⚠ 起漲訊號擁擠（崩盤型），母體已偏離回測' : ''}${swingPicksMeta?.observe ? `；⚠ 起漲訊號目前為觀察閘：${swingPicksMeta.observeWhy || ''}` : ''}`,
     `【本站實證提醒】波段起漲⭐訊號的優勢在第 5 日（持有 5 日淨均約 +1.1%）；追高（RSI5>85）對買方是較差的進場點；20日波動 ≥1.5% 才進場較好；KD 死叉破底風險高。`,
-    `【候選池 ${pool.length} 檔】`,
-    pool.map(line).join('\n'),
+    `【現有持股 ${holdings.length} 檔】`,
+    holdings.length ? holdings.map(holdLine).join('\n') : '（無）',
+    `【候選池 ${pool.length} 檔】（已持有的不能重複買）`,
+    pool.length ? pool.map(line).join('\n') : '（今天沒有候選）',
     ``,
-    `只輸出 JSON，不要其他文字：`,
-    `{"picks":[{"code":"四位數代號","confidence":0到100,"horizon":"你認為最適合的持有期（5/10/20/60/120 擇一）","reason":"50字內選股原因，引用上面的數據","risk":"30字內最大風險"}],"note":"30字內整體看法或不挑的理由"}`,
+    `只輸出 JSON，不要其他文字（sells 只能填現有持股，沒要賣就給空陣列）：`,
+    `{"sells":[{"code":"四位數代號","reason":"50字內賣出理由，引用上面的數據"}],"picks":[{"code":"四位數代號","confidence":0到100,"horizon":"預期持有期（5/10/20/60/120 擇一）","reason":"50字內買進原因，引用上面的數據","risk":"30字內最大風險"}],"note":"30字內今天的操作思路"}`,
   ].join('\n');
 }
 
@@ -119,20 +127,10 @@ export function swingLedger(o, decidedAt, shares = 1000) {
   return ledgerOf({ side: 'long', entry: { at: o.entryAt, px: o.entryPx }, exit: { at: o.exitAt, px: o.exitPx }, dayTrade: false, decidedAt, shares });
 }
 
-/** 波段帳戶（由記錄重算）：每檔以 position.exitH（AI 指定持有期）為帳戶出場；未到期＝未平倉 */
-export function swingAccount(docs, beforeDate = null) {
-  const trades = [];
-  for (const d of docs) {
-    if (beforeDate && !(d.date < beforeDate)) continue;
-    for (const p of d.picks || []) {
-      const pos = p.position; if (!pos?.shares) continue;
-      const o = d.outcomes?.[pos.exitH]?.picks?.find(x => x.code === p.code);
-      if (o?.ledger) trades.push({ pnlTwd: o.ledger.pnlTwd });
-      else if (o) trades.push({ pnlTwd: 0 });   // 到期但資料缺：以 0 計並在明細註明
-      else { const e = d.outcomes?.[5]?.picks?.find(x => x.code === p.code); trades.push({ open: true, cost: Math.round((e?.entryPx || p.priceAtDecision || 0) * pos.shares) }); }
-    }
-  }
-  return accountOf(trades);
+/** 波段帳戶（由記錄重算）：自 v3 起由 AI 主動操作——部位在 AI 下賣單後的下一交易日開盤出場（見 ./ai-swing-portfolio.mjs）。
+ *  未給日線時只用已寫入的成交記錄（buyFills／sellFills），待 daemon 結算補記。 */
+export function swingAccount(docs, beforeDate = null, days = null) {
+  return portfolioState(docs, days, beforeDate).account;
 }
 
 export const SWING_SIZING_RULE = 'equal-split-no-cap';   // 2026-09-28 起：可用現金依當天選股數平均分配、不設單檔上限
@@ -171,17 +169,21 @@ export function renderSwingMarkdown(doc) {
     `# 🤖 AI 實驗·波段持有 ${doc.date}`,
     ``,
     `- LLM 模型：**${m.name || '未知'}**（${m.family || '—'}·${m.parameterSize || '—'}·${m.quantization || '—'}·digest ${m.digest ? m.digest.slice(0, 12) : '—'}）`,
-    `- 版本：${doc.version}｜凍結：${doc.frozenAt ? new Date(doc.frozenAt + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16) : '—'}｜候選池 ${doc.pool.length} 檔`,
-    `- 口徑：D+1 開盤買；持有 ${SWING_HORIZONS.join('／')} 個交易日收盤賣；扣 ${SWING_COST_PCT}%；價格以 priceEvents 還原；基準＝整池等權平均`,
+    `- 版本：${doc.version}｜凍結：${doc.frozenAt ? new Date(doc.frozenAt + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16) : '—'}｜候選池 ${(doc.pool || []).length} 檔`,
+    `- 口徑：帳戶由 AI 主動操作——盤後決定、下一交易日開盤買賣；研究結算為 D+1 開盤買、持有 ${SWING_HORIZONS.join('／')} 個交易日收盤賣、扣 ${SWING_COST_PCT}%；價格以 priceEvents 還原；基準＝整池等權平均`,
     `- 大盤：${doc.market || '—'}`,
     ``,
-    `## 選股（${doc.picks.length} 檔）${doc.note ? `——${doc.note}` : ''}`,
+    `## 選股（${(doc.picks || []).length} 檔）${doc.note ? `——${doc.note}` : ''}`,
     ``,
     `| 代號 | 名稱 | 信心 | 預期持有 | 選股原因 | 風險 | 來源 |`,
     `|---|---|---|---|---|---|---|`,
-    ...doc.picks.map(p => `| ${p.code} | ${p.name} | ${p.confidence} | ${p.horizon ? `${p.horizon} 日` : '—'} | ${p.reason.replace(/\|/g, '／')} | ${p.risk.replace(/\|/g, '／')} | ${(p.sources || []).join('、')} |`),
+    ...(doc.picks || []).map(p => `| ${p.code} | ${p.name} | ${p.confidence} | ${p.horizon ? `${p.horizon} 日` : '—'} | ${(p.reason || "").replace(/\|/g, "／")} | ${(p.risk || "").replace(/\|/g, "／")} | ${(p.sources || []).join('、')} |`),
     ``,
-    `## 結算（到期才填，已填不改）`,
+    `## 持股檢視（檢視 ${doc.review?.holdings?.length ?? 0} 檔·賣出 ${doc.review?.sells?.length ?? 0} 檔，下一交易日 09:00 開盤成交）`,
+    ``,
+    ...(doc.review?.sells?.length ? doc.review.sells.map(x => `- 賣出 ${x.code} ${x.name || ''}（${x.key}）：${x.reason}`) : ['- 全部續抱（或無持股）']),
+    ``,
+    `## 選股研究結算（同一檔若持有 h 日的結果，量選股眼光；帳戶實際出場以 AI 賣單為準。到期才填，已填不改）`,
     ``,
     `| 持有 | 狀態 | 選股平均 | 整池平均 | 超額 | 明細 |`,
     `|---|---|---|---|---|---|`,
@@ -198,41 +200,9 @@ export function renderSwingMarkdown(doc) {
   return L.join('\n');
 }
 
-/**
- * 波段帳戶快照（持有清單＋結算清單）：docs＝全部選股記錄、days＝還原後日線（舊→新）。
- * 持有＝有部位且帳戶出場期尚未結算；未進場（D+1 還沒到）標「待進場」；市值用最新收盤。
- */
+/** 波段帳戶快照（持有清單 marked-to-market＋已賣出清單）：委派 ./ai-swing-portfolio.mjs */
 export function swingAccountSnapshot(docs, days) {
-  const last = days[days.length - 1];
-  const holdings = [], closed = [];
-  for (const d of docs) {
-    for (const p of d.picks || []) {
-      const pos = p.position; if (!pos?.shares) continue;
-      const acct = d.outcomes?.[pos.exitH]?.picks?.find(x => x.code === p.code);
-      if (acct?.ledger) {
-        const L = acct.ledger;
-        closed.push({ date: d.date, code: p.code, name: p.name, shares: L.shares, exitH: pos.exitH, buy: L.buy, sell: L.sell, costTwd: L.costTwd, pnlTwd: L.pnlTwd, retPct: L.retPct, exitDate: acct.exitDate });
-        continue;
-      }
-      const d0 = days.findIndex(x => x.date > d.date);
-      const entryRow = d0 >= 0 ? days[d0].m[p.code] : null;
-      const entryPx = entryRow ? (entryRow[2] > 0 ? entryRow[2] : entryRow[0]) : null;
-      const lastPx = last?.m[p.code]?.[0] ?? null;
-      const cost = entryPx ? Math.round(entryPx * pos.shares) : pos.estCost;
-      const mkt = lastPx && entryPx ? Math.round(lastPx * pos.shares) : null;
-      const heldDays = d0 >= 0 ? days.length - d0 : 0;
-      holdings.push({
-        date: d.date, code: p.code, name: p.name, shares: pos.shares, exitH: pos.exitH,
-        status: entryPx ? '持有中' : '待進場（下一交易日 09:00 開盤）',
-        entryDate: d0 >= 0 ? days[d0].date : null, entryAt: d0 >= 0 ? twAt(days[d0].date, entryRow?.[2] > 0 ? '09:00' : '13:30') : null, entryPx, cost,
-        lastDate: entryPx ? last.date : null, lastPx: entryPx ? lastPx : null, mktValue: mkt, unrealized: mkt != null ? mkt - cost : null,
-        unrealizedPct: mkt != null && cost ? +((mkt / cost - 1) * 100).toFixed(2) : null,
-        heldDays, daysLeft: Math.max(0, pos.exitH - heldDays),
-      });
-    }
-  }
-  const trades = [...closed.map(c => ({ pnlTwd: c.pnlTwd })), ...holdings.map(h => ({ open: true, cost: h.cost }))];
-  return { at: Date.now(), dataDate: last?.date || null, account: accountOf(trades), holdings: holdings.sort((a, b) => a.date.localeCompare(b.date)), closed: closed.sort((a, b) => (b.sell.at || 0) - (a.sell.at || 0)) };
+  return portfolioSnapshot(docs, days);
 }
 
 /**

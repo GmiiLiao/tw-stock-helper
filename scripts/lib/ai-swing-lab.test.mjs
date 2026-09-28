@@ -145,8 +145,11 @@ test('波段帳戶：不設單檔上限、可用現金依當天選股數平均�
   assert.equal(poor[0].position.shares, 0);             // 7,500 < 單筆最低 1 萬 ⇒ 不建倉
   assert.match(poor[0].position.reason, /資金不足/);
   assert.equal(poor[1].position.shares, 300, '前一檔沒買，錢留給下一檔（15,000／50 元＝300 股零股）');
-  // 帳戶：A 已在 10 日出場賺 3,000；B 未到期（成本 33×1500）
-  const docs = [{ date: '2026-01-02', picks: ps.slice(0, 2), outcomes: { 5: { picks: [{ code: 'B', entryPx: 1500 }] }, 10: { picks: [{ code: 'A', ledger: { pnlTwd: 3000 } }] } } }];
+  // 帳戶（v3 主動操作）：A 被 AI 賣出、已成交賺 3,000；B 仍持有（成本 33×1500）——只用已寫入的成交記錄
+  const docs = [
+    { date: '2026-01-02', picks: ps.slice(0, 2), buyFills: { A: { date: '2026-01-03', at: 1, px: 50 }, B: { date: '2026-01-03', at: 1, px: 1500 } } },
+    { date: '2026-01-09', picks: [], review: { sells: [{ code: 'A', key: '2026-01-02_A', reason: 'x' }] }, sellFills: { '2026-01-02_A': { date: '2026-01-10', at: 2, px: 53.2, ledger: { pnlTwd: 3000 } } } },
+  ];
   const a = swingAccount(docs, '2026-02-01');
   assert.equal(a.realized, 3000); assert.equal(a.openCost, 49500); assert.equal(a.cash, 500000 + 3000 - 49500, '已實現獲利併入可用現金供後續選股');
   assert.equal(swingAccount(docs, '2026-01-02').equity, 500000, '只算決策日以前的記錄');
@@ -175,4 +178,35 @@ test('每日戰績：同資料日覆蓋不重複、當日損益＝總值變化',
   assert.equal(h[1].dayPnl, 5000); assert.equal(h[1].cumRetPct, 1);
   h = upsertHistory(h, snap('2026-09-26', 400000, 103000));
   assert.equal(h.length, 2); assert.equal(h[1].dayPnl, 3000);
+});
+
+test('執行器 v3：AI 檢視持股賣出換股——賣單與買單凍結、賣出回收款可買新股、結算補記成交、快照列已賣出', async () => {
+  const { swingAccountSnapshot } = await import('./ai-swing-lab.mjs');
+  const days = mkDays(); const D0 = days[5].date, D = days[20].date;
+  const db = fakeDb({
+    [`aiSwingLab/${D0}`]: { date: D0, frozenAt: Date.parse(`${D0}T18:00:00+08:00`), picks: [{ code: '1111', name: 'A', reason: '起漲', priceAtDecision: 104, position: { shares: 4000, estCost: 416000 } }], outcomes: {} },
+    'swingPicks/latest': { dataDate: D, mode: 'close', items: [{ code: '2222', name: 'B', tier: 2, price: 50 }] },
+    'swingHold/latest': { dataDate: D, combo: { items: [] } },
+  });
+  let prompt = '';
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')),
+    askOllama: async p => { prompt = p; return '{"sells":[{"code":"1111","reason":"漲多獲利了結"}],"picks":[{"code":"2222","confidence":60,"horizon":"20","reason":"換股","risk":"r"}],"note":"換股"}'; },
+    getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 21) });
+  assert.equal(await lab.pick(), true);
+  assert.match(prompt, /現有持股 1 檔/); assert.match(prompt, /1111 A/);
+  const doc = db.store[`aiSwingLab/${D}`];
+  assert.equal(doc.review.sells[0].code, '1111');
+  assert.equal(doc.review.sells[0].key, `${D0}_1111`);
+  assert.ok(doc.cashForBuys > 500000, '賣出估計回收款（含獲利）併入買進資金');
+  assert.ok(doc.picks[0].position.shares >= 10000, '可用現金全數給 2222（50 元 ⇒ 至少 10 張）');
+  // 下一交易日到了：結算補記成交
+  const lab2 = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 22) });
+  await lab2.settle();
+  assert.equal(db.store[`aiSwingLab/${D0}`].buyFills['1111'].px, 105);
+  assert.equal(db.store[`aiSwingLab/${D}`].sellFills[`${D0}_1111`].px, 120, 'D 的下一交易日開盤 99+21');
+  assert.equal(db.store[`aiSwingLab/${D}`].buyFills['2222'].px, 50);
+  const snap = swingAccountSnapshot(Object.keys(db.store).filter(k => k.startsWith('aiSwingLab/')).map(k => db.store[k]), days.slice(0, 22));
+  assert.equal(snap.closed.length, 1); assert.equal(snap.closed[0].sellReason, '漲多獲利了結');
+  assert.equal(snap.holdings.map(h => h.code).join(), '2222');
+  assert.ok(db.store['aiLabAccounts/swing'].closed.length === 1, '帳戶快照寫入');
 });
