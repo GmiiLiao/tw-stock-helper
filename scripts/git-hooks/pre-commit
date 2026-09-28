@@ -24,5 +24,9 @@ if git diff --cached --name-only | grep -qE '^scripts/lib/'; then
     [ $fail -eq 0 ] && echo "✓ scripts/lib 單元測試通過（$# 檔）"
   fi
 fi
-[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet＋safe-storage 通過"
+# 外部資料來源登錄（2026-09-28·wm-source-legitimacy／WM-SCAN G4-10）：程式碼出現未登錄或未核准的網域即擋。
+if git diff --cached --name-only | grep -qE '^(src/|scripts/)'; then
+  node scripts/check-source-registry.mjs >/tmp/sr.out 2>&1 || { cat /tmp/sr.out; echo "❌ 外部來源未登錄／未核准（scripts/source-registry.json，見 wm-source-legitimacy）"; fail=1; }
+fi
+[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet＋safe-storage＋來源登錄 通過"
 exit $fail

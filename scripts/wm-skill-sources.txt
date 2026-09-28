@@ -6,7 +6,7 @@ compound-engineering.local.md               wm-agent-task-mode
 scripts/agent-preflight.mjs                 wm-agent-task-mode
 CONCEPTS.md                                 wm-data-accuracy wm-freshness-health-monitoring wm-ci-guardrails wm-authoritative-identity wm-documented-solutions
 ARCHITECTURE.md                             wm-multi-tier-cache wm-edge-gateway wm-freshness-health-monitoring
-CHANGELOG.md                                wm-authoritative-identity（新技術族偵測）
+CHANGELOG.md                                wm-authoritative-identity（新技術族偵測）、wm-source-legitimacy（來源退役／ToS）
 scripts/_pipeline-dedup.mjs                 wm-data-accuracy
 scripts/_seed-utils.mjs                     wm-realtime-seed-pipeline wm-data-accuracy
 src/config/ml-config.ts                     wm-browser-ml
@@ -48,3 +48,4 @@ scripts/check-style-layout-budget.mjs       wm-bundle-perf-budgets
 api/mcp.ts                                  wm-mcp-agent-surface
 public/.well-known/agent-skills/index.json  wm-mcp-agent-surface
 src-tauri/tauri.conf.json                   wm-platform-stack-reference
+docs/data-sources.mdx                       wm-source-legitimacy

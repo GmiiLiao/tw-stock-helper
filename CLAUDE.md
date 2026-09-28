@@ -42,6 +42,8 @@ Next.js on Firebase App Hosting（us-central1）
 （`src/lib/twse-api-server.ts:929-931`、`src/app/api/twse/market-index/route.ts:10-11` 都有註解）。
 所以 web 層直打 MIS 的路徑只是 fallback，實際上必然失敗 —— 但它們還在，而且沒有開關。
 新增功能時**不要**再從 route 直接打上游，一律走 daemon → Firestore。
+**新增任何外部來源（網域）前先登錄 `scripts/source-registry.json` 並取得使用者合法性裁定**——
+pre-commit 的 `check-source-registry.mjs` 會擋未登錄／未核准的網域（技能 `wm-source-legitimacy`，2026-09-28）。
 
 ## 唯一不變式
 
