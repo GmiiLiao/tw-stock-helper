@@ -198,18 +198,21 @@
 /* ── Layout Grid ── */
 .layoutGrid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  /* minmax(0,1fr)：1fr 的最小值預設是內容寬（auto），寬表格（AI 實驗持有清單 11 欄、nowrap）
+     會把左欄撐寬、整頁超出右緣（2026-09-29 使用者回報「資料出框」）。歸零後表格在自己的捲動框內捲。 */
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: 14px;
 }
 
 @media (max-width: 1024px) {
   .layoutGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 /* ── Card Main & Tab Layout ── */
 .cardMain {
+  min-width: 0;   /* grid 子項預設 min-width:auto 會被內容撐寬（同上） */
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
