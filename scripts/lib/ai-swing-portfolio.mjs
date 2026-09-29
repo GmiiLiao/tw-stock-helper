@@ -12,10 +12,11 @@
 //   · 研究用的 5／10／20／60／120 日結果（ai-swing-lab 的 outcomes）照舊保留，量「選股眼光」；本帳戶量「交易決策」。
 //   09-24 以前以固定持有期（exitH）設計的部位，自 2026-09-28 起一併交由 AI 管理（exitH 僅作為當時的預期持有期顯示）。
 // ─────────────────────────────────────────────────────────────────────────────
-import { ledgerOf, twAt, feeOf } from './sim-ledger.mjs';
-import { accountOf } from './sim-account.mjs';
+import { ledgerOf, twAt, feeOf, FEE_RATE } from './sim-ledger.mjs';
+import { accountOf, sizeShares, ACCOUNT_INITIAL, SWING_MIN_POSITION } from './sim-account.mjs';
 
 export const SWING_SELL_TAX = 0.003;
+export const SETTLE_DAYS = 2;   // T+2 交割
 export const lotKey = (date, code) => `${date}_${code}`;   // 不含「.」：可直接當 Firestore 欄位路徑
 
 /** 賣出估計費稅（手續費＋證交稅 0.3%，元以下捨去） */
@@ -49,8 +50,8 @@ export function nextFill(days, decisionDate, code, { skipMissing = false } = {})
   return { date: days[d0].date, at: twAt(days[d0].date, openMissing ? '13:30' : '09:00'), px, openMissing };
 }
 
-// 部位成本：已進場用成交價；待進場用決策價（再退回凍結時估的成本）
-const costOf = l => (l.buy ? buyCostOf(l.buy.px, l.shares) : l.priceAtDecision > 0 ? buyCostOf(l.priceAtDecision, l.shares) : l.estCost ?? 0);
+// 部位成本（含買進手續費）：已成交用成交價×成交股數；待進場用決策價×計畫股數（上限為預算）
+const costOf = l => (l.buy ? buyCostOf(l.buy.px, l.shares) : l.priceAtDecision > 0 ? Math.min(buyCostOf(l.priceAtDecision, l.shares), l.budget ?? Infinity) : l.estCost ?? 0);
 
 function sellFillOf(days, lot, order) {
   const f = nextFill(days, order.date, lot.code, { skipMissing: true });
@@ -58,10 +59,26 @@ function sellFillOf(days, lot, order) {
   const ledger = ledgerOf({ side: 'long', entry: { at: lot.buy.at, px: lot.buy.px }, exit: { at: f.at, px: f.px }, dayTrade: false, decidedAt: lot.decidedAt, shares: lot.shares });
   return { ...f, code: lot.code, lotDate: lot.date, ledger, sellDecidedAt: order.decidedAt, sellNoLookahead: order.decidedAt != null ? order.decidedAt <= f.at : null };
 }
+const proceedsOf = L => (L?.sell ? L.sell.amount - L.sell.fee - L.sell.tax : 0);
+
+// 成交時依資金池裁減股數（2026-09-29 使用者：資金池內的金額才能交易、帳面餘額應為正數）
+function capShares(px, planned, alloc) {
+  let n = Math.min(planned, sizeShares(px, alloc / (1 + FEE_RATE), true));
+  while (n > 0 && buyCostOf(px, n) > alloc) n -= n >= 1000 && n % 1000 === 0 ? 1000 : 1;
+  return Math.max(0, n);
+}
 
 /**
  * 由決策記錄（＋日線）重建所有部位與帳戶。beforeDate：只看決策日早於它的記錄（給當天定部位用）。
- * lot.status：pending（待進場）／held（持有中）／selling（已下賣單、待成交）／closed（已賣出）／void（進場失敗）
+ * lot.status：pending（待進場）／held（持有中）／selling（已下賣單、待成交）／closed（已賣出）／void（進場失敗或資金不足）
+ *
+ * 資金規則（2026-09-29 使用者）：
+ *   · 資金池＝50 萬＋已實現損益；只有池內的錢能交易，**現金永不為負**——買單在成交日開盤依當下可用金額裁減股數，
+ *     不足 1 萬＝資金不足作廢（決策時的股數只是計畫）。
+ *   · **T+2 交割**：成交後第 2 個交易日交割；交割前賣出款列應收、買進款列應付。一般股票可用同一交割日的賣出款（淨額交割），
+ *     每天先成交賣單、再成交買單。
+ *   · **處置股需預收款**（position.prefund）：只能用已交割現金（不含任何未交割的賣出款）。
+ *   · 委託中（尚未成交）的買單列 reservedBuys，不直接扣成負現金；freeCash＝現金－委託保留。
  */
 export function portfolioState(docs, days = null, beforeDate = null) {
   const ds = [...docs].filter(d => !beforeDate || d.date < beforeDate).sort((a, b) => a.date.localeCompare(b.date));
@@ -73,25 +90,80 @@ export function portfolioState(docs, days = null, beforeDate = null) {
   const lots = [];
   for (const d of ds) for (const p of d.picks || []) {
     const shares = p.position?.shares; if (!(shares > 0)) continue;
-    const key = lotKey(d.date, p.code);
-    const buy = d.buyFills?.[p.code] || (days ? nextFill(days, d.date, p.code) : null);
-    const lot = { key, date: d.date, code: p.code, name: p.name || p.code, shares, reason: p.reason || '', horizon: p.horizon ?? p.position?.exitH ?? null,
-      priceAtDecision: p.priceAtDecision ?? null, estCost: p.position?.estCost ?? null, decidedAt: d.frozenAt ?? null, buy: buy && !buy.failed ? buy : null, buyFailed: buy?.failed ? buy : null, sell: null, status: 'pending' };
-    if (lot.buyFailed) { lot.status = 'void'; lots.push(lot); continue; }
-    if (!lot.buy) { lots.push(lot); continue; }
-    lot.status = 'held';
-    const o = orders.get(key);
-    if (o) {
-      const fill = o.recorded || (days ? sellFillOf(days, lot, o) : null);
-      lot.sell = { orderDate: o.date, reason: o.reason, decidedAt: o.decidedAt, fill: fill && !fill.failed ? fill : null };
-      lot.status = lot.sell.fill?.ledger ? 'closed' : 'selling';
-    }
-    lots.push(lot);
+    lots.push({ key: lotKey(d.date, p.code), date: d.date, code: p.code, name: p.name || p.code, shares, plannedShares: shares, reason: p.reason || '',
+      horizon: p.horizon ?? p.position?.exitH ?? null, priceAtDecision: p.priceAtDecision ?? null, estCost: p.position?.estCost ?? null,
+      // budget：舊記錄無預算欄 ⇒ 不以預算裁減（estCost 不含手續費，拿來當上限會誤裁）
+      budget: p.position?.budget ?? null, prefund: !!p.position?.prefund, decidedAt: d.frozenAt ?? null,
+      recordedBuy: d.buyFills?.[p.code] || null, order: null, buy: null, buyFailed: null, sell: null, status: 'pending' });
   }
-  const trades = lots.filter(l => l.status !== 'void').map(l => (l.status === 'closed'
+  for (const l of lots) l.order = orders.get(l.key) || null;
+
+  let cash = ACCOUNT_INITIAL;
+  const unsettled = [];   // { kind:'recv'|'pay', amt, settleIdx }（無日線時 settleIdx＝Infinity：無法判定交割日，視為未交割）
+  const idxOf = new Map((days || []).map((d, i) => [d.date, i]));
+  const unsettledAt = (kind, i) => unsettled.filter(u => u.kind === kind && u.settleIdx > i).reduce((a, u) => a + u.amt, 0);
+  const execBuy = (l, f, i) => {
+    let n = f.shares ?? l.plannedShares;
+    if (!l.recordedBuy?.px) {   // 已寫入的成交（含股數）照用；未寫入的依資金池裁減
+      const avail = l.prefund ? cash - unsettledAt('recv', i) : cash;
+      const alloc = Math.min(l.budget ?? Infinity, avail);
+      n = alloc >= SWING_MIN_POSITION ? capShares(f.px, l.plannedShares, alloc) : 0;
+      if (!(n > 0)) { l.buyFailed = { failed: true, date: f.date, reason: `資金不足（成交時資金池可用 ${Math.max(0, Math.round(avail)).toLocaleString()} 元${l.prefund ? '·處置股限已交割現金' : ''}）` }; l.status = 'void'; return; }
+    }
+    l.shares = n; l.buy = { ...f, shares: n }; l.status = 'held';
+    const cost = buyCostOf(f.px, n); cash -= cost;
+    unsettled.push({ kind: 'pay', amt: cost, settleIdx: i + SETTLE_DAYS });
+  };
+  const execSell = (l, fill, i) => {
+    l.sell = { orderDate: l.order.date, reason: l.order.reason, decidedAt: l.order.decidedAt, fill }; l.status = 'closed';
+    const amt = proceedsOf(fill.ledger); cash += amt;
+    unsettled.push({ kind: 'recv', amt, settleIdx: i + SETTLE_DAYS });
+  };
+
+  if (days?.length) {
+    for (let i = 0; i < days.length; i++) {
+      const t = days[i].date;
+      // ① 賣單（先）：持有中、已下賣單、成交日＝今天
+      for (const l of lots) {
+        if (l.status !== 'held' || !l.order) continue;
+        const fill = l.order.recorded?.ledger ? l.order.recorded : sellFillOf(days, l, l.order);
+        if (fill && !fill.failed && fill.ledger && fill.date === t) execSell(l, fill, i);
+      }
+      // ② 買單（後）：依決策日、選股順序
+      for (const l of lots) {
+        if (l.status !== 'pending') continue;
+        const f = l.recordedBuy || nextFill(days, l.date, l.code);
+        if (!f || f.date !== t) continue;
+        if (f.failed) { l.buyFailed = f; l.status = 'void'; continue; }
+        execBuy(l, f, i);
+      }
+    }
+  } else {
+    // 無日線：只用已寫入的成交記錄（依成交日排序；交割日無法判定）
+    const ev = [];
+    for (const l of lots) {
+      if (l.recordedBuy) ev.push({ date: l.recordedBuy.date, k: 1, l });
+      if (l.order?.recorded?.ledger) ev.push({ date: l.order.recorded.date, k: 0, l });
+    }
+    ev.sort((a, b) => a.date.localeCompare(b.date) || a.k - b.k);
+    for (const e of ev) {
+      if (e.k === 1) { if (e.l.recordedBuy.failed) { e.l.buyFailed = e.l.recordedBuy; e.l.status = 'void'; } else execBuy(e.l, e.l.recordedBuy, Infinity); }
+      else if (e.l.status === 'held') execSell(e.l, e.l.order.recorded, Infinity);
+    }
+  }
+  for (const l of lots) if (l.status === 'held' && l.order) { l.sell = { orderDate: l.order.date, reason: l.order.reason, decidedAt: l.order.decidedAt, fill: null }; l.status = 'selling'; }
+
+  const lastIdx = days?.length ? days.length - 1 : Infinity;
+  const trades = lots.filter(l => l.status === 'closed' || l.status === 'held' || l.status === 'selling').map(l => (l.status === 'closed'
     ? { pnlTwd: l.sell.fill.ledger.pnlTwd }
     : { open: true, cost: costOf(l) }));
-  return { lots, account: accountOf(trades) };
+  const base = accountOf(trades);
+  const receivable = days?.length ? unsettledAt('recv', lastIdx) : 0, payable = days?.length ? unsettledAt('pay', lastIdx) : 0;
+  const reservedBuys = lots.filter(l => l.status === 'pending').reduce((a, l) => a + costOf(l), 0);
+  // 委託中賣單的估計回收款（最新收盤、扣費稅）：與委託中買單同一 T+2 交割日淨額，可抵用
+  const lastM = days?.length ? days[days.length - 1].m : null;
+  const pendingSellEst = lastM ? lots.filter(l => l.status === 'selling').reduce((a, l) => a + (lastM[l.code]?.[0] > 0 ? estSellProceeds(lastM[l.code][0], l.shares) : 0), 0) : 0;
+  return { lots, account: { ...base, receivable, payable, settledCash: base.cash - receivable + payable, reservedBuys, pendingSellEst, freeCash: base.cash - reservedBuys + pendingSellEst } };
 }
 
 /** 尚未寫入的成交記錄 → [{date, upd}]（upd 為點路徑欄位，交給 runner 寫回各決策文件） */

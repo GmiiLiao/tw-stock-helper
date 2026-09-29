@@ -57,7 +57,8 @@ test('帳戶：未成交的賣單＝賣出中（資金未釋出）；未進場�
   assert.equal(by('1111').status, 'selling');
   assert.equal(by('2222').status, 'pending');
   assert.equal(by('3333').status, 'void');
-  assert.equal(s.account.openCost, 102145 + 100142, '持有與待進場成本皆含買進手續費');
+  assert.equal(s.account.openCost, 102145, '持倉成本含買進手續費');
+  assert.equal(s.account.reservedBuys, 100142, '待進場買單列委託保留（含手續費），不計入持倉成本');
 });
 
 test('settleFills：只補記尚未記錄的成交（買進與賣出），已記錄不重寫', () => {
@@ -101,4 +102,77 @@ test('快照：持有以最新收盤計市值、列 AI 賣單；結算清單附�
 
 test('estSellProceeds：扣手續費與證交稅 0.3%', () => {
   assert.equal(estSellProceeds(100, 1000), 100000 - 142 - 300);
+});
+
+test('資金池：一般股票可用同日交割的賣出款（T+2 淨額），但成交時依實際可用金額裁減股數，現金永不為負', () => {
+  const days = mkDays();
+  const D0 = days[2].date, D1 = days[10].date;
+  const docs = [
+    buyDoc(D0, '1111', 4000, 101),
+    { date: D1, frozenAt: at(D1, '18:00'), review: { sells: [{ code: '1111', key: lotKey(D0, '1111'), reason: '換股' }] },
+      picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 14000, budget: 700000 } }] },
+  ];
+  const s = portfolioState(docs, days);
+  const b = s.lots.find(l => l.code === '2222');
+  assert.ok(b.shares < 14000 && b.shares >= 10000, `依池內（含同日賣出款）裁減：${b.shares}`);
+  assert.ok(s.account.cash >= 0, '成交後現金不為負');
+  const mid = portfolioState(docs, days.slice(0, 11));   // 決策後、成交前
+  assert.ok(mid.account.cash >= 0, '委託中不讓現金變負');
+  assert.ok(mid.account.pendingSellEst > 0, '委託中賣單的估計回收款列出');
+});
+
+test('資金池：成交時超出預算先裁股數；池內剩不到 1 萬的買單＝資金不足作廢', () => {
+  const days = mkDays().map(d => ({ ...d, m: { ...d.m, 4444: [10, 1000, 10, 10, 10], 5555: [10, 1000, 10, 10, 10] } }));
+  const D0 = days[2].date, D1 = days[5].date;
+  const pk = (code, px, shares, budget) => ({ code, name: code, priceAtDecision: px, position: { shares, budget } });
+  const docs = [
+    { date: D0, frozenAt: at(D0, '18:00'), picks: [pk('1111', 101, 4900, 500000)] },
+    { date: D1, frozenAt: at(D1, '18:00'), picks: [pk('2222', 50, 1000, 51000), pk('4444', 10, 5000, 50000), pk('5555', 10, 5000, 50000)] },
+  ];
+  const s = portfolioState(docs, days);
+  const by = c => s.lots.find(l => l.code === c);
+  assert.equal(by('1111').shares, 4000, '4900 股×102＋手續費超過 50 萬 ⇒ 成交時裁為 4 張');
+  assert.equal(by('2222').shares, 1000);
+  assert.equal(by('4444').shares, 4000, '池內只剩約 4.1 萬 ⇒ 裁為 4 張');
+  assert.equal(by('5555').status, 'void'); assert.match(by('5555').buyFailed.reason, /資金不足/);
+  assert.ok(s.account.cash >= 0 && s.account.cash < 10000);
+});
+
+test('T+2 交割：成交後第 2 個交易日才交割——應收／應付款在交割前列待交割；委託中買單列保留、不讓現金變負', () => {
+  const days = mkDays(12);
+  const D0 = days[2].date, D1 = days[8].date;
+  const docs = [buyDoc(D0, '1111', 1000, 101),
+    { date: D1, frozenAt: at(D1, '18:00'), review: { sells: [{ code: '1111', key: lotKey(D0, '1111'), reason: 'x' }] }, picks: [] }];
+  const s = portfolioState(docs, days.slice(0, 11));   // 賣單在 days[9] 成交，交割日 days[11] 尚未到
+  assert.ok(s.account.receivable > 0, '賣出款未交割＝應收');
+  assert.equal(s.account.settledCash, s.account.cash - s.account.receivable + s.account.payable);
+  const s2 = portfolioState(docs, days);               // days[11] 已過 ⇒ 交割完成
+  assert.equal(s2.account.receivable, 0);
+  const pend = portfolioState([...docs, { date: days[11].date, frozenAt: at(days[11].date, '18:00'), picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 50071 } }] }], days);
+  assert.ok(pend.account.cash >= 0, '委託中買單不直接扣成負現金');
+  assert.equal(pend.account.reservedBuys, 50071);
+});
+
+test('處置股買進需預收款：只能用已交割現金，不能拿未交割的賣出款', () => {
+  const days = mkDays(12);
+  const D0 = days[2].date, D1 = days[8].date;
+  const docs = [buyDoc(D0, '1111', 4000, 101),
+    { date: D1, frozenAt: at(D1, '18:00'), review: { sells: [{ code: '1111', key: lotKey(D0, '1111'), reason: 'x' }] },
+      picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 4000, budget: 200000, prefund: true } }] }];
+  const s = portfolioState(docs, days);
+  const b = s.lots.find(l => l.code === '2222');
+  const settledAtFill = 500000 - (4000 * 102 + 581);   // 賣出款同日才成交、未交割，不可用
+  assert.ok(b.shares * 50 <= settledAtFill, `處置股只用已交割現金 ${settledAtFill}`);
+  assert.equal(b.shares, 1000);
+});
+
+test('委託中：同日賣單回收款可抵委託中買單——可用現金（freeCash）不為負', () => {
+  const days = mkDays();
+  const D0 = days[2].date, D1 = days[10].date;
+  const docs = [buyDoc(D0, '1111', 4000, 101),
+    { date: D1, frozenAt: at(D1, '18:00'), review: { sells: [{ code: '1111', key: lotKey(D0, '1111'), reason: '換股' }] },
+      picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 9000, budget: 460000 } }] }];
+  const mid = portfolioState(docs, days.slice(0, 11));
+  assert.ok(mid.account.reservedBuys > mid.account.cash, '買單金額超過現有現金（靠同日賣出款）');
+  assert.ok(mid.account.freeCash >= 0, `可用現金 ${mid.account.freeCash} 不為負`);
 });

@@ -46,7 +46,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp }) : [];
       const heldCodes = new Set(openLots.map(l => l.code));
       const lastPxOf = c => days[days.length - 1]?.m[c]?.[0] ?? null;
-      const equity = state.account.cash + openLots.reduce((a, l) => a + (l.buy && lastPxOf(l.code) ? lastPxOf(l.code) * l.shares : (l.buy?.px ?? l.priceAtDecision ?? 0) * l.shares), 0);
+      const equity = state.account.freeCash + openLots.reduce((a, l) => a + (l.buy && lastPxOf(l.code) ? lastPxOf(l.code) * l.shares : (l.buy?.px ?? l.priceAtDecision ?? 0) * l.shares), 0);
       const model = await getModelInfo();
       const base = { date, version: SWING_LAB_VERSION, model, market, swingMeta: { bearDay: !!sp.bearDay, crowded: !!sp.crowded, observe: !!sp.observe, observeWhy: sp.observeWhy || null }, pool, outcomes: {} };
       const reviewList = holdings.map(h => ({ key: h.key, code: h.code, name: h.name, shares: h.shares, buyPx: h.buyPx, lastPx: h.lastPx, pnlPct: h.pnlPct, heldDays: h.heldDays, onList: h.onList }));
@@ -55,17 +55,20 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
         return true;
       }
-      const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.cash, equity });
+      const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity });
       const raw = await askOllama(prompt, { priority: 3, temperature: 0.2 });
       const parsed = parseDecision(raw, new Set(pool.map(c => c.code)), new Set(holdings.map(h => h.code)), heldCodes);
       attempts[date] = (attempts[date] || 0) + 1;
       if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 決策：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
       const byCode = new Map(pool.map(c => [c.code, c]));
       const sells = (parsed?.sells || []).map(x => { const h = holdings.find(y => y.code === x.code); return { code: x.code, name: h.name, key: h.key, shares: h.shares, reason: x.reason, estPx: h.lastPx, estProceeds: h.lastPx ? estSellProceeds(h.lastPx, h.shares) : 0 }; });
-      // 買進資金＝可用現金＋今天賣出的估計回收款（下一交易日開盤同時成交；實際成交價與估計的差額反映在帳戶）
-      const cashForBuys = state.account.cash + sells.reduce((a, x) => a + x.estProceeds, 0);
-      const raw0 = (parsed?.picks || []).map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code)?.price ?? null }));
-      const picks = sizePicks(raw0, cashForBuys);
+      // 資金池規則（2026-09-29 使用者：現金不可為負、T+2 交割、處置股需預收款）：
+      //   一般買進＝可用現金（扣委託保留）＋今天賣單估計回收款×0.9（同一 T+2 交割日淨額；0.9＝跌停開盤的保守估計）
+      //   處置股＝只用已交割現金；成交時 portfolioState 再依實際資金池裁減，現金永不為負
+      const cashForBuys = Math.max(0, state.account.freeCash + sells.reduce((a, x) => a + x.estProceeds * 0.9, 0));
+      const prefundCash = Math.max(0, state.account.settledCash - state.account.payable - state.account.reservedBuys);   // 處置股：不含任何未交割／未成交的賣出款
+      const raw0 = (parsed?.picks || []).map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code)?.price ?? null, prefund: risk.disp.has(p.code) }));
+      const picks = sizePicks(raw0, cashForBuys, { prefundCash });
       const doc = { ...base, picks, review: { holdings: reviewList, sells }, account: state.account, equityAtDecision: Math.round(equity), cashForBuys: Math.round(cashForBuys),
         note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日不操作（持股全部續抱）`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
       await ref.set(dropUndefined(doc));

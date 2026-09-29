@@ -9,7 +9,7 @@ import type { SwingLabDoc, SwingHorizonStat, SwingPick } from '../../../scripts/
 import { Kpi, TradeSlip, NotesBox, Section, ListTable, MONO, upDn, twd, pct, tw } from './AiLabParts';
 
 const HS = [5, 10, 20, 60, 120];
-interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number }
+interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number; receivable?: number; payable?: number; settledCash?: number; reservedBuys?: number; pendingSellEst?: number; freeCash?: number }
 interface OpenPos { date: string; code: string; name: string; shares: number; status: string }
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
 interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
@@ -65,7 +65,7 @@ export default function AiSwingLab() {
     <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
         模擬帳戶 <b>50 萬</b>（與當沖帳戶不互通），<b>由 AI 主動操作</b>（2026-09-28 起）：每個交易日 17:00 後，本機 Ollama 先檢視現有持股決定<b>續抱或賣出換股</b>，再從本站波段榜（排除處置股）挑最多 5 檔買進；
-        買賣都在<b>下一交易日 09:00 開盤成交</b>（盤後決定、防偷看）。不設單檔上限，可用現金依買進檔數平均分配、可零股、低於 1 萬不建倉；賣出的本金與獲利再投入（09-24～09-28 的部位為當時單筆 10 萬口徑，已一併交由 AI 管理）。
+        買賣都在<b>下一交易日 09:00 開盤成交</b>（盤後決定、防偷看）。不設單檔上限，資金池（50 萬＋已實現損益）內的現金依買進檔數平均分配、可零股、低於 1 萬不建倉，<b>現金不為負</b>（成交時依池內金額減量）；<b>T+2 交割</b>，賣出款可抵同一交割日的買進，處置股須已交割現金預收款；賣出的本金與獲利再投入（09-24～09-28 的部位為當時單筆 10 萬口徑，已一併交由 AI 管理）。
         <b>AI 交易能力：看帳戶總值與目標追蹤</b>；<b>選股眼光：看各持有期「超額」</b>（同部位若持有 h 日 vs 整池平均，研究用）。決策在盤後凍結、早於成交——交易單「✓ 先選後買」即查核。模擬交易，非投資建議。
       </div>
       {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
@@ -73,7 +73,9 @@ export default function AiSwingLab() {
       {data.account && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           <Kpi label="🏦 波段帳戶淨值（起始 50 萬·與當沖不互通）" value={`${Math.round(data.account.equity).toLocaleString()} 元`} color={upDn(data.account.realized)} sub={`已實現 ${twd(data.account.realized)}（${pct(data.account.retPct)}）· 已平倉 ${data.account.closedN} 筆`} />
-          <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="可用現金＝50 萬＋已實現損益（含獲利）－持倉成本；不設單檔上限、依當天選股數平均分配、可零股、低於 1 萬不建倉" />
+          <Kpi label="可用現金（資金池）" value={`${Math.round(data.account.freeCash ?? data.account.cash).toLocaleString()} 元`}
+            sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔${data.account.reservedBuys ? ` · 委託買單保留 ${Math.round(data.account.reservedBuys).toLocaleString()} 元` : ''}${data.account.pendingSellEst ? ` · 委託賣單估計回收 ${Math.round(data.account.pendingSellEst).toLocaleString()} 元` : ''}${data.account.receivable || data.account.payable ? ` · T+2 待交割：應收 ${Math.round(data.account.receivable ?? 0).toLocaleString()}／應付 ${Math.round(data.account.payable ?? 0).toLocaleString()}` : ''}`}
+            hint="資金池＝50 萬＋已實現損益（含獲利），只有池內的錢能交易、現金不為負：買單在成交時依池內金額自動減量，不足 1 萬作廢；成交後 T+2 交割，當日賣出款可抵同一交割日的買進；處置股須以已交割現金預收款。可用現金＝現金－委託中買單保留＋委託中賣單估計回收款（同一交割日淨額）。" />
         </div>
       )}
       <Section title="📈 每日戰績" sub="帳戶總值＝現金＋持倉淨市值（已扣若賣出的手續費與證交稅；待進場以含費成本計）；每個收盤資料日一列">

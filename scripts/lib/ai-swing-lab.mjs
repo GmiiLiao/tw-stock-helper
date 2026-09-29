@@ -58,7 +58,7 @@ const holdLine = h => `- ${h.code} ${h.name}｜${h.shares.toLocaleString()} 股�
 export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null }) {
   return [
     `你是台股波段交易員，管理一個模擬帳戶（起始 50 萬元）。現在是 ${date} 盤後。你的任務是主動操作讓帳戶獲利：檢視現有持股決定續抱或賣出，並從本站今天的波段候選池挑選要買進的股票（最多 ${SWING_MAX_PICKS} 檔，沒有好標的可以不買）。`,
-    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。可用資金依買進檔數平均分配，賣出的本金與獲利可再投入。`,
+    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。資金池只有 50 萬＋已實現損益，現金不可為負：可用資金依買進檔數平均分配；成交後 T+2 交割，今天賣出的回收款可抵同一交割日的買進；處置股須以已交割現金預收款；成交時資金不足會自動減量或作廢。`,
     `只能根據提供的資料，不得編造新聞或數字。`,
     ``,
     `【帳戶】${equity != null ? `總值約 ${Math.round(equity).toLocaleString()} 元、` : ''}${cash != null ? `可用現金 ${Math.round(cash).toLocaleString()} 元（不含今天賣出的回收款）` : ''}`,
@@ -136,16 +136,18 @@ export function swingAccount(docs, beforeDate = null, days = null) {
 export const SWING_SIZING_RULE = 'equal-split-no-cap';   // 2026-09-28 起：可用現金依當天選股數平均分配、不設單檔上限
 
 /** 依可用現金為當天的選股定股數（不設單檔上限：剩餘現金÷剩餘檔數、可零股）；以 AI 決定當下的價格計，凍結寫入 */
-export function sizePicks(picks, cash) {
-  let left = cash;
+export function sizePicks(picks, cash, { prefundCash = null } = {}) {
+  // prefundCash：處置股（p.prefund）只能用已交割現金（預收款）；其餘可用含同日交割賣出款的資金（T+2 淨額）
+  let left = cash, pfLeft = prefundCash ?? cash;
   return picks.map((p, i) => {
-    const budget = Math.max(0, left / (picks.length - i));
+    const split = Math.max(0, left / (picks.length - i));
+    const budget = p.prefund ? Math.max(0, Math.min(split, pfLeft)) : split;
     // 預算要含買進手續費：以 budget÷(1+費率) 定股數，估計成本＝金額＋手續費
     const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget / (1 + FEE_RATE), true) : 0;
     const amt = Math.round(shares * (p.priceAtDecision || 0));
     const est = shares ? amt + feeOf(amt, shares) : 0;
-    left -= est;
-    return { ...p, position: { shares, budget: Math.round(budget), estCost: est, sizing: SWING_SIZING_RULE, exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
+    left -= est; if (p.prefund) pfLeft -= est;
+    return { ...p, position: { shares, budget: Math.round(budget), estCost: est, sizing: SWING_SIZING_RULE, ...(p.prefund ? { prefund: true } : {}), exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
   });
 }
 
@@ -214,9 +216,11 @@ export function swingAccountSnapshot(docs, days) {
 export function upsertHistory(history = [], snap) {
   if (!snap?.dataDate) return history;
   const hs = snap.holdings || [];
-  const mkt = hs.reduce((a, h) => a + (h.mktValue ?? h.cost), 0);
+  // 只計已進場部位：待進場（委託中）買單的錢還在現金裡（2026-09-29 起不預扣），再加一次會重複計算
+  const held = hs.filter(h => h.entryPx);
+  const mkt = held.reduce((a, h) => a + (h.mktValue ?? h.cost), 0);
   // 帳戶總值以淨市值計（扣若賣出的手續費＋證交稅；2026-09-29 使用者：金額結算應計入費稅）
-  const net = hs.reduce((a, h) => a + (h.netValue ?? h.mktValue ?? h.cost), 0);
+  const net = held.reduce((a, h) => a + (h.netValue ?? h.mktValue ?? h.cost), 0);
   const unreal = hs.reduce((a, h) => a + (h.unrealized ?? 0), 0);
   const total = Math.round(snap.account.cash + net);
   const prev = [...history].filter(r => r.date < snap.dataDate).sort((a, b) => a.date.localeCompare(b.date)).pop();

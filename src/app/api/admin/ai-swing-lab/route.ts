@@ -40,7 +40,8 @@ export async function GET(request: Request) {
       found: docs.length > 0,
       stats: swingStats(docs), byModel, snapshot,
       // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由成交記錄重算（v3 AI 主動操作）
-      account: swingAccount(docs),
+      // 帳戶以 daemon 快照為準（含日線：成交裁減、T+2 應收應付、委託保留）；無快照才由成交記錄估算
+      account: snapshot?.account ?? swingAccount(docs),
       // v3：持倉＝AI 尚未賣出成交的部位（待進場／持有中／賣出委託中），由成交記錄重建
       openPositions: portfolioState(docs).lots.filter(l => l.status === 'pending' || l.status === 'held' || l.status === 'selling').map(l => ({ date: l.date, code: l.code, name: l.name, shares: l.shares, status: l.status })),
       days: docs.map(d => ({ date: d.date, model: d.model?.name || null, picks: d.picks.map(p => p.code), settled: Object.keys(d.outcomes || {}).map(Number), hasNotes: !!d.adminNotes })),

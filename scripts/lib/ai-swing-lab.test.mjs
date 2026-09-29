@@ -168,7 +168,8 @@ test('帳戶快照：持有清單以最新收盤計市值、未進場標待進�
   assert.equal(a.entryPx, 105); assert.equal(a.lastPx, 119);
   assert.equal(a.cost, 105149, '含買進手續費'); assert.equal(a.unrealized, 119000 - 169 - 357 - 105149, '淨未實現＝市值－賣出手續費－證交稅－含費成本');
   assert.equal(s.holdings.find(h => h.code === '2222').status.startsWith('待進場'), true);
-  assert.equal(s.account.openCost, 105149 + 100000);
+  assert.equal(s.account.openCost, 105149);
+  assert.equal(s.account.reservedBuys, 100000, '待進場列委託保留');
 });
 
 test('每日戰績：同資料日覆蓋不重複、當日損益＝總值變化', async () => {
