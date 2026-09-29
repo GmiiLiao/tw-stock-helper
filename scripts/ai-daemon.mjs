@@ -7403,7 +7403,11 @@ async function recordSqueezeTraining() {
     inst: a.instJson ? JSON.parse(a.instJson) : null,
     lend: a.lendingJson ? JSON.parse(a.lendingJson) : null,
   }));
-  const t = days.length - 1;                       // 今日（已含資券）
+  // SQ_TRAIN_DATE=YYYY-MM-DD：回補指定交易日（2026-09-29：09-24 班車被重啟跳過）。特徵只用該日（含）以前的歸檔，不偷看之後
+  const want = process.env.SQ_TRAIN_DATE || null;
+  const t = want ? days.findIndex(d => d.date === want) : days.length - 1;   // 預設＝今日（已含資券）
+  if (t < 1) { log(`  ⚠ 軋空訓練資料：歸檔找不到 ${want}，略過`); return; }
+  if (want && !days[t].margin) { log(`  ⚠ 軋空訓練資料：${want} 無資券歸檔，不補`); return; }
   const today = days[t].date;
   if (Object.keys(days[t].close).length < 1500) { log('  ⚠ 軋空訓練資料：今日歸檔殘缺，略過'); return; }
 
@@ -11221,7 +11225,7 @@ async function archiveSblBalance() {
   // 目標日＝資料已公布的最近交易日：21:30 後才有當日；之前（含跨午夜的補跑）取前一個交易日。SBL_DATE=YYYY-MM-DD 可指定。
   const mins = tw.getHours() * 60 + tw.getMinutes();
   const iso = process.env.SBL_DATE || ((isTradingDay(tw) && mins >= 21 * 60 + 30) ? isoDate(tw) : (prevTradingIsos(isoDate(tw), 2)[1] || isoDate(tw)));
-  const ymd = iso.replace(/-/g, ''), roc = String(+iso.slice(0, 4) - 1911) + ymd.slice(4);
+  const ymd = iso.replace(/-/g, '');
   const out = {}; let tse = 0, otc = 0;
   try {
     const r = await fetch(`https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date=${ymd}&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.twse.com.tw/' }, signal: AbortSignal.timeout(20000) });
@@ -11231,11 +11235,16 @@ async function archiveSblBalance() {
     } else log(`  ⚠ 借券餘額(上市)：回聲不符或欄位變動（date=${j?.date}，fields[12]=${j?.fields?.[12]}），不寫入`);
   } catch (e) { log('  ⚠ 借券餘額(上市)抓取失敗:', (e.message || '').slice(0, 60)); }
   try {
-    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
-    const arr = r.ok ? await r.json() : null;
-    if (Array.isArray(arr) && arr.length && String(arr[0]?.Date) === roc) {
-      for (const x of arr) { const c = String(x.SecuritiesCompanyCode || '').trim(); if (!/^\d{4}$/.test(c) || out[c]) continue; const bal = _num(String(x.SecuritiesBorrowingBalanceOfTheMarketDay || '').replace(/,/g, '')), sell = _num(String(x.SecuritiesBorrowingSale || '').replace(/,/g, '')); out[c] = [Math.round(bal / 1000), Math.round(sell / 1000)]; otc++; }
-    } else log(`  ⚠ 借券餘額(上櫃)：回聲不符（Date=${arr?.[0]?.Date}≠${roc}），不寫入`);
+    // ⚠ 2026-09-29：原用 openapi tpex_margin_sbl——無日期參數且整批落後一日，21:45 抓到的永遠是前一交易日，
+    //   回聲比對不符就不寫 ⇒ 09-18 上線至 09-29 上櫃借券一天都沒存到（排程盤點發現）。
+    //   改用可指定日期的 www 端點（欄位同上市 TWT93U：[9]當日借券賣出、[12]當日借券餘額；09-24 與 openapi 931 檔逐檔核對一致），
+    //   可當日抓、也可依 SBL_DATE 回補。
+    const r = await fetch(`https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=${iso.replace(/-/g, '%2F')}&response=json`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
+    const j = r.ok ? await r.json() : null;
+    const tb = j?.tables?.[0];
+    if (String(j?.date) === ymd && Array.isArray(tb?.fields) && tb.fields[12] === '當日餘額' && tb.fields[9] === '當日賣出' && Array.isArray(tb.data) && tb.data.length) {
+      for (const row of tb.data) { const c = String(row[0] || '').trim(); if (!/^\d{4}$/.test(c) || out[c]) continue; const bal = _num(String(row[12]).replace(/,/g, '')), sell = _num(String(row[9]).replace(/,/g, '')); out[c] = [Math.round(bal / 1000), Math.round(sell / 1000)]; otc++; }
+    } else log(`  ⚠ 借券餘額(上櫃)：回聲不符或欄位變動（date=${j?.date}≠${ymd}，fields[12]=${tb?.fields?.[12]}），不寫入`);
   } catch (e) { log('  ⚠ 借券餘額(上櫃)抓取失敗:', (e.message || '').slice(0, 60)); }
   const n = Object.keys(out).length;
   if (n < 500) { log(`  ⚠ 借券餘額：只有 ${n} 檔（上市 ${tse}／上櫃 ${otc}），不寫入`); return false; }
@@ -13371,9 +13380,11 @@ async function computeShortCandidates() {
 // ——不逐日回填，PIT 安全且不會有回填斷檔。累積 ~200 交易日後
 // 複用 squeeze-train 框架訓練（OOT 70/30＋安慰劑同規）。
 async function recordShortTraining() {
-  const board = (await db.collection('shortCandidates').doc('latest').get()).data();
-  if (!board?.trainJson || !board.dataDate) { log('  ⚠ 做空訓練樣本：無當日榜'); return false; }
-  const today = isoDate(taipei());
+  // SHORT_TRAIN_DATE=YYYY-MM-DD：以該日事前存檔 shortCandidates/{日} 回補（2026-09-29：09-24 班車被重啟跳過）
+  const want = process.env.SHORT_TRAIN_DATE || null;
+  const board = (await db.collection('shortCandidates').doc(want || 'latest').get()).data();
+  if (!board?.trainJson || !board.dataDate) { log(`  ⚠ 做空訓練樣本：無${want ? ` ${want} ` : '當日'}榜`); return false; }
+  const today = want || isoDate(taipei());
   if (board.dataDate !== today) { log(`  ⚠ 做空訓練樣本：榜資料日 ${board.dataDate} ≠ 今日，不記（避免週末殘留混入）`); return false; }
   const rows = JSON.parse(board.trainJson);
   await db.collection('shortTraining').doc(board.dataDate).set({
@@ -14550,11 +14561,35 @@ function execScript(name, args, tag, timeoutMin = 10) {
     });
   }).catch((e) => { log(`✖ ${tag} spawn:`, e.message); return false; });
 }
+// ── 每日時段完成記錄（2026-09-29 使用者「排程被中斷」盤點）────────────────
+//   舊版開機時只要已過 15:10／16:30／21:45 就把該時段標為「今日已跑」——但開機那輪只跑每日工作，
+//   不含 finReports、官方補抓的 swingHold/dailySeq、21:45 班車的借券/軋空訓練/做空樣本/軋空檢討。
+//   09-24 22:35 重啟即因此整段跳過（軋空檢討停在 09-23）。改為：各時段**成功跑完才寫入** system/daemonJobMarks，
+//   開機讀回；記錄說今天完成了才標記，否則讓排程照常補跑（各工作皆冪等）。
+async function readJobMarks() {
+  try { return (await db.collection('system').doc('daemonJobMarks').get()).data() || {}; }
+  catch (e) { log('⚠ 讀取每日時段完成記錄失敗（本次開機不略過任何時段）:', (e.message || '').slice(0, 60)); return {}; }
+}
+async function markJobDone(key, day) {
+  try { await db.collection('system').doc('daemonJobMarks').set({ [key]: day, updatedAt: Date.now() }, { merge: true }); }
+  catch (e) { log(`⚠ 寫入時段完成記錄 ${key} 失敗:`, (e.message || '').slice(0, 60)); }
+}
 async function dailyJobsLoop() {
   await runDailyJobs(true); // 開機先跑一輪，資料即時可用
-  { // 若開機時已過各時段，先標記為今日已跑，避免緊接著重複整輪
+  { // 開機時已過的時段：只有「完成記錄」證實今天跑完的才標記，否則照常補跑
     const tw = taipei(); const t = isoDate(tw); const m = tw.getHours() * 60 + tw.getMinutes();
-    if (isTradingDay(tw)) { if (m >= 15 * 60 + 10) _dailyJobsDate = t; if (m >= 16 * 60 + 30) _officialDate = t; if (m >= 21 * 60 + 45) _marginDate = t; }
+    if (isTradingDay(tw)) {
+      const marks = await readJobMarks();
+      // 15:10 每日工作：開機輪已涵蓋（除 finReports）⇒ 標記；finReports 今天沒跑過就補跑一次
+      if (m >= 15 * 60 + 10) {
+        _dailyJobsDate = t;
+        if (marks.finReports !== t) { await timedJob('finReports', computeFinReports, '(boot 補跑·今日未跑)'); await markJobDone('finReports', t); }
+      }
+      if (m >= 16 * 60 + 30 && marks.official === t) _officialDate = t;
+      if (m >= 21 * 60 + 45 && marks.margin === t) _marginDate = t;
+      if (m >= 16 * 60 + 30 && marks.official !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
+      if (m >= 21 * 60 + 45 && marks.margin !== t) log('  · 開機：今日 21:45 資券後班車未完成，照常補跑');
+    }
   }
   for (;;) {
     try {
@@ -15009,8 +15044,8 @@ async function dailyJobsLoop() {
             _depthWin = { date: '', data: {} };   // 釋放記憶體
           } catch (e) { log('✖ 尾盤五檔歸檔:', e.message); }
         }
-        if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) { await runDailyJobs(); _dailyJobsDate = today; }
-        if (mins >= 16 * 60 + 30 && _officialDate !== today) { await runJobSet(OFFICIAL_CATCHUP, '(official)'); _officialDate = today; }
+        if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) { await runDailyJobs(); _dailyJobsDate = today; await markJobDone('daily', today); await markJobDone('finReports', today); }
+        if (mins >= 16 * 60 + 30 && _officialDate !== today) { await runJobSet(OFFICIAL_CATCHUP, '(official)'); _officialDate = today; await markJobDone('official', today); }
         if (mins >= 21 * 60 + 45 && _marginDate !== today) {
           // ⚠ **成功才標記**（今天第二次踩到同一個反模式）：
           //   原本 _marginDate = today 寫在這裡，後面的訓練資料與檢討報表
@@ -15031,7 +15066,7 @@ async function dailyJobsLoop() {
           // 逐日對答案＋漏網診斷（使用者要求逐日修正）
           try { await computeSqueezeReview({ backfillDays: 3 }); }
           catch (e) { _marginOk = false; log('✖ 軋空檢討（將重試）:', e.message); }
-          if (_marginOk) _marginDate = today;
+          if (_marginOk) { _marginDate = today; await markJobDone('margin', today); }
         }
         // 16:45 籌碼性格分類（炒作/長期核心，3 年 chipArchive；官方補抓寫完當日 archive 後）
         if (mins >= 16 * 60 + 45 && _characterDate !== today) {

@@ -117,7 +117,8 @@ const CONTRACTS = [
   { c: 'marketPulse',      kind: 'latest',  maxStale: 20 * HOUR, session: 'always', allowEmpty: true },
   // 軋空判讀模型：**每個交易日之後的凌晨 02:00** 訓練（2026-08-31 改）
   // ⇒ 最長間隔是週末的 2 天（週六訓練後到週二），設 3 天為陳舊上限。
-  { c: 'squeezeModel',     kind: 'latest',  maxStale: 3 * DAY,   session: 'always', allowEmpty: true },
+  // 軋空模型：每個交易日「之後」02:00 訓練（連假時不訓練）⇒ 以「最近一個交易日的隔天 02:00」為應公布時刻（2026-09-29：固定 72h 在中秋＋教師節連假誤報 STALE）
+  { c: 'squeezeModel',     kind: 'latest',  maxStale: 8 * HOUR,  session: 'always', allowEmpty: true, publishNextDayHour: 2 },
 
   // ── 每日收盤後（節奏以日計）──
   { c: 'chipArchive',      kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'closeJson' },
@@ -437,7 +438,7 @@ function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0, since
   //   舊寫法只認「明示」的 publishHour，於是 daily 預設值那些來源（chipCharacter／marketReports／
   //   shortTraining）在週一 16:15 被拿固定 30h 對週五的產物 ⇒ 每個週一都報 STALE、每個週一都是假的。
   //   sincePubMs 本來就是用 publishHourOf 算的——兩處必須共用同一份定義。
-  if (publishHourOf(spec) != null && sincePubMs != null) return spec.maxStale + sincePubMs;
+  if ((publishHourOf(spec) != null || spec.publishNextDayHour != null) && sincePubMs != null) return spec.maxStale + sincePubMs;
   if (spec.preopen) return spec.maxStale;
   if (spec.session === 'intraday') return (marketOpen ? spec.maxStale : 30 * HOUR) + offHoursMs;
   // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h。
@@ -553,7 +554,16 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
         // 距「上一次應該公布」多久：公布時刻前 ⇒ 從前一交易日的公布時刻算起
         const _ph = publishHourOf(spec);
         let sincePubMs = null;
-        if (_ph != null) {
+        if (spec.publishNextDayHour != null) {
+          // 「交易日隔天 H 點」產出：找最近一個「隔天 H 點已過」的交易日 D，應公布時刻＝D 的隔天 H 點
+          const H = spec.publishNextDayHour, t3 = taipeiNow(), DAYMS = 86400000;
+          const nowH = t3.getHours() + t3.getMinutes() / 60;
+          let d = isoOf(new Date(t3.getTime() - (nowH >= H ? 1 : 2) * DAYMS));
+          for (let k = 0; k < 20 && !isTradingIso(d); k++) d = isoOf(new Date(new Date(`${d}T12:00:00+08:00`).getTime() - DAYMS));
+          const pub = new Date(`${d}T12:00:00+08:00`).getTime() + DAYMS;   // D 的隔天
+          const pubIso = isoOf(new Date(pub));
+          sincePubMs = Math.max(0, Date.now() - new Date(`${pubIso}T${String(H).padStart(2, '0')}:00:00+08:00`).getTime());
+        } else if (_ph != null) {
           const t3 = taipeiNow();
           const nowH = t3.getHours() + t3.getMinutes() / 60;
           // 今天休市（週末／假日）就沒有「今天的公布時刻」，基準退回上一個交易日（2026-09-28）
