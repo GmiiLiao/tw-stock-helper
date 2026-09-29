@@ -571,6 +571,8 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 dataKey="macdHist"
                 isAnimationActive={false}
                 name="柱 (DIF−訊號)"
+                // fill 只供 Tooltip 字色用（柱子本身由 shape 畫紅/綠）；未設時 recharts 預設 #000，深色提示框上看不見（2026-09-29 使用者）
+                fill="#fbbf24"
                 shape={(p: { x?: number; y?: number; width?: number; height?: number; payload?: ChartData }) => {
                   const { x = 0, y = 0, width = 0, height = 0, payload } = p;
                   const hist = payload?.macdHist ?? 0;
