@@ -535,6 +535,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               cursor={{ fill: 'rgba(148,163,184,0.12)' }}
               contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: '8px', fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
+              itemStyle={{ color: '#fbbf24', fontWeight: 700 }}   // 2026-09-29 使用者：「成交量：N 張」改黃色（原本深色底上看不清）
               labelFormatter={(l) => String(l)}
               formatter={(v) => [`${Math.round((v as number) / 1000).toLocaleString()} 張`, '成交量']}
             />
