@@ -182,7 +182,7 @@ function TradeCard({ r }: { r: AiLabRecord }) {
   const L = r.ledger || r.cfLedger || null;
   const st = STATUS[r.status];
   return (
-    <div style={{ marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+    <div style={{ marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'var(--bg-secondary)', border: r.ledger ? '1px solid var(--border-primary)' : '1px dashed var(--border-primary)' }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
         <span style={{ ...MONO, color: 'var(--text-muted)' }}>觸發 {tw(r.triggerAt + 60_000)}</span>
         <span style={{ fontWeight: 900, color: r.side === 'long' ? 'var(--color-up)' : 'var(--color-down)' }}>{r.side === 'long' ? '做多' : '做空'}</span>
@@ -192,10 +192,10 @@ function TradeCard({ r }: { r: AiLabRecord }) {
         {r.confidence != null && <span style={{ color: 'var(--text-muted)' }}>信心 {r.confidence}</span>}
         {r.shares ? <span style={{ ...MONO, fontWeight: 800 }}>{r.shares / 1000} 張</span> : null}
         <span style={{ color: 'var(--text-muted)' }}>AI 決定 {tw(r.decidedAt ?? null)}{r.lagMs != null ? `（觸發後 ${Math.round(r.lagMs / 1000)} 秒）` : ''}</span>
-        <span style={{ marginLeft: 'auto', ...MONO, color: upDn(r.ruleNetR) }}>規則 {R(r.ruleNetR)}{r.aiNetR != null ? <span style={{ color: upDn(r.aiNetR) }}>　AI {R(r.aiNetR)}</span> : null}</span>
+        <span style={{ marginLeft: 'auto', ...MONO, color: r.ledger ? upDn(r.ruleNetR) : 'var(--text-muted)' }}>{r.ledger ? '規則' : '規則照做（模擬）'} {R(r.ruleNetR)}{r.aiNetR != null ? <span style={{ color: upDn(r.aiNetR) }}>　AI {R(r.aiNetR)}</span> : null}</span>
       </div>
       <div style={{ marginTop: 6 }}>
-        {L ? <TradeSlip L={L} muted={!r.ledger} note={r.ledgerNote} /> : <span style={{ color: 'var(--text-muted)' }}>{r.status === 'no-cash' ? r.reason : r.cfNote || (r.exitAt ? '無交易單' : '尚未出場')}</span>}
+        {L ? <TradeSlip L={L} muted={!r.ledger} counterfactual={!r.ledger} note={r.ledgerNote} /> : <span style={{ color: 'var(--text-muted)' }}>{r.status === 'no-cash' ? r.reason : r.cfNote || (r.exitAt ? '無交易單' : '尚未出場')}</span>}
         {r.ledger && r.cashBefore != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>成交前可用現金 {r.cashBefore.toLocaleString()} 元 · 本筆預算 {r.budget?.toLocaleString()} 元（上限 25 萬、整張）</div>}
       </div>
       {r.exitReason && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>出場原因：{r.exitReason}（工作台規則）· 結構停損 {r.stop} · 觸發價 {r.triggerPx}{r.fillPx != null ? ` · AI 成交價 ${r.fillPx}${r.fillSource ? `（${r.fillSource}${r.fillQuoteAt ? `，報價時戳 ${tw(r.fillQuoteAt)}` : ''}）` : ''}` : ''}</div>}

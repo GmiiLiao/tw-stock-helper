@@ -42,23 +42,30 @@ export function VerifyBadge({ ok, decidedAt, entryAt }: { ok: boolean | null | u
   );
 }
 
-/** 交易單：買進 | 賣出 兩欄對照（做空時「賣出」在前，時間會標出先後）＋ 費稅與淨損益 */
-export function TradeSlip({ L, muted = false, withDate = false, note }: { L: SimLedger; muted?: boolean; withDate?: boolean; note?: string }) {
+/**
+ * 交易單：買進 | 賣出 兩欄對照（做空時「賣出」在前，時間會標出先後）＋ 費稅與淨損益。
+ * counterfactual＝AI 沒下單、「若照工作台規則做」的模擬單（2026-09-29 使用者誤認為 AI 成交）：
+ *   灰色虛線框＋頂部標示「不計入帳戶」、腿標「模擬」、損益不用紅綠大字，改寫「放棄得對／錯過獲利」判讀。
+ */
+export function TradeSlip({ L, muted = false, withDate = false, note, counterfactual = false }: { L: SimLedger; muted?: boolean; withDate?: boolean; note?: string; counterfactual?: boolean }) {
   const first = L.side === 'short' ? 'sell' : 'buy';
+  const cf = counterfactual;
   const leg = (k: 'buy' | 'sell') => {
     const x = L[k];
     return (
-      <div style={{ flex: '1 1 12em', minWidth: 0, padding: '6px 10px', borderRadius: 8, background: k === 'buy' ? 'rgba(240,62,62,0.06)' : 'rgba(47,158,68,0.06)' }}>
+      <div style={{ flex: '1 1 12em', minWidth: 0, padding: '6px 10px', borderRadius: 8, background: cf ? 'rgba(148,163,184,0.08)' : k === 'buy' ? 'rgba(240,62,62,0.06)' : 'rgba(47,158,68,0.06)' }}>
         <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
-          {k === 'buy' ? '買進' : '賣出'}{k === first ? '（先）' : '（後）'} · <span style={MONO}>{tw(x.at, withDate)}</span>
+          {cf ? '模擬' : ''}{k === 'buy' ? '買進' : '賣出'}{k === first ? '（先）' : '（後）'} · <span style={MONO}>{tw(x.at, withDate)}</span>
         </div>
         <div style={{ ...MONO, fontWeight: 800 }}>{L.legs && L.legs.filter(g => g.side === k).length > 1 ? `均價 ${x.px}` : x.px} × {L.shares.toLocaleString()} 股</div>
         <div style={{ ...MONO, fontSize: 'calc(12px * var(--fz))' }}>＝ {x.amount.toLocaleString()} 元<span style={{ color: 'var(--text-muted)' }}> · 手續費 {x.fee}{k === 'sell' ? ` · 稅 ${(x as SimLedger['sell']).tax}` : ''}</span></div>
       </div>
     );
   };
+  const avoided = L.pnlTwd < 0;
   return (
-    <div style={{ opacity: muted ? 0.78 : 1 }}>
+    <div style={{ opacity: muted && !cf ? 0.78 : 1, ...(cf ? { border: '1px dashed rgba(148,163,184,0.55)', borderRadius: 10, padding: '6px 8px', color: 'var(--text-secondary, var(--text-muted))' } : {}) }}>
+      {cf && <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', marginBottom: 4 }}>🧪 AI 沒下單・以下是「若照工作台規則做」的模擬結果——不是 AI 的交易，不計入帳戶</div>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{first === 'buy' ? <>{leg('buy')}{leg('sell')}</> : <>{leg('sell')}{leg('buy')}</>}</div>
       {L.legs && L.legs.length > 2 && (
         <div style={{ marginTop: 4, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
@@ -66,10 +73,15 @@ export function TradeSlip({ L, muted = false, withDate = false, note }: { L: Sim
         </div>
       )}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'baseline', marginTop: 4, fontSize: 'calc(12px * var(--fz))' }}>
-        <span style={{ ...MONO, fontSize: 'calc(15px * var(--fz))', fontWeight: 900, color: upDn(L.pnlTwd) }}>淨 {twd(L.pnlTwd)}</span>
-        <span style={{ ...MONO, color: upDn(L.retPct) }}>{pct(L.retPct)}</span>
+        {cf ? <>
+          <span style={{ ...MONO, color: 'var(--text-muted)' }}>若照做 淨 {twd(L.pnlTwd)}（{pct(L.retPct)}）</span>
+          <span style={{ fontWeight: 800, color: avoided ? '#22c55e' : '#f59e0b' }}>{avoided ? '✅ AI 放棄＝避開這筆虧損' : L.pnlTwd > 0 ? '⚠ AI 放棄＝錯過這筆獲利' : '放棄與否損益相同'}</span>
+        </> : <>
+          <span style={{ ...MONO, fontSize: 'calc(15px * var(--fz))', fontWeight: 900, color: upDn(L.pnlTwd) }}>淨 {twd(L.pnlTwd)}</span>
+          <span style={{ ...MONO, color: upDn(L.retPct) }}>{pct(L.retPct)}</span>
+        </>}
         <span style={{ color: 'var(--text-muted)' }}>費稅合計 {L.costTwd} 元 · 持有 {dur(L.holdMs)} · {L.dayTrade ? '當沖稅 0.15%' : '證交稅 0.3%'} · 手續費 0.1425% 無折讓</span>
-        <VerifyBadge ok={L.noLookahead} decidedAt={L.decidedAt} entryAt={L.entryAt} />
+        {!cf && <VerifyBadge ok={L.noLookahead} decidedAt={L.decidedAt} entryAt={L.entryAt} />}
         {note && <span style={{ color: '#f59e0b' }}>{note}</span>}
       </div>
     </div>
