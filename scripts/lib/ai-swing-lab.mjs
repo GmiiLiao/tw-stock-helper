@@ -12,7 +12,7 @@
 //   · 候選池只收網站當天的波段榜單（波段起漲＋波段持有整合榜），排除處置股（含已公告待生效）。
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ledgerOf, twAt } from './sim-ledger.mjs';
+import { ledgerOf, twAt, FEE_RATE, feeOf } from './sim-ledger.mjs';
 import { portfolioState, portfolioSnapshot } from './ai-swing-portfolio.mjs';
 import { sizeShares, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
 
@@ -140,8 +140,10 @@ export function sizePicks(picks, cash) {
   let left = cash;
   return picks.map((p, i) => {
     const budget = Math.max(0, left / (picks.length - i));
-    const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget, true) : 0;
-    const est = Math.round(shares * (p.priceAtDecision || 0));
+    // 預算要含買進手續費：以 budget÷(1+費率) 定股數，估計成本＝金額＋手續費
+    const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget / (1 + FEE_RATE), true) : 0;
+    const amt = Math.round(shares * (p.priceAtDecision || 0));
+    const est = shares ? amt + feeOf(amt, shares) : 0;
     left -= est;
     return { ...p, position: { shares, budget: Math.round(budget), estCost: est, sizing: SWING_SIZING_RULE, exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
   });
@@ -213,15 +215,17 @@ export function upsertHistory(history = [], snap) {
   if (!snap?.dataDate) return history;
   const hs = snap.holdings || [];
   const mkt = hs.reduce((a, h) => a + (h.mktValue ?? h.cost), 0);
+  // 帳戶總值以淨市值計（扣若賣出的手續費＋證交稅；2026-09-29 使用者：金額結算應計入費稅）
+  const net = hs.reduce((a, h) => a + (h.netValue ?? h.mktValue ?? h.cost), 0);
   const unreal = hs.reduce((a, h) => a + (h.unrealized ?? 0), 0);
-  const total = Math.round(snap.account.cash + mkt);
+  const total = Math.round(snap.account.cash + net);
   const prev = [...history].filter(r => r.date < snap.dataDate).sort((a, b) => a.date.localeCompare(b.date)).pop();
   const row = {
     date: snap.dataDate, holdings: hs.filter(h => h.entryPx).length, pending: hs.filter(h => !h.entryPx).length,
     opened: hs.filter(h => h.entryDate === snap.dataDate && h.entryPx).length + (snap.closed || []).filter(c => c.buy?.at && new Date(c.buy.at + 8 * 3600000).toISOString().slice(0, 10) === snap.dataDate).length,
     closed: (snap.closed || []).filter(c => c.exitDate === snap.dataDate).length,
     closedPnl: (snap.closed || []).filter(c => c.exitDate === snap.dataDate).reduce((a, c) => a + c.pnlTwd, 0),
-    realized: snap.account.realized, unrealized: unreal, cash: Math.round(snap.account.cash), mktValue: Math.round(mkt), total,
+    realized: snap.account.realized, unrealized: unreal, cash: Math.round(snap.account.cash), mktValue: Math.round(mkt), estSellCost: Math.round(mkt - net), total,
     dayPnl: prev ? total - prev.total : total - snap.account.initial,
     cumRetPct: +((total / snap.account.initial - 1) * 100).toFixed(2),
   };

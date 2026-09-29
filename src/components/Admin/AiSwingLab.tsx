@@ -12,7 +12,7 @@ const HS = [5, 10, 20, 60, 120];
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number }
 interface OpenPos { date: string; code: string; name: string; shares: number; status: string }
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
-interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
+interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
 interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; sellOrderDate?: string; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
 interface HistRow { date: string; holdings: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; total: number; dayPnl: number; cumRetPct: number }
 interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[] }
@@ -76,7 +76,7 @@ export default function AiSwingLab() {
           <Kpi label="可用現金" value={`${Math.round(data.account.cash).toLocaleString()} 元`} sub={`持倉成本 ${Math.round(data.account.openCost).toLocaleString()} 元 · ${data.account.openN} 檔`} hint="可用現金＝50 萬＋已實現損益（含獲利）－持倉成本；不設單檔上限、依當天選股數平均分配、可零股、低於 1 萬不建倉" />
         </div>
       )}
-      <Section title="📈 每日戰績" sub="帳戶總值＝現金＋持倉市值（待進場以成本計）；每個收盤資料日一列">
+      <Section title="📈 每日戰績" sub="帳戶總值＝現金＋持倉淨市值（已扣若賣出的手續費與證交稅；待進場以含費成本計）；每個收盤資料日一列">
         <ListTable head={['日期', '持倉', '新建倉', '平倉', '平倉損益', '已實現累計', '未實現', '現金', '持倉市值', '帳戶總值', '當日損益', '累計報酬']} right={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]}
           empty="尚無戰績（每日收盤資料歸檔後更新）"
           rows={[...(data.snapshot?.history || [])].reverse().map(r => [r.date, `${r.holdings}${r.pending ? `＋待進場 ${r.pending}` : ''}`, r.opened, r.closed, r.closed ? twd(r.closedPnl) : '—', twd(r.realized),
@@ -84,17 +84,18 @@ export default function AiSwingLab() {
             <b key="d" style={{ color: upDn(r.dayPnl) }}>{twd(r.dayPnl)}</b>, <span key="c" style={{ color: upDn(r.cumRetPct) }}>{pct(r.cumRetPct)}</span>])} />
       </Section>
 
-      <Section title="📋 持有清單" sub={data.snapshot?.dataDate ? `市值以 ${data.snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新'}>
-        <ListTable head={['選股日', '個股', '狀態', '股數', '買進 時間·價', '成本', '最新收盤', '市值', '未實現損益', '已持有·AI 預期']} right={[3, 5, 6, 7, 8]}
+      <Section title="📋 持有清單" sub={data.snapshot?.dataDate ? `市值以 ${data.snapshot.dataDate} 收盤計（除權息還原價）；成本含買進手續費，淨未實現再扣若賣出的手續費＋證交稅 0.3%（手續費 0.1425% 無折讓）` : '每日 17:00 後結算時更新'}>
+        <ListTable head={['選股日', '個股', '狀態', '股數', '買進 時間·價', '成本（含手續費）', '最新收盤', '市值', '預估賣出費稅', '淨未實現損益', '已持有·AI 預期']} right={[3, 5, 6, 7, 8, 9]}
           empty="目前沒有持倉"
           rows={(data.snapshot?.holdings || []).map(h => [
             h.date.slice(5), `${h.code} ${h.name}`, <span key="s" style={{ color: h.sellReason ? '#f59e0b' : h.entryPx ? 'var(--text-primary)' : '#7dd3fc' }} title={h.sellReason ? `賣出理由：${h.sellReason}` : h.reason ? `買進理由：${h.reason}` : undefined}>{h.status}</span>, h.shares.toLocaleString(),
             h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}</span> : '—', h.cost.toLocaleString(), h.lastPx ?? '—',
-            h.mktValue != null ? h.mktValue.toLocaleString() : '—', <b key="u" style={{ color: upDn(h.unrealized) }}>{h.unrealized != null ? `${twd(h.unrealized)}（${pct(h.unrealizedPct)}）` : '—'}</b>,
+            h.mktValue != null ? h.mktValue.toLocaleString() : '—', h.estSellCost != null ? `−${h.estSellCost.toLocaleString()}` : '—', <b key="u" style={{ color: upDn(h.unrealized) }}>{h.unrealized != null ? `${twd(h.unrealized)}（${pct(h.unrealizedPct)}）` : '—'}</b>,
             `${h.heldDays} 日·預期 ${h.horizon ? `${h.horizon} 日` : '—'}`,
           ])}
           foot={data.snapshot?.holdings?.length ? ['合計', `${data.snapshot.holdings.length} 檔`, '', '', '', data.snapshot.holdings.reduce((a, h) => a + h.cost, 0).toLocaleString(), '',
-            data.snapshot.holdings.reduce((a, h) => a + (h.mktValue ?? 0), 0).toLocaleString() || '—', twd(data.snapshot.holdings.reduce((a, h) => a + (h.unrealized ?? 0), 0)), ''] : undefined} />
+            data.snapshot.holdings.reduce((a, h) => a + (h.mktValue ?? 0), 0).toLocaleString() || '—', `−${data.snapshot.holdings.reduce((a, h) => a + (h.estSellCost ?? 0), 0).toLocaleString()}`,
+            twd(data.snapshot.holdings.reduce((a, h) => a + (h.unrealized ?? 0), 0)), ''] : undefined} />
       </Section>
 
       <Section title="✅ 已賣出清單" sub="AI 下賣單、下一交易日開盤成交的實際交易單（新→舊）">

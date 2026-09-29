@@ -135,23 +135,24 @@ test('波段交易單：09:00 開盤買、13:30 收盤賣、一般稅 0.3%、先
 test('波段帳戶：不設單檔上限、可用現金依當天選股數平均分配、貴股用零股、低於 1 萬不建倉；帳戶由記錄重算（獲利可再投入）', async () => {
   const { sizePicks, swingAccount } = await import('./ai-swing-lab.mjs');
   const ps = sizePicks([{ code: 'A', priceAtDecision: 50, horizon: 10 }, { code: 'B', priceAtDecision: 1500, horizon: null }, { code: 'C', priceAtDecision: 30 }], 150000);
-  assert.equal(ps[0].position.shares, 1000);            // 15 萬÷3 檔＝5 萬／50 元 ⇒ 1 張
+  assert.equal(ps[0].position.shares, 998);             // 15 萬÷3 檔＝5 萬；1 張 5 萬＋手續費 71 超出預算 ⇒ 零股 998 股
   assert.equal(ps[1].position.shares, 33);              // 剩 10 萬÷2＝5 萬、1 張 150 萬 ⇒ 零股 33 股
   assert.equal(ps[1].position.exitH, 20);               // 未指定 ⇒ 20 日
   assert.equal(ps[2].position.shares, 1000);            // 剩 50,500 全給最後一檔／30 元 ⇒ 1 張
   const one = sizePicks([{ code: 'A', priceAtDecision: 50 }], 500000);
-  assert.equal(one[0].position.shares, 10000, '只選 1 檔 ⇒ 可用現金全部投入（無單檔上限）');
+  assert.equal(one[0].position.shares, 9000, '只選 1 檔 ⇒ 可用現金全部投入（無單檔上限）；10 張＋手續費超過 50 萬 ⇒ 9 張');
+  assert.equal(one[0].position.estCost, 450000 + 641, '估計成本含買進手續費');
   const poor = sizePicks([{ code: 'A', priceAtDecision: 50 }, { code: 'B', priceAtDecision: 50 }], 15000);
   assert.equal(poor[0].position.shares, 0);             // 7,500 < 單筆最低 1 萬 ⇒ 不建倉
   assert.match(poor[0].position.reason, /資金不足/);
-  assert.equal(poor[1].position.shares, 300, '前一檔沒買，錢留給下一檔（15,000／50 元＝300 股零股）');
+  assert.equal(poor[1].position.shares, 299, '前一檔沒買，錢留給下一檔（15,000 扣手續費後／50 元＝299 股零股）');
   // 帳戶（v3 主動操作）：A 被 AI 賣出、已成交賺 3,000；B 仍持有（成本 33×1500）——只用已寫入的成交記錄
   const docs = [
     { date: '2026-01-02', picks: ps.slice(0, 2), buyFills: { A: { date: '2026-01-03', at: 1, px: 50 }, B: { date: '2026-01-03', at: 1, px: 1500 } } },
     { date: '2026-01-09', picks: [], review: { sells: [{ code: 'A', key: '2026-01-02_A', reason: 'x' }] }, sellFills: { '2026-01-02_A': { date: '2026-01-10', at: 2, px: 53.2, ledger: { pnlTwd: 3000 } } } },
   ];
   const a = swingAccount(docs, '2026-02-01');
-  assert.equal(a.realized, 3000); assert.equal(a.openCost, 49500); assert.equal(a.cash, 500000 + 3000 - 49500, '已實現獲利併入可用現金供後續選股');
+  assert.equal(a.realized, 3000); assert.equal(a.openCost, 49570, '33×1500＋手續費 70'); assert.equal(a.cash, 500000 + 3000 - 49570, '已實現獲利併入可用現金供後續選股');
   assert.equal(swingAccount(docs, '2026-01-02').equity, 500000, '只算決策日以前的記錄');
 });
 
@@ -164,9 +165,10 @@ test('帳戶快照：持有清單以最新收盤計市值、未進場標待進�
   ];
   const s = swingAccountSnapshot(docs, days);
   const a = s.holdings.find(h => h.code === '1111');
-  assert.equal(a.entryPx, 105); assert.equal(a.lastPx, 119); assert.equal(a.unrealized, 14000);
+  assert.equal(a.entryPx, 105); assert.equal(a.lastPx, 119);
+  assert.equal(a.cost, 105149, '含買進手續費'); assert.equal(a.unrealized, 119000 - 169 - 357 - 105149, '淨未實現＝市值－賣出手續費－證交稅－含費成本');
   assert.equal(s.holdings.find(h => h.code === '2222').status.startsWith('待進場'), true);
-  assert.equal(s.account.openCost, 105000 + 100000);
+  assert.equal(s.account.openCost, 105149 + 100000);
 });
 
 test('每日戰績：同資料日覆蓋不重複、當日損益＝總值變化', async () => {

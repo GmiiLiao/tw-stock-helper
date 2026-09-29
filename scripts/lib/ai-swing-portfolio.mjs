@@ -12,16 +12,25 @@
 //   · 研究用的 5／10／20／60／120 日結果（ai-swing-lab 的 outcomes）照舊保留，量「選股眼光」；本帳戶量「交易決策」。
 //   09-24 以前以固定持有期（exitH）設計的部位，自 2026-09-28 起一併交由 AI 管理（exitH 僅作為當時的預期持有期顯示）。
 // ─────────────────────────────────────────────────────────────────────────────
-import { ledgerOf, twAt, FEE_RATE, MIN_FEE } from './sim-ledger.mjs';
+import { ledgerOf, twAt, feeOf } from './sim-ledger.mjs';
 import { accountOf } from './sim-account.mjs';
 
 export const SWING_SELL_TAX = 0.003;
 export const lotKey = (date, code) => `${date}_${code}`;   // 不含「.」：可直接當 Firestore 欄位路徑
 
-/** 賣出估計淨額（手續費＋證交稅 0.3%；決策當下定部位用） */
-export function estSellProceeds(px, shares) {
+/** 賣出估計費稅（手續費＋證交稅 0.3%，元以下捨去） */
+export function estSellCost(px, shares) {
   const amount = Math.round(px * shares);
-  return amount - Math.max(Math.floor(amount * FEE_RATE), shares < 1000 ? 1 : MIN_FEE) - Math.floor(amount * SWING_SELL_TAX);
+  return feeOf(amount, shares) + Math.floor(amount * SWING_SELL_TAX);
+}
+/** 賣出估計淨額（扣手續費＋證交稅 0.3%；決策當下定部位、持股淨市值用） */
+export function estSellProceeds(px, shares) {
+  return Math.round(px * shares) - estSellCost(px, shares);
+}
+/** 買進總成本＝成交金額＋買進手續費（2026-09-29 使用者：金額結算應計入手續費與稅金） */
+export function buyCostOf(px, shares) {
+  const amount = Math.round(px * shares);
+  return amount + feeOf(amount, shares);
 }
 
 /**
@@ -41,7 +50,7 @@ export function nextFill(days, decisionDate, code, { skipMissing = false } = {})
 }
 
 // 部位成本：已進場用成交價；待進場用決策價（再退回凍結時估的成本）
-const costOf = l => (l.buy ? Math.round(l.buy.px * l.shares) : l.priceAtDecision > 0 ? Math.round(l.priceAtDecision * l.shares) : l.estCost ?? 0);
+const costOf = l => (l.buy ? buyCostOf(l.buy.px, l.shares) : l.priceAtDecision > 0 ? buyCostOf(l.priceAtDecision, l.shares) : l.estCost ?? 0);
 
 function sellFillOf(days, lot, order) {
   const f = nextFill(days, order.date, lot.code, { skipMissing: true });
@@ -132,7 +141,8 @@ export function reviewHoldings(lots, days, { pool = [], news = {}, disp = new Se
     for (let k = Math.max(0, i0); k < days.length; k++) { const r = days[k].m[l.code]; if (r?.[0] > 0) { hi = Math.max(hi, r[3] > 0 ? r[3] : r[0]); lo = Math.min(lo, r[4] > 0 ? r[4] : r[0]); } }
     const lastPx = last?.m[l.code]?.[0] ?? null;
     return { key: l.key, code: l.code, name: l.name, shares: l.shares, buyDate: l.buy.date, buyPx: l.buy.px, lastPx,
-      pnlPct: lastPx ? +((lastPx / l.buy.px - 1) * 100).toFixed(2) : null, heldDays: i0 >= 0 ? days.length - i0 : null,
+      // 損益已扣費稅：買進手續費＋（若現在賣）手續費與證交稅
+      pnlPct: lastPx ? +((estSellProceeds(lastPx, l.shares) / buyCostOf(l.buy.px, l.shares) - 1) * 100).toFixed(2) : null, heldDays: i0 >= 0 ? days.length - i0 : null,
       maxUp: +((hi / l.buy.px - 1) * 100).toFixed(2), maxDD: +((lo / l.buy.px - 1) * 100).toFixed(2),
       onList: inPool.has(l.code), news: news[l.code]?.label || null, disposition: disp.has(l.code), reason: l.reason, horizon: l.horizon };
   });
@@ -153,16 +163,20 @@ export function portfolioSnapshot(docs, days) {
     }
     const entered = !!l.buy;
     const lastPx = entered ? last?.m[l.code]?.[0] ?? null : null;
-    const cost = costOf(l);
+    const cost = costOf(l);   // 含買進手續費
     const mkt = lastPx ? Math.round(lastPx * l.shares) : null;
+    const sellCost = lastPx ? estSellCost(lastPx, l.shares) : null;   // 若以最新收盤賣出的手續費＋證交稅
+    const net = mkt != null ? mkt - sellCost : null;
     const i0 = entered ? days.findIndex(d => d.date === l.buy.date) : -1;
     holdings.push({
       date: l.date, code: l.code, name: l.name, shares: l.shares, horizon: l.horizon, reason: l.reason,
       status: l.status === 'selling' ? `AI 賣出委託（${l.sell.orderDate} 盤後決定，下一交易日 09:00 開盤成交）` : entered ? '持有中' : '待進場（下一交易日 09:00 開盤）',
       sellReason: l.sell?.reason || null,
       entryDate: l.buy?.date ?? null, entryAt: l.buy?.at ?? null, entryPx: l.buy?.px ?? null, cost,
-      lastDate: entered ? last?.date ?? null : null, lastPx, mktValue: mkt, unrealized: mkt != null ? mkt - cost : null,
-      unrealizedPct: mkt != null && cost ? +((mkt / cost - 1) * 100).toFixed(2) : null, heldDays: i0 >= 0 ? days.length - i0 : 0,
+      buyFee: l.buy ? cost - Math.round(l.buy.px * l.shares) : null,
+      lastDate: entered ? last?.date ?? null : null, lastPx, mktValue: mkt, estSellCost: sellCost, netValue: net,
+      unrealized: net != null ? net - cost : null,   // 淨未實現＝扣完買賣費稅
+      unrealizedPct: net != null && cost ? +((net / cost - 1) * 100).toFixed(2) : null, heldDays: i0 >= 0 ? days.length - i0 : 0,
     });
   }
   return { at: Date.now(), dataDate: last?.date || null, account, holdings: holdings.sort((a, b) => a.date.localeCompare(b.date)), closed: closed.sort((a, b) => (b.sell.at || 0) - (a.sell.at || 0)) };

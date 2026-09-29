@@ -12,6 +12,8 @@ export const FEE_RATE = 0.001425;
 export const MIN_FEE = 20;
 
 const fee = (amount, shares = 1000) => Math.max(Math.floor(amount * FEE_RATE), shares < 1000 ? 1 : MIN_FEE);
+/** 手續費（元）：0.1425% 無折讓、整張最低 20 元、零股最低 1 元、元以下捨去——所有模擬帳戶共用這一支 */
+export const feeOf = fee;
 
 /**
  * @param side 'long'（先買後賣）| 'short'（先賣後買）

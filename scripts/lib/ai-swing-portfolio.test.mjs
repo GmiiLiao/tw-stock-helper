@@ -40,7 +40,7 @@ test('帳戶：AI 賣出委託於隔日開盤成交、獲利併入現金；未�
   assert.equal(s.account.cash, 500000 + lot.sell.fill.ledger.pnlTwd, '本金＋獲利都回到可用現金');
   const before = portfolioState(docs, days, D1);
   assert.equal(before.lots[0].status, 'held', '賣出委託當天（含）以前仍是持有');
-  assert.equal(before.account.openCost, 102000);
+  assert.equal(before.account.openCost, 102145, '成本含買進手續費 102000×0.1425%＝145');
 });
 
 test('帳戶：未成交的賣單＝賣出中（資金未釋出）；未進場＝待進場以決策價計成本；進場失敗＝作廢不佔資金', () => {
@@ -57,7 +57,7 @@ test('帳戶：未成交的賣單＝賣出中（資金未釋出）；未進場�
   assert.equal(by('1111').status, 'selling');
   assert.equal(by('2222').status, 'pending');
   assert.equal(by('3333').status, 'void');
-  assert.equal(s.account.openCost, 102000 + 100000);
+  assert.equal(s.account.openCost, 102145 + 100142, '持有與待進場成本皆含買進手續費');
 });
 
 test('settleFills：只補記尚未記錄的成交（買進與賣出），已記錄不重寫', () => {
@@ -92,7 +92,10 @@ test('快照：持有以最新收盤計市值、列 AI 賣單；結算清單附�
   assert.equal(snap.closed[0].sellReason, '漲多換股');
   assert.equal(snap.closed[0].buy.px, 102); assert.equal(snap.closed[0].sell.px, 110);
   const h = snap.holdings.find(x => x.code === '2222');
-  assert.equal(h.status, '持有中'); assert.equal(h.lastPx, 50); assert.equal(h.unrealized, 0);
+  assert.equal(h.status, '持有中'); assert.equal(h.lastPx, 50);
+  assert.equal(h.cost, 50071, '買進 50,000＋手續費 71');
+  assert.equal(h.estSellCost, 71 + 150, '若賣出：手續費 71＋證交稅 150');
+  assert.equal(h.netValue, 49779); assert.equal(h.unrealized, 49779 - 50071, '價格沒動也要扣掉一買一賣的費稅');
   assert.equal(snap.dataDate, days[19].date);
 });
 
