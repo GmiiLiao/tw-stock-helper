@@ -3,7 +3,7 @@
 // 🧠 AI 交易員經驗庫·盤後訓練（2026-09-30 使用者要求；純計算、不呼叫 LLM、不打上游）
 //   daemon 每個交易日 18:30 後以獨立行程執行（execScript），成功才寫完成記錄 system/daemonJobMarks.labLearn。
 //   樣本：
-//     · 波段（key=swing，y＝5 日淨%：D+1 開盤買、第 5 個交易日收盤賣、扣 0.4425%，同 AI 波段研究口徑）
+//     · 波段（key=swing，y＝5 日報酬%：D+1 開盤買、第 5 個交易日收盤賣、**未扣成本**，同 AI 波段研究口徑；2026-09-30 起）
 //         歷史母體＝收盤歸檔近 LEARN_DAYS 個交易日、每 2 日取樣、近似波段候選池（20 日均成交額≥0.5 億、近 20 日上漲、站上≥2 條均線）
 //         ＋AI 實際候選池（aiSwingLab.pool，同一日同一檔去重）。
 //     · 當沖（key=dt-long／dt-short，y＝規則淨 R）：當沖工作台每一筆觸發（daytradeJournal，含 AI 沒做的）。
@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dailyFeatures, dtFeatures, learn, renderLearnMarkdown, LEARN_VERSION } from './lib/ai-lab-learn.mjs';
-import { horizonOutcome } from './lib/ai-swing-lab.mjs';
+import { horizonOutcome, grossOf } from './lib/ai-swing-lab.mjs';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
 
@@ -47,8 +47,8 @@ const samples = []; const seen = new Set(); const sources = {};
 const addSwing = (t, code, src) => {
   const k = `${days[t].date}:${code}`; if (seen.has(k)) return;
   const F = dailyFeatures(days, t, code); if (!F) return;
-  const o = horizonOutcome(days, days[t].date, code, 5); if (!o || o.net == null) return;
-  seen.add(k); samples.push({ key: 'swing', date: days[t].date, f: F.f, y: o.net, src }); sources[src] = (sources[src] || 0) + 1;
+  const o = horizonOutcome(days, days[t].date, code, 5); const y = grossOf(o); if (y == null) return;
+  seen.add(k); samples.push({ key: 'swing', date: days[t].date, f: F.f, y, src }); sources[src] = (sources[src] || 0) + 1;
 };
 // AI 實際候選池（先加，去重時優先保留此來源）
 const labDocs = (await db.collection('aiSwingLab').orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());

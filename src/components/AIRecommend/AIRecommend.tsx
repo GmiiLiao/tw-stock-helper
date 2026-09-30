@@ -7,6 +7,7 @@ import styles from './AIRecommend.module.css';
 import BuySellPanel from './BuySellPanel';
 import TrendPanel from './TrendPanel';
 import RiskBadge from '@/components/shared/RiskBadge';
+import CostReference from '@/components/shared/CostReference';
 import { useShallow } from 'zustand/react/shallow';
 import DayTradeBadge from '@/components/shared/DayTradeBadge';
 
@@ -726,14 +727,14 @@ export default function AIRecommend() {
   // 2026-08-05 擴充：加入同期基準與超額。**絕對勝率單獨看是沒有意義的**——
   //   同一個 -5.44% 在多頭市場是災難、在崩盤市場可能是勝利。超額才是選股能力。
   const [scoreboard, setScoreboard] = useState<{
-    records: number; from?: string; cost?: number;
+    records: number; from?: string;
     calib?: string; calibFrom?: string; recordsV2?: number;
     aggV2?: Record<string, Record<string, {
       n: number; winRate: number; avgRet: number; excess?: number | null; entryDays?: number;
       base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
     }>>;
     agg: Record<string, Record<string, {
-      n: number; winRate: number; avgRet: number; medRet?: number; netRet?: number;
+      n: number; winRate: number; avgRet: number; medRet?: number;
       base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
       excess?: number | null; excessTradable?: number | null;
       skipped?: number; tradableN?: number; tradableAvg?: number | null;
@@ -870,7 +871,7 @@ export default function AIRecommend() {
             );
           })()}
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.7 }}>
-            均報為未扣費稅的價差；來回成本 {scoreboard.cost ?? 0.4425}%（手續費×2＋證交稅）需自行扣除。
+            <CostReference />
             歷史績效不代表未來；本記分板是**誠實揭露**，不是推薦保證。非投資建議。
           </div>
         </div>

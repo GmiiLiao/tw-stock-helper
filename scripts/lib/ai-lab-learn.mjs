@@ -3,7 +3,7 @@
 //   獲利的成為未來精準選股可靠度提升的能力；盤後空閒時間訓練，結果存第二大腦，未來方便其它功能使用」）
 //
 //   純函式（特徵、分段、學習、比對、呈現）；I/O 在 scripts/ai-lab-learn.mjs（盤後由 daemon 以獨立行程執行）。
-//   · 樣本：{ key, date, f:{特徵:分段}, y:淨報酬（波段＝5 日淨%；當沖＝淨 R）, src }
+//   · 樣本：{ key, date, f:{特徵:分段}, y:報酬（波段＝5 日%·未扣成本；當沖＝淨 R，當沖另案）, src }
 //       key＝'swing'｜'dt-long'｜'dt-short'。
 //   · 學法（可解釋、防過擬合）：每個「特徵=分段」與同 key 其餘樣本比較平均淨報酬（Welch t）；
 //       日期前 70% 訓練、後 30% 驗證——**兩段方向一致且合併 |t|≥2、兩段樣本都夠**才算「已驗證」，
@@ -133,7 +133,7 @@ export function learn(samples, { minN = { swing: 60, 'dt-long': 20, 'dt-short': 
         train: { n: a.n, mean: r2(a.mean), diff: r2(a.mean - aR.mean), t: r2(tTr) }, holdout: { n: b.n, mean: r2(b.mean), diff: r2(b.mean - bR.mean), t: r2(tHo) } });
     }
     rules.sort((x, y) => (x.status === y.status ? Math.abs(y.t) - Math.abs(x.t) : x.status === 'validated' ? -1 : 1));
-    out[key] = { base: { n: base.n, mean: r2(base.mean), win: r2(base.win) }, split: { cut, trainN: tr.length, holdoutN: ho.length, days: dates.length }, unit: key === 'swing' ? '5日淨%' : '淨R', rules: rules.slice(0, maxRules) };
+    out[key] = { base: { n: base.n, mean: r2(base.mean), win: r2(base.win) }, split: { cut, trainN: tr.length, holdoutN: ho.length, days: dates.length }, unit: key === 'swing' ? '5日%（未扣成本）' : '淨R', rules: rules.slice(0, maxRules) };
   }
   return out;
 }

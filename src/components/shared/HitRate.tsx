@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react';
 // 藏起來會讓使用者以為它已被驗證過。
 
 interface Cell {
-  n: number; winRate: number; avgRet: number; netRet?: number;
+  n: number; winRate: number; avgRet: number;
   base?: { n: number; winRate: number; avgRet: number } | null;
   excess?: number | null; excessTradable?: number | null;
   skipped?: number; entryDays?: number;

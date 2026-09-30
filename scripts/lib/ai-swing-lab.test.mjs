@@ -45,9 +45,11 @@ test('buildPool：排除處置股、合併兩榜來源', () => {
   assert.equal(pool[0].sources.length, 2);
 });
 
-test('swingStats：選股 vs 整池超額', () => {
+test('swingStats：選股 vs 整池超額——一律未扣成本；舊紀錄（只有 net／avg）加回當時扣掉的 0.4425', () => {
   const s = swingStats([{ outcomes: { 5: { picks: [{ net: 3 }, { net: -1 }], pool: { avg: 0.5 } } } }]);
-  assert.equal(s[5].avg, 1); assert.equal(s[5].excess, 0.5); assert.equal(s[20].n, 0);
+  assert.equal(s[5].avg, 1.44); assert.equal(s[5].poolAvg, 0.94); assert.equal(s[5].excess, 0.5); assert.equal(s[20].n, 0);
+  const n = swingStats([{ outcomes: { 5: { picks: [{ ret: 3, net: 2.56 }, { ret: -1, net: -1.44 }], pool: { avgRet: 0.5, avg: 0.06 } } } }]);
+  assert.equal(n[5].avg, 1); assert.equal(n[5].poolAvg, 0.5); assert.equal(n[5].excess, 0.5); assert.equal(n[5].win, 50);
 });
 
 // 嚴格假物件（2026-09-28·WM-SCAN G3-09）：真 Firestore 拒收任何層級的 undefined

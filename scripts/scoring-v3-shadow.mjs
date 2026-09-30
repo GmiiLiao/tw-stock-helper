@@ -65,7 +65,7 @@ try {
   disp = new Set(rs.disposition.filter(x => x.code && (!x.endDate || x.endDate >= date)).map(x => x.code));
 } catch (e) { fail(`處置名單抓取失敗：${(e.message || '').slice(0, 60)}`); }
 const dayT = { ...days[t], m: Object.fromEntries(Object.entries(days[t].m).filter(([c]) => !disp.has(c))) };
-const cs = crossSection([...days.slice(0, t), dayT], t);
+const cs = crossSection([...days.slice(0, t), dayT], t, raw);   // v3.1：門檻看未還原的實際價
 if (cs.codes.length < 100) fail(`${date} 宇宙僅 ${cs.codes.length} 檔`);
 
 const v2Top = ((await db.collection('picksHistory').doc(date).get()).data()?.top20 || []).map(p => p.code).filter(Boolean);
@@ -88,7 +88,8 @@ const doc = { date, version: W.version, weightsMeta: { dataHash: W.dataHash, dat
 // ── 記分板：過去影子日（標籤已可得）的 v3 Top20 vs v2 Top20 超額（基準＝當日 v3 宇宙等權平均）──
 const idx = new Map(days.map((d, i) => [d.date, i]));
 const hist = (await db.collection('scoringV3').orderBy('date', 'desc').limit(BOARD_DAYS + 6).get()).docs   // +latest 本身也帶 date
-  .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d.id) && d.id < date).map(d => d.data());
+  .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d.id) && d.id < date).map(d => d.data())
+  .filter(h => h.version === W.version);   // 記分板只比同一版權重（換版＝重新累積）
 const board = {};
 for (const [k] of live) {
   const L = LABEL[k]; const rows = [];

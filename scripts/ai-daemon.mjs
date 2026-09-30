@@ -9432,7 +9432,8 @@ const PICK_LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                     'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
                     'panicDip', 'overheatExit',
                     'voteDip', 'overheatV2', 'overheatV3', 'wExit'];   // 反轉訊號（凍結·前瞻驗證·17 榜）
-const PICK_COST = 0.4425;     // 手續費×2＋證交稅（與 bt-core 同口徑）
+// 2026-09-30 使用者規則：成績不以扣成本方式比對（成本依當沖／隔日沖／波段比例不同）⇒ 記分板只列未扣成本的均報與超額；
+//   成本改由前端依使用者券商折讓、依持有方式列參考（src/components/shared/CostReference.tsx）。原 netRet／cost 欄位已移除。
 // 推薦口徑版本。**改動評分/濾網/排序鍵時務必 +1**，否則新舊成績會被平均在一起。
 const CALIB = 'v2';           // v2 = 2026-08-05 四窗修正＋漲停 gate＋已驗證訊號×3
 
@@ -9587,7 +9588,6 @@ async function trackPicks() {
       const t = _agg(trad);
       (agg[k] ||= {})[`d${h}`] = {
         ...a,
-        netRet: +(a.avgRet - PICK_COST).toFixed(2),             // 扣來回費稅
         tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
         skipped: all.length - (t?.n ?? 0),                      // 進場日漲停·買不到
         base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
@@ -9611,7 +9611,7 @@ async function trackPicks() {
       const a = _agg(all); if (!a) continue;
       const t = _agg(trad);
       (aggV2[k] ||= {})[`d${h}`] = {
-        ...a, netRet: +(a.avgRet - PICK_COST).toFixed(2),
+        ...a,
         tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
         skipped: all.length - (t?.n ?? 0),
         base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
@@ -9623,9 +9623,9 @@ async function trackPicks() {
   }
 
   await db.collection('picksScoreboard').doc('latest').set({
-    updatedAt: Date.now(), from: docs[0]?.date || date, records: docs.length, cost: PICK_COST, agg,
+    updatedAt: Date.now(), from: docs[0]?.date || date, records: docs.length, agg,
     calib: CALIB, calibFrom: v2[0]?.date || date, recordsV2: v2.length, aggV2,
-    note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。netRet 已扣 0.4425% 來回費稅。',
+    note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。全部未扣成本（成本依持有方式另計）。',
   });
   log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
   try { await weightsHealthCheck(aggV2); } catch (e) { log('  ⚠ 權值健康檢查失敗:', (e.message || '').slice(0, 60)); }
@@ -10973,7 +10973,9 @@ const WEIGHTS_REGISTRY = [
   { name: 'limitUp lift 表', version: '2026-09-18.v2', trainedThrough: '2026-08-19', reviewBy: '2026-11-17', board: null },
   { name: 'volSurge strength', version: '2026-08', trainedThrough: '2026-08', reviewBy: '2026-11-17', board: 'volSurge' },
   // v3 S 影子（2026-09-30）：權重檔 scripts/data/scoring-v3-weights.json；記分板在 scoringV3/scoreboard（不在 picksScoreboard，board 留 null）
-  { name: '技術評分 v3 S（影子）', version: 'scoring-v3.0', trainedThrough: '2025-09-30', reviewBy: '2026-12-29', board: null },
+  { name: '技術評分 v3 S（影子）', version: 'scoring-v3.1', trainedThrough: '2025-09-30', reviewBy: '2026-12-29', board: null },
+  // 標靶公式（5 日·多空兩組係數）影子：權重檔 scripts/data/swing-formula-weights.json；記分板 swingFormula/scoreboard
+  { name: '標靶公式 5日·多空（影子）', version: 'swing-formula-v1', trainedThrough: '2026-09-30', reviewBy: '2026-12-29', board: null },
   { name: 'chipPicks', version: '2026-08', trainedThrough: '2026-08', reviewBy: '2026-11-17', board: 'chipPicks' },
 ];
 async function weightsHealthCheck(aggV2) {
@@ -14543,7 +14545,8 @@ const ASIA_SLOTS = [
   [12 * 60 + 30, '12:30'], [13 * 60 + 30, '13:30'],
 ];
 let _labLearnDate = '';   // 🧠 交易員經驗庫盤後訓練（18:30 起，完成記錄 labLearn）
-let _v3ShadowDate = '', _v3ShadowFail = { date: '', n: 0 };   // 📐 技術評分 v3 影子（18:45 起，完成記錄 scoringV3；失敗當日最多 3 次）
+let _v3ShadowDate = '', _v3ShadowFail = { date: '', n: 0 };
+let _sfDate = '', _sfTry = { date: '', n: 0, at: 0 };   // 🎯 標靶公式影子（22:40 起、每 20 分鐘最多 4 次；完成記錄 swingFormula）   // 📐 技術評分 v3 影子（18:45 起，完成記錄 scoringV3；失敗當日最多 3 次）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
@@ -14598,6 +14601,7 @@ async function dailyJobsLoop() {
       }
       if (marks.labLearn === t) _labLearnDate = t;
       if (marks.scoringV3 === t) _v3ShadowDate = t;
+      if (marks.swingFormula === t) _sfDate = t;
       if (m >= 16 * 60 + 30 && marks.official === t) _officialDate = t;
       if (m >= 21 * 60 + 45 && marks.margin === t) _marginDate = t;
       if (m >= 16 * 60 + 30 && marks.official !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
@@ -15096,6 +15100,13 @@ async function dailyJobsLoop() {
           catch (e) { _marginOk = false; log('✖ 軋空檢討（將重試）:', e.message); }
           if (_marginOk) { _marginDate = today; await markJobDone('margin', today); }
         }
+        // 🎯 標靶公式影子（2026-09-30 使用者核可：5 日持有·依多空市況兩組係數，scripts/data/swing-formula-weights.json）
+        //   特徵含當日資券與當沖 ⇒ 排在 21:45 資券班車之後；資料未齊時腳本不寫並回報失敗 ⇒ 每 20 分鐘重試、最多 4 次（隔日照常）
+        if (mins >= 22 * 60 + 40 && _sfDate !== today && Date.now() - _sfTry.at > 20 * 60000) {
+          _sfTry = { date: today, n: (_sfTry.date === today ? _sfTry.n : 0) + 1, at: Date.now() };
+          if (await execScript('swing-formula-shadow.mjs', [], '🎯 標靶公式影子', 10)) { _sfDate = today; await markJobDone('swingFormula', today); }
+          else if (_sfTry.n >= 4) _sfDate = today;
+        }
         // 16:45 籌碼性格分類（炒作/長期核心，3 年 chipArchive；官方補抓寫完當日 archive 後）
         if (mins >= 16 * 60 + 45 && _characterDate !== today) {
           _characterDate = today;
@@ -15378,6 +15389,7 @@ if (ONESHOT) {
     stressTest: () => computeStressTest(),
     rotation: () => computeRotation(),          // 汰弱留強（持股評分 vs 全市場）
     scoringV3: () => execScript('scoring-v3-shadow.mjs', [], '📐 技術評分 v3 影子', 10),   // v3 影子手動補跑（冪等）
+    swingFormula: () => execScript('swing-formula-shadow.mjs', [], '🎯 標靶公式影子', 10),   // 標靶公式影子手動補跑（冪等）
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
     dayTradeEligible: () => computeDayTradeEligible(),  // 當沖資格名單（盤前可跑）
     dayTradeRatio: () => computeDayTradeRatio(),  // 當沖比率（統計傍晚才發布·會自動回溯補抓最近有統計的交易日）

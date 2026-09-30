@@ -20,10 +20,8 @@ import { mergeFactorItems } from './lib/exright-source.mjs';
 const argv = process.argv.slice(2);
 const DAYS = +(argv[argv.indexOf('--days') + 1] || 0) || 1100;
 const DRY = argv.includes('--dry');
-// --raw-gate：宇宙門檻（收盤≥10、20 日均額）改用未還原價（規範 §2 原意）；目前為研究用選項，預設沿用舊行為
-const RAW_GATE = argv.includes('--raw-gate');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const VERSION = 'scoring-v3.0';
+const VERSION = 'scoring-v3.1';   // v3.1（2026-09-30 使用者核可）：宇宙門檻（收盤≥10、20 日均額）改用未還原價＝規範 §2 原意
 const TRAIN_FRAC = 0.75, EMBARGO = 20, MIN_TRAIN = 480, MIN_OOT = 120;
 const T_MIN = 2, ORTHO_MAX = 0.5, PLACEBO_N = 20, REVIEW_DAYS = 90;
 // 成本參考（不作比對、不作判定——使用者 2026-09-30：成本依持有方式比例不同）：手續費 0.1425% 買賣各一次、2.8 折＝使用者券商；證交稅 當沖 0.15%／其餘 0.3%
@@ -178,6 +176,7 @@ function renderReport(R) {
   L.push(`- 收盤歸檔 ${R.nDays} 日（${R.range[0]} ~ ${R.range[1]}；<1500 檔的殘缺日已剔除），還原事件 ${R.nEvents} 件（官方除權息 ${R.exRange.join('~')}＋priceEvents 減資／面額變更）；面板 ${R.panelN} 日、平均宇宙 ${f2(R.avgUniverse, 0)} 檔。`);
   L.push(`- 切分：訓練 ${R.split.trainRange.join(' ~ ')}｜禁區 ${EMBARGO} 日｜樣本外 ${R.split.ootRange.join(' ~ ')}（日期不重疊，20 日標籤亦不跨段）。`);
   L.push(`- F 籌碼缺值（法人 <3 日，以中性 50 計）平均比例 ${f2(R.missF * 100)}%。`);
+  L.push('- 宇宙門檻（收盤 ≥10 元、20 日均額 ≥5,000 萬）以**未還原**的實際價格判斷（v3.1 起；v3.0 用還原價，日後配息會把股票提早踢出宇宙）。');
   L.push('- 限制：處置股歷史名單沒有逐日歸檔，驗證期宇宙**未排除處置股**（線上影子模式會排除）；成交量未做減資還原。', '');
   L.push('## 因子相關（訓練期日均 Spearman；|ρ| ≥ 0.5 不合正交性）', '', '| 對 | ρ |', '|---|---|');
   for (const [p, r] of Object.entries(R.corr)) L.push(`| ${p[0]}–${p[1]} | ${f2(r)}${Math.abs(r ?? 0) >= ORTHO_MAX ? ' ⚠' : ''} |`);
@@ -230,8 +229,7 @@ const GATE_NAME = { ic: '平均 IC', spread: 'D10−D1', regime: '市況分層',
 const db = initDb();
 const { raw, days, nEvents, exRange } = await loadDays(db);
 console.log(`資料 ${days.length} 日（${days[0]?.date} ~ ${days.at(-1)?.date}），建面板中…`);
-const panel = buildPanel(days, RAW_GATE ? raw : days);
-if (RAW_GATE) console.log('· 宇宙門檻使用未還原價（--raw-gate）');
+const panel = buildPanel(days, raw);   // 門檻看實際價、因子與標籤看還原價
 const sp = splitIdx(panel);
 const ic = factorIC(panel, sp);
 const corr = corrMatrix(panel, sp.train);

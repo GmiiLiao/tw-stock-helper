@@ -6,7 +6,8 @@
 // 口徑（寫死、全部記進檔案）：
 //   · 決策時點＝資料日 D 收盤後（盤後榜單算完）；**進場＝下一個交易日 D+1 開盤價**（收盤後才決定，買不到 D 的收盤）。
 //     D+1 無開盤價（例：全天鎖漲停無成交）⇒ 用 D+1 收盤並標記。
-//   · 持有 h 日＝進場日算第 1 天，第 h 個交易日收盤賣出；淨報酬扣 0.4425%（本站波段口徑，手續費未折讓）。
+//   · 持有 h 日＝進場日算第 1 天，第 h 個交易日收盤賣出；研究結算（選股平均、整池、超額、勝率）一律**未扣成本**
+//     （使用者 2026-09-30：成本依持有方式比例不同，不以扣成本方式比對）。交易單與 50 萬帳戶照實扣手續費與證交稅。
 //   · 價格以 priceEvents 係數還原（除權息／減資），與「波段持有」榜同一套；沒有係數的事件股仍可能失真，檔案內註明。
 //   · 基準＝同一天丟給 AI 的整個候選池等權平均（同口徑）——AI 有沒有用，看「選中的」有沒有贏「整池」。
 //   · 候選池只收網站當天的波段榜單（波段起漲＋波段持有整合榜），排除處置股（含已公告待生效）。
@@ -20,7 +21,11 @@ export const SWING_LAB_VERSION = 'ai-swing-lab-v3';   // v3（2026-09-28）：�
 export const SWING_HORIZONS = Object.freeze([5, 10, 20, 60, 120]);
 export const SWING_MAX_PICKS = 5;
 export const SWING_POOL_MAX = 30;
-export const SWING_COST_PCT = 0.4425;
+export const SWING_COST_PCT = 0.4425;   // 僅供換算 2026-09-30 以前寫入的舊紀錄（當時 net＝未扣成本報酬 − 0.4425）；新結算不再扣
+/** 單檔研究結算的未扣成本報酬 %：新紀錄讀 ret；舊紀錄只有 net ⇒ 加回當時扣掉的固定成本 */
+export const grossOf = o => (o?.ret != null ? o.ret : o?.net != null ? +(o.net + SWING_COST_PCT).toFixed(2) : null);
+/** 整池基準的未扣成本平均 %（新：avgRet；舊：avg＋固定成本） */
+export const poolGrossOf = pool => (pool?.avgRet != null ? pool.avgRet : pool?.avg != null ? +(pool.avg + SWING_COST_PCT).toFixed(2) : null);
 
 const f1 = v => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(+v).toFixed(1)}`);
 
@@ -110,17 +115,20 @@ export function horizonOutcome(days, decisionDate, code, h) {
   const x = days[d0 + h - 1].m[code]; if (!(x?.[0] > 0)) return null;
   let low = entry, high = entry;
   for (let k = d0; k <= d0 + h - 1; k++) { const r = days[k].m[code]; if (r?.[0] > 0) { low = Math.min(low, r[4] > 0 ? r[4] : r[0]); high = Math.max(high, r[3] > 0 ? r[3] : r[0]); } }
-  const net = (x[0] / entry - 1) * 100 - SWING_COST_PCT;
+  const ret = (x[0] / entry - 1) * 100;   // 未扣成本；net 僅為舊欄位相容（ret − 舊固定成本），研究比較一律用 ret
   // 買賣時刻：開盤 09:00（無開盤價改用收盤 13:30）；賣在第 h 日收盤 13:30
   const entryAt = twAt(days[d0].date, openMissing ? '13:30' : '09:00'), exitAt = twAt(days[d0 + h - 1].date, '13:30');
-  return { entryDate: days[d0].date, entryAt, entryPx: entry, openMissing, exitDate: days[d0 + h - 1].date, exitAt, exitPx: x[0], net: +net.toFixed(2), maxDD: +((low / entry - 1) * 100).toFixed(2), maxUp: +((high / entry - 1) * 100).toFixed(2) };
+  return { entryDate: days[d0].date, entryAt, entryPx: entry, openMissing, exitDate: days[d0 + h - 1].date, exitAt, exitPx: x[0], ret: +ret.toFixed(2), net: +(ret - SWING_COST_PCT).toFixed(2), maxDD: +((low / entry - 1) * 100).toFixed(2), maxUp: +((high / entry - 1) * 100).toFixed(2) };
 }
 
 /** 整池等權基準（同口徑）；池內有結果的檔數也回傳 */
 export function poolBaseline(days, decisionDate, codes, h) {
   const xs = codes.map(c => horizonOutcome(days, decisionDate, c, h)).filter(Boolean);
   if (!xs.length) return null;
-  return { n: xs.length, avg: +(xs.reduce((a, o) => a + o.net, 0) / xs.length).toFixed(2), win: Math.round(xs.filter(o => o.net > 0).length / xs.length * 100) };
+  const avgRet = xs.reduce((a, o) => a + o.ret, 0) / xs.length;
+  // avg／win 為舊欄位相容（扣舊固定成本）；顯示與比較讀 avgRet／winRet（未扣成本）
+  return { n: xs.length, avgRet: +avgRet.toFixed(2), winRet: Math.round(xs.filter(o => o.ret > 0).length / xs.length * 100),
+    avg: +(avgRet - SWING_COST_PCT).toFixed(2), win: Math.round(xs.filter(o => o.net > 0).length / xs.length * 100) };
 }
 
 /** 跨日統計：每個持有期的 AI 選股 vs 整池 */
@@ -161,8 +169,9 @@ export function swingStats(docs) {
     for (const d of docs) {
       const o = d.outcomes?.[h]; if (!o) continue;
       days++;
-      for (const p of o.picks || []) if (p.net != null) { picks.push(p.net); if (o.pool) excess.push(p.net - o.pool.avg); if (p.ledger) { pnlTwd += p.ledger.pnlTwd; pnlN++; } }
-      if (o.pool) { poolSum += o.pool.avg; poolN++; }
+      const pg = poolGrossOf(o.pool);
+      for (const p of o.picks || []) { const g = grossOf(p); if (g == null) continue; picks.push(g); if (pg != null) excess.push(g - pg); if (p.ledger) { pnlTwd += p.ledger.pnlTwd; pnlN++; } }
+      if (pg != null) { poolSum += pg; poolN++; }
     }
     const mean = a => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null);
     out[h] = { pnlTwd: pnlN ? pnlTwd : null, days, n: picks.length, avg: mean(picks), win: picks.length ? Math.round(picks.filter(v => v > 0).length / picks.length * 100) : null, poolAvg: poolN ? +(poolSum / poolN).toFixed(2) : null, excess: mean(excess), beatPool: excess.length ? Math.round(excess.filter(v => v > 0).length / excess.length * 100) : null };
@@ -177,7 +186,7 @@ export function renderSwingMarkdown(doc) {
     ``,
     `- LLM 模型：**${m.name || '未知'}**（${m.family || '—'}·${m.parameterSize || '—'}·${m.quantization || '—'}·digest ${m.digest ? m.digest.slice(0, 12) : '—'}）`,
     `- 版本：${doc.version}｜凍結：${doc.frozenAt ? new Date(doc.frozenAt + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16) : '—'}｜候選池 ${(doc.pool || []).length} 檔`,
-    `- 口徑：帳戶由 AI 主動操作——盤後決定、下一交易日開盤買賣；研究結算為 D+1 開盤買、持有 ${SWING_HORIZONS.join('／')} 個交易日收盤賣、扣 ${SWING_COST_PCT}%；價格以 priceEvents 還原；基準＝整池等權平均`,
+    `- 口徑：帳戶由 AI 主動操作——盤後決定、下一交易日開盤買賣；研究結算為 D+1 開盤買、持有 ${SWING_HORIZONS.join('／')} 個交易日收盤賣、未扣成本（成本依持有方式另計）；價格以 priceEvents 還原；基準＝整池等權平均`,
     `- 大盤：${doc.market || '—'}`,
     ``,
     `## 選股（${(doc.picks || []).length} 檔）${doc.note ? `——${doc.note}` : ''}`,
@@ -197,9 +206,9 @@ export function renderSwingMarkdown(doc) {
     ...SWING_HORIZONS.map(h => {
       const o = doc.outcomes?.[h];
       if (!o) return `| ${h} 日 | 未到期 | — | — | — | — |`;
-      const ps = (o.picks || []).filter(p => p.net != null);
-      const avg = ps.length ? ps.reduce((a, p) => a + p.net, 0) / ps.length : null;
-      return `| ${h} 日 | ${o.exitDate || '—'} 結算 | ${f1(avg)}% | ${f1(o.pool?.avg)}% | ${avg != null && o.pool ? f1(avg - o.pool.avg) : '—'}pp | ${(o.picks || []).map(p => p.ledger ? `${p.code} 買 ${p.entryDate} ${p.openMissing ? '13:30' : '09:00'} @${p.ledger.buy.px}×1000=${p.ledger.buy.amount.toLocaleString()}元 → 賣 ${p.exitDate} 13:30 @${p.ledger.sell.px}=${p.ledger.sell.amount.toLocaleString()}元·費稅 ${p.ledger.costTwd} 元·淨 ${p.ledger.pnlTwd.toLocaleString()} 元（${f1(p.ledger.retPct)}%）${p.ledger.noLookahead ? '·✓先選後買' : '·⚠時序異常'}` : `${p.code} ${p.note || '—'}`).join('<br>')} |`;
+      const gs = (o.picks || []).map(grossOf).filter(v => v != null), pg = poolGrossOf(o.pool);
+      const avg = gs.length ? gs.reduce((a, v) => a + v, 0) / gs.length : null;
+      return `| ${h} 日 | ${o.exitDate || '—'} 結算 | ${f1(avg)}% | ${f1(pg)}% | ${avg != null && pg != null ? f1(avg - pg) : '—'}pp | ${(o.picks || []).map(p => p.ledger ? `${p.code} 買 ${p.entryDate} ${p.openMissing ? '13:30' : '09:00'} @${p.ledger.buy.px}×1000=${p.ledger.buy.amount.toLocaleString()}元 → 賣 ${p.exitDate} 13:30 @${p.ledger.sell.px}=${p.ledger.sell.amount.toLocaleString()}元·費稅 ${p.ledger.costTwd} 元·淨 ${p.ledger.pnlTwd.toLocaleString()} 元（${f1(p.ledger.retPct)}%）${p.ledger.noLookahead ? '·✓先選後買' : '·⚠時序異常'}` : `${p.code} ${p.note || '—'}`).join('<br>')} |`;
     }),
     ``,
     `> 模擬交易，非實際下單；非投資建議。`,

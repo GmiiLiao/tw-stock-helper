@@ -27,24 +27,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { mergeFactorItems } from './lib/exright-source.mjs';
+import { LOOK, FEATS, BASE_P, mean, centeredRank, buildArrays, adjust, revenueIndex, makeFeatureFn, daySection, labelsAt } from './lib/swing-formula.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE = process.env.LAB_CACHE || join(tmpdir(), 'swing-formula-lab-cache.ndjson');
 const REFRESH = process.argv.includes('--refresh');
-const LOOK = 60, MIN_TRAIN = 250, REFIT_EVERY = 5, HS = [5, 10, 20], TOP = 20, LIMIT = 0.095;
-const T_GATE = 3.0, PLACEBO_N = 20, MIN_UNI = 100;
+const MIN_TRAIN = 250, REFIT_EVERY = 5, HS = [5, 10, 20], TOP = 20, MIN_UNI = 100;   // 宇宙／特徵／標籤的常數與計算在 lib/swing-formula.mjs（與影子模式共用）
+const T_GATE = 3.0, PLACEBO_N = 20;
 // 成本參考（不作比對、不作門檻）：手續費 0.1425% 買賣各一次（2.8 折＝使用者券商）；證交稅賣出收：當沖 0.15%、其餘 0.3%
 const FEE_PCT = 0.1425, FEE_DISC = 0.28;
 const COST_STYLES = [['當沖（同日買賣）', 0.15, 0], ['隔日沖（持有 1 日）', 0.3, 1], ...HS.map(h => [`波段持有 ${h} 日`, 0.3, h])];
-const FEATS = [
-  ['rev5', '5 日報酬（短期反轉）'], ['ovn20', '20 日隔夜報酬累計'], ['intra20', '20 日盤中報酬累計'], ['mom60_20', '中期動能（t−60→t−20）'],
-  ['vol20', '20 日波動'], ['max20', '20 日最大單日漲幅'], ['hi60', '距 60 日高點'], ['dMa20', '距 20 日均線'],
-  ['volX', '量比（今量÷20 日均量）'], ['liq', '流動性（20 日均額，對數）'], ['logP', '股價水準（對數）'], ['clv', '收盤在當日區間位置'],
-  ['gap0', '今日跳空'], ['fi5', '外資 5 日買超÷均量'], ['fi20', '外資 20 日買超÷均量'], ['tr5', '投信 5 日買超÷均量'],
-  ['tr20', '投信 20 日買超÷均量'], ['mgChg5', '融資 5 日增減÷均量'], ['mgLvl', '融資餘額÷均量'], ['shRatio', '券資比'],
-  ['dt20', '20 日當沖比'], ['revYoY', '月營收年增率（已公布）'], ['revAcc', '營收年增加速（本月−前三月平均）'], ['indMom20', '同產業 20 日動能'],
-];
-const BASE_P = FEATS.length;
 // 【第二階段預先宣告（2026-09-30 使用者問「是否用函數加乘提高準確率」；第一階段結果出來之前寫死）】
 //   C＝24 特徵 ＋ 5 個有經濟意義的乘積項 ＋ 3 個平方項（兩端極端），B 版收縮；D＝24 特徵、依市況（前 20 日宇宙等權報酬 >0＝多頭）分開估係數，B 版收縮。
 //   h ∈ {5,10,20} × {C,D}＝6 組；與第一階段合計 12 組（t≥3 仍高於 12 組 Bonferroni 的 2.87）。門檻與第一階段相同。
@@ -101,101 +93,7 @@ async function loadRows() {
   return [meta, ...rows];
 }
 
-// 兩段式建陣列（避免同時持有上千日的解析物件）：先收代號，再逐日填入 Float64Array（索引 ci*N+t）
-function buildArrays(rows) {
-  const codeIdx = new Map(), codes = [], good = [];
-  for (const r of rows) {
-    const m = JSON.parse(r.closeJson); if (Object.keys(m).length < 1500) continue; good.push(r);
-    for (const c in m) if (/^\d{4}$/.test(c) && !c.startsWith('00') && !codeIdx.has(c)) { codeIdx.set(c, codes.length); codes.push(c); }
-  }
-  const N = good.length, K = codes.length, mk = () => new Float64Array(K * N).fill(NaN);
-  const A = { cR: mk(), oR: mk(), hR: mk(), lR: mk(), v: mk(), fo: mk(), tr: mk(), mg: mk(), sh: mk(), dt: mk() };
-  const put = (json, fn) => { if (!json) return; const o = JSON.parse(json); for (const c in o) { const ci = codeIdx.get(c); if (ci != null) fn(ci, o[c]); } };
-  good.forEach((r, t) => {
-    put(r.closeJson, (ci, x) => { const i = ci * N + t; if (x[0] > 0) A.cR[i] = x[0]; A.v[i] = x[1] || 0; if (x[2] > 0) A.oR[i] = x[2]; if (x[3] > 0) A.hR[i] = x[3]; if (x[4] > 0) A.lR[i] = x[4]; });
-    put(r.instJson, (ci, x) => { if (Array.isArray(x)) { A.fo[ci * N + t] = x[0] || 0; A.tr[ci * N + t] = x[1] || 0; } });
-    put(r.marginJson, (ci, x) => { if (Array.isArray(x)) { A.mg[ci * N + t] = x[0] || 0; A.sh[ci * N + t] = x[1] || 0; } });
-    put(r.dayTradeJson, (ci, x) => { if (Number.isFinite(+x)) A.dt[ci * N + t] = +x; });
-  });
-  return { N, K, codes, codeIdx, dates: good.map(r => r.date), A };
-}
-
-// 還原（事件日「之前」的價格 × factor；量不動）→ cA/oA/hA/lA；門檻另用未還原的 cR
-function adjust({ N, codeIdx, dates, A }, items) {
-  const cA = Float64Array.from(A.cR), oA = Float64Array.from(A.oR), hA = Float64Array.from(A.hR), lA = Float64Array.from(A.lR);
-  for (const ev of items) {
-    const ci = codeIdx.get(ev.code); if (ci == null || !(ev.factor > 0)) continue;
-    let e = 0; while (e < N && dates[e] < ev.date) e++;
-    for (let t = 0; t < e; t++) { const i = ci * N + t; cA[i] *= ev.factor; oA[i] *= ev.factor; hA[i] *= ev.factor; lA[i] *= ev.factor; }
-  }
-  return { cA, oA, hA, lA };
-}
-
-// 月營收：M 月資料自 M+1 月 11 日起可用（法定 10 日前公告）
-function revenueIndex(rev) {
-  const months = rev.map(r => r.month).sort();
-  const yoy = Object.fromEntries(rev.map(r => [r.month, Object.fromEntries(JSON.parse(r.rowsJson || '[]').map(x => [x.c, x.yoy]))]));
-  const availFrom = m => { const [y, mo] = m.split('-').map(Number); const ny = mo === 12 ? y + 1 : y, nm = mo === 12 ? 1 : mo + 1; return `${ny}-${String(nm).padStart(2, '0')}-11`; };
-  return date => {
-    const ok = months.filter(m => availFrom(m) <= date); if (!ok.length) return null;
-    const M = ok.at(-1), prev = ok.slice(-4, -1);
-    return code => {
-      const y = yoy[M]?.[code]; if (!Number.isFinite(y)) return [NaN, NaN];
-      const ps = prev.map(m => yoy[m]?.[code]).filter(Number.isFinite);
-      return [y, ps.length === 3 ? y - ps.reduce((a, b) => a + b, 0) / 3 : NaN];
-    };
-  };
-}
-
-// ── 宇宙與特徵 ────────────────────────────────────────────────────────────
-function makeFeatureFn(D, adj) {
-  const { N, A } = D, { cA, oA, hA, lA } = adj;
-  const inUniverse = (ci, t) => {
-    if (t < LOOK) return false;
-    const b = ci * N; if (!(A.cR[b + t] >= 10)) return false;
-    for (let k = 0; k <= LOOK; k++) if (!(cA[b + t - k] > 0)) return false;
-    if (Math.abs(cA[b + t] / cA[b + t - 1] - 1) >= LIMIT) return false;
-    let amt = 0; for (let k = 1; k <= 20; k++) amt += A.cR[b + t - k] * (A.v[b + t - k] || 0) * 1000;
-    return amt / 20 >= 5e7;
-  };
-  const sumN = (arr, b, t, n, minHave) => { let s = 0, h = 0; for (let k = 0; k < n; k++) { const x = arr[b + t - k]; if (Number.isFinite(x)) { s += x; h++; } } return h >= minHave ? (s * n) / h : NaN; };
-  const feats = (ci, t, rev) => {
-    const b = ci * N, C = k => cA[b + t - k], O = k => oA[b + t - k], f = new Array(BASE_P).fill(NaN);
-    f[0] = C(0) / C(5) - 1;
-    let ov = 0, id = 0, okO = true; for (let k = 0; k < 20; k++) { const o = O(k); if (!(o > 0)) { okO = false; break; } ov += Math.log(o / C(k + 1)); id += Math.log(C(k) / o); }
-    if (okO) { f[1] = ov; f[2] = id; }
-    f[3] = C(20) / C(60) - 1;
-    let s = 0, s2 = 0, mx = -Infinity; for (let k = 0; k < 20; k++) { const r = C(k) / C(k + 1) - 1; s += r; s2 += r * r; if (r > mx) mx = r; }
-    f[4] = Math.sqrt(Math.max(0, s2 / 20 - (s / 20) ** 2)); f[5] = mx;
-    let hi = 0; for (let k = 0; k <= 60; k++) hi = Math.max(hi, C(k)); f[6] = C(0) / hi - 1;
-    let ma = 0; for (let k = 0; k < 20; k++) ma += C(k); f[7] = C(0) / (ma / 20) - 1;
-    let vs = 0, amt = 0; for (let k = 1; k <= 20; k++) { vs += A.v[b + t - k] || 0; amt += A.cR[b + t - k] * (A.v[b + t - k] || 0) * 1000; }
-    const av = vs / 20;
-    f[8] = av > 0 ? (A.v[b + t] || 0) / av : NaN; f[9] = Math.log(amt / 20); f[10] = Math.log(A.cR[b + t]);
-    const H = hA[b + t], L = lA[b + t]; f[11] = H > 0 && L > 0 ? (H > L ? (C(0) - L) / (H - L) : 0.5) : NaN;
-    f[12] = O(0) > 0 ? O(0) / C(1) - 1 : NaN;
-    if (av > 0) { f[13] = sumN(A.fo, b, t, 5, 3) / av; f[14] = sumN(A.fo, b, t, 20, 12) / av; f[15] = sumN(A.tr, b, t, 5, 3) / av; f[16] = sumN(A.tr, b, t, 20, 12) / av; }
-    const m0 = A.mg[b + t], m5 = A.mg[b + t - 5], s0 = A.sh[b + t];
-    if (av > 0 && Number.isFinite(m0) && Number.isFinite(m5)) f[17] = (m0 - m5) / av;
-    if (av > 0 && Number.isFinite(m0)) f[18] = m0 / av;
-    if (m0 > 0 && Number.isFinite(s0)) f[19] = s0 / m0;
-    let dts = 0, dth = 0, vv = 0; for (let k = 0; k < 20; k++) { const x = A.dt[b + t - k]; if (Number.isFinite(x)) { dts += x; dth++; vv += A.v[b + t - k] || 0; } }
-    if (dth >= 12 && vv > 0) f[20] = dts / vv;
-    if (rev) { const [y, acc] = rev(D.codes[ci]); f[21] = y; f[22] = acc; }
-    return f;
-  };
-  return { inUniverse, feats };
-}
-
 // ── 數學工具 ──────────────────────────────────────────────────────────────
-/** 置中排名（−0.5~0.5，並列取平均；NaN→0） */
-function centeredRank(vals) {
-  const idx = []; for (let i = 0; i < vals.length; i++) if (Number.isFinite(vals[i])) idx.push(i);
-  idx.sort((a, b) => vals[a] - vals[b]);
-  const out = new Float64Array(vals.length); const m = idx.length; if (m < 2) return out;
-  for (let i = 0; i < m;) { let j = i; while (j + 1 < m && vals[idx[j + 1]] === vals[idx[i]]) j++; const r = (i + j) / 2 / (m - 1) - 0.5; for (let k = i; k <= j; k++) out[idx[k]] = r; i = j + 1; }
-  return out;
-}
 /** Pearson（xs、ys 同長，只取 ys 有值者；用在排名上＝Spearman） */
 function corr(xs, ys) {
   let n = 0, sx = 0, sy = 0; for (let i = 0; i < xs.length; i++) if (Number.isFinite(ys[i])) { n++; sx += xs[i]; sy += ys[i]; }
@@ -237,42 +135,25 @@ function nwT(xs, L) {
   return { n, mean: m, t: s2 > 0 ? m / Math.sqrt(s2 / n) : NaN };
 }
 function prng(seed) { let s = seed >>> 0 || 1; return () => ((s = (s * 16807) % 2147483647) / 2147483647); }
-const mean = xs => { const v = xs.filter(Number.isFinite); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN; };
 const f2 = (x, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : '—');
 
 // ── 面板：每日宇宙、特徵排名、各期標籤 ─────────────────────────────────────
 function buildPanel(D, adj, revAt, ind) {
-  const { N, K } = D, { cA, oA } = adj, { inUniverse, feats } = makeFeatureFn(D, adj);
-  const panel = [];
-  for (let t = LOOK; t < N - 1; t++) {
-    const cis = []; for (let ci = 0; ci < K; ci++) if (inUniverse(ci, t)) cis.push(ci);
-    if (cis.length < MIN_UNI) continue;
-    const rev = revAt(D.dates[t]); const F = cis.map(ci => feats(ci, t, rev));
-    // 同產業 20 日動能（等權、排除自己；同業 ≥3 檔）
-    const r20 = cis.map(ci => cA[ci * N + t] / cA[ci * N + t - 20] - 1), g = {};
-    cis.forEach((ci, k) => { const key = ind[D.codes[ci]]; if (key) { (g[key] ||= { s: 0, n: 0 }); g[key].s += r20[k]; g[key].n++; } });
-    cis.forEach((ci, k) => { const x = g[ind[D.codes[ci]]]; F[k][23] = x && x.n >= 3 ? (x.s - r20[k]) / (x.n - 1) : NaN; });
-    const X = FEATS.map((_, j) => centeredRank(F.map(f => f[j])));
+  const fn = makeFeatureFn(D, adj), panel = [];
+  for (let t = LOOK; t < D.N - 1; t++) {
+    const sec = daySection(D, adj, fn, t, revAt(D.dates[t]), ind); if (!sec) continue;
+    const { cis, F, X, bull, up } = sec;
     if (STAGE2) {
       for (const [a, b2] of INTERACT) { const xa = X[fIdx(a)], xb = X[fIdx(b2)]; X.push(centeredRank(xa.map((v, i) => v * xb[i]))); }
       for (const a of SQUARE) { const xa = X[fIdx(a)]; X.push(centeredRank(xa.map(v => v * v))); }
     }
-    const bull = mean(r20) > 0;   // 前 20 日宇宙等權報酬（t 日收盤已知）
     let spec = null;
     if (STAGE3) {   // 投機分數：6 特徵排名等權平均（只平均有值者，≥4 項）
       const js = SPEC.map(k => fIdx(k));
       spec = Float64Array.from(cis, (_, i) => { const v = js.filter(j => Number.isFinite(F[i][j])).map(j => X[j][i]); return v.length >= SPEC_MIN ? v.reduce((a, b) => a + b, 0) / v.length : NaN; });
     }
     const Y = {}, YR = {};
-    for (const h of HS) {
-      const raw = cis.map(ci => {
-        if (t + h >= N) return NaN; const b = ci * N, o1 = oA[b + t + 1], ch = cA[b + t + h];
-        if (!(o1 > 0) || !(ch > 0) || o1 / cA[b + t] - 1 >= LIMIT) return NaN;   // D+1 開盤漲停＝買不到
-        return (ch / o1 - 1) * 100;
-      });
-      const mu = mean(raw); Y[h] = raw.map(x => (Number.isFinite(x) ? x - mu : NaN)); YR[h] = centeredRankKeepNaN(Y[h]);
-    }
-    const up = mean(cis.map(ci => cA[ci * N + t] / cA[ci * N + t - 1] - 1)) > 0;
+    for (const h of HS) { Y[h] = labelsAt(D, adj, cis, t, h); YR[h] = centeredRankKeepNaN(Y[h]); }
     panel.push({ t, date: D.dates[t], n: cis.length, X, Y, YR, up, bull, spec, miss: FEATS.map((_, j) => F.filter(f => !Number.isFinite(f[j])).length / F.length) });
   }
   return panel;
@@ -495,6 +376,20 @@ for (const h of HS) {
   const basePanel = panel.map(p => ({ ...p, X: p.X.slice(0, BASE_P) }));   // D：基本 24 特徵、依市況分組，B 版收縮
   const d = walkForward(basePanel, h, true);
   const evD = evaluate(basePanel, d.preds.B, h); results.push({ h, v: 'D', ev: evD, names: FEATS, coef: { bull: d.final.bull?.B || [], bear: d.final.bear?.B || [] } }); logRes(h, 'D', evD);
+}
+// 通過全部門檻的 5 日·市況分組（D）→ 權重檔（影子模式只讀此檔，不在線上重估）
+const passedD = STAGE2 && results.find(r => r.h === 5 && r.v === 'D' && r.ev.passed);
+if (passedD) {
+  const r6 = a => a.map(x => +(+x || 0).toFixed(6)), e = passedD.ev, dataDate = D.dates.at(-1);
+  writeFileSync(join(ROOT, 'scripts', 'data', 'swing-formula-weights.json'), JSON.stringify({
+    version: 'swing-formula-v1', builtAt: new Date().toISOString(), dataDate, h: 5, variant: 'D', passed: true,
+    regimeRule: '前 20 日可交易宇宙等權報酬 > 0 ＝ 多頭係數，否則空頭係數（t 日收盤已知）',
+    features: FEATS.map(f => f[0]), coef: { bull: r6(passedD.coef.bull), bear: r6(passedD.coef.bear) },
+    oos: { from: e.from, to: e.to, n: e.n, ic: +e.ic.toFixed(4), t: +e.t.toFixed(2), spread: +e.spread.toFixed(2), top: +e.top.toFixed(2), topHit: +e.topHit.toFixed(3), uniHit: +e.uniHit.toFixed(3) },
+    reviewBy: new Date(Date.parse(dataDate) + 90 * 864e5).toISOString().slice(0, 10),
+    note: '研究 docs/SWING-FORMULA-RESEARCH-*-stage2.md（未扣成本口徑）；影子模式只讀此檔、不在線上重估；前瞻 ≥20 個交易日後再評估。非投資建議。',
+  }, null, 1) + '\n');
+  console.log('✓ scripts/data/swing-formula-weights.json（5 日·市況分組）');
 }
 const R = { stage2: STAGE2, indN, dataDate: D.dates.at(-1), nDays: D.N, range: [D.dates[0], D.dates.at(-1)], avgUni: mean(panel.map(p => p.n)), results, feat };
 const out = `SWING-FORMULA-RESEARCH-${R.dataDate}${STAGE2 ? '-stage2' : ''}.md`;

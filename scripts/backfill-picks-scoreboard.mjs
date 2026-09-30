@@ -25,7 +25,7 @@ const WRITE = process.argv.includes('--write');
 const LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
                'panicDip', 'overheatExit', 'voteDip', 'overheatV2', 'overheatV3', 'wExit'];
-const COST = 0.4425;
+// 2026-09-30：記分板只列未扣成本（成本依持有方式另計，見 CostReference）；與 daemon trackPicks 同口徑
 const HOLD = [5, 10, 20];
 
 const agg = rets => {
@@ -109,7 +109,7 @@ const main = async () => {
       const a = agg(all); if (!a) continue;
       const t = agg(trad);
       (A[k] ||= {})[`d${h}`] = {
-        ...a, netRet: +(a.avgRet - COST).toFixed(2),
+        ...a,
         tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
         skipped: all.length - (t?.n ?? 0),
         base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
@@ -135,10 +135,10 @@ const main = async () => {
 
   if (WRITE) {
     await db.collection('picksScoreboard').doc('latest').set({
-      updatedAt: Date.now(), from: hist[0]?.date, records: hist.length, cost: COST, agg: A,
+      updatedAt: Date.now(), from: hist[0]?.date, records: hist.length, agg: A,
       // ⚠回填只重算 agg（全歷史）。calib/aggV2 由 daemon 的 trackPicks 維護——
       //   這裡不要覆蓋，否則會把「現行口徑」的分流洗掉。
-      note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。netRet 已扣 0.4425% 來回費稅。',
+      note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。全部未扣成本（成本依持有方式另計）。',
     });
     console.log('\n✓ picksScoreboard/latest 已更新');
   }
