@@ -83,8 +83,9 @@ if (!sec) fail(`${date} 宇宙不足`);
 const coef = sec.bull ? W.coef.bull : W.coef.bear;
 const score = scoreWith(sec.X, coef), pctOf = centeredRank(score).map(r => (r + 0.5) * 100);
 const order = Array.from(score.keys()).sort((a, b) => score[b] - score[a]);
-const why = i => FEATS.map(([k, label], j) => ({ k, label, c: coef[j] * sec.X[j][i] })).filter(x => x.c).sort((a, b) => Math.abs(b.c) - Math.abs(a.c)).slice(0, 3)
-  .map(x => `${x.label}${x.c > 0 ? '＋' : '－'}`);
+// 前 3 大貢獻：寫出特徵在當日宇宙「偏高／偏低」與對分數「加分／減分」（例：20 日波動偏低（加分）），避免把貢獻正負誤讀成特徵高低
+const why = i => FEATS.map(([k, label], j) => ({ k, label, x: sec.X[j][i], c: coef[j] * sec.X[j][i] })).filter(x => x.c).sort((a, b) => Math.abs(b.c) - Math.abs(a.c)).slice(0, 3)
+  .map(x => `${x.label}${x.x > 0 ? '偏高' : '偏低'}（${x.c > 0 ? '加分' : '減分'}）`);
 const top = order.slice(0, TOP).map(i => ({ code: D.codes[sec.cis[i]], pct: r2(pctOf[i]), why: why(i) }));
 const topOf = async (coll, pick) => { try { return pick((await db.collection(coll).doc(date).get()).data()) || []; } catch { return []; } };
 const v2Top20 = await topOf('picksHistory', d => (d?.top20 || []).map(p => p.code).filter(Boolean));
