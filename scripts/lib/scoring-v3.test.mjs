@@ -62,3 +62,10 @@ test('topN：高→低、同分依代號；shadowBoard：未滿 20 日不提請�
   assert.equal(shadowBoard(mk(20, -0.3, -0.1)).switchReady, false);
   assert.equal(shadowBoard([{ v3: 1, v2: null }]).n, 0);
 });
+
+test('rawFactors gate：門檻看未還原價（還原後 <10 但實際 ≥10 仍入選）；省略 gate＝舊行為', () => {
+  const days = mk(); const t = 79;
+  const adj = days.map(d => ({ ...d, m: { ...d.m, 2222: d.m[2222].map((v, i) => (i === 1 ? v : v * 0.19)) } }));   // 還原後約 9.5 元
+  assert.equal(rawFactors(adj, t, '2222'), null, '舊行為：以還原價判斷 <10 被踢出');
+  assert.ok(rawFactors(adj, t, '2222', days), '以實際價判斷 50 元 ⇒ 入選');
+});

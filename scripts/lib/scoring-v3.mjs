@@ -7,17 +7,19 @@
 export const V3_FACTORS = ['M', 'T', 'V', 'F', 'R'];
 export const V3_FACTOR_LABEL = { M: '動能', T: '趨勢', V: '量能', F: '籌碼', R: '風險（越低越高分）' };
 
-/** 可交易宇宙＋原始子因子；不在宇宙回 null */
-export function rawFactors(days, t, code) {
+/** 可交易宇宙＋原始子因子；不在宇宙回 null。
+ *  gate＝判斷「收盤≥10、20 日均額」門檻用的**未還原**序列（同索引）；省略時沿用 days（舊行為）。
+ *  規範 §2 的門檻指 t 日實際價格——用還原價判斷會讓「日後配息」提早把股票踢出宇宙（輕微未來資訊）。 */
+export function rawFactors(days, t, code, gate = days) {
   if (t < 60) return null;
-  const row = days[t].m[code]; if (!row || !(row[0] >= 10)) return null;
+  const row = days[t].m[code]; if (!row || !(gate[t].m[code]?.[0] >= 10)) return null;
   if (!/^\d{4}$/.test(code) || code.startsWith('00')) return null;
   const C = []; for (let k = 60; k >= 0; k--) { const v = days[t - k].m[code]?.[0]; if (!(v > 0)) return null; C.push(v); }
   const n = 60, last = C[n];
   const chg1 = (last / C[n - 1] - 1) * 100;
   if (Math.abs(chg1) >= 9.5) return null;                                   // 收在漲跌停附近：收盤價買不到／賣不掉
   let amt = 0, vs = 0, vk = 0;
-  for (let k = 1; k <= 20; k++) { const r = days[t - k].m[code]; if (r?.[0] > 0) { amt += r[0] * (r[1] || 0) * 1000; vs += r[1] || 0; vk++; } }
+  for (let k = 1; k <= 20; k++) { const r = gate[t - k].m[code]; if (r?.[0] > 0) { amt += r[0] * (r[1] || 0) * 1000; vs += r[1] || 0; vk++; } }
   if (amt / 20 < 5e7) return null;                                           // 20 日均成交額 < 5,000 萬
   const avgVol = vk ? vs / vk : 0;
   const ma = k => C.slice(n - k + 1).reduce((a, b) => a + b, 0) / k;
@@ -54,10 +56,10 @@ export function pctRank(values) {
   return out;
 }
 
-/** 當日橫斷面：宇宙代號、各因子百分位、原始值 */
-export function crossSection(days, t) {
+/** 當日橫斷面：宇宙代號、各因子百分位、原始值（gate 見 rawFactors） */
+export function crossSection(days, t, gate = days) {
   const codes = [], raws = [];
-  for (const code in days[t].m) { const r = rawFactors(days, t, code); if (r) { codes.push(code); raws.push(r); } }
+  for (const code in days[t].m) { const r = rawFactors(days, t, code, gate); if (r) { codes.push(code); raws.push(r); } }
   const subPct = {}; for (const f of V3_FACTORS) for (const s of SUB[f]) subPct[s] = pctRank(raws.map(r => r[s]));
   const factors = {};
   for (const f of V3_FACTORS) factors[f] = codes.map((_, i) => SUB[f].reduce((a, s) => a + subPct[s][i], 0) / SUB[f].length);

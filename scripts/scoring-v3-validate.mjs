@@ -20,6 +20,8 @@ import { mergeFactorItems } from './lib/exright-source.mjs';
 const argv = process.argv.slice(2);
 const DAYS = +(argv[argv.indexOf('--days') + 1] || 0) || 1100;
 const DRY = argv.includes('--dry');
+// --raw-gate：宇宙門檻（收盤≥10、20 日均額）改用未還原價（規範 §2 原意）；目前為研究用選項，預設沿用舊行為
+const RAW_GATE = argv.includes('--raw-gate');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = 'scoring-v3.0';
 const TRAIN_FRAC = 0.75, EMBARGO = 20, MIN_TRAIN = 480, MIN_OOT = 120;
@@ -54,14 +56,14 @@ async function loadDays(db) {
   // 還原係數＝官方除權息歷史（backfill-exright-history.mjs）＋ priceEvents 的減資／面額變更；同檔同日以官方除權息為準（不重複乘）
   const ex = JSON.parse(readFileSync(join(ROOT, 'scripts', 'data', 'exright-history.json'), 'utf8'));
   const merged = mergeFactorItems(ex.items, (await db.collection('priceEvents').doc('latest').get()).data()?.items);
-  return { days: applyPriceFactors(raw, factorsFromItems(merged)), nEvents: merged.length, exRange: [ex.from, ex.to] };
+  return { raw, days: applyPriceFactors(raw, factorsFromItems(merged)), nEvents: merged.length, exRange: [ex.from, ex.to] };
 }
 
 // ── 2. 面板：每日橫斷面＋超額標籤＋市況 ──
-function buildPanel(days) {
+function buildPanel(days, gate = days) {
   const panel = [];
   for (let t = 60; t < days.length - 1; t++) {
-    const cs = crossSection(days, t); if (cs.codes.length < 100) continue;
+    const cs = crossSection(days, t, gate); if (cs.codes.length < 100) continue;
     const lab = cs.codes.map(c => labelsFor(days, t, c));
     const Y = {}; for (const k of Object.keys(LABEL_STEP)) Y[k] = excess(lab.map(l => l[k]));
     panel.push({ date: cs.date, n: cs.codes.length, up: avg(cs.raws.map(r => r.chg1)) > 0,
@@ -222,9 +224,10 @@ const GATE_NAME = { ic: '平均 IC', spread: 'D10−D1', regime: '市況分層',
 
 // ── 主流程 ──
 const db = initDb();
-const { days, nEvents, exRange } = await loadDays(db);
+const { raw, days, nEvents, exRange } = await loadDays(db);
 console.log(`資料 ${days.length} 日（${days[0]?.date} ~ ${days.at(-1)?.date}），建面板中…`);
-const panel = buildPanel(days);
+const panel = buildPanel(days, RAW_GATE ? raw : days);
+if (RAW_GATE) console.log('· 宇宙門檻使用未還原價（--raw-gate）');
 const sp = splitIdx(panel);
 const ic = factorIC(panel, sp);
 const corr = corrMatrix(panel, sp.train);
