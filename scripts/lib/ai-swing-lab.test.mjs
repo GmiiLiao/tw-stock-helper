@@ -213,3 +213,35 @@ test('執行器 v3：AI 檢視持股賣出換股——賣單與買單凍結、�
   assert.equal(snap.holdings.map(h => h.code).join(), '2222');
   assert.ok(db.store['aiLabAccounts/swing'].closed.length === 1, '帳戶快照寫入');
 });
+
+test('執行器：開盤即時成交——09:00 後以即時開盤價成交並當下記錄（來源 live-open、記錄時刻）；報價未齊且未到 09:30 不成交；盤後結算不改寫', async () => {
+  const days = mkDays(); const D0 = days[5].date, today = days[6].date;
+  const db = fakeDb({
+    [`aiSwingLab/${D0}`]: { date: D0, frozenAt: Date.parse(`${D0}T18:00:00+08:00`), picks: [{ code: '1111', name: 'A', priceAtDecision: 104, position: { shares: 1000, budget: 110000 } }, { code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {} },
+  });
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 6) });
+  const openAt = Date.parse(`${today}T09:00:40+08:00`);
+  const live = { 1111: { price: 105.5, open: 105, high: 106, low: 104.5, volume: 5e5, liveAt: openAt, revealAt: openAt - 5000, hasLive: true } };
+  assert.equal(await lab.executeOpen(today, c => live[c], { now: openAt, deadline: false }), false, '2222 尚無開盤價、未到 09:30 ⇒ 不成交');
+  assert.equal(db.store[`aiSwingLab/${D0}`].buyFills, undefined);
+  live[2222] = { price: 50.5, open: 50, high: 51, low: 49.8, volume: 3e5, liveAt: openAt + 30000, revealAt: openAt + 25000, hasLive: true };
+  assert.equal(await lab.executeOpen(today, c => live[c], { now: openAt + 60000, deadline: false }), true);
+  const bf = db.store[`aiSwingLab/${D0}`].buyFills;
+  assert.equal(bf['1111'].px, 105); assert.equal(bf['1111'].source, 'live-open'); assert.equal(bf['1111'].shares, 1000);
+  assert.equal(bf['1111'].recordedAt, openAt + 60000, '成交當下即記錄');
+  assert.equal(bf['2222'].quoteAt, openAt + 25000);
+  assert.equal(db.store['aiLabAccounts/swing'].holdings.find(h => h.code === '1111').status, '持有中', '開盤後帳戶立即反映');
+  // 盤後結算：歸檔含今日（官方開盤 99+6=105）——已記錄的成交不改寫
+  const lab2 = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 7) });
+  await lab2.settle();
+  assert.equal(db.store[`aiSwingLab/${D0}`].buyFills['1111'].source, 'live-open');
+});
+
+test('執行器：09:30 仍無開盤價的買單作廢（開盤未成交），不在盤後補', async () => {
+  const days = mkDays(); const D0 = days[5].date, today = days[6].date;
+  const db = fakeDb({ [`aiSwingLab/${D0}`]: { date: D0, frozenAt: 1, picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {} } });
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 6) });
+  assert.equal(await lab.executeOpen(today, () => null, { now: Date.parse(`${today}T09:30:10+08:00`), deadline: true }), true);
+  const f = db.store[`aiSwingLab/${D0}`].buyFills['2222'];
+  assert.equal(f.failed, true); assert.match(f.reason, /開盤/);
+});

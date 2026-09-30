@@ -54,7 +54,8 @@ export const AT_ALLOWLIST = new Set([
   'settledAt', 'modifiedAt',
   // AI 實驗交易單（sim-ledger，2026-09-24）：decidedAt AI 做出決定、fillAt 模擬成交、fillQuoteAt 成交所用報價的時戳、
   //   entryAt 進場、lastExitAt 最後一筆出場、ledgerBackfilledAt 交易單事後補算的時刻——查核「先決定後成交」用。
-  'decidedAt', 'fillAt', 'fillQuoteAt', 'entryAt', 'lastExitAt', 'ledgerBackfilledAt', 'sellDecidedAt',
+  'decidedAt', 'fillAt', 'fillQuoteAt', 'entryAt', 'lastExitAt', 'ledgerBackfilledAt', 'sellDecidedAt', 'quoteAt', 'recordedAt', 'fillRecordedAt', 'sellRecordedAt',   // 波段 AI 開盤即時成交：報價揭示時戳／成交記錄寫入時刻（2026-09-30）
+ 
   // startedAt：daemon 行程的啟動時刻（system/daemonBuild），
   // 與資料的 updatedAt 分開——它記的是「程式何時被載入」而非「資料何時更新」。
   'startedAt',

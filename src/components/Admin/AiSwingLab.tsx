@@ -12,8 +12,8 @@ const HS = [5, 10, 20, 60, 120];
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; openN: number; closedN: number; retPct: number; receivable?: number; payable?: number; settledCash?: number; reservedBuys?: number; pendingSellEst?: number; freeCash?: number }
 interface OpenPos { date: string; code: string; name: string; shares: number; status: string }
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
-interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
-interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; sellOrderDate?: string; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
+interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; fillSource?: string | null; fillRecordedAt?: number | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
+interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; sellOrderDate?: string; sellSource?: string | null; sellRecordedAt?: number | null; buySource?: string | null; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
 interface HistRow { date: string; holdings: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; total: number; dayPnl: number; cumRetPct: number }
 interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[] }
 interface Resp { snapshot?: Snapshot | null; account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
@@ -91,7 +91,7 @@ export default function AiSwingLab() {
           empty="目前沒有持倉"
           rows={(data.snapshot?.holdings || []).map(h => [
             h.date.slice(5), `${h.code} ${h.name}`, <span key="s" style={{ color: h.sellReason ? '#f59e0b' : h.entryPx ? 'var(--text-primary)' : '#7dd3fc' }} title={h.sellReason ? `賣出理由：${h.sellReason}` : h.reason ? `買進理由：${h.reason}` : undefined}>{h.status}</span>, h.shares.toLocaleString(),
-            h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}</span> : '—', h.cost.toLocaleString(), h.lastPx ?? '—',
+            h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}<FillTag src={h.fillSource} at={h.fillRecordedAt} /></span> : '—', h.cost.toLocaleString(), h.lastPx ?? '—',
             h.mktValue != null ? h.mktValue.toLocaleString() : '—', h.estSellCost != null ? `−${h.estSellCost.toLocaleString()}` : '—', <b key="u" style={{ color: upDn(h.unrealized) }}>{h.unrealized != null ? `${twd(h.unrealized)}（${pct(h.unrealizedPct)}）` : '—'}</b>,
             `${h.heldDays} 日·預期 ${h.horizon ? `${h.horizon} 日` : '—'}`,
           ])}
@@ -106,7 +106,7 @@ export default function AiSwingLab() {
           rows={(data.snapshot?.closed || []).map(c => [
             c.date.slice(5), `${c.code} ${c.name}`, c.shares.toLocaleString(),
             <span key="b" style={MONO}>{tw(c.buy.at, true)} · {c.buy.px} · {c.buy.amount.toLocaleString()}</span>,
-            <span key="s" style={MONO}>{tw(c.sell.at, true)} · {c.sell.px} · {c.sell.amount.toLocaleString()}</span>,
+            <span key="s" style={MONO}>{tw(c.sell.at, true)} · {c.sell.px} · {c.sell.amount.toLocaleString()}<FillTag src={c.sellSource} at={c.sellRecordedAt} /></span>,
             c.costTwd.toLocaleString(), <b key="p" style={{ color: upDn(c.pnlTwd) }}>{twd(c.pnlTwd)}</b>, <span key="r" style={{ color: upDn(c.retPct) }}>{pct(c.retPct)}</span>, <span key="w" title={c.sellOrderDate ? `${c.sellOrderDate} 盤後決定` : undefined}>{c.sellReason || '—'}</span>,
           ])}
           foot={data.snapshot?.closed?.length ? ['合計', `${data.snapshot.closed.length} 筆`, '', '', '', data.snapshot.closed.reduce((a, c) => a + c.costTwd, 0).toLocaleString(), twd(data.snapshot.closed.reduce((a, c) => a + c.pnlTwd, 0)), '', ''] : undefined} />
@@ -171,6 +171,13 @@ export default function AiSwingLab() {
       )}
     </div>
   );
+}
+
+/** 成交來源標記：live-open＝開盤當下以即時開盤價成交並記錄；archive-open＝開盤時未即時記錄、盤後依官方開盤價補記 */
+function FillTag({ src, at }: { src?: string | null; at?: number | null }) {
+  if (src === 'live-open') return <span title="開盤當下以即時報價的今日開盤價成交並寫入記錄" style={{ marginLeft: 6, fontSize: 'calc(11px * var(--fz))', color: '#22c55e' }}>⚡即時{at ? `·記錄 ${tw(at, false)}` : ''}</span>;
+  if (src === 'archive-open') return <span title="開盤時常駐服務未即時記錄，盤後依官方開盤價補記" style={{ marginLeft: 6, fontSize: 'calc(11px * var(--fz))', color: '#f59e0b' }}>⚠盤後補記</span>;
+  return null;
 }
 
 function PickCard({ p, doc }: { p: SwingPick; doc: SwingLabDoc }) {

@@ -230,7 +230,7 @@ export function portfolioSnapshot(docs, days) {
     if (l.status === 'closed') {
       const L = l.sell.fill.ledger;
       closed.push({ date: l.date, code: l.code, name: l.name, shares: l.shares, buy: L.buy, sell: L.sell, costTwd: L.costTwd, pnlTwd: L.pnlTwd, retPct: L.retPct,
-        exitDate: l.sell.fill.date, sellReason: l.sell.reason, sellOrderDate: l.sell.orderDate, buyReason: l.reason, sellNoLookahead: l.sell.fill.sellNoLookahead, noLookahead: L.noLookahead });
+        exitDate: l.sell.fill.date, sellReason: l.sell.reason, sellSource: l.sell.fill.source ?? null, sellRecordedAt: l.sell.fill.recordedAt ?? null, buySource: l.buy?.source ?? null, sellOrderDate: l.sell.orderDate, buyReason: l.reason, sellNoLookahead: l.sell.fill.sellNoLookahead, noLookahead: L.noLookahead });
       continue;
     }
     const entered = !!l.buy;
@@ -243,7 +243,7 @@ export function portfolioSnapshot(docs, days) {
     holdings.push({
       date: l.date, code: l.code, name: l.name, shares: l.shares, horizon: l.horizon, reason: l.reason,
       status: l.status === 'selling' ? `AI 賣出委託（${l.sell.orderDate} 盤後決定，下一交易日 09:00 開盤成交）` : entered ? '持有中' : '待進場（下一交易日 09:00 開盤）',
-      sellReason: l.sell?.reason || null,
+      sellReason: l.sell?.reason || null, fillSource: l.buy?.source ?? null, fillRecordedAt: l.buy?.recordedAt ?? null,
       entryDate: l.buy?.date ?? null, entryAt: l.buy?.at ?? null, entryPx: l.buy?.px ?? null, cost,
       buyFee: l.buy ? cost - Math.round(l.buy.px * l.shares) : null,
       lastDate: entered ? last?.date ?? null : null, lastPx, mktValue: mkt, estSellCost: sellCost, netValue: net,

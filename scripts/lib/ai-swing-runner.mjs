@@ -78,6 +78,52 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       return true;
     },
 
+    /**
+     * 開盤即時成交（2026-09-30 使用者：模擬交易要即時記錄 AI 交易行為，不是盤後再補，要跟真正交易一樣）。
+     * 交易日 09:00 後由 daemon 每分鐘呼叫：前一晚凍結的賣單／買單，以**即時報價的今日開盤價**成交並當下寫入
+     * buyFills／sellFills（source:'live-open'、quoteAt＝揭示時戳、recordedAt＝記錄時刻）。先賣後買、依資金池裁減（portfolioState）。
+     * 報價未齊：09:30 前不動作（回 false，下一分鐘再試）；09:30（deadline）後仍無開盤價 ⇒ 買單作廢、賣單留待下一交易日。
+     * 回 true＝今天已處理完（含無委託）。今日已歸檔（盤後）才呼叫則不處理，交給 settle 並標「補記」。
+     */
+    async executeOpen(today, getLive, { now = Date.now(), deadline = false } = {}) {
+      const snap = await col().orderBy('date', 'desc').limit(400).get();
+      const docs = snap.docs.map(d => d.data());
+      // 只讀 30 日（盤中執行，控制解析量）；未記錄成交的部位若早於視窗 ⇒ 不在這裡猜，交給盤後 settle
+      const days = await loadDays(30);
+      if (days.length && days[days.length - 1].date >= today) return true;
+      const unrec = docs.flatMap(d => (d.picks || []).filter(p => p.position?.shares > 0 && !d.buyFills?.[p.code]).map(() => d.date));
+      if (days.length && unrec.some(dt => dt < days[0].date)) { log('⚠ 波段 AI 開盤成交：有未記錄成交的部位早於 30 日視窗，改由盤後結算處理'); return true; }
+      const state = portfolioState(docs, days.length ? days : null);
+      const need = state.lots.filter(l => l.status === 'pending' || l.status === 'selling');
+      if (!need.length) return true;
+      const twDay = ts => new Date(ts + 8 * 3600e3).toISOString().slice(0, 10);
+      const quoteOf = c => { const q = getLive(c); return q && q.open > 0 && q.liveAt && twDay(q.liveAt) === today ? q : null; };
+      const missing = need.filter(l => !quoteOf(l.code));
+      if (missing.length && !deadline) return false;
+      const m = {};
+      for (const l of state.lots) {
+        if (l.status === 'void' || l.status === 'closed') continue;
+        const q = quoteOf(l.code); if (!q) continue;
+        m[l.code] = [q.price > 0 ? q.price : q.open, Math.round((q.volume || 0) / 1000), q.open, q.high > 0 ? q.high : q.open, q.low > 0 ? q.low : q.open];
+      }
+      const daysPlus = [...days, { date: today, m }];
+      let n = 0;
+      for (const u of settleFills(docs, daysPlus)) {
+        const upd = {};
+        for (const [k, v] of Object.entries(u.upd)) {
+          if (v?.date !== today) { upd[k] = v; continue; }
+          const q = getLive(v.code || k.split('.')[1]);
+          upd[k] = { ...v, source: 'live-open', quoteAt: q?.revealAt ?? q?.liveAt ?? null, recordedAt: now,
+            ...(v.failed ? { reason: '開盤至 09:30 未取得即時開盤價（未成交）' } : {}) };
+          n++;
+        }
+        const d = snap.docs.find(x => x.data().date === u.date); if (d) await d.ref.update(dropUndefined(upd));
+      }
+      log(`✓ 波段 AI 開盤即時成交 ${today}：${n} 筆（委託 ${need.length}${missing.length ? `，無開盤價 ${missing.length}` : ''}）`);
+      await this.writeAccount(daysPlus);
+      return true;
+    },
+
     /** 到期才結算；每個持有期只寫一次 */
     async settle() {
       const snap = await col().orderBy('date', 'desc').limit(400).get();
@@ -88,7 +134,10 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       let fills = 0;
       for (const u of settleFills(snap.docs.map(d => d.data()), days)) {
         const d = snap.docs.find(x => x.data().date === u.date); if (!d) continue;
-        await d.ref.update(dropUndefined(u.upd)); fills += Object.keys(u.upd).length;
+        // 走到這裡＝開盤時沒有即時成交記錄（常駐服務未運行等）：依官方開盤價補記，並明確標示，不冒充即時
+        const upd = Object.fromEntries(Object.entries(u.upd).map(([k, v]) => [k, v?.source ? v : { ...v, source: 'archive-open', recordedAt: Date.now(), note: '開盤時未即時記錄（常駐服務未運行），盤後依官方開盤價補記' }]));
+        await d.ref.update(dropUndefined(upd)); fills += Object.keys(upd).length;
+        log(`⚠ 波段 AI：${u.date} 決策有 ${Object.keys(upd).length} 筆成交於盤後補記（開盤時未即時記錄）`);
       }
       if (fills) log(`✓ 波段 AI 帳戶：補記 ${fills} 筆成交`);
       const open = snap.docs.filter(d => !d.data().settledAll);

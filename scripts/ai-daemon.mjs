@@ -1757,6 +1757,7 @@ const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileUR
   getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(),
   loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors()); } });   // 讀失敗就拋出、本輪不結算（結算寫一次不改，未還原價會永久化·G2-06）
 let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0;
+let _swingOpenDate = '', _swingOpenTryAt = 0, _swingOpenBusy = false;   // 波段 AI 開盤即時成交（2026-09-30）
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
 const _dtFail = {}, _dtFailNotified = {};   // 當沖各步驟連續失敗次數／當日已通知
@@ -2247,6 +2248,18 @@ async function hotQuoteLoop() {
         if (doc) { _dtWriteAt = Date.now(); await db.collection('daytradeAlerts').doc('live').set(doc); }
       });
       await dtStep('AI 實驗', async () => { await _aiLab.prepareDay(isoDate(tw)); _aiLab.tick(isoDate(tw), _dtEngine); await _aiLab.writeLive(); });
+      // 🤖 波段 AI 開盤即時成交（2026-09-30 使用者：要跟真正交易一樣即時記錄，不是盤後補）：09:00 起每分鐘試一次，
+      //   以即時報價的今日開盤價成交並當下寫入；fire-and-forget＋單一在途，不阻塞 5 秒快線；09:30 後未取得開盤價者作廢/留待隔日
+      {
+        const _m = tw.getHours() * 60 + tw.getMinutes(), _d = isoDate(tw);
+        if (_m >= 9 * 60 && _m < 13 * 60 + 30 && _swingOpenDate !== _d && !_swingOpenBusy && Date.now() - _swingOpenTryAt > 60_000) {
+          _swingOpenBusy = true; _swingOpenTryAt = Date.now();
+          _aiSwing.executeOpen(_d, c => _lastLive[c], { deadline: _m >= 9 * 60 + 30 })
+            .then(ok => { if (ok) _swingOpenDate = _d; })
+            .catch(e => log('✖ 波段 AI 開盤成交（下一分鐘重試）:', (e.message || '').slice(0, 80)))
+            .finally(() => { _swingOpenBusy = false; });
+        }
+      }
       // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
       await dtStep('日誌寫入', async () => {
         if (Date.now() - _dtJournalAt < 60000) return;
