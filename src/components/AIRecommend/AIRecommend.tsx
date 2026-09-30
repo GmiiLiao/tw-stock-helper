@@ -147,6 +147,120 @@ const SIGNAL_CONFIG = {
   NEUTRAL: { label: '中性觀望', color: '#868e96', bg: 'rgba(134,142,150,0.08)', emoji: '⚪' },
 };
 
+// ── 推薦成績記分板（picksScoreboard/latest；lib/picks-scoreboard.mjs）─────────────
+// 2026-09-30 修正：① 超額基準改為「同一批進場日」（舊版拿 v2 期間報酬比全期間基準而灌水）；
+//   ② 主表改為現行口徑（v2）成績；舊系統（v1）另列並收合；全歷史不再冒充舊口徑。
+interface ScoreCell {
+  n: number; winRate: number; avgRet: number; medRet?: number;
+  base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
+  excess?: number | null; excessTradable?: number | null;
+  skipped?: number; tradableN?: number; tradableAvg?: number | null; entryDays?: number;
+}
+type ScoreAgg = Record<string, Record<string, ScoreCell>>;
+interface Scoreboard {
+  records: number; from?: string; agg: ScoreAgg;
+  calib?: string; calibFrom?: string; recordsV2?: number; aggV2?: ScoreAgg;
+  legacyFrom?: string | null; legacyTo?: string | null; recordsLegacy?: number; aggLegacy?: ScoreAgg; baseline?: string;
+  recent?: { list: string; days: RecentDay[] };
+}
+interface RecentPick { code: string; name: string; price: number | null; chg: number | null; r5: number | null; r10: number | null; r20: number | null; rNow: number | null }
+interface RecentDay { date: string; asOf: string; picks: RecentPick[] }
+
+const signed = (v: number | null | undefined, unit = '%') => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}${unit}`);
+const tone = (v: number | null | undefined) => (v == null || v === 0 ? 'var(--text-muted)' : v > 0 ? 'var(--color-up)' : 'var(--color-down)');
+
+/** 各榜 × 5/10/20 日：超額（大字）＋推薦股絕對報酬「勝率｜均報」＋同期基準（小字）；超額＝同一批進場日的推薦均報 − 可交易宇宙均報 */
+function ScoreTable({ agg, emptyHint }: { agg: ScoreAgg; emptyHint: string }) {
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 640 }}>
+        <thead>
+          <tr style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
+            <th style={{ textAlign: 'left', padding: '4px 8px' }}>榜單</th>
+            {[5, 10, 20].map(h => <th key={h} style={{ textAlign: 'right', padding: '4px 12px' }}>{h} 日：超額｜勝率｜均報</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {SCORE_ROWS.map(([k, label]) => {
+            const g = agg[k];
+            return (
+              <tr key={k} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                <td style={{ padding: '6px 8px', fontWeight: 800, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{label}</td>
+                {!g && <td colSpan={3} style={{ padding: '6px 12px', color: 'var(--text-muted)' }}>{emptyHint}</td>}
+                {g && [5, 10, 20].map(h => {
+                  const r = g[`d${h}`];
+                  if (!r || r.excess == null) return <td key={h} style={{ textAlign: 'right', padding: '6px 12px', color: 'var(--text-muted)' }}>—</td>;
+                  const thin = (r.entryDays ?? 0) < 5;   // 進場日太少＝還不是估計值
+                  return (
+                    <td key={h} style={{ textAlign: 'right', padding: '6px 12px', fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                      <b style={{ fontSize: 'calc(13px * var(--fz))', color: tone(r.excess) }}>{signed(r.excess, 'pp')}</b>
+                      {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 'calc(12px * var(--fz))', color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
+                      <div style={{ color: 'var(--text-primary)' }}>勝率 {r.winRate}%｜均報 <span style={{ color: tone(r.avgRet) }}>{signed(r.avgRet)}</span></div>
+                      {r.base && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>基準 {r.base.winRate}%｜{signed(r.base.avgRet)} · n={r.n}</div>}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 推選個股追蹤：選推薦日 → 當日 TOP20 逐檔的推薦價與 5／10／20 日、至今報酬，以及當日勝率／平均報酬（官方收盤·未扣成本） */
+function RecentPicks({ days }: { days: RecentDay[] }) {
+  const [sel, setSel] = useState(0);
+  const d = days[Math.min(sel, days.length - 1)];
+  if (!d) return null;
+  const cols: [keyof RecentPick, string][] = [['r5', '5 日'], ['r10', '10 日'], ['r20', '20 日'], ['rNow', `至今（${d.asOf.slice(5)}）`]];
+  const stat = (k: keyof RecentPick) => {
+    const v = d.picks.map(p => p[k]).filter((x): x is number => typeof x === 'number');
+    return v.length ? { n: v.length, win: Math.round(v.filter(x => x > 0).length / v.length * 100), avg: +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(2) } : null;
+  };
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
+        {days.map((x, i) => (
+          <button key={x.date} type="button" onClick={() => setSel(i)} aria-pressed={i === sel}
+            style={{ padding: '3px 9px', borderRadius: 999, cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', border: `1px solid ${i === sel ? '#7dd3fc' : 'var(--border-primary)'}`, background: i === sel ? 'rgba(125,211,252,0.12)' : 'transparent', color: 'var(--text-primary)' }}>
+            {x.date.slice(5)}
+          </button>
+        ))}
+      </div>
+      <div style={{ overflowX: 'auto', maxHeight: 460, border: '1px solid var(--border-primary)', borderRadius: 10 }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 'calc(12.5px * var(--fz))', minWidth: 560 }}>
+          <thead>
+            <tr style={{ color: 'var(--text-muted)', background: 'var(--bg-secondary)' }}>
+              <th style={{ textAlign: 'left', padding: '4px 8px', position: 'sticky', top: 0, background: 'var(--bg-secondary)' }}>#</th>
+              <th style={{ textAlign: 'left', padding: '4px 8px', position: 'sticky', top: 0, background: 'var(--bg-secondary)' }}>個股</th>
+              <th style={{ textAlign: 'right', padding: '4px 8px', position: 'sticky', top: 0, background: 'var(--bg-secondary)' }}>推薦價</th>
+              {cols.map(([k, l]) => <th key={k} style={{ textAlign: 'right', padding: '4px 8px', position: 'sticky', top: 0, background: 'var(--bg-secondary)' }}>{l}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {d.picks.map((p, i) => (
+              <tr key={p.code} style={{ borderTop: '1px dashed var(--border-primary)' }}>
+                <td style={{ padding: '4px 8px', color: 'var(--text-muted)' }}>{i + 1}</td>
+                <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}><b>{p.code}</b> {p.name}</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: "'JetBrains Mono',monospace" }}>{p.price ?? '—'}</td>
+                {cols.map(([k]) => { const v = p[k] as number | null; return <td key={k} style={{ padding: '4px 8px', textAlign: 'right', fontFamily: "'JetBrains Mono',monospace", color: tone(v) }}>{v == null ? '未到期' : signed(v)}</td>; })}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ fontWeight: 800, background: 'var(--bg-secondary)' }}>
+              <td style={{ padding: '5px 8px' }} colSpan={3}>當日 {d.picks.length} 檔：勝率｜平均報酬</td>
+              {cols.map(([k]) => { const st = stat(k); return <td key={k} style={{ padding: '5px 8px', textAlign: 'right', fontFamily: "'JetBrains Mono',monospace" }}>{st ? <>{st.win}%｜<span style={{ color: tone(st.avg) }}>{signed(st.avg)}</span></> : '—'}</td>; })}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function FactorBar({ label, value, max = 20 }: { label: string; value: number; max?: number }) {
   const pct = (value / max) * 100;
   const color = pct >= 75 ? '#c92a2a' : pct >= 50 ? '#e67700' : pct >= 30 ? '#1971c2' : '#868e96';
@@ -726,21 +840,9 @@ export default function AIRecommend() {
   // 推薦成績記分板（AI 榜單可信度）
   // 2026-08-05 擴充：加入同期基準與超額。**絕對勝率單獨看是沒有意義的**——
   //   同一個 -5.44% 在多頭市場是災難、在崩盤市場可能是勝利。超額才是選股能力。
-  const [scoreboard, setScoreboard] = useState<{
-    records: number; from?: string;
-    calib?: string; calibFrom?: string; recordsV2?: number;
-    aggV2?: Record<string, Record<string, {
-      n: number; winRate: number; avgRet: number; excess?: number | null; entryDays?: number;
-      base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
-    }>>;
-    agg: Record<string, Record<string, {
-      n: number; winRate: number; avgRet: number; medRet?: number;
-      base?: { n: number; winRate: number; avgRet: number; medRet: number } | null;
-      excess?: number | null; excessTradable?: number | null;
-      skipped?: number; tradableN?: number; tradableAvg?: number | null;
-      entryDays?: number;
-    }>>;
-  } | null>(null);
+  const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
+  const [showLegacy, setShowLegacy] = useState(false);
+  const [showRecent, setShowRecent] = useState(true);
   useEffect(() => {
     fetch('/api/ai/picks-scoreboard').then(r => (r.ok ? r.json() : null)).then(d => d?.agg && setScoreboard(d)).catch(() => {});
   }, []);
@@ -762,6 +864,9 @@ export default function AIRecommend() {
           <p className={styles.pageSubtitle}>
             五大因子（已依四窗實證修正）＋已驗證訊號疊加，從 {data?.totalAnalyzed?.toLocaleString() || '--'} 支可交易股票中排序（漲停股已排除——收盤價買不到）
           </p>
+          <p style={{ margin: '4px 0 0', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+            🧪 新模型影子測試中（2026-09-30 起，不影響本榜）：📐 評分 v3（隔夜跳空）與 🎯 標靶公式（5 日·依多空市況）每天盤後記錄選股、到期後對答案；累積 ≥20 個交易日且勝過本榜才提請切換。
+          </p>
         </div>
         {data && (
           <div className={styles.lastUpdate}>
@@ -779,103 +884,67 @@ export default function AIRecommend() {
           追蹤期間全市場等權 5 日就是 -3.72%，所以 -5.84% 的真正意義是
           「比隨便買差 2.12pp」，而不是「跌了 5.84%」。
           超額用大字、絕對報酬用小字——這是刻意的排序。 */}
-      {scoreboard && Object.keys(scoreboard.agg || {}).length > 0 && (
+      {scoreboard && Object.keys(scoreboard.agg || {}).length > 0 && (() => {
+        const cur = scoreboard.aggV2 && Object.keys(scoreboard.aggV2).length ? scoreboard.aggV2 : null;
+        const legacy = scoreboard.aggLegacy && Object.keys(scoreboard.aggLegacy).length ? scoreboard.aggLegacy : null;
+        const lt = legacy?.top20?.d5;
+        return (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
           <div style={{ fontWeight: 700, fontSize: 'calc(0.9rem * var(--fz))', marginBottom: 4 }}>🏅 AI 推薦成績
             <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>
-              每檔推薦於 5/10/20 個交易日後以官方收盤結算
+              每檔推薦於 5/10/20 個交易日後以官方收盤結算；超額＝同一批進場日的推薦均報 − 可交易宇宙等權均報（未扣成本）
             </span>
-          </div>
-
-          {/* ── 口徑分界（2026-08-05）─────────────────────────────────
-              今天同時改了三件會改變「推薦是什麼」的事：五大因子依四窗檢定修正、
-              加可交易宇宙 gate、排序鍵加上已驗證訊號×3。
-              ⇒ 今天之後的推薦與 08-04 以前**不是同一個系統**。
-              把兩者平均在一起，使用者會把已汰換評分器的 -2.12pp
-              讀成「現行推薦很爛」。所以分開顯示，而且**現行口徑放前面**。 */}
-          <div style={{ padding: '8px 12px', borderRadius: 9, background: 'rgba(125,211,252,0.07)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, marginBottom: 10 }}>
-            <b style={{ color: 'var(--text-primary)' }}>🆕 現行口徑（{scoreboard.calib ?? 'v2'}）成績：累積中</b>
-            {scoreboard.calibFrom && <span style={{ color: 'var(--text-muted)' }}>——自 {scoreboard.calibFrom} 起共 {scoreboard.recordsV2 ?? 0} 個交易日，第 5 個交易日後出現第一筆。</span>}
-            <br />
-            <span style={{ color: 'var(--text-muted)' }}>
-              2026-08-05 同時改了三件事：五大因子依 bt-core 四窗檢定修正（「收在日高」由滿分改為扣分）、
-              加入可交易宇宙 gate（漲停股剔除，舊版佔 TOP20 的 37%）、排序鍵加上已驗證訊號 ×3。
-              <b style={{ color: '#fbbf24' }}>下面那張表量的是改版前的舊系統</b>，照實保留但不代表現在這張榜。
-            </span>
-          </div>
-
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>
-            📜 舊口徑歷史成績（{scoreboard.from} ~ 2026-08-04 · {scoreboard.records} 個交易日 · <span style={{ color: '#fbbf24' }}>系統已汰換</span>）
           </div>
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 8 }}>
-            <b style={{ color: '#7dd3fc' }}>先看超額，不要只看勝率。</b>
-            超額＝推薦均報 −「同期可交易宇宙等權」基準。<b>絕對報酬主要由市況決定</b>——
-            空頭段裡任何只做多的清單都會是負的；超額才是「選得準不準」。
+            <b style={{ color: '#7dd3fc' }}>先看超額，不要只看勝率。</b>絕對報酬主要由市況決定——空頭段裡任何只做多的清單都會是負的；超額才是「選得準不準」。
             基準口徑與本站回測平台一致：4 碼普通股、量 ≥300 張、<b>剔除進場日漲停</b>（收盤價買不到）。
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 620 }}>
-              <thead>
-                <tr style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
-                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>榜單</th>
-                  {[5, 10, 20].map(h => <th key={h} style={{ textAlign: 'right', padding: '4px 10px' }}>{h} 日超額</th>)}
-                  <th style={{ textAlign: 'left', padding: '4px 10px' }}>絕對報酬（勝率／均報／同期基準）</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SCORE_ROWS.map(([k, label]) => {
-                  const g = scoreboard.agg[k];
-                  return (
-                    <tr key={k} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
-                      <td style={{ padding: '5px 8px', fontWeight: 800, whiteSpace: 'nowrap' }}>{label}</td>
-                      {[5, 10, 20].map(h => {
-                        const r = g?.[`d${h}`];
-                        if (!r || r.excess == null) return <td key={h} style={{ textAlign: 'right', padding: '5px 10px', color: 'var(--text-muted)' }}>—</td>;
-                        const thin = (r.entryDays ?? 0) < 5;   // 進場日太少＝還不是估計值
-                        return (
-                          <td key={h} style={{ textAlign: 'right', padding: '5px 10px', fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>
-                            <b style={{ fontSize: 'calc(13px * var(--fz))', color: r.excess > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                              {r.excess > 0 ? '+' : ''}{r.excess}pp
-                            </b>
-                            {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
-                          </td>
-                        );
-                      })}
-                      <td style={{ padding: '5px 10px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap' }}>
-                        {[5, 10, 20].map(h => {
-                          const r = g?.[`d${h}`];
-                          if (!r) return null;
-                          return <span key={h} style={{ marginRight: 10 }}>
-                            {h}日 {r.winRate}%／{r.avgRet >= 0 ? '+' : ''}{r.avgRet}%
-                            {r.base ? <span style={{ opacity: 0.7 }}>（基準 {r.base.winRate}%／{r.base.avgRet >= 0 ? '+' : ''}{r.base.avgRet}%）</span> : null}
-                          </span>;
-                        })}
-                        {!g && <span>尚未累積（本榜自 2026-08-05 起記錄，5 個交易日後出現第一筆）</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
+            🆕 現行口徑（{scoreboard.calib ?? 'v2'}）成績{scoreboard.calibFrom ? `——自 ${scoreboard.calibFrom} 起共 ${scoreboard.recordsV2 ?? 0} 個交易日` : ''}
           </div>
-          {(() => {
-            const t = scoreboard.agg.top20?.d5;
-            if (!t || !t.skipped) return null;
-            return (
-              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.7, marginTop: 8 }}>
-                ⚠ <b>可交易性</b>：TOP20 的 5 日樣本中有 <b>{t.skipped}/{t.n}（{Math.round(t.skipped / t.n * 100)}%）</b>
-                在推薦當日就漲停——<b>收盤價買不到</b>。五大因子把「今日漲幅」與「漲停分析」算成加分，
-                所以榜首天生偏向當天最強、也最買不到的那幾檔。
-                剔除這些之後的超額是 <b>{t.excessTradable != null && t.excessTradable > 0 ? '+' : ''}{t.excessTradable}pp</b>。
-              </div>
-            );
-          })()}
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.7 }}>
+          {cur ? <ScoreTable agg={cur} emptyHint="尚未累積（5 個交易日後出現第一筆）" />
+            : <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>累積中：第 5 個交易日後出現第一筆。</div>}
+
+          {legacy && (
+            <div style={{ marginTop: 10 }}>
+              <button type="button" onClick={() => setShowLegacy(v => !v)} aria-expanded={showLegacy}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }}>
+                {showLegacy ? '▾' : '▸'} 📜 舊口徑歷史成績（{scoreboard.legacyFrom} ~ {scoreboard.legacyTo} · {scoreboard.recordsLegacy} 個交易日 · <span style={{ color: '#fbbf24' }}>系統已汰換</span>）
+              </button>
+              {showLegacy && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 6 }}>
+                    2026-08-05 同時改了三件事：五大因子依 bt-core 四窗檢定修正（「收在日高」由滿分改為扣分）、加入可交易宇宙 gate（漲停股剔除）、排序鍵加上已驗證訊號 ×3。
+                    這張表量的是改版前的舊系統，照實保留但不代表現在這張榜。
+                  </div>
+                  <ScoreTable agg={legacy} emptyHint="—" />
+                  {lt?.skipped ? (
+                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', lineHeight: 1.7, marginTop: 8 }}>
+                      ⚠ <b>可交易性（舊系統）</b>：TOP20 的 5 日樣本中有 <b>{lt.skipped}/{lt.n}（{Math.round(lt.skipped / lt.n * 100)}%）</b>在推薦當日就漲停——<b>收盤價買不到</b>
+                      （舊五大因子把「今日漲幅」與「漲停分析」算成加分）。剔除這些之後的超額是 <b>{lt.excessTradable != null && lt.excessTradable > 0 ? '+' : ''}{lt.excessTradable}pp</b>。現行口徑已排除漲停股。
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          )}
+          {scoreboard.recent?.days?.length ? (
+            <div style={{ marginTop: 12 }}>
+              <button type="button" onClick={() => setShowRecent(v => !v)} aria-expanded={showRecent}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800 }}>
+                {showRecent ? '▾' : '▸'} 📋 推選個股追蹤（AI 精選 TOP20·最近 {scoreboard.recent.days.length} 個推薦日·官方收盤·未扣成本）
+              </button>
+              {showRecent && <RecentPicks days={scoreboard.recent.days} />}
+            </div>
+          ) : null}
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.7 }}>
             <CostReference />
             歷史績效不代表未來；本記分板是**誠實揭露**，不是推薦保證。非投資建議。
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── 市況穩定度揭露（2026-08-05 晚·取代同日稍早的「空頭日提示」）──
           稍早我依 gate search 的結果上了一條「空頭日的前 5 名最接近正報酬」提示。

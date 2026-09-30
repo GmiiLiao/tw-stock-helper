@@ -25,6 +25,8 @@ import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
+import { scoreboardDoc, recentPicks } from './lib/picks-scoreboard.mjs';
+import { dropUndefined } from './lib/firestore-clean.mjs';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
@@ -9459,16 +9461,19 @@ function _baseline(entryMap, prevMap, exitMap) {
   return rets;
 }
 
-const _agg = (rets) => {
-  if (!rets.length) return null;
-  const s = [...rets].sort((a, b) => a - b);
-  return {
-    n: rets.length,
-    winRate: Math.round(rets.filter(v => v > 0).length / rets.length * 100),
-    avgRet: +(rets.reduce((a, v) => a + v, 0) / rets.length).toFixed(2),
-    medRet: +s[s.length >> 1].toFixed(2),
-  };
-};
+/** 記分板：由 picksHistory 彙總（全歷史／現行口徑／舊口徑）寫 picksScoreboard/latest；回傳現行口徑彙總（給權值健康檢查） */
+async function writePicksScoreboard(docsIn = null) {
+  const docs = docsIn || (await db.collection('picksHistory').get()).docs.map(d => d.data()).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
+  const doc = scoreboardDoc(docs, PICK_LISTS, CALIB);
+  // 推選個股追蹤（2026-09-30 使用者）：最近 15 個進場日的 TOP20，逐檔以官方收盤計 5／10／20 日與至今報酬（未扣成本）
+  try {
+    const arch = (await readArchive(60, 'closeJson')).map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })).sort((a, b) => a.date.localeCompare(b.date));
+    const byDate = new Map(arch.map(a => [a.date, a.m]));
+    doc.recent = { list: 'top20', days: recentPicks(docs, (d, c) => byDate.get(d)?.[c]?.[0] ?? null, arch.map(a => a.date), { list: 'top20', days: 15 }) };
+  } catch (e) { log('  ⚠ 推選個股追蹤計算失敗（記分板照寫）:', (e.message || '').slice(0, 60)); }
+  await db.collection('picksScoreboard').doc('latest').set(dropUndefined(doc));
+  return doc.aggV2;
+}
 
 async function trackPicks() {
   const tw = taipei(); if (!isTradingDay(tw)) return;
@@ -9576,57 +9581,8 @@ async function trackPicks() {
     }
   }
 
-  // ── 彙總：每榜每窗 = 推薦 / 可交易推薦 / 同期基準 / 超額 ──
-  const agg = {};
-  for (const h of [5, 10, 20]) {
-    const baseRets = docs.flatMap(d => d[`eval${h}`]?.base || []);
-    const base = _agg(baseRets);
-    for (const k of PICK_LISTS) {
-      const all = docs.flatMap(d => d[`eval${h}`]?.[k]?.all || []);
-      const trad = docs.flatMap(d => d[`eval${h}`]?.[k]?.tradable || []);
-      const a = _agg(all); if (!a) continue;
-      const t = _agg(trad);
-      (agg[k] ||= {})[`d${h}`] = {
-        ...a,
-        tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
-        skipped: all.length - (t?.n ?? 0),                      // 進場日漲停·買不到
-        base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
-        // 超額＝選股能力。絕對報酬主要由市況決定，這一項才是「選得準不準」
-        excess: base ? +(a.avgRet - base.avgRet).toFixed(2) : null,
-        excessTradable: base && t ? +(t.avgRet - base.avgRet).toFixed(2) : null,
-        entryDays: docs.filter(d => d[`eval${h}`]?.[k]?.all?.length).length,
-      };
-    }
-  }
-  // 只用現行口徑（v2）再算一份——這才是「現在這張榜」的成績。
-  // 舊口徑那份仍然保留並照實顯示，但要標明它量的是已汰換的系統。
-  const v2 = docs.filter(d => d.calib === CALIB);
-  const aggV2 = {};
-  for (const h of [5, 10, 20]) {
-    const baseRets = v2.flatMap(d => d[`eval${h}`]?.base || []);
-    const base = _agg(baseRets);
-    for (const k of PICK_LISTS) {
-      const all = v2.flatMap(d => d[`eval${h}`]?.[k]?.all || []);
-      const trad = v2.flatMap(d => d[`eval${h}`]?.[k]?.tradable || []);
-      const a = _agg(all); if (!a) continue;
-      const t = _agg(trad);
-      (aggV2[k] ||= {})[`d${h}`] = {
-        ...a,
-        tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
-        skipped: all.length - (t?.n ?? 0),
-        base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
-        excess: base ? +(a.avgRet - base.avgRet).toFixed(2) : null,
-        excessTradable: base && t ? +(t.avgRet - base.avgRet).toFixed(2) : null,
-        entryDays: v2.filter(d => d[`eval${h}`]?.[k]?.all?.length).length,
-      };
-    }
-  }
-
-  await db.collection('picksScoreboard').doc('latest').set({
-    updatedAt: Date.now(), from: docs[0]?.date || date, records: docs.length, agg,
-    calib: CALIB, calibFrom: v2[0]?.date || date, recordsV2: v2.length, aggV2,
-    note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。全部未扣成本（成本依持有方式另計）。',
-  });
+  // ── 彙總：每榜每窗 = 推薦 / 可交易推薦 / 同期基準 / 超額（lib/picks-scoreboard.mjs；基準與榜單取同一批進場日）──
+  const aggV2 = await writePicksScoreboard(docs);
   log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
   try { await weightsHealthCheck(aggV2); } catch (e) { log('  ⚠ 權值健康檢查失敗:', (e.message || '').slice(0, 60)); }
 }
@@ -15382,6 +15338,7 @@ if (ONESHOT) {
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
     globalMarkets: () => computeGlobalMarkets(),
     trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
+    picksScoreboard: () => writePicksScoreboard(),   // 只重算記分板（讀 picksHistory，不改推薦紀錄）
     tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
     recommendAdj: () => computeRecommendAdj(),   // 推薦榜已驗證訊號修正量
     reversalSignals: () => computeReversalSignals(),

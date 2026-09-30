@@ -14,6 +14,7 @@
 // 用法：node scripts/backfill-picks-scoreboard.mjs [--write]
 //       不加 --write 只印結果不寫入。
 // ─────────────────────────────────────────────────────────────────────────
+import { aggregatePicks, scoreboardDoc, PICK_HORIZONS } from './lib/picks-scoreboard.mjs';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
@@ -26,14 +27,8 @@ const LISTS = ['top20', 'intraday', 'daily', 'growth', 'defensive',
                'radar', 'chipPicks', 'volSurge', 'swing', 'strength', 'overnight',
                'panicDip', 'overheatExit', 'voteDip', 'overheatV2', 'overheatV3', 'wExit'];
 // 2026-09-30：記分板只列未扣成本（成本依持有方式另計，見 CostReference）；與 daemon trackPicks 同口徑
-const HOLD = [5, 10, 20];
-
-const agg = rets => {
-  if (!rets.length) return null;
-  const s = [...rets].sort((a, b) => a - b);
-  return { n: rets.length, winRate: Math.round(rets.filter(v => v > 0).length / rets.length * 100),
-    avgRet: +(rets.reduce((a, v) => a + v, 0) / rets.length).toFixed(2), medRet: +s[s.length >> 1].toFixed(2) };
-};
+const HOLD = PICK_HORIZONS;
+const CALIB = 'v2';   // 與 daemon trackPicks 的 CALIB 同步
 
 const main = async () => {
   // chipArchive：[收盤, 量(張), 開, 高, 低]（⚠[2] 是開盤價，不是漲跌%）
@@ -99,26 +94,8 @@ const main = async () => {
   }
   console.log(`▶ 重算 ${wrote} 日的 eval${WRITE ? '（已寫入）' : '（未寫入·加 --write 才寫）'}\n`);
 
-  // ── 彙總 ──
-  const A = {};
-  for (const h of HOLD) {
-    const base = agg(hist.flatMap(d => d[`eval${h}`]?.base || []));
-    for (const k of LISTS) {
-      const all = hist.flatMap(d => d[`eval${h}`]?.[k]?.all || []);
-      const trad = hist.flatMap(d => d[`eval${h}`]?.[k]?.tradable || []);
-      const a = agg(all); if (!a) continue;
-      const t = agg(trad);
-      (A[k] ||= {})[`d${h}`] = {
-        ...a,
-        tradableN: t?.n ?? 0, tradableAvg: t?.avgRet ?? null, tradableWin: t?.winRate ?? null,
-        skipped: all.length - (t?.n ?? 0),
-        base: base ? { n: base.n, winRate: base.winRate, avgRet: base.avgRet, medRet: base.medRet } : null,
-        excess: base ? +(a.avgRet - base.avgRet).toFixed(2) : null,
-        excessTradable: base && t ? +(t.avgRet - base.avgRet).toFixed(2) : null,
-        entryDays: hist.filter(d => d[`eval${h}`]?.[k]?.all?.length).length,
-      };
-    }
-  }
+  // ── 彙總（lib/picks-scoreboard.mjs：與 daemon 同一份；基準與榜單取同一批進場日）──
+  const A = aggregatePicks(hist, LISTS);
 
   const pad = (s, n) => String(s).padEnd(n), padL = (s, n) => String(s).padStart(n);
   console.log(pad('榜單', 12) + padL('窗', 5) + padL('勝率', 7) + padL('均報', 9) + padL('基準', 9) + padL('超額', 9)
@@ -134,12 +111,8 @@ const main = async () => {
   console.log('\n未累積到的榜單：' + LISTS.filter(k => !A[k]).join('、') + '（今日起才開始記錄）');
 
   if (WRITE) {
-    await db.collection('picksScoreboard').doc('latest').set({
-      updatedAt: Date.now(), from: hist[0]?.date, records: hist.length, agg: A,
-      // ⚠回填只重算 agg（全歷史）。calib/aggV2 由 daemon 的 trackPicks 維護——
-      //   這裡不要覆蓋，否則會把「現行口徑」的分流洗掉。
-      note: '超額＝推薦均報 − 同期可交易宇宙等權均報，是「選股能力」；絕對報酬主要由市況決定。tradable 為剔除進場日漲停(收盤價買不到)後的口徑。全部未扣成本（成本依持有方式另計）。',
-    });
+    // 寫完整文件（全歷史／現行口徑／舊口徑）——舊版只寫 agg 卻用 set 覆蓋，會把 daemon 維護的現行口徑洗掉
+    await db.collection('picksScoreboard').doc('latest').set(scoreboardDoc(hist, LISTS, CALIB));
     console.log('\n✓ picksScoreboard/latest 已更新');
   }
   process.exit(0);
