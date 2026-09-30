@@ -51,6 +51,14 @@ const BASE_P = FEATS.length;
 //   乘積理由：跌深×波動（反轉集中在高波動股）、中期動能×外資（有資訊的動能才延續）、跌深×外資短買（法人逢低承接）、
 //            營收年增×中期動能（基本面與價格同向）、距高點×量比（帶量逼近高點）。平方：波動、量比、短期漲跌的「兩端」效應。
 const STAGE2 = process.argv.includes('--stage2');
+// 【第三階段預先宣告（2026-09-30 使用者提案「標靶公式：三種狀況各一條」；執行前寫死並 commit）】
+//   多頭／空頭公式＝第二階段 D 的兩組係數（依前 20 日宇宙等權報酬自動切換）。第三條＝投機避開名單：
+//   投機分數＝下列 6 特徵當日排名（−0.5~0.5）的**等權平均**（只平均有值者、至少 4 項；不調參數），最高 10% 列入避開。
+//   門檻（h=5 為主，10／20 日並列）：① 每個 ≥60 日的年度，避開名單「超額>0」比例都低於全宇宙；② 避開名單平均超額 < 0 且 NW t ≤ −2。
+//   另報（不作門檻）：D 的 Top20 與避開名單重疊比例；Top20 剔除避開名單後依序遞補的超額與勝率。
+//   揭露：6 個特徵是看過第一階段結果後挑的（都屬「投機／受注目」一類），真正乾淨的考試仍是影子模式前瞻資料。
+const STAGE3 = process.argv.includes('--stage3');
+const SPEC = ['dt20', 'vol20', 'volX', 'gap0', 'ovn20', 'max20'], AVOID_FRAC = 0.10, SPEC_MIN = 4;
 const INTERACT = [['rev5', 'vol20'], ['mom60_20', 'fi20'], ['rev5', 'fi5'], ['revYoY', 'mom60_20'], ['hi60', 'volX']];
 const SQUARE = ['vol20', 'volX', 'rev5'];
 const fIdx = k => FEATS.findIndex(f => f[0] === k);
@@ -250,6 +258,11 @@ function buildPanel(D, adj, revAt, ind) {
       for (const a of SQUARE) { const xa = X[fIdx(a)]; X.push(centeredRank(xa.map(v => v * v))); }
     }
     const bull = mean(r20) > 0;   // 前 20 日宇宙等權報酬（t 日收盤已知）
+    let spec = null;
+    if (STAGE3) {   // 投機分數：6 特徵排名等權平均（只平均有值者，≥4 項）
+      const js = SPEC.map(k => fIdx(k));
+      spec = Float64Array.from(cis, (_, i) => { const v = js.filter(j => Number.isFinite(F[i][j])).map(j => X[j][i]); return v.length >= SPEC_MIN ? v.reduce((a, b) => a + b, 0) / v.length : NaN; });
+    }
     const Y = {}, YR = {};
     for (const h of HS) {
       const raw = cis.map(ci => {
@@ -260,7 +273,7 @@ function buildPanel(D, adj, revAt, ind) {
       const mu = mean(raw); Y[h] = raw.map(x => (Number.isFinite(x) ? x - mu : NaN)); YR[h] = centeredRankKeepNaN(Y[h]);
     }
     const up = mean(cis.map(ci => cA[ci * N + t] / cA[ci * N + t - 1] - 1)) > 0;
-    panel.push({ t, date: D.dates[t], n: cis.length, X, Y, YR, up, bull, miss: FEATS.map((_, j) => F.filter(f => !Number.isFinite(f[j])).length / F.length) });
+    panel.push({ t, date: D.dates[t], n: cis.length, X, Y, YR, up, bull, spec, miss: FEATS.map((_, j) => F.filter(f => !Number.isFinite(f[j])).length / F.length) });
   }
   return panel;
 }
@@ -330,6 +343,58 @@ function evaluate(panel, preds, h) {
   return { n: days.length, from: days[0]?.date, to: days.at(-1)?.date, ic: s.mean, t: s.t, spread, top,
     topHit: mean(days.map(d => d.topHit)), uniHit: mean(days.map(d => d.uniHit)), topN: mean(days.map(d => d.topN)), ySd: mean(days.map(d => d.ySd)),
     decile: Array.from({ length: 10 }, (_, j) => mean(days.map(d => d.decile[j]))), upIC, dnIC, placeboAbs, byYear, gates, passed: Object.values(gates).every(Boolean) };
+}
+
+// ── 第三階段：投機避開名單（等權、不調參）＋與 D 公式 Top20 的關係 ─────────────────
+const median = xs => { const v = xs.filter(Number.isFinite).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : NaN; };
+function avoidOf(p) {
+  const idx = []; for (let i = 0; i < p.n; i++) if (Number.isFinite(p.spec?.[i])) idx.push(i);
+  idx.sort((a, b) => p.spec[b] - p.spec[a]);
+  return new Set(idx.slice(0, Math.max(1, Math.round(idx.length * AVOID_FRAC))));
+}
+function evaluateAvoid(h) {
+  const days = [];
+  for (const p of panel) {
+    const y = p.Y[h]; if (!p.spec || !y.some(Number.isFinite)) continue;
+    const av = [...avoidOf(p)].map(i => y[i]).filter(Number.isFinite), uni = y.filter(Number.isFinite);
+    if (av.length < 10) continue;
+    days.push({ date: p.date, ex: mean(av), med: median(av), hit: av.filter(x => x > 0).length / av.length, uniHit: uni.filter(x => x > 0).length / uni.length });
+  }
+  const s = nwT(days.map(d => d.ex), h - 1), years = {};
+  for (const d of days) (years[d.date.slice(0, 4)] ||= []).push(d);
+  const byYear = Object.fromEntries(Object.entries(years).map(([y, ds]) => [y, { n: ds.length, ex: mean(ds.map(d => d.ex)), med: mean(ds.map(d => d.med)), hit: mean(ds.map(d => d.hit)), uniHit: mean(ds.map(d => d.uniHit)) }]));
+  const gates = { hit: Object.values(byYear).every(y => y.n < 60 || y.hit < y.uniHit), mean: s.mean < 0 && s.t <= -2 };
+  return { h, n: days.length, ex: s.mean, t: s.t, med: mean(days.map(d => d.med)), hit: mean(days.map(d => d.hit)), uniHit: mean(days.map(d => d.uniHit)), byYear, gates, passed: gates.hit && gates.mean };
+}
+function runStage3() {
+  const res = HS.map(evaluateAvoid);
+  for (const r of res) console.log(`避開名單 h=${r.h}：${r.passed ? '✅' : '❌'} 平均超額 ${f2(r.ex)}%（t ${f2(r.t)}）中位 ${f2(r.med)}%｜勝率 ${f2(r.hit * 100, 1)}% vs 宇宙 ${f2(r.uniHit * 100, 1)}%｜${JSON.stringify(r.gates)}`);
+  // D（5 日、市況分組）Top20 與避開名單
+  const basePanel = panel.map(p => ({ ...p, X: p.X.slice(0, BASE_P) }));
+  const d = walkForward(basePanel, 5, true); const rows = [];
+  panel.forEach((p, k) => {
+    const sc = d.preds.B[k], y = p.Y[5]; if (!sc || !p.spec) return;
+    const order = Array.from(sc.keys()).sort((a, b) => sc[b] - sc[a]), avoid = avoidOf(p);
+    const top = order.slice(0, TOP), clean = order.filter(i => !avoid.has(i)).slice(0, TOP);
+    const v = ids => ids.map(i => y[i]).filter(Number.isFinite);
+    rows.push({ overlap: top.filter(i => avoid.has(i)).length / TOP, top: mean(v(top)), clean: mean(v(clean)), topHit: mean(v(top).map(x => (x > 0 ? 1 : 0))), cleanHit: mean(v(clean).map(x => (x > 0 ? 1 : 0))) });
+  });
+  const dx = { n: rows.length, overlap: mean(rows.map(r => r.overlap)), top: mean(rows.map(r => r.top)), clean: mean(rows.map(r => r.clean)), topHit: mean(rows.map(r => r.topHit)), cleanHit: mean(rows.map(r => r.cleanHit)) };
+  console.log(`D Top20：重疊避開名單 ${f2(dx.overlap * 100, 1)}%｜原 ${f2(dx.top)}%／勝率 ${f2(dx.topHit * 100, 1)}% → 剔除遞補 ${f2(dx.clean)}%／${f2(dx.cleanHit * 100, 1)}%（${dx.n} 日）`);
+  const L = [`# 標靶公式·第三條：投機避開名單（資料日 ${D.dates.at(-1)}）`, '',
+    '> 使用者提案（2026-09-30）：多頭、空頭、投機三種狀況各一條公式。多頭／空頭＝第二階段 D 的兩組係數；本報告驗證第三條。規則與門檻在執行前寫死並 commit；未扣成本。', '',
+    `- 投機分數＝${SPEC.join('、')} 當日排名的等權平均（只平均有值者、至少 ${SPEC_MIN} 項；上櫃無逐檔當沖資料＝當沖比缺值）；最高 ${AVOID_FRAC * 100}% 列入避開。`,
+    '- 門檻：① 每個 ≥60 日的年度，避開名單「超額>0」比例都低於全宇宙；② 平均超額 < 0 且 NW t ≤ −2。', '',
+    '| 持有 | 日數 | 平均超額 % | NW t | 中位超額 % | 避開名單勝率 | 宇宙勝率 | 結果 |', '|---|---|---|---|---|---|---|---|',
+    ...res.map(r => `| ${r.h} 日 | ${r.n} | ${f2(r.ex)} | ${f2(r.t)} | ${f2(r.med)} | ${f2(r.hit * 100, 1)}% | ${f2(r.uniHit * 100, 1)}% | ${r.passed ? '✅ 通過' : `❌ ${Object.entries(r.gates).filter(([, v]) => !v).map(([g]) => (g === 'hit' ? '勝率未每年低於宇宙' : '平均超額不顯著為負')).join('、')}`} |`),
+    '', '### 各年度', '', '| 持有 | 年 | 日數 | 平均超額 % | 中位超額 % | 避開名單勝率 | 宇宙勝率 |', '|---|---|---|---|---|---|---|',
+    ...res.flatMap(r => Object.entries(r.byYear).map(([y, x]) => `| ${r.h} 日 | ${y} | ${x.n} | ${f2(x.ex)} | ${f2(x.med)} | ${f2(x.hit * 100, 1)}% | ${f2(x.uniHit * 100, 1)}% |`)),
+    '', '### 與多空公式（D·5 日）的關係（樣本外，不作門檻）', '',
+    `- D 的 Top20 平均有 ${f2(dx.overlap * 100, 1)}% 落在避開名單（${dx.n} 日）。`,
+    `- 原 Top20：平均超額 ${f2(dx.top)}%、勝率 ${f2(dx.topHit * 100, 1)}%；剔除避開名單後依序遞補：${f2(dx.clean)}%、${f2(dx.cleanHit * 100, 1)}%。`,
+    '', '- 揭露：6 個特徵是看過第一階段結果後挑選的「投機／受注目」類特徵；等權、不調參可降低過度擬合，但真正乾淨的考試只有影子模式的前瞻資料。', '', '非投資建議。', ''];
+  writeFileSync(join(ROOT, 'docs', `SWING-FORMULA-RESEARCH-${D.dates.at(-1)}-stage3.md`), L.join('\n'));
+  console.log(`✓ docs/SWING-FORMULA-RESEARCH-${D.dates.at(-1)}-stage3.md`);
 }
 
 // ── 全樣本特徵表（描述用；不作門檻）────────────────────────────────────────
@@ -414,6 +479,7 @@ console.log(`面板 ${panel.length} 日、平均宇宙 ${f2(mean(panel.map(p => 
   const ev = evaluate(panel, panel.map(p => Float64Array.from(p.Y[5], v => (Number.isFinite(v) ? v : -1e9))), 5);
   console.log(`自我檢查（全知分數）：IC ${f2(ev.ic, 3)}、Top20 超額 ${f2(ev.top)}%、D10−D1 ${f2(ev.spread)}%`);
 }
+if (STAGE3) { runStage3(); process.exit(0); }
 const results = [], feat = {};
 const logRes = (h, v, ev) => console.log(`h=${h} ${v}：${ev.passed ? '✅' : '❌'} IC ${f2(ev.ic, 4)} t=${f2(ev.t)}｜D10−D1 ${f2(ev.spread)}%｜Top20 ${f2(ev.top)}%（未扣成本）勝率 ${f2(ev.topHit * 100, 1)}% vs 宇宙 ${f2(ev.uniHit * 100, 1)}%｜${JSON.stringify(ev.gates)}`);
 for (const h of HS) {
