@@ -190,8 +190,10 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   return { samples, days, T, twDates, newsDays, newsNextDays, excludedEvents, eventCodes: Object.keys(evByCode).length, regimeByDate, regimeCuts };
 }
 const C0 = 0;   // closeJson 列格式 [收, 量張, 開, 高, 低]
-// 手續費（折讓前）＋證交稅，不含價差；A 段絕對報酬閘門用。SQ_COST_PCT 只供對照（例：SQ_COST_PCT=0 DRY_RUN=1），預設不變
-const COST_PCT = process.env.SQ_COST_PCT != null ? +process.env.SQ_COST_PCT : 0.4425;
+// A 段絕對報酬閘門的成本扣除：2026-09-30 使用者規則「計算結果不以扣成本方式比對（成本依持有方式比例不同）」⇒ 預設 0（未扣成本）。
+//   實測同日資料：扣 0.4425% 與未扣的主模型結果相同（三模式皆無模型通過樣本外、分支狀態一致；訓練段單因子僅多 1 個）。
+//   SQ_COST_PCT 可指定舊口徑對照（例：SQ_COST_PCT=0.4425 DRY_RUN=1）
+const COST_PCT = process.env.SQ_COST_PCT != null ? +process.env.SQ_COST_PCT : 0;
 
 // ── 3. 規則 v2（2026-09-17 重規畫·docs/SQUEEZE-MODEL-REDESIGN-2026-09-17.md）──────────────
 // 使用者決定：交易定義做成**兩套可切換**（隔日沖／當沖）、切點首版釘 2026-06-10、四段全做。
@@ -245,7 +247,7 @@ export function evalGroup(g, mode, base, segOf = null) {
   const byDay = {}; const rgOf = {}; for (const x of rows) { (byDay[x.d] ||= []).push(x.r); rgOf[x.d] = x.rg; }
   const dates = Object.keys(byDay).sort();
   const daily = dates.map(d => mean(byDay[d]) - (base[d] ?? 0));   // 日層級超額（對純動能）
-  const dailyNet = dates.map(d => mean(byDay[d]) - COST_PCT);      // A 段：日層級淨報酬（扣費稅）
+  const dailyNet = dates.map(d => mean(byDay[d]) - COST_PCT);      // A 段：日層級絕對報酬（COST_PCT 預設 0＝未扣成本）
   const boot = blockBootstrap(daily);
   const bootNet = blockBootstrap(dailyNet, BOOT_ITERS, BOOT_BLOCK, 11);
   const segs = segOf ? [0, 1, 2].map(k => { const a = dates.filter(d => segOf(d) === k).map(d => mean(byDay[d]) - (base[d] ?? 0)); return a.length >= 8 ? +mean(a).toFixed(3) : null; }) : null;
@@ -261,7 +263,7 @@ export function evalGroup(g, mode, base, segOf = null) {
   const netOk = bootNet.lo != null && bootNet.lo > 0;
   const regimeOk = ['bull', 'bear'].every(k => byRegime[k].excess == null || byRegime[k].excess >= 0);   // 兩層都不為負（層太小不計）
   const pass = dates.length >= MIN_DAYS && state === 'valid' && segOk && netOk && regimeOk;
-  const why = dates.length < MIN_DAYS ? `交易日不足（${dates.length}<${MIN_DAYS}）` : !segOk ? '三段未皆贏基準' : state !== 'valid' ? (state === 'invalid' ? '顯著輸基準' : 'CI 跨 0（無顯著差異）') : !netOk ? `淨報酬未過（扣費稅後 CI 下界 ${bootNet.lo ?? '—'}）` : !regimeOk ? `市況分層有一層為負（多頭 ${byRegime.bull.excess}／空頭 ${byRegime.bear.excess}）` : 'ok';
+  const why = dates.length < MIN_DAYS ? `交易日不足（${dates.length}<${MIN_DAYS}）` : !segOk ? '三段未皆贏基準' : state !== 'valid' ? (state === 'invalid' ? '顯著輸基準' : 'CI 跨 0（無顯著差異）') : !netOk ? `絕對報酬未過（${COST_PCT ? `扣 ${COST_PCT}% 後` : '未扣成本'} CI 下界 ${bootNet.lo ?? '—'}）` : !regimeOk ? `市況分層有一層為負（多頭 ${byRegime.bull.excess}／空頭 ${byRegime.bear.excess}）` : 'ok';
   return {
     n, days: dates.length, mean: +mean(rows.map(x => x.r)).toFixed(3), win: +win.toFixed(1),
     excess: boot.mean, ci: [boot.lo, boot.hi], net: { mean: bootNet.mean, ci: [bootNet.lo, bootNet.hi] }, byRegime,
@@ -648,7 +650,7 @@ export async function runTraining({ days = 250, quiet = false } = {}) {
     runId, modelVersion, updatedAt: Date.now(), trainMs: Date.now() - t0, rules: 'v2', datasetHash: hash,
     eventExclusion: { excluded: excludedEvents, codes: eventCodes, windowDays: 30, source: 'priceEvents/latest' },
     gapNewsAudit: gapNews,
-    regime: { rule: '漲家數比三分位（視窗自身）：上三分之一多頭／下三分之一空頭（t 日自身）', cuts: regimeCuts, days: rgCount, costPct: COST_PCT, gates: '超額 CI 下界>0 ＋ 淨報酬(扣費稅) CI 下界>0 ＋ 多頭/空頭兩層皆不為負' },
+    regime: { rule: '漲家數比三分位（視窗自身）：上三分之一多頭／下三分之一空頭（t 日自身）', cuts: regimeCuts, days: rgCount, costPct: COST_PCT, gates: `超額 CI 下界>0 ＋ 絕對報酬（${COST_PCT ? `扣 ${COST_PCT}%` : '未扣成本'}）CI 下界>0 ＋ 多頭/空頭兩層皆不為負` },
     period: { from: twDates[0], to: twDates[twDates.length - 1], days: twDates.length, oosFrom: OOS_FROM },
     tradeMode: 'nextday', modes: Object.fromEntries(Object.entries(modes).map(([k, m]) => [k, strip(m)])),
     // 相容：頂層＝預設模式（隔日沖），既有讀者（daemon runId/main.name/squeezeProb.name、管理頁）不需改

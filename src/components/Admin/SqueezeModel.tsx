@@ -27,6 +27,7 @@ interface ModeModel {
   mainRejectedByPlacebo?: { name: string; excess: number | null; p?: number | null; placeboP95?: number | null } | null;
 }
 interface Model {
+  regime?: { costPct?: number };   // A 段絕對報酬閘門的成本（2026-09-30 起預設 0＝未扣成本；舊模型為 0.4425）
   runId: string; updatedAt: number; status: string; note?: string | null;
   rules?: string; datasetHash?: string; tradeMode?: string; modes?: Record<string, ModeModel>;
   period: { from: string; to: string; days: number; oosFrom: string };
@@ -150,7 +151,7 @@ export default function SqueezeModel() {
             </table>
             {m.main.oot.net && (
               <div style={{ marginTop: 4 }}>
-                A 段閘門：樣本外淨報酬（扣費稅 0.4425%）<b style={{ color: (m.main.oot.net.ci?.[0] ?? -1) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
+                A 段閘門：樣本外絕對報酬（{(root.regime?.costPct ?? 0.4425) > 0 ? `扣 ${root.regime?.costPct ?? 0.4425}%` : '未扣成本'}）<b style={{ color: (m.main.oot.net.ci?.[0] ?? -1) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
                 {m.main.oot.byRegime && <>　市況分層超額：多頭 <b>{pp(m.main.oot.byRegime.bull.excess)}</b>（{m.main.oot.byRegime.bull.days} 日）／空頭 <b>{pp(m.main.oot.byRegime.bear.excess)}</b>（{m.main.oot.byRegime.bear.days} 日）</>}
               </div>
             )}
@@ -180,7 +181,7 @@ export default function SqueezeModel() {
               </tbody>
             </table>
             <div style={{ marginTop: 4 }}>
-              樣本外淨勝純動能 <b style={{ color: m.main.edgeVsMomentum >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{m.main.edgeVsMomentum >= 0 ? '+' : ''}{m.main.edgeVsMomentum}pp</b>
+              樣本外勝純動能（超額） <b style={{ color: m.main.edgeVsMomentum >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{m.main.edgeVsMomentum >= 0 ? '+' : ''}{m.main.edgeVsMomentum}pp</b>
               　可買比例 <b>{m.main.oot.buyRate}%</b>
               <span style={{ color: 'var(--text-muted)' }}>（其餘為隔日開盤即漲停鎖死、買不到，已排除不計）</span>
             </div>
@@ -382,7 +383,7 @@ export default function SqueezeModel() {
           <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 640 }}>
             <thead><tr>
               <th style={{ ...th, textAlign: 'left' }}>時間</th><th style={{ ...th, textAlign: 'left' }}>主模型</th>
-              <th style={th}>樣本外(可買)</th><th style={th}>淨勝</th><th style={{ ...th, textAlign: 'left' }}>軋空模型</th><th style={th}>提升</th>
+              <th style={th}>樣本外(可買)</th><th style={th}>勝純動能</th><th style={{ ...th, textAlign: 'left' }}>軋空模型</th><th style={th}>提升</th>
             </tr></thead>
             <tbody>
               {d.reports.map(r => (
