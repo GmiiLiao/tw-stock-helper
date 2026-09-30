@@ -9,7 +9,8 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { dropUndefined } from './firestore-clean.mjs';
-import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot, upsertHistory } from './ai-swing-lab.mjs';
+import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
+import { accountSummary, rebuildHistory } from './ai-swing-history.mjs';
 import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
 import { dailyFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
 
@@ -181,7 +182,8 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         const ref = db.collection('aiLabAccounts').doc('swing');
         const prevHist = (await ref.get()).data()?.history || [];
         const snap = swingAccountSnapshot(docs, days);
-        await ref.set(dropUndefined({ ...snap, history: upsertHistory(prevHist, snap) }));   // 每日戰績：每個資料日一列
+        // 每日戰績：由記錄逐日重算整段（2026-09-30：舊版只 upsert 當天，舊列沿用寫入時的算法而前後口徑不一）
+        await ref.set(dropUndefined({ ...snap, summary: accountSummary(snap), history: rebuildHistory(docs, days, prevHist) }));
       } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
     },
 

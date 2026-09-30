@@ -2,8 +2,9 @@
 
 // 🤖 AI 實驗後台共用元件（2026-09-24 UX 重整）：數字卡、交易單、查核徽章、人工檢討框。
 // 設計原則：先給結論（淨損益元、勝率、AI 有沒有贏基準）→ 再給逐筆交易單（買賣時間、金額、費稅一眼可對）→ AI 的理由收在下面。
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { SimLedger } from '../../../scripts/lib/ai-swing-lab.mjs';
+import { storageGet, storageSet } from '@/lib/safe-storage';
 
 export const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: 'tabular-nums' };
 export const upDn = (v: number | null | undefined) => (v == null ? 'var(--text-muted)' : v > 0 ? 'var(--color-up)' : v < 0 ? 'var(--color-down)' : 'var(--text-muted)');
@@ -116,17 +117,60 @@ export function Section({ title, sub, children }: { title: string; sub?: string;
   );
 }
 
-/** 清單表格：表頭固定、欄位對齊、窄螢幕橫向捲動；right＝靠右的數字欄 */
-export function ListTable({ head, rows, right = [], foot, empty = '無', maxHeight = 420 }: { head: string[]; rows: React.ReactNode[][]; right?: number[]; foot?: React.ReactNode[]; empty?: string; maxHeight?: number }) {
-  const cell = (i: number): React.CSSProperties => ({ padding: '4px 8px', whiteSpace: 'nowrap', textAlign: right.includes(i) ? 'right' : 'left', ...(right.includes(i) ? MONO : {}) });
+/**
+ * 清單表格：表頭固定、欄位對齊、窄螢幕橫向捲動；right＝靠右的數字欄。
+ * （2026-09-30 使用者「清單內容可開啟收合」）選用：details＝每列的展開內容（點該列展開／收合，整列跨欄顯示）；
+ *   stickyFirst＝第一欄（個股）橫向捲動時固定在左側；rowKeys＝每列穩定鍵（展開狀態依鍵記住，資料重載換序也不會開錯列）。
+ *   三者預設關閉，既有頁面行為不變。
+ */
+export function ListTable({ head, rows, right = [], foot, empty = '無', maxHeight = 420, details, stickyFirst = false, rowKeys }: { head: string[]; rows: React.ReactNode[][]; right?: number[]; foot?: React.ReactNode[]; empty?: string; maxHeight?: number; details?: (React.ReactNode | null)[]; stickyFirst?: boolean; rowKeys?: string[] }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const keyOf = (k: number) => rowKeys?.[k] ?? String(k);
+  const cell = (i: number): React.CSSProperties => ({ padding: '4px 8px', whiteSpace: 'nowrap', textAlign: right.includes(i) ? 'right' : 'left', ...(right.includes(i) ? MONO : {}),
+    ...(stickyFirst && i === 0 ? { position: 'sticky', left: 0, background: 'var(--bg-elevated, var(--bg-primary))', zIndex: 1 } : {}) });
   if (!rows.length) return <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>{empty}</div>;
+  const toggle = (id: string) => setOpen(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   return (
     <div style={{ overflow: 'auto', maxHeight, border: '1px solid var(--border-primary)', borderRadius: 10 }}>
       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 'calc(12.5px * var(--fz))' }}>
-        <thead><tr>{head.map((h, i) => <th key={i} style={{ ...cell(i), position: 'sticky', top: 0, background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontWeight: 700, borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map((r, k) => <tr key={k} style={{ borderBottom: '1px dashed var(--border-primary)' }}>{r.map((c, i) => <td key={i} style={cell(i)}>{c}</td>)}</tr>)}</tbody>
+        <thead><tr>{head.map((h, i) => <th key={i} style={{ ...cell(i), position: 'sticky', top: 0, zIndex: stickyFirst && i === 0 ? 2 : 1, background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontWeight: 700, borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}</tr></thead>
+        <tbody>{rows.map((r, k) => {
+          const det = details?.[k], id = keyOf(k);
+          const isOpen = open.has(id);
+          return (
+            <Fragment key={id}>
+              <tr onClick={det ? () => toggle(id) : undefined} style={{ borderBottom: isOpen ? 'none' : '1px dashed var(--border-primary)', cursor: det ? 'pointer' : undefined }}>
+                {r.map((c, i) => <td key={i} style={cell(i)}>{i === 0 && det ? <button type="button" aria-expanded={isOpen} aria-label={isOpen ? '收合明細' : '展開明細'} onClick={e => { e.stopPropagation(); toggle(id); }} style={{ background: 'none', border: 'none', padding: '0 4px 0 0', cursor: 'pointer', color: '#7dd3fc' }}>{isOpen ? '▾' : '▸'}</button> : null}{c}</td>)}
+              </tr>
+              {det && isOpen && <tr style={{ borderBottom: '1px dashed var(--border-primary)' }}><td colSpan={head.length} style={{ padding: '6px 12px 10px 28px', background: 'var(--bg-secondary)', whiteSpace: 'normal', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7 }}>{det}</td></tr>}
+            </Fragment>
+          );
+        })}</tbody>
         {foot && <tfoot><tr style={{ fontWeight: 900, background: 'var(--bg-secondary)' }}>{foot.map((c, i) => <td key={i} style={cell(i)}>{c}</td>)}</tr></tfoot>}
       </table>
     </div>
+  );
+}
+
+/**
+ * 可收合區塊（2026-09-30）：標題列可點開／收合，數量徽章讓收起來時也看得到有幾筆；開合狀態記在本機（下次打開維持）。
+ * id 須全站唯一（存成 labCollapse:<id>）。
+ */
+export function Collapse({ id, title, sub, count, defaultOpen = true, tone, children }: { id: string; title: string; sub?: string; count?: number | string; defaultOpen?: boolean; tone?: string; children: React.ReactNode }) {
+  const key = `labCollapse:${id}`;
+  // 初始即讀本機記憶（避免掛載後才翻轉造成閃動）；僅用於用戶端渲染的區塊（此頁資料載入後才渲染，不在 SSR 輸出內）
+  const [isOpen, setIsOpen] = useState(() => { const v = typeof window === 'undefined' ? null : storageGet(key); return v === '1' ? true : v === '0' ? false : defaultOpen; });
+  const flip = () => setIsOpen(v => { storageSet(key, v ? '0' : '1'); return !v; });
+  return (
+    <section style={{ marginTop: 12, border: '1px solid var(--border-primary)', borderRadius: 12, overflow: 'hidden' }}>
+      <button type="button" onClick={flip} aria-expanded={isOpen}
+        style={{ width: '100%', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', padding: '8px 12px', background: 'var(--bg-secondary)', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
+        <span style={{ color: '#7dd3fc', width: 12 }}>{isOpen ? '▾' : '▸'}</span>
+        <span style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))' }}>{title}</span>
+        {count != null && <span style={{ ...MONO, fontSize: 'calc(12px * var(--fz))', padding: '0 8px', borderRadius: 999, background: tone || 'rgba(125,211,252,0.15)', color: 'var(--text-primary)' }}>{count}</span>}
+        {sub && <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</span>}
+      </button>
+      {isOpen && <div style={{ padding: '8px 10px 10px' }}>{children}</div>}
+    </section>
   );
 }

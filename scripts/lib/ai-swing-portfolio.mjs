@@ -242,6 +242,7 @@ export function portfolioSnapshot(docs, days) {
     const i0 = entered ? days.findIndex(d => d.date === l.buy.date) : -1;
     holdings.push({
       date: l.date, code: l.code, name: l.name, shares: l.shares, horizon: l.horizon, reason: l.reason,
+      state: l.status === 'selling' ? 'selling' : entered ? 'held' : 'pending',   // 機器可讀狀態（2026-09-30；status 為給人看的文字）
       status: l.status === 'selling' ? `AI 賣出委託（${l.sell.orderDate} 盤後決定，下一交易日 09:00 開盤成交）` : entered ? '持有中' : '待進場（下一交易日 09:00 開盤）',
       sellReason: l.sell?.reason || null, fillSource: l.buy?.source ?? null, fillRecordedAt: l.buy?.recordedAt ?? null,
       entryDate: l.buy?.date ?? null, entryAt: l.buy?.at ?? null, entryPx: l.buy?.px ?? null, cost,

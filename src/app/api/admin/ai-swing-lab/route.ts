@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/require-admin';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJsonAuto } from '@/lib/gzip-response';
-import { swingStats, swingAccount, type SwingLabDoc } from '../../../../../scripts/lib/ai-swing-lab.mjs';
+import { swingStats, swingAccount, grossOf, poolGrossOf, type SwingLabDoc } from '../../../../../scripts/lib/ai-swing-lab.mjs';
 import { portfolioState } from '../../../../../scripts/lib/ai-swing-portfolio.mjs';
+import { accountSummary } from '../../../../../scripts/lib/ai-swing-history.mjs';
 
 // ── 🤖 AI 實驗·波段持有（**超級管理員專用**）──────────────────────────
 // GET：各持有期（5/10/20/60/120 日）AI 選股 vs 整池、依模型分組、逐日列表與明細（含選股原因、prompt 與原始回覆供稽核）。
@@ -32,13 +33,20 @@ export async function GET(request: Request) {
     // 依模型分組：換模型後的成績不可與舊模型混算
     const byModel: Record<string, ReturnType<typeof swingStats>> = {};
     for (const name of [...new Set(docs.map(d => d.model?.name || '未知'))]) byModel[name] = swingStats(docs.filter(d => (d.model?.name || '未知') === name));
-    const detail = want && DATE_RE.test(want) ? docs.find(d => d.date === want) || null : docs[0] || null;
+    const picked = want && DATE_RE.test(want) ? docs.find(d => d.date === want) || null : docs[0] || null;
+    // 研究結算一律顯示未扣成本（使用者 2026-09-30 規則）：舊紀錄只有扣過固定成本的 net／avg ⇒ 換算回未扣成本的 ret／avgRet
+    const detail = picked ? { ...picked, outcomes: Object.fromEntries(Object.entries(picked.outcomes || {}).map(([h, o]) => [h, {
+      ...o, pool: o.pool ? { ...o.pool, avgRet: poolGrossOf(o.pool) ?? undefined } : null,
+      picks: (o.picks || []).map(p => ({ ...p, ret: grossOf(p) })),
+    }])) } : null;
     // 持有清單（最新收盤計市值）與結算清單：daemon 每日結算後寫 aiLabAccounts/swing
     const snapshot = (await db.collection('aiLabAccounts').doc('swing').get()).data() || null;
     // G2-11：下載資料一律壓縮（Cloud Run 前無自動 gzip）；JSON 內容與舊版相同。
     return gzipJsonAuto({
       found: docs.length > 0,
       stats: swingStats(docs), byModel, snapshot,
+      // 帳戶摘要（與每日戰績同一口徑：總值＝現金＋持倉淨市值）；daemon 新版快照會附 summary，舊快照即時換算
+      summary: snapshot ? (snapshot.summary ?? accountSummary(snapshot)) : null,
       // 波段帳戶 50 萬（與當沖帳戶分開、不互通）：由成交記錄重算（v3 AI 主動操作）
       // 帳戶以 daemon 快照為準（含日線：成交裁減、T+2 應收應付、委託保留）；無快照才由成交記錄估算
       account: snapshot?.account ?? swingAccount(docs),
