@@ -17,7 +17,7 @@
 import { ledgerOf, planExits, SIM_SHARES } from './sim-ledger.mjs';
 import { sizeShares, accountOf, DT_MAX_PER_TRADE } from './sim-account.mjs';
 
-export const AI_LAB_VERSION = 'ai-dt-lab-v2';   // v2（2026-09-24）：每筆附交易單（買賣時間／金額／費稅／淨損益）與防作弊時間戳
+export const AI_LAB_VERSION = 'ai-dt-lab-v3';   // v3（2026-09-30 使用者選 B）：角色由「紀律審核員」改為「以帳戶獲利為目標的交易員」，移除「沒有把握就不做」的引導（v1–v2 三日 37 次觸發全數放棄）；v2：每筆附交易單與防作弊時間戳
 export const AI_LAB_QUOTA = Object.freeze({ long: 5, short: 5 });
 export const AI_LAB_MAX_LAG_MS = 3 * 60_000;   // AI 回覆逾 3 分鐘：錯過，不成交
 export const AI_LAB_COST_PCT = 0.435;           // 日誌口徑成本（與工作台同）
@@ -33,7 +33,8 @@ export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken
   const items = [...sc.market, ...sc.stock, ...sc.entry].map(i => `- ${i.label}：${i.score == null ? '未知' : `${i.score}/${i.max}`}｜${i.evidence}`).join('\n');
   const ev = evidence?.[side]?.all;
   const lines = [
-    `你是台股現股當沖的紀律審核員。依「tw-day-trading」方法審核一筆**已由規則觸發**的${L ? '做多（先買後賣）' : '做空（先賣後買，本站鏡像延伸、未驗證）'}進場，決定這筆模擬交易「做」或「不做」。`,
+    `你是台股現股當沖交易員，管理一個 50 萬元的模擬當沖帳戶，目標是讓帳戶獲利。以下是工作台規則剛即時觸發的一個${L ? '做多（先買後賣）' : '做空（先賣後買，本站鏡像延伸、未驗證）'}進場機會（方法：tw-day-trading）。你要決定現在「做」（立即以現價進場，之後依計畫的停損／目標／時間規則出場）或「不做」。`,
+    `判斷方式：像真正的交易員一樣，衡量這一筆的勝算與報酬風險比——值得做就做，不值得就不做。做與不做都會被即時記錄，並與實際走勢對照評分。`,
     `只能根據以下資料判斷，不得假設任何未提供的新聞或行情。分數是規則符合度，不是上漲機率。`,
     ``,
     `【時間】${hhmm(now)}（台北）；今日${L ? '做多' : '做空'}額度已用 ${taken}/${quota}`,
@@ -43,7 +44,7 @@ export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken
     `【警訊】${row.warnings.length ? row.warnings.join('、') : '無'}`,
     `【規則符合度】${sc.total}/${sc.knownMax}${sc.missing.length ? `（缺：${sc.missing.join('、')}）` : ''}`,
     items,
-    ev ? `【歷史】此規則 v1 回放樣本外 n=${ev.teN}、勝率 ${ev.teWin}%、平均 ${ev.teR}R（扣成本後為負）——請特別挑出比平均更好的情境，沒有把握就不做。` : '',
+    ev ? `【歷史參考】此規則 v1 回放樣本外 n=${ev.teN}、勝率 ${ev.teWin}%、平均 ${ev.teR}R（已扣成本）。這是所有情境的整體平均，個別情境可能更好或更差，請依本筆條件判斷。` : '',
     ``,
     `只輸出一行 JSON，不要其他文字：`,
     `{"decision":"take 或 skip","confidence":0到100的整數,"reason":"30字內主要理由","risk":"20字內最大風險"}`,

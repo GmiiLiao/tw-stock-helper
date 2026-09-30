@@ -156,3 +156,14 @@ test('執行器：帳戶起點讀取失敗不凍結（G2-19）；無記錄時分
   assert.equal(await lab.finalize('2026-09-24', null), true);
   assert.match(db.store['2026-09-24'].reviewNote, /無盤中紀錄/);
 });
+
+test('決策 prompt（v3，使用者 09-30 選 B）：交易員角色、以帳戶獲利為目標；不得有「沒有把握就不做」之類偏向放棄的引導', async () => {
+  const { buildDecisionPrompt, AI_LAB_VERSION } = await import('./ai-daytrade-lab.mjs');
+  const row = { m: { c: 41, chg: 3, vwap: 40.5, vwapDev: 1.2 }, warnings: [], score: { total: 60, knownMax: 80, tier: null, parts: {}, missing: [], market: [], stock: [], entry: [] } };
+  const p = buildDecisionPrompt({ side: 'long', code: '1111', name: '測', row, trade: { type: 'ORB', why: 'x', entry: 41, stop: 40, d: 1, costR: 0.2, targets: [42, 43, 44] }, quota: 5, taken: 0,
+    evidence: { long: { all: { teN: 120, teWin: 38, teR: -0.33 } } }, now: Date.parse('2026-09-30T01:30:00Z') });
+  assert.match(p, /交易員/); assert.match(p, /帳戶獲利/);
+  assert.doesNotMatch(p, /沒有把握就不做|紀律審核員|扣成本後為負/);
+  assert.match(p, /n=120/, '歷史數據仍如實揭露');
+  assert.equal(AI_LAB_VERSION, 'ai-dt-lab-v3');
+});
