@@ -50,7 +50,7 @@ export default function DeskRiskPanel({ risk, setRisk, broker }: { risk: DeskRis
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 8 }}>
           {field('每筆最大可承受損失（元）', 'riskCapTwd', '必填：沒填只列觀察', '例 3000')}
           {field('可用資金／當沖額度（元）', 'capitalTwd', '限制張數上限', '例 500000')}
-          {field('單日虧損上限（元）', 'dailyCapTwd', '到達即停止提出進場', '例 9000')}
+          {field('單日虧損上限（元）', 'dailyCapTwd', '到達即停止提出新的觀察進場', '例 9000')}
           {field('今日已實現虧損（元）', 'todayLossTwd', '手動填，從上限扣除', '0')}
           {field('預估單邊滑價（檔）', 'slipTicks', '進出各算一次', '1')}
           <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', maxWidth: '32em', lineHeight: 1.6 }}>

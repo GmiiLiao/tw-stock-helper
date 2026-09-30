@@ -1,7 +1,8 @@
 'use client';
 
 // 當沖工作台一列：名單基本資料（BaseRow）＋ 5 秒監控中的評分與計畫（DeskRowData，可缺）。
-// 兩側同一模板：①代號／價 ②M·S·E 分數＋setup 狀態 ③計畫（進場·結構停損·1R·目標·淨R·張數·失效）④否決／警訊／出場
+// 2026-09-30 重整（使用者：資料太混亂、無法一眼看出關鍵）：收起時只有 ①代號·分數·價·漲跌 ②一行重點（成立／出場／等待還差什麼／否決）；
+//   M·S·E 分項、完整計畫（1R·淨R·張數）、評分證據、走勢圖點開才看。v1 規則尚未驗證出正報酬 ⇒ 一律用「觀察／假設進場」措辭，不寫「進場」。
 import { useState } from 'react';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
@@ -20,6 +21,15 @@ export const hhmm = (t: number | null | undefined) => (t ? new Date(t).toLocaleT
 const tickOf = (p: number) => (p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5);
 const roundTick = (p: number, dir: number) => { const t = tickOf(p); const k = p / t; return +((dir > 0 ? Math.ceil(k - 1e-9) : Math.floor(k + 1e-9)) * t).toFixed(2); };
 const TIER_C: Record<string, string> = { 優先觀察: '#22c55e', 等待: '#f59e0b', 低優先: 'var(--text-muted)' };
+
+/** 欄內分組：on＝規則成立中、stop＝剛出場（15 分鐘內）、wait＝已寫定觸發價在等、other＝其餘 */
+export function rowGroupOf(desk: DeskRowData | null, now: number): 'on' | 'stop' | 'wait' | 'other' {
+  const st = desk?.st;
+  if (st?.phase === 'on') return 'on';
+  if (st?.phase === 'stop' && st.stopAt && now - st.stopAt < STOP_KEEP_MS) return 'stop';
+  if (desk?.watch?.some(x => x.trigger != null && x.stop != null)) return 'wait';
+  return 'other';
+}
 
 export interface DeskRowProps { base: BaseRow | null; desk: DeskRowData | null; now: number; risk: DeskRisk; broker: BrokerSettings; dtStatus: 0 | 1 | 2 | null }
 
@@ -55,7 +65,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
     <div className={cls} data-anchor={code} style={{ borderRadius: 8, marginTop: 4, ...(cls === 'dt-row' ? { background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.05)' } : {}) }}>
       <div onClick={() => setOpen(v => !v)} title="點列展開評分證據與走勢；點代號開個股" style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 'calc(13.5px * var(--fz))' }}>
         {/* ① 代號・價 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6em 1.8em 3.7em minmax(0, 1fr) auto 4.8em 5.2em', columnGap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `1.6em 1.8em 3.7em minmax(0, 1fr) auto 4.8em ${L ? '5.2em' : '7em'}`, columnGap: 6, alignItems: 'center' }}>
           <span style={{ fontWeight: 900, textAlign: 'center', color: isOn ? (L ? 'var(--color-up)' : 'var(--color-down)') : '#f59e0b' }}>{isOn ? (L ? '▲' : '▼') : isStop ? '🏁' : ''}</span>
           <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', fontWeight: 700 }}>{base?.rank ?? '·'}</span>
           <span onClick={e => { e.stopPropagation(); navigateTo('stock', code); }} style={{ ...NUM, fontWeight: 800, textDecoration: 'underline dotted' }}>{code}</span>
@@ -67,8 +77,13 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
           </span>
           {scorePill}
           <span style={{ ...NUM, textAlign: 'right', fontWeight: 700 }}>{price ?? '—'}</span>
-          <span style={{ ...NUM, textAlign: 'right', fontWeight: 800, color: upDn(chg) }}>{pct(chg)}</span>
+          <span title={L ? '今日漲跌' : '今日漲跌（做空候選＝今天已漲、等轉弱；不是放空損益）'} style={{ ...NUM, textAlign: 'right', fontWeight: 800, color: upDn(chg) }}>{L ? '' : <span style={{ fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>今日</span>}{pct(chg)}</span>
         </div>
+        {/* 一行重點 */}
+        <KeyLine L={L} isOn={isOn} isStop={isStop} act={act} w={w} pEntry={pEntry} pStop={pStop} targets={targets} lp={lp} expire={expire} desk={desk} now={now} />
+      </div>
+      {open && (
+        <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
         {/* ② 分數＋setup 狀態 */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 'calc(12px * var(--fz))', marginTop: 2, color: 'var(--text-muted)' }}>
           {sc ? (['market', 'stock', 'entry'] as const).map(k => (
@@ -81,7 +96,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
         {/* ③ 計畫 */}
         {pEntry != null && pStop != null && targets ? (
           <div style={{ ...NUM, fontSize: 'calc(12px * var(--fz))', marginTop: 2, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <span>{act ? '進' : '觸發'} <b>{pEntry}</b></span>
+            <span>{act ? '假設進場' : '觸發'} <b>{pEntry}</b></span>
             <span>停 <b style={{ color: '#f59e0b' }}>{act?.trail != null && act.trail !== act.stop ? `${act.trail}（原 ${pStop}）` : pStop}</b></span>
             <span>1R {d?.toFixed(2)}</span>
             <span>目標 {targets.map((t, i) => <span key={i} style={{ color: act?.hit?.[i] ? (L ? 'var(--color-up)' : 'var(--color-down)') : undefined, fontWeight: act?.hit?.[i] ? 800 : 400 }}>{i ? '／' : ''}{t}</span>)}</span>
@@ -97,9 +112,6 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
             : desk?.warnings?.length ? <span style={{ color: '#f59e0b' }}>⚠ {desk.warnings.join('、')}</span>
             : <span style={{ color: 'var(--text-muted)' }}>{base?.reason ?? ''}</span>}
         </div>
-      </div>
-      {open && (
-        <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
           {sc && <ScoreTable items={[...sc.market, ...sc.stock, ...sc.entry]} />}
           {desk?.orb && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', margin: '4px 0' }}>開盤區間（{hhmm(desk.orb.formedAt)} 形成）開 {desk.orb.O}·高 {desk.orb.H}·低 {desk.orb.L}·今日假突破 {desk.falseBreaks} 次</div>}
           <StockTrendChart code={code} name={name} closePrice={price ?? 0} changePercent={chg ?? 0} />
@@ -107,6 +119,22 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
       )}
     </div>
   );
+}
+
+function KeyLine({ L, isOn, isStop, act, w, pEntry, pStop, targets, lp, expire, desk, now }: {
+  L: boolean; isOn: boolean; isStop: boolean; act: DeskRowData['plan'] | null; w: NonNullable<DeskRowData['watch']>[number] | null;
+  pEntry: number | null; pStop: number | null; targets: number[] | null; lp: ReturnType<typeof planLots> | null; expire: number | null; desk: DeskRowData | null; now: number;
+}) {
+  const S: React.CSSProperties = { fontSize: 'calc(12.5px * var(--fz))', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+  const col = L ? 'var(--color-up)' : 'var(--color-down)';
+  if (isStop && act?.exit) return <div style={{ ...S, color: '#f59e0b', fontWeight: 700 }}>🏁 {hhmm(act.exit.t)} 出場 @{act.exit.px}·{act.exit.reason}·淨 {act.netR != null ? `${act.netR >= 0 ? '+' : ''}${act.netR}R` : '—'}</div>;
+  if (isOn && act) return (
+    <div style={{ ...S, ...NUM }}><b style={{ color: col }}>⚡ 成立（觀察）{hhmm(act.t)}·{act.type}</b>　假設進場 <b>{pEntry}</b>·停 <b style={{ color: '#f59e0b' }}>{act.trail != null && act.trail !== act.stop ? act.trail : pStop}</b>·目標 {targets?.join('／')}
+      {lp?.lots ? <>·{lp.lots} 張風險約 −{lp.riskTwd?.toLocaleString()} 元</> : null}{expire ? <>·⏱{hhmm(expire)}</> : null}</div>
+  );
+  if (desk?.vetoed && now - desk.vetoed.t < STOP_KEEP_MS) return <div style={{ ...S, color: '#f59e0b' }}>⛔ {hhmm(desk.vetoed.t)} {desk.vetoed.type} 否決：{desk.vetoed.veto.join('；')}</div>;
+  if (w) return <div style={{ ...S, color: 'var(--text-secondary, var(--text-muted))' }}>⏳ {w.type}·還差：{w.note}<span style={NUM}>（觸發 {w.trigger}·停 {w.stop}）</span></div>;
+  return null;
 }
 
 function ScoreTable({ items }: { items: ScoreItem[] }) {

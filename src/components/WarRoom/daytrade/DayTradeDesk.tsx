@@ -15,7 +15,7 @@ import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import type { FadeSnap } from '@/lib/fade-patterns';
 import DeskRiskPanel, { useDeskRisk } from './DeskRiskPanel';
-import DeskRow, { hhmm } from './DeskRow';
+import DeskRow, { hhmm, rowGroupOf } from './DeskRow';
 import DeskJournal from './DeskJournal';
 import { useAlertDoc, useDeskLists, LIST_N } from './useDeskData';
 import type { BaseRow, DeskRowData, DeskEvidence, ScoreItem, Side } from './types';
@@ -83,9 +83,14 @@ export default function DayTradeDesk({ snaps, marketOpen, wide }: { snaps: FadeS
       </div>
 
       {tab === 'journal' ? <DeskJournal /> : <>
+        {/* ⚠ 觀察工具聲明（2026-09-30 使用者：規則是否有問題？——實績為負，必須放在最顯眼處，不再埋在說明文字裡） */}
+        <div style={{ padding: '8px 12px', borderRadius: 10, marginBottom: 8, border: '1px solid rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.08)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
+          <b style={{ color: '#ef4444' }}>⚠ 觀察工具，不是買賣訊號</b>：規則 {doc?.version ?? 'v1'} 回放（扣成本）做多平均 <b>{doc?.evidence?.long?.all ? `${doc.evidence.long.all.teR}R·勝率 ${doc.evidence.long.all.teWin}%` : '—'}</b>、做空平均 <b>{doc?.evidence?.short?.all ? `${doc.evidence.short.all.teR}R·勝率 ${doc.evidence.short.all.teWin}%` : '—'}</b>——平均是虧的。
+          規則驗證出正報酬之前，下方「成立」「假設進場」只供觀察與記錄；每一筆的實際結果在「日誌與迭代」，並每日餵給 AI 交易員經驗庫訓練。
+        </div>
         <DeskRiskPanel risk={risk} setRisk={setRisk} broker={broker} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8, minHeight: '1.8em' }}>
-          <b style={{ color: 'var(--text-primary)' }}>⚡ 觸發／出場</b>
+          <b style={{ color: 'var(--text-primary)' }}>⚡ 成立／出場（觀察）</b>
           {!doc?.found ? <span>今日尚未啟動（09:05 開盤區間形成後開始評估）</span> : !events.length ? <span>{marketOpen ? '監控中，尚無觸發' : `非盤中·最後 ${hhmm(doc.at)}`}</span>
             : events.map(e => (
               <span key={`${e.side}${e.code}${e.t}${e.kind}`} style={{ padding: '1px 8px', borderRadius: 999, fontWeight: 700, background: e.kind === 'stop' ? 'rgba(245,158,11,0.14)' : e.side === 'long' ? 'rgba(240,62,62,0.14)' : 'rgba(47,158,68,0.14)', color: e.kind === 'stop' ? '#f59e0b' : e.side === 'long' ? 'var(--color-up)' : 'var(--color-down)' }}>
@@ -101,17 +106,26 @@ export default function DayTradeDesk({ snaps, marketOpen, wide }: { snaps: FadeS
               market={((side === 'long' ? doc?.long : doc?.short) || [])[0]?.score.market ?? null} />
           ))}
         </div>
-        <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          <b>怎麼讀</b>：分數是<b>規則符合度，不是上漲機率</b>；有「未知」子項時只列已知分／已知滿分與待確認，不給分級（≥75 優先觀察、60–74 等待、&lt;60 低優先）。
+        <details style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <summary style={{ cursor: 'pointer', color: '#7dd3fc' }}>怎麼讀（規則、出場計畫、否決條件）</summary>
+          分數是<b>規則符合度，不是上漲機率</b>；有「未知」子項時只列已知分／已知滿分與待確認，不給分級（≥75 優先觀察、60–74 等待、&lt;60 低優先）。
           Setup：ORB＝前 {doc?.params?.orbBars ?? 5} 分鐘區間突破→站穩→再攻；突破回踩＝放量過昨高→量縮回測守住→再攻過短線高；開低反轉＝開低 ≥1%→較高低點＋收復 VWAP＋過短線高（11:00 前）。
           出場計畫：1R 落袋 1/3 並把停損移到成本、2R 再 1/3 並把停損移到 1R、餘部到 3R；未到 1R 前連 2 根失守 VWAP 或 20 分鐘沒走出 0.5R 就出場；13:20 起以完成沖銷為優先。
           硬性否決：不可當沖／處置股、每股風險 &gt;{doc?.params?.maxStopPct ?? 3}%、距 VWAP &gt;{doc?.params?.maxVwapDevPct ?? 3}%、距漲（跌）停 &lt;{doc?.params?.nearLimitPct ?? 1}% 或 2R 超過漲跌停、2R 扣成本淨 &lt;{doc?.params?.minNetR2 ?? 1.5}R、12:30 後。
           評分與 1 分 K 只有 5 秒監控中的個股才有（多、空各約 18 檔）；台指期盤中無資料來源，永遠列為缺項。<b>「優先觀察」不是買進指令</b>；做空為鏡像延伸、未經驗證。非投資建議。
-        </div>
+        </details>
       </>}
     </div>
   );
 }
+
+// 欄內分組順序（2026-09-30 重整）：成立中→剛出場→等待條件→其餘（預設收起）
+const GROUPS: { k: 'on' | 'stop' | 'wait' | 'other'; t: (L: boolean) => string }[] = [
+  { k: 'on', t: () => '⚡ 成立中（觀察）' },
+  { k: 'stop', t: () => '🏁 剛出場' },
+  { k: 'wait', t: () => '⏳ 等待條件（還差一步）' },
+  { k: 'other', t: L => (L ? '其餘候選（尚無型態）' : '其餘候選（今日已漲·尚未轉弱）') },
+];
 
 function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market }: {
   side: Side; rows: { base: BaseRow | null; desk: DeskRowData | null }[]; now: number; risk: Parameters<typeof DeskRow>[0]['risk']; broker: Parameters<typeof DeskRow>[0]['broker'];
@@ -123,12 +137,13 @@ function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market 
   const mSum = market ? market.filter(i => i.score != null).reduce((a, i) => a + (i.score ?? 0), 0) : null;
   const mMax = market ? market.filter(i => i.score != null).reduce((a, i) => a + i.max, 0) : null;
   const active = rows.filter(r => r.desk?.st?.phase === 'on').length;
+  const [showOther, setShowOther] = useState(false);
   return (
     <section style={{ minWidth: 0, borderRadius: 10, border: `1px solid ${L ? 'rgba(240,62,62,0.35)' : 'rgba(47,158,68,0.35)'}`, background: L ? 'rgba(240,62,62,0.03)' : 'rgba(47,158,68,0.03)' }}>
       <div style={{ padding: '8px 10px 6px', minHeight: '5.4em' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 900, color, fontSize: 'calc(14px * var(--fz))' }}>{L ? '▲ 做多（先買後賣）' : '▼ 做空（先賣後買·鏡像延伸）'}</span>
-          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{rows.length} 檔·僅可{L ? '先買' : '先賣'}當沖、排除處置股{active ? <b style={{ color }}> · 持倉中 {active}</b> : null}</span>
+          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{rows.length} 檔·僅可{L ? '先買' : '先賣'}當沖、排除處置股{active ? <b style={{ color }}> · 成立中（觀察）{active}</b> : null}</span>
         </div>
         <div title={market?.map(i => `${i.label}：${i.score ?? '未知'}/${i.max}｜${i.evidence}`).join('\n')} style={{ fontSize: 'calc(12px * var(--fz))', marginTop: 3, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           Market <b style={{ color: 'var(--text-primary)' }}>{mSum ?? '—'}/{mMax ?? 20}</b>{market ? ` · ${market.map(i => `${i.label.slice(0, 4)} ${i.score ?? '未知'}`).join(' · ')}` : ' · 盤中評估後顯示'}
@@ -140,8 +155,20 @@ function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market 
       <div style={{ height: 'max(520px, calc(100vh - 360px))', overflowY: 'auto', padding: '0 6px 6px' }}>
         {!dtLoaded ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>當沖資格／處置股名單載入中（或暫時無法取得）：確認可當沖且非處置股前不列任何個股。</div>
           : !rows.length ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>目前沒有符合的個股。</div>
-          : rows.map(r => <DeskRow key={(r.base?.code ?? r.desk!.code)} base={r.base ?? { side, code: r.desk!.code, name: r.desk!.name, market: 'tse', rank: 0, price: null, chg: null, hiUp: null, give: null, vwapDev: null, label: '監控', labelColor: 'var(--text-muted)', reason: '5 秒監控中（不在名單前 30）' }}
-            desk={r.desk} now={now} risk={risk} broker={broker} dtStatus={statusOf(dt, r.base?.code ?? r.desk!.code)} />)}
+          : GROUPS.map(g => {
+            const list = rows.filter(r => rowGroupOf(r.desk, now) === g.k);
+            if (!list.length) return null;
+            const folded = g.k === 'other' && !showOther;
+            return (
+              <div key={g.k} style={{ marginTop: 6 }}>
+                <div onClick={g.k === 'other' ? () => setShowOther(v => !v) : undefined} style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: g.k === 'on' ? color : g.k === 'stop' ? '#f59e0b' : 'var(--text-muted)', padding: '2px 4px', cursor: g.k === 'other' ? 'pointer' : 'default' }}>
+                  {g.k === 'other' ? `${folded ? '▸' : '▾'} ` : ''}{g.t(L)} {list.length} 檔
+                </div>
+                {!folded && list.map(r => <DeskRow key={(r.base?.code ?? r.desk!.code)} base={r.base ?? { side, code: r.desk!.code, name: r.desk!.name, market: 'tse', rank: 0, price: null, chg: null, hiUp: null, give: null, vwapDev: null, label: '監控', labelColor: 'var(--text-muted)', reason: '5 秒監控中（不在名單前 30）' }}
+                  desk={r.desk} now={now} risk={risk} broker={broker} dtStatus={statusOf(dt, r.base?.code ?? r.desk!.code)} />)}
+              </div>
+            );
+          })}
       </div>
     </section>
   );

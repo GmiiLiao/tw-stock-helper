@@ -63,7 +63,7 @@ export default function DeskJournal() {
               <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.name}</span>
               <span>{e.type}</span>
               <span style={{ color: e.traded ? 'var(--text-muted)' : '#f59e0b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={e.veto.join('；')}>
-                {e.traded ? `進 ${e.entry}·停 ${e.stop}${e.exit ? `→${e.exit.reason} @${e.exit.px}` : '·持倉中'}${e.score ? `·${e.score.total}/${e.score.knownMax}` : ''}` : `⛔ ${e.veto.join('；')}`}
+                {e.traded ? `假設進場 ${e.entry}·停 ${e.stop}${e.exit ? `→${e.exit.reason} @${e.exit.px}` : '·成立中'}${e.score ? `·${e.score.total}/${e.score.knownMax}` : ''}` : `⛔ ${e.veto.join('；')}`}
               </span>
               <span style={{ ...NUM, color: rC(e.netR), fontWeight: 800 }}>{e.netR == null ? '—' : `${e.netR >= 0 ? '+' : ''}${e.netR}R`}</span>
             </div>
