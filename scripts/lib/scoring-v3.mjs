@@ -61,16 +61,16 @@ export function crossSection(days, t) {
   const subPct = {}; for (const f of V3_FACTORS) for (const s of SUB[f]) subPct[s] = pctRank(raws.map(r => r[s]));
   const factors = {};
   for (const f of V3_FACTORS) factors[f] = codes.map((_, i) => SUB[f].reduce((a, s) => a + subPct[s][i], 0) / SUB[f].length);
-  return { date: days[t].date, codes, raws, factors };
+  return { date: days[t].date, codes, raws, factors, subs: subPct };
 }
 
-/** 驗證標籤（原始報酬 %）：S＝隔日跳空、W5／W20＝D+1 開盤買、第 h 日收盤賣；資料不足回 null */
+/** 驗證標籤（原始報酬 %）：S＝隔日跳空、W5／W20＝D+1 開盤買、第 h 日收盤賣、I1＝D+1 盤中（收÷開，診斷用）；資料不足回 null */
 export function labelsFor(days, t, code) {
   const c0 = days[t].m[code]?.[0], d1 = days[t + 1]?.m[code];
-  const o1 = d1?.[2] > 0 ? d1[2] : d1?.[0];
+  const o1 = d1?.[2] > 0 ? d1[2] : null;                                   // 無開盤價不以收盤充數（口徑會變成收對收）
   const S = c0 > 0 && o1 > 0 ? (o1 / c0 - 1) * 100 : null;
   const W = h => { const x = days[t + h]?.m[code]?.[0]; return o1 > 0 && x > 0 ? (x / o1 - 1) * 100 : null; };
-  return { S, W5: W(5), W20: W(20) };
+  return { S, W5: W(5), W20: W(20), I1: W(1) };
 }
 
 /** 超額：減當日宇宙等權平均（null 保持 null） */
@@ -102,4 +102,23 @@ export function meanT(xs) {
   const v = xs.filter(x => x != null && Number.isFinite(x)); const n = v.length; if (n < 3) return { n, mean: null, t: null };
   const m = v.reduce((a, b) => a + b, 0) / n; const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1));
   return { n, mean: m, t: sd > 0 ? m / (sd / Math.sqrt(n)) : null };
+}
+
+/** 當日前 n 名（百分位高→低；同分依代號，結果穩定） */
+export function topN(codes, pct, n = 20) {
+  return codes.map((code, i) => ({ code, pct: pct[i] })).sort((a, b) => b.pct - a.pct || a.code.localeCompare(b.code)).slice(0, n);
+}
+
+/** 影子記分板（規範 §8）：逐日 [{date, v3, v2}]（同一標籤的超額 %）→ 平均、差值 95% CI、是否達「提請切換」條件 */
+export function shadowBoard(rows, minDays = 20) {
+  const both = rows.filter(r => Number.isFinite(r.v3) && Number.isFinite(r.v2));
+  const n = both.length;
+  const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
+  if (!n) return { n: 0, v3: null, v2: null, diff: null, lo: null, hi: null, switchReady: false };
+  const diffs = both.map(r => r.v3 - r.v2); const d = mean(diffs);
+  const se = n > 1 ? Math.sqrt(diffs.reduce((a, x) => a + (x - d) ** 2, 0) / (n - 1) / n) : null;
+  const v3 = mean(both.map(r => r.v3)), v2 = mean(both.map(r => r.v2));
+  const lo = se != null ? d - 1.96 * se : null, hi = se != null ? d + 1.96 * se : null;
+  const switchReady = n >= minDays && ((lo != null && lo > 0) || (v3 < 0 && v2 < 0 && v3 > v2));
+  return { n, v3, v2, diff: d, lo, hi, switchReady };
 }

@@ -10972,6 +10972,8 @@ const WEIGHTS_REGISTRY = [
   { name: 'instWeight 修剪版', version: '2026-09-18.v2', trainedThrough: '2026-09-16', reviewBy: '2026-11-17', board: 'top20' },
   { name: 'limitUp lift 表', version: '2026-09-18.v2', trainedThrough: '2026-08-19', reviewBy: '2026-11-17', board: null },
   { name: 'volSurge strength', version: '2026-08', trainedThrough: '2026-08', reviewBy: '2026-11-17', board: 'volSurge' },
+  // v3 S 影子（2026-09-30）：權重檔 scripts/data/scoring-v3-weights.json；記分板在 scoringV3/scoreboard（不在 picksScoreboard，board 留 null）
+  { name: '技術評分 v3 S（影子）', version: 'scoring-v3.0', trainedThrough: '2025-09-30', reviewBy: '2026-12-29', board: null },
   { name: 'chipPicks', version: '2026-08', trainedThrough: '2026-08', reviewBy: '2026-11-17', board: 'chipPicks' },
 ];
 async function weightsHealthCheck(aggV2) {
@@ -14541,6 +14543,7 @@ const ASIA_SLOTS = [
   [12 * 60 + 30, '12:30'], [13 * 60 + 30, '13:30'],
 ];
 let _labLearnDate = '';   // 🧠 交易員經驗庫盤後訓練（18:30 起，完成記錄 labLearn）
+let _v3ShadowDate = '', _v3ShadowFail = { date: '', n: 0 };   // 📐 技術評分 v3 影子（18:45 起，完成記錄 scoringV3；失敗當日最多 3 次）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
@@ -14594,6 +14597,7 @@ async function dailyJobsLoop() {
         if (marks.finReports !== t) { await timedJob('finReports', computeFinReports, '(boot 補跑·今日未跑)'); await markJobDone('finReports', t); }
       }
       if (marks.labLearn === t) _labLearnDate = t;
+      if (marks.scoringV3 === t) _v3ShadowDate = t;
       if (m >= 16 * 60 + 30 && marks.official === t) _officialDate = t;
       if (m >= 21 * 60 + 45 && marks.margin === t) _marginDate = t;
       if (m >= 16 * 60 + 30 && marks.official !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
@@ -15060,6 +15064,15 @@ async function dailyJobsLoop() {
           if (await execScript('ai-lab-learn.mjs', [], '🧠 交易員經驗庫訓練', 20)) { _labLearnDate = today; await markJobDone('labLearn', today); await refreshLearned(); }
           else _labLearnDate = today;   // 失敗當日不再重試（避免每 5 分鐘重跑）；log 已記錄，隔日照常
         }
+        // 📐 技術評分 v3 影子模式（2026-09-30 使用者核可 docs/SCORING-SPEC-v3.md）：只記錄 v3 與 v2 Top20 的前瞻對照，不影響任何榜單。
+        //   法人未齊／除權息來源失敗／處置名單殘缺時腳本不寫並回報失敗 ⇒ 每 5 分鐘一輪最多重試 3 次，之後當日放棄（隔日照常）
+        if (mins >= 18 * 60 + 45 && _v3ShadowDate !== today) {
+          if (await execScript('scoring-v3-shadow.mjs', [], '📐 技術評分 v3 影子', 10)) { _v3ShadowDate = today; await markJobDone('scoringV3', today); }
+          else {
+            _v3ShadowFail = { date: today, n: (_v3ShadowFail.date === today ? _v3ShadowFail.n : 0) + 1 };
+            if (_v3ShadowFail.n >= 3) _v3ShadowDate = today;
+          }
+        }
         if (Date.now() - _learnedAt > 3600_000) await refreshLearned();
         if (mins >= 21 * 60 + 45 && _marginDate !== today) {
           // ⚠ **成功才標記**（今天第二次踩到同一個反模式）：
@@ -15364,6 +15377,7 @@ if (ONESHOT) {
     userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
     stressTest: () => computeStressTest(),
     rotation: () => computeRotation(),          // 汰弱留強（持股評分 vs 全市場）
+    scoringV3: () => execScript('scoring-v3-shadow.mjs', [], '📐 技術評分 v3 影子', 10),   // v3 影子手動補跑（冪等）
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
     dayTradeEligible: () => computeDayTradeEligible(),  // 當沖資格名單（盤前可跑）
     dayTradeRatio: () => computeDayTradeRatio(),  // 當沖比率（統計傍晚才發布·會自動回溯補抓最近有統計的交易日）

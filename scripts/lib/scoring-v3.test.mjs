@@ -51,3 +51,14 @@ test('compositePct：權重可為負（反向因子）；全 0 權重＝中性',
   assert.deepEqual(compositePct(f, {}), [50, 50, 50]);
   assert.equal(+meanT([1, 1, 1, 1]).mean, 1);
 });
+
+test('topN：高→低、同分依代號；shadowBoard：未滿 20 日不提請、CI 下界>0 才提請、兩者皆負時 v3 損失較小亦可', async () => {
+  const { topN, shadowBoard } = await import('./scoring-v3.mjs');
+  assert.deepEqual(topN(['b', 'a', 'c'], [50, 50, 90], 2).map(x => x.code), ['c', 'a']);
+  const mk = (n, v3, v2) => Array.from({ length: n }, (_, i) => ({ date: `d${i}`, v3: v3 + (i % 2 ? 0.01 : -0.01), v2 }));
+  assert.equal(shadowBoard(mk(19, 0.5, 0)).switchReady, false);
+  assert.equal(shadowBoard(mk(20, 0.5, 0)).switchReady, true);
+  assert.equal(shadowBoard(mk(20, -0.1, -0.3)).switchReady, true);
+  assert.equal(shadowBoard(mk(20, -0.3, -0.1)).switchReady, false);
+  assert.equal(shadowBoard([{ v3: 1, v2: null }]).n, 0);
+});

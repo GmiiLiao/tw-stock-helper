@@ -1,0 +1,57 @@
+{
+ "version": "scoring-v3.0",
+ "builtAt": "2026-09-30T11:13:55.447Z",
+ "dataDate": "2026-09-30",
+ "dataHash": "6c7c80fe523b",
+ "reviewBy": "2026-12-29",
+ "trainRange": [
+  "2022-10-12",
+  "2025-09-30"
+ ],
+ "ootRange": [
+  "2025-11-03",
+  "2026-09-29"
+ ],
+ "embargo": 20,
+ "scores": {
+  "S": {
+   "label": "S",
+   "passed": true,
+   "weights": {
+    "M": 0,
+    "T": -0.009584,
+    "V": -0.020467,
+    "F": 0.025901,
+    "R": -0.109039
+   },
+   "ootIC": 0.088109,
+   "ootT": 5.225,
+   "gates": {
+    "ic": true,
+    "spread": true,
+    "regime": true,
+    "placebo": true
+   }
+  },
+  "W": {
+   "label": "W5",
+   "passed": false,
+   "weights": {
+    "M": 0,
+    "T": -0.033899,
+    "V": -0.01051,
+    "F": 0,
+    "R": 0.065526
+   },
+   "ootIC": 0.024536,
+   "ootT": 1.287,
+   "gates": {
+    "ic": false,
+    "spread": false,
+    "regime": true,
+    "placebo": true
+   }
+  }
+ },
+ "note": "只有 passed=true 的分數可進影子模式；日常計算只讀此檔，不在線上重估。非投資建議。"
+}
