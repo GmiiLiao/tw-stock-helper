@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 import { settleDate, isSettled, todayTaipeiIso, rollBankToToday } from '@/lib/tw-settlement';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
+import { buildLedger } from '@/lib/portfolio-calc';
 
 // ── 資金總覽（現金流水帳）──
 // 使用者只記三種事件：入金/出金/股利。買入扣款、賣出入帳從交易紀錄的
@@ -96,9 +97,18 @@ export default function CashLedger() {
     const pendingDeduct = pendBuy.reduce((s, t) => s + (t.totalAmount || 0), 0);  // 未交割買進 → 交割日扣款
     const pendingCredit = pendSell.reduce((s, t) => s + (t.totalAmount || 0), 0);  // 未交割賣出 → 交割日入帳
     // 依交割日彙總排程
-    const sched: Record<string, { deduct: number; credit: number }> = {};
-    for (const t of pendBuy) { const d = settleDate(t.date); (sched[d] ||= { deduct: 0, credit: 0 }).deduct += t.totalAmount || 0; }
-    for (const t of pendSell) { const d = settleDate(t.date); (sched[d] ||= { deduct: 0, credit: 0 }).credit += t.totalAmount || 0; }
+    const sched: Record<string, { deduct: number; credit: number; pnl: number; sells: number; unmatched: number }> = {};
+    const slot = (d: string) => (sched[d] ||= { deduct: 0, credit: 0, pnl: 0, sells: 0, unmatched: 0 });
+    for (const t of pendBuy) slot(settleDate(t.date)).deduct += t.totalAmount || 0;
+    for (const t of pendSell) slot(settleDate(t.date)).credit += t.totalAmount || 0;
+    // 已實現損益（2026-09-30 使用者：排程加上獲利金額）：以**全量交易紀錄**重放帳本（buildLedger，成本含買進費、收入已扣賣出費稅），
+    //   依賣出交割日彙總；不讀交易紀錄上存死的 realizedPnL（編輯過會被刪、且可能用過期成本）。無買進可對應的張數另計、不捏造損益。
+    for (const c of buildLedger(tradeRecords).closed) {
+      if (!c.date || isSettled(c.date, today)) continue;
+      const x = slot(settleDate(c.date));
+      if (c.matchedLots > 0) { x.pnl += c.pnl; x.sells++; }
+      if (c.oversoldLots > 0) x.unmatched += c.oversoldLots;
+    }
     const schedule = Object.entries(sched).map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date));
 
     return { deposits, withdraws, dividends, buys, sells, cash, netDeposits, mv, totalReturn, retPct, pendingDeduct, pendingCredit, schedule };
@@ -217,6 +227,9 @@ export default function CashLedger() {
               <span>{s.date}</span>
               {s.deduct > 0 && <span style={{ color: '#ef4444' }}>扣款 −{s.deduct.toLocaleString()}</span>}
               {s.credit > 0 && <span style={{ color: '#f03e3e' }}>入帳 +{s.credit.toLocaleString()}</span>}
+              {s.deduct > 0 && s.credit > 0 && <span style={{ color: 'var(--text-muted)' }}>淨額 {s.credit - s.deduct >= 0 ? '+' : '−'}{Math.abs(Math.round(s.credit - s.deduct)).toLocaleString()}</span>}
+              {s.sells > 0 && <span title="以全部交易紀錄重放帳本計算（成本含買進手續費、賣出已扣手續費與證交稅）" style={{ fontWeight: 700, color: s.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>實現損益 {s.pnl >= 0 ? '+' : '−'}{Math.abs(Math.round(s.pnl)).toLocaleString()}（{s.sells} 筆賣出）</span>}
+              {s.unmatched > 0 && <span style={{ color: '#f59e0b' }}>⚠ {s.unmatched} 張無買進紀錄可對應（未計損益）</span>}
             </div>
           ))}
         </div>
