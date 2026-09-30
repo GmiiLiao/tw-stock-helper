@@ -146,7 +146,19 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
       <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
         <div className={styles.modalHeader}>
           <h3>📝 新增交易紀錄</h3>
-          <button className={styles.modalClose} onClick={onClose}>×</button>
+          {/* 2026-09-30 使用者「按鈕移到上方」：取消／送出放在標題列（取消＝關閉，取代 ×） */}
+          <div className={styles.modalActions}>
+            <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            <button
+              className="btn btn-buy"
+              style={{
+                background: form.type === 'sell' ? '#ef4444' : form.type === 'dividend' ? '#f59e0b' : undefined,
+              }}
+              onClick={handleSubmit}
+            >
+              記錄{form.type === 'buy' ? '買入' : form.type === 'sell' ? '賣出' : '股利'}
+            </button>
+          </div>
         </div>
         <div className={styles.modalBody}>
           {/* Type selector */}
@@ -328,18 +340,6 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-        <div className={styles.modalFooter}>
-          <button className="btn btn-ghost" onClick={onClose}>取消</button>
-          <button
-            className="btn btn-buy"
-            style={{
-              background: form.type === 'sell' ? '#ef4444' : form.type === 'dividend' ? '#f59e0b' : undefined,
-            }}
-            onClick={handleSubmit}
-          >
-            記錄{form.type === 'buy' ? '買入' : form.type === 'sell' ? '賣出' : '股利'}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -378,7 +378,10 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
       <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
         <div className={styles.modalHeader}>
           <h3>✏️ 修改交易 — {trade.code} {trade.name}（{trade.type === 'buy' ? '買入' : trade.type === 'sell' ? '賣出' : '股利'}）</h3>
-          <button className={styles.modalClose} onClick={onClose}>×</button>
+          <div className={styles.modalActions}>
+            <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            <button className="btn btn-buy" onClick={save}>儲存修改</button>
+          </div>
         </div>
         <div className={styles.modalBody}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
@@ -417,10 +420,6 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
               <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginTop: 4, opacity: 0.8 }}>儲存後，此筆與相關賣出的已實現損益會依交易紀錄整體重算。</div>
             </div>
           )}
-        </div>
-        <div className={styles.modalFooter}>
-          <button className="btn btn-ghost" onClick={onClose}>取消</button>
-          <button className="btn btn-buy" onClick={save}>儲存修改</button>
         </div>
       </div>
     </div>
@@ -1586,7 +1585,33 @@ export default function Portfolio() {
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3>修改持倉 — {editingHolding.code} {editingHolding.stockName || editingHolding.name}</h3>
-              <button className={styles.modalClose} onClick={() => setEditingHolding(null)}>×</button>
+              <div className={styles.modalActions}>
+                <button className="btn btn-ghost" onClick={() => setEditingHolding(null)}>取消</button>
+                <button
+                  className="btn btn-buy"
+                  onClick={() => {
+                    const buyPrice = parseFloat(editForm.buyPrice);
+                    const quantity = parseFloat(editForm.quantity || '0');
+                    if (isNaN(buyPrice) || buyPrice <= 0 || isNaN(quantity) || quantity <= 0) {
+                      alert('請輸入正確的單價與張數！');
+                      return;
+                    }
+                    if (!editForm.buyDate) {
+                      alert('請選擇買進日期！');
+                      return;
+                    }
+                    updateHolding(editingHolding.id, {
+                      buyPrice,
+                      quantity,
+                      buyDate: editForm.buyDate,
+                      note: editForm.note,
+                    });
+                    setEditingHolding(null);
+                  }}
+                >
+                  儲存修改
+                </button>
+              </div>
             </div>
             <div className={styles.modalBody}>
               <div className={styles.formGroup}>
@@ -1643,33 +1668,6 @@ export default function Portfolio() {
                   </div>
                 </div>
               )}
-            </div>
-            <div className={styles.modalFooter}>
-              <button className="btn btn-ghost" onClick={() => setEditingHolding(null)}>取消</button>
-              <button
-                className="btn btn-buy"
-                onClick={() => {
-                  const buyPrice = parseFloat(editForm.buyPrice);
-                  const quantity = parseFloat(editForm.quantity || '0');
-                  if (isNaN(buyPrice) || buyPrice <= 0 || isNaN(quantity) || quantity <= 0) {
-                    alert('請輸入正確的單價與張數！');
-                    return;
-                  }
-                  if (!editForm.buyDate) {
-                    alert('請選擇買進日期！');
-                    return;
-                  }
-                  updateHolding(editingHolding.id, {
-                    buyPrice,
-                    quantity,
-                    buyDate: editForm.buyDate,
-                    note: editForm.note,
-                  });
-                  setEditingHolding(null);
-                }}
-              >
-                儲存修改
-              </button>
             </div>
           </div>
         </div>

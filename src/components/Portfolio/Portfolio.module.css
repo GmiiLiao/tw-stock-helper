@@ -234,6 +234,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;   /* 窄螢幕：標題太長時按鈕換到第二行，仍在上方 */
+  gap: 10px 12px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-primary);
 }
@@ -243,23 +245,16 @@
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
+  min-width: 0;
 }
 
-.modalClose {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: calc(1.25rem * var(--fz));
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1;
-  transition: all 0.15s;
-}
-
-.modalClose:hover {
-  background: var(--color-down-bg);
-  color: var(--color-down);
+/* 2026-09-30 使用者「按鈕移到上方」：取消／送出放在標題列右側（取消＝關閉，取代 ×） */
+.modalActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .modalBody {
@@ -299,14 +294,6 @@
 
 .costPreview strong {
   color: var(--accent-blue);
-}
-
-.modalFooter {
-  padding: 14px 20px;
-  border-top: 1px solid var(--border-primary);
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
 }
 
 
