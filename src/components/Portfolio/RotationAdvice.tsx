@@ -39,18 +39,18 @@ export default function RotationAdvice() {
         <div key={i.code} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 'calc(13px * var(--fz))' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <b style={{ color: '#7dd3fc', cursor: 'pointer' }} onClick={() => navigateTo('stock', i.code)}>{i.code} {i.name}</b> {(() => { const st = statusOf(dt, i.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
-            <span>評分 <b style={{ color: i.weak ? '#f97316' : '#fbbf24' }}>{i.score ?? '—'}</b></span>
+            <span>評分 <b style={{ color: i.weak ? '#f97316' : '#fbbf24' }}>{i.score != null ? +i.score.toFixed(2) : '—'}</b></span>
             {i.percentile != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>市場前 {100 - i.percentile}%</span>}
             {i.weak && <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#f97316' }}>⚠ 弱勢</span>}
           </div>
-          {i.note && <div style={{ marginTop: 3, fontSize: 'calc(12.5px * var(--fz))', color: '#f97316', lineHeight: 1.6 }}>{i.note}</div>}
+          {i.note && <div style={{ marginTop: 3, fontSize: 'calc(12.5px * var(--fz))', color: '#f97316', lineHeight: 1.6 }}>{i.note.replace(/(\d+\.\d{2})\d+/g, '$1')}</div>}
         </div>
       ))}
       {weak.length > 0 && data.alternatives?.length > 0 && (
         <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
           目前評分最強替代參考：{data.alternatives.map(a => (
             <span key={a.code} onClick={() => navigateTo('stock', a.code)} style={{ cursor: 'pointer', marginRight: 8, color: '#7dd3fc' }}>
-              {a.code} {a.name}（<b style={{ color: '#fbbf24' }}>{a.score}</b>）
+              {a.code} {a.name}（<b style={{ color: '#fbbf24' }}>{+a.score.toFixed(2)}</b>）
             </span>
           ))}
           <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>※ 依五大因子技術評分之數據比較，非個股買賣建議；轉倉另計交易成本約 0.6%。</div>

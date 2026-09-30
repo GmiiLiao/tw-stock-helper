@@ -693,10 +693,10 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
 
   // ─── Apply Risk Penalties ───────────────────────────────
   if (isDisposition) {
-    score = Math.max(score - 40, 0);
+    score = +Math.max(score - 40, 0).toFixed(2);   // 減法會重新產生浮點尾差（58.38−40＝18.380000000000003，2026-09-30 使用者回報）
     reasons.length > 2 && reasons.splice(2);
   } else if (isAttention) {
-    score = Math.max(score - 20, 0);
+    score = +Math.max(score - 20, 0).toFixed(2);
   }
 
   // Risk level

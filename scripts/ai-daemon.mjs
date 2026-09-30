@@ -9392,12 +9392,12 @@ async function computeRotation() {
       const codes = Object.keys(byCode); if (!codes.length) continue;
       const items = codes.map(code => {
         const r = rating[code] || {};
-        const score = r.score ?? null; const pct = score != null ? pctOf(score) : null;
+        const score = r.score != null ? +Number(r.score).toFixed(2) : null; const pct = score != null ? pctOf(score) : null;   // 顯示最多 2 位小數（防上游浮點尾差）
         const weak = score != null && (score < 50 || pct < 30);
         return { code, name: byCode[code].name, score, percentile: pct, signal: r.signal ?? null, weak,
           note: weak ? `評分 ${score}（市場後段 ${pct}%），前 20 強平均 ${topAvg} 分 — 續抱等於放棄轉倉到強勢股的機會` : null };
       });
-      const alternatives = top20.slice(0, 5).map(([code, r]) => ({ code, name: nameOf[code] || code, score: r.score, signal: r.signal }));
+      const alternatives = top20.slice(0, 5).map(([code, r]) => ({ code, name: nameOf[code] || code, score: +Number(r.score).toFixed(2), signal: r.signal }));
       await db.collection('users').doc(uid).collection('data').doc('rotation').set({ updatedAt: Date.now(), topAvg, items, alternatives });
     } catch (e) { log('  ✖ rotation', uid, e.message); }
   }
@@ -10487,11 +10487,12 @@ async function computeAdrPremium() {
     const tw = q[p.code]?.price;
     if (!(adr > 0) || !(tw > 0)) continue;
     const implied = +((adr * fx) / p.ratio).toFixed(2);
-    items.push({ ...p, adrUsd: adr, fx, implied, twPrice: tw, premium: +(((implied - tw) / tw) * 100).toFixed(2) });
+    // Yahoo 回的是 float32 轉 double（456.94000244140625）：存檔前取 ADR 2 位、匯率 4 位（計算仍用原值，implied/premium 口徑不變）
+    items.push({ ...p, adrUsd: +adr.toFixed(2), fx: +fx.toFixed(4), implied, twPrice: tw, premium: +(((implied - tw) / tw) * 100).toFixed(2) });
     await sleep(400);
   }
   if (!items.length) return;
-  await db.collection('adrPremium').doc('latest').set({ updatedAt: Date.now(), fx, items });
+  await db.collection('adrPremium').doc('latest').set({ updatedAt: Date.now(), fx: +fx.toFixed(4), items });
   log(`✓ ADR 溢價：${items.map(x => `${x.code} ${x.premium > 0 ? '+' : ''}${x.premium}%`).join('、')}`);
   // |溢價|≥3% → 持股/自選警報（每日一次）
   const today = isoDate(taipei());
@@ -15362,6 +15363,7 @@ if (ONESHOT) {
     reversalSignals: () => computeReversalSignals(),
     userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
     stressTest: () => computeStressTest(),
+    rotation: () => computeRotation(),          // 汰弱留強（持股評分 vs 全市場）
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
     dayTradeEligible: () => computeDayTradeEligible(),  // 當沖資格名單（盤前可跑）
     dayTradeRatio: () => computeDayTradeRatio(),  // 當沖比率（統計傍晚才發布·會自動回溯補抓最近有統計的交易日）
