@@ -4,7 +4,7 @@
 //
 // 事件驅動回測（與 bt-core 的逐日樣本互補）：進場後逐日跟蹤出場規則
 // （移動停利/翻黑/破線/固定日），這是 bt-core 樣本框架做不到的路徑依賴出場。
-// 承襲 bt-core 全部教訓：可交易宇宙 chg≤8.5%、量≥300張、費稅 0.4425%、
+// 承襲 bt-core 全部教訓：可交易宇宙 chg≤8.5%、量≥300張、報酬未扣成本（2026-09-30 使用者規則；原扣 0.4425%）、
 // 主窗（近480日）兩半一致性、獨立 OOT 窗（更早年段）、基準對照 delta。
 // 同一 code 同時間只允許一個部位（不重疊）。
 // 結果寫 swingLab/latest 供後台「波段技巧實驗室」（超管專用）視覺驗證。
@@ -14,7 +14,9 @@ import admin from 'firebase-admin';
 import { loadDays } from './lib/bt-core.mjs';
 import { computePagoda } from './lib/pagoda.mjs';
 
-const COST = 0.4425;
+// 2026-09-30 使用者規則「計算結果不以扣成本方式比對（成本依持有方式比例不同）」⇒ 研究報酬一律未扣成本；
+//   欄位名沿用 net／netAvg（歷史相容），數值自此為未扣成本。成本改由後台頁依持有方式列參考。
+const COST = process.env.SWING_LAB_COST != null ? +process.env.SWING_LAB_COST : 0;   // 對照舊口徑：SWING_LAB_COST=0.4425 DRY_RUN=1
 const MAX_HOLD = 40;
 
 // ── 指標 ──────────────────────────────────────────────────────────────
@@ -277,6 +279,7 @@ async function main() {
     console.log(`${tech.name}: 主窗 n=${main.n} 淨均=${main.netAvg} 勝=${main.winRate}%｜兩半 ${half1.netAvg}/${half2.netAvg}｜OOT n=${oot.n} 淨均=${oot.netAvg}｜判定=${verdict}（${((Date.now() - t1) / 1000).toFixed(1)}s）`);
   }
 
+  if (process.env.DRY_RUN === '1') { console.log(`⚠ DRY_RUN=1：只印不寫（成本 ${COST}%）`); process.exit(0); }
   const db = admin.firestore();
   // Firestore 不允許巢狀陣列（curve 是 [[日期,累計]]）——整包只存 JSON 字串
   await db.collection('swingLab').doc('latest').set({ updatedAt: out.updatedAt, date: out.date, reportJson: JSON.stringify(out) });

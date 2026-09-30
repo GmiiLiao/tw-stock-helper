@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
+import CostReference from '@/components/shared/CostReference';
 
 // ── 🧪 波段技巧實驗室（superadmin 專用）──────────────────────────────
 // 「技巧 → 回測實證 → 視覺驗證 → 判定 pass 才生成 skill」的驗證視窗。
 // 資料：scripts/swing-lab.mjs 事件驅動回測 → swingLab/latest。
-// 判定門檻（缺一即 fail）：主窗淨均>0、主窗前後半同向且皆有樣本、
-// OOT 獨立年段淨均>0、主窗與 OOT 都贏過同宇宙偽隨機基準。
+// 判定門檻（缺一即 fail）：主窗均報>0、主窗前後半同向且皆有樣本、
+// OOT 獨立年段均報>0、主窗與 OOT 都贏過同宇宙偽隨機基準。報酬一律未扣成本（2026-09-30 起；成本依持有方式另計）。
 // SVG 鐵則：preserveAspectRatio="none" 內零文字，標籤在 HTML 層。
 
 interface Stat { n: number; netAvg?: number; netMed?: number; winRate?: number; avgHold?: number; p10?: number; p90?: number }
@@ -43,7 +44,7 @@ function Curve({ pts }: { pts: Array<[string, number]> }) {
       </svg>
       <span style={{ position: 'absolute', left: 6, top: 2, fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{pts[0][0]}</span>
       <span style={{ position: 'absolute', right: 6, top: 2, fontSize: 'calc(13.5px * var(--fz))', color: up ? '#f03e3e' : '#2f9e44', fontFamily: "'JetBrains Mono',monospace" }}>
-        累計 {pts[pts.length - 1][1] >= 0 ? '+' : ''}{pts[pts.length - 1][1]}%（逐筆淨%加總）
+        累計 {pts[pts.length - 1][1] >= 0 ? '+' : ''}{pts[pts.length - 1][1]}%（逐筆報酬%加總·未扣成本）
       </span>
       <span style={{ position: 'absolute', right: 6, bottom: 2, fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace" }}>{pts[pts.length - 1][0]}</span>
     </div>
@@ -76,11 +77,12 @@ export default function SwingLab() {
     <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.7 }}>
       <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)', marginBottom: 12 }}>
         <b>🧪 波段技巧實驗室</b>——技巧先過回測、視覺驗證後才生成 skill。資料至 <b>{rep.date}</b>；
-        主窗＝近 480 交易日（{rep.mainStart} 起）拆前後半、OOT＝更早獨立年段；全部扣費稅 0.4425%、排除漲停日、量≥300 張、同碼不重疊持倉。
+        主窗＝近 480 交易日（{rep.mainStart} 起）拆前後半、OOT＝更早獨立年段；全部未扣成本（成本依持有方式另計，見下方參考）、排除漲停日、量≥300 張、同碼不重疊持倉。
         <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
           同宇宙偽隨機基準（持有5日）：主窗 <b style={{ color: cellC(B.main.netAvg) }}>{fmt(B.main.netAvg)}%</b>（勝 {B.main.winRate}%·n={B.main.n}）｜
           OOT <b style={{ color: cellC(B.oot.netAvg) }}>{fmt(B.oot.netAvg)}%</b>（勝 {B.oot.winRate}%·n={B.oot.n}）——技巧必須兩窗都贏過它。
         </div>
+        <div style={{ marginTop: 4, color: 'var(--text-muted)' }}><CostReference holdDays={[5, 10, 20, 40]} /></div>
       </div>
 
       {rep.techniques.map(t => {
@@ -96,7 +98,7 @@ export default function SwingLab() {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(13.5px * var(--fz))', whiteSpace: 'nowrap' }}>
                 <thead><tr style={{ color: 'var(--text-muted)' }}>
-                  {['窗', 'n', '淨均%', '淨中位%', '勝率%', '均持有(日)', 'P10/P90'].map(h => <th key={h} style={{ padding: '2px 12px', textAlign: 'right', borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}
+                  {['窗', 'n', '均報%', '中位%', '勝率%', '均持有(日)', 'P10/P90'].map(h => <th key={h} style={{ padding: '2px 12px', textAlign: 'right', borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {([['主窗', t.main], ['·前半', t.half1], ['·後半', t.half2], ['OOT', t.oot]] as Array<[string, Stat]>).map(([lb, s]) => (

@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import CostReference from '@/components/shared/CostReference';
 
 interface Perf { winRate: number | null; moneyWinRate: number | null; netRealizedPnL: number; closed: number; totalTrades: number; totalBuyAmount: number; payoff: number | null; expectancy: number | null; maxConsecLoss: number; holdDaysMedian: number | null; overnightShare: number | null; dayTrades: number }
 interface AttrBucket { n: number; winRate: number; totalPnL: number; avgPnL: number }
@@ -61,13 +62,14 @@ export default function OpsPanel({ userNameOf }: { userNameOf: (uid: string) => 
     <div style={{ display: 'grid', gap: 12, fontSize: 'calc(13.5px * var(--fz))' }}>
       {/* 撿尾盤實盤前追蹤（live out-of-sample·對照歷史回測） */}
       <div style={card}>
-        <div style={h}>🪣 撿尾盤實盤前追蹤（每日 13:50 存證 → 次日對答案·滾動累積）</div>
+        <div style={h}>🪣 撿尾盤實盤前追蹤（每日 13:50 存證 → 次日對答案·未扣成本）</div>
         {tail ? (
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             <span>累積 <b>{String(tail.n ?? 0)}</b> 筆／<b>{String(tail.days ?? 0)}</b> 日</span>
-            <span>明開賣 淨均 <b>{String(tail.openNetAvg ?? '—')}%</b>·勝率 <b>{String(tail.openWinPct ?? '—')}%</b>（回測對照 +0.055%）</span>
-            <span>明收賣 淨均 <b>{String(tail.closeNetAvg ?? '—')}%</b>·勝率 <b>{String(tail.closeWinPct ?? '—')}%</b></span>
-            <span>炒作型開賣 <b>{String(tail.hotOpenAvg ?? '—')}%</b>（回測對照 +0.29%）</span>
+            <span>明開賣 均報 <b>{String(tail.openAvg ?? '—')}%</b>·勝率 <b>{String(tail.openWinPct ?? '—')}%</b>（回測對照 +0.50%）</span>
+            <span>明收賣 均報 <b>{String(tail.closeAvg ?? '—')}%</b>·勝率 <b>{String(tail.closeWinPct ?? '—')}%</b></span>
+            <span>炒作型開賣 <b>{String(tail.hotOpenAvg ?? '—')}%</b>（回測對照 +0.73%）</span>
+            <span style={{ color: 'var(--text-muted)' }}><CostReference holdDays={[1]} /></span>
           </div>
         ) : <div style={{ color: 'var(--text-muted)' }}>尚無資料——首個交易日 13:50 起自動累積；累積足夠後作為「實測 vs 回測」偏差依據。</div>}
       </div>

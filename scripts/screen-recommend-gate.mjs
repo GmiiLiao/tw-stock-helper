@@ -19,6 +19,9 @@ import { loadDays } from './lib/bt-core.mjs';
 import { build, fiveFixed, validated } from './screen-recommend-rank.mjs';
 
 const MAIN = 480, OOT = 240, WARM = 62;
+// 2026-09-30：GROSS=1 ⇒ 以未扣成本報酬重跑（bt-core 的 netOpen 已扣 0.4425%，這裡加回；bt-core 本身不動）
+const ADD_BACK = process.env.GROSS === '1' ? 0.4425 : 0;
+const ret = s => s.netOpen + ADD_BACK;
 const r3 = x => (x == null ? null : +x.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 const wr = a => (a.length ? +(a.filter(v => v > 0).length / a.length * 100).toFixed(1) : null);
@@ -45,14 +48,14 @@ function select(samples, { gate, N, minKey }) {
 function evalRule(samples, rule) {
   const halves = [0, 1].map(hf => {
     const { picked } = select(samples.filter(s => s.half === hf), rule);
-    return { net: avg(picked.map(s => s.netOpen)), n: picked.length };
+    return { net: avg(picked.map(ret)), n: picked.length };
   });
   const { picked, days, emptyDays } = select(samples, rule);
   if (!picked.length) return null;
-  const net = avg(picked.map(s => s.netOpen));
+  const net = avg(picked.map(ret));
   const bothPos = halves[0].net > 0 && halves[1].net > 0;
   return {
-    net: r3(net), halves: halves.map(h => r3(h.net)), win: wr(picked.map(s => s.netOpen)),
+    net: r3(net), halves: halves.map(h => r3(h.net)), win: wr(picked.map(ret)),
     n: picked.length, perDay: +(picked.length / days).toFixed(1),
     emptyPct: +(emptyDays / days * 100).toFixed(0), bothPos,
   };
@@ -79,7 +82,7 @@ const GATES = {
 const main = async () => {
   const all = await loadDays({ days: MAIN + OOT + 5 });
   const W = { 主窗: build(all.slice(-(MAIN + WARM))), OOT: build(all.slice(0, OOT + WARM)) };
-  for (const k in W) console.log(`${k} 可交易樣本 ${W[k].length.toLocaleString()}｜基準淨均 ${r3(avg(W[k].map(s => s.netOpen)))}%`);
+  for (const k in W) console.log(`${k} 可交易樣本 ${W[k].length.toLocaleString()}｜基準${ADD_BACK ? '均報（未扣成本）' : '淨均'} ${r3(avg(W[k].map(ret)))}%`);
 
   const pad = (x, n) => String(x).padEnd(n), padL = (x, n) => String(x).padStart(n);
   const Ns = [0, 3, 5, 10, 20];

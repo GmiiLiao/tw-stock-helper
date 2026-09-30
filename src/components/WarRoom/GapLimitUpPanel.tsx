@@ -7,6 +7,7 @@ import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { isLimitUp } from '@/lib/twse-api';
 import { getSession, isForeground } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
+import CostReference from '@/components/shared/CostReference';
 
 // ── 🎯 影片形態：平底 → 緊鄰連陽 → 漲停跳空（2026-09-06 順序＋形狀版·EXPERIMENTS ⑨）────
 // 使用者要的是影片「箭頭那一根」：先平底、再一串小陽線、緊接著漲停＋跳空。daemon 依此順序比對，
@@ -67,11 +68,12 @@ export default function GapLimitUpPanel() {
       </div>
       {data.reviewSummary && (
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: 10, padding: '6px 10px', borderRadius: 6, background: 'rgba(30,41,59,0.6)' }}>
-          📋 樣本外對答案（上線後累積）：{data.reviewSummary.n} 筆完成 20 日 → 勝率 <b style={{ color: data.reviewSummary.win20 >= 50 ? 'var(--color-up)' : 'var(--color-down)' }}>{data.reviewSummary.win20}%</b>
+          📋 樣本外對答案（上線後累積·未扣成本）：{data.reviewSummary.n} 筆完成 20 日 → 勝率 <b style={{ color: data.reviewSummary.win20 >= 50 ? 'var(--color-up)' : 'var(--color-down)' }}>{data.reviewSummary.win20}%</b>
           ·均 {data.reviewSummary.avg20}%·+30% 命中 {data.reviewSummary.hit30}%
           {data.reviewHistory && data.reviewHistory.length > 0 && <span style={{ color: 'var(--text-muted)' }}>　最近：{data.reviewHistory.slice(0, 5).map(d => `${d.date.slice(5)} ${d.n}檔${d.avg5 != null ? ` 5日均${d.avg5}%` : ''}${d.unbuyable ? ` 買不到${d.unbuyable}` : ''}`).join('｜')}</span>}
         </div>
       )}
+      {data.reviewSummary && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}><CostReference holdDays={[5, 20]} /></div>}
       {data.items.length === 0 ? (
         <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>{data.date} 無完整符合「平底→連陽→漲停跳空」的個股（空榜是正常結果；下方「形似但順序不完整」僅供觀察）</div>
       ) : (

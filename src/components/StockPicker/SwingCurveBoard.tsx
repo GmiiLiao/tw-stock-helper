@@ -24,7 +24,8 @@ import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21：與波�
 interface Pick { code: string; name: string; price: number; dist: number; sigma: number }
 interface Hist { net5: number; win5: number; net20: number; win20: number; grow5: number; grow20: number; draw5: number; draw20: number }
 interface Curve { id: number; name: string; curve: number[]; score5: number | null; score20: number | null; hist: Hist | null }
-interface Board { d5?: { n: number; winRate: number; avgNet: number; avgGrow: number; avgDraw: number }; d20?: { n: number; winRate: number; avgNet: number; avgGrow: number; avgDraw: number }; name: string }
+// 實記成績未扣成本（2026-09-30 起 avgRet；舊版 avgNet 已移除）
+interface Board { d5?: { n: number; winRate: number; avgRet?: number; avgGrow: number; avgDraw: number }; d20?: { n: number; winRate: number; avgRet?: number; avgGrow: number; avgDraw: number }; name: string }
 interface Data {
   found: boolean; date?: string; universe?: number; note?: string;
   curves?: Curve[];
@@ -114,8 +115,8 @@ export default function SwingCurveBoard() {
               {c.hist && (
                 <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7, marginTop: 3 }}>
                   {/* 成長與回檔成對——單看成長會誤導 */}
-                  <div>歷史5日 淨{sign(c.hist.net5)}pp 勝{sign(c.hist.win5)}pp</div>
-                  <div>歷史20日 淨{sign(c.hist.net20)}pp 勝{sign(c.hist.win20)}pp</div>
+                  <div>歷史5日 報酬{sign(c.hist.net5)}pp 勝{sign(c.hist.win5)}pp</div>
+                  <div>歷史20日 報酬{sign(c.hist.net20)}pp 勝{sign(c.hist.win20)}pp</div>
                   {/* 2026-09-17：這行含「最大成長／回檔（n）」三段，230px 卡片塞不下就被截；改可換行 */}
                   <div>
                     最大成長 <b style={{ color: UP }}>{c.hist.grow20.toFixed(1)}%</b>
@@ -123,7 +124,7 @@ export default function SwingCurveBoard() {
                     回檔 <b style={{ color: DOWN }}>{c.hist.draw20.toFixed(1)}%</b>
                     <span style={{ color: 'var(--text-muted)' }}>（20日）</span>
                   </div>
-                  {live5 && <div style={{ whiteSpace: 'nowrap', color: '#7dd3fc' }}>實記5日 勝率 {live5.winRate}%·成長 {live5.avgGrow}%·n={live5.n}</div>}
+                  {live5 && <div style={{ whiteSpace: 'nowrap', color: '#7dd3fc' }}>實記5日 勝率 {live5.winRate}%·均報 {live5.avgRet != null ? `${live5.avgRet > 0 ? '+' : ''}${live5.avgRet}%` : '—'}·成長 {live5.avgGrow}%·n={live5.n}</div>}
                 </div>
               )}
               {picks?.picks?.length ? (
@@ -153,7 +154,7 @@ export default function SwingCurveBoard() {
       <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.65, marginTop: 8 }}>
         📐 PID＝把 20 日走勢除以該檔自身波動後分解：P 現況（對 5 日均線的偏離）、I 累積、D 斜率、D2 加速度。
         分型中心以 2022-07~2024-03 擬合後凍結，再套用到後續兩窗，避免分型偷看未來。
-        「一致性 n/6」＝3 個歷史窗 × {'{'}淨報酬Δ、勝率Δ{'}'} 為正的項數。
+        「一致性 n/6」＝3 個歷史窗 × {'{'}報酬Δ、勝率Δ{'}'} 為正的項數（Δ＝曲線 − 基準，兩者成本相同會相抵，扣不扣成本數值相同）。實記成績未扣成本。
         最大成長為期間最高點的上界（賣不到），故一律附同期最大回檔。歷史統計非未來保證，非投資建議。
       </div>
     </div>

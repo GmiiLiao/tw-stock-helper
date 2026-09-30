@@ -8258,44 +8258,52 @@ async function scoreSwingCurves() {
   const dates = arch.map(d => d.date);
   const closeAt = (di, code) => arch[di]?.close?.[code];
   const snap = await db.collection('swingCurvePicks').orderBy('date', 'desc').limit(CURVE_TARGET_DAYS + 30).get();
-  const board = {};   // curveId → 累積
+  // 2026-09-30 修正：舊版每次從空的 board 起算、又跳過已結算的日子 ⇒ 記分板只剩「這一輪新到期」的幾筆（實測 29 日已結算、
+  //   記分板卻是空的）。改為：每日到期時把各曲線結算結果存回當日文件（res5／res20，未扣成本），記分板每次由全部文件整段彙總；
+  //   舊文件只有 settled 旗標沒有結果的，在歸檔視窗內就補算。成績一律未扣成本（使用者規則：不以扣成本方式比對）。
+  const board = {};   // curveId → 累積（由各日 res 整段彙總）
   let recorded = 0;
 
   for (const doc of snap.docs) {
     if (doc.id === 'latest' || doc.id === 'scoreboard') continue;
-    const d = doc.data();
+    const d = doc.data(); recorded++;
     const di = dates.indexOf(d.date);
-    if (di < 0) continue;                       // 超出歸檔視窗＝無法對答案（已計入的仍留在 scoreboard）
     const upd = {};
     for (const horizon of [5, 20]) {
-      const key = `settled${horizon}`;
-      if (d[key]) continue;
-      const ti = di + horizon;
-      if (ti >= dates.length) continue;         // 還沒到期
-      for (const cid in d.byCurve || {}) {
-        for (const p of d.byCurve[cid].picks || []) {
-          const now = closeAt(ti, p.code);
-          if (!now?.[0]) continue;
-          const net = (now[0] / p.price - 1) * 100 - 0.4425;
-          let mfe = -Infinity, mae = Infinity;
-          for (let k = di + 1; k <= ti; k++) {
-            const r = closeAt(k, p.code); if (!r) continue;
-            const hi = r[3] > 0 ? r[3] : r[0], lo = r[4] > 0 ? r[4] : r[0];
-            mfe = Math.max(mfe, (hi / p.price - 1) * 100);
-            mae = Math.min(mae, (lo / p.price - 1) * 100);
+      const rkey = `res${horizon}`;
+      let res = d[rkey] || null;
+      if (!res) {
+        const ti = di + horizon;
+        if (di < 0 || ti >= dates.length) continue;   // 超出歸檔視窗或還沒到期
+        res = {};
+        for (const cid in d.byCurve || {}) {
+          const acc = { n: 0, win: 0, ret: 0, grow: 0, draw: 0 };
+          for (const p of d.byCurve[cid].picks || []) {
+            const now = closeAt(ti, p.code);
+            if (!now?.[0] || !(p.price > 0)) continue;
+            const ret = (now[0] / p.price - 1) * 100;   // 未扣成本
+            let mfe = -Infinity, mae = Infinity;
+            for (let k = di + 1; k <= ti; k++) {
+              const r = closeAt(k, p.code); if (!r) continue;
+              const hi = r[3] > 0 ? r[3] : r[0], lo = r[4] > 0 ? r[4] : r[0];
+              mfe = Math.max(mfe, (hi / p.price - 1) * 100);
+              mae = Math.min(mae, (lo / p.price - 1) * 100);
+            }
+            acc.n++; if (ret > 0) acc.win++;
+            acc.ret += ret;
+            if (isFinite(mfe)) acc.grow += mfe;
+            if (isFinite(mae)) acc.draw += mae;
           }
-          const b = (board[cid] ||= {});
-          const h = (b[horizon] ||= { n: 0, win: 0, net: 0, grow: 0, draw: 0 });
-          h.n++; if (net > 0) h.win++;
-          h.net += net;
-          if (isFinite(mfe)) h.grow += mfe;
-          if (isFinite(mae)) h.draw += mae;
+          if (acc.n) res[cid] = { n: acc.n, win: acc.win, ret: +acc.ret.toFixed(3), grow: +acc.grow.toFixed(3), draw: +acc.draw.toFixed(3) };
         }
+        upd[rkey] = res; upd[`settled${horizon}`] = true;
       }
-      upd[key] = true;
+      for (const cid in res) {
+        const h = ((board[cid] ||= {})[horizon] ||= { n: 0, win: 0, ret: 0, grow: 0, draw: 0 });
+        h.n += res[cid].n; h.win += res[cid].win; h.ret += res[cid].ret; h.grow += res[cid].grow; h.draw += res[cid].draw;
+      }
     }
     if (Object.keys(upd).length) await doc.ref.set(upd, { merge: true });
-    recorded++;
   }
 
   const defs = loadCurveDefs();
@@ -8305,7 +8313,7 @@ async function scoreSwingCurves() {
     for (const h of [5, 20]) {
       const x = board[cid][h];
       if (!x?.n) continue;
-      r[`d${h}`] = { n: x.n, winRate: +(x.win / x.n * 100).toFixed(2), avgNet: +(x.net / x.n).toFixed(3),
+      r[`d${h}`] = { n: x.n, winRate: +(x.win / x.n * 100).toFixed(2), avgRet: +(x.ret / x.n).toFixed(3),   // 未扣成本（原 avgNet 已移除）
         avgGrow: +(x.grow / x.n).toFixed(2), avgDraw: +(x.draw / x.n).toFixed(2) };
     }
     out[cid] = { name: defs?.centroids?.find(c => c.id === +cid)?.name || cid, ...r };
@@ -8319,7 +8327,7 @@ async function scoreSwingCurves() {
     byCurve: out,
     leader5: rank5[0] ? { id: +rank5[0][0], name: rank5[0][1].name, winRate: rank5[0][1].d5.winRate } : null,
     leader20: rank20[0] ? { id: +rank20[0][0], name: rank20[0][1].name, winRate: rank20[0][1].d20.winRate } : null,
-    note: `實記進度 ${recorded}/${CURVE_TARGET_DAYS} 日。樣本數未達 100 的分型不列入領先判定。非投資建議。`,
+    note: `實記進度 ${recorded}/${CURVE_TARGET_DAYS} 日。成績未扣成本（成本依持有方式另計）。樣本數未達 100 的分型不列入領先判定。非投資建議。`,
   });
   log(`  ✓ 曲線記分板：已記錄 ${recorded}/${CURVE_TARGET_DAYS} 日`
     + (rank5[0] ? `·5日領先 ${rank5[0][1].name} ${rank5[0][1].d5.winRate}%` : ''));
@@ -13666,7 +13674,8 @@ async function computeGapLimitUp({ push = false } = {}) {
   const doc = {
     date: today, at: Date.now(), updatedAt: Date.now(), prevDate, source: srcNote, items, near: near.slice(0, 12), luTotal, marketEvent,
     rule: '影片順序：平底(連陽前15日高低差≤30%) → 緊鄰連陽≥3根(主線段漲2–15%／支線·強勢連陽15–40%) → 箭頭日(漲停 ∧ 今低>昨高) ∧ 21日走勢與模板形狀相似≥0.8·20日均額≥5000萬·停損=事件日低；倍量/縮量只作標籤',
-    stats: '順序＋形狀版實測(排除全市場漲停日·去重·t+1開盤進場·扣成本)：主線 n=48 20日淨+7.7%·中位+3.1%·勝率56.3%·10日+7.2%·5日最深-6.7%；支線強勢連陽 n=124 20日+8.3%·勝率53.2%·+30%命中26%·但5日均-0.2%·最深-9.2%（常先回檔）；合併 n=167 +8.3%/54.5%；安慰劑+2.2%/48%。跌破事件日低必出。非投資建議。',
+    // 2026-09-30 改未扣成本口徑：原研究以扣成本 0.4425% 計——均值與中位數加回成本為精確換算；勝率無法換算，標為下限（未扣成本只會更高）
+    stats: '順序＋形狀版實測(排除全市場漲停日·去重·t+1開盤進場·未扣成本)：主線 n=48 20日均+8.14%·中位+3.54%·勝率≥56.3%·10日+7.64%·5日最深-6.7%；支線強勢連陽 n=124 20日+8.74%·勝率≥53.2%·+30%命中26%·但5日均+0.24%·最深-9.2%（常先回檔）；合併 n=167 +8.74%/≥54.5%；安慰劑+2.64%/≥48%（原研究扣成本 0.4425%，均值已加回、勝率為下限）。跌破事件日低必出。非投資建議。',
   };
   await db.collection('gapLimitUp').doc(today).set(doc);
   // latest 只往前走：GAPLU_DATE 補算舊日不得把 latest 蓋回過去
@@ -13692,7 +13701,7 @@ async function computeGapLimitUpReview() {
   if (archRaw.length < 3) return false;
   const asc = archRaw.map(d => ({ date: d.date, map: JSON.parse(d.closeJson) })).reverse();
   const idx = Object.fromEntries(asc.map((d, i) => [d.date, i]));
-  const COST = 0.4425;
+  // 2026-09-30：對答案一律未扣成本（使用者規則：不以扣成本方式比對；成本依持有方式另計）
   const qs = await db.collection('gapLimitUp').orderBy('date', 'desc').limit(30).get();
   const history = []; const pool = [];
   for (const d of qs.docs) {
@@ -13703,8 +13712,8 @@ async function computeGapLimitUpReview() {
       const o1 = n1.map[it.code]?.[2]; if (!(o1 > 0)) return { code: it.code, name: it.name, unbuyable: null };
       if ((o1 - it.price) / it.price * 100 >= 9.5) return { code: it.code, name: it.name, unbuyable: true };
       const at = k => asc[t + k]?.map[it.code]?.[0] || null;
-      const r5 = at(5) ? +(((at(5) - o1) / o1 * 100) - COST).toFixed(2) : null;
-      const r20 = at(20) ? +(((at(20) - o1) / o1 * 100) - COST).toFixed(2) : null;
+      const r5 = at(5) ? +((at(5) - o1) / o1 * 100).toFixed(2) : null;
+      const r20 = at(20) ? +((at(20) - o1) / o1 * 100).toFixed(2) : null;
       let minLow5 = Infinity, maxC = -Infinity, avail = 0;
       for (let k = 1; k <= 20; k++) { const x = asc[t + k]?.map[it.code]; if (!x) break; avail = k; if (k <= 5 && x[4] > 0) minLow5 = Math.min(minLow5, x[4]); maxC = Math.max(maxC, x[0]); }
       const stopHit = minLow5 < Infinity ? minLow5 < it.eventLow : null;
@@ -14543,6 +14552,47 @@ async function markJobDone(key, day) {
   try { await db.collection('system').doc('daemonJobMarks').set({ [key]: day, updatedAt: Date.now() }, { merge: true }); }
   catch (e) { log(`⚠ 寫入時段完成記錄 ${key} 失敗:`, (e.message || '').slice(0, 60)); }
 }
+// ── 撿尾盤追蹤對答案（16:55；2026-09-30 抽成函式、改未扣成本）──────────────────
+//   以 chipArchive 次交易日開／收盤評估 pending 的追蹤單；彙總每次由全部已評估文件重算（舊版是滾動累加的淨值 ⇒
+//   無法換口徑）。舊文件只有 openNet／closeNet（扣 0.4425%）⇒ 加回成本換算；新文件存 openRet／closeRet（未扣成本）。
+const TAIL_LEGACY_COST = 0.4425;
+async function evalTailTrack() {
+  const arch = (await readArchive(8))
+    .map(x => ({ date: x.date, close: JSON.parse(x.closeJson) }))   // doc.date 與 doc.id 同值
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const idxOf = Object.fromEntries(arch.map((d, k) => [d.date, k]));
+  const pend = await db.collection('tailTrack').where('evaluated', '==', false).limit(10).get().catch(() => null);
+  const docs = pend ? pend.docs : (await db.collection('tailTrack').orderBy('date', 'desc').limit(6).get()).docs.filter(d => !d.data().evaluated && d.data().items);
+  for (const doc of docs) {
+    const x = doc.data();
+    const k = idxOf[x.date];
+    if (k == null || k >= arch.length - 1) continue;   // 次交易日資料未到
+    const nx = arch[k + 1].close;
+    const outs = x.items.map(it => {
+      const r = nx[it.code]; if (!r || !(r[0] > 0) || !(r[2] > 0) || !(it.price > 0)) return null;
+      return { code: it.code, char: it.char, openRet: +((r[2] - it.price) / it.price * 100).toFixed(2), closeRet: +((r[0] - it.price) / it.price * 100).toFixed(2) };
+    }).filter(Boolean);
+    if (!outs.length) continue;
+    await doc.ref.set({ evaluated: true, evalDate: arch[k + 1].date, outcomes: outs }, { merge: true });
+    log(`✓ 撿尾盤對答案 ${x.date}→${arch[k + 1].date}（${outs.length} 檔）`);
+  }
+  // 彙總：全部已評估文件整段重算（未扣成本）
+  const all = (await db.collection('tailTrack').where('evaluated', '==', true).get()).docs.map(d => d.data());
+  const g = (o, ret, net) => (o[ret] != null ? o[ret] : o[net] != null ? o[net] + TAIL_LEGACY_COST : null);
+  const rows = all.flatMap(d => (d.outcomes || []).map(o => ({ char: o.char, open: g(o, 'openRet', 'openNet'), close: g(o, 'closeRet', 'closeNet') }))).filter(r => r.open != null && r.close != null);
+  if (!rows.length) return;
+  const avg = xs => +(xs.reduce((a, v) => a + v, 0) / xs.length).toFixed(3), winPct = xs => +(xs.filter(v => v > 0).length / xs.length * 100).toFixed(1);
+  const hot = rows.filter(r => r.char === '炒作型');
+  await db.collection('tailTrack').doc('summary').set({
+    n: rows.length, days: all.length,
+    openAvg: avg(rows.map(r => r.open)), openWinPct: winPct(rows.map(r => r.open)),
+    closeAvg: avg(rows.map(r => r.close)), closeWinPct: winPct(rows.map(r => r.close)),
+    hotN: hot.length, hotOpenAvg: hot.length ? avg(hot.map(r => r.open)) : null,
+    updatedAt: Date.now(),
+    note: '撿尾盤定版濾網實盤前追蹤（明開賣為定版出場）·未扣成本（成本依持有方式另計）·歷史回測對照：開賣 +0.50%／炒作型 +0.73%（原回測扣 0.4425%，已加回）',
+  });
+}
+
 async function dailyJobsLoop() {
   await refreshLearned();   // 🧠 經驗庫先載入，交易員決策立即可用
   await runDailyJobs(true); // 開機先跑一輪，資料即時可用
@@ -14907,45 +14957,7 @@ async function dailyJobsLoop() {
         // 16:55 對答案：以 chipArchive 次交易日開/收盤評估 pending 的撿尾盤追蹤（滾動統計→tailTrack/summary）
         if (mins >= 16 * 60 + 55 && _tailEvalDate !== today) {
           _tailEvalDate = today;
-          try {
-            const arch = (await readArchive(8))
-              .map(x => ({ date: x.date, close: JSON.parse(x.closeJson) }))   // doc.date 與 doc.id 同值
-              .sort((a, b) => a.date.localeCompare(b.date));
-            const idxOf = Object.fromEntries(arch.map((d, k) => [d.date, k]));
-            const pend = await db.collection('tailTrack').where('evaluated', '==', false).limit(10).get()
-              .catch(() => null);
-            const docs = pend ? pend.docs : (await db.collection('tailTrack').orderBy('date', 'desc').limit(6).get()).docs.filter(d => !d.data().evaluated && d.data().items);
-            const CO = 0.4425;
-            for (const doc of docs) {
-              const x = doc.data();
-              const k = idxOf[x.date];
-              if (k == null || k >= arch.length - 1) continue;   // 次交易日資料未到
-              const nx = arch[k + 1].close;
-              const outs = x.items.map(it => {
-                const r = nx[it.code]; if (!r || !(r[0] > 0) || !(r[2] > 0) || !(it.price > 0)) return null;
-                return { code: it.code, char: it.char, openNet: +((r[2] - it.price) / it.price * 100 - CO).toFixed(2), closeNet: +((r[0] - it.price) / it.price * 100 - CO).toFixed(2) };
-              }).filter(Boolean);
-              if (!outs.length) continue;
-              await doc.ref.set({ evaluated: true, evalDate: arch[k + 1].date, outcomes: outs }, { merge: true });
-              // 滾動彙總
-              const sRef = db.collection('tailTrack').doc('summary');
-              await db.runTransaction(async tx => {
-                const sd = (await tx.get(sRef)).data() || { n: 0, openNetSum: 0, openWin: 0, closeNetSum: 0, closeWin: 0, days: 0, hotN: 0, hotOpenSum: 0 };
-                for (const o of outs) {
-                  sd.n++; sd.openNetSum += o.openNet; sd.closeNetSum += o.closeNet;
-                  if (o.openNet > 0) sd.openWin++; if (o.closeNet > 0) sd.closeWin++;
-                  if (o.char === '炒作型') { sd.hotN++; sd.hotOpenSum += o.openNet; }
-                }
-                sd.days++;
-                sd.openNetAvg = +(sd.openNetSum / sd.n).toFixed(3); sd.openWinPct = +(sd.openWin / sd.n * 100).toFixed(1);
-                sd.closeNetAvg = +(sd.closeNetSum / sd.n).toFixed(3); sd.closeWinPct = +(sd.closeWin / sd.n * 100).toFixed(1);
-                sd.hotOpenAvg = sd.hotN ? +(sd.hotOpenSum / sd.hotN).toFixed(3) : null;
-                sd.updatedAt = Date.now(); sd.note = '撿尾盤定版濾網實盤前追蹤（明開賣為定版出場）·歷史回測對照：開賣+0.055%/炒作型+0.29%';
-                tx.set(sRef, sd);
-              });
-              log(`✓ 撿尾盤對答案 ${x.date}→${arch[k + 1].date}（${outs.length} 檔）`);
-            }
-          } catch (e) { log('✖ 撿尾盤對答案:', e.message); }
+          try { await evalTailTrack(); } catch (e) { log('✖ 撿尾盤對答案:', e.message); }
         }
         // 13:36 尾盤五檔歸檔（委買賣失衡的歷史原料）——2026-08-02 重寫，見 _depthWin 宣告處
         // 資料來源改為 13:20~13:35 的**全市場累積窗**（非優先集 latest），
@@ -15338,6 +15350,7 @@ if (ONESHOT) {
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
     globalMarkets: () => computeGlobalMarkets(),
     trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
+    tailTrack: () => evalTailTrack(),   // 撿尾盤對答案＋彙總整段重算（未扣成本）
     picksScoreboard: () => writePicksScoreboard(),   // 只重算記分板（讀 picksHistory，不改推薦紀錄）
     tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
     recommendAdj: () => computeRecommendAdj(),   // 推薦榜已驗證訊號修正量

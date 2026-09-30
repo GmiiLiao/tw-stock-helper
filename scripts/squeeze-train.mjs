@@ -190,7 +190,8 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   return { samples, days, T, twDates, newsDays, newsNextDays, excludedEvents, eventCodes: Object.keys(evByCode).length, regimeByDate, regimeCuts };
 }
 const C0 = 0;   // closeJson 列格式 [收, 量張, 開, 高, 低]
-const COST_PCT = 0.4425;   // 手續費（折讓前）＋證交稅，不含價差；A 段絕對報酬閘門用
+// 手續費（折讓前）＋證交稅，不含價差；A 段絕對報酬閘門用。SQ_COST_PCT 只供對照（例：SQ_COST_PCT=0 DRY_RUN=1），預設不變
+const COST_PCT = process.env.SQ_COST_PCT != null ? +process.env.SQ_COST_PCT : 0.4425;
 
 // ── 3. 規則 v2（2026-09-17 重規畫·docs/SQUEEZE-MODEL-REDESIGN-2026-09-17.md）──────────────
 // 使用者決定：交易定義做成**兩套可切換**（隔日沖／當沖）、切點首版釘 2026-06-10、四段全做。
