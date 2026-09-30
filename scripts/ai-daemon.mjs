@@ -8757,6 +8757,14 @@ async function _thesisData() {
   const pct = v => percentileOf(allBase, v);
   return { rating, inst, rev, rs, yld, risk, base, pct };
 }
+// 持股已全部出清（holdings 文件在、陣列為空）：清掉舊的論點／汰弱留強，否則畫面永遠停在最後一次有持股時的內容
+// （2026-10-01 實例：一位會員的兩份文件停在 08-18）。holdings 文件不存在時不動——那可能是讀取異常，不是出清。
+async function clearIfSoldOut(uid, hd, docId, field, empty) {
+  if (!Array.isArray(hd?.holdings)) return;
+  const ref = db.collection('users').doc(uid).collection('data').doc(docId);
+  const v = (await ref.get()).data()?.[field];
+  if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) { await ref.set({ ...empty, updatedAt: Date.now() }); log(`  · ${docId}：持股已出清，清除舊內容`); }
+}
 async function updateTheses() {
   const data = await _thesisData();
   const premium = await getPremiumUsers();
@@ -8766,7 +8774,7 @@ async function updateTheses() {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const byCode = {};
       for (const h of (hd?.holdings || [])) { const g = (byCode[h.code] ??= { qty: 0, cost: 0, name: h.name }); g.qty += h.quantity; g.cost += h.buyPrice * h.quantity; if (h.note && !g.note) g.note = h.note; }
-      const codes = Object.keys(byCode); if (!codes.length) continue;
+      const codes = Object.keys(byCode); if (!codes.length) { await clearIfSoldOut(uid, hd, 'theses', 'theses', { theses: {} }); continue; }
       const ref = db.collection('users').doc(uid).collection('data').doc('theses');
       const cur = (await ref.get()).data()?.theses || {};
       const pa = (await db.collection('users').doc(uid).collection('data').doc('portfolioAnalysis').get()).data()?.analyses || {};
@@ -9441,7 +9449,7 @@ async function computeRotation() {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const byCode = {};
       for (const h of (hd?.holdings || [])) { const g = (byCode[h.code] ??= { name: h.name }); g.name = h.name; }
-      const codes = Object.keys(byCode); if (!codes.length) continue;
+      const codes = Object.keys(byCode); if (!codes.length) { await clearIfSoldOut(uid, hd, 'rotation', 'items', { basis: 'baseScore', topAvg, items: [], alternatives: [] }); continue; }
       const items = codes.map(code => {
         const r = rating[code] || {};
         const base = baseOf(code, r), risk = riskOf(code, r);
@@ -15403,6 +15411,7 @@ if (ONESHOT) {
     userRisk: () => computeUserRisk(),          // 投組相關性/分散度（與 stressTest 共寫 portfolioRisk）
     stressTest: () => computeStressTest(),
     rotation: () => computeRotation(),          // 汰弱留強（持股評分 vs 全市場）
+    theses: () => updateTheses(),               // 投資論點檢核（支柱／支持度／技術評分／風險；改論點邏輯後手動重算用）
     scoringV3: () => execScript('scoring-v3-shadow.mjs', [], '📐 技術評分 v3 影子', 10),   // v3 影子手動補跑（冪等）
     swingFormula: () => execScript('swing-formula-shadow.mjs', [], '🎯 標靶公式影子', 10),   // 標靶公式影子手動補跑（冪等）
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）
