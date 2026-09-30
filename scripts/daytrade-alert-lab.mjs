@@ -35,6 +35,7 @@ const snapQ = JSON.parse((await db.collection('marketSnapshot').doc('latest').ge
 const mkt = c => (snapQ[c]?.market === 'otc' ? 'TWO' : 'TW');
 const now = Date.now();
 const winFrom = new Date(now - 29 * 86400000).toISOString().slice(0, 10);
+const ROOM = process.argv.includes('--room');
 const pairs = []; const codes = new Set();
 for (let t = 21; t < days.length; t++) {
   if (days[t].date < winFrom) continue;
@@ -46,10 +47,12 @@ for (let t = 21; t < days.length; t++) {
     let av = 0, k = 0; for (let i = t - 20; i < t; i++) { const v = days[i].m[c]?.[1]; if (v > 0) { av += v; k++; } }
     av = k ? av / k : 0;
     const longU = ppc > 0 && (pc / ppc - 1) * 100 >= 5 && av >= 1000;
+    // --room（2026-09-30）：做多選股來源比較——流動性母體全部納入，事後依「觸發當下已漲幅」分組
+    const roomU = ROOM && av >= 1000;
     const shortU = (hi / pc - 1) * 100 >= 5 && av >= 500;
-    if (!longU && !shortU) continue;
+    if (!longU && !shortU && !roomU) continue;
     const Pr = P[c] || [];
-    pairs.push({ date: days[t].date, code: c, pc, close: cl, longU, shortU, prevHigh: Pr[3] || null, prevLow: Pr[4] || null });
+    pairs.push({ date: days[t].date, code: c, pc, close: cl, longU, shortU, roomU, prevUp: ppc > 0 ? (pc / ppc - 1) * 100 : null, prevHigh: Pr[3] || null, prevLow: Pr[4] || null });
     codes.add(c);
   }
 }
@@ -70,13 +73,17 @@ for (const c of codes) {
       let ok = false;
       for (let attempt = 0; attempt < 3 && !ok; attempt++) {
         try {
-          const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${c}.${suf}?interval=1m&period1=${a}&period2=${b}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15000) }).then(r => r.json());
+          const j = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${c}.${suf}?interval=1m&period1=${a}&period2=${b}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15000) }).then(r => { if (r.status === 429) throw Object.assign(new Error('429'), { rl: true }); return r.json(); });
           const r = j?.chart?.result?.[0];
           if (r?.timestamp?.length) { const q = r.indicators.quote[0]; r.timestamp.forEach((ts, i) => { if (q.close[i] != null) all.set(ts, [ts, q.open[i], q.high[i], q.low[i], q.close[i], q.volume[i] || 0]); }); ok = true; }
           else ok = !!j?.chart;   // 空結果＝該段無資料（或後綴錯）
-        } catch { await sleep(1500); }
+        } catch (e) {
+          // Yahoo 限流：立刻中止整個回放（與 daemon 同一 IP——不可拖累線上 K 線/國際盤抓取）
+          if (e?.rl) { console.log(`✖ Yahoo 限流（429）：已抓 ${fetched} 檔後中止，保護 daemon 的 Yahoo 額度（已抓的有快取，可稍後續跑）`); process.exit(3); }
+          await sleep(1500);
+        }
       }
-      await sleep(220);
+      await sleep(+(process.env.DT_PACE || 220));
       if (all.size) break;
     }
   }
@@ -305,6 +312,26 @@ if (process.argv.includes('--desk')) {
     const vr = {}; for (const v of V) for (const w of v.veto) { const k = w.replace(/[\d.]+/g, '#'); vr[k] = (vr[k] || 0) + 1; }
     console.log('  否決原因：' + Object.entries(vr).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}×${v}`).join('；'));
   }
+}
+if (ROOM) {
+  console.log(`\n══ 做多選股來源比較（--room）：流動性母體（20 日均量≥1000 張）全部跑 ${DESK_VERSION} 做多規則，依「觸發當下已漲幅」分組；淨 R 已扣成本 ══`);
+  const T = [];
+  for (const p of pairs) {
+    if (!p.roomU) continue;
+    const B = dayBars[p.code]?.[p.date]; if (!B || B.length < 60) continue;
+    const res = scanDesk(B, 'long', { prevClose: p.pc, prevHigh: p.prevHigh, prevLow: p.prevLow });
+    for (const t of res.trades) if (t.exit) T.push({ ...t, oos: p.date >= cut, entryChgPct: (t.entry / p.pc - 1) * 100, gap: (B[0].o / p.pc - 1) * 100, prevUp: p.prevUp });
+  }
+  const row = (lab, x) => { if (!x.length) return console.log(`${lab.padEnd(22)}     0`); const w = x.filter(t => t.netR > 0).length; const r = x.map(t => t.netR).sort((a, b) => a - b);
+    console.log(`${lab.padEnd(22)}${String(x.length).padStart(6)} ${(w / x.length * 100).toFixed(0).padStart(5)}% ${f2(mean(r)).padStart(8)}R ${f2(r[Math.floor(r.length / 2)]).padStart(8)}R`); };
+  const groups = [['觸發時已漲 <0%', t => t.entryChgPct < 0], ['觸發時已漲 0~2%', t => t.entryChgPct >= 0 && t.entryChgPct < 2], ['觸發時已漲 2~4%', t => t.entryChgPct >= 2 && t.entryChgPct < 4],
+    ['觸發時已漲 4~7%', t => t.entryChgPct >= 4 && t.entryChgPct < 7], ['觸發時已漲 ≥7%', t => t.entryChgPct >= 7],
+    ['【建議】已漲 0~4%', t => t.entryChgPct >= 0 && t.entryChgPct < 4], ['【現行近似】已漲 ≥4%', t => t.entryChgPct >= 4], ['【原回放母體】昨漲≥5%', t => t.prevUp >= 5], ['全部', () => true]];
+  for (const seg of [false, true]) {
+    console.log(`\n${seg ? '樣本外（後 40% 日期）' : '訓練（前 60% 日期）'}`.padEnd(22) + '     n   勝率    平均淨R   中位淨R');
+    for (const [lab, fn] of groups) row(lab, T.filter(t => t.oos === seg && fn(t)));
+  }
+  console.log(`\n型態（全期，已漲 0~4%）：${[...new Set(T.map(t => t.type))].map(ty => { const x = T.filter(t => t.type === ty && t.entryChgPct >= 0 && t.entryChgPct < 4); return `${ty} n=${x.length} 平均 ${f2(mean(x.map(t => t.netR)))}R`; }).join('｜')}`);
 }
 writeFileSync(`${CACHE}/_results.json`, JSON.stringify({ cut, dates, results }, null, 1));
 console.log('\n非投資建議。');
