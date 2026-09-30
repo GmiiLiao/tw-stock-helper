@@ -245,3 +245,17 @@ test('執行器：09:30 仍無開盤價的買單作廢（開盤未成交），�
   const f = db.store[`aiSwingLab/${D0}`].buyFills['2222'];
   assert.equal(f.failed, true); assert.match(f.reason, /開盤/);
 });
+
+test('執行器：經驗庫已驗證特徵標在候選旁寫進 prompt（觀察中不寫）', async () => {
+  const days = mkDays(); const D = days[80].date;
+  const db = fakeDb({ 'swingPicks/latest': { dataDate: D, mode: 'close', items: [{ code: '1111', name: 'A', tier: 2, price: 180 }] }, 'swingHold/latest': { dataDate: D, combo: { items: [] } } });
+  const rule = (id, feature, bucket, status) => ({ id, feature, bucket, status, kind: 'risk', label: `${feature} ${bucket}`, n: 100, mean: -1, win: 30, restMean: 0.1, t: -3 });
+  const learned = { swing: { rules: [rule('streak=≥5日', 'streak', '≥5日', 'validated'), rule('maAbove=3條', 'maAbove', '3條', 'observing')] } };
+  let prompt = '';
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async p => { prompt = p; return '{"sells":[],"picks":[],"note":"x"}'; },
+    getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 81), getLearned: () => learned });
+  assert.equal(await lab.pick(), true);
+  assert.match(prompt, /1111 A.*經驗庫：⚠風險：streak ≥5日/);
+  assert.doesNotMatch(prompt, /maAbove 3條/, '觀察中不進 AI');
+  assert.deepEqual(db.store[`aiSwingLab/${D}`].pool[0].lessonIds, ['streak=≥5日'], '凍結檔記錄套用了哪些經驗');
+});

@@ -27,7 +27,7 @@ const hhmm = t => (t ? new Date(t + 8 * 3600000).toISOString().slice(11, 16) : '
 const hhmmss = t => (t ? new Date(t + 8 * 3600000).toISOString().slice(11, 19) : '—');
 
 /** 決策 prompt：只給觸發當下凍結的事實，要求回 JSON */
-export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken, evidence, now }) {
+export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken, evidence, now, lessons = [] }) {
   const L = side === 'long';
   const sc = row.score;
   const items = [...sc.market, ...sc.stock, ...sc.entry].map(i => `- ${i.label}：${i.score == null ? '未知' : `${i.score}/${i.max}`}｜${i.evidence}`).join('\n');
@@ -45,6 +45,7 @@ export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken
     `【規則符合度】${sc.total}/${sc.knownMax}${sc.missing.length ? `（缺：${sc.missing.join('、')}）` : ''}`,
     items,
     ev ? `【歷史參考】此規則 v1 回放樣本外 n=${ev.teN}、勝率 ${ev.teWin}%、平均 ${ev.teR}R（已扣成本）。這是所有情境的整體平均，個別情境可能更好或更差，請依本筆條件判斷。` : '',
+    lessons.length ? `【經驗庫】本筆條件符合本站盤後訓練、前後期一致且顯著的歷史特徵（供參考，不保證未來）：\n${lessons.map(x => `- ${x}`).join('\n')}` : '',
     ``,
     `只輸出一行 JSON，不要其他文字：`,
     `{"decision":"take 或 skip","confidence":0到100的整數,"reason":"30字內主要理由","risk":"20字內最大風險"}`,

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import AiDaytradeLab from './AiDaytradeLab';
 import AiSwingLab from './AiSwingLab';
 import AiLabTargets from './AiLabTargets';
+import AiLabLearn from './AiLabLearn';
 
 export default function AiLabHub() {
   const [kind, setKind] = useState<'daytrade' | 'swing'>('daytrade');
@@ -18,6 +19,7 @@ export default function AiLabHub() {
         ))}
       </div>
       {kind === 'daytrade' ? <AiDaytradeLab /> : <AiSwingLab />}
+      <AiLabLearn />
     </div>
   );
 }

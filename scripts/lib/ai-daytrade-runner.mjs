@@ -5,6 +5,7 @@
 //   aiDaytradeLab/{date} ＋ second-brain/daytrade-ai-lab/{date}.md／.json（已存在就不覆寫）。
 //   syncNotes()：超級管理員在後台留的人工檢討，同步成 second-brain/daytrade-ai-lab/{date}-人工檢討.md。
 // ─────────────────────────────────────────────────────────────────────────────
+import { dtFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
 import { dropUndefined } from './firestore-clean.mjs';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,7 +14,7 @@ import { sizeShares, DT_MAX_PER_TRADE } from './sim-account.mjs';
 
 const twMin = t => { const d = new Date(t + 8 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
 
-export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, deskVersion, evidence, getModelInfo = async () => null }) {
+export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, deskVersion, evidence, getModelInfo = async () => null, getLearned = () => null }) {
   let date = '';
   let records = [];
   let dirty = false, lastWrite = 0;
@@ -50,7 +51,7 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
     },
 
     /** 工作台觸發（不 await：Ollama 回覆後自行更新記錄） */
-    consider({ side, code, name, row, trade, id }, today, now = Date.now()) {
+    consider({ side, code, name, row, trade, id, ctxInfo = {} }, today, now = Date.now()) {
       if (date !== today) reset(today);
       if (records.some(r => r.id === id)) return;
       const m = twMin(now);
@@ -62,7 +63,14 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
       if (m < 9 * 60 + 5 || m > 12 * 60 + 30) { records.push({ ...base, status: 'out-of-window', reason: '09:05–12:30 以外不提新單' }); dirty = true; return; }
       if (used(side) >= AI_LAB_QUOTA[side]) { records.push({ ...base, status: 'quota', reason: `今日${side === 'long' ? '做多' : '做空'}額度 ${AI_LAB_QUOTA[side]} 已滿` }); dirty = true; return; }
       records.push(base); dirty = true;
-      const prompt = buildDecisionPrompt({ side, code, name, row, trade, quota: AI_LAB_QUOTA[side], taken: used(side) - 1, evidence, now });
+      // 🧠 經驗庫（盤後訓練·已驗證）：本筆觸發條件符合哪些歷史風險／優勢特徵（特徵口徑＝訓練用 daytradeJournal 條目）
+      let lessons = [];
+      try {
+        const F = dtFeatures({ side, type: trade.type, minute: trade.minute, entry: trade.entry, d: trade.d, costR: trade.costR, score: row.score, warnings: row.warnings, ...ctxInfo });
+        lessons = F ? matchLessons(getLearned(), `dt-${side}`, F.f) : [];
+      } catch { lessons = []; }
+      if (lessons.length) records[records.length - 1] = { ...records[records.length - 1], lessons: lessons.map(r => r.id) };
+      const prompt = buildDecisionPrompt({ side, code, name, row, trade, quota: AI_LAB_QUOTA[side], taken: used(side) - 1, evidence, now, lessons: lessons.map(r => lessonText(r, '淨R')) });
       askOllama(prompt, { priority: 5, temperature: 0.2 }).then(text => {
         const at = Date.now(); const i = records.findIndex(r => r.id === id); if (i < 0 || date !== today) return;
         const p = parseDecision(text);

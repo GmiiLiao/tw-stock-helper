@@ -11,10 +11,11 @@ import { join } from 'node:path';
 import { dropUndefined } from './firestore-clean.mjs';
 import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot, upsertHistory } from './ai-swing-lab.mjs';
 import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
+import { dailyFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
 
 const MAX_ATTEMPTS = 3;
 
-export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry }) {
+export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null }) {
   const attempts = {};
   const col = () => db.collection('aiSwingLab');
   const writeFile = (name, body, overwrite = false) => {
@@ -36,14 +37,19 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       let news = {}; try { const nv = (await db.collection('newsVerdict').doc('latest').get()).data(); const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : {}; for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; } catch { news = {}; }
       let market = null; try { const w = (await db.collection('marketWind').doc('latest').get()).data(); market = w?.direction ? `${w.direction.label}（上漲 ${w.direction.up}／下跌 ${w.direction.down}）` : null; } catch { market = null; }
       const industry = await getIndustry().catch(() => ({}));
-      const pool = buildPool({ swingPicks: sp, swingHold: sh, disp: risk.disp, attention: risk.attention, news, industry });
+      const pool0 = buildPool({ swingPicks: sp, swingHold: sh, disp: risk.disp, attention: risk.attention, news, industry });
       // v3（2026-09-28）：帳戶由 AI 主動操作——先由記錄＋日線重建持股，交給 AI 檢視續抱／賣出，再決定買進
       const prevDocs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
       const days = await loadDays(Math.max(...SWING_HORIZONS) + 15);   // 價格事件讀失敗會拋出 ⇒ 呼叫端稍後重試
       const state = portfolioState(prevDocs, days.length ? days : null, date);
       const openLots = state.lots.filter(l => l.status === 'pending' || l.status === 'held' || l.status === 'selling');
       if (!days.length && openLots.length) { log('⚠ 波段 AI：日線讀不到、無法檢視持股，稍後重試'); return false; }
-      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp }) : [];
+      // 🧠 經驗庫（盤後訓練·已驗證）：以決策日日線特徵比對，候選與持股各自標出符合的歷史風險／優勢（口徑同訓練）
+      const learned = getLearned(); const tDec = days.findIndex(d => d.date === date);
+      const lessonsOf = code => { if (!learned || tDec < 0) return []; try { const F = dailyFeatures(days, tDec, code); return F ? matchLessons(learned, 'swing', F.f) : []; } catch { return []; } };
+      const withL = x => { const L = lessonsOf(x.code); return L.length ? { ...x, lessons: L.map(r => lessonText(r, '5日淨%')), lessonIds: L.map(r => r.id) } : x; };
+      const pool = pool0.map(withL);
+      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp }).map(withL) : [];
       const heldCodes = new Set(openLots.map(l => l.code));
       const lastPxOf = c => days[days.length - 1]?.m[c]?.[0] ?? null;
       const equity = state.account.freeCash + openLots.reduce((a, l) => a + (l.buy && lastPxOf(l.code) ? lastPxOf(l.code) * l.shares : (l.buy?.px ?? l.priceAtDecision ?? 0) * l.shares), 0);

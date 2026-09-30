@@ -47,12 +47,14 @@ const line = c => {
   if (c.hold) parts.push(`累積漲幅 5日 ${f1(c.hold.gains?.d5)}%／10日 ${f1(c.hold.gains?.d10)}%／20日 ${f1(c.hold.gains?.d20)}%／60日 ${f1(c.hold.gains?.d60)}%、連漲 ${c.hold.streak} 日、日均成交 ${c.hold.amtM} 百萬、站上均線 ${(c.hold.ma || []).filter(Boolean).length}/3`);
   if (c.news) parts.push(`新聞判讀：${c.news}`);
   if (c.attention) parts.push('⚠注意股');
+  if (c.lessons?.length) parts.push(`經驗庫：${c.lessons.join('；')}`);
   return `- ${parts.join('｜')}`;
 };
 
 const f2 = v => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}`);
 const holdLine = h => `- ${h.code} ${h.name}｜${h.shares.toLocaleString()} 股、${h.buyDate} 以 ${h.buyPx} 買進、最新收盤 ${h.lastPx ?? '—'}（${f2(h.pnlPct)}%）、已持有 ${h.heldDays ?? '—'} 個交易日、持有期間最高 ${f2(h.maxUp)}%／最低 ${f2(h.maxDD)}%`
-  + `｜${h.onList ? '今天仍在波段榜上' : '已不在今天的波段榜'}${h.news ? `｜新聞判讀：${h.news}` : ''}${h.disposition ? '｜⚠已列處置股' : ''}｜當初買進理由：${h.reason || '—'}`;
+  + `｜${h.onList ? '今天仍在波段榜上' : '已不在今天的波段榜'}${h.news ? `｜新聞判讀：${h.news}` : ''}${h.disposition ? '｜⚠已列處置股' : ''}｜當初買進理由：${h.reason || '—'}`
+  + (h.lessons?.length ? `｜經驗庫：${h.lessons.join('；')}` : '');
 
 /** 每日決策 prompt：檢視持股（可賣出換股）＋從候選池買進。holdings 空＝只選股 */
 export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null }) {
@@ -64,6 +66,7 @@ export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings =
     `【帳戶】${equity != null ? `總值約 ${Math.round(equity).toLocaleString()} 元、` : ''}${cash != null ? `可用現金 ${Math.round(cash).toLocaleString()} 元（不含今天賣出的回收款）` : ''}`,
     `【大盤】${market || '未知'}${swingPicksMeta?.bearDay ? '；今日為空頭日（波段起漲訊號在空頭日較可靠）' : ''}${swingPicksMeta?.crowded ? '；⚠ 起漲訊號擁擠（崩盤型），母體已偏離回測' : ''}${swingPicksMeta?.observe ? `；⚠ 起漲訊號目前為觀察閘：${swingPicksMeta.observeWhy || ''}` : ''}`,
     `【本站實證提醒】波段起漲⭐訊號的優勢在第 5 日（持有 5 日淨均約 +1.1%）；追高（RSI5>85）對買方是較差的進場點；20日波動 ≥1.5% 才進場較好；KD 死叉破底風險高。`,
+    `【經驗庫】各檔標「經驗庫：⚠風險／✓優勢」的，是本站盤後以歷史樣本訓練、前後期一致且顯著的特徵統計（5 日淨報酬；供參考，不保證未來）。`,
     `【現有持股 ${holdings.length} 檔】`,
     holdings.length ? holdings.map(holdLine).join('\n') : '（無）',
     `【候選池 ${pool.length} 檔】（已持有的不能重複買）`,

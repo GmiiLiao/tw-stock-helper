@@ -196,6 +196,8 @@ const CONTRACTS = [
   // 前三者都是 PIT 凍結／當日檔：漏一天就永久缺一天（09-24 daytradeJournal 已實際缺過一次）。
   // 當沖 AI 實驗：13:40 起 finalize() 寫一次凍結檔 {date}（只有 frozenAt）。零觸發的日子 records=[] 是合法結果 ⇒ allowEmpty。
   //   ⚠ 同 collection 的 live 盤中檔「有變動才寫」，不設新鮮度閘門；dated 讀取已跳過 live。
+  // 🧠 AI 交易員經驗庫（2026-09-30）：每交易日 18:30 後盤後訓練；date＝訓練用的最後完整歸檔日
+  { c: 'aiLabLearn',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 19, dateField: 'date' },
   { c: 'aiDaytradeLab',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 14, countField: 'records', allowEmpty: true },
   // 波段 AI 實驗：選股窗 17:00～次日 08:30（pick() 以榜單資料日冪等）⇒ 凍結可能拖到隔天清晨，maxStale 放寬到 40h。
   //   Ollama 三次失敗或候選池空也會凍結成 picks=[]＋note ⇒ allowEmpty。publishHour 23：晚間長任務可能把選股擠到深夜。

@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
@@ -1728,7 +1729,14 @@ const _vwapBook = createVwapBook();
 // 🤖 當沖 AI 實驗（2026-09-24）：工作台觸發 → 本機 Ollama 決定做／不做（多空各 ≤5）→ 模擬成交 → 盤後凍結＋檢討
 const AI_LAB_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'daytrade-ai-lab');
 const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE, onTrigger: evt => _aiLab.consider(evt, isoDate(taipei())) });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
-const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE, getModelInfo: () => getOllamaModelInfo() });
+// 🧠 AI 交易員經驗庫（2026-09-30）：盤後訓練結果 aiLabLearn/latest 的記憶體快取；交易員決策時同步讀取（讀不到＝無經驗，不擋決策）
+let _learned = null, _learnedAt = 0;
+async function refreshLearned() {
+  try { const d = (await db.collection('aiLabLearn').doc('latest').get()).data(); _learned = d?.learned || null; _learnedAt = Date.now(); }
+  catch (e) { log('⚠ 經驗庫讀取失敗（沿用上一份）:', (e.message || '').slice(0, 60)); _learnedAt = Date.now(); }
+}
+const getLearned = () => _learned;
+const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE, getModelInfo: () => getOllamaModelInfo(), getLearned });
 let _aiLabFinalDate = '', _aiNotesAt = 0;
 // 使用中的 LLM 模型身分（名稱＋digest＋家族／參數量／量化）——AI 實驗每筆記錄都要記（使用者 2026-09-24）。1 小時快取。
 let _ollamaInfo = { at: 0, v: null };
@@ -1754,7 +1762,7 @@ async function fetchRiskSets() {
 }
 // 🤖 AI 實驗·波段持有（2026-09-24）：盤後 Ollama 從波段榜挑 ≤5 檔 → D+1 開盤模擬買 → 5/10/20/60/120 日結算
 const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'swing-ai-lab'),
-  getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(),
+  getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned,
   loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors()); } });   // 讀失敗就拋出、本輪不結算（結算寫一次不改，未還原價會永久化·G2-06）
 let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0;
 let _swingOpenDate = '', _swingOpenTryAt = 0, _swingOpenBusy = false;   // 波段 AI 開盤即時成交（2026-09-30）
@@ -11196,9 +11204,7 @@ async function mopsParValueChanges(fromIso) {
 //   張數不動（成交額請用原始 days 算）。沒有係數的事件不動（只在事件表上看得到）。不改動傳入物件。
 async function loadPriceFactors() {
   const d = (await db.collection('priceEvents').doc('latest').get()).data();
-  const out = {};
-  for (const e of (d?.items || [])) if (e.factor > 0 && e.code && e.date) (out[e.code] ||= []).push({ date: e.date, factor: e.factor });
-  return out;
+  return factorsFromItems(d?.items);
 }
 // 每日／每 10 分鐘重算的榜單用：讀失敗仍以未還原價算（下一輪自癒），但要留 log，不再靜默（G2-06）。
 // 寫一次就不改的結算（AI 波段）不可用這支——直接 loadPriceFactors() 讓錯誤拋出。
@@ -11206,21 +11212,7 @@ async function loadPriceFactorsOrWarn() {
   try { return await loadPriceFactors(); }
   catch (e) { log('⚠ 價格結構事件讀取失敗，本輪用未還原價:', (e.message || '').slice(0, 60)); return {}; }
 }
-function applyPriceFactors(days, factors) {
-  const codes = Object.keys(factors || {});
-  if (!codes.length) return days;
-  return days.map(d => {
-    let copy = null;
-    for (const code of codes) {
-      const row = d.m[code]; if (!row) continue;
-      let f = 1; for (const ev of factors[code]) if (d.date < ev.date) f *= ev.factor;
-      if (f === 1) continue;
-      if (!copy) copy = { ...d.m };
-      copy[code] = row.map((v, i) => (i === 1 ? v : (v > 0 ? +(v * f).toFixed(2) : v)));
-    }
-    return copy ? { ...d, m: copy } : d;
-  });
-}
+// applyPriceFactors 已抽到 ./lib/price-factors.mjs（2026-09-30，邏輯不變；AI 交易員經驗庫訓練腳本共用）
 // 代號→名稱（自快照；失敗回空表，呼叫端自行 catch）
 async function nameIndexMap() {
   const snap = (await db.collection('marketSnapshot').doc('latest').get()).data();
@@ -14547,6 +14539,7 @@ const ASIA_SLOTS = [
   [9 * 60 + 30, '09:30'], [10 * 60 + 30, '10:30'], [11 * 60 + 30, '11:30'],
   [12 * 60 + 30, '12:30'], [13 * 60 + 30, '13:30'],
 ];
+let _labLearnDate = '';   // 🧠 交易員經驗庫盤後訓練（18:30 起，完成記錄 labLearn）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
@@ -14588,6 +14581,7 @@ async function markJobDone(key, day) {
   catch (e) { log(`⚠ 寫入時段完成記錄 ${key} 失敗:`, (e.message || '').slice(0, 60)); }
 }
 async function dailyJobsLoop() {
+  await refreshLearned();   // 🧠 經驗庫先載入，交易員決策立即可用
   await runDailyJobs(true); // 開機先跑一輪，資料即時可用
   { // 開機時已過的時段：只有「完成記錄」證實今天跑完的才標記，否則照常補跑
     const tw = taipei(); const t = isoDate(tw); const m = tw.getHours() * 60 + tw.getMinutes();
@@ -14598,6 +14592,7 @@ async function dailyJobsLoop() {
         _dailyJobsDate = t;
         if (marks.finReports !== t) { await timedJob('finReports', computeFinReports, '(boot 補跑·今日未跑)'); await markJobDone('finReports', t); }
       }
+      if (marks.labLearn === t) _labLearnDate = t;
       if (m >= 16 * 60 + 30 && marks.official === t) _officialDate = t;
       if (m >= 21 * 60 + 45 && marks.margin === t) _marginDate = t;
       if (m >= 16 * 60 + 30 && marks.official !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
@@ -15059,6 +15054,12 @@ async function dailyJobsLoop() {
         }
         if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) { await runDailyJobs(); _dailyJobsDate = today; await markJobDone('daily', today); await markJobDone('finReports', today); }
         if (mins >= 16 * 60 + 30 && _officialDate !== today) { await runJobSet(OFFICIAL_CATCHUP, '(official)'); _officialDate = today; await markJobDone('official', today); }
+        // 🧠 AI 交易員經驗庫盤後訓練（2026-09-30 使用者）：當沖 13:40 凍結、波段 17:00 結算後的空檔；獨立行程（純計算、不呼叫 LLM）
+        if (mins >= 18 * 60 + 30 && _labLearnDate !== today) {
+          if (await execScript('ai-lab-learn.mjs', [], '🧠 交易員經驗庫訓練', 20)) { _labLearnDate = today; await markJobDone('labLearn', today); await refreshLearned(); }
+          else _labLearnDate = today;   // 失敗當日不再重試（避免每 5 分鐘重跑）；log 已記錄，隔日照常
+        }
+        if (Date.now() - _learnedAt > 3600_000) await refreshLearned();
         if (mins >= 21 * 60 + 45 && _marginDate !== today) {
           // ⚠ **成功才標記**（今天第二次踩到同一個反模式）：
           //   原本 _marginDate = today 寫在這裡，後面的訓練資料與檢討報表

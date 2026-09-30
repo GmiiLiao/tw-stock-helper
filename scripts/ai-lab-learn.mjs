@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+// ─────────────────────────────────────────────────────────────────────────────
+// 🧠 AI 交易員經驗庫·盤後訓練（2026-09-30 使用者要求；純計算、不呼叫 LLM、不打上游）
+//   daemon 每個交易日 18:30 後以獨立行程執行（execScript），成功才寫完成記錄 system/daemonJobMarks.labLearn。
+//   樣本：
+//     · 波段（key=swing，y＝5 日淨%：D+1 開盤買、第 5 個交易日收盤賣、扣 0.4425%，同 AI 波段研究口徑）
+//         歷史母體＝收盤歸檔近 LEARN_DAYS 個交易日、每 2 日取樣、近似波段候選池（20 日均成交額≥0.5 億、近 20 日上漲、站上≥2 條均線）
+//         ＋AI 實際候選池（aiSwingLab.pool，同一日同一檔去重）。
+//     · 當沖（key=dt-long／dt-short，y＝規則淨 R）：當沖工作台每一筆觸發（daytradeJournal，含 AI 沒做的）。
+//   輸出：Firestore aiLabLearn/latest＋aiLabLearn/{資料日}；第二大腦 second-brain/ai-lab-learn/{資料日}.md／.json、latest.json。
+//   用法：node scripts/ai-lab-learn.mjs [--dry]（--dry 只印摘要不寫入）
+// ─────────────────────────────────────────────────────────────────────────────
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dailyFeatures, dtFeatures, learn, renderLearnMarkdown, LEARN_VERSION } from './lib/ai-lab-learn.mjs';
+import { horizonOutcome } from './lib/ai-swing-lab.mjs';
+import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
+import { dropUndefined } from './lib/firestore-clean.mjs';
+
+const LEARN_DAYS = +(process.env.LEARN_DAYS || 320);
+const DRY = process.argv.includes('--dry');
+const BRAIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'ai-lab-learn');
+
+function initDb() {
+  if (!getApps().length) {
+    const p = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    initializeApp(p ? { credential: cert(JSON.parse(readFileSync(p, 'utf8'))) } : {});
+  }
+  return getFirestore();
+}
+
+const db = initDb();
+// 收盤歸檔（只取需要的欄位）；殘缺日（<1500 檔）不進訓練集（同 squeeze-train 的教訓：上櫃整批缺會被誤讀成訊號）
+const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(LEARN_DAYS + 10).select('date', 'closeJson').get();
+const raw = snap.docs.map(d => d.data()).filter(a => a?.closeJson).map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }))
+  .filter(d => Object.keys(d.m).length >= 1500).reverse();
+const factors = factorsFromItems((await db.collection('priceEvents').doc('latest').get()).data()?.items);
+const days = applyPriceFactors(raw, factors);
+if (days.length < 80) { console.log(`✖ 經驗庫：歸檔只有 ${days.length} 日，不訓練`); process.exit(1); }
+const dataDate = days[days.length - 1].date;
+
+// ── 波段樣本 ──
+const samples = []; const seen = new Set(); const sources = {};
+const addSwing = (t, code, src) => {
+  const k = `${days[t].date}:${code}`; if (seen.has(k)) return;
+  const F = dailyFeatures(days, t, code); if (!F) return;
+  const o = horizonOutcome(days, days[t].date, code, 5); if (!o || o.net == null) return;
+  seen.add(k); samples.push({ key: 'swing', date: days[t].date, f: F.f, y: o.net, src }); sources[src] = (sources[src] || 0) + 1;
+};
+// AI 實際候選池（先加，去重時優先保留此來源）
+const labDocs = (await db.collection('aiSwingLab').orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+const idx = new Map(days.map((d, i) => [d.date, i]));
+for (const d of labDocs) { const t = idx.get(d.date); if (t == null) continue; for (const c of d.pool || []) addSwing(t, c.code, 'AI候選池'); }
+for (let t = 60; t < days.length - 5; t += 2) {
+  for (const code in days[t].m) {
+    if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
+    const F = dailyFeatures(days, t, code);
+    if (!F || !(F.raw.amtM >= 50) || !(F.raw.gain20 > 0) || !(F.raw.maAbove >= 2)) continue;
+    addSwing(t, code, '歷史母體');
+  }
+}
+
+// ── 當沖樣本（工作台每一筆觸發；netR＝規則照做的淨 R）──
+const jSnap = await db.collection('daytradeJournal').get();
+for (const d of jSnap.docs) {
+  let entries = {}; try { entries = JSON.parse(d.data().entriesJson || '{}'); } catch { continue; }
+  for (const e of Object.values(entries)) {
+    if (!(Number.isFinite(e?.netR)) || !e.traded) continue;   // 否決的沒有出場結果
+    const F = dtFeatures(e); if (!F) continue;
+    samples.push({ key: `dt-${e.side}`, date: d.id, f: F.f, y: e.netR, src: '工作台觸發' }); sources['工作台觸發'] = (sources['工作台觸發'] || 0) + 1;
+  }
+}
+
+const learned = learn(samples);
+const doc = { date: dataDate, version: LEARN_VERSION, at: Date.now(), sources, learned,
+  note: '已驗證（validated）規則提供給 AI 交易員決策參考；觀察中（observing）只記錄。歷史統計不保證未來，非投資建議。' };
+for (const [k, x] of Object.entries(learned)) {
+  const v = x.rules.filter(r => r.status === 'validated');
+  console.log(`🧠 ${k}：n=${x.base.n}、平均 ${x.base.mean}${x.unit === '淨R' ? 'R' : '%'}｜已驗證 ${v.length}（風險 ${v.filter(r => r.kind === 'risk').length}／優勢 ${v.filter(r => r.kind === 'edge').length}）｜觀察中 ${x.rules.length - v.length}`);
+}
+if (DRY) {
+  console.log(JSON.stringify(sources));
+  for (const [k, x] of Object.entries(learned)) for (const r of x.rules) console.log(`  ${k} ${r.status === 'validated' ? '已驗證' : '觀察中'} ${r.kind === 'risk' ? '⚠' : '✓'} ${r.label}｜n=${r.n} 平均 ${r.mean} vs 其餘 ${r.restMean}｜t=${r.t}｜相對差 訓練 ${r.train.diff} 驗證 ${r.holdout.diff}`);
+  process.exit(0);
+}
+await db.collection('aiLabLearn').doc('latest').set(dropUndefined(doc));
+await db.collection('aiLabLearn').doc(dataDate).set(dropUndefined(doc));
+try {
+  mkdirSync(BRAIN, { recursive: true });
+  writeFileSync(join(BRAIN, `${dataDate}.md`), renderLearnMarkdown(doc));
+  writeFileSync(join(BRAIN, `${dataDate}.json`), JSON.stringify(doc, null, 1));
+  writeFileSync(join(BRAIN, 'latest.json'), JSON.stringify(doc, null, 1));
+} catch (e) { console.log('⚠ 第二大腦寫入失敗:', (e.message || '').slice(0, 80)); }
+console.log(`✓ 經驗庫 ${dataDate}：樣本 ${samples.length}（${Object.entries(sources).map(([k, v]) => `${k} ${v}`).join('、')}）`);
+process.exit(0);

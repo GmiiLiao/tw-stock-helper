@@ -167,3 +167,16 @@ test('決策 prompt（v3，使用者 09-30 選 B）：交易員角色、以帳�
   assert.match(p, /n=120/, '歷史數據仍如實揭露');
   assert.equal(AI_LAB_VERSION, 'ai-dt-lab-v3');
 });
+
+test('執行器：當沖觸發符合經驗庫已驗證特徵 ⇒ prompt 附【經驗庫】、記錄 lessons', async () => {
+  const realNow = Date.now; Date.now = () => T + 70_000;
+  try {
+    const db = fakeDb(); let prompt = '';
+    const learned = { 'dt-long': { rules: [{ id: 'type=ORB', feature: 'type', bucket: 'ORB', status: 'validated', kind: 'risk', label: '型態 ORB', n: 40, mean: -0.6, win: 30, restMean: 0.1, t: -2.5 }] } };
+    const lab = createAiDaytradeLab({ db, askOllama: async p => { prompt = p; return '{"decision":"skip","confidence":50,"reason":"r","risk":"k"}'; }, log: () => {}, getQuote: () => ({ price: 41 }), dir: mkdtempSync(join(tmpdir(), 'ailab-')), model: 'm', deskVersion: 'v', evidence: null, getLearned: () => learned });
+    const id = 'long:1111:ORB:' + T;
+    lab.consider({ side: 'long', code: '1111', name: '測', row, trade: { ...trade(T), minute: 575 }, id, ctxInfo: { regime: '多頭' } }, '2026-09-24', T + 70_000);
+    await new Promise(r => setTimeout(r, 10));
+    assert.match(prompt, /【經驗庫】[\s\S]*⚠風險：型態 ORB/);
+  } finally { Date.now = realNow; }
+});
