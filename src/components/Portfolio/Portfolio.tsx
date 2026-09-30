@@ -38,6 +38,7 @@ import CardBoundary from '@/components/shared/CardBoundary';
 import { useShallow } from 'zustand/react/shallow';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { taipeiToday } from '@/lib/useRiskCodes';
 
 const COLORS = ['#3d8ef8', '#22c55e', '#f59e0b', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
 
@@ -72,7 +73,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
     price: '',
     quantity: '',
     unit: (storageGet('tradeUnit') === 'share' ? 'share' : 'lot') as 'lot' | 'share',   // 張/股·記住上次選擇（零股使用者不必每次重切）
-    date: new Date().toISOString().split('T')[0],
+    date: taipeiToday(),   // 台北日期（UTC 在 00:00–08:00 會變成前一天·2026-10-01 實測）
     note: '',
     dayTrade: false,
   });

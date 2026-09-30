@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark, dayTradeTintOf } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';
 
 // ── 同業比較（financial-services comps-analysis 台股化）──
 // daemon 每日算好 peerComps/latest；此處只呈現：同產業 PE/PB/殖利率/營收YoY/評分/RS。
@@ -69,7 +70,7 @@ export default function PeerComps({ code }: { code: string }) {
               <th style={{ padding: '6px 8px' }}>PB</th>
               <th style={{ padding: '6px 8px' }}>殖利率%</th>
               <th style={{ padding: '6px 8px' }}>營收YoY%</th>
-              <th style={{ padding: '6px 8px' }}>評分</th>
+              <th style={{ padding: '6px 8px' }} title="技術評分未含處置／注意扣分（2026-09-30 起）；風險看名稱旁的徽章">技術評分</th>
               <th style={{ padding: '6px 8px' }}>RS</th>
               <th style={{ padding: '6px 8px' }}>訊號</th>
             </tr>
@@ -94,6 +95,7 @@ export default function PeerComps({ code }: { code: string }) {
                   <td style={{ padding: '7px 8px', fontWeight: self ? 800 : 600 }}>
                     <span style={{ color: '#e2e8f0' }}>{p.code}</span> <span style={{ color: '#7dd3fc' }}>{p.name}</span>{self ? ' ◄' : ''}
                     {(() => { const st = statusOf(dt, p.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+                    {' '}<RiskBadge code={p.code} size="xs" />
                   </td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', fontFamily: "'JetBrains Mono',monospace" }}>{p.price ?? '—'}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', color: (p.changePct ?? 0) > 0 ? 'var(--color-up)' : (p.changePct ?? 0) < 0 ? 'var(--color-down)' : 'var(--color-flat)' }}>{p.changePct == null ? '—' : `${p.changePct > 0 ? '+' : ''}${p.changePct}%`}</td>
@@ -110,7 +112,7 @@ export default function PeerComps({ code }: { code: string }) {
           </tbody>
         </table>
       </div>
-      {data.peers.length > 30 && <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>依評分排序，顯示前 30／{data.peers.length} 檔。</div>}
+      {data.peers.length > 30 && <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>依技術評分（未含處置／注意扣分）排序，顯示前 30／{data.peers.length} 檔。</div>}
     </div>
   );
 }

@@ -21,6 +21,9 @@ import type { FundamentalSignals } from './fundamentals-server';
 
 const PULLBACK_HORIZON_DAYS = 20; // window for buy-zone pullback probability
 
+/** 把買進訊號壓成 WATCH（追高、走勢轉空、強利空時用；其他訊號不動） */
+const capBuy = (s: ScoredStock['signal']): ScoredStock['signal'] => (s === 'STRONG_BUY' || s === 'BUY' ? 'WATCH' : s);
+
 function holdDaysToNumber(holdDays: string): number {
   // crude parse of "3~7 個交易日" / "2~4 週" / "1~3 個月" → mid trading days
   if (holdDays.includes('月')) return 45;
@@ -155,6 +158,11 @@ export function enrichScoredStock(
     else if (newScore >= 65 && chgUp) stock.signal = stock.isAttention ? 'WATCH' : 'BUY';
     else if (newScore >= 55) stock.signal = 'WATCH';
     else stock.signal = 'NEUTRAL';
+    // 未含風險扣分的評分／訊號同步加上基本面分（否則 baseScore − score 就不再等於處置／注意扣分）
+    stock.baseScore = +Math.max(0, Math.min(100, stock.baseScore + fund.bonus)).toFixed(2);
+    stock.baseSignal = stock.baseScore >= 80 && chgUp ? 'STRONG_BUY'
+      : stock.baseScore >= 65 && chgUp ? 'BUY'
+      : stock.baseScore >= 55 ? 'WATCH' : 'NEUTRAL';
 
     stock.reasons = [...stock.reasons, ...fund.reasons].slice(0, 8);
     stock.risks = [...stock.risks, ...fund.riskFlags].slice(0, 8);
@@ -170,13 +178,14 @@ export function enrichScoredStock(
     stock.reasons = merge(stock.reasons, swingSignal.reasons, 9);
     stock.risks = merge(stock.risks, swingSignal.risks, 9);
     // 不追高：never present an extended (bias>5%) stock as BUY/STRONG_BUY.
-    if (swingSignal.chase && (stock.signal === 'STRONG_BUY' || stock.signal === 'BUY')) {
-      stock.signal = 'WATCH';
+    if (swingSignal.chase) {
+      stock.signal = capBuy(stock.signal);
+      stock.baseSignal = capBuy(stock.baseSignal);   // 追高／走勢轉空／強利空的壓制與風險無關 ⇒ 未含風險的訊號同樣套用
     }
     // If swing model is clearly bearish, don't show a buy signal.
-    if ((swingSignal.action === 'SELL' || swingSignal.action === 'STRONG_SELL') &&
-        (stock.signal === 'STRONG_BUY' || stock.signal === 'BUY')) {
-      stock.signal = 'WATCH';
+    if (swingSignal.action === 'SELL' || swingSignal.action === 'STRONG_SELL') {
+      stock.signal = capBuy(stock.signal);
+      stock.baseSignal = capBuy(stock.baseSignal);
     }
   }
 
@@ -205,8 +214,9 @@ export function enrichScoredStock(
           : `📰 新聞面偏空（${newsSentiment.bear} 則利空）· 未計分（風險提示，參考值 ${newsSentiment.adjustment}）`,
         ...stock.risks].slice(0, 9);
       // Strongly negative news caps an over-optimistic buy signal.
-      if (newsSentiment.adjustment <= -10 && (stock.signal === 'STRONG_BUY' || stock.signal === 'BUY')) {
-        stock.signal = 'WATCH';
+      if (newsSentiment.adjustment <= -10) {
+        stock.signal = capBuy(stock.signal);
+        stock.baseSignal = capBuy(stock.baseSignal);
       }
     }
   }

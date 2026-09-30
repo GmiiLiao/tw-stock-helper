@@ -26,6 +26,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { scoreboardDoc, recentPicks } from './lib/picks-scoreboard.mjs';
+import { baseScoreOf, percentileOf, techScoreText, riskNoteText, riskTypeOf, thesisSupport } from './lib/risk-score.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
@@ -653,13 +654,15 @@ function parseTrigger(text) {
   return m ? stripBrackets(m[1].trim()).slice(0, 120) : '';
 }
 
+// 評分寫給 LLM：/api/rating 的 score／grade／signal 已含處置 −40／注意 −20；直接寫「技術評分 17(C) 訊號 NEUTRAL」
+// 模型會讀成技術面很弱而建議出脫／換股 ⇒ 用 techScoreText／riskNoteText（lib/risk-score.mjs，2026-09-30 全站稽核）。
 function buildPrompt({ code, name, pnlPct, avgCost, price, rating, news, isRisk, riskType, chip }) {
   const st = rating?.stock;
   const f = rating?.fundamentals;
   const lines = [];
   lines.push(`持股：${code} ${name}；成本 ${avgCost}、現價 ${price}、未實現損益 ${pnlPct.toFixed(2)}%`);
   if (st) {
-    lines.push(`AI 技術評分 ${st.score}(${st.grade}) 訊號 ${st.signal}`);
+    lines.push(techScoreText(st, isRisk ? riskType : null));
     if (st.buyZones?.length) lines.push(`支撐買點：${st.buyZones.map(z => `${z.label}${z.price}`).join('、')}`);
     if (st.sellTargets?.length) lines.push(`目標價(AI推估)：${st.sellTargets.filter(t => t.type !== 'trailing').map(t => `${t.price}(+${t.gainPercent}%)`).join('、')}；停損 ${st.stopLoss}`);
   }
@@ -668,7 +671,7 @@ function buildPrompt({ code, name, pnlPct, avgCost, price, rating, news, isRisk,
   else if (f?.institutional) lines.push(`三大法人(張) 外資 ${f.institutional.foreignNetLots}、投信 ${f.institutional.trustNetLots}`);
   const newsT = (news || []).slice(0, 6).map(n => `・${n.title}`).join('\n') || '（近一月無重大新聞）';
   lines.push(`近一月新聞/公告：\n${newsT}`);
-  if (isRisk) lines.push(`⚠️ 此股為${riskType === 'disposition' ? '處置股（交易受限）' : '注意股'}。`);
+  if (isRisk) lines.push(riskNoteText(riskType));
 
   return `你是台灣股市資深操盤顧問。依下列「我的持股」數據，用繁體中文給出務實建議。
 嚴格依此格式輸出：
@@ -883,14 +886,14 @@ async function swingForCode(code, name) {
   const sw = rating?.swingSignal;
   const lines = [
     `${code} ${name}：現價 ${st.price}、今日 ${st.changePercent?.toFixed?.(2)}%`,
-    `AI 技術評分 ${st.score}(${st.grade}) 訊號 ${st.signal}`,
+    techScoreText(st),
     sw ? `波段訊號 ${sw.actionLabel}（紀律評分 ${sw.score}/100、${sw.trend}、乖離 ${sw.biasPct}%）${sw.chase ? '【乖離過大，嚴禁追高，須等回測】' : ''}` : '',
     st.buyZones?.length ? `支撐買點 ${st.buyZones.map(z => `${z.label}${z.price}`).join('、')}` : '',
     st.sellTargets?.length ? `目標 ${st.sellTargets.filter(t => t.type !== 'trailing').map(t => t.price).join('、')}、停損 ${st.stopLoss}` : '',
     f?.valuation ? `PER ${f.valuation.pe}/殖利率 ${f.valuation.dividendYield}%/PBR ${f.valuation.pb}` : '',
     f?.institutional ? `三大法人(張) 外資 ${f.institutional.foreignNetLots}、投信 ${f.institutional.trustNetLots}、自營商 ${f.institutional.dealerNetLots}` : '',
     `近一月新聞：\n${news.slice(0, 6).map(n => `・${n.title}`).join('\n') || '（無重大新聞）'}`,
-    isRisk ? `⚠️ 此股為${st.isDisposition ? '處置股（交易受限）' : '注意股'}。` : '',
+    riskNoteText(riskTypeOf(st)),
   ].filter(Boolean);
 
   const prompt = `你是台灣股市資深波段操盤手。僅依下列實際數據，用繁體中文寫「波段操作分析」(140-220字)，涵蓋：趨勢與支撐壓力、籌碼/估值解讀、近一月新聞影響、具體波段進出價位與停損；務必遵守「乖離過大不追高、回測均線才進場」的紀律以提升勝率。${isRisk ? '因屬注意/處置股，須說明交易限制與波段風險控管。' : ''}嚴禁杜撰數據或臆測未提供的資訊。結尾不需免責聲明。${STRICT_RULE}\n\n【數據】\n${lines.join('\n')}`;
@@ -3784,10 +3787,10 @@ async function buildQAContext(code, name) {
   const st = rating?.stock; const f = rating?.fundamentals; const sw = rating?.swingSignal;
   const lines = [`股票：${code} ${name || st?.name || ''}`];
   if (st) {
-    lines.push(`現價 ${st.price}、今日 ${st.changePercent}%、AI技術評分 ${st.score}(${st.grade})、訊號 ${st.signal}`);
+    lines.push(`現價 ${st.price}、今日 ${st.changePercent}%、${techScoreText(st)}`);
     if (st.buyZones?.length) lines.push(`支撐買點：${st.buyZones.map(z => `${z.label}${z.price}`).join('、')}`);
     if (st.sellTargets?.length) lines.push(`目標價：${st.sellTargets.filter(t => t.type !== 'trailing').map(t => t.price).join('、')}、停損 ${st.stopLoss}`);
-    if (st.isAttention || st.isDisposition) lines.push(`⚠️ ${st.isDisposition ? '處置股' : '注意股'}`);
+    if (riskTypeOf(st)) lines.push(riskNoteText(riskTypeOf(st)));
   }
   if (sw) lines.push(`波段訊號 ${sw.actionLabel}(紀律分 ${sw.score}/100、${sw.trend}、乖離 ${sw.biasPct}%${sw.chase ? '、追高風險' : ''})`);
   if (f?.valuation) lines.push(`PER ${f.valuation.pe}/殖利率 ${f.valuation.dividendYield}%/PBR ${f.valuation.pb}`);
@@ -4399,7 +4402,8 @@ unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,
       const res = [];
       for (const code in ratingMap) {
         const r = ratingMap[code];
-        if (f.minScore && !(r.score >= f.minScore)) continue;
+        const base = r.baseScore ?? r.score;   // 標籤是「技術評分」＝未含處置／注意扣分（風險另列在結果）
+        if (f.minScore && !(base >= f.minScore)) continue;
         if (f.signal && r.signal !== f.signal && !(f.signal === 'BUY' && r.signal === 'STRONG_BUY')) continue;
         if (f.minYield && !(enrich.yield[code] >= f.minYield)) continue;
         if (f.minRS && !(enrich.rs[code] >= f.minRS)) continue;
@@ -4419,7 +4423,7 @@ unsupported(字串:需求中無法用以上欄位表達的部分照原文摘出,
         if (f.offLow60Min != null && !(rg?.offLow60 >= f.offLow60Min)) continue;
         if (f.offLow60Max != null && !(rg?.offLow60 <= f.offLow60Max)) continue;
         res.push({
-          code, name: nameMap[code] || code, score: r.score, signal: r.signal,
+          code, name: nameMap[code] || code, score: base, risk: r.risk ?? null, signal: r.signal,
           rs: enrich.rs[code] ?? null, yield: enrich.yield[code] ?? null,
           ...(wantsRsi && rsi ? { rsi5: rsi.rsi5, rsi10: rsi.rsi10 } : {}),
           ...(wantsRange && rg ? { rng60: rg.rng60, hi60: rg.hi60, lo60: rg.lo60, offHigh60: rg.offHigh60, offLow60: rg.offLow60 } : {}),
@@ -7822,7 +7826,8 @@ async function computePeerComps() {
       code, name: x['公司名稱'], price: q[code]?.price ?? null, changePct: q[code]?.changePercent ?? null,
       pe: b.pe > 0 ? b.pe : null, pb: b.pb > 0 ? b.pb : null, yield: b.yld > 0 ? b.yld : null,
       revYoY: +_f(x['營業收入-去年同月增減(%)']).toFixed(1),
-      score: r.score ?? null, signal: r.signal ?? null, rs: rs[code] ?? null,
+      // 評分＝未含風險扣分的技術評分（同業比強弱）；處置／注意另列 risk（2026-09-30）；訊號是行動訊號，維持含風險
+      score: r.baseScore ?? r.score ?? null, risk: r.risk ?? null, signal: r.signal ?? null, rs: rs[code] ?? null,
     });
   }
   const med = arr => { const v = arr.filter(n => n != null && isFinite(n)).sort((a, b) => a - b); return v.length ? +v[Math.floor(v.length / 2)].toFixed(2) : null; };
@@ -8727,8 +8732,10 @@ async function publishMorningNote() {
 // 「AI 依當時數據預填草稿」：支柱/風險全部由真實數據判定（零幻覺），使用者可改。
 // 每日自動檢核各支柱 ✓/✗，多數支柱瓦解時警報「你買它的理由已不成立」。
 const THESIS_PILLARS = [
-  { key: 'score60',    label: '技術評分 ≥60',              test: (d, c) => (d.rating[c]?.score ?? 0) >= 60 },
-  { key: 'bullSignal', label: 'AI 訊號偏多',               test: (d, c) => ['BUY', 'STRONG_BUY'].includes(d.rating[c]?.signal) },
+  // 技術評分用「未含風險扣分」的 baseScore（2026-09-30：處置股扣 40 分後永遠過不了 ≥60，會把風險誤當技術面弱）
+  { key: 'score60',    label: '技術評分 ≥60（未含風險扣分）', test: (d, c) => (d.base(c) ?? 0) >= 60 },
+  // 同理用 baseSignal（處置股 signal 一律 NEUTRAL、注意股最多 WATCH，是交易風險不是走勢；風險另列在論點卡）
+  { key: 'bullSignal', label: 'AI 訊號偏多（未含風險）',   test: (d, c) => ['BUY', 'STRONG_BUY'].includes(d.rating[c]?.baseSignal ?? d.rating[c]?.signal) },
   { key: 'foreignBuy', label: '外資連續買超中',            test: (d, c) => d.inst.has(c) },
   { key: 'revGrowth',  label: '月營收年增為正',            test: (d, c) => (d.rev[c] ?? -1) > 0 },
   { key: 'rs70',       label: '相對強度 RS ≥70',           test: (d, c) => (d.rs[c] ?? 0) >= 70 },
@@ -8741,7 +8748,14 @@ async function _thesisData() {
   const rs = Object.fromEntries((((await db.collection('rsRanking').doc('latest').get()).data())?.top || []).map(x => [x.code, x.rs]));
   const bw = (await fetchBwibbu()).rows;
   const yld = {}; for (const x of bw) yld[x.Code] = _f(x.DividendYield);
-  return { rating, inst, rev, rs, yld };
+  // 風險（處置／注意）與未含風險扣分的技術評分、全市場百分位（2026-09-30 論點加評分補強）
+  const rs2 = await fetchRiskSets().catch(() => null);
+  // API 有 risk 欄位就以它為準（與同一份 baseScore 同源）；舊 API 才退回另抓的名單
+  const risk = c => (rating[c] && 'risk' in rating[c] ? rating[c].risk : rs2 ? (rs2.disp.has(c) ? 'disposition' : rs2.attention.has(c) ? 'attention' : null) : null);
+  const base = c => baseScoreOf(rating[c], risk(c));
+  const allBase = Object.keys(rating).map(base).filter(Number.isFinite).sort((a, b) => a - b);
+  const pct = v => percentileOf(allBase, v);
+  return { rating, inst, rev, rs, yld, risk, base, pct };
 }
 async function updateTheses() {
   const data = await _thesisData();
@@ -8757,6 +8771,7 @@ async function updateTheses() {
       const cur = (await ref.get()).data()?.theses || {};
       const pa = (await db.collection('users').doc(uid).collection('data').doc('portfolioAnalysis').get()).data()?.analyses || {};
       const newAlerts = [];
+      const labelOf = Object.fromEntries(THESIS_PILLARS.map(p => [p.key, p.label]));   // 舊論點的支柱標籤依 key 更新成現行文字
       for (const code of codes) {
         const results = THESIS_PILLARS.map(p => ({ key: p.key, label: p.label, ok: p.test(data, code) }));
         if (!cur[code]) {
@@ -8777,13 +8792,27 @@ async function updateTheses() {
           // 每日檢核：以現時數據重評各支柱
           const t = cur[code];
           const byKey = Object.fromEntries(results.map(r => [r.key, r.ok]));
-          t.pillars = (t.pillars || []).map(p => ({ ...p, ok: byKey[p.key] ?? p.ok }));
+          t.pillars = (t.pillars || []).map(p => ({ ...p, label: labelOf[p.key] ?? p.label, ok: byKey[p.key] ?? p.ok }));
           const okN = t.pillars.filter(p => p.ok).length;
           const wasIntact = t.intact !== false;
           t.intact = t.pillars.length === 0 || okN >= Math.ceil(t.pillars.length / 2);
           t.updatedAt = Date.now();
           if (wasIntact && !t.intact) newAlerts.push({ code, name: t.name, type: 'thesis', message: `🧩 ${code} ${t.name} 投資論點轉弱：${t.pillars.filter(p => !p.ok).map(p => p.label).join('、')} 已不成立 — 建議檢視持有理由`, at: Date.now() });
         }
+      }
+      // 論點加評分補強（2026-09-30 使用者）：每則論點附
+      //   · support 支持度＝(2×論點支柱成立數＋其他指標成立數)÷(2×支柱數＋其他指標數)×100——描述目前證據，不是預測；
+      //   · tech＝技術評分（未含風險扣分）與全市場百分位、排序用評分（含風險扣分）；
+      //   · risk＝目前的處置／注意（論點支柱是建立時固定的，之後才出現的風險不會進支柱，這裡另外列出）；
+      //   · refs＝不在論點裡的其他指標目前狀態（參考）。
+      for (const code of codes) {
+        const t = cur[code]; if (!t) continue;
+        const keys = new Set((t.pillars || []).map(p => p.key));
+        t.refs = THESIS_PILLARS.filter(p => !keys.has(p.key)).map(p => ({ key: p.key, label: p.label, ok: !!p.test(data, code) }));
+        t.support = thesisSupport(t.pillars || [], t.refs);
+        const b = data.base(code), adj = data.rating[code]?.score;
+        t.tech = { base: b != null ? +Number(b).toFixed(2) : null, adj: adj != null ? +Number(adj).toFixed(2) : null, pct: data.pct(b) };
+        t.risk = data.risk(code);
       }
       for (const code in cur) if (!byCode[code]) delete cur[code]; // 已出清的持股移除論點
       await ref.set({ updatedAt: Date.now(), theses: cur });
@@ -9073,7 +9102,8 @@ async function previewEarningsCalls() {
       const news = (newsRes?.news || []).slice(0, 5).map(n => `- ${n.title}`).join('\n');
       const prompt = [
         `${e.name}(${e.code}) 將於 ${e.date} 召開法說會。請用繁體中文寫 3-4 句「法說會前瞻」，說明市場可能關注的重點與股價敏感點。`,
-        st ? `目前 AI 技術評分 ${st.score}、訊號 ${st.signal}、現價 ${st.price}(${st.changePercent}%)。` : '',
+        st ? `目前 ${techScoreText(st)}、現價 ${st.price}(${st.changePercent}%)。` : '',
+        st ? riskNoteText(riskTypeOf(st)) : '',
         news ? `近期新聞標題：\n${news}` : '',
         '嚴格規則：只能引用上面提供的數字，不得自行編造任何數字或財測；聚焦質化觀察（產業景氣、法人關注議題、股價位階）。',
       ].filter(Boolean).join('\n');
@@ -9384,14 +9414,26 @@ async function checkSnipe() {
 // ── 36) 汰弱留強輪動建議（機會成本可視化）──────────────────────
 // 每檔持股的評分 vs 全市場百分位；弱勢持股(評分<50 或後 30%)列出
 // 「若轉入前 20 強的機會成本比較」——讓續抱 vs 認錯變成數據決策。
+// 2026-09-30 使用者「為何論點相反」修正：舊版拿 /api/rating 的 score（已扣處置 −40／注意 −20）判強弱，
+//   把強勢上漲的處置／注意股標成「弱勢」並建議轉倉（實例：2305 全友 20 日 +128%、處置股，扣分前 57.36 → 17.36「弱勢」）。
+//   現在：強弱＝扣分前的技術評分（baseScore）在全市場的百分位；處置／注意改列「風險」；附 20／60 日漲幅（事實）；
+//   不再輸出「續抱等於放棄轉倉機會」這類建議——波段強弱的預測尚無通過驗證的模型（標靶公式影子測試中）。
 async function computeRotation() {
   const rating = (await getJSON('/api/rating'))?.ratings || {};
-  const all = Object.values(rating).map(r => r.score).sort((a, b) => a - b);
+  const rs = await fetchRiskSets().catch(() => null);   // 取不到＝風險標記未知（null），不當作「沒有風險」
+  // API 有 risk 欄位就以它為準（與同一份 baseScore 同源）；舊 API 才退回另抓的名單
+  const riskOf = (code, r) => (r && 'risk' in r ? r.risk : rs ? (rs.disp.has(code) ? 'disposition' : rs.attention.has(code) ? 'attention' : null) : null);
+  const baseOf = (code, r) => baseScoreOf(r, riskOf(code, r));
+  const all = Object.entries(rating).map(([c, r]) => baseOf(c, r)).filter(Number.isFinite).sort((a, b) => a - b);
   if (!all.length) return;
-  const pctOf = s => Math.round(all.filter(x => x <= s).length / all.length * 100);
-  const top20 = Object.entries(rating).sort((a, b) => b[1].score - a[1].score).slice(0, 20);
+  const pctOf = s => percentileOf(all, s);
+  // 替代參考：排除處置／注意後評分最高者（畫面寫「已排除處置／注意風險」——只靠扣分不保證排除，須明確過濾）
+  const top20 = Object.entries(rating).filter(([c, r]) => !riskOf(c, r)).sort((a, b) => b[1].score - a[1].score).slice(0, 20);
   const topAvg = Math.round(top20.reduce((s, [, r]) => s + r.score, 0) / top20.length);
   const csv = await fetchCloseCsvFull(); const nameOf = {}; for (const c of csv) nameOf[c.code] = c.name;
+  // 近 20／60 日漲幅（歸檔收盤；事實，不作判定）
+  const arch = (await readArchive(62, 'closeJson')).map(a => JSON.parse(a.closeJson));   // 新→舊
+  const retN = (code, n) => { const a = arch[0]?.[code]?.[0], b = arch[n]?.[code]?.[0]; return a > 0 && b > 0 ? +((a / b - 1) * 100).toFixed(2) : null; };
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
@@ -9402,13 +9444,16 @@ async function computeRotation() {
       const codes = Object.keys(byCode); if (!codes.length) continue;
       const items = codes.map(code => {
         const r = rating[code] || {};
-        const score = r.score != null ? +Number(r.score).toFixed(2) : null; const pct = score != null ? pctOf(score) : null;   // 顯示最多 2 位小數（防上游浮點尾差）
+        const base = baseOf(code, r), risk = riskOf(code, r);
+        const score = base != null ? +Number(base).toFixed(2) : null; const pct = score != null ? pctOf(score) : null;   // 顯示最多 2 位小數
         const weak = score != null && (score < 50 || pct < 30);
-        return { code, name: byCode[code].name, score, percentile: pct, signal: r.signal ?? null, weak,
-          note: weak ? `評分 ${score}（市場後段 ${pct}%），前 20 強平均 ${topAvg} 分 — 續抱等於放棄轉倉到強勢股的機會` : null };
+        return { code, name: byCode[code].name, score, scoreAdj: r.score != null ? +Number(r.score).toFixed(2) : null, percentile: pct, signal: r.signal ?? null,
+          risk, ret20: retN(code, 20), ret60: retN(code, 60), weak,
+          note: weak ? `技術評分（未含風險扣分）${score}，市場後段 ${pct}%` : null };
       });
-      const alternatives = top20.slice(0, 5).map(([code, r]) => ({ code, name: nameOf[code] || code, score: +Number(r.score).toFixed(2), signal: r.signal }));
-      await db.collection('users').doc(uid).collection('data').doc('rotation').set({ updatedAt: Date.now(), topAvg, items, alternatives });
+      const held = new Set(codes);
+      const alternatives = top20.filter(([code]) => !held.has(code)).slice(0, 5).map(([code, r]) => ({ code, name: nameOf[code] || code, score: +Number(r.score).toFixed(2), signal: r.signal }));
+      await db.collection('users').doc(uid).collection('data').doc('rotation').set({ updatedAt: Date.now(), basis: 'baseScore', topAvg, items, alternatives });
     } catch (e) { log('  ✖ rotation', uid, e.message); }
   }
   log('✓ 汰弱留強：分析完成');

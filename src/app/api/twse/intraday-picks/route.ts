@@ -101,7 +101,8 @@ export async function GET() {
       return {
         ...full,
         score: total, grade: gradeOf(total),
-        signal: total >= 75 ? 'STRONG_BUY' : total >= 60 ? 'BUY' : 'WATCH',
+        // 與 scoreStock 同規則：處置股不給買進訊號、注意股最多 WATCH（2026-09-30 全站稽核：原本重算時漏了這道閘）
+        signal: full.isDisposition ? 'NEUTRAL' : total >= 60 && full.isAttention ? 'WATCH' : total >= 75 ? 'STRONG_BUY' : total >= 60 ? 'BUY' : 'WATCH',
         reasons: reasons.length ? reasons : full.reasons,
         instW,
         squeeze: isSqueeze,

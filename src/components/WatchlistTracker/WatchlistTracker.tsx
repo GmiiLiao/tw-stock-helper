@@ -15,6 +15,7 @@ import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { MaChipFor, SeqBarsFor } from '@/components/shared/SeqIndicators';
 import { useRiskCodes, isDispositionPending, taipeiToday } from '@/lib/useRiskCodes';
+import { TECH_SCORE_TIP } from '@/lib/tech-score';
 
 // ─── Shared status badges (漲跌停 / 注意 / 處置) ───────────────────────────────
 // 注意/處置名單改用全站共用 hook（2026-09-18：此處原有一份複本，處置「尚未生效」的判斷只修共用版就會漏這裡）。
@@ -569,7 +570,7 @@ function StockRow({
               {rating && (
                 <>
                   <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>
-                  <span>評分 <b style={{ color: rating.score >= 75 ? 'var(--color-up)' : rating.score >= 55 ? '#f59e0b' : 'var(--color-down)' }}>{rating.score}</b></span>
+                  <span><span title={TECH_SCORE_TIP}>技術評分</span> <b style={{ color: rating.score >= 75 ? 'var(--color-up)' : rating.score >= 55 ? '#f59e0b' : 'var(--color-down)' }}>{rating.score}</b></span>
                   {SIG_STYLE[rating.signal] && (
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: SIG_STYLE[rating.signal].b, color: SIG_STYLE[rating.signal].c }}>
                       {SIG_STYLE[rating.signal].t}
@@ -2120,7 +2121,8 @@ export default function WatchlistTracker() {
       .then(d => {
         if (!alive || !d?.ratings) return;
         const m: Record<string, { score: number; signal: string }> = {};
-        for (const c in d.ratings) m[c] = { score: d.ratings[c].score, signal: d.ratings[c].signal };
+        // 顯示技術評分（未含處置／注意扣分）；風險由列上的處置／注意徽章另列（見 lib/tech-score）
+        for (const c in d.ratings) m[c] = { score: d.ratings[c].baseScore ?? d.ratings[c].score, signal: d.ratings[c].signal };
         setRatingsMap(m);
       })
       .catch(() => {});

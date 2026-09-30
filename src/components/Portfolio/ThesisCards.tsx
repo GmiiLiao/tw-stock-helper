@@ -7,13 +7,23 @@ import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import RiskBadge from '@/components/shared/RiskBadge';
+import { RISK_NOTE, topPctText, type Risk } from './riskLabel';
 
 // ── 投資論點追蹤（thesis-tracker）──
 // daemon 依當時數據預填草稿（零幻覺），此處讓使用者檢視/修改論點與信心度；
 // 支柱每日自動檢核 ✓/✗，多數瓦解時 daemon 會推「論點轉弱」警報。
+// 2026-09-30 論點加評分補強：支持度（描述目前證據、非預測）、技術評分（未含風險扣分）與百分位、
+//   目前的處置／注意風險（另列，不混進走勢判斷）、不在論點裡的其他指標（參考）。
 
 interface Pillar { key: string; label: string; ok: boolean }
-interface Thesis { name: string; status: string; conviction: string; thesis: string; pillars: Pillar[]; risks: string[]; targetPrice: number; stopLoss: number; intact: boolean; updatedAt: number }
+interface Tech { base: number | null; adj: number | null; pct: number | null }
+interface Thesis {
+  name: string; status: string; conviction: string; thesis: string; pillars: Pillar[]; risks: string[]; targetPrice: number; stopLoss: number; intact: boolean; updatedAt: number;
+  refs?: Pillar[]; support?: number | null; tech?: Tech; risk?: Risk;   // daemon 每日重算（舊文件沒有）
+}
+const SUPPORT_TIP = '支持度＝(2×論點支柱成立數＋其他指標成立數)÷(2×支柱數＋其他指標數)×100。描述目前的證據有多少站在論點這邊，不是報酬預測。';
+const supportColor = (v: number) => (v >= 60 ? '#f03e3e' : v >= 40 ? '#fbbf24' : '#2f9e44');
 
 const CONV: Record<string, { t: string; c: string }> = {
   high: { t: '高信心', c: '#dc2626' }, medium: { t: '中信心', c: '#f59e0b' }, low: { t: '低信心', c: '#94a3b8' },
@@ -58,6 +68,10 @@ export default function ThesisCards() {
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: t.intact ? 'rgba(240,62,62,0.12)' : 'rgba(47,158,68,0.12)', color: t.intact ? '#f03e3e' : '#2f9e44' }}>
                 {t.intact ? `論點成立 ${okN}/${(t.pillars || []).length}` : `⚠ 論點轉弱 ${okN}/${(t.pillars || []).length}`}
               </span>
+              {t.support != null && (
+                <span title={SUPPORT_TIP} style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: supportColor(t.support), cursor: 'help' }}>支持度 {t.support}</span>
+              )}
+              <RiskBadge code={code} size="xs" />
               <select value={t.conviction} onChange={e => save(code, { conviction: e.target.value })}
                 style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 4px', borderRadius: 6, background: 'var(--bg-tertiary)', color: (CONV[t.conviction] || CONV.medium).c, border: '1px solid var(--border-primary)' }}>
                 {Object.entries(CONV).map(([v, x]) => <option key={v} value={v}>{x.t}</option>)}
@@ -83,6 +97,24 @@ export default function ThesisCards() {
                 </span>
               ))}
             </div>
+            {(t.refs?.length ?? 0) > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 5 }}>
+                <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>參考（不在論點內）</span>
+                {t.refs!.map(p => (
+                  <span key={p.key} style={{ fontSize: 'calc(12px * var(--fz))', padding: '1px 7px', borderRadius: 10, color: 'var(--text-muted)', border: '1px dashed var(--border-primary)' }}>
+                    {p.ok ? '✓' : '✗'} {p.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {t.tech?.base != null && (
+              <div style={{ marginTop: 5, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+                技術評分（未含風險扣分）<b style={{ color: 'var(--text-secondary)' }}>{t.tech.base}</b>
+                {t.tech.pct != null && <>·{topPctText(t.tech.pct)}</>}
+                {t.risk && t.tech.adj != null && <span title={RISK_NOTE[t.risk]} style={{ cursor: 'help' }}>·排序用評分（含風險扣分）{t.tech.adj} ⓘ</span>}
+                <span>·描述目前狀態，非報酬預測；非投資建議</span>
+              </div>
+            )}
           </div>
         );
       })}

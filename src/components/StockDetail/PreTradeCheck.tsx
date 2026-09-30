@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { techScoreOf, isRiskScored, TECH_SCORE_TIP } from '@/lib/tech-score';
 
 // ── 下單前檢查（記錄持倉時強制看見出場計畫）──
 // 買的當下就把停損/風險金額定好——防止「先買再說」變成深度套牢。
 // stopLoss 由 /api/rating 提供（ATR 波動停損），零前端推估。
 
-interface Resp { stock?: { score: number; signal: string; stopLoss?: number; stopLossRationale?: string; buyZones?: { type: string; price: number }[] } }
+interface Resp { stock?: { score: number; baseScore?: number; isDisposition?: boolean; isAttention?: boolean; signal: string; stopLoss?: number; stopLossRationale?: string; buyZones?: { type: string; price: number }[] } }
 
 export default function PreTradeCheck({ code, price, qty }: { code: string; price: number; qty: number }) {
   const [d, setD] = useState<Resp | null>(null);
@@ -26,7 +27,8 @@ export default function PreTradeCheck({ code, price, qty }: { code: string; pric
   return (
     <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.25)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
       <b>📋 下單前檢查（AI 出場計畫）</b>
-      <div>· AI 評分 <b style={{ color: '#fbbf24' }}>{s.score}</b>
+      <div>· <span title={TECH_SCORE_TIP}>AI 技術評分</span> <b style={{ color: '#fbbf24' }}>{techScoreOf(s)}</b>
+        {isRiskScored(s) && <span style={{ color: 'var(--text-muted)' }}>（未含扣分；{s.isDisposition ? '處置' : '注意'}是交易風險，不代表走勢弱）</span>}
         {buy ? <>，建議買點 <b>{buy}</b>{price > buy * 1.03 ? <span style={{ color: '#f59e0b' }}>（你的買價高出 {((price / buy - 1) * 100).toFixed(1)}%，注意追高）</span> : null}</> : null}
       </div>
       <div>· 建議停損 <b style={{ color: '#ef4444' }}>{stop}</b>（每張風險約 {riskPerLot.toLocaleString()} 元

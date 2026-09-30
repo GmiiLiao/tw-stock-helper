@@ -8,6 +8,7 @@ import { useAppStore } from '@/lib/store';
 import { settleDate, isSettled, todayTaipeiIso, rollBankToToday } from '@/lib/tw-settlement';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { buildLedger } from '@/lib/portfolio-calc';
+import { taipeiToday } from '@/lib/useRiskCodes';
 
 // ── 資金總覽（現金流水帳）──
 // 使用者只記三種事件：入金/出金/股利。買入扣款、賣出入帳從交易紀錄的
@@ -37,7 +38,7 @@ export default function CashLedger() {
   const [bankInput, setBankInput] = useState('');
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [form, setForm] = useState({ type: 'deposit' as Entry['type'], amount: '', date: new Date().toISOString().slice(0, 10) });
+  const [form, setForm] = useState({ type: 'deposit' as Entry['type'], amount: '', date: taipeiToday() });   // 台北日期（UTC 在 00:00–08:00 會是前一天）
 
   useEffect(() => {
     if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;

@@ -202,6 +202,13 @@ const poll = async () => {
 當你遇到「同一支 API 被多個元件各自輪詢」時才值得換過去 —— 單純為了統一而重寫不划算。
 換的時候路徑是 `@/hooks/useSharedPoll`（不是 `@/lib/`）。
 
+**評分有兩種口徑：`score` 含處置／注意扣分，只拿來排序（2026-09-30）**
+
+`/api/rating` 的 `score`／`grade`／`signal` 含處置 −40／注意 −20（處置訊號一律 NEUTRAL、注意最多 WATCH），
+這是推薦榜的可交易性調整。描述「走勢強弱」的地方（汰弱留強、論點支柱、LLM prompt、同業比較、技術評分顯示）
+一律用 `baseScore`／`baseSignal`，風險用 `<RiskBadge>` 另列。daemon 用 `scripts/lib/risk-score.mjs`，前端用 `src/lib/tech-score.ts`。
+實例：2305 全友 20 日 +128%，扣分後只剩 17 分，被標成「弱勢」並建議轉倉。
+
 ## 絕對不要做的事
 
 - **讓 GET API 打穿 CDN** —— 這是本專案歷史上最貴的單一錯誤。

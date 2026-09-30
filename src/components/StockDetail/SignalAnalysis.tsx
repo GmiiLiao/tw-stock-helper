@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { techScoreOf, isRiskScored, TECH_SCORE_TIP } from '@/lib/tech-score';
 
 // ── 訊號分析（用 /api/rating，伺服器端完整歷史→永遠有資料）：波段訊號 + 進場買點
 //    + ATR 停損 + 風險報酬比停利 + 部位大小建議（固定風險法）。 ──
@@ -9,6 +10,7 @@ interface Zone { label: string; price: number; type: string }
 interface Target { label: string; price: number; gainPercent: number; type: string; probability?: number; holdDays?: string }
 interface Rating {
   price: number; score: number; grade: string; signal: string;
+  baseScore?: number; baseSignal?: string; isDisposition?: boolean; isAttention?: boolean;   // lib/tech-score
   stopLoss: number; stopLossRationale?: string;
   buyZones?: Zone[]; sellTargets?: Target[];
 }
@@ -70,6 +72,11 @@ export default function SignalAnalysis({ code, name, price }: { code: string; na
         <div>
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>綜合訊號</div>
           <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: sigCfg.c }}>{sigCfg.t}</div>
+          {isRiskScored(st) && st.baseSignal && (
+            <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }} title="處置／注意期間不給買進訊號；括號內是未含風險的技術訊號">
+              {st.isDisposition ? '處置' : '注意'}期間不給買進訊號（技術面：{(SIGNAL[st.baseSignal] ?? SIGNAL.NEUTRAL).t}）
+            </div>
+          )}
         </div>
         <div style={{ width: 1, height: 36, background: 'var(--border-primary)' }} />
         <div>
@@ -81,7 +88,9 @@ export default function SignalAnalysis({ code, name, price }: { code: string; na
                title="個股頁的評分含日線技術面、財報與（若已判別）新聞加權；榜單頁為全市場快篩，僅技術面，兩者本來就會有差距。">
             AI 評分<span style={{ opacity: .6 }}>（深度）</span>
           </div>
-          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800 }}>{st.score} <span style={{ fontSize: 'calc(14px * var(--fz))', color: 'var(--text-muted)' }}>{st.grade}</span></div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800 }} title={isRiskScored(st) ? TECH_SCORE_TIP : undefined}>
+            {techScoreOf(st)} <span style={{ fontSize: isRiskScored(st) ? 'calc(12px * var(--fz))' : 'calc(14px * var(--fz))', color: 'var(--text-muted)' }}>{isRiskScored(st) ? '未含風險扣分' : st.grade}</span>
+          </div>
         </div>
         {sw && <>
           <div style={{ width: 1, height: 36, background: 'var(--border-primary)' }} />

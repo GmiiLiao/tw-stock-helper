@@ -94,12 +94,18 @@ export interface ScoredStock {
   price: number; change: number; changePercent: number; volume: number;
   open: number; high: number; low: number;
   score: number;
+  /** 風險扣分前的技術評分（2026-09-30）：score 已扣處置 −40／注意 −20，是「可交易性調整後」的排序分；
+   *  判斷持股「強弱」要用 baseScore，風險另看 isDisposition／isAttention，不可把扣分當成弱勢。 */
+  baseScore: number;
   grade: Grade;
   strategy: 'momentum' | 'growth' | 'defensive' | 'value';
   reasons: string[];
   risks: string[];
   factors: { momentum: number; volume: number; stability: number; trend: number; value: number; };
   signal: Signal;
+  /** 不含風險抑制的技術訊號（2026-09-30）：處置股的 signal 一律 NEUTRAL、注意股最多 WATCH——那是交易風險，
+   *  不是走勢；持股論點「AI 訊號偏多」這類描述走勢的地方用 baseSignal，風險另列。 */
+  baseSignal: Signal;
   confidence: number;
 
   buyZones: BuyZone[];
@@ -155,8 +161,14 @@ export interface TradeSetup {
 export interface StockRating {
   code: string;
   score: number;
+  /** 風險扣分前的技術評分（見 ScoredStock.baseScore） */
+  baseScore: number;
+  /** 風險標記：處置／注意（score 已因此扣 40／20）；無則 null */
+  risk: 'disposition' | 'attention' | null;
   grade: Grade;
   signal: Signal;
+  /** 只有處置／注意股才附（其餘與 signal 相同，省流量）：不含風險抑制的技術訊號（見 ScoredStock.baseSignal） */
+  baseSignal?: Signal;
   targetPrice: number;
 }
 
@@ -692,6 +704,8 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   score = +(score + 0.99 * tie).toFixed(2);
 
   // ─── Apply Risk Penalties ───────────────────────────────
+  // baseScore＝扣分前（2026-09-30 使用者「為何論點相反」：汰弱留強拿扣分後的 score 判強弱，把處置股的 −40 當成弱勢）
+  const baseScore = score;
   if (isDisposition) {
     score = +Math.max(score - 40, 0).toFixed(2);   // 減法會重新產生浮點尾差（58.38−40＝18.380000000000003，2026-09-30 使用者回報）
     reasons.length > 2 && reasons.splice(2);
@@ -724,6 +738,10 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   } else if (score >= 55) {
     signal = 'WATCH';
   }
+  // 同一組門檻、改用 baseScore 且不因處置／注意壓低（見 ScoredStock.baseSignal）
+  const baseSignal: Signal = baseScore >= 80 && chg > 0 ? 'STRONG_BUY'
+    : baseScore >= 65 && chg > 0 ? 'BUY'
+    : baseScore >= 55 ? 'WATCH' : 'NEUTRAL';
 
   // Confidence
   const fa = [momentumScore > 12, volumeScore > 12, trendScore > 12, stabilityScore > 12].filter(Boolean).length;
@@ -742,11 +760,11 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
     code: s.code, name: s.name,
     price: s.price, change: s.change, changePercent: s.changePercent, volume: s.volume,
     open: s.open, high: s.high, low: s.low,
-    score, grade, strategy,
+    score, baseScore, grade, strategy,
     reasons: reasons.slice(0, 5),
     risks: risks.slice(0, 5),
     factors: { momentum: momentumScore, volume: volumeScore, stability: stabilityScore, trend: trendScore, value: valueScore },
-    signal, confidence,
+    signal, baseSignal, confidence,
     buyZones,
     sellTargets,
     stopLoss: sl.price,
@@ -766,8 +784,11 @@ export function rateStock(s: ParsedStock, riskData: RiskStocksData): StockRating
   return {
     code: s.code,
     score: full.score,
+    baseScore: full.baseScore,
+    risk: full.isDisposition ? 'disposition' : full.isAttention ? 'attention' : null,
     grade: full.grade,
     signal: full.signal,
+    ...(full.isDisposition || full.isAttention ? { baseSignal: full.baseSignal } : {}),
     targetPrice: targetPriceFromGrade(full.grade, s.price),
   };
 }

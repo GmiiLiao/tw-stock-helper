@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { TECH_SCORE_TIP } from '@/lib/tech-score';
 
 // ── Premium-only collapsible per-stock local-AI evaluation for the
 //    real-time tracking page: 強力買進 grading (deterministic), AI 波段
@@ -55,7 +56,7 @@ export default function StockAIEval({ code, name }: { code: string; name: string
         const st = ratingRes?.stock;
         setData({
           signal: st?.signal ?? 'NEUTRAL',
-          score: st?.score ?? 0, grade: st?.grade ?? 'C',
+          score: st?.baseScore ?? st?.score ?? 0, grade: st?.grade ?? 'C',   // 技術評分＝未含處置／注意扣分（lib/tech-score）
           buy: st?.buyZones?.find((z: { type: string }) => z.type === 'standard')?.price ?? st?.buyZones?.[0]?.price ?? null,
           target: st?.sellTargets?.find((t: { type: string }) => t.type === 'tp1')?.price ?? null,
           stop: st?.stopLoss ?? null,
@@ -106,7 +107,7 @@ export default function StockAIEval({ code, name }: { code: string; name: string
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: `${sig!.color}1f`, color: sig!.color, border: `1px solid ${sig!.color}` }}>
                   {sig!.label}
                 </span>
-                <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>AI 技術評分 {data.score}（{data.grade}）</span>
+                <span title={TECH_SCORE_TIP} style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>AI 技術評分 {data.score}{data.isDisposition || data.isAttention ? '（未含風險扣分）' : `（${data.grade}）`}</span>
                 {data.isDisposition && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>🔴 處置股</span>}
                 {data.isAttention && !data.isDisposition && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>🟡 注意股</span>}
               </div>

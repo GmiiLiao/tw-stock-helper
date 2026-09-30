@@ -141,7 +141,7 @@ export default function NlScreen() {
                     <span style={{ color: '#e2e8f0' }}>{r.code}</span> <span style={{ fontWeight: 600, color: '#7dd3fc' }}>{r.name}</span> {(() => { const st = statusOf(dt, r.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={r.code} size="xs" /> <AddCandidateButton code={r.code} variant="icon" />
                   </div>
                   <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
-                    評分 <b style={{ color: '#fbbf24' }}>{r.score}</b>
+                    <span title="技術評分未含處置／注意扣分（風險看名稱旁的徽章）">技術評分</span> <b style={{ color: '#fbbf24' }}>{r.score}</b>
                     {r.rs != null && <> · RS <b style={{ color: '#fbbf24' }}>{r.rs}</b></>}
                     {r.yield != null && <> · 殖 <b style={{ color: '#fbbf24' }}>{r.yield}%</b></>}
                     {r.rsi5 != null && <> · RSI <b style={{ color: '#fbbf24' }}>{r.rsi5}</b>/<b style={{ color: '#fbbf24' }}>{r.rsi10}</b></>}
