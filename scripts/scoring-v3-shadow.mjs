@@ -108,7 +108,7 @@ for (const [k] of live) {
 }
 const boardDoc = { updatedAt: Date.now(), dataDate: date, version: W.version, board,
   rule: '累積 ≥20 個交易日且（v3−v2 差值 95% CI 下界 > 0，或兩者皆負時 v3 損失較小）⇒ 提請使用者切換（§8）；切換前 v2 不動。',
-  note: '超額＝Top20 平均 − 當日 v3 宇宙等權平均；S＝隔日跳空（開[t+1]÷收[t]），來回成本約 0.585% 未扣。非投資建議。' };
+  note: '超額＝Top20 平均 − 當日 v3 宇宙等權平均；S＝隔日跳空（開[t+1]÷收[t]）。未扣成本（成本依持有方式另計，不以扣成本方式比對）。非投資建議。' };
 
 for (const [k, s] of Object.entries(scores)) console.log(`📐 v3 ${k} ${date}：宇宙 ${cs.codes.length}（排除處置 ${disp.size}）、Top ${s.top.slice(0, 5).map(x => x.code).join(' ')}…｜記分板 ${board[k].n} 日 v3 ${board[k].v3 ?? '—'} vs v2 ${board[k].v2 ?? '—'}${board[k].switchReady ? '｜⚑ 達提請切換條件' : ''}`);
 if (DRY) process.exit(0);

@@ -12,6 +12,8 @@
 //   通過（全部成立）：① 樣本外日 IC 平均>0 且 NW t≥3.0（Harvey–Liu–Zhu 2016；涵蓋 6 組多重檢定）；
 //      ② D10−D1>0（整段，且每個樣本外 ≥60 日的年度）；③ 多頭日、空頭日 IC 皆>0；④ 安慰劑 |IC| < 真實÷3；
 //      ⑤ 經濟：Top20（D+1 開盤漲停買不到者剔除、不遞補）平均超額 − 0.38%（2.8 折來回成本）> 0。
+//   【修訂 2026-09-30（看過第一、二階段結果後，依使用者指示）】「計算結果不可扣成本的方式來比對——成本依持有方式
+//      （當沖／隔日沖／波段天數）比例不同」⇒ ⑤ 取消，通過＝①~④；報告只列未扣成本的結果，成本另依持有方式列參考表。
 //   宇宙：四碼普通股、t 日**實際**收盤≥10、20 日實際均額≥5,000 萬、近 60 日齊全、t 日未收在漲跌停（±9.5%）。
 //   標籤：D+1 開盤買、第 h 個交易日收盤賣（與 AI 波段同口徑）；超額＝減當日宇宙等權平均。
 //   時點：所有特徵只用 t 日晚間（法人 16:47、資券 21:30 後）已公布的資料；月營收 M 月自 M+1 月 11 日起才可用。
@@ -30,7 +32,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE = process.env.LAB_CACHE || join(tmpdir(), 'swing-formula-lab-cache.ndjson');
 const REFRESH = process.argv.includes('--refresh');
 const LOOK = 60, MIN_TRAIN = 250, REFIT_EVERY = 5, HS = [5, 10, 20], TOP = 20, LIMIT = 0.095;
-const COST_USER = 0.38, COST_FULL = 0.585, T_GATE = 3.0, PLACEBO_N = 20, MIN_UNI = 100;
+const T_GATE = 3.0, PLACEBO_N = 20, MIN_UNI = 100;
+// 成本參考（不作比對、不作門檻）：手續費 0.1425% 買賣各一次（2.8 折＝使用者券商）；證交稅賣出收：當沖 0.15%、其餘 0.3%
+const FEE_PCT = 0.1425, FEE_DISC = 0.28;
+const COST_STYLES = [['當沖（同日買賣）', 0.15, 0], ['隔日沖（持有 1 日）', 0.3, 1], ...HS.map(h => [`波段持有 ${h} 日`, 0.3, h])];
 const FEATS = [
   ['rev5', '5 日報酬（短期反轉）'], ['ovn20', '20 日隔夜報酬累計'], ['intra20', '20 日盤中報酬累計'], ['mom60_20', '中期動能（t−60→t−20）'],
   ['vol20', '20 日波動'], ['max20', '20 日最大單日漲幅'], ['hi60', '距 60 日高點'], ['dMa20', '距 20 日均線'],
@@ -56,15 +61,23 @@ function initDb() {
   if (!getApps().length) { const p = process.env.GOOGLE_APPLICATION_CREDENTIALS; initializeApp(p ? { credential: cert(JSON.parse(readFileSync(p, 'utf8'))) } : {}); }
   return getFirestore();
 }
-async function fetchIndustry() {
+// 產業別：先用站上自家分群 peerComps/latest（不打上游；名稱與 TWSE 產業別同一套），不足 1000 檔才試 openapi（失敗不中止）
+async function fetchIndustry(db) {
   const map = {};
+  try {
+    const pc = (await db.collection('peerComps').doc('latest').get()).data();
+    const ind = pc?.industriesJson ? JSON.parse(pc.industriesJson) : {};
+    for (const g in ind) for (const it of ind[g] || []) if (/^\d{4}$/.test(it?.code || '') && !map[it.code]) map[it.code] = g;
+  } catch (e) { console.log('⚠ peerComps 產業分群讀取失敗:', (e.message || '').slice(0, 60)); }
+  if (Object.keys(map).length >= 1000) return map;
   for (const ep of ['t187ap03_L', 't187ap03_O']) {
-    const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${ep}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) });
-    if (!r.ok) throw new Error(`產業別 ${ep} HTTP ${r.status}`);
-    for (const x of await r.json()) { const c = String(x['公司代號'] || '').trim(), ind = String(x['產業別'] || '').trim(); if (/^\d{4}$/.test(c) && ind) map[c] = ind; }
+    try {
+      const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${ep}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) });
+      const j = r.ok ? JSON.parse(await r.text()) : [];
+      for (const x of j) { const c = String(x['公司代號'] || '').trim(), ind = String(x['產業別'] || '').trim(); if (/^\d{4}$/.test(c) && ind && !map[c]) map[c] = ind; }
+    } catch (e) { console.log(`⚠ 產業別 ${ep} 取不到（${(e.message || '').slice(0, 40)}），同產業動能以現有 ${Object.keys(map).length} 檔計`); }
     await new Promise(res => setTimeout(res, 2000));
   }
-  if (Object.keys(map).length < 1000) throw new Error(`產業別只有 ${Object.keys(map).length} 檔`);
   return map;
 }
 async function loadRows() {
@@ -74,7 +87,8 @@ async function loadRows() {
   const rows = snap.docs.map(d => d.data()).filter(a => a?.closeJson).reverse();
   const rev = (await db.collection('revenueArchive').get()).docs.map(d => ({ month: d.id, rowsJson: d.data().rowsJson }));
   const pe = (await db.collection('priceEvents').doc('latest').get()).data()?.items || [];
-  const meta = { kind: 'meta', rev, pe, ind: await fetchIndustry() };
+  const meta = { kind: 'meta', rev, pe, ind: await fetchIndustry(db) };
+  console.log(`產業別 ${Object.keys(meta.ind).length} 檔、月營收 ${rev.length} 個月、歸檔 ${rows.length} 日`);
   writeFileSync(CACHE, [JSON.stringify(meta), ...rows.map(r => JSON.stringify(r))].join('\n'));
   return [meta, ...rows];
 }
@@ -277,7 +291,11 @@ function walkForward(panel, h, regime = false) {
     const fit = fits[groupOf(k)]; if (!fit) continue;
     for (const v of ['A', 'B']) { const w = fit[v]; const X = panel[k].X; const n = panel[k].n; const sc = new Float64Array(n); for (let j = 0; j < w.length; j++) { const wj = w[j]; if (!wj) continue; const col = X[j]; for (let i = 0; i < n; i++) sc[i] += wj * col[i]; } preds[v][k] = sc; }
   }
-  return { B, preds };
+  // 現行公式：用到最後一日為止「標籤已實現」的全部日子估一次（報告列出；不參與樣本外評估）
+  const tLast = panel.at(-1).t, realized = []; for (let s = 0; s < panel.length; s++) if (B[s] && panel[s].t + h <= tLast) realized.push(s);
+  const final = {};
+  for (const g of regime ? ['bull', 'bear'] : ['all']) { const sub = realized.filter(s => g === 'all' || groupOf(s) === g); if (sub.length >= (regime ? 120 : MIN_TRAIN)) final[g] = fitOf(sub.map(s => B[s])); }
+  return { B, preds, final };
 }
 
 // ── 評估 ──────────────────────────────────────────────────────────────────
@@ -293,8 +311,9 @@ function evaluate(panel, preds, h) {
     const decile = dec.map((s, d) => (cnt[d] ? s / cnt[d] : NaN));
     const placebo = []; for (let q = 0; q < PLACEBO_N; q++) { const yy = y.slice(); for (let i = yy.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [yy[i], yy[j]] = [yy[j], yy[i]]; } placebo.push(rankIC(sc, yy)); }
     const uniHit = y.filter(Number.isFinite);
+    const ySd = Math.sqrt(uniHit.reduce((a, x) => a + x * x, 0) / uniHit.length);   // 超額已去平均
     days.push({ date: panel[k].date, up: panel[k].up, ic, top: mean(top), topHit: top.filter(x => x > 0).length / (top.length || NaN), topN: top.length,
-      uniHit: uniHit.filter(x => x > 0).length / uniHit.length, decile, spread: decile[9] - decile[0], placebo });
+      uniHit: uniHit.filter(x => x > 0).length / uniHit.length, ySd, decile, spread: decile[9] - decile[0], placebo });
   }
   const L = h - 1, s = nwT(days.map(d => d.ic), L);
   const years = {}; for (const d of days) (years[d.date.slice(0, 4)] ||= []).push(d);
@@ -307,10 +326,9 @@ function evaluate(panel, preds, h) {
     spread: spread > 0 && Object.values(byYear).every(y => y.n < 60 || y.spread > 0),
     regime: upIC > 0 && dnIC > 0,
     placebo: s.mean > 0 && placeboAbs < s.mean / 3,
-    econ: top - COST_USER > 0,
   };
-  return { n: days.length, from: days[0]?.date, to: days.at(-1)?.date, ic: s.mean, t: s.t, spread, top, topNet: top - COST_USER, topNetFull: top - COST_FULL,
-    topHit: mean(days.map(d => d.topHit)), uniHit: mean(days.map(d => d.uniHit)), topN: mean(days.map(d => d.topN)),
+  return { n: days.length, from: days[0]?.date, to: days.at(-1)?.date, ic: s.mean, t: s.t, spread, top,
+    topHit: mean(days.map(d => d.topHit)), uniHit: mean(days.map(d => d.uniHit)), topN: mean(days.map(d => d.topN)), ySd: mean(days.map(d => d.ySd)),
     decile: Array.from({ length: 10 }, (_, j) => mean(days.map(d => d.decile[j]))), upIC, dnIC, placeboAbs, byYear, gates, passed: Object.values(gates).every(Boolean) };
 }
 
@@ -324,7 +342,7 @@ function featureTable(panel, B, h, list = FEATS) {
 }
 
 // ── 報告 ──────────────────────────────────────────────────────────────────
-const GATE_NAME = { ic: 'IC 且 NW t≥3', spread: 'D10−D1（整段＋各年）', regime: '多空日皆正', placebo: '安慰劑', econ: `Top20 扣 ${COST_USER}% 仍>0` };
+const GATE_NAME = { ic: 'IC 且 NW t≥3', spread: 'D10−D1（整段＋各年）', regime: '多空日皆正', placebo: '安慰劑' };
 function render(R) {
   const L = [`# 波段選股公式研究${R.stage2 ? '·第二階段（函數與乘積項、市況分組）' : ''}（資料日 ${R.dataDate}）`, '',
     `> 產生：\`node scripts/swing-formula-lab.mjs\`（唯讀）。方法與門檻在第一次執行前寫死於腳本開頭；本報告列出全部 ${R.results.length} 組試驗，沒有另外試過的組合。`, '',
@@ -332,17 +350,31 @@ function render(R) {
   const pass = R.results.filter(r => r.ev.passed);
   L.push(pass.length ? `- **通過全部預先宣告門檻：${pass.map(r => `h=${r.h}／${r.v}`).join('、')}**——可提請進入影子模式做前瞻驗證（歷史通過不等於未來有效）。`
     : `- **${R.results.length} 組都沒有通過全部門檻**——在這批資料與特徵下，找不到統計上站得住、扣成本後仍賺錢的波段選股公式。`);
-  L.push(`- 資料：${R.nDays} 個交易日（${R.range.join(' ~ ')}），每日可交易宇宙平均 ${f2(R.avgUni, 0)} 檔；樣本外（滾動前進）自 ${R.results[0]?.ev.from} 起。`);
+  L.push(`- 資料：${R.nDays} 個交易日（${R.range.join(' ~ ')}），每日可交易宇宙平均 ${f2(R.avgUni, 0)} 檔；產業別 ${R.indN} 檔；樣本外（滾動前進）自 ${R.results[0]?.ev.from} 起。`);
   L.push(`- 「對答案」基準：隨便挑一檔，h 日超額為正的機率只有 ${R.results.map(r => `h=${r.h} ${f2(r.ev.uniHit * 100, 1)}%`).filter((_, i) => i % 2 === 0).join('、')}（報酬右偏，多數股票低於平均）。`, '');
-  L.push(`## ${R.results.length} 組試驗（樣本外，滾動前進）`, '', '| h | 版本 | 日數 | IC | NW t | D10−D1 % | Top20 超額 % | 扣 0.38% | 扣 0.585% | Top20 勝率 | 宇宙勝率 | 多頭日 IC | 空頭日 IC | 安慰劑 | 未過門檻 |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  L.push(`## ${R.results.length} 組試驗（樣本外，滾動前進）`, '', '| h | 版本 | 日數 | IC | NW t | D10−D1 % | 超額σ % | Top20 超額 % | Top20 勝率 | 宇宙勝率 | 多頭日 IC | 空頭日 IC | 安慰劑 | 未過門檻 |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of R.results) {
     const e = r.ev;
-    L.push(`| ${r.h} | ${r.v} | ${e.n} | ${f2(e.ic, 4)} | ${f2(e.t)} | ${f2(e.spread)} | ${f2(e.top)} | ${f2(e.topNet)} | ${f2(e.topNetFull)} | ${f2(e.topHit * 100, 1)}% | ${f2(e.uniHit * 100, 1)}% | ${f2(e.upIC, 4)} | ${f2(e.dnIC, 4)} | ${f2(e.placeboAbs, 4)} | ${Object.entries(e.gates).filter(([, v]) => !v).map(([g]) => GATE_NAME[g]).join('、') || '—'} |`);
+    L.push(`| ${r.h} | ${r.v} | ${e.n} | ${f2(e.ic, 4)} | ${f2(e.t)} | ${f2(e.spread)} | ${f2(e.ySd)} | ${f2(e.top)} | ${f2(e.topHit * 100, 1)}% | ${f2(e.uniHit * 100, 1)}% | ${f2(e.upIC, 4)} | ${f2(e.dnIC, 4)} | ${f2(e.placeboAbs, 4)} | ${Object.entries(e.gates).filter(([, v]) => !v).map(([g]) => GATE_NAME[g]).join('、') || '—'} |`);
   }
+  L.push('', '> 全部為**未扣成本**的結果（使用者規則：成本依持有方式而異，不以扣成本方式比對）。成本換算見文末參考表。');
   L.push('', '### 各年度（樣本外）', '', '| h | 版本 | 年 | 日數 | IC | D10−D1 % | Top20 超額 % |', '|---|---|---|---|---|---|---|');
   for (const r of R.results) for (const [y, x] of Object.entries(r.ev.byYear)) L.push(`| ${r.h} | ${r.v} | ${y} | ${x.n} | ${f2(x.ic, 4)} | ${f2(x.spread)} | ${f2(x.top)} |`);
   L.push('', '### 十分位平均超額（%，樣本外；D1 最弱 → D10 最強）', '', '| h | 版本 | ' + Array.from({ length: 10 }, (_, d) => `D${d + 1}`).join(' | ') + ' |', '|---|---|' + '---|'.repeat(10));
   for (const r of R.results) L.push(`| ${r.h} | ${r.v} | ${r.ev.decile.map(x => f2(x)).join(' | ')} |`);
+  // 現行公式係數：通過者全列；都沒通過則列 5 日 B／D 供參考
+  const shown = R.results.filter(r => r.ev.passed);
+  const GROUP_NAME = { all: '係數', bull: '多頭時係數', bear: '空頭時係數' };
+  L.push('', '## 現行公式係數（全部已實現資料估計；B 版收縮後；特徵先換成當日排名 −0.5~0.5）', '');
+  for (const r of (shown.length ? shown : R.results.filter(x => x.h === 5 && (x.v === 'B' || x.v === 'D')))) {
+    const groups = Object.keys(r.coef || {}).filter(g => r.coef[g]?.length);
+    if (!groups.length) continue;
+    const idx = r.names.map((_, j) => j).filter(j => groups.some(g => r.coef[g][j]))
+      .sort((p, q) => Math.max(...groups.map(g => Math.abs(r.coef[g][q] || 0))) - Math.max(...groups.map(g => Math.abs(r.coef[g][p] || 0))));
+    L.push(`### h=${r.h}／${r.v}${r.ev.passed ? '（通過）' : '（未通過，僅供參考）'}`, '', `| 特徵 | 說明 | ${groups.map(g => GROUP_NAME[g]).join(' | ')} |`, `|---|---|${groups.map(() => '---|').join('')}`);
+    for (const j of idx) L.push(`| ${r.names[j][0]} | ${r.names[j][1]} | ${groups.map(g => f2(r.coef[g][j], 4)).join(' | ')} |`);
+    L.push('', `用法：每個特徵在當日可交易宇宙中排名、換成 −0.5~0.5；分數＝Σ 係數 × 排名${groups.length > 1 ? '（前 20 日宇宙等權報酬 >0 用多頭係數，否則用空頭係數）' : ''}；分數越高＝預期 ${r.h} 日超額越高。係數 0＝統計上不顯著（|t|<2）而被收縮掉。`, '');
+  }
   for (const h of HS) {
     L.push('', `## 特徵（全樣本描述，h=${h}；非門檻，|t|≥3.4 才算穩健（多項同時檢定的 Bonferroni））`, '', '| 特徵 | 說明 | 單變量 IC | t | 多變量係數 | t | 缺值 |', '|---|---|---|---|---|---|---|');
     for (const x of R.feat[h]) L.push(`| ${x.key} | ${x.label} | ${f2(x.ic, 4)} | ${f2(x.icT)}${Math.abs(x.icT) >= 3.4 ? ' ★' : ''} | ${f2(x.coef, 4)} | ${f2(x.coefT)}${Math.abs(x.coefT) >= 3.4 ? ' ★' : ''} | ${f2(x.miss * 100, 0)}% |`);
@@ -352,7 +384,11 @@ function render(R) {
     '- β 以 Fama–MacBeth 估計：每天做一次橫斷面迴歸，再對各日係數取平均；相關的特徵（例如 20 日報酬與距均線）會自動分攤權重，不會像 IC 加權那樣重複計分。',
     '- 重疊標籤（持有 h 日、每天都有新樣本）用 Newey–West（lag h−1）修正 t 值；新因子門檻採 t≥3（Harvey, Liu & Zhu 2016），高於傳統 2，因為同時試了很多組。',
     '- 滾動前進：每個預測日只用當時已經知道答案的歷史估 β，等於每天都在「沒看過的未來」上考試；這比單一切點更接近實盤。',
+    '- 為何 IC 顯著、十分位價差卻小：若報酬是常態分布，D10−D1 約為 3.5 × IC × 超額σ；實際 5~20 日報酬厚尾且右偏，少數暴漲股主宰平均數，排名（IC、勝率）改善比平均報酬改善明顯得多。',
     '- 「精準選中對的股票」在數學上不可能：5~20 日報酬的可預測部分很小（IC 0.05 約等於解釋 0.25% 的變異），能做的是讓「選中的一籃」平均勝過大盤、且扣成本後仍為正。',
+    '', '## 成本參考（依持有方式；不作比對、不作門檻）', '', '| 持有方式 | 證交稅 | 來回成本（手續費 2.8 折） | 來回成本（全額手續費） | 每持有日攤提（2.8 折） |', '|---|---|---|---|---|',
+    ...COST_STYLES.map(([name, tax, d]) => { const disc = FEE_PCT * FEE_DISC * 2 + tax, full = FEE_PCT * 2 + tax; return `| ${name} | ${tax}% | ${f2(disc, 3)}% | ${f2(full, 3)}% | ${d ? `${f2(disc / d, 3)}%` : '—'} |`; }),
+    '', '（另有每筆最低手續費；ETF 證交稅 0.1%。實際成本以券商與主管機關公告為準。）',
     '', '## 限制與誠實揭露', '',
     '- 產業別用目前的分類套回過去（公司很少換產業，但仍是輕微未來資訊）；處置股歷史名單沒有逐日歸檔，宇宙未排除處置股。',
     '- 月營收歸檔自 2023-08 起，之前的日子營收特徵為中性。下市股缺後續價格者不計入（輕微存活偏差）。',
@@ -365,6 +401,9 @@ function render(R) {
 const rows = await loadRows();
 const meta = rows[0]?.kind === 'meta' ? rows.shift() : null;
 if (!meta) throw new Error('快取缺 meta，請加 --refresh');
+const IND_MIN = 1000;   // 產業別覆蓋下限：不足就停，不讓「同產業動能」悄悄變中性（審查 2026-09-30）
+const indN = Object.keys(meta.ind || {}).length;
+if (indN < IND_MIN) throw new Error(`產業別只有 ${indN} 檔（<${IND_MIN}），請加 --refresh 重抓或檢查 peerComps`);
 const D = buildArrays(rows);
 const ex = JSON.parse(readFileSync(join(ROOT, 'scripts', 'data', 'exright-history.json'), 'utf8'));
 const adj = adjust(D, mergeFactorItems(ex.items, meta.pe));
@@ -376,22 +415,22 @@ console.log(`面板 ${panel.length} 日、平均宇宙 ${f2(mean(panel.map(p => 
   console.log(`自我檢查（全知分數）：IC ${f2(ev.ic, 3)}、Top20 超額 ${f2(ev.top)}%、D10−D1 ${f2(ev.spread)}%`);
 }
 const results = [], feat = {};
-const logRes = (h, v, ev) => console.log(`h=${h} ${v}：${ev.passed ? '✅' : '❌'} IC ${f2(ev.ic, 4)} t=${f2(ev.t)}｜D10−D1 ${f2(ev.spread)}%｜Top20 ${f2(ev.top)}%（扣0.38% ${f2(ev.topNet)}）勝率 ${f2(ev.topHit * 100, 1)}% vs 宇宙 ${f2(ev.uniHit * 100, 1)}%｜${JSON.stringify(ev.gates)}`);
+const logRes = (h, v, ev) => console.log(`h=${h} ${v}：${ev.passed ? '✅' : '❌'} IC ${f2(ev.ic, 4)} t=${f2(ev.t)}｜D10−D1 ${f2(ev.spread)}%｜Top20 ${f2(ev.top)}%（未扣成本）勝率 ${f2(ev.topHit * 100, 1)}% vs 宇宙 ${f2(ev.uniHit * 100, 1)}%｜${JSON.stringify(ev.gates)}`);
 for (const h of HS) {
   if (!STAGE2) {
-    const { B, preds } = walkForward(panel, h);
+    const { B, preds, final } = walkForward(panel, h);
     feat[h] = featureTable(panel, B, h);
-    for (const v of ['A', 'B']) { const ev = evaluate(panel, preds[v], h); results.push({ h, v, ev }); logRes(h, v, ev); }
+    for (const v of ['A', 'B']) { const ev = evaluate(panel, preds[v], h); results.push({ h, v, ev, names: FEATS, coef: { all: final.all?.[v] || [] } }); logRes(h, v, ev); }
     continue;
   }
   const c = walkForward(panel, h);                                           // C：擴充特徵（乘積＋平方），B 版收縮
   feat[h] = featureTable(panel, c.B, h, EXT);
-  const evC = evaluate(panel, c.preds.B, h); results.push({ h, v: 'C', ev: evC }); logRes(h, 'C', evC);
+  const evC = evaluate(panel, c.preds.B, h); results.push({ h, v: 'C', ev: evC, names: EXT, coef: { all: c.final.all?.B || [] } }); logRes(h, 'C', evC);
   const basePanel = panel.map(p => ({ ...p, X: p.X.slice(0, BASE_P) }));   // D：基本 24 特徵、依市況分組，B 版收縮
   const d = walkForward(basePanel, h, true);
-  const evD = evaluate(basePanel, d.preds.B, h); results.push({ h, v: 'D', ev: evD }); logRes(h, 'D', evD);
+  const evD = evaluate(basePanel, d.preds.B, h); results.push({ h, v: 'D', ev: evD, names: FEATS, coef: { bull: d.final.bull?.B || [], bear: d.final.bear?.B || [] } }); logRes(h, 'D', evD);
 }
-const R = { stage2: STAGE2, dataDate: D.dates.at(-1), nDays: D.N, range: [D.dates[0], D.dates.at(-1)], avgUni: mean(panel.map(p => p.n)), results, feat };
+const R = { stage2: STAGE2, indN, dataDate: D.dates.at(-1), nDays: D.N, range: [D.dates[0], D.dates.at(-1)], avgUni: mean(panel.map(p => p.n)), results, feat };
 const out = `SWING-FORMULA-RESEARCH-${R.dataDate}${STAGE2 ? '-stage2' : ''}.md`;
 writeFileSync(join(ROOT, 'docs', out), render(R));
 console.log(`✓ docs/${out}`);
