@@ -6,6 +6,8 @@
 //   防作弊查核：decidedAt（AI 做出決定的時刻）必須早於或等於進場時刻，noLookahead 由程式判定寫進記錄。
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { lotTranches } from './dt-trading-limit.mjs';
+
 export const SIM_LOTS = 1;
 export const SIM_SHARES = 1000 * SIM_LOTS;
 export const FEE_RATE = 0.001425;
@@ -51,11 +53,12 @@ export function ledgerOf({ side, entry, exit, exits = null, dayTrade, decidedAt 
   };
 }
 
-/** 工作台出場計畫的分批（1 張：333／333／334 股）→ 交易單出場腿 */
+/** 工作台出場計畫的分批 → 交易單出場腿。只能整張（2026-10-01 使用者）：n 張分 1R／2R／3R 三批、餘數往後
+ *  （1 張不拆、整張在最後出場；舊版 1 張拆 333／333／334 股是零股）。分到 0 張的批次不出腿。 */
 export function planExits({ fills = [], exitAt, exitPx, shares = SIM_SHARES }) {
-  const split = [Math.floor(shares / 3), Math.floor(shares / 3)]; split.push(shares - split[0] - split[1]);
+  const split = lotTranches(shares);
   const legs = []; let used = 0;
-  for (const f of fills) { if (f.k < 0 || f.k > 2) continue; legs.push({ at: f.at, px: f.px, shares: split[f.k] }); used += split[f.k]; }
+  for (const f of fills) { if (f.k < 0 || f.k > 2 || !(split[f.k] > 0)) continue; legs.push({ at: f.at, px: f.px, shares: split[f.k] }); used += split[f.k]; }
   if (shares - used > 0) legs.push({ at: exitAt, px: exitPx, shares: shares - used });
   return legs;
 }

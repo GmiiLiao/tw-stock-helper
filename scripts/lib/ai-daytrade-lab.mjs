@@ -7,7 +7,9 @@
 // 規則：
 //   · 決策點＝當沖工作台（scripts/lib/daytrade-setups.mjs）某檔**通過全部否決而觸發**的那一刻；
 //     AI 只能在「規則已觸發」的名單裡決定做或不做——不能自己發明進場點（避免事後諸葛）。
-//   · 額度：做多、做空各最多 5 筆（含等待回覆中的），全天最多 10 筆；12:30 後不再提新單（同工作台）。
+//   · 帳戶規則（v4·2026-10-01 使用者，比照交易所與券商）：每日交易額度 100 萬（現金 50 萬的 2 倍）、不設單筆上限、不限筆數，
+//     張數由 AI 在剩餘額度內決定、只下整張；額度用完當天不再交易；處置股與非現股當沖標的不交易（./dt-trading-limit.mjs）。
+//     12:30 後不再提新單（同工作台）。（v1–v3：做多／做空各 5 筆、單筆上限 25 萬，凍結記錄照舊）
 //   · 模擬成交：進場價＝AI 回覆當下的即時價（記錄與觸發價的差＝決策延遲成本）；AI 回覆超過 3 分鐘視為錯過、不成交。
 //     出場沿用工作台規則（結構停損／1R 保本／2R 追蹤／3R／VWAP／時間停損／13:20 沖銷）的出場時點與價格。
 //   · 放棄的觸發也記錄反事實結果（規則照做會怎樣）——才看得出 AI 的「不做」是否有判斷力。
@@ -15,10 +17,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ledgerOf, planExits, SIM_SHARES } from './sim-ledger.mjs';
-import { sizeShares, accountOf, DT_MAX_PER_TRADE } from './sim-account.mjs';
+import { accountOf } from './sim-account.mjs';
 
-export const AI_LAB_VERSION = 'ai-dt-lab-v3';   // v3（2026-09-30 使用者選 B）：角色由「紀律審核員」改為「以帳戶獲利為目標的交易員」，移除「沒有把握就不做」的引導（v1–v2 三日 37 次觸發全數放棄）；v2：每筆附交易單與防作弊時間戳
-export const AI_LAB_QUOTA = Object.freeze({ long: 5, short: 5 });
+export const AI_LAB_VERSION = 'ai-dt-lab-v4';   // v4（2026-10-01 使用者）：每日交易額度 100 萬制、AI 決定張數（整張）、不限筆數、處置／非當沖標的不交易；v3（2026-09-30 使用者選 B）：角色由「紀律審核員」改為「以帳戶獲利為目標的交易員」，移除「沒有把握就不做」的引導（v1–v2 三日 37 次觸發全數放棄）；v2：每筆附交易單與防作弊時間戳
 export const AI_LAB_MAX_LAG_MS = 3 * 60_000;   // AI 回覆逾 3 分鐘：錯過，不成交
 export const AI_LAB_COST_PCT = 0.435;           // 日誌口徑成本（與工作台同）
 
@@ -27,17 +28,19 @@ const hhmm = t => (t ? new Date(t + 8 * 3600000).toISOString().slice(11, 16) : '
 const hhmmss = t => (t ? new Date(t + 8 * 3600000).toISOString().slice(11, 19) : '—');
 
 /** 決策 prompt：只給觸發當下凍結的事實，要求回 JSON */
-export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken, evidence, now, lessons = [] }) {
+export function buildDecisionPrompt({ side, code, name, row, trade, limit, used, left, maxN, cash, evidence, now, lessons = [] }) {
   const L = side === 'long';
   const sc = row.score;
   const items = [...sc.market, ...sc.stock, ...sc.entry].map(i => `- ${i.label}：${i.score == null ? '未知' : `${i.score}/${i.max}`}｜${i.evidence}`).join('\n');
   const ev = evidence?.[side]?.all;
   const lines = [
-    `你是台股現股當沖交易員，管理一個 50 萬元的模擬當沖帳戶，目標是讓帳戶獲利。以下是工作台規則剛即時觸發的一個${L ? '做多（先買後賣）' : '做空（先賣後買，本站鏡像延伸、未驗證）'}進場機會（方法：tw-day-trading）。你要決定現在「做」（立即以現價進場，之後依計畫的停損／目標／時間規則出場）或「不做」。`,
-    `判斷方式：像真正的交易員一樣，衡量這一筆的勝算與報酬風險比——值得做就做，不值得就不做。做與不做都會被即時記錄，並與實際走勢對照評分。`,
+    `你是台股現股當沖交易員，管理一個模擬當沖帳戶（起始現金 50 萬元，目前現金 ${Math.round(cash ?? 0).toLocaleString()} 元），目標是讓帳戶獲利。以下是工作台規則剛即時觸發的一個${L ? '做多（先買後賣）' : '做空（先賣後買，本站鏡像延伸、未驗證）'}進場機會（方法：tw-day-trading）。你要決定現在「做」（立即以現價進場，之後依計畫的停損／目標／時間規則出場）或「不做」，做的話也要決定下幾張。`,
+    `判斷方式：像真正的交易員一樣，衡量這一筆的勝算與報酬風險比——值得做就做，不值得就不做；張數依你對這一筆的把握與風險決定。做與不做都會被即時記錄，並與實際走勢對照評分。`,
+    `交易規則：只能整張；每日交易額度 ${limit.toLocaleString()} 元，每筆進場價金都會占用額度、當天平倉不回補，額度用完當天就不能再交易；不限交易次數。每筆都扣手續費（買賣各 0.1425%）與當沖證交稅（0.15%）。`,
     `只能根據以下資料判斷，不得假設任何未提供的新聞或行情。分數是規則符合度，不是上漲機率。`,
     ``,
-    `【時間】${hhmm(now)}（台北）；今日${L ? '做多' : '做空'}額度已用 ${taken}/${quota}`,
+    `【時間】${hhmm(now)}（台北）`,
+    `【交易額度】今日交易額度 ${limit.toLocaleString()} 元、已用 ${used.toLocaleString()}、剩餘 ${left.toLocaleString()}；以現價計最多 ${maxN} 張`,
     `【標的】${code} ${name}；現價 ${row.m.c}（${f2(row.m.chg)}%），VWAP ${row.m.vwap ?? '未知'}（乖離 ${f2(row.m.vwapDev)}%）`,
     `【觸發】${trade.type}：${trade.why}`,
     `【計畫】進場 ${trade.entry}、結構停損 ${trade.stop}、每股風險 1R=${trade.d}、目標 1R/2R/3R＝${trade.targets.join('／')}；成本約 ${trade.costR}R`,
@@ -48,7 +51,7 @@ export function buildDecisionPrompt({ side, code, name, row, trade, quota, taken
     lessons.length ? `【經驗庫】本筆條件符合本站盤後訓練、前後期一致且顯著的歷史特徵（供參考，不保證未來）：\n${lessons.map(x => `- ${x}`).join('\n')}` : '',
     ``,
     `只輸出一行 JSON，不要其他文字：`,
-    `{"decision":"take 或 skip","confidence":0到100的整數,"reason":"30字內主要理由","risk":"20字內最大風險"}`,
+    `{"decision":"take 或 skip","lots":做的話填 1 到 ${maxN} 的整數張數（skip 填 0）,"confidence":0到100的整數,"reason":"30字內主要理由","risk":"20字內最大風險"}`,
   ];
   return lines.filter(x => x !== '').join('\n');
 }
@@ -63,7 +66,10 @@ export function parseDecision(text) {
     const decision = /take|做/i.test(String(j.decision)) && !/skip|不做/i.test(String(j.decision)) ? 'take' : /skip|不做/i.test(String(j.decision)) ? 'skip' : null;
     if (!decision) return null;
     const conf = Math.max(0, Math.min(100, Math.round(Number(j.confidence) || 0)));
-    return { decision, confidence: conf, reason: String(j.reason || '').slice(0, 80), risk: String(j.risk || '').slice(0, 60) };
+    // 張數（v4）：正整數才算；缺或格式錯＝null（不猜——take 時由執行器記為不成交）
+    const n = j.lots == null || j.lots === '' ? NaN : Number(j.lots);
+    const lots = Number.isInteger(n) && n > 0 ? n : null;
+    return { decision, lots, confidence: conf, reason: String(j.reason || '').slice(0, 80), risk: String(j.risk || '').slice(0, 60) };
   } catch { return null; }
 }
 
@@ -83,10 +89,8 @@ export function settle(rec, entry) {
     out.aiNetR = out.ledger && rec.d > 0 ? +(out.ledger.pnlTwd / (rec.d * sh)).toFixed(2) : null;
   } else if (rec.status === 'skipped' || rec.status === 'missed') {
     // 反事實交易單：規則照做（觸發 K 收盤價進場、同樣分批出場）會怎樣——標明是反事實，不是 AI 的交易
-    // 反事實股數＝同樣的單筆上限（25 萬、整張）；買不起 1 張就不開反事實單，寫明原因
-    const csh = sizeShares(rec.triggerPx, DT_MAX_PER_TRADE, false);
-    if (csh > 0) out.cfLedger = ledgerOf({ side: rec.side, entry: { at: rec.triggerAt + 60_000, px: rec.triggerPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px, shares: csh }), dayTrade: true, shares: csh });
-    else out.cfNote = `單筆上限 ${DT_MAX_PER_TRADE.toLocaleString()} 元買不起 1 張（${Math.round(rec.triggerPx * 1000).toLocaleString()} 元），不開反事實單`;
+    // 反事實股數（v4）：一律 1 張——只用來比較方向與 R，不代表 AI 會下的張數（AI 不做就沒有張數可用）
+    if (rec.triggerPx > 0) out.cfLedger = ledgerOf({ side: rec.side, entry: { at: rec.triggerAt + 60_000, px: rec.triggerPx }, exits: planExits({ fills: entry.fills || [], exitAt, exitPx: entry.exit.px, shares: SIM_SHARES }), dayTrade: true, shares: SIM_SHARES });
   }
   return out;
 }
@@ -165,12 +169,13 @@ export function renderMarkdown(doc) {
     `# 🤖 當沖 AI 實驗 ${doc.date}`,
     ``,
     `- 版本：${doc.version}｜模型：${doc.model}｜規則：${doc.deskVersion}｜凍結：${doc.frozenAt ? new Date(doc.frozenAt + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16) : '—'}`,
-    `- 額度：做多 ${doc.quota.long}／做空 ${doc.quota.short}；進場價＝AI 回覆當下即時價；回覆逾 3 分鐘不成交；成本 ${AI_LAB_COST_PCT}%`,
+    doc.limit ? `- 交易額度：${doc.limit.limit.toLocaleString()} 元（已用 ${doc.limit.used.toLocaleString()}、剩餘 ${doc.limit.left.toLocaleString()}）；張數由 AI 決定、只下整張；處置／非當沖標的不交易；進場價＝AI 回覆當下即時價；回覆逾 3 分鐘不成交`
+      : `- 額度：做多 ${doc.quota?.long ?? '—'}／做空 ${doc.quota?.short ?? '—'}；進場價＝AI 回覆當下即時價；回覆逾 3 分鐘不成交；成本 ${AI_LAB_COST_PCT}%`,
     `- AI 做 ${s?.taken.n ?? 0} 筆（平均 ${s?.taken.aiAvgR ?? '—'}R、勝率 ${s?.taken.aiWin ?? '—'}%）｜不做 ${s?.skipped.n ?? 0} 筆（反事實 ${s?.skipped.ruleAvgR ?? '—'}R）｜錯過 ${s?.missed ?? 0}｜規則全做 ${s?.allRule.ruleAvgR ?? '—'}R`,
     ``,
     `## 交易記錄`,
     ``,
-    `| 觸發 | 方向 | 代號 | Setup | AI 決定 | 信心 | 理由 | 交易單（1 張·買／賣時間·價·金額·費稅·淨損益） | 規則R | AI R |`,
+    `| 觸發 | 方向 | 代號 | Setup | AI 決定 | 信心 | 理由 | 交易單（股數·買／賣時間·價·金額·費稅·淨損益；反事實以 1 張計） | 規則R | AI R |`,
     `|---|---|---|---|---|---|---|---|---|---|`,
     ...doc.records.map(r => { const L = r.ledger || r.cfLedger; const tag = r.ledger ? 'AI 成交' : r.cfLedger ? '反事實（AI 未做）' : ''; const slip = L ? `${tag}：買 ${hhmmss(L.buy.at)} @${L.buy.px}＝${L.buy.amount.toLocaleString()}元／賣 ${hhmmss(L.sell.at)} @${L.sell.px}＝${L.sell.amount.toLocaleString()}元·費稅 ${L.costTwd} 元·淨 ${L.pnlTwd.toLocaleString()} 元${r.decidedAt ? `·決定 ${hhmmss(r.decidedAt)}` : ''}${L.noLookahead === true ? '·✓先決定後成交' : L.noLookahead === false ? '·⚠時序異常' : ''}` : '—';
       return `| ${hhmm(r.triggerAt)} | ${r.side === 'long' ? '多' : '空'} | ${r.code} ${r.name} | ${r.type} | ${r.decision ?? r.status} | ${r.confidence ?? '—'} | ${(r.reason || '').replace(/\|/g, '／')} | ${slip} | ${r.ruleNetR ?? '—'} | ${r.aiNetR ?? '—'} |`; }),

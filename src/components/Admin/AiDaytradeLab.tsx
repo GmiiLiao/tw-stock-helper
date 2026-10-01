@@ -13,17 +13,22 @@ interface LabDoc {
   date: string; version?: string; model?: string; modelInfo?: { name: string; digest: string | null; parameterSize: string | null; quantization: string | null } | null; deskVersion?: string;
   records: AiLabRecord[]; stats: AiLabStats; review?: { summary: string; improvements: string[] } | null; facts?: { worked: string[]; failed: string[] };
   reviewNote?: string | null; frozenAt?: number; adminNotes?: string; adminNotesAt?: number; adminBy?: string; updatedAt?: number;
+  limit?: { limit: number; used: number; left: number };   // v4：當日交易額度快照
 }
+// 交易額度（v4·2026-10-01）：AI 交易員申請提高 → 超級管理員核准／不核准
+interface LimitReq { current: number; cash: number; proposed: number; status: 'pending' | 'approved' | 'rejected'; at: number; decidedAt?: number; decidedBy?: string; approved?: number }
+interface LimitInfo { limit: number; request: LimitReq | null; history: { at: number; from: number; to: number; by: string }[] }
 interface Acct { initial: number; realized: number; equity: number; openCost: number; cash: number; retPct: number; trades: number }
 interface Leg { at: number | null; px: number; amount: number; fee: number; tax?: number }
 interface TradeRow { date: string; code: string; name: string; side: 'long' | 'short'; type: string; decidedAt: number | null; shares: number; buy: Leg | null; sell: Leg | null; legs: number | null; costTwd: number | null; pnlTwd: number | null; retPct: number | null; exitReason: string | null; open: boolean; noLookahead: boolean | null }
 interface DailyRow { wins: number; losses: number; dayRetPct: number; cumRetPct: number; date: string; n: number; open: number; buyAmt: number; sellAmt: number; fee: number; tax: number; pnl: number; equity: number }
-interface Resp { tradeList?: TradeRow[]; daily?: DailyRow[]; account?: Acct; found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
+interface Resp { tradeList?: TradeRow[]; daily?: DailyRow[]; account?: Acct; limit?: LimitInfo; found: boolean; days: DayRow[]; cumulative: AiLabStats | null; confidence: { range: string; n: number; avgR: number | null }[]; live: LabDoc | null; detail: LabDoc | null; error?: string }
 
 const R = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}R`);
 const STATUS: Record<string, { t: string; c: string }> = {
   filled: { t: '✅ AI 成交', c: '#22c55e' }, skipped: { t: '⏭ AI 放棄', c: 'var(--text-muted)' }, missed: { t: '⌛ 回覆太慢·錯過', c: '#f59e0b' },
-  error: { t: '⚠ 決策失敗', c: '#ef4444' }, 'no-cash': { t: '💰 資金不足·未成交', c: '#f59e0b' }, quota: { t: '額度已滿', c: 'var(--text-muted)' }, 'out-of-window': { t: '時段外', c: 'var(--text-muted)' }, pending: { t: '… 決策中', c: '#7dd3fc' },
+  error: { t: '⚠ 決策失敗', c: '#ef4444' }, 'no-limit': { t: '🧾 交易額度不足·未成交', c: '#f59e0b' }, ineligible: { t: '🚫 不可交易（處置／非當沖標的）', c: 'var(--text-muted)' },
+  'no-cash': { t: '💰 資金不足·未成交', c: '#f59e0b' }, quota: { t: '額度已滿', c: 'var(--text-muted)' }, 'out-of-window': { t: '時段外', c: 'var(--text-muted)' }, pending: { t: '… 決策中', c: '#7dd3fc' },
 };
 
 async function authed(input: string, init: RequestInit = {}) {
@@ -75,20 +80,24 @@ export default function AiDaytradeLab() {
   return (
     <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
-        盤中當沖工作台規則觸發後，由本機 Ollama 決定做或不做（多、空各 ≤5 筆）。模擬帳戶 <b>50 萬</b>（與波段帳戶不互通）：單筆上限 25 萬、只下整張，買不起 1 張記「資金不足」；成交＝AI 回覆當下的快線即時價，出場沿用工作台規則（1R／2R／3R 各賣 1/3）。
+        盤中當沖工作台規則觸發後，由本機 Ollama 決定做或不做、做幾張。模擬帳戶起始現金 <b>50 萬</b>（與波段帳戶不互通），<b>每日交易額度 {(data.limit?.limit ?? 1_000_000).toLocaleString()} 元</b>（每個交易日重新計算；進場價金占用額度、當天平倉不回補，用完當天不再交易）：不設單筆上限、不限筆數、只下整張；處置股與非現股當沖標的不交易；每筆扣手續費與當沖證交稅。成交＝AI 回覆當下的快線即時價，出場沿用工作台規則（1R／2R／3R 分批、只出整張）。
+        2026-10-01 前（v1–v3）為多空各 ≤5 筆、單筆上限 25 萬的舊規則，記錄照舊保留。
         AI 放棄的觸發另列「反事實」交易單（規則照做會怎樣）。<b>AI 有沒有用：看「成交」是否比「放棄」好。</b>模擬交易，非投資建議。
       </div>
       {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
       {c && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {data.account && <Kpi label="🏦 當沖帳戶淨值（起始 50 萬·與波段不互通）" value={`${Math.round(data.account.equity).toLocaleString()} 元`} color={upDn(data.account.realized)} sub={`已實現 ${twd(data.account.realized)}（${pct(data.account.retPct)}）· 可用 ${Math.round(data.account.cash).toLocaleString()} 元`} hint="單筆上限 25 萬、只下整張；買不起 1 張記資金不足" />}
+          {data.account && <Kpi label="🏦 當沖帳戶淨值（起始 50 萬·與波段不互通）" value={`${Math.round(data.account.equity).toLocaleString()} 元`} color={upDn(data.account.realized)} sub={`已實現 ${twd(data.account.realized)}（${pct(data.account.retPct)}）· 現金 ${Math.round(data.account.cash).toLocaleString()} 元`} hint="現金超過交易額度時，AI 交易員會發訊息申請提高額度，核准後才生效" />}
+          {data.limit && <Kpi label="🧾 每日交易額度" value={`${data.limit.limit.toLocaleString()} 元`} sub={liveToday?.limit ? `今日已用 ${liveToday.limit.used.toLocaleString()}·剩餘 ${liveToday.limit.left.toLocaleString()}` : '每個交易日重新計算'} hint="進場價金占用額度，當天平倉不回補；用完當天不再交易" />}
           <Kpi label="AI 成交·累積淨損益" value={twd(c.taken.pnlTwd)} color={upDn(c.taken.pnlTwd)} sub={`${c.taken.n} 筆 · 勝率 ${c.taken.aiWin ?? '—'}% · 平均 ${R(c.taken.aiAvgR)}`} />
           <Kpi label="AI 放棄·反事實淨損益" value={twd(c.skipped.cfPnlTwd)} color={upDn(c.skipped.cfPnlTwd)} sub={`${c.skipped.n} 筆 · 規則照做平均 ${R(c.skipped.ruleAvgR)}`} hint="AI 沒做的觸發，如果照規則做會賺賠多少" />
           <Kpi label="AI 判斷加值" value={gain == null ? '—' : R(gain)} color={upDn(gain)} sub={c.taken.n + c.skipped.n < 30 ? '樣本 < 30，只當假設' : '成交平均 − 放棄反事實平均'} />
           <Kpi label="錯過／失敗" value={String(c.missed)} sub="回覆逾 3 分鐘或格式錯" />
         </div>
       )}
+
+      {data.limit?.request && <LimitRequestPanel key={data.limit.request.at} req={data.limit.request} limit={data.limit.limit} onDone={() => load(date)} />}
 
       <Section title="🕒 交易時間清單" sub="AI 實際成交（新→舊）；做空為先賣後買">
         <ListTable head={['日期', 'AI 決定', '方向', '個股', '股數', '買進 時間·價·金額', '賣出 時間·價·金額', '費稅', '淨損益', '報酬', '出場原因', '查核']} right={[4, 7, 8, 9]}
@@ -195,8 +204,10 @@ function TradeCard({ r }: { r: AiLabRecord }) {
         <span style={{ marginLeft: 'auto', ...MONO, color: r.ledger ? upDn(r.ruleNetR) : 'var(--text-muted)' }}>{r.ledger ? '規則' : '規則照做（模擬）'} {R(r.ruleNetR)}{r.aiNetR != null ? <span style={{ color: upDn(r.aiNetR) }}>　AI {R(r.aiNetR)}</span> : null}</span>
       </div>
       <div style={{ marginTop: 6 }}>
-        {L ? <TradeSlip L={L} muted={!r.ledger} counterfactual={!r.ledger} note={r.ledgerNote} /> : <span style={{ color: 'var(--text-muted)' }}>{r.status === 'no-cash' ? r.reason : r.cfNote || (r.exitAt ? '無交易單' : '尚未出場')}</span>}
-        {r.ledger && r.cashBefore != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>成交前可用現金 {r.cashBefore.toLocaleString()} 元 · 本筆預算 {r.budget?.toLocaleString()} 元（上限 25 萬、整張）</div>}
+        {L ? <TradeSlip L={L} muted={!r.ledger} counterfactual={!r.ledger} note={r.ledger ? r.ledgerNote : r.maxLotsAtAsk != null ? '反事實以 1 張計（只比較方向與 R，不代表 AI 會下的張數）' : r.ledgerNote} />
+          : <span style={{ color: 'var(--text-muted)' }}>{r.status === 'no-cash' || r.status === 'no-limit' || r.status === 'ineligible' ? r.reason : r.cfNote || (r.exitAt ? '無交易單' : '尚未出場')}</span>}
+        {r.ledger && r.limitLeft != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>AI 要 {r.lotsAsked ?? '—'} 張 · 成交前剩餘額度 {r.limitLeft.toLocaleString()} 元 → 成交後 {(r.limitAfter ?? 0).toLocaleString()} 元{r.sizeNote ? `（${r.sizeNote}）` : ''}</div>}
+        {r.ledger && r.limitLeft == null && r.cashBefore != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>成交前可用現金 {r.cashBefore.toLocaleString()} 元 · 本筆預算 {r.budget?.toLocaleString()} 元（v1–v3 舊規則：上限 25 萬、整張）</div>}
       </div>
       {r.exitReason && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>出場原因：{r.exitReason}（工作台規則）· 結構停損 {r.stop} · 觸發價 {r.triggerPx}{r.fillPx != null ? ` · AI 成交價 ${r.fillPx}${r.fillSource ? `（${r.fillSource}${r.fillQuoteAt ? `，報價時戳 ${tw(r.fillQuoteAt)}` : ''}）` : ''}` : ''}</div>}
       <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12px * var(--fz))' }}>{open ? '▾' : '▸'} AI 理由與觸發條件</button>
@@ -205,6 +216,43 @@ function TradeCard({ r }: { r: AiLabRecord }) {
         <div style={{ color: 'var(--text-muted)' }}>觸發：{r.why}｜規則符合度 {r.score.total}/{r.score.knownMax}{r.score.missing.length ? `（缺：${r.score.missing.join('、')}）` : ''}{r.warnings.length ? `｜警訊：${r.warnings.join('、')}` : ''}</div>
         {r.aiNetPct != null && <div style={{ color: 'var(--text-muted)' }}>報酬 {pct(r.aiNetPct)}</div>}
       </div>}
+    </div>
+  );
+}
+
+/** AI 交易員的額度申請：待審中可核准（可改金額）或不核准；已審核顯示結果 */
+function LimitRequestPanel({ req, limit, onDone }: { req: LimitReq; limit: number; onDone: () => void }) {
+  const [amount, setAmount] = useState(String(req.proposed));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const decide = async (decision: 'approve' | 'reject') => {
+    const n = Math.round(Number(amount.replace(/,/g, '')));
+    if (decision === 'approve' && !(n > 0)) { setMsg('✖ 請輸入核准金額'); return; }
+    setBusy(true); setMsg('送出中…');
+    const r = await authed('/api/admin/ai-daytrade-lab', { method: 'POST', body: JSON.stringify({ action: 'limit', decision, ...(decision === 'approve' ? { amount: n } : {}) }) });
+    const j = await r.json().catch(() => ({}));
+    setBusy(false);
+    setMsg(r.ok ? (decision === 'approve' ? `✓ 已核准，每日交易額度改為 ${n.toLocaleString()} 元（常駐服務 5 分鐘內生效）` : '✓ 已不核准，維持現有額度') : `✖ ${j.error || '送出失敗'}`);
+    if (r.ok) onDone();
+  };
+  if (req.status !== 'pending') {
+    if (!req.decidedAt || Date.now() - req.decidedAt > 7 * 86400000) return null;   // 已審核的只顯示一週
+    return <div style={{ marginTop: 10, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+      🧾 額度申請（{tw(req.at, true)}）：{req.status === 'approved' ? `已核准，額度改為 ${(req.approved ?? limit).toLocaleString()} 元` : '未核准，維持原額度'}（{req.decidedBy || '超級管理員'}·{tw(req.decidedAt, true)}）
+    </div>;
+  }
+  return (
+    <div role="region" aria-label="交易額度申請" style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(245,158,11,0.5)', background: 'rgba(245,158,11,0.08)' }}>
+      <div style={{ fontWeight: 800 }}>🤖 AI 交易員申請提高每日交易額度</div>
+      <div style={{ marginTop: 4 }}>帳戶現金 <b>{req.cash.toLocaleString()}</b> 元已超過目前額度 <b>{req.current.toLocaleString()}</b> 元，申請提高到 <b>{req.proposed.toLocaleString()}</b> 元（現金×2）。申請時間 {tw(req.at, true)}；核准前維持現有額度。</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>核准金額
+          <input className="input" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value)} style={{ width: 140 }} aria-label="核准的每日交易額度（元）" />元
+        </label>
+        <button className="btn btn-buy" disabled={busy} onClick={() => decide('approve')}>核准提高</button>
+        <button className="btn btn-ghost" disabled={busy} onClick={() => decide('reject')}>不核准</button>
+        {msg && <span style={{ fontSize: 'calc(12px * var(--fz))', color: msg.startsWith('✖') ? '#ef4444' : 'var(--text-muted)' }}>{msg}</span>}
+      </div>
     </div>
   );
 }

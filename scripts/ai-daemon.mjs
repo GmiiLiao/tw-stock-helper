@@ -1731,7 +1731,7 @@ let _prioCache = null, _prioAt = 0;
 const _lastLive = {};
 // 當沖即時警示（2026-09-23）：VWAP 取樣累積＋1 分 K 警示引擎。規則在 scripts/lib/daytrade-signals.mjs。
 const _vwapBook = createVwapBook();
-// 🤖 當沖 AI 實驗（2026-09-24）：工作台觸發 → 本機 Ollama 決定做／不做（多空各 ≤5）→ 模擬成交 → 盤後凍結＋檢討
+// 🤖 當沖 AI 實驗（2026-09-24；v4 2026-10-01：每日交易額度制、AI 決定張數、不限筆數）：工作台觸發 → 本機 Ollama 決定做／不做與張數 → 模擬成交 → 盤後凍結＋檢討
 const AI_LAB_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'daytrade-ai-lab');
 const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE, onTrigger: evt => _aiLab.consider(evt, isoDate(taipei())) });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
 // 🧠 AI 交易員經驗庫（2026-09-30）：盤後訓練結果 aiLabLearn/latest 的記憶體快取；交易員決策時同步讀取（讀不到＝無經驗，不擋決策）
@@ -1741,7 +1741,19 @@ async function refreshLearned() {
   catch (e) { log('⚠ 經驗庫讀取失敗（沿用上一份）:', (e.message || '').slice(0, 60)); _learnedAt = Date.now(); }
 }
 const getLearned = () => _learned;
-const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE, getModelInfo: () => getOllamaModelInfo(), getLearned });
+// v4（2026-10-01 使用者）：處置股與非現股當沖標的不交易——資格取自工作台同一份名單（_disp 30 分鐘刷新、_dtElig 每日）；
+//   取不到（或處置名單逾 24 小時未更新）＝null ⇒ AI 帳戶不交易（fail-closed）。額度申請以 Web Push＋通知中心發給管理員。
+const _aiLab = createAiDaytradeLab({ db, askOllama, log, getQuote: c => _lastLive[c], dir: AI_LAB_DIR, model: OLLAMA_MODEL, deskVersion: DESK_VERSION, evidence: DESK_EVIDENCE, getModelInfo: () => getOllamaModelInfo(), getLearned,
+  getRules: c => ({ disposition: _dispAt && Date.now() - _dispAt <= 24 * 3600000 ? _disp.has(c) : null, elig: _dtElig ? (_dtElig[c] ?? 0) : null }),
+  notifyOwner: async message => {
+    const uid = await adminUid(); if (!uid) return false;
+    const alert = { id: `aiLabLimit-${Date.now()}`, code: null, name: '當沖 AI 交易員', type: 'aiLabLimit', message, at: Date.now() };   // id：推播 tag 不互相覆蓋
+    const aref = db.collection('users').doc(uid).collection('data').doc('alerts');
+    const prev = (await aref.get()).data()?.alerts || [];
+    await aref.set({ updatedAt: Date.now(), alerts: [alert, ...prev].slice(0, 40) });
+    await pushAlerts(uid, [alert]).catch(() => {});
+    return true;
+  } });
 let _aiLabFinalDate = '', _aiNotesAt = 0;
 // 使用中的 LLM 模型身分（名稱＋digest＋家族／參數量／量化）——AI 實驗每筆記錄都要記（使用者 2026-09-24）。1 小時快取。
 let _ollamaInfo = { at: 0, v: null };
