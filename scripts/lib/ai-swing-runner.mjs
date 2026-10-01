@@ -220,6 +220,9 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       try {
         const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
         const { opts } = await acctOf();
+        // 會員尚未入金（沒有資金異動也沒有決策）：不建 0 元帳戶快照（2026-10-01 實測：開通即被寫入 0 元快照，
+        //   會員頁誤判為已開始、顯示 0 元卡片；報酬率 0÷0＝NaN）。實驗帳戶不受影響（沒有 getSettings）。
+        if (getSettings && !(opts.flows || []).length && !docs.length) return;
         let days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
         let liveFilled = [];
         // 今日歸檔已寫、但缺部分持股（上櫃 16:25–16:55 才併入·2026-10-01 使用者「怎麼沒有使用更新價格」）：

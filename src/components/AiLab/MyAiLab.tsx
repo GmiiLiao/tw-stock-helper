@@ -49,13 +49,14 @@ export default function MyAiLab() {
   const st = data.settings, sm = data.summary, snap = data.snapshot;
   const history = snap?.history || [];
   const cum = history.length ? history[history.length - 1].cumRetPct : null;
-  const started = st.capital > 0 || !!sm;
+  // 已開始＝曾經入金（2026-10-01 實測：開通後尚未入金的會員被寫了 0 元快照，畫面誤顯示 0 元卡片而非引導）
+  const started = st.flows.length > 0;
   // 快照之後的入金／提領（daemon 每分鐘偵測設定變更後重算；這段期間總值與總損益先補上，避免顯示「總損益 −入金」）
   const pending = data.pendingFlow ?? 0;
   const total = sm ? sm.total + pending : 0;
 
   return (
-    <div style={{ padding: '4px 2px', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6, maxWidth: 1180 }}>
+    <div style={{ padding: '4px 2px', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6, width: '100%' }}>   {/* 滿版：跟投資組合頁同寬（2026-10-01 使用者） */}
       <h2 style={{ margin: '4px 0 6px', fontSize: 'calc(1.2rem * var(--fz))' }}>🤖 AI 實驗·波段 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 400, color: MUTED }}>你的專屬 AI 交易員</span></h2>
       <div style={{ color: MUTED, marginBottom: 10 }}>
         每個交易日盤後（17:00 後），你的 AI 交易員依你的帳戶、持股與獲利成長目標，從本站波段候選池決定賣出與買進；下一個交易日 09:00 以開盤價模擬成交並即時記錄。
@@ -63,7 +64,7 @@ export default function MyAiLab() {
       </div>
       {loadErr && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
-      <SettingsCard key={`${st.capital}|${st.daytradeLimit}|${st.growthTarget}`} settings={st} withdrawable={data.withdrawable ?? 0} hasAccount={!!sm} onSaved={load} />
+      <SettingsCard key={`${st.capital}|${st.daytradeLimit}|${st.growthTarget}`} settings={st} withdrawable={data.withdrawable ?? 0} hasAccount={started && !!sm} onSaved={load} />
 
       {!started ? (
         <div style={{ marginTop: 12, color: MUTED }}>設定投入資金後，AI 交易員會在下一個決策時段（交易日 17:00～隔日 08:30）做第一次決策，下一個交易日 09:00 開盤成交。</div>
@@ -132,7 +133,7 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved }: { setting
   const field = { display: 'flex', flexDirection: 'column' as const, gap: 3, minWidth: 190, flex: '1 1 190px' };
   return (
     <Section title="⚙️ 我的設定" sub="變更投入資金＝加碼或提領（帳戶延續）；提領不可超過可提領現金">
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <label style={field}>
           <span>① 投入資金（元）</span>
           <input className="input" inputMode="numeric" value={cap} onChange={e => setCap(e.target.value)} placeholder="例：300000（最低 50,000）" aria-describedby="cap-hint" />
@@ -148,7 +149,10 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved }: { setting
           <input className="input" inputMode="decimal" value={goal} onChange={e => setGoal(e.target.value)} placeholder="例：30（空白＝不設）" aria-describedby="goal-hint" />
           <span id="goal-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>AI 交易員會把它當作目標，頁面追蹤進度</span>
         </label>
-        <button className="btn btn-buy" disabled={busy} onClick={save} style={{ height: 36 }}>儲存設定</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span aria-hidden style={{ visibility: 'hidden' }}>　</span>
+          <button className="btn btn-buy" disabled={busy} onClick={save} style={{ height: 36 }}>儲存設定</button>
+        </div>
       </div>
       {msg && <div role="status" style={{ marginTop: 6, fontSize: 'calc(12px * var(--fz))', color: msg.startsWith('✖') ? '#ef4444' : MUTED }}>{msg}</div>}
     </Section>

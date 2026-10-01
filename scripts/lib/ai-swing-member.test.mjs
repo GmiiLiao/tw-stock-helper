@@ -117,4 +117,6 @@ test('會員帳戶執行器：淨投入為 0 且無持股 ⇒ 不選股、不呼
     account: { colPath: 'aiSwingMembers/u2/days', snapPath: 'aiSwingMembers/u2/state/account', files: false, research: false, getSettings: async () => ({ initial: 0, flows: [], goal: null }) } });
   assert.equal(await lab.pick(), true);
   assert.equal(asked, 0); assert.equal(db.store[`aiSwingMembers/u2/days/${D}`], undefined);
+  await lab.writeAccount(null, {});
+  assert.equal(db.store['aiSwingMembers/u2/state/account'], undefined, '尚未入金：不建 0 元帳戶快照（會員頁才會顯示引導而非 0 元卡片）');
 });
