@@ -274,6 +274,24 @@ test('執行器：開盤即時成交後，每小時帳戶重算（今日日線�
   assert.ok(acct.history.some(r => r.date === today));
 });
 
+test('執行器：日線落後兩個交易日以上——暫定日只執行已記錄的成交，未記錄的委託維持待進場（不因暫定日無報價而作廢消失）', async () => {
+  // 2026-10-01 審查：舊版暫定日對「非今天」的日期沒有報價 ⇒ 未記錄的買單被 nextFill 判失敗 ⇒ 快照裡整筆消失
+  const days = mkDays(); const D0 = days[5].date, d1 = days[6].date, d2 = days[7].date;
+  const at1 = Date.parse(`${d1}T09:01:00+08:00`), at2 = Date.parse(`${d2}T09:01:00+08:00`);
+  const db = fakeDb({
+    [`aiSwingLab/${D0}`]: { date: D0, frozenAt: 1, picks: [{ code: '1111', name: 'A', priceAtDecision: 104, position: { shares: 1000, budget: 110000 } }, { code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {},
+      buyFills: { 1111: { date: d1, at: at1, px: 105, shares: 1000, source: 'live-open', recordedAt: at1 } } },   // 2222 未記錄（例：停牌）
+    [`aiSwingLab/${d1}`]: { date: d1, frozenAt: 2, picks: [{ code: '3333', name: 'C', priceAtDecision: 30, position: { shares: 1000, budget: 31000 } }], outcomes: {},
+      buyFills: { 3333: { date: d2, at: at2, px: 30, shares: 1000, source: 'live-open', recordedAt: at2 } } },
+  });
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 6) });   // 歸檔停在 D0
+  await lab.writeAccount(null, { getLive: () => null });
+  const hs = db.store['aiLabAccounts/swing'].holdings;
+  assert.equal(hs.find(h => h.code === '1111')?.state, 'held');
+  assert.equal(hs.find(h => h.code === '3333')?.state, 'held');
+  assert.equal(hs.find(h => h.code === '2222')?.state, 'pending', '未記錄成交 ⇒ 仍是待進場，不推算、不作廢');
+});
+
 test('執行器：09:30 仍無開盤價的買單作廢（開盤未成交），不在盤後補', async () => {
   const days = mkDays(); const D0 = days[5].date, today = days[6].date;
   const db = fakeDb({ [`aiSwingLab/${D0}`]: { date: D0, frozenAt: 1, picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {} } });

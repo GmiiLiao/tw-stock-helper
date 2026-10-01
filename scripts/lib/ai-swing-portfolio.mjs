@@ -123,16 +123,19 @@ export function portfolioState(docs, days = null, beforeDate = null) {
   if (days?.length) {
     for (let i = 0; i < days.length; i++) {
       const t = days[i].date;
+      // recordedOnly＝帳戶快照補的暫定日（日線尚未歸檔，見 ai-swing-runner writeAccount）：只執行已記錄的成交，
+      //   不由（可能沒有報價的）暫定日推算——否則未記錄的買單會被判「無成交資料」作廢、從快照消失（2026-10-01 審查）
+      const ro = !!days[i].recordedOnly;
       // ① 賣單（先）：持有中、已下賣單、成交日＝今天
       for (const l of lots) {
         if (l.status !== 'held' || !l.order) continue;
-        const fill = l.order.recorded?.ledger ? l.order.recorded : sellFillOf(days, l, l.order);
+        const fill = l.order.recorded?.ledger ? l.order.recorded : ro ? null : sellFillOf(days, l, l.order);
         if (fill && !fill.failed && fill.ledger && fill.date === t) execSell(l, fill, i);
       }
       // ② 買單（後）：依決策日、選股順序
       for (const l of lots) {
         if (l.status !== 'pending') continue;
-        const f = l.recordedBuy || nextFill(days, l.date, l.code);
+        const f = l.recordedBuy || (ro ? null : nextFill(days, l.date, l.code));
         if (!f || f.date !== t) continue;
         if (f.failed) { l.buyFailed = f; l.status = 'void'; continue; }
         execBuy(l, f, i);

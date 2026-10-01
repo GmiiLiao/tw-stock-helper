@@ -201,7 +201,8 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         let days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
         if (!daysIn && days.length) {
           const pend = fillDatesAfter(docs, days[days.length - 1].date);
-          if (pend.length) { const { lots } = portfolioState(docs, days); days = [...days, ...pend.map(dt => liveDay(lots, dt, getLive))]; }
+          // recordedOnly：暫定日只執行已記錄的成交（不推算、不作廢未記錄的委託）——歸檔落後多日時尤其重要
+          if (pend.length) { const { lots } = portfolioState(docs, days); days = [...days, ...pend.map(dt => ({ ...liveDay(lots, dt, getLive), recordedOnly: true }))]; }
         }
         const ref = db.collection('aiLabAccounts').doc('swing');
         const prevHist = (await ref.get()).data()?.history || [];
