@@ -185,13 +185,14 @@ function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
   const asOf = snapshot?.provisional
     ? `市值以 ${snapshot.dataDate} 盤中即時價計${snapshot.liveAt ? `（${tw(snapshot.liveAt)}）` : '（暫無即時價者以成本計）'}，收盤歸檔後改以官方收盤重算`
     : snapshot?.dataDate ? `市值以 ${snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新';
-  const posHead = ['個股', '股數', '買進 時間·價', '成本（含手續費）', '最新收盤', '淨市值', '淨未實現', '已持有／AI 預期'];
+  // 2026-10-01 使用者：「買進 時間·價」移到最右欄（數字欄先看、成交時間與來源標記放最後）
+  const posHead = ['個股', '股數', '成本（含手續費）', '最新收盤', '淨市值', '淨未實現', '已持有／AI 預期', '買進 時間·價'];
   const posRows = (list: Holding[]) => list.map(h => [
     <b key="c">{h.code} {h.name}</b>, h.shares.toLocaleString(),
-    h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}<FillTag src={h.fillSource} at={h.fillRecordedAt} /></span> : '—',
     h.cost.toLocaleString(), h.lastPx ?? '—', h.netValue != null ? h.netValue.toLocaleString() : '—',
     <b key="u" style={{ color: upDn(h.unrealized) }}>{h.unrealized != null ? `${twd(h.unrealized)}（${pct(h.unrealizedPct)}）` : '—'}</b>,
-    `${h.heldDays} 日／${h.horizon ? `${h.horizon} 日` : '—'}`]);
+    `${h.heldDays} 日／${h.horizon ? `${h.horizon} 日` : '—'}`,
+    h.entryPx ? <span key="b" style={MONO}>{tw(h.entryAt, true)} · {h.entryPx}<FillTag src={h.fillSource} at={h.fillRecordedAt} /></span> : '—']);
   const posDetails = (list: Holding[]) => list.map(h => (
     <div key={h.code}>
       <div>選股日 <b>{h.date}</b>{h.entryDate ? `·成交 ${h.entryDate}` : ''}　市值 {h.mktValue?.toLocaleString() ?? '—'} − 預估賣出費稅 {h.estSellCost?.toLocaleString() ?? '—'} ＝ 淨市值 {h.netValue?.toLocaleString() ?? '—'}{h.buyFee != null ? `　（成本含買進手續費 ${h.buyFee.toLocaleString()}）` : ''}</div>
@@ -199,15 +200,15 @@ function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
       {h.reason && <div>🧠 AI 買進理由：{h.reason}</div>}
     </div>));
   const keysOf = (list: Holding[]) => list.map(h => `${h.date}:${h.code}`);
-  const posFoot = (list: Holding[]) => ['合計', `${list.length} 檔`, '', sum(list, h => h.cost).toLocaleString(), '', sum(list, h => h.netValue).toLocaleString(), twd(sum(list, h => h.unrealized)), ''];
+  const posFoot = (list: Holding[]) => ['合計', `${list.length} 檔`, sum(list, h => h.cost).toLocaleString(), '', sum(list, h => h.netValue).toLocaleString(), twd(sum(list, h => h.unrealized)), '', ''];
   return (
     <>
       <Collapse id="swing-held" title="📋 持有中" count={`${by.held.length} 檔`} sub={`${asOf}；淨市值與淨未實現已扣若賣出的手續費＋證交稅；點列展開看 AI 理由與明細`}>
-        <ListTable stickyFirst head={posHead} right={[1, 3, 4, 5, 6]} empty="目前沒有持有中的部位" rows={posRows(by.held)} details={posDetails(by.held)} rowKeys={keysOf(by.held)} foot={by.held.length ? posFoot(by.held) : undefined} />
+        <ListTable stickyFirst head={posHead} right={[1, 2, 3, 4, 5]} empty="目前沒有持有中的部位" rows={posRows(by.held)} details={posDetails(by.held)} rowKeys={keysOf(by.held)} foot={by.held.length ? posFoot(by.held) : undefined} />
       </Collapse>
       {by.selling.length > 0 && (
         <Collapse id="swing-selling" title="🔻 賣出委託（下一交易日 09:00 開盤賣出）" count={`${by.selling.length} 檔`} tone="rgba(245,158,11,0.2)" sub="AI 盤後決定賣出、尚未成交；成交後移到「已賣出」">
-          <ListTable stickyFirst head={posHead} right={[1, 3, 4, 5, 6]} rows={posRows(by.selling)} details={posDetails(by.selling)} rowKeys={keysOf(by.selling)} foot={posFoot(by.selling)} />
+          <ListTable stickyFirst head={posHead} right={[1, 2, 3, 4, 5]} rows={posRows(by.selling)} details={posDetails(by.selling)} rowKeys={keysOf(by.selling)} foot={posFoot(by.selling)} />
         </Collapse>
       )}
       {by.pending.length > 0 && (
