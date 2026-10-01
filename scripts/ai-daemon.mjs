@@ -14759,9 +14759,8 @@ async function dailyJobsLoop() {
         catch (e) { log('✖ 當沖 AI 實驗凍結（將重試）:', (e.message || '').slice(0, 60)); }
       }
       if (Date.now() - _aiNotesAt > 15 * 60000) { _aiNotesAt = Date.now(); _aiLab.syncNotes().catch(e => log('✖ 人工檢討同步:', (e.message || '').slice(0, 60))); _aiSwing.syncNotes().catch(e => log('✖ 波段人工檢討同步:', (e.message || '').slice(0, 60))); }
-      // 🤖 AI 實驗·波段持有：持有清單／每日戰績快照不綁選股時段——啟動時與每小時各刷新一次（2026-09-25：17–23 點窗被晚間長任務擠掉，清單整晚空白）
-      // 傳即時報價：今日開盤即時成交後、收盤歸檔前，帳戶以盤中價補暫定日（否則每小時重算會倒回「待進場」·2026-10-01）
-      if (Date.now() - _aiSwingAcctAt > 3600_000) { _aiSwingAcctAt = Date.now(); _aiSwing.writeAccount(null, { getLive: c => _lastLive[c] }).catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60))); }
+      // 🤖 AI 實驗·波段持有的帳戶快照：改由獨立計時器 swingAccountTick（開機 30 秒後一次；交易日 13:30–18:00 每 10 分鐘、其餘每小時）——
+      //   2026-10-01 使用者「怎麼沒有使用更新價格」：原本放在這裡，開機要先跑完整輪每日工作才輪到，收盤歸檔進來也要等下一個整點。
       // 🤖 AI 實驗·波段持有：17:00 起（兩榜收盤版都算完）每 10 分鐘試一次選股，成功後當天結算所有到期的持有期
       // 窗＝17:00～次日 08:30（仍早於下一交易日 09:00 開盤，先選後買不變）；pick() 以榜單資料日冪等，跨午夜不會重選
       if (((isTradingDay(tw) && mins >= 17 * 60) || mins < 8 * 60 + 30) && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {
@@ -15198,6 +15197,16 @@ async function dailyJobsLoop() {
     await sleep(300000); // 每 5 分鐘檢查
   }
 }
+// 🤖 波段帳戶快照獨立排程（見 dailyJobsLoop 內說明）：單一在途；writeAccount 內部已記錄錯誤、不會拋出
+let _aiSwingAcctBusy = false;
+function swingAccountTick() {
+  const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
+  const every = isTradingDay(tw) && mins >= 13 * 60 + 30 && mins < 18 * 60 ? 10 * 60_000 : 3600_000;
+  if (_aiSwingAcctBusy || Date.now() - _aiSwingAcctAt < every) return;
+  _aiSwingAcctBusy = true; _aiSwingAcctAt = Date.now();
+  _aiSwing.writeAccount(null, { getLive: c => _lastLive[c] }).catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60))).finally(() => { _aiSwingAcctBusy = false; });
+}
+if (!ONESHOT) { setTimeout(swingAccountTick, 30_000); setInterval(swingAccountTick, 60_000); }
 if (!ONESHOT) dailyJobsLoop();
 if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔斷器狀態、任務耗時 → system/daemonHealth
 

@@ -292,6 +292,27 @@ test('執行器：日線落後兩個交易日以上——暫定日只執行已�
   assert.equal(hs.find(h => h.code === '2222')?.state, 'pending', '未記錄成交 ⇒ 仍是待進場，不推算、不作廢');
 });
 
+test('執行器：今日歸檔已寫但缺部分個股（上櫃 16:25–16:55 才併入）⇒ 持股市值以今日即時收盤補，不顯示「—」', async () => {
+  // 2026-10-01 使用者「怎麼沒有使用更新價格?」：15:30 上市歸檔進來、上櫃尚未併入，上櫃持股沒有今日收盤
+  const days = mkDays(); const D0 = days[5].date, today = days[6].date;
+  const partial = days.slice(0, 7).map((d, i) => (i === 6 ? { ...d, m: { 1111: d.m[1111] } } : d));   // 今日只有 1111（上市）
+  const at = Date.parse(`${today}T09:01:00+08:00`), close = Date.parse(`${today}T13:30:05+08:00`);
+  const db = fakeDb({ [`aiSwingLab/${D0}`]: { date: D0, frozenAt: 1, picks: [{ code: '1111', name: 'A', priceAtDecision: 104, position: { shares: 1000, budget: 110000 } }, { code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {},
+    buyFills: { 1111: { date: today, at, px: 105, shares: 1000, source: 'live-open', recordedAt: at }, 2222: { date: today, at, px: 50, shares: 1000, source: 'live-open', recordedAt: at } } } });
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => partial });
+  const live = { 2222: { price: 52.5, open: 50, high: 53, low: 49.9, volume: 4e5, liveAt: close, hasLive: true } };
+  await lab.writeAccount(null, { getLive: c => live[c] });
+  let acct = db.store['aiLabAccounts/swing'];
+  assert.equal(acct.dataDate, today);
+  assert.equal(acct.holdings.find(h => h.code === '1111').lastPx, 106, '上市照官方收盤');
+  assert.equal(acct.holdings.find(h => h.code === '2222').lastPx, 52.5, '上櫃以今日即時收盤補');
+  assert.deepEqual(acct.liveFilled, ['2222']);
+  await lab.writeAccount(null);   // 沒有即時報價可用 ⇒ 不補（不捏造），標未知
+  acct = db.store['aiLabAccounts/swing'];
+  assert.equal(acct.holdings.find(h => h.code === '2222').lastPx, null);
+  assert.equal(acct.liveFilled, undefined);
+});
+
 test('執行器：09:30 仍無開盤價的買單作廢（開盤未成交），不在盤後補', async () => {
   const days = mkDays(); const D0 = days[5].date, today = days[6].date;
   const db = fakeDb({ [`aiSwingLab/${D0}`]: { date: D0, frozenAt: 1, picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {} } });

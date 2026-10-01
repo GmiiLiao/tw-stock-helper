@@ -199,6 +199,21 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       try {
         const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
         let days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
+        let liveFilled = [];
+        // 今日歸檔已寫、但缺部分持股（上櫃 16:25–16:55 才併入·2026-10-01 使用者「怎麼沒有使用更新價格」）：
+        //   以「該日」即時收盤補上市值用的價格；沒有即時報價就不補（不捏造、照舊標未知）
+        if (!daysIn && days.length && getLive) {
+          const last = days[days.length - 1];
+          const { lots } = portfolioState(docs, days);
+          const add = {};
+          for (const l of lots) {
+            if (l.status === 'void' || l.status === 'closed' || last.m[l.code] || add[l.code]) continue;
+            const q = liveQuoteOf(getLive, l.code, last.date); if (!q) continue;
+            add[l.code] = [q.price > 0 ? q.price : q.open, Math.round((q.volume || 0) / 1000), q.open, q.high > 0 ? q.high : q.open, q.low > 0 ? q.low : q.open];
+          }
+          liveFilled = Object.keys(add);
+          if (liveFilled.length) days = [...days.slice(0, -1), { ...last, m: { ...last.m, ...add } }];
+        }
         if (!daysIn && days.length) {
           const pend = fillDatesAfter(docs, days[days.length - 1].date);
           // recordedOnly：暫定日只執行已記錄的成交（不推算、不作廢未記錄的委託）——歸檔落後多日時尤其重要
@@ -209,7 +224,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         const snap = swingAccountSnapshot(docs, days);
         const last = days[days.length - 1];
         // 每日戰績：由記錄逐日重算整段（2026-09-30：舊版只 upsert 當天，舊列沿用寫入時的算法而前後口徑不一）；只收官方收盤日
-        await ref.set(dropUndefined({ ...snap, ...(last?.provisional ? { provisional: true, liveAt: last.liveAt ?? null } : {}),
+        await ref.set(dropUndefined({ ...snap, ...(last?.provisional ? { provisional: true, liveAt: last.liveAt ?? null } : {}), ...(liveFilled.length ? { liveFilled } : {}),
           summary: accountSummary(snap), history: rebuildHistory(docs, days.filter(d => !d.provisional), prevHist) }));
       } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
     },
