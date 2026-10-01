@@ -11,6 +11,9 @@ import { useIsPremium } from '@/lib/view-as';
 const TTL_MS = 10 * 60_000;
 let cache: { uid: string; swing: boolean; at: number } | null = null;
 
+/** 後台切換開通後呼叫：下次進投資組合頁重新向伺服器確認（超級管理員開通自己測試時不必等 10 分鐘快取） */
+export function invalidateAiLabAccess(): void { cache = null; }
+
 export function useAiLabAccess(): boolean {
   const uid = useAppStore(s => s.user?.uid ?? null);
   const isPremium = useIsPremium();

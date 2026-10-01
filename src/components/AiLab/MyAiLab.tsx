@@ -66,9 +66,9 @@ export default function MyAiLab() {
       <SettingsCard key={`${st.capital}|${st.daytradeLimit}|${st.growthTarget}`} settings={st} withdrawable={data.withdrawable ?? 0} hasAccount={!!sm} onSaved={load} />
 
       {!started ? (
-        <div style={{ marginTop: 12, color: MUTED }}>設定投入資金後，AI 交易員會在下一個交易日盤後開始操作。</div>
+        <div style={{ marginTop: 12, color: MUTED }}>設定投入資金後，AI 交易員會在下一個決策時段（交易日 17:00～隔日 08:30）做第一次決策，下一個交易日 09:00 開盤成交。</div>
       ) : !sm ? (
-        <div style={{ marginTop: 12, color: MUTED }}>帳戶建立中：AI 交易員會在下一個交易日盤後第一次決策，帳戶快照每 10 分鐘～1 小時更新。</div>
+        <div style={{ marginTop: 12, color: MUTED }}>帳戶建立中（約 1 分鐘）：AI 交易員會在下一個決策時段（交易日 17:00～隔日 08:30）第一次決策，下一個交易日 09:00 開盤成交。</div>
       ) : (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>

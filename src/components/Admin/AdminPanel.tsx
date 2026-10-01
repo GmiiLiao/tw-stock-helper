@@ -12,6 +12,7 @@ import AiLabHub from './AiLabHub';
 import SqueezeModel from './SqueezeModel';
 import ViewAsPanel from './ViewAsPanel';
 import { useShallow } from 'zustand/react/shallow';
+import { invalidateAiLabAccess } from '@/lib/useAiLabAccess';
 
 interface UserDoc {
   uid: string;
@@ -145,7 +146,7 @@ export default function AdminPanel() {
     try {
       const r = await fetch('/api/admin/ai-lab-access', { method: 'POST', headers: { Authorization: `Bearer ${await authToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ uid, swing: next }) });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) setAiGrants(g => ({ ...g, [uid]: next })); else setAiGrantMsg(`✖ ${j.error || '切換失敗'}`);
+      if (r.ok) { setAiGrants(g => ({ ...g, [uid]: next })); invalidateAiLabAccess(); } else setAiGrantMsg(`✖ ${j.error || '切換失敗'}`);
     } catch { setAiGrantMsg('✖ 切換失敗，請稍後再試'); }
     finally { setAiGrantBusy(''); }
   };

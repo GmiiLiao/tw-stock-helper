@@ -1853,7 +1853,12 @@ async function refreshChangedMembers() {
   if (snap.docs.some(d => !allowed.has(d.id))) { _memberListAt = 0; allowed = new Set(await aiSwingMemberUids()); }
   let seen = _memberSettingsSeen;
   for (const d of snap.docs) {
-    if (allowed.has(d.id)) await memberSwing(d.id).writeAccount(null, { getLive: c => _lastLive[c] });
+    if (allowed.has(d.id)) {
+      await memberSwing(d.id).writeAccount(null, { getLive: c => _lastLive[c] });
+      // 決策時窗內剛設定投入資金：重新排入今晚的會員決策（先前因淨投入 0 跳過＝不寫決策，pick() 以資料日冪等，已決策過不會重選）——
+      //   否則開通後才入金的會員要等到下一個交易日盤後才第一次決策（2026-10-01 實測時序發現）
+      delete _memberPickDate[d.id]; _memberPickTryAt = 0;
+    }
     seen = Math.max(seen, Number(d.data().updatedAt) || 0);
   }
   _memberSettingsSeen = seen;
