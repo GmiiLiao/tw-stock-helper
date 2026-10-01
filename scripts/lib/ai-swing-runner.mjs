@@ -44,7 +44,7 @@ function fillDatesAfter(docs, lastDate) {
 }
 
 export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, account = {} }) {
-  const { colPath = 'aiSwingLab', snapPath = 'aiLabAccounts/swing', files = true, research = true, label = '', getSettings = null } = account;
+  const { colPath = 'aiSwingLab', snapPath = 'aiLabAccounts/swing', files = true, research = true, label = '', getSettings = null, priority = 3 } = account;
   const attempts = {};
   const col = () => db.collection(colPath);
   const snapRef = () => { const i = snapPath.lastIndexOf('/'); return db.collection(snapPath.slice(0, i)).doc(snapPath.slice(i + 1)); };
@@ -105,7 +105,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       }
       const cumRetPct = member ? ((await snapRef().get()).data()?.history?.at(-1)?.cumRetPct ?? null) : null;
       const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity, member: member ? { ...member, cumRetPct } : null });
-      const raw = await askOllama(prompt, { priority: 3, temperature: 0.2 });
+      const raw = await askOllama(prompt, { priority, temperature: 0.2 });   // 會員帳戶排在實驗帳戶之後
       const parsed = parseDecision(raw, new Set(pool.map(c => c.code)), new Set(holdings.map(h => h.code)), heldCodes);
       attempts[date] = (attempts[date] || 0) + 1;
       if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 決策${tag}：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
@@ -246,7 +246,9 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         const snap = swingAccountSnapshot(docs, days, opts);
         const last = days[days.length - 1];
         // 每日戰績：由記錄逐日重算整段（2026-09-30：舊版只 upsert 當天，舊列沿用寫入時的算法而前後口徑不一）；只收官方收盤日
+        // flowsIncluded（會員）：本次快照已計入幾筆資金異動——API 用它判斷快照之後的入金／提領（異動只會附加，不會改寫）
         await ref.set(dropUndefined({ ...snap, ...(last?.provisional ? { provisional: true, liveAt: last.liveAt ?? null } : {}), ...(liveFilled.length ? { liveFilled } : {}),
+          ...(getSettings ? { flowsIncluded: (opts.flows || []).length } : {}),
           summary: accountSummary(snap), history: rebuildHistory(docs, days.filter(d => !d.provisional), prevHist, opts) }));
       } catch (e) { log(`✖ 波段帳戶快照${tag}:`, (e.message || '').slice(0, 80)); }
     },

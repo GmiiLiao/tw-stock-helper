@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { storageGet, storageSet } from '@/lib/safe-storage';
 import { useAppStore } from '@/lib/store';
 import type { TradeRecord } from '@/lib/store';
@@ -39,6 +40,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { taipeiToday } from '@/lib/useRiskCodes';
+import { useAiLabAccess } from '@/lib/useAiLabAccess';
 
 const COLORS = ['#3d8ef8', '#22c55e', '#f59e0b', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
 
@@ -1069,13 +1071,19 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
   );
 }
 
+// 🤖 會員 AI 實驗（2026-10-01 使用者：入口移到投資組合頁）：超級管理員開通的高級會員才出現第 4 個分頁；元件按需載入
+const MyAiLab = dynamic(() => import('@/components/AiLab/MyAiLab'), { loading: () => <div style={{ padding: 20, color: 'var(--text-muted)' }}>載入中…</div> });
+type PortfolioTab = 'overview' | 'trades' | 'analytics' | 'ailab';
+
 // ─── Main Portfolio Component ────────────────────────────────────────────
 
 export default function Portfolio() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
+  const aiLabOk = useAiLabAccess();   // 開通狀態以伺服器為準（/api/ai/my-ai-lab?probe=1）
   const { holdings, allStocks, tradeRecords, removeHolding, updateHolding, navigateTo } = useAppStore(useShallow((s) => ({ holdings: s.holdings, allStocks: s.allStocks, tradeRecords: s.tradeRecords, removeHolding: s.removeHolding, updateHolding: s.updateHolding, navigateTo: s.navigateTo })));
   const [broker] = useBrokerSettings();
-  const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'analytics'>('overview');
+  const [tabSel, setActiveTab] = useState<PortfolioTab>('overview');
+  const activeTab: PortfolioTab = tabSel === 'ailab' && !aiLabOk ? 'overview' : tabSel;   // 被取消開通時退回總覽
   // 三分頁共用同一份帳本（交易紀錄＝唯一真相），確保口徑連動一致
   const ledger = useMemo(() => buildLedger(tradeRecords), [tradeRecords]);
 
@@ -1234,12 +1242,14 @@ export default function Portfolio() {
           { id: 'overview', label: '📊 持倉總覽', icon: '📊' },
           { id: 'trades', label: '📝 交易紀錄', icon: '📝' },
           { id: 'analytics', label: '📈 損益分析', icon: '📈' },
-        ] as const).map(tab => (
+          ...(aiLabOk ? [{ id: 'ailab', label: '🤖 AI 實驗', icon: '🤖' }] : []),
+        ] as { id: PortfolioTab; label: string; icon: string }[]).map((tab, _i, tabs) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            aria-pressed={activeTab === tab.id}
             style={{
-              flex: 1, padding: '10px 16px', borderRadius: '10px', fontSize: 'calc(13px * var(--fz))', fontWeight: 600,
+              flex: 1, padding: tabs.length > 3 ? '10px 6px' : '10px 16px', borderRadius: '10px', fontSize: 'calc(13px * var(--fz))', fontWeight: 600,
               background: activeTab === tab.id ? 'var(--bg-elevated)' : 'transparent',
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-muted)',
               border: 'none', cursor: 'pointer', transition: 'all 0.2s',
@@ -1250,7 +1260,9 @@ export default function Portfolio() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'trades' ? (
+      {activeTab === 'ailab' ? (
+        <MyAiLab />
+      ) : activeTab === 'trades' ? (
         <TradeHistoryPanel ledger={ledger} />
       ) : activeTab === 'analytics' ? (
         <AnalyticsPanel ledger={ledger} />

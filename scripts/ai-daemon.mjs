@@ -1782,6 +1782,82 @@ const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileUR
   getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned,
   loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors()); } });   // 讀失敗就拋出、本輪不結算（結算寫一次不改，未還原價會永久化·G2-06）
 let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0;
+// 🤖 會員專屬 AI 波段帳戶（2026-10-01 使用者：AI 實驗開放高級會員、先開放波段；超級管理員逐一開通；每位會員一位專屬 AI 交易員）
+//   開通＝aiLabAccess/{uid}.swing（只有超級管理員 API 能寫）且仍為付費／體驗期會員；設定與資金異動 aiSwingMembers/{uid}。
+//   每位會員一個執行器：決策 aiSwingMembers/{uid}/days、快照 …/state/account；不寫第二大腦、不做研究結算；
+//   LLM 優先序 0（數字大者先跑：RAG 10＞實驗帳戶 3＞新聞 1＞會員 0）——會員再多也不會擠掉實驗帳戶與新聞判讀。
+//   日線共用 3 分鐘快取（每位會員都讀同一份歸檔，不重複讀）。
+let _swingDaysCache = { at: 0, n: 0, days: null };
+async function loadSwingDaysCached(n) {
+  if (_swingDaysCache.days && _swingDaysCache.n >= n && Date.now() - _swingDaysCache.at < 3 * 60_000) return _swingDaysCache.days.slice(-n);
+  const N = Math.max(n, 135);
+  const arch = await readArchive(N, 'closeJson');
+  const days = applyPriceFactors(arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })), await loadPriceFactors());
+  _swingDaysCache = { at: Date.now(), n: N, days };
+  return days.slice(-n);
+}
+const _memberSwing = new Map();
+let _memberList = [], _memberListAt = 0;
+async function aiSwingMemberUids() {
+  if (Date.now() - _memberListAt < 5 * 60_000) return _memberList;
+  try {
+    const [acc, premium] = await Promise.all([db.collection('aiLabAccess').where('swing', '==', true).get(), getPremiumUsers()]);
+    const paid = new Set(premium.map(u => u.id));
+    _memberList = acc.docs.map(d => d.id).filter(uid => paid.has(uid)); _memberListAt = Date.now();
+  } catch (e) { log('✖ 會員 AI 名單:', (e.message || '').slice(0, 60)); }
+  return _memberList;
+}
+function memberSwing(uid) {
+  let r = _memberSwing.get(uid);
+  if (!r) {
+    r = createAiSwingLab({ db, askOllama, log, dir: null, getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned, loadDays: loadSwingDaysCached,
+      account: { colPath: `aiSwingMembers/${uid}/days`, snapPath: `aiSwingMembers/${uid}/state/account`, files: false, research: false, priority: 0, label: `會員 ${uid.slice(0, 6)}`,
+        getSettings: async () => { const s = (await db.collection('aiSwingMembers').doc(uid).get()).data() || {}; return { initial: 0, flows: Array.isArray(s.flows) ? s.flows : [], goal: s.growthTarget ?? null }; } } });
+    _memberSwing.set(uid, r);
+  }
+  return r;
+}
+const _memberPickDate = {}, _memberOpenDate = {};
+let _memberPickBusy = false, _memberPickTryAt = 0, _memberOpenBusy = false, _memberOpenTryAt = 0;
+/** 盤後：實驗帳戶選完股後，依序替每位會員結算成交並決策（每位會員各自記錄完成日；失敗下一輪重試） */
+async function runMemberPicks(today) {
+  for (const uid of await aiSwingMemberUids()) {
+    if (_memberPickDate[uid] === today) continue;
+    try { const r = memberSwing(uid); await r.settle(); if (await r.pick()) _memberPickDate[uid] = today; }
+    catch (e) { log(`✖ 會員 AI 決策 ${uid.slice(0, 6)}（將重試）:`, (e.message || '').slice(0, 60)); }
+  }
+}
+/** 開盤：依序替每位會員以即時開盤價成交前一晚的委託（規則同實驗帳戶；09:30 為死線） */
+async function runMemberOpens(today, deadline) {
+  for (const uid of await aiSwingMemberUids()) {
+    if (_memberOpenDate[uid] === today) continue;
+    try { if (await memberSwing(uid).executeOpen(today, c => _lastLive[c], { deadline })) _memberOpenDate[uid] = today; }
+    catch (e) { log(`✖ 會員 AI 開盤成交 ${uid.slice(0, 6)}（下一分鐘重試）:`, (e.message || '').slice(0, 60)); }
+  }
+}
+/** 帳戶快照：依序重算每位會員（與實驗帳戶同一個排程） */
+async function refreshMemberAccounts() {
+  for (const uid of await aiSwingMemberUids()) await memberSwing(uid).writeAccount(null, { getLive: c => _lastLive[c] });
+}
+/**
+ * 設定剛變更（入金／提領）的會員：每分鐘查一次、立即重算該會員快照（2026-10-01 審查 HIGH——
+ * 否則要等下一輪排程（最長 1 小時）帳戶才反映；期間 API 雖已補上快照之後的異動，明細仍是舊的）。
+ * 以文件自己的 updatedAt 推進水位（同一個時鐘來源比較）；開機後 30 秒的全量重算已涵蓋開機前的變更。
+ */
+let _memberSettingsSeen = Date.now();
+async function refreshChangedMembers() {
+  const snap = await db.collection('aiSwingMembers').where('updatedAt', '>', _memberSettingsSeen).get();
+  if (snap.empty) return;
+  let allowed = new Set(await aiSwingMemberUids());
+  // 名單快取 5 分鐘：剛開通就入金的會員可能還不在快取裡 ⇒ 重抓一次名單（只在出現名單外的變更時）
+  if (snap.docs.some(d => !allowed.has(d.id))) { _memberListAt = 0; allowed = new Set(await aiSwingMemberUids()); }
+  let seen = _memberSettingsSeen;
+  for (const d of snap.docs) {
+    if (allowed.has(d.id)) await memberSwing(d.id).writeAccount(null, { getLive: c => _lastLive[c] });
+    seen = Math.max(seen, Number(d.data().updatedAt) || 0);
+  }
+  _memberSettingsSeen = seen;
+}
 let _swingOpenDate = '', _swingOpenTryAt = 0, _swingOpenBusy = false;   // 波段 AI 開盤即時成交（2026-09-30）
 let _dtJournalAt = 0;
 let _dtWriteAt = 0;
@@ -2283,6 +2359,11 @@ async function hotQuoteLoop() {
             .then(ok => { if (ok) _swingOpenDate = _d; })
             .catch(e => log('✖ 波段 AI 開盤成交（下一分鐘重試）:', (e.message || '').slice(0, 80)))
             .finally(() => { _swingOpenBusy = false; });
+        }
+        // 🤖 會員專屬 AI 帳戶開盤成交（實驗帳戶之後；單一在途、每分鐘一次，不阻塞 5 秒快線）
+        if (_m >= 9 * 60 && _m < 13 * 60 + 30 && !_memberOpenBusy && Date.now() - _memberOpenTryAt > 60_000) {
+          _memberOpenBusy = true; _memberOpenTryAt = Date.now();
+          runMemberOpens(_d, _m >= 9 * 60 + 30).catch(e => log('✖ 會員 AI 開盤成交:', (e.message || '').slice(0, 60))).finally(() => { _memberOpenBusy = false; });
         }
       }
       // 交易日誌：所有候選與觸發（含否決、未交易）都留；盤後結果由同一掃描在出場時補上
@@ -14768,6 +14849,11 @@ async function dailyJobsLoop() {
         try { await _aiSwing.settle(); if (await _aiSwing.pick()) _aiSwingDate = today; }   // 先結算（到期部位釋放現金）再選股定部位
         catch (e) { log('✖ 波段 AI 實驗（將重試）:', (e.message || '').slice(0, 60)); }
       }
+      // 🤖 會員專屬 AI 交易員：實驗帳戶今天選完股後依序處理（同一時窗；單一在途、不卡主迴圈；每 10 分鐘補做未完成的會員）
+      if (((isTradingDay(tw) && mins >= 17 * 60) || mins < 8 * 60 + 30) && _aiSwingDate === today && !_memberPickBusy && Date.now() - _memberPickTryAt > 10 * 60000) {
+        _memberPickBusy = true; _memberPickTryAt = Date.now();
+        runMemberPicks(today).catch(e => log('✖ 會員 AI 決策:', (e.message || '').slice(0, 60))).finally(() => { _memberPickBusy = false; });
+      }
       // 🎯 縮量跳空漲停（2026-09-05）：13:36 收盤試撮結束後從快照定榜＋推播，每日一次；15:10 歸檔後由 daily jobs 重算不推播。
       if (isTradingDay(tw) && mins >= 13 * 60 + 36 && mins < 14 * 60 + 10 && _gapLuDate !== today) {
         try { if (await computeGapLimitUp({ push: true })) _gapLuDate = today; } catch (e) { log('✖ 跳空漲停:', (e.message || '').slice(0, 60)); }
@@ -15202,9 +15288,15 @@ let _aiSwingAcctBusy = false;
 function swingAccountTick() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   const every = isTradingDay(tw) && mins >= 13 * 60 + 30 && mins < 18 * 60 ? 10 * 60_000 : 3600_000;
-  if (_aiSwingAcctBusy || Date.now() - _aiSwingAcctAt < every) return;
+  if (_aiSwingAcctBusy) return;
+  if (Date.now() - _aiSwingAcctAt < every) {   // 還沒到全量重算：只處理剛變更設定的會員
+    _aiSwingAcctBusy = true;
+    refreshChangedMembers().catch(e => log('✖ 會員設定變更重算:', (e.message || '').slice(0, 60))).finally(() => { _aiSwingAcctBusy = false; });
+    return;
+  }
   _aiSwingAcctBusy = true; _aiSwingAcctAt = Date.now();
-  _aiSwing.writeAccount(null, { getLive: c => _lastLive[c] }).catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60))).finally(() => { _aiSwingAcctBusy = false; });
+  _aiSwing.writeAccount(null, { getLive: c => _lastLive[c] }).catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60)))
+    .then(() => refreshMemberAccounts()).catch(e => log('✖ 會員帳戶快照:', (e.message || '').slice(0, 60))).finally(() => { _aiSwingAcctBusy = false; });
 }
 if (!ONESHOT) { setTimeout(swingAccountTick, 30_000); setInterval(swingAccountTick, 60_000); }
 if (!ONESHOT) dailyJobsLoop();
@@ -15444,6 +15536,7 @@ if (ONESHOT) {
     stressTest: () => computeStressTest(),
     rotation: () => computeRotation(),          // 汰弱留強（持股評分 vs 全市場）
     theses: () => updateTheses(),               // 投資論點檢核（支柱／支持度／技術評分／風險；改論點邏輯後手動重算用）
+    memberSwingAccounts: async () => { await restoreLastLive(); await refreshMemberAccounts(); },   // 會員 AI 波段帳戶快照重算
     scoringV3: () => execScript('scoring-v3-shadow.mjs', [], '📐 技術評分 v3 影子', 10),   // v3 影子手動補跑（冪等）
     swingFormula: () => execScript('swing-formula-shadow.mjs', [], '🎯 標靶公式影子', 10),   // 標靶公式影子手動補跑（冪等）
     chipArchive: () => archiveChipDaily(),        // 籌碼歸檔（法人/資券/借券/當沖）      // β/壓力測試（同上·兩者皆須 merge）   // 反轉訊號 v1（凍結·前瞻驗證）

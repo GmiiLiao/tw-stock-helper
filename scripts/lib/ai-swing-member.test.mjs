@@ -103,6 +103,7 @@ test('會員帳戶執行器：決策與快照寫在會員路徑、依會員資�
   assert.match(prompt, /會員投入資金 200,000 元/); assert.match(prompt, /獲利成長目標：帳戶成長 25%/);
   assert.equal(readdirSync(dir).length, 0, '不寫第二大腦');
   assert.equal(db.store['aiSwingMembers/u1/state/account'].account.initial, 200000);
+  assert.equal(db.store['aiSwingMembers/u1/state/account'].flowsIncluded, 1, '快照記下已計入幾筆資金異動（API 據此補上快照之後的入金／提領）');
   await mk(30).settle();
   assert.equal(db.store[`aiSwingMembers/u1/days/${D}`].buyFills['2222'].px, 50, '補記成交');
   assert.deepEqual(db.store[`aiSwingMembers/u1/days/${D}`].outcomes, {}, '會員帳戶不做研究結算');

@@ -214,6 +214,7 @@ test('執行器 v3：AI 檢視持股賣出換股——賣單與買單凍結、�
   assert.equal(snap.closed.length, 1); assert.equal(snap.closed[0].sellReason, '漲多獲利了結');
   assert.equal(snap.holdings.map(h => h.code).join(), '2222');
   assert.ok(db.store['aiLabAccounts/swing'].closed.length === 1, '帳戶快照寫入');
+  assert.equal(db.store['aiLabAccounts/swing'].flowsIncluded, undefined, '實驗帳戶快照不帶會員欄位（與舊版相同）');
 });
 
 test('執行器：開盤即時成交——09:00 後以即時開盤價成交並當下記錄（來源 live-open、記錄時刻）；報價未齊且未到 09:30 不成交；盤後結算不改寫', async () => {

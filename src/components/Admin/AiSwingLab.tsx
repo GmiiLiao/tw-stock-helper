@@ -14,13 +14,13 @@ interface Acct { initial: number; realized: number; equity: number; openCost: nu
 interface OpenPos { date: string; code: string; name: string; shares: number; status: string }
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
 type PosState = 'held' | 'selling' | 'pending';
-interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; state?: PosState; fillSource?: string | null; fillRecordedAt?: number | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
-interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; buyReason?: string; sellOrderDate?: string; sellSource?: string | null; sellRecordedAt?: number | null; buySource?: string | null; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
-interface HistRow { date: string; holdings: number; selling?: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; netMkt?: number; estSellCost?: number; total: number; dayPnl: number; cumRetPct: number }
+export interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; state?: PosState; fillSource?: string | null; fillRecordedAt?: number | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
+export interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; buyReason?: string; sellOrderDate?: string; sellSource?: string | null; sellRecordedAt?: number | null; buySource?: string | null; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
+export interface HistRow { date: string; holdings: number; selling?: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; netMkt?: number; estSellCost?: number; total: number; dayPnl: number; cumRetPct: number; flow?: number; netInvested?: number; growth?: number }
 /** 帳戶摘要（與每日戰績同一口徑；scripts/lib/ai-swing-history.mjs） */
-interface Summary { initial: number; cash: number; mktValue: number; netMkt: number; estSellCost: number; total: number; totalPnl: number; totalRetPct: number; realized: number; unrealized: number; held: number; selling: number; pending: number; closedN: number; pool: number; reservedBuys: number; pendingSellEst: number; freeCash: number; receivable: number; payable: number }
+export interface Summary { initial: number; cash: number; mktValue: number; netMkt: number; estSellCost: number; total: number; totalPnl: number; totalRetPct: number; realized: number; unrealized: number; held: number; selling: number; pending: number; closedN: number; pool: number; reservedBuys: number; pendingSellEst: number; freeCash: number; receivable: number; payable: number }
 // provisional＝今日已即時成交、日線尚未歸檔：市值用盤中即時價（liveAt），收盤歸檔後改以官方收盤重算（2026-10-01）
-interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[]; provisional?: boolean; liveAt?: number | null }
+export interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[]; provisional?: boolean; liveAt?: number | null }
 interface Resp { snapshot?: Snapshot | null; summary?: Summary | null; account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
 
 const stateOf = (h: Holding): PosState => h.state ?? (h.entryPx ? (h.sellReason != null || /賣出委託/.test(h.status) ? 'selling' : 'held') : 'pending');
@@ -163,11 +163,12 @@ export default function AiSwingLab() {
 }
 
 /** 成交來源標記：live-open＝開盤當下以即時開盤價成交並記錄；archive-open＝開盤時未即時記錄、盤後依官方開盤價補記 */
-/** 每日戰績（每列：現金＋持倉淨市值＝帳戶總值） */
-function DailyHistory({ history }: { history: HistRow[] }) {
+/** 每日戰績（每列：現金＋持倉淨市值＝帳戶總值）。會員帳戶有入金／提領時多一欄，累計報酬為時間加權（2026-10-01） */
+export function DailyHistory({ history }: { history: HistRow[] }) {
   const hist = [...history].reverse();
-  return (
-    <Collapse id="swing-history" title="📈 每日戰績" count={`${hist.length} 日`} sub="每列：現金＋持倉淨市值＝帳戶總值；買進／賣出＝當日實際成交筆數（委託不算）">
+  const flows = hist.some(r => r.flow != null);
+  const base = (
+    <Collapse id="swing-history" title="📈 每日戰績" count={`${hist.length} 日`} sub={flows ? '每列：現金＋持倉淨市值＝帳戶總值；當日損益不含入金／提領；累計報酬為時間加權（加碼不算獲利）' : '每列：現金＋持倉淨市值＝帳戶總值；買進／賣出＝當日實際成交筆數（委託不算）'}>
       <ListTable stickyFirst head={['日期', '持有', '待進場', '買進成交', '賣出成交', '賣出損益', '已實現累計', '未實現', '現金', '持倉淨市值', '帳戶總值', '當日損益', '累計報酬']} right={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}
         empty="尚無戰績（每日收盤資料歸檔後更新）"
         rows={hist.map(r => [r.date, `${r.holdings}${r.selling ? `（含賣出委託 ${r.selling}）` : ''}`, r.pending || '—', r.opened || '—', r.closed || '—', r.closed ? twd(r.closedPnl) : '—', twd(r.realized),
@@ -175,10 +176,21 @@ function DailyHistory({ history }: { history: HistRow[] }) {
           <b key="d" style={{ color: upDn(r.dayPnl) }}>{twd(r.dayPnl)}</b>, <span key="c" style={{ color: upDn(r.cumRetPct) }}>{pct(r.cumRetPct)}</span>])} />
     </Collapse>
   );
+  if (!flows) return base;
+  const moves = hist.filter(r => r.flow);
+  return (
+    <>
+      {base}
+      <Collapse id="swing-flows" title="💵 入金／提領" count={`${moves.length} 筆`} sub="投入資金的變更；帳戶延續，報酬以時間加權計">
+        <ListTable head={['日期', '入金／提領', '變更後淨投入']} right={[1, 2]} empty="尚無資金異動"
+          rows={moves.map(r => [r.date, <b key="f" style={{ color: (r.flow ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{(r.flow ?? 0) > 0 ? '入金 ' : '提領 '}{Math.abs(r.flow ?? 0).toLocaleString()} 元</b>, (r.netInvested ?? 0).toLocaleString()])} />
+      </Collapse>
+    </>
+  );
 }
 
 /** 部位：持有中／賣出委託／待進場，各自可收合、每列可展開 AI 理由與明細 */
-function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
+export function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
   const hs = snapshot?.holdings || [];
   const by: Record<PosState, Holding[]> = { held: [], selling: [], pending: [] };
   for (const h of hs) by[stateOf(h)].push(h);
@@ -224,7 +236,7 @@ function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
 }
 
 /** 已賣出：實際交易單（新→舊），每列可展開 AI 買賣理由與費稅拆解 */
-function ClosedTrades({ closed }: { closed: Closed[] }) {
+export function ClosedTrades({ closed }: { closed: Closed[] }) {
   const cl = closed;
   return (
     <Collapse id="swing-closed" title="✅ 已賣出" count={`${cl.length} 筆`} sub="AI 下賣單、下一交易日開盤成交的實際交易單（新→舊）；點列展開看 AI 買賣理由">

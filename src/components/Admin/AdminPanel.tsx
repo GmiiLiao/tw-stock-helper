@@ -71,6 +71,10 @@ export default function AdminPanel() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(true);
+  // 🤖 AI 實驗開通（2026-10-01 使用者：開放高級會員、先開放波段；超級管理員逐一開通）——只有超級管理員看得到與能切換
+  const [aiGrants, setAiGrants] = useState<Record<string, boolean>>({});
+  const [aiGrantBusy, setAiGrantBusy] = useState('');
+  const [aiGrantMsg, setAiGrantMsg] = useState('');
   const [loadingAgent, setLoadingAgent] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [isTriggeringAgent, setIsTriggeringAgent] = useState(false);
@@ -121,6 +125,30 @@ export default function AdminPanel() {
     return counts;
   }, [users]);
 
+
+  // 0. AI 實驗開通紀錄（超級管理員、用戶分頁）
+  useEffect(() => {
+    if (!isSuper || activeTab !== 'users') return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch('/api/admin/ai-lab-access', { headers: { Authorization: `Bearer ${await authToken()}` } });
+        const j = await r.json();
+        if (alive && r.ok) setAiGrants(Object.fromEntries((j.grants || []).map((g: { uid: string; swing: boolean }) => [g.uid, g.swing])));
+      } catch { /* 開通欄位讀不到不影響用戶清單 */ }
+    })();
+    return () => { alive = false; };
+  }, [isSuper, activeTab]);
+
+  const toggleAiLab = async (uid: string, next: boolean) => {
+    setAiGrantBusy(uid); setAiGrantMsg('');
+    try {
+      const r = await fetch('/api/admin/ai-lab-access', { method: 'POST', headers: { Authorization: `Bearer ${await authToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ uid, swing: next }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setAiGrants(g => ({ ...g, [uid]: next })); else setAiGrantMsg(`✖ ${j.error || '切換失敗'}`);
+    } catch { setAiGrantMsg('✖ 切換失敗，請稍後再試'); }
+    finally { setAiGrantBusy(''); }
+  };
 
   // 1. Subscribe to registered users list (admins only)
   useEffect(() => {
@@ -536,6 +564,7 @@ export default function AdminPanel() {
             <div className={styles.tabContent}>
               <div className={styles.searchWrapper}>
                 <h3>註冊用戶清單 ({users.length} 人)</h3>
+                {aiGrantMsg && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))' }}>{aiGrantMsg}</div>}
                 <input
                   type="text"
                   placeholder="搜尋用戶 Email、暱稱或 UID..."
@@ -559,6 +588,7 @@ export default function AdminPanel() {
                         <th>顯示名稱</th>
                         <th>電子信箱</th>
                         <th>會員等級</th>
+                        {isSuper && <th title="開通後該會員左側選單出現「AI 實驗」，有自己的 AI 交易員與模擬帳戶（目前只開放波段）">AI 實驗·波段</th>}
                         <th>UID</th>
                         <th>最後登入時間</th>
                       </tr>
@@ -584,6 +614,18 @@ export default function AdminPanel() {
                               <option value="superadmin">👑 超級管理員</option>
                             </select>
                           </td>
+                          {isSuper && (
+                            <td>
+                              {['premium', 'admin', 'superadmin'].includes(u.level || '') ? (
+                                <button type="button" disabled={aiGrantBusy === u.uid} onClick={() => toggleAiLab(u.uid, !aiGrants[u.uid])}
+                                  aria-pressed={!!aiGrants[u.uid]} aria-label={`${u.displayName || u.email} 的 AI 實驗波段${aiGrants[u.uid] ? '已開通，點擊關閉' : '未開通，點擊開通'}`}
+                                  style={{ padding: '2px 10px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12px * var(--fz))', border: '1px solid var(--border-primary)',
+                                    background: aiGrants[u.uid] ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)', color: aiGrants[u.uid] ? '#22c55e' : 'var(--text-muted)' }}>
+                                  {aiGrantBusy === u.uid ? '…' : aiGrants[u.uid] ? '✓ 已開通' : '開通'}
+                                </button>
+                              ) : <span title="只能開通高級會員" style={{ color: 'var(--text-muted)' }}>—</span>}
+                            </td>
+                          )}
                           <td className={styles.userUidCol}>
                             <code>{u.uid.substring(0, 8)}...</code>
                           </td>
