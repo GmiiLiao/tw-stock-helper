@@ -16,6 +16,7 @@ import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonO
 import { accountSummary, rebuildHistory } from './ai-swing-history.mjs';
 import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
 import { dailyFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
+import { goalProgress } from './ai-lab-member.mjs';
 
 const MAX_ATTEMPTS = 3;
 
@@ -43,19 +44,28 @@ function fillDatesAfter(docs, lastDate) {
   return [...s].sort();
 }
 
-export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, account = {} }) {
+export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, account = {}, clock = () => Date.now() }) {
   const { colPath = 'aiSwingLab', snapPath = 'aiLabAccounts/swing', files = true, research = true, label = '', getSettings = null, priority = 3 } = account;
   const attempts = {};
+  const taipeiToday = () => new Date(clock() + 8 * 3600_000).toISOString().slice(0, 10);   // clock：測試可注入
+  // 同一帳戶的快照依序寫（2026-10-01 審查 LOW：開盤成交、盤後結算、定時重算三個排程各有忙碌旗標，擋不住同帳戶並行——
+  //   較舊的計算結果可能蓋掉較新的快照，短暫高估可提領現金）
+  let acctLock = Promise.resolve();
   const col = () => db.collection(colPath);
   const snapRef = () => { const i = snapPath.lastIndexOf('/'); return db.collection(snapPath.slice(0, i)).doc(snapPath.slice(i + 1)); };
   const tag = label ? `〔${label}〕` : '';
-  /** 帳戶口徑：會員＝起始資金＋資金異動（只計 asOf 當日以前生效的）；實驗帳戶＝{}（50 萬、無異動，與舊版相同） */
+  /**
+   * 帳戶口徑：會員＝起始資金＋資金異動（只計 asOf 當日以前生效的）；實驗帳戶＝{}（50 萬、無異動，與舊版相同）。
+   * asOf 早於今天（例：隔日 07:30 以前一交易日收盤決策）時，截止日放寬到今天——決策當下已入金的錢在下一個開盤可用
+   * （2026-10-01 審查 MEDIUM：00:00–08:30 首次入金原本被 f.date ≤ 資料日濾掉，當天早上不決策，第一筆交易延後一天）。
+   */
   const acctOf = async (asOf = null) => {
     if (!getSettings) return { opts: {}, member: null };
     const st = (await getSettings()) || {};
-    const flows = (st.flows || []).filter(f => !asOf || f.date <= asOf);
+    const today = taipeiToday(), cutoff = asOf && asOf < today ? today : asOf;
+    const flows = (st.flows || []).filter(f => !cutoff || f.date <= cutoff);
     const initial = st.initial ?? 0;
-    return { opts: { initial, flows }, member: { capital: initial + flows.reduce((a, f) => a + f.amount, 0), goal: st.goal ?? null } };
+    return { opts: { initial, flows }, member: { capital: initial + flows.reduce((a, f) => a + f.amount, 0), goal: st.goal ?? null, goalDays: st.goalDays ?? null, goalStartDate: st.goalStartDate ?? null } };
   };
   const writeFile = (name, body, overwrite = false) => {
     if (!files || !dir) return;
@@ -64,7 +74,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
   };
 
   return {
-    /** 回傳 true＝今天這一格已完成（含已存在）；false＝資料未齊或本次失敗、稍後重試 */
+    /** 回傳 true＝今天這一格已完成（含已存在）；'skip'＝會員尚未投入資金、不必決策（視同完成）；false＝資料未齊或本次失敗、稍後重試 */
     async pick() {
       const sp = (await db.collection('swingPicks').doc('latest').get()).data();
       const sh = (await db.collection('swingHold').doc('latest').get()).data();
@@ -84,7 +94,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const { opts, member } = await acctOf(date);
       const state = portfolioState(prevDocs, days.length ? days : null, date, opts);
       const openLots = state.lots.filter(l => l.status === 'pending' || l.status === 'held' || l.status === 'selling');
-      if (member && !(member.capital > 0) && !openLots.length) return true;   // 會員尚未投入資金、也沒有持股 ⇒ 今天不必決策
+      if (member && !(member.capital > 0) && !openLots.length) return 'skip';   // 會員尚未投入資金、也沒有持股 ⇒ 今天不必決策（入金後 daemon 會重新排入）
       if (!days.length && openLots.length) { log('⚠ 波段 AI：日線讀不到、無法檢視持股，稍後重試'); return false; }
       // 🧠 經驗庫（盤後訓練·已驗證）：以決策日日線特徵比對，候選與持股各自標出符合的歷史風險／優勢（口徑同訓練）
       const learned = getLearned(); const tDec = days.findIndex(d => d.date === date);
@@ -103,8 +113,10 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
         return true;
       }
-      const cumRetPct = member ? ((await snapRef().get()).data()?.history?.at(-1)?.cumRetPct ?? null) : null;
-      const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity, member: member ? { ...member, cumRetPct } : null });
+      const hist = member ? ((await snapRef().get()).data()?.history || []) : [];
+      const cumRetPct = member ? (hist.at(-1)?.cumRetPct ?? null) : null;
+      const progress = member?.goal ? goalProgress(hist, { growthTarget: member.goal, goalDays: member.goalDays, goalStartDate: member.goalStartDate }) : null;
+      const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity, member: member ? { ...member, cumRetPct, progress } : null });
       const raw = await askOllama(prompt, { priority, temperature: 0.2 });   // 會員帳戶排在實驗帳戶之後
       const parsed = parseDecision(raw, new Set(pool.map(c => c.code)), new Set(holdings.map(h => h.code)), heldCodes);
       attempts[date] = (attempts[date] || 0) + 1;
@@ -217,6 +229,8 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
      * 2026-10-01 實例：09:21 即時成交 5 筆，10:11 起每小時重算只讀歸檔（到 09-30），畫面倒回「待進場／賣出委託」。
      */
     async writeAccount(daysIn = null, { getLive = null } = {}) {
+      const prev = acctLock; let release; acctLock = new Promise(r => { release = r; });
+      await prev;
       try {
         const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
         const { opts } = await acctOf();
@@ -253,7 +267,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         await ref.set(dropUndefined({ ...snap, ...(last?.provisional ? { provisional: true, liveAt: last.liveAt ?? null } : {}), ...(liveFilled.length ? { liveFilled } : {}),
           ...(getSettings ? { flowsIncluded: (opts.flows || []).length } : {}),
           summary: accountSummary(snap), history: rebuildHistory(docs, days.filter(d => !d.provisional), prevHist, opts) }));
-      } catch (e) { log(`✖ 波段帳戶快照${tag}:`, (e.message || '').slice(0, 80)); }
+      } catch (e) { log(`✖ 波段帳戶快照${tag}:`, (e.message || '').slice(0, 80)); } finally { release(); }
     },
 
     async syncNotes() {

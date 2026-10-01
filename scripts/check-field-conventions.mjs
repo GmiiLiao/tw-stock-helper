@@ -116,6 +116,9 @@ export const DATE_ALLOWLIST = new Set([
   'buyDate', 'sellDate', 'entryDate', 'exitDate', 'lastBuyDate',
   'orderDate', 'sellOrderDate', 'lotDate',   // AI 波段主動操作：賣出委託的盤後決策日、部位買進決策日（交易事件日，非文件資料日·2026-09-28）
   'foundedDate', 'listedDate', 'startDate', 'endDate', 'pubDate',
+  // goalStartDate：會員 AI 實驗「獲利期間」的起算設定日（aiSwingMembers/{uid}；目標或期間變更時改寫，期間自下一個交易日起算）。
+  //   不是文件資料日，稽核契約不看它（2026-10-01）。
+  'goalStartDate',
   // 上游 API 原樣欄位（TWSE openapi 的 Date、民國 rocDate；MOPS t05st02_detail 請求參數 enterDate＝民國發言日）
   'Date', 'rocDate', 'enterDate',
 ]);

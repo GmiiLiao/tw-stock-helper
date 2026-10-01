@@ -100,7 +100,7 @@ test('會員帳戶執行器：決策與快照寫在會員路徑、依會員資�
   assert.equal(db.store[`aiSwingLab/${D}`], undefined, '不碰實驗帳戶的決策');
   assert.equal(db.store['aiLabAccounts/swing'], undefined, '不碰實驗帳戶的快照');
   assert.ok(doc.picks[0].position.shares > 0 && doc.picks[0].position.estCost <= 200000, '依會員 20 萬定股數');
-  assert.match(prompt, /會員投入資金 200,000 元/); assert.match(prompt, /獲利成長目標：帳戶成長 25%/);
+  assert.match(prompt, /會員投入資金 200,000 元/); assert.match(prompt, /每 20 個交易日帳戶成長 25%/); assert.match(prompt, /第 1 期自下一個交易日起算/);
   assert.equal(readdirSync(dir).length, 0, '不寫第二大腦');
   assert.equal(db.store['aiSwingMembers/u1/state/account'].account.initial, 200000);
   assert.equal(db.store['aiSwingMembers/u1/state/account'].flowsIncluded, 1, '快照記下已計入幾筆資金異動（API 據此補上快照之後的入金／提領）');
@@ -115,8 +115,41 @@ test('會員帳戶執行器：淨投入為 0 且無持股 ⇒ 不選股、不呼
   let asked = 0;
   const lab = createAiSwingLab({ db, log: () => {}, dir: null, askOllama: async () => { asked++; return '{}'; }, getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 11),
     account: { colPath: 'aiSwingMembers/u2/days', snapPath: 'aiSwingMembers/u2/state/account', files: false, research: false, getSettings: async () => ({ initial: 0, flows: [], goal: null }) } });
-  assert.equal(await lab.pick(), true);
+  assert.equal(await lab.pick(), 'skip', '尚未入金＝跳過（daemon 據此在入金後重新排入）');
   assert.equal(asked, 0); assert.equal(db.store[`aiSwingMembers/u2/days/${D}`], undefined);
   await lab.writeAccount(null, {});
   assert.equal(db.store['aiSwingMembers/u2/state/account'], undefined, '尚未入金：不建 0 元帳戶快照（會員頁才會顯示引導而非 0 元卡片）');
+});
+
+test('會員 prompt：獲利期間進度（第幾期第幾日、本期報酬、上一期達標與否）；提醒風險控制優先', () => {
+  const base = { date: '2026-10-01', pool: [], market: null, swingPicksMeta: {}, holdings: [], cash: 300000, equity: 300000 };
+  const progress = { goal: 10, days: 20, startDate: '2026-09-01', period: 2, day: 3, daysLeft: 17, periodStart: '2026-09-29', periodRetPct: 1.5, cumRetPct: 12.3, progress: 15, lastPeriod: { n: 1, retPct: 10.8, achieved: true } };
+  const mem = buildPickPrompt({ ...base, member: { capital: 300000, goal: 10, cumRetPct: 12.3, progress } });
+  assert.match(mem, /每 20 個交易日帳戶成長 10%/);
+  assert.match(mem, /目前第 2 期第 3\/20 個交易日、本期報酬 \+1\.5%、本期剩 17 個交易日；上一期 \+10\.8%（達標）；累積 \+12\.3%/);
+  assert.match(mem, /風險控制優先/);
+});
+
+test('會員：決策用前一交易日收盤、但決策當下（隔日 07:30）才首次入金 ⇒ 仍決策並以入金定股數（審查 MEDIUM）', async () => {
+  const days = mkDays(); const D = days[10].date;   // 2026-10-11 收盤；入金日 10-12 早上
+  const db = fakeDb({ 'swingPicks/latest': { dataDate: D, mode: 'close', items: [{ code: '2222', name: 'B', tier: 2, price: 50 }] }, 'swingHold/latest': { dataDate: D, combo: { items: [] } } });
+  let asked = 0;
+  const lab = createAiSwingLab({ db, log: () => {}, dir: null, clock: () => Date.parse('2026-10-12T07:30:00+08:00'),
+    askOllama: async () => { asked++; return '{"sells":[],"picks":[{"code":"2222","confidence":60,"horizon":"20","reason":"r","risk":"k"}],"note":"n"}'; },
+    getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 11),
+    account: { colPath: 'aiSwingMembers/u3/days', snapPath: 'aiSwingMembers/u3/state/account', files: false, research: false,
+      getSettings: async () => ({ initial: 0, flows: [{ date: '2026-10-12', amount: 200000, at: Date.parse('2026-10-12T07:20:00+08:00') }], goal: null }) } });
+  assert.equal(await lab.pick(), true);
+  assert.equal(asked, 1, '有呼叫 AI 決策');
+  const doc = db.store[`aiSwingMembers/u3/days/${D}`];
+  assert.ok(doc?.picks?.[0]?.position?.shares > 0, '以 07:20 入金的 20 萬定股數');
+});
+
+test('同一帳戶的快照寫入依序進行（三個排程並行呼叫也不重疊；審查 LOW）', async () => {
+  const days = mkDays(); let running = 0, maxRunning = 0;
+  const lab = createAiSwingLab({ db: fakeDb({}), log: () => {}, dir: null, askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}),
+    loadDays: async () => { running++; maxRunning = Math.max(maxRunning, running); await new Promise(r => setTimeout(r, 15)); running--; return days.slice(0, 11); },
+    account: { colPath: 'aiSwingMembers/u4/days', snapPath: 'aiSwingMembers/u4/state/account', files: false, research: false, getSettings: async () => ({ initial: 0, flows: [{ date: days[0].date, amount: 200000 }], goal: null }) } });
+  await Promise.all([lab.writeAccount(), lab.writeAccount(), lab.writeAccount()]);
+  assert.equal(maxRunning, 1);
 });

@@ -61,10 +61,23 @@ const holdLine = h => `- ${h.code} ${h.name}｜${h.shares.toLocaleString()} 股�
   + `｜${h.onList ? '今天仍在波段榜上' : '已不在今天的波段榜'}${h.news ? `｜新聞判讀：${h.news}` : ''}${h.disposition ? '｜⚠已列處置股' : ''}｜當初買進理由：${h.reason || '—'}`
   + (h.lessons?.length ? `｜經驗庫：${h.lessons.join('；')}` : '');
 
+/**
+ * 會員目標行（2026-10-01）：progress＝goalProgress()（獲利期間·滾動）；沒有進度資料時只寫目標與累積報酬。
+ * 目標只是方向——明寫風險控制優先，避免模型為了在期限內達標而集中押注或追高。
+ */
+function goalLine(m, pctTxt) {
+  const guard = '目標只是方向：風險控制優先，不可為了在期限內達標而集中押注、追高或違反交易規則，也不得捏造數據。';
+  const p = m.progress;
+  if (!p) return `【目標】會員設定的獲利成長目標：帳戶成長 ${m.goal}%（目前累積 ${pctTxt(m.cumRetPct)}）。${guard}`;
+  const now = p.day ? `目前第 ${p.period} 期第 ${p.day}/${p.days} 個交易日、本期報酬 ${pctTxt(p.periodRetPct)}、本期剩 ${p.daysLeft} 個交易日` : `第 ${p.period} 期自下一個交易日起算`;
+  const prev = p.lastPeriod ? `；上一期 ${pctTxt(p.lastPeriod.retPct)}（${p.lastPeriod.achieved ? '達標' : '未達標'}）` : '';
+  return `【目標】會員設定：每 ${p.days} 個交易日帳戶成長 ${p.goal}%（時間加權，入金不算獲利）。${now}${prev}；累積 ${pctTxt(p.cumRetPct)}。預期持有期請配合目標期間。${guard}`;
+}
+
 /** 每日決策 prompt：檢視持股（可賣出換股）＋從候選池買進。holdings 空＝只選股 */
 /**
- * member（2026-10-01 會員專屬 AI 交易員）：{ capital：淨投入（入金－提領）, goal：會員設定的獲利成長目標 %, cumRetPct：目前時間加權累積報酬 % }。
- * 不給＝超級管理員的 50 萬實驗帳戶，文字與舊版完全相同。
+ * member（2026-10-01 會員專屬 AI 交易員）：{ capital：淨投入（入金－提領）, goal：會員設定的獲利成長目標 %, cumRetPct：目前時間加權累積報酬 %,
+ *   progress：goalProgress() 的獲利期間進度（可無） }。不給＝超級管理員的 50 萬實驗帳戶，文字與舊版完全相同。
  */
 export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null, member = null }) {
   const cap = member ? `${Math.round(member.capital || 0).toLocaleString()} 元` : '50 萬';
@@ -75,7 +88,7 @@ export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings =
     `只能根據提供的資料，不得編造新聞或數字。`,
     ``,
     `【帳戶】${equity != null ? `總值約 ${Math.round(equity).toLocaleString()} 元、` : ''}${cash != null ? `可用現金 ${Math.round(cash).toLocaleString()} 元（不含今天賣出的回收款）` : ''}`,
-    ...(member?.goal ? [`【目標】會員設定的獲利成長目標：帳戶成長 ${member.goal}%（目前累積 ${pctTxt(member.cumRetPct)}）。在控制風險的前提下朝目標操作；不得為了追目標而違反交易規則或捏造數據。`] : []),
+    ...(member?.goal ? [goalLine(member, pctTxt)] : []),
     `【大盤】${market || '未知'}${swingPicksMeta?.bearDay ? '；今日為空頭日（波段起漲訊號在空頭日較可靠）' : ''}${swingPicksMeta?.crowded ? '；⚠ 起漲訊號擁擠（崩盤型），母體已偏離回測' : ''}${swingPicksMeta?.observe ? `；⚠ 起漲訊號目前為觀察閘：${swingPicksMeta.observeWhy || ''}` : ''}`,
     `【本站實證提醒】波段起漲⭐訊號的優勢在第 5 日（持有 5 日淨均約 +1.1%）；追高（RSI5>85）對買方是較差的進場點；20日波動 ≥1.5% 才進場較好；KD 死叉破底風險高。`,
     `【經驗庫】各檔標「經驗庫：⚠風險／✓優勢」的，是本站盤後以歷史樣本訓練、前後期一致且顯著的特徵統計（5 日淨報酬；供參考，不保證未來）。`,

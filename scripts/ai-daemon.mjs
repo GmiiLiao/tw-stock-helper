@@ -1812,18 +1812,22 @@ function memberSwing(uid) {
   if (!r) {
     r = createAiSwingLab({ db, askOllama, log, dir: null, getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned, loadDays: loadSwingDaysCached,
       account: { colPath: `aiSwingMembers/${uid}/days`, snapPath: `aiSwingMembers/${uid}/state/account`, files: false, research: false, priority: 0, label: `會員 ${uid.slice(0, 6)}`,
-        getSettings: async () => { const s = (await db.collection('aiSwingMembers').doc(uid).get()).data() || {}; return { initial: 0, flows: Array.isArray(s.flows) ? s.flows : [], goal: s.growthTarget ?? null }; } } });
+        getSettings: async () => { const s = (await db.collection('aiSwingMembers').doc(uid).get()).data() || {}; return { initial: 0, flows: Array.isArray(s.flows) ? s.flows : [], goal: s.growthTarget ?? null, goalDays: s.goalDays ?? null, goalStartDate: s.goalStartDate ?? null }; } } });
     _memberSwing.set(uid, r);
   }
   return r;
 }
 const _memberPickDate = {}, _memberOpenDate = {};
+const _memberSkipDate = {};   // 當天決策因「尚未入金」而跳過的會員（入金後才重新排入，見 refreshChangedMembers）
 let _memberPickBusy = false, _memberPickTryAt = 0, _memberOpenBusy = false, _memberOpenTryAt = 0;
 /** 盤後：實驗帳戶選完股後，依序替每位會員結算成交並決策（每位會員各自記錄完成日；失敗下一輪重試） */
 async function runMemberPicks(today) {
   for (const uid of await aiSwingMemberUids()) {
     if (_memberPickDate[uid] === today) continue;
-    try { const r = memberSwing(uid); await r.settle(); if (await r.pick()) _memberPickDate[uid] = today; }
+    try {
+      const r = memberSwing(uid); await r.settle(); const res = await r.pick();
+      if (res) { _memberPickDate[uid] = today; if (res === 'skip') _memberSkipDate[uid] = today; else delete _memberSkipDate[uid]; }
+    }
     catch (e) { log(`✖ 會員 AI 決策 ${uid.slice(0, 6)}（將重試）:`, (e.message || '').slice(0, 60)); }
   }
 }
@@ -1855,9 +1859,10 @@ async function refreshChangedMembers() {
   for (const d of snap.docs) {
     if (allowed.has(d.id)) {
       await memberSwing(d.id).writeAccount(null, { getLive: c => _lastLive[c] });
-      // 決策時窗內剛設定投入資金：重新排入今晚的會員決策（先前因淨投入 0 跳過＝不寫決策，pick() 以資料日冪等，已決策過不會重選）——
-      //   否則開通後才入金的會員要等到下一個交易日盤後才第一次決策（2026-10-01 實測時序發現）
-      delete _memberPickDate[d.id]; _memberPickTryAt = 0;
+      // 當天因尚未入金而跳過決策的會員剛有設定變更（入金）：重新排入決策並提早跑一輪（pick() 以資料日冪等，已決策過不會重選）——
+      //   否則開通後才入金的會員要等到下一個交易日盤後才第一次決策（2026-10-01 實測時序發現）。
+      //   只對「跳過」的會員才提早（審查 LOW：任何儲存都提早決策輪，會讓其他會員解析失敗的重試變快、提早用完重試次數）
+      if (_memberSkipDate[d.id] && _memberPickDate[d.id] === _memberSkipDate[d.id]) { delete _memberPickDate[d.id]; delete _memberSkipDate[d.id]; _memberPickTryAt = 0; }
     }
     seen = Math.max(seen, Number(d.data().updatedAt) || 0);
   }

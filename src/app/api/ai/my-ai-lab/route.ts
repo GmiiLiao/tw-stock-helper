@@ -4,14 +4,15 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { rateLimit } from '@/lib/rate-limit';
 import { accountSummary } from '../../../../../scripts/lib/ai-swing-history.mjs';
-import { applyMemberSettings, netInvestedOf, withdrawableOf } from '../../../../../scripts/lib/ai-lab-member.mjs';
+import { applyMemberSettings, goalProgress, netInvestedOf, pendingFlowOf, withdrawableNow } from '../../../../../scripts/lib/ai-lab-member.mjs';
 
 // ── 🤖 會員 AI 實驗·波段（2026-10-01 使用者：開放高級會員、先開放波段；超級管理員逐一開通）─────────────
 // 權限：高級會員（requirePremium）且 aiLabAccess/{uid}.swing＝true（只有超級管理員能開通，見 /api/admin/ai-lab-access）。
 // 資料：aiSwingMembers/{uid}（設定與資金異動）、…/days/{日}（會員專屬 AI 交易員的決策與成交）、…/state/account（帳戶快照）。
 //   這些集合不開放前端直接讀寫（firestore.rules 未列＝拒絕），一律經此 API：只讀得到自己的帳戶、設定由伺服器驗證。
 // GET ?probe=1：只回開通狀態（投資組合頁決定是否顯示「AI 實驗」分頁）。GET：帳戶快照、設定、目標進度、近 30 個決策日。
-// POST：{ capital?, daytradeLimit?, growthTarget? }——投入資金變更＝加碼／提領（提領不可超過可提領現金）。
+// POST：{ capital?, goalDays?, growthTarget? }——投入資金變更＝加碼／提領（提領不可超過可提領現金）；
+//   獲利期間 5／10／20／60／120／240 個交易日（2026-10-01 使用者：取消當沖額度設定項，改為獲利期間），目標或期間變更＝重新起算。
 export const dynamic = 'force-dynamic';
 
 const HISTORY_MAX = 250, DECISIONS_MAX = 30;
@@ -32,20 +33,7 @@ async function gate(request: Request, probe = false): Promise<Gate> {
 
 const taipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 
-/**
- * 快照之後才發生的入金／提領（2026-10-01 審查 HIGH）：帳戶快照由 daemon 重算，設定變更後到下一次重算之間
- * 快照還沒算進去——顯示與提領上限都要把這段補上，否則首次入金會顯示總損益 −入金、提領可以重複超領。
- * 快照的 flowsIncluded＝已計入的筆數（異動只會附加）；沒有此欄的舊快照才退回以時間比對。
- */
-interface SnapMeta { at?: number | null; flowsIncluded?: number; account?: Parameters<typeof withdrawableOf>[0] }
-const pendingFlowOf = (flows: Flow[], snap: SnapMeta | null) => {
-  if (!snap) return 0;
-  const rest = typeof snap.flowsIncluded === 'number' ? flows.slice(snap.flowsIncluded) : flows.filter(f => (f.at ?? 0) > (snap.at ?? 0));
-  return rest.reduce((a, f) => a + f.amount, 0);
-};
-/** 目前可提領：有快照＝快照的可提領＋之後的異動；沒有快照（尚未開始）＝淨投入 */
-const withdrawableNow = (snap: SnapMeta | null, flows: Flow[]) =>
-  (snap ? Math.max(0, withdrawableOf(snap.account ?? null, 0) + pendingFlowOf(flows, snap)) : Math.max(0, netInvestedOf(flows)));
+// 快照之後的入金／提領、目前可提領、獲利期間進度：一律走 scripts/lib/ai-lab-member.mjs（有單元測試；審查 MEDIUM：原本寫在這裡沒有測試）
 
 interface Flow { date: string; amount: number; at?: number }
 interface Pick { code: string; name?: string; confidence?: number; horizon?: number | null; reason?: string; risk?: string; priceAtDecision?: number | null; position?: { shares?: number; estCost?: number; reason?: string } }
@@ -66,9 +54,11 @@ export async function GET(request: Request) {
     const flows: Flow[] = Array.isArray(settings.flows) ? settings.flows : [];
     const capital = netInvestedOf(flows);
     const snapshot = accSnap.data() || null;
-    const history = (snapshot?.history || []).slice(-HISTORY_MAX);
-    const cumRetPct: number | null = history.length ? history[history.length - 1].cumRetPct ?? null : null;
+    const fullHistory = snapshot?.history || [];
+    const history = fullHistory.slice(-HISTORY_MAX);
     const goal: number | null = settings.growthTarget ?? null;
+    const goalDays: number | null = settings.goalDays ?? null;
+    const goalStartDate: string | null = settings.goalStartDate ?? null;
     const pendingFlow = pendingFlowOf(flows, snapshot);
     // 決策：只給會員看得懂的欄位（不含 prompt／原始回覆）
     const decisions = daySnap.docs.map(d => d.data() as DecisionDoc).map(d => ({
@@ -78,12 +68,12 @@ export async function GET(request: Request) {
     }));
     return gzipJsonAuto({
       access: g.access,
-      settings: { capital, daytradeLimit: settings.daytradeLimit ?? 0, growthTarget: goal, flows: flows.slice(-30), createdAt: settings.createdAt ?? null },
+      settings: { capital, growthTarget: goal, goalDays, goalStartDate, flows: flows.slice(-30), createdAt: settings.createdAt ?? null },
       withdrawable: withdrawableNow(snapshot, flows),
       pendingFlow,   // 快照之後的入金／提領（尚未反映在帳戶明細；畫面總值與總損益要補上）
       snapshot: snapshot ? { at: snapshot.at ?? null, dataDate: snapshot.dataDate ?? null, provisional: !!snapshot.provisional, liveAt: snapshot.liveAt ?? null, holdings: snapshot.holdings || [], closed: snapshot.closed || [], history } : null,
       summary: snapshot ? (snapshot.summary ?? accountSummary(snapshot)) : null,
-      target: goal ? { goal, cumRetPct, progress: cumRetPct == null ? 0 : Math.max(0, Math.round(cumRetPct / goal * 1000) / 10) } : null,
+      target: goalProgress(fullHistory, { growthTarget: goal, goalDays, goalStartDate }),   // 獲利期間進度（滾動期間；沒設目標＝null）
       decisions,
     }, { 'Cache-Control': 'private, no-store' });
   } catch (e) {
@@ -100,8 +90,8 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: '格式錯誤' }, { status: 400 }); }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: '格式錯誤' }, { status: 400 });
-  const pick: { capital?: unknown; daytradeLimit?: unknown; growthTarget?: unknown } = {};
-  for (const k of ['capital', 'daytradeLimit', 'growthTarget'] as const) if (k in body) pick[k] = body[k];
+  const pick: { capital?: unknown; goalDays?: unknown; growthTarget?: unknown } = {};
+  for (const k of ['capital', 'goalDays', 'growthTarget'] as const) if (k in body) pick[k] = body[k];
   if (!Object.keys(pick).length) return NextResponse.json({ error: '沒有要變更的設定' }, { status: 400 });
   try {
     const base = g.db.collection('aiSwingMembers').doc(g.uid);
@@ -111,7 +101,7 @@ export async function POST(request: Request) {
       const flows0: Flow[] = Array.isArray(cur.flows) ? cur.flows : [];
       const r = applyMemberSettings(pick, cur, { today: taipeiToday(), now: Date.now(), withdrawable: withdrawableNow(acc, flows0) });
       if (!r.ok) return r;
-      tx.set(base, { flows: r.next.flows, daytradeLimit: r.next.daytradeLimit, growthTarget: r.next.growthTarget, updatedAt: Date.now(), ...(cur.createdAt ? {} : { createdAt: Date.now() }) }, { merge: true });
+      tx.set(base, { flows: r.next.flows, growthTarget: r.next.growthTarget, goalDays: r.next.goalDays, goalStartDate: r.next.goalStartDate, updatedAt: Date.now(), ...(cur.createdAt ? {} : { createdAt: Date.now() }) }, { merge: true });
       return r;
     });
     if (!out.ok) return NextResponse.json({ error: out.error }, { status: 400 });

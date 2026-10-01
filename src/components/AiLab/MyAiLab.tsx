@@ -2,7 +2,8 @@
 
 // ── 🤖 AI 實驗·波段（會員；2026-10-01 使用者：開放高級會員、先開放波段，超級管理員逐一開通）─────────────
 // 每位會員一位專屬 AI 交易員：每個交易日盤後（17:00 後）依你的帳戶、持股與獲利成長目標決定賣出與買進，
-// 下一交易日 09:00 以開盤價模擬成交。會員可設：①投入資金（變更＝加碼／提領）②當沖額度（當沖開放後生效）③獲利成長目標。
+// 下一交易日 09:00 以開盤價模擬成交。會員可設：①投入資金（變更＝加碼／提領）②獲利期間（5～240 個交易日；
+// 2026-10-01 使用者：取消當沖額度、改為獲利期間下拉）③獲利成長目標（每期要達成的帳戶成長 %；滾動期間，目標或期間變更＝重新起算）。
 // 資料一律經 /api/ai/my-ai-lab（只讀得到自己的帳戶；設定由伺服器驗證）。模擬交易，非投資建議。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { auth } from '@/lib/firebase';
@@ -11,12 +12,18 @@ import { DailyHistory, Positions, ClosedTrades, type Snapshot, type Summary } fr
 import CostReference from '@/components/shared/CostReference';
 
 interface Flow { date: string; amount: number; at?: number }
-interface Settings { capital: number; daytradeLimit: number; growthTarget: number | null; flows: Flow[]; createdAt: number | null }
+interface Settings { capital: number; growthTarget: number | null; goalDays: number | null; goalStartDate: string | null; flows: Flow[]; createdAt: number | null }
+/** 獲利期間進度（scripts/lib/ai-lab-member.mjs goalProgress） */
+interface Target {
+  goal: number; days: number; startDate: string | null; period: number; day: number; daysLeft: number;
+  periodStart: string | null; periodRetPct: number; cumRetPct: number | null; progress: number;
+  lastPeriod: { n: number; retPct: number; achieved: boolean } | null;
+}
 interface DPick { code: string; name: string; confidence: number | null; horizon: number | null; reason: string; risk: string; priceAtDecision: number | null; shares: number; estCost: number; skipReason: string | null }
 interface Decision { date: string; note: string | null; model: string | null; frozenAt: number | null; picks: DPick[]; sells: { code: string; name: string; reason: string; shares: number | null }[] }
 interface Resp {
   access?: { swing: boolean; daytrade: boolean }; settings?: Settings; withdrawable?: number; pendingFlow?: number;
-  snapshot?: Snapshot | null; summary?: Summary | null; target?: { goal: number; cumRetPct: number | null; progress: number } | null;
+  snapshot?: Snapshot | null; summary?: Summary | null; target?: Target | null;
   decisions?: Decision[]; error?: string;
 }
 
@@ -26,10 +33,17 @@ async function authed(input: string, init: RequestInit = {}) {
 }
 const money = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString()} 元`);
 const MUTED = 'var(--text-muted)';
+/** 獲利期間選項：與 scripts/lib/ai-lab-member.mjs 的 GOAL_DAYS 一致（伺服器驗證） */
+const GOAL_DAY_OPTIONS: { v: number; label: string }[] = [
+  { v: 5, label: '5 日（約 1 週）' }, { v: 10, label: '10 日（約 2 週）' }, { v: 20, label: '20 日（約 1 個月）' },
+  { v: 60, label: '60 日（約 1 季）' }, { v: 120, label: '120 日（約半年）' }, { v: 240, label: '240 日（約 1 年）' },
+];
+const DEFAULT_GOAL_DAYS = 20;
 
 export default function MyAiLab() {
   const [data, setData] = useState<Resp | null>(null);
   const [loadErr, setLoadErr] = useState('');
+  const [saveMsg, setSaveMsg] = useState('');   // 放在外層：儲存後重新載入會重建設定卡，訊息才不會被清掉（審查 LOW）
   const seq = useRef(0);
   const load = useCallback(async () => {
     const my = ++seq.current;
@@ -59,12 +73,12 @@ export default function MyAiLab() {
     <div style={{ padding: '4px 2px', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6, width: '100%' }}>   {/* 滿版：跟投資組合頁同寬（2026-10-01 使用者） */}
       <h2 style={{ margin: '4px 0 6px', fontSize: 'calc(1.2rem * var(--fz))' }}>🤖 AI 實驗·波段 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 400, color: MUTED }}>你的專屬 AI 交易員</span></h2>
       <div style={{ color: MUTED, marginBottom: 10 }}>
-        每個交易日盤後（17:00 後），你的 AI 交易員依你的帳戶、持股與獲利成長目標，從本站波段候選池決定賣出與買進；下一個交易日 09:00 以開盤價模擬成交並即時記錄。
+        每個交易日盤後（17:00 後），你的 AI 交易員依你的帳戶、持股與獲利目標，從本站波段候選池決定賣出與買進；下一個交易日 09:00 以開盤價模擬成交並即時記錄。
         費用照實扣：買賣手續費各 0.1425%、賣出證交稅 0.3%。<b>模擬交易，非投資建議；過去的模擬成績不代表未來。</b>
       </div>
       {loadErr && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
-      <SettingsCard key={`${st.capital}|${st.daytradeLimit}|${st.growthTarget}`} settings={st} withdrawable={data.withdrawable ?? 0} hasAccount={started && !!sm} onSaved={load} />
+      <SettingsCard key={`${st.capital}|${st.goalDays}|${st.growthTarget}`} settings={st} withdrawable={data.withdrawable ?? 0} hasAccount={started && !!sm} onSaved={load} msg={saveMsg} setMsg={setSaveMsg} />
 
       {!started ? (
         <div style={{ marginTop: 12, color: MUTED }}>設定投入資金後，AI 交易員會在下一個決策時段（交易日 17:00～隔日 08:30）做第一次決策，下一個交易日 09:00 開盤成交。</div>
@@ -80,7 +94,7 @@ export default function MyAiLab() {
             <Kpi label="總損益" value={twd(total - st.capital)} color={upDn(total - st.capital)} sub={`已實現 ${twd(sm.realized)}·未實現 ${twd(sm.unrealized)}`} />
             <Kpi label="累積報酬（時間加權）" value={pct(cum)} color={upDn(cum)} sub={`${history.length} 個交易日`} hint="扣除入金／提領的影響，加碼不算獲利" />
           </div>
-          {data.target && <GoalBar goal={data.target.goal} cum={data.target.cumRetPct} progress={data.target.progress} />}
+          {data.target && <GoalBar t={data.target} />}
           <div style={{ marginTop: 10 }}>
             <Positions snapshot={snap} />
             <ClosedTrades closed={snap?.closed || []} />
@@ -97,34 +111,38 @@ export default function MyAiLab() {
   );
 }
 
-/** 設定：投入資金（變更＝加碼／提領）、當沖額度（當沖開放後生效）、獲利成長目標 */
-function SettingsCard({ settings, withdrawable, hasAccount, onSaved }: { settings: Settings; withdrawable: number; hasAccount: boolean; onSaved: () => void }) {
+/** 設定：①投入資金（變更＝加碼／提領）②獲利期間 ③獲利成長目標（每期要達成的成長；目標或期間變更＝重新起算） */
+function SettingsCard({ settings, withdrawable, hasAccount, onSaved, msg, setMsg }: {
+  settings: Settings; withdrawable: number; hasAccount: boolean; onSaved: () => void; msg: string; setMsg: (m: string) => void;
+}) {
   const [cap, setCap] = useState(String(settings.capital || ''));
-  const [dt, setDt] = useState(String(settings.daytradeLimit || ''));
+  const [days, setDays] = useState(String(settings.goalDays ?? DEFAULT_GOAL_DAYS));
   const [goal, setGoal] = useState(settings.growthTarget == null ? '' : String(settings.growthTarget));
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
   const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(/,/g, '')));
 
   const save = async () => {
     const body: Record<string, number | null> = {};
-    const c = num(cap), d = num(dt), g = num(goal);
+    const c = num(cap), g = num(goal), gd = Number(days);
     if (c != null && c !== settings.capital) {
       if (!Number.isInteger(c) || c < 0) { setMsg('✖ 投入資金請填整數元'); return; }
       const delta = c - settings.capital;
-      const verb = settings.capital === 0 ? `投入 ${c.toLocaleString()} 元開始` : c === 0 ? `提領全部可提領現金（${withdrawable.toLocaleString()} 元）` : delta > 0 ? `加碼（入金）${delta.toLocaleString()} 元` : `提領 ${(-delta).toLocaleString()} 元`;
+      // 填 0 的實際金額以送出當下的可提領現金為準（頁面只在開啟時載入，數字可能已過時·審查 LOW）
+      const verb = settings.capital === 0 ? `投入 ${c.toLocaleString()} 元開始` : c === 0 ? `提領全部可提領現金（金額以送出當下為準；頁面上次載入時約 ${withdrawable.toLocaleString()} 元）` : delta > 0 ? `加碼（入金）${delta.toLocaleString()} 元` : `提領 ${(-delta).toLocaleString()} 元`;
       if (!window.confirm(`確定${verb}？\n帳戶延續，報酬以時間加權計算。`)) return;
       body.capital = c;
     }
-    if ((d ?? 0) !== settings.daytradeLimit) { if (d != null && (!Number.isInteger(d) || d < 0)) { setMsg('✖ 當沖額度請填整數元'); return; } body.daytradeLimit = d ?? 0; }
+    if (gd !== (settings.goalDays ?? null)) body.goalDays = gd;
     if (g !== settings.growthTarget) { if (g != null && !(g > 0)) { setMsg('✖ 獲利成長目標請填大於 0 的百分比'); return; } body.growthTarget = g; }
     if (!Object.keys(body).length) { setMsg('沒有變更'); return; }
+    const restart = g != null && (g !== settings.growthTarget || gd !== settings.goalDays);   // 伺服器同一規則：目標或期間變更＝重新起算
     setBusy(true); setMsg('儲存中…');
     try {
       const r = await authed('/api/ai/my-ai-lab', { method: 'POST', body: JSON.stringify(body) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setMsg(`✖ ${j.error || '儲存失敗'}`); return; }
-      setMsg(j.flow ? `✓ 已${j.flow.amount > 0 ? '入金' : '提領'} ${Math.abs(j.flow.amount).toLocaleString()} 元，下一次 AI 決策起生效` : '✓ 已儲存');
+      const parts = [j.flow ? `已${j.flow.amount > 0 ? '入金' : '提領'} ${Math.abs(j.flow.amount).toLocaleString()} 元（下一次 AI 決策起生效）` : '已儲存', restart ? '獲利期間自下一個交易日重新起算' : ''];
+      setMsg(`✓ ${parts.filter(Boolean).join('；')}`);
       onSaved();
     } catch { setMsg('✖ 儲存失敗，請稍後再試'); }
     finally { setBusy(false); }
@@ -132,7 +150,7 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved }: { setting
 
   const field = { display: 'flex', flexDirection: 'column' as const, gap: 3, minWidth: 190, flex: '1 1 190px' };
   return (
-    <Section title="⚙️ 我的設定" sub="變更投入資金＝加碼或提領（帳戶延續）；提領不可超過可提領現金">
+    <Section title="⚙️ 我的設定" sub="變更投入資金＝加碼或提領（帳戶延續）；提領不可超過可提領現金；目標或期間變更＝重新起算">
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <label style={field}>
           <span>① 投入資金（元）</span>
@@ -140,14 +158,16 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved }: { setting
           <span id="cap-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>目前淨投入 {money(settings.capital)}{hasAccount ? `·可提領 ${money(withdrawable)}·填 0＝提領全部可提領現金` : ''}</span>
         </label>
         <label style={field}>
-          <span>② 當沖額度（元）</span>
-          <input className="input" inputMode="numeric" value={dt} onChange={e => setDt(e.target.value)} placeholder="例：1000000" aria-describedby="dt-hint" />
-          <span id="dt-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>當沖功能尚未開放，設定先保存、開放後生效</span>
+          <span>② 獲利期間</span>
+          <select className="input" value={days} onChange={e => setDays(e.target.value)} aria-describedby="days-hint">
+            {GOAL_DAY_OPTIONS.map(o => <option key={o.v} value={String(o.v)}>{o.label}</option>)}
+          </select>
+          <span id="days-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>以交易日計；每期到期自動進入下一期</span>
         </label>
         <label style={field}>
           <span>③ 獲利成長目標（%）</span>
-          <input className="input" inputMode="decimal" value={goal} onChange={e => setGoal(e.target.value)} placeholder="例：30（空白＝不設）" aria-describedby="goal-hint" />
-          <span id="goal-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>AI 交易員會把它當作目標，頁面追蹤進度</span>
+          <input className="input" inputMode="decimal" value={goal} onChange={e => setGoal(e.target.value)} placeholder="例：10（空白＝不設）" aria-describedby="goal-hint" />
+          <span id="goal-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>每個獲利期間要達成的帳戶成長；AI 交易員以此為目標，風險控制優先</span>
         </label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <span aria-hidden style={{ visibility: 'hidden' }}>　</span>
@@ -159,18 +179,26 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved }: { setting
   );
 }
 
-function GoalBar({ goal, cum, progress }: { goal: number; cum: number | null; progress: number }) {
-  const w = Math.max(0, Math.min(100, progress));
+/** 獲利目標進度（獲利期間·滾動）：第幾期第幾日、本期時間加權報酬 vs 目標、上一期結果 */
+function GoalBar({ t }: { t: Target }) {
+  const w = Math.max(0, Math.min(100, t.progress));
+  const md = (d: string) => d.slice(5).replace('-', '/');
+  const phase = t.day ? `第 ${t.period} 期${t.periodStart ? `（${md(t.periodStart)} 起）` : ''}·第 ${t.day}/${t.days} 日·剩 ${t.daysLeft} 日` : `第 ${t.period} 期自下一個交易日起算`;
   return (
     <div style={{ marginTop: 10 }} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={w}
-      aria-label={`獲利成長目標 ${goal}%，目前 ${cum ?? 0}%，達成 ${progress}%`}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12px * var(--fz))' }}>
-        <span>🎯 獲利成長目標 <b>+{goal}%</b>·目前 <b style={{ color: upDn(cum) }}>{pct(cum)}</b></span>
-        <span style={{ color: MUTED }}>達成 {progress}%</span>
+      aria-label={`獲利目標每 ${t.days} 個交易日成長 ${t.goal}%，${phase}，本期 ${t.periodRetPct}%，達成 ${t.progress}%`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))' }}>
+        <span>🎯 每 <b>{t.days}</b> 個交易日成長 <b>+{t.goal}%</b>　<span style={{ color: MUTED }}>{phase}</span></span>
+        <span>本期 <b style={{ color: upDn(t.periodRetPct) }}>{pct(t.periodRetPct)}</b><span style={{ color: MUTED }}>·達成 {t.progress}%</span></span>
       </div>
       <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-tertiary)', overflow: 'hidden', marginTop: 4 }}>
-        <div style={{ width: `${w}%`, height: '100%', background: progress >= 100 ? '#22c55e' : '#7dd3fc', transition: 'width .3s' }} />
+        <div style={{ width: `${w}%`, height: '100%', background: t.progress >= 100 ? '#22c55e' : '#7dd3fc', transition: 'width .3s' }} />
       </div>
+      {t.lastPeriod && (
+        <div style={{ marginTop: 3, fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>
+          上一期（第 {t.lastPeriod.n} 期）{pct(t.lastPeriod.retPct)}·{t.lastPeriod.achieved ? '✓ 達標' : '未達標'}
+        </div>
+      )}
     </div>
   );
 }

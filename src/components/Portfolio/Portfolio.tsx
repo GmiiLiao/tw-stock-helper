@@ -30,7 +30,7 @@ import WeeklyReport from './WeeklyReport';
 import DefenseBanner from './DefenseBanner';
 import DividendTaxCalc from './DividendTaxCalc';
 import RiskBadge from '@/components/shared/RiskBadge';
-import { useDataUid } from '@/lib/view-as';
+import { useDataUid, useIsSimulating } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import styles from './Portfolio.module.css';
@@ -1079,7 +1079,10 @@ type PortfolioTab = 'overview' | 'trades' | 'analytics' | 'ailab';
 
 export default function Portfolio() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
-  const aiLabOk = useAiLabAccess();   // 開通狀態以伺服器為準（/api/ai/my-ai-lab?probe=1）
+  const aiLabAccess = useAiLabAccess();   // 開通狀態以伺服器為準（/api/ai/my-ai-lab?probe=1）
+  const simulating = useIsSimulating();
+  // 身分模擬中不顯示：AI 實驗以真實登入者的身分讀取，會把管理員自己的帳戶誤看成被模擬會員的（審查 LOW）
+  const aiLabOk = aiLabAccess && !simulating;
   const { holdings, allStocks, tradeRecords, removeHolding, updateHolding, navigateTo } = useAppStore(useShallow((s) => ({ holdings: s.holdings, allStocks: s.allStocks, tradeRecords: s.tradeRecords, removeHolding: s.removeHolding, updateHolding: s.updateHolding, navigateTo: s.navigateTo })));
   const [broker] = useBrokerSettings();
   const [tabSel, setActiveTab] = useState<PortfolioTab>('overview');
