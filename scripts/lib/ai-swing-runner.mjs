@@ -5,6 +5,9 @@
 //           Ollama 回覆格式錯會重試，當日第 3 次仍失敗才以「失敗」凍結（不讓一次抖動吃掉一天樣本）。
 //   settle()：每日對未完成的記錄逐一結算 5／10／20／60／120 日；**每個持有期到期算一次就寫死**，之後不重算。
 //   syncNotes()：超級管理員人工檢討 → second-brain/swing-ai-lab/{日}-人工檢討.md。
+//   account（2026-10-01 會員專屬 AI 交易員）：不給＝超級管理員 50 萬實驗帳戶（路徑、第二大腦、研究結算皆同舊版）；
+//     會員：colPath／snapPath 指向 aiSwingMembers/{uid}/…、getSettings() 給 { initial: 0, flows: 入金／提領, goal: 獲利成長目標 % }，
+//     files=false（不寫第二大腦）、research=false（不做各持有期研究結算，只補記成交與帳戶快照）。
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,10 +43,22 @@ function fillDatesAfter(docs, lastDate) {
   return [...s].sort();
 }
 
-export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null }) {
+export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, account = {} }) {
+  const { colPath = 'aiSwingLab', snapPath = 'aiLabAccounts/swing', files = true, research = true, label = '', getSettings = null } = account;
   const attempts = {};
-  const col = () => db.collection('aiSwingLab');
+  const col = () => db.collection(colPath);
+  const snapRef = () => { const i = snapPath.lastIndexOf('/'); return db.collection(snapPath.slice(0, i)).doc(snapPath.slice(i + 1)); };
+  const tag = label ? `〔${label}〕` : '';
+  /** 帳戶口徑：會員＝起始資金＋資金異動（只計 asOf 當日以前生效的）；實驗帳戶＝{}（50 萬、無異動，與舊版相同） */
+  const acctOf = async (asOf = null) => {
+    if (!getSettings) return { opts: {}, member: null };
+    const st = (await getSettings()) || {};
+    const flows = (st.flows || []).filter(f => !asOf || f.date <= asOf);
+    const initial = st.initial ?? 0;
+    return { opts: { initial, flows }, member: { capital: initial + flows.reduce((a, f) => a + f.amount, 0), goal: st.goal ?? null } };
+  };
   const writeFile = (name, body, overwrite = false) => {
+    if (!files || !dir) return;
     try { mkdirSync(dir, { recursive: true }); const p = join(dir, name); if (overwrite || !existsSync(p)) writeFileSync(p, body); }
     catch (e) { log('✖ 波段 AI 實驗寫第二大腦:', (e.message || '').slice(0, 80)); }
   };
@@ -66,8 +81,10 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       // v3（2026-09-28）：帳戶由 AI 主動操作——先由記錄＋日線重建持股，交給 AI 檢視續抱／賣出，再決定買進
       const prevDocs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
       const days = await loadDays(Math.max(...SWING_HORIZONS) + 15);   // 價格事件讀失敗會拋出 ⇒ 呼叫端稍後重試
-      const state = portfolioState(prevDocs, days.length ? days : null, date);
+      const { opts, member } = await acctOf(date);
+      const state = portfolioState(prevDocs, days.length ? days : null, date, opts);
       const openLots = state.lots.filter(l => l.status === 'pending' || l.status === 'held' || l.status === 'selling');
+      if (member && !(member.capital > 0) && !openLots.length) return true;   // 會員尚未投入資金、也沒有持股 ⇒ 今天不必決策
       if (!days.length && openLots.length) { log('⚠ 波段 AI：日線讀不到、無法檢視持股，稍後重試'); return false; }
       // 🧠 經驗庫（盤後訓練·已驗證）：以決策日日線特徵比對，候選與持股各自標出符合的歷史風險／優勢（口徑同訓練）
       const learned = getLearned(); const tDec = days.findIndex(d => d.date === date);
@@ -86,11 +103,12 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
         return true;
       }
-      const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity });
+      const cumRetPct = member ? ((await snapRef().get()).data()?.history?.at(-1)?.cumRetPct ?? null) : null;
+      const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity, member: member ? { ...member, cumRetPct } : null });
       const raw = await askOllama(prompt, { priority: 3, temperature: 0.2 });
       const parsed = parseDecision(raw, new Set(pool.map(c => c.code)), new Set(holdings.map(h => h.code)), heldCodes);
       attempts[date] = (attempts[date] || 0) + 1;
-      if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 決策：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
+      if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 決策${tag}：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
       const byCode = new Map(pool.map(c => [c.code, c]));
       const sells = (parsed?.sells || []).map(x => { const h = holdings.find(y => y.code === x.code); return { code: x.code, name: h.name, key: h.key, shares: h.shares, reason: x.reason, estPx: h.lastPx, estProceeds: h.lastPx ? estSellProceeds(h.lastPx, h.shares) : 0 }; });
       // 資金池規則（2026-09-29 使用者：現金不可為負、T+2 交割、處置股需預收款）：
@@ -104,7 +122,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日不操作（持股全部續抱）`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
       await ref.set(dropUndefined(doc));
       writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
-      log(`✓ 波段 AI 決策 ${date}（${model?.name || '?'}）：持股 ${holdings.length} 檔 → 賣 ${sells.map(x => x.code).join('、') || '無'}；池 ${pool.length} 檔 → 買 ${picks.filter(p => p.position?.shares).map(p => p.code).join('、') || '無'}`);
+      log(`✓ 波段 AI 決策${tag} ${date}（${model?.name || '?'}）：持股 ${holdings.length} 檔 → 賣 ${sells.map(x => x.code).join('、') || '無'}；池 ${pool.length} 檔 → 買 ${picks.filter(p => p.position?.shares).map(p => p.code).join('、') || '無'}`);
       await this.writeAccount(days);
       return true;
     },
@@ -124,14 +142,15 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       if (days.length && days[days.length - 1].date >= today) return true;
       const unrec = docs.flatMap(d => (d.picks || []).filter(p => p.position?.shares > 0 && !d.buyFills?.[p.code]).map(() => d.date));
       if (days.length && unrec.some(dt => dt < days[0].date)) { log('⚠ 波段 AI 開盤成交：有未記錄成交的部位早於 30 日視窗，改由盤後結算處理'); return true; }
-      const state = portfolioState(docs, days.length ? days : null);
+      const { opts } = await acctOf();
+      const state = portfolioState(docs, days.length ? days : null, null, opts);
       const need = state.lots.filter(l => l.status === 'pending' || l.status === 'selling');
       if (!need.length) return true;
       const missing = need.filter(l => !liveQuoteOf(getLive, l.code, today));
       if (missing.length && !deadline) return false;
       const daysPlus = [...days, liveDay(state.lots, today, getLive)];
       let n = 0;
-      for (const u of settleFills(docs, daysPlus)) {
+      for (const u of settleFills(docs, daysPlus, opts)) {
         const upd = {};
         for (const [k, v] of Object.entries(u.upd)) {
           if (v?.date !== today) { upd[k] = v; continue; }
@@ -142,7 +161,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         }
         const d = snap.docs.find(x => x.data().date === u.date); if (d) await d.ref.update(dropUndefined(upd));
       }
-      log(`✓ 波段 AI 開盤即時成交 ${today}：${n} 筆（委託 ${need.length}${missing.length ? `，無開盤價 ${missing.length}` : ''}）`);
+      log(`✓ 波段 AI 開盤即時成交${tag} ${today}：${n} 筆（委託 ${need.length}${missing.length ? `，無開盤價 ${missing.length}` : ''}）`);
       await this.writeAccount(daysPlus);
       return true;
     },
@@ -155,14 +174,16 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       if (!days.length) return 0;
       // 帳戶成交記錄（v3 主動操作）：買進／AI 賣單在下一交易日開盤成交後寫回決策文件，寫一次不改
       let fills = 0;
-      for (const u of settleFills(snap.docs.map(d => d.data()), days)) {
+      const { opts } = await acctOf();
+      for (const u of settleFills(snap.docs.map(d => d.data()), days, opts)) {
         const d = snap.docs.find(x => x.data().date === u.date); if (!d) continue;
         // 走到這裡＝開盤時沒有即時成交記錄（常駐服務未運行等）：依官方開盤價補記，並明確標示，不冒充即時
         const upd = Object.fromEntries(Object.entries(u.upd).map(([k, v]) => [k, v?.source ? v : { ...v, source: 'archive-open', recordedAt: Date.now(), note: '開盤時未即時記錄（常駐服務未運行），盤後依官方開盤價補記' }]));
         await d.ref.update(dropUndefined(upd)); fills += Object.keys(upd).length;
-        log(`⚠ 波段 AI：${u.date} 決策有 ${Object.keys(upd).length} 筆成交於盤後補記（開盤時未即時記錄）`);
+        log(`⚠ 波段 AI${tag}：${u.date} 決策有 ${Object.keys(upd).length} 筆成交於盤後補記（開盤時未即時記錄）`);
       }
-      if (fills) log(`✓ 波段 AI 帳戶：補記 ${fills} 筆成交`);
+      if (fills) log(`✓ 波段 AI 帳戶${tag}：補記 ${fills} 筆成交`);
+      if (!research) { await this.writeAccount(days); return 0; }   // 會員帳戶：不做各持有期研究結算
       const open = snap.docs.filter(d => !d.data().settledAll);
       let n = 0;
       for (const d of open) {
@@ -198,13 +219,14 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
     async writeAccount(daysIn = null, { getLive = null } = {}) {
       try {
         const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+        const { opts } = await acctOf();
         let days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
         let liveFilled = [];
         // 今日歸檔已寫、但缺部分持股（上櫃 16:25–16:55 才併入·2026-10-01 使用者「怎麼沒有使用更新價格」）：
         //   以「該日」即時收盤補上市值用的價格；沒有即時報價就不補（不捏造、照舊標未知）
         if (!daysIn && days.length && getLive) {
           const last = days[days.length - 1];
-          const { lots } = portfolioState(docs, days);
+          const { lots } = portfolioState(docs, days, null, opts);
           const add = {};
           for (const l of lots) {
             if (l.status === 'void' || l.status === 'closed' || last.m[l.code] || add[l.code]) continue;
@@ -217,16 +239,16 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         if (!daysIn && days.length) {
           const pend = fillDatesAfter(docs, days[days.length - 1].date);
           // recordedOnly：暫定日只執行已記錄的成交（不推算、不作廢未記錄的委託）——歸檔落後多日時尤其重要
-          if (pend.length) { const { lots } = portfolioState(docs, days); days = [...days, ...pend.map(dt => ({ ...liveDay(lots, dt, getLive), recordedOnly: true }))]; }
+          if (pend.length) { const { lots } = portfolioState(docs, days, null, opts); days = [...days, ...pend.map(dt => ({ ...liveDay(lots, dt, getLive), recordedOnly: true }))]; }
         }
-        const ref = db.collection('aiLabAccounts').doc('swing');
+        const ref = snapRef();
         const prevHist = (await ref.get()).data()?.history || [];
-        const snap = swingAccountSnapshot(docs, days);
+        const snap = swingAccountSnapshot(docs, days, opts);
         const last = days[days.length - 1];
         // 每日戰績：由記錄逐日重算整段（2026-09-30：舊版只 upsert 當天，舊列沿用寫入時的算法而前後口徑不一）；只收官方收盤日
         await ref.set(dropUndefined({ ...snap, ...(last?.provisional ? { provisional: true, liveAt: last.liveAt ?? null } : {}), ...(liveFilled.length ? { liveFilled } : {}),
-          summary: accountSummary(snap), history: rebuildHistory(docs, days.filter(d => !d.provisional), prevHist) }));
-      } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
+          summary: accountSummary(snap), history: rebuildHistory(docs, days.filter(d => !d.provisional), prevHist, opts) }));
+      } catch (e) { log(`✖ 波段帳戶快照${tag}:`, (e.message || '').slice(0, 80)); }
     },
 
     async syncNotes() {

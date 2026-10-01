@@ -5,5 +5,5 @@ export interface SwingAccountSummary {
   reservedBuys: number; pendingSellEst: number; freeCash: number; receivable: number; payable: number;
 }
 export declare function accountSummary(snap: unknown): SwingAccountSummary;
-export declare function historyRow(snap: unknown, prev?: { total: number } | null): Record<string, number | string>;
-export declare function rebuildHistory(docs: unknown[], days: unknown[], prevHist?: unknown[]): unknown[];
+export declare function historyRow(snap: unknown, prev?: { total: number } | null, opts?: { flow?: number; twr?: boolean }): Record<string, number | string>;
+export declare function rebuildHistory(docs: unknown[], days: unknown[], prevHist?: unknown[], opts?: import('./ai-swing-portfolio.mjs').AccountOpts): unknown[];

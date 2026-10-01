@@ -80,7 +80,12 @@ function capShares(px, planned, alloc) {
  *   · **處置股需預收款**（position.prefund）：只能用已交割現金（不含任何未交割的賣出款）。
  *   · 委託中（尚未成交）的買單列 reservedBuys，不直接扣成負現金；freeCash＝現金－委託保留。
  */
-export function portfolioState(docs, days = null, beforeDate = null) {
+/**
+ * opts（2026-10-01 會員專屬帳戶）：initial＝起始資金（實驗帳戶 50 萬；會員 0）、flows＝資金異動 [{ date, amount }]
+ *   （入金為正、提領為負；於該日〔含之前的非交易日〕開盤前生效，日期晚於日線者最後才計入）。
+ *   不給 opts＝原本的 50 萬實驗帳戶，結果與舊版完全相同。account.initial＝淨投入（起始＋已生效的資金異動）。
+ */
+export function portfolioState(docs, days = null, beforeDate = null, { initial = ACCOUNT_INITIAL, flows = [] } = {}) {
   const ds = [...docs].filter(d => !beforeDate || d.date < beforeDate).sort((a, b) => a.date.localeCompare(b.date));
   const orders = new Map();   // lotKey → 最早的賣出委託
   for (const d of ds) for (const s of d.review?.sells || []) {
@@ -98,7 +103,10 @@ export function portfolioState(docs, days = null, beforeDate = null) {
   }
   for (const l of lots) l.order = orders.get(l.key) || null;
 
-  let cash = ACCOUNT_INITIAL;
+  let cash = initial;
+  const fl = (flows || []).filter(f => f?.date && Number.isFinite(f.amount) && f.amount !== 0).sort((a, b) => a.date.localeCompare(b.date));
+  let fi = 0, flowIn = 0;
+  const applyFlows = upTo => { while (fi < fl.length && (upTo == null || fl[fi].date <= upTo)) { cash += fl[fi].amount; flowIn += fl[fi].amount; fi++; } };
   const unsettled = [];   // { kind:'recv'|'pay', amt, settleIdx }（無日線時 settleIdx＝Infinity：無法判定交割日，視為未交割）
   const idxOf = new Map((days || []).map((d, i) => [d.date, i]));
   const unsettledAt = (kind, i) => unsettled.filter(u => u.kind === kind && u.settleIdx > i).reduce((a, u) => a + u.amt, 0);
@@ -123,6 +131,7 @@ export function portfolioState(docs, days = null, beforeDate = null) {
   if (days?.length) {
     for (let i = 0; i < days.length; i++) {
       const t = days[i].date;
+      applyFlows(t);   // 入金／提領：當日開盤前生效
       // recordedOnly＝帳戶快照補的暫定日（日線尚未歸檔，見 ai-swing-runner writeAccount）：只執行已記錄的成交，
       //   不由（可能沒有報價的）暫定日推算——否則未記錄的買單會被判「無成交資料」作廢、從快照消失（2026-10-01 審查）
       const ro = !!days[i].recordedOnly;
@@ -143,6 +152,7 @@ export function portfolioState(docs, days = null, beforeDate = null) {
     }
   } else {
     // 無日線：只用已寫入的成交記錄（依成交日排序；交割日無法判定）
+    applyFlows(null);
     const ev = [];
     for (const l of lots) {
       if (l.recordedBuy) ev.push({ date: l.recordedBuy.date, k: 1, l });
@@ -155,12 +165,13 @@ export function portfolioState(docs, days = null, beforeDate = null) {
     }
   }
   for (const l of lots) if (l.status === 'held' && l.order) { l.sell = { orderDate: l.order.date, reason: l.order.reason, decidedAt: l.order.decidedAt, fill: null }; l.status = 'selling'; }
+  applyFlows(null);   // 日期晚於日線的資金異動（今天入金、今日尚未歸檔）
 
   const lastIdx = days?.length ? days.length - 1 : Infinity;
   const trades = lots.filter(l => l.status === 'closed' || l.status === 'held' || l.status === 'selling').map(l => (l.status === 'closed'
     ? { pnlTwd: l.sell.fill.ledger.pnlTwd }
     : { open: true, cost: costOf(l) }));
-  const base = accountOf(trades);
+  const base = accountOf(trades, initial + flowIn);   // initial＝淨投入（起始＋資金異動）
   const receivable = days?.length ? unsettledAt('recv', lastIdx) : 0, payable = days?.length ? unsettledAt('pay', lastIdx) : 0;
   const reservedBuys = lots.filter(l => l.status === 'pending').reduce((a, l) => a + costOf(l), 0);
   // 委託中賣單的估計回收款（最新收盤、扣費稅）：與委託中買單同一 T+2 交割日淨額，可抵用
@@ -170,11 +181,11 @@ export function portfolioState(docs, days = null, beforeDate = null) {
 }
 
 /** 尚未寫入的成交記錄 → [{date, upd}]（upd 為點路徑欄位，交給 runner 寫回各決策文件） */
-export function settleFills(docs, days) {
+export function settleFills(docs, days, opts = {}) {
   const byDate = new Map(docs.map(d => [d.date, d]));
   const out = new Map();
   const put = (date, k, v) => { if (!out.has(date)) out.set(date, {}); out.get(date)[k] = v; };
-  for (const lot of portfolioState(docs, days).lots) {
+  for (const lot of portfolioState(docs, days, null, opts).lots) {
     const bd = byDate.get(lot.date);
     const buy = lot.buy || lot.buyFailed;
     if (buy && !bd?.buyFills?.[lot.code]) put(lot.date, `buyFills.${lot.code}`, buy);
@@ -224,8 +235,8 @@ export function reviewHoldings(lots, days, { pool = [], news = {}, disp = new Se
 }
 
 /** 帳戶快照（後台讀這份）：持有清單 marked-to-market＋已賣出清單（附買賣時間金額與 AI 賣出理由） */
-export function portfolioSnapshot(docs, days) {
-  const { lots, account } = portfolioState(docs, days);
+export function portfolioSnapshot(docs, days, opts = {}) {
+  const { lots, account } = portfolioState(docs, days, null, opts);
   const last = days[days.length - 1];
   const holdings = [], closed = [];
   for (const l of lots) {

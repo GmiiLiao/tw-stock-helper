@@ -33,8 +33,12 @@ export function accountSummary(snap) {
 
 const twDate = at => (at ? new Date(at + 8 * 3600000).toISOString().slice(0, 10) : null);
 
-/** 每日戰績一列；prev＝前一列（算當日損益）。bought／sold＝當日實際成交的買進／賣出筆數（不是下單數） */
-export function historyRow(snap, prev = null) {
+/**
+ * 每日戰績一列；prev＝前一列（算當日損益）。bought／sold＝當日實際成交的買進／賣出筆數（不是下單數）。
+ * flow／twr（2026-10-01 會員帳戶·入金與提領）：當日損益扣掉當日資金異動；累積報酬改用時間加權——
+ *   growth＝逐日（總值－當日異動）÷前一日總值 連乘，加碼不會被算成獲利。實驗帳戶（無資金異動）口徑不變。
+ */
+export function historyRow(snap, prev = null, { flow = 0, twr = false } = {}) {
   const s = accountSummary(snap), d = snap.dataDate;
   const soldToday = (snap.closed || []).filter(c => c.exitDate === d);
   const bought = (snap.holdings || []).filter(h => h.entryPx && h.entryDate === d).length + (snap.closed || []).filter(c => twDate(c.buy?.at) === d).length;
@@ -42,25 +46,36 @@ export function historyRow(snap, prev = null) {
     date: d, holdings: s.held + s.selling, selling: s.selling, pending: s.pending, opened: bought, closed: soldToday.length,
     closedPnl: soldToday.reduce((a, c) => a + c.pnlTwd, 0), realized: s.realized, unrealized: s.unrealized,
     cash: s.cash, mktValue: s.mktValue, estSellCost: s.estSellCost, netMkt: s.netMkt, total: s.total,
-    dayPnl: prev ? s.total - prev.total : s.total - s.initial, cumRetPct: s.totalRetPct,
+    dayPnl: prev ? s.total - prev.total - flow : s.total - s.initial,
+    ...(twr ? twrFields(s, prev, flow) : { cumRetPct: s.totalRetPct }),
   };
+}
+
+function twrFields(s, prev, flow) {
+  const pg = prev ? (prev.growth ?? 1 + (prev.cumRetPct ?? 0) / 100) : null;
+  const growth = prev ? pg * (prev.total > 0 ? (s.total - flow) / prev.total : 1) : (s.initial > 0 ? s.total / s.initial : 1);
+  return { cumRetPct: +((growth - 1) * 100).toFixed(2), growth, flow, netInvested: s.initial };
 }
 
 /**
  * 由決策與成交記錄重算整段戰績：自第一個決策日起，每個交易日一列（as-of：只看當日以前的決策、當日以前的日線）。
  * 早於日線視窗、無法重算的舊列原樣保留。docs＝決策記錄；days＝還原後日線（舊→新）。
  */
-export function rebuildHistory(docs, days, prevHist = []) {
+export function rebuildHistory(docs, days, prevHist = [], opts = {}) {
   if (!docs?.length || !days?.length) return prevHist;
   const first = docs.reduce((m, d) => (d.date < m ? d.date : m), docs[0].date);
   // 保留無法重算的舊列：早於日線視窗、或早於第一個決策日（重算只涵蓋 ≥ max(視窗起點, 第一個決策日)）
   const cutoff = first > days[0].date ? first : days[0].date;
   const keep = prevHist.filter(r => r.date < cutoff);
+  // opts＝{ initial, flows }（會員帳戶）：有資金異動 ⇒ 時間加權累積報酬；每列只計入當日（含之前非交易日）生效的異動
+  const flows = opts.flows || [], twr = flows.length > 0;
+  const flowSum = (from, to) => flows.filter(f => (from == null || f.date > from) && f.date <= to).reduce((a, f) => a + f.amount, 0);
   const rows = [];
   for (let i = 0; i < days.length; i++) {
     const date = days[i].date; if (date < first) continue;
-    const snap = portfolioSnapshot(docs.filter(d => d.date <= date), days.slice(0, i + 1));
-    rows.push(historyRow(snap, rows.at(-1) ?? keep.at(-1) ?? null));
+    const snap = portfolioSnapshot(docs.filter(d => d.date <= date), days.slice(0, i + 1), twr ? { ...opts, flows: flows.filter(f => f.date <= date) } : opts);
+    const prev = rows.at(-1) ?? keep.at(-1) ?? null;
+    rows.push(historyRow(snap, prev, { flow: twr ? flowSum(prev?.date ?? null, date) : 0, twr }));
   }
   return [...keep, ...rows].slice(-400);
 }

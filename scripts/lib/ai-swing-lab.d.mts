@@ -23,5 +23,5 @@ export interface SwingReview { holdings: { key: string; code: string; name: stri
 export interface SwingLot { key: string; date: string; code: string; name: string; shares: number; status: 'pending' | 'held' | 'selling' | 'closed' | 'void' }
 export const SWING_HORIZONS: readonly number[];
 export const SWING_LAB_VERSION: string;
-export function swingAccount(docs: SwingLabDoc[], beforeDate?: string | null, days?: unknown[] | null): SimAccount;
+export function swingAccount(docs: SwingLabDoc[], beforeDate?: string | null, days?: unknown[] | null, opts?: import('./ai-swing-portfolio.mjs').AccountOpts): SimAccount;
 export function swingStats(docs: { outcomes?: Record<string, SwingOutcome> }[]): Record<string, SwingHorizonStat>;

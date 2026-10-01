@@ -62,13 +62,20 @@ const holdLine = h => `- ${h.code} ${h.name}｜${h.shares.toLocaleString()} 股�
   + (h.lessons?.length ? `｜經驗庫：${h.lessons.join('；')}` : '');
 
 /** 每日決策 prompt：檢視持股（可賣出換股）＋從候選池買進。holdings 空＝只選股 */
-export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null }) {
+/**
+ * member（2026-10-01 會員專屬 AI 交易員）：{ capital：淨投入（入金－提領）, goal：會員設定的獲利成長目標 %, cumRetPct：目前時間加權累積報酬 % }。
+ * 不給＝超級管理員的 50 萬實驗帳戶，文字與舊版完全相同。
+ */
+export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null, member = null }) {
+  const cap = member ? `${Math.round(member.capital || 0).toLocaleString()} 元` : '50 萬';
+  const pctTxt = v => (v == null ? '尚未開始' : `${v >= 0 ? '+' : ''}${v}%`);
   return [
-    `你是台股波段交易員，管理一個模擬帳戶（起始 50 萬元）。現在是 ${date} 盤後。你的任務是主動操作讓帳戶獲利：檢視現有持股決定續抱或賣出，並從本站今天的波段候選池挑選要買進的股票（最多 ${SWING_MAX_PICKS} 檔，沒有好標的可以不買）。`,
-    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。資金池只有 50 萬＋已實現損益，現金不可為負：可用資金依買進檔數平均分配；成交後 T+2 交割，今天賣出的回收款可抵同一交割日的買進；處置股須以已交割現金預收款；成交時資金不足會自動減量或作廢。`,
+    `你是台股波段交易員，${member ? `負責一位會員的模擬帳戶（會員投入資金 ${cap}）` : '管理一個模擬帳戶（起始 50 萬元）'}。現在是 ${date} 盤後。你的任務是主動操作讓帳戶獲利：檢視現有持股決定續抱或賣出，並從本站今天的波段候選池挑選要買進的股票（最多 ${SWING_MAX_PICKS} 檔，沒有好標的可以不買）。`,
+    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。資金池只有 ${cap}＋已實現損益，現金不可為負：可用資金依買進檔數平均分配；成交後 T+2 交割，今天賣出的回收款可抵同一交割日的買進；處置股須以已交割現金預收款；成交時資金不足會自動減量或作廢。`,
     `只能根據提供的資料，不得編造新聞或數字。`,
     ``,
     `【帳戶】${equity != null ? `總值約 ${Math.round(equity).toLocaleString()} 元、` : ''}${cash != null ? `可用現金 ${Math.round(cash).toLocaleString()} 元（不含今天賣出的回收款）` : ''}`,
+    ...(member?.goal ? [`【目標】會員設定的獲利成長目標：帳戶成長 ${member.goal}%（目前累積 ${pctTxt(member.cumRetPct)}）。在控制風險的前提下朝目標操作；不得為了追目標而違反交易規則或捏造數據。`] : []),
     `【大盤】${market || '未知'}${swingPicksMeta?.bearDay ? '；今日為空頭日（波段起漲訊號在空頭日較可靠）' : ''}${swingPicksMeta?.crowded ? '；⚠ 起漲訊號擁擠（崩盤型），母體已偏離回測' : ''}${swingPicksMeta?.observe ? `；⚠ 起漲訊號目前為觀察閘：${swingPicksMeta.observeWhy || ''}` : ''}`,
     `【本站實證提醒】波段起漲⭐訊號的優勢在第 5 日（持有 5 日淨均約 +1.1%）；追高（RSI5>85）對買方是較差的進場點；20日波動 ≥1.5% 才進場較好；KD 死叉破底風險高。`,
     `【經驗庫】各檔標「經驗庫：⚠風險／✓優勢」的，是本站盤後以歷史樣本訓練、前後期一致且顯著的特徵統計（5 日淨報酬；供參考，不保證未來）。`,
@@ -140,8 +147,8 @@ export function swingLedger(o, decidedAt, shares = 1000) {
 
 /** 波段帳戶（由記錄重算）：自 v3 起由 AI 主動操作——部位在 AI 下賣單後的下一交易日開盤出場（見 ./ai-swing-portfolio.mjs）。
  *  未給日線時只用已寫入的成交記錄（buyFills／sellFills），待 daemon 結算補記。 */
-export function swingAccount(docs, beforeDate = null, days = null) {
-  return portfolioState(docs, days, beforeDate).account;
+export function swingAccount(docs, beforeDate = null, days = null, opts = {}) {
+  return portfolioState(docs, days, beforeDate, opts).account;
 }
 
 export const SWING_SIZING_RULE = 'equal-split-no-cap';   // 2026-09-28 起：可用現金依當天選股數平均分配、不設單檔上限
@@ -217,8 +224,8 @@ export function renderSwingMarkdown(doc) {
 }
 
 /** 波段帳戶快照（持有清單 marked-to-market＋已賣出清單）：委派 ./ai-swing-portfolio.mjs */
-export function swingAccountSnapshot(docs, days) {
-  return portfolioSnapshot(docs, days);
+export function swingAccountSnapshot(docs, days, opts = {}) {
+  return portfolioSnapshot(docs, days, opts);
 }
 
 /**
