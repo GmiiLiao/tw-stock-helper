@@ -2852,26 +2852,34 @@ async function checkAlerts() {
 }
 
 // ── 2) 產業輪動偵測 ──────────────────────────────────────────
-// 用全市場快照，依 industryOf 分群，算成交值加權平均漲跌% + 漲跌家數 + 領漲股。
+// 用全市場快照，依官方產業別分群，算成交值加權平均漲跌% + 漲跌家數 + 領漲股。
+// 2026-10-01 修正（使用者問盤後總結數字）：舊版用 industryOf——那是新聞查詢用的關鍵字粗分群，「電子」只抓名稱含電子／電腦等的少數檔、
+//   其餘全歸「台股」；成交值加權後一檔大量漲停就能讓「電子」+9.8%，盤後總結因此寫「最強 電子（+9.77%）」。
+//   現在用官方產業別（getIndustryMap，對不到才整批退回 industryOf），只算 4 碼個股（ETF／權證不屬任何產業），成員 <5 檔的群不排名。
+const SECTOR_MIN_MEMBERS = 5;
 async function detectSectorRotation() {
   const snap = await readSnapshotQuotes(); if (!snap) return;
+  const indMap = await getIndustryMap().catch(() => null);
+  const official = !!indMap && Object.keys(indMap).length >= 300;
   const q = snap.quotes; const sec = {};
   for (const code in q) {
     const x = q[code]; if (!x || !(x.price > 0)) continue;
-    const ind = industryOf(code, x.name);
+    if (official && !/^\d{4}$/.test(code)) continue;
+    const ind = official ? indMap[code] : industryOf(code, x.name);
+    if (!ind) continue;
     const s = (sec[ind] ??= { industry: ind, value: 0, wpct: 0, up: 0, down: 0, flat: 0, stocks: [] });
     const v = x.value || 0, cp = x.changePercent || 0;
     s.value += v; s.wpct += cp * v;
     if (cp > 0) s.up++; else if (cp < 0) s.down++; else s.flat++;
     s.stocks.push({ code, name: x.name, changePercent: cp });
   }
-  const sectors = Object.values(sec).map(s => ({
+  const sectors = Object.values(sec).filter(s => s.stocks.length >= SECTOR_MIN_MEMBERS).map(s => ({
     industry: s.industry,
     avgChangePct: s.value > 0 ? +(s.wpct / s.value).toFixed(2) : 0,
-    value: Math.round(s.value), up: s.up, down: s.down, flat: s.flat,
+    value: Math.round(s.value), up: s.up, down: s.down, flat: s.flat, members: s.stocks.length,
     leaders: s.stocks.sort((a, b) => b.changePercent - a.changePercent).slice(0, 5),
   })).sort((a, b) => b.avgChangePct - a.avgChangePct);
-  await db.collection('sectorRotation').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), marketOpen: snap.marketOpen, sectors });
+  await db.collection('sectorRotation').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), marketOpen: snap.marketOpen, classification: official ? 'official' : 'keyword', sectors });
   if (sectors.length) log(`✓ 產業輪動：領漲 ${sectors[0].industry}(${sectors[0].avgChangePct}%)、領跌 ${sectors[sectors.length - 1].industry}(${sectors[sectors.length - 1].avgChangePct}%)`);
 }
 
