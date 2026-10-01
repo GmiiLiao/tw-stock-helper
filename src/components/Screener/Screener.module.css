@@ -19,13 +19,13 @@
 }
 
 .subtitle {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
 
 .resultCount {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   color: var(--text-muted);
 }
 
@@ -47,7 +47,6 @@
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 12px;
 }
 
@@ -82,7 +81,7 @@
 }
 
 .templateName {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
   margin-bottom: 3px;
 }
@@ -105,7 +104,6 @@
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 14px;
 }
 
@@ -141,7 +139,7 @@
 
 .rangeSep {
   color: var(--text-muted);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   flex-shrink: 0;
 }
 
@@ -186,7 +184,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
   padding: 8px 16px;
   border-radius: var(--radius-md);
@@ -216,7 +214,7 @@
 }
 
 .selectorLabel {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -226,7 +224,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   padding: 6px 12px;
   border-radius: var(--radius-md);
   outline: none;
@@ -382,7 +380,6 @@
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 12px;
 }
 
@@ -460,7 +457,7 @@
   text-align: center;
   padding: 30px;
   color: var(--text-muted);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 .mobileCard {
@@ -503,7 +500,7 @@
 .mobileName {
   font-weight: 600;
   color: var(--text-primary);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 .mobileCardBody {
@@ -655,7 +652,7 @@
 
 .reportContent {
   color: var(--text-secondary);
-  font-size: calc(0.9rem * var(--fz));
+  font-size: calc(0.965rem * var(--fz));
   line-height: 1.6;
 }
 
@@ -702,7 +699,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   color: var(--text-primary);
   margin-bottom: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -797,7 +794,7 @@
 }
 
 .emptySelectedText {
-  font-size: calc(0.85rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   color: var(--text-muted);
   display: flex;
   align-items: center;

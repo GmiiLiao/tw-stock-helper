@@ -565,7 +565,7 @@ export default function AdminPanel() {
             <div className={styles.tabContent}>
               <div className={styles.searchWrapper}>
                 <h3>註冊用戶清單 ({users.length} 人)</h3>
-                {aiGrantMsg && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))' }}>{aiGrantMsg}</div>}
+                {aiGrantMsg && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12.5px * var(--fz))' }}>{aiGrantMsg}</div>}
                 <input
                   type="text"
                   placeholder="搜尋用戶 Email、暱稱或 UID..."
@@ -620,7 +620,7 @@ export default function AdminPanel() {
                               {['premium', 'admin', 'superadmin'].includes(u.level || '') ? (
                                 <button type="button" disabled={aiGrantBusy === u.uid} onClick={() => toggleAiLab(u.uid, !aiGrants[u.uid])}
                                   aria-pressed={!!aiGrants[u.uid]} aria-label={`${u.displayName || u.email} 的 AI 實驗波段${aiGrants[u.uid] ? '已開通，點擊關閉' : '未開通，點擊開通'}`}
-                                  style={{ padding: '2px 10px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12px * var(--fz))', border: '1px solid var(--border-primary)',
+                                  style={{ padding: '2px 10px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))', border: '1px solid var(--border-primary)',
                                     background: aiGrants[u.uid] ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)', color: aiGrants[u.uid] ? '#22c55e' : 'var(--text-muted)' }}>
                                   {aiGrantBusy === u.uid ? '…' : aiGrants[u.uid] ? '✓ 已開通' : '開通'}
                                 </button>

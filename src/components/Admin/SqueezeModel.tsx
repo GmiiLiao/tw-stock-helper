@@ -89,7 +89,7 @@ export default function SqueezeModel() {
   if (err) return <div style={{ color: '#ef4444' }}>讀取失敗：{err}</div>;
   if (!d?.found || !d.model) {
     return (
-      <div style={{ color: 'var(--text-muted)', lineHeight: 1.8 }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
         尚未產生模型。訓練排程為<b>每週二、五 01:00 後</b>自動執行；
         亦可手動：<code>node scripts/squeeze-train.mjs 250</code>
         {d?.dataset && <div>目前訓練資料集：{d.dataset.days} 日 / {d.dataset.totalRows.toLocaleString()} 筆</div>}
@@ -119,7 +119,7 @@ export default function SqueezeModel() {
         {v2 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             {MODE_TABS.filter(([k]) => root.modes![k]).map(([k, lab]) => (
-              <button key={k} onClick={() => setMode(k)} style={{ padding: '3px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', cursor: 'pointer', fontWeight: 700, background: mode === k ? 'var(--accent-purple,#6366f1)' : 'var(--bg-tertiary)', color: mode === k ? '#fff' : 'var(--text-secondary)' }}>
+              <button key={k} onClick={() => setMode(k)} style={{ padding: '3px 12px', borderRadius: 8, border: '1px solid var(--border-primary)', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(13.5px * var(--fz))', background: mode === k ? 'var(--accent-purple,#6366f1)' : 'var(--bg-tertiary)', color: mode === k ? '#fff' : 'var(--text-secondary)' }}>
                 {lab}{root.modes![k].main ? ' ✓' : ''}
               </button>
             ))}
@@ -369,7 +369,7 @@ export default function SqueezeModel() {
                 </tbody>
               </table>
             </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))', marginTop: 5, lineHeight: 1.7 }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))', marginTop: 5, lineHeight: 1.6 }}>
               {rv.note}
             </div>
           </div>
@@ -401,7 +401,7 @@ export default function SqueezeModel() {
         </div>
       </div>
 
-      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.7 }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
         方法論：選因子只用訓練段（前 70%），選定後在完全未參與的樣本外段驗證；
         報酬一律採<b>可買口徑</b>（排除隔日開盤即漲停鎖死、實際買不到者）。
         國際盤採 t 日收盤——美股 t 日盤在台北時間當晚，早於台股 t+1 開盤，不是未來函數。

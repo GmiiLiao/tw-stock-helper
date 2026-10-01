@@ -27,7 +27,7 @@ export default function DayTradeAnalysis() {
   // 沒有任何當沖配對也沒有警示 → 只留一行提示，不佔版面
   if (report.count === 0 && report.warnings.length === 0) {
     return (
-      <div style={{ ...card, color: MUTED, fontSize: 'calc(12.5px * var(--fz))' }}>
+      <div style={{ ...card, color: MUTED, fontSize: 'calc(13px * var(--fz))' }}>
         ⚡ 當沖損益分析：尚無「同一天同一檔既買又賣」的交易紀錄。記錄當沖時請在賣出勾選「現股當沖」，稅會按 0.15% 計。
         目前設定下，當沖一趟至少要漲 <strong style={{ color: 'var(--text-primary)' }}>{breakEven}%</strong> 才損益兩平（手續費雙邊 {(0.1425 * (broker.discount || 1) * 2).toFixed(3)}% ＋ 當沖稅 0.15%）。
       </div>
@@ -49,8 +49,9 @@ export default function DayTradeAnalysis() {
 
   return (
     <div style={card}>
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginBottom: 6 }}>⚡ 當沖損益分析（同日同碼買賣配對·費稅取紀錄實際值）</div>
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 12, lineHeight: 1.5 }}>
+      {/* 2026-10-01 說明文字放大到 13px，標題需維持更大 → 14px */}
+      <div style={{ fontSize: 'calc(14px * var(--fz))', color: MUTED, marginBottom: 6 }}>⚡ 當沖損益分析（同日同碼買賣配對·費稅取紀錄實際值）</div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED, marginBottom: 12, lineHeight: 1.5 }}>
         📐 成本用<strong>當天的買進均價</strong>，不是帳本的加權平均——同一檔若另有舊持股，這裡算的是「那一趟」而非稀釋後的數字，
         故與上方「已實現損益」不會相等。只配對當日買賣重疊的張數，多買的留倉、多賣的視為出脫舊持股。
       </div>
@@ -58,29 +59,29 @@ export default function DayTradeAnalysis() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))', gap: 10, marginBottom: 14 }}>
         {tiles.map((t, i) => (
           <div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--bg-tertiary)' }}>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 4 }}>{t.label}</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginBottom: 4 }}>{t.label}</div>
             <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, fontFamily: mono, color: t.color || 'var(--text-primary)', whiteSpace: 'nowrap' }}>{t.value}</div>
-            {t.sub && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED, marginTop: 3, lineHeight: 1.4 }}>{t.sub}</div>}
+            {t.sub && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginTop: 3, lineHeight: 1.4 }}>{t.sub}</div>}
           </div>
         ))}
       </div>
 
       {report.warnings.length > 0 && (
-        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', marginBottom: 12, fontSize: 'calc(12px * var(--fz))', color: '#f59e0b' }}>
+        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', marginBottom: 12, fontSize: 'calc(13px * var(--fz))', color: '#f59e0b' }}>
           {report.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
         </div>
       )}
 
       {report.monthly.length > 1 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>📊 月度當沖淨損益</div>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED, marginBottom: 6 }}>📊 月度當沖淨損益</div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={report.monthly.slice(-12)}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
               <XAxis dataKey="month" tick={{ fontSize: 12, fill: MUTED }} tickFormatter={(v: string) => v.slice(5)} />
               <YAxis tick={{ fontSize: 12, fill: MUTED }} tickFormatter={(v: number) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(0)}萬` : v.toLocaleString())} />
               <Tooltip
-                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: 8, fontSize: 'calc(12px * var(--fz))' }}
+                contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))' }}
                 labelStyle={{ color: '#ffffff', fontWeight: 800 }}
                 itemStyle={{ color: '#e2e8f7' }}                       // 預設會沿用長條色，深底上是黑字（2026-09-16 使用者回報）
                 cursor={{ fill: 'rgba(255,255,255,0.06)' }}             // 預設 hover 底色是淺灰塊，深底上刺眼
@@ -96,10 +97,10 @@ export default function DayTradeAnalysis() {
 
       {report.byCode.length > 1 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>🏆 個股當沖排行</div>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED, marginBottom: 6 }}>🏆 個股當沖排行</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {report.byCode.slice(0, 10).map(c => (
-              <span key={c.code} style={{ padding: '4px 8px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: 'calc(12px * var(--fz))', whiteSpace: 'nowrap' }}>
+              <span key={c.code} style={{ padding: '4px 8px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap' }}>
                 <strong>{c.code}</strong> <span style={{ color: MUTED }}>{c.name}</span>
                 <span style={{ fontFamily: mono, fontWeight: 700, color: c.net >= 0 ? RED : GREEN, marginLeft: 6 }}>{money(c.net)}</span>
                 <span style={{ color: MUTED, marginLeft: 4 }}>{c.count} 趟·勝 {c.winRate.toFixed(0)}%</span>
@@ -146,13 +147,13 @@ export default function DayTradeAnalysis() {
             </tbody>
           </table>
           {report.rows.length > 12 && (
-            <button onClick={() => setShowAll(v => !v)} style={{ marginTop: 8, background: 'none', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '4px 10px', color: MUTED, cursor: 'pointer', fontSize: 'calc(12px * var(--fz))' }}>
+            <button onClick={() => setShowAll(v => !v)} style={{ marginTop: 8, background: 'none', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '4px 10px', color: MUTED, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))' }}>
               {showAll ? '收合' : `展開全部 ${report.rows.length} 趟`}
             </button>
           )}
         </div>
       )}
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED, marginTop: 10 }}>非投資建議。當沖證交稅減半（0.15%）依現行政策，以主管機關公告為準。</div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED, marginTop: 10 }}>非投資建議。當沖證交稅減半（0.15%）依現行政策，以主管機關公告為準。</div>
     </div>
   );
 }

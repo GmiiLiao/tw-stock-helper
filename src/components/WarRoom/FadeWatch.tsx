@@ -49,14 +49,14 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
           <span onClick={e => e.stopPropagation()}><AddCandidateButton code={s.code} variant="icon" /></span>
           <span onClick={e => { e.stopPropagation(); navigateTo('stock', s.code); }} style={{ fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", textDecoration: 'underline dotted' }}>{s.code}</span>
           <span title={s.name} style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name} {(() => { const st = statusOf(dt, s.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={s.code} size="xs" /></span>
-          <span style={{ fontSize: 'calc(12px * var(--fz))', textAlign: 'center', color: s.market === 'otc' ? '#f59e0b' : '#3d8ef8' }}>{s.market === 'otc' ? '櫃' : '市'}</span>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', textAlign: 'center', color: s.market === 'otc' ? '#f59e0b' : '#3d8ef8' }}>{s.market === 'otc' ? '櫃' : '市'}</span>
           <span style={NUM('var(--text-primary)', 700)}>{s.price}</span>
           <span style={NUM(m.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)', 800)}>{pct(m.chg)}</span>
           <span style={NUM('var(--color-up)')}>{pct(m.hiUp)}</span>
           <span style={NUM('var(--color-down)', 800)}>−{m.give.toFixed(1)}</span>
           <span title={`量比 ${m.volX.toFixed(1)}x ÷ 已過時段 → 全日節奏 ${m.pace.toFixed(1)}x`} style={NUM(m.pace >= 2 ? '#f59e0b' : 'var(--text-muted)')}>{m.pace ? `${m.pace.toFixed(1)}x` : '—'}</span>
           <span style={NUM(m.aboveVwap == null ? 'var(--text-muted)' : m.aboveVwap ? 'var(--color-up)' : 'var(--color-down)')}>{m.aboveVwap == null ? '—' : m.aboveVwap ? '上' : '下'}</span>
-          <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12px * var(--fz))' }}>{tag}</span>
+          <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))' }}>{tag}</span>
         </div>
         {open && (
           <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
@@ -68,7 +68,7 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
   };
 
   const header = (
-    <div style={{ display: 'grid', gridTemplateColumns: GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
       <span /><span /><span>代號</span><span>名稱</span><span style={{ textAlign: 'center' }}>市</span>
       <span style={{ textAlign: 'right' }}>即時</span><span style={{ textAlign: 'right' }}>漲跌</span>
       <span title="今日最高相對昨收" style={{ textAlign: 'right' }}>最高漲幅</span>
@@ -87,7 +87,7 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
           顯示
           {(['A', 'B', 'C'] as Tier[]).map(t => (
             <button key={t} onClick={() => { setMinTier(t); setOpenCode(null); }}
-              style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 700,
+              style={{ padding: '2px 10px', borderRadius: 999, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700,
                 background: minTier === t ? TIER_STYLE[t].bg : 'transparent', color: minTier === t ? TIER_STYLE[t].c : 'var(--text-muted)' }}>
               {t === 'A' ? '只看強訊號' : t === 'B' ? '強＋中' : '全部'}
             </button>
@@ -120,7 +120,7 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
         </div>
       </div>
 
-      <div style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         數字來自 60 個交易日 5 分 K 逐根回放（2026-07-03～09-23；前 60% 日為訓練、後 40% 為樣本外）：型態<b>成立那一根</b>賣出、官方收盤回補，淨報酬已扣當沖成本 0.435%（手續費未含折讓、未含滑價）。
         不分辨型態一律放空的樣本外淨均為 −0.35%，本頁只列兩段皆為正者。停損：進場後逆向最大幅度中位 1.6～2.4%，回放中 3% 停損優於 2%。
         樣本只有 60 天、強訊號樣本外僅 60～70 筆，數字會隨時間修正；平盤下放空與券源限制依券商規定。非投資建議。

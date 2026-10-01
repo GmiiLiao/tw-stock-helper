@@ -33,8 +33,8 @@ const typeStyle: Record<string, { bg: string; fg: string }> = { 穩健: { bg: 'r
 // 即時狀態小提示：漲停鎖死（買不到）／跌停
 function LiveChip({ chg }: { chg?: number }) {
   if (chg == null) return null;
-  if (chg >= 9.5) return <span title="即時已達漲停（鎖死買不到）" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(240,62,62,0.16)', color: UP, fontWeight: 800 }}>🔒漲停</span>;
-  if (chg <= -9.5) return <span title="即時已達跌停" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(47,158,68,0.16)', color: DOWN, fontWeight: 800 }}>跌停</span>;
+  if (chg >= 9.5) return <span title="即時已達漲停（鎖死買不到）" style={{ marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(240,62,62,0.16)', color: UP, fontWeight: 800 }}>🔒漲停</span>;
+  if (chg <= -9.5) return <span title="即時已達跌停" style={{ marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(47,158,68,0.16)', color: DOWN, fontWeight: 800 }}>跌停</span>;
   return null;
 }
 
@@ -106,7 +106,7 @@ export default function SwingHoldBoard() {
     const ga = new Set(a.map(i => i.code));
     return new Set(b.filter(i => ga.has(i.code)).map(i => i.code));
   }, [tab, data, board]);
-  const bothMark = (code: string) => bothSet.has(code) ? <span title="雙榜：同窗同時進漲幅榜與淨額榜前 25 名（漲得多、每張也賺得多）" style={{ marginLeft: 4, fontSize: 'calc(11px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(245,158,11,0.16)', color: '#f59e0b', fontWeight: 800 }}>⭐雙榜</span> : null;
+  const bothMark = (code: string) => bothSet.has(code) ? <span title="雙榜：同窗同時進漲幅榜與淨額榜前 25 名（漲得多、每張也賺得多）" style={{ marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))', padding: '0 5px', borderRadius: 5, background: 'rgba(245,158,11,0.16)', color: '#f59e0b', fontWeight: 800 }}>⭐雙榜</span> : null;
   const codes = useMemo(() => {
     const main = (tab === 'combo' ? (rankBy === 'amt' && data?.combo?.byAmt ? data.combo.byAmt : data?.combo?.items) : (rankBy === 'amt' && board?.byAmt) ? board.byAmt : board?.items)?.map(i => i.code) ?? [];
     const drop = (tab === 'combo' ? data?.dropped?.combo : data?.dropped?.windows?.[tab])?.map(i => i.code) ?? [];
@@ -149,7 +149,7 @@ export default function SwingHoldBoard() {
     const q = quotes[code];
     if (!q?.price) return <span style={{ color: MUTED }}>—</span>;
     const d = (q.price / price - 1) * 100;
-    return <span style={{ color: d >= 0 ? UP : DOWN }} title="即時價（相對資料日收盤）">{q.price.toFixed(2)} <span style={{ fontSize: 'calc(11.5px * var(--fz))' }}>{d >= 0 ? '+' : ''}{d.toFixed(1)}%</span></span>;
+    return <span style={{ color: d >= 0 ? UP : DOWN }} title="即時價（相對資料日收盤）">{q.price.toFixed(2)} <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{d >= 0 ? '+' : ''}{d.toFixed(1)}%</span></span>;
   };
   const nameCell = (it: { code: string; name: string; ma?: MaFlags }) => (
     <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit' }}>
@@ -185,7 +185,7 @@ export default function SwingHoldBoard() {
         ))}
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
           {([['gain', '📈 漲幅榜'], ['amt', '💰 淨額榜']] as [Rank, string][]).map(([r, label]) => (
-            <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（未扣費稅，請自行換算）；連漲天數只是標記。整合榜與四個窗都有' : '以區間漲幅％排序'} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
+            <button key={r} onClick={() => { setRankBy(r); setOpenCode(null); }} title={r === 'amt' ? '以「一張賺多少元」排序（未扣費稅，請自行換算）；連漲天數只是標記。整合榜與四個窗都有' : '以區間漲幅％排序'} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, background: rankBy === r ? 'var(--bg-elevated)' : 'transparent', color: rankBy === r ? 'var(--text-primary)' : MUTED }}>{label}</button>
           ))}
         </span>
       </div>
@@ -199,33 +199,33 @@ export default function SwingHoldBoard() {
         {!lookup && lookupCands.length ? (
           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
             <span style={{ color: MUTED }}>符合「{lookupQ}」的有：</span>
-            {lookupCands.map(([c, n]) => <button key={c} onClick={() => { setLookup(c); setLookupCands([]); if (lookupRef.current) lookupRef.current.value = `${c} ${n}`; }} style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', fontFamily: mono }}>{c} {n}</button>)}
+            {lookupCands.map(([c, n]) => <button key={c} onClick={() => { setLookup(c); setLookupCands([]); if (lookupRef.current) lookupRef.current.value = `${c} ${n}`; }} style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', fontFamily: mono }}>{c} {n}</button>)}
           </span>
         ) : null}
         {!lookup && lookupQ && !lookupCands.length && !/^\d+$/.test(lookupQ) ? <span style={{ color: MUTED }}>找不到名稱含「{lookupQ}」的股票</span> : null}
         {lookup ? (hits.length ? (
           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
             {hits.map(h => (
-              <button key={h.tab + h.rank} onClick={() => jumpTo(h)} title="跳到該列" style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: h.rank === 'amt' ? 'rgba(245,158,11,0.10)' : 'rgba(240,62,62,0.10)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12px * var(--fz))' }}>{h.label}｜{h.text}</button>
+              <button key={h.tab + h.rank} onClick={() => jumpTo(h)} title="跳到該列" style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: h.rank === 'amt' ? 'rgba(245,158,11,0.10)' : 'rgba(240,62,62,0.10)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))' }}>{h.label}｜{h.text}</button>
             ))}
             {bothAnywhere(hits) ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>⭐雙榜</span> : null}
             <RiskBadge code={lookup} size="xs" />
-            {dropHits.map(t => <span key={t} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.12)', color: MUTED, fontSize: 'calc(12px * var(--fz))' }}>{t}</span>)}
+            {dropHits.map(t => <span key={t} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.12)', color: MUTED, fontSize: 'calc(12.5px * var(--fz))' }}>{t}</span>)}
           </span>
-        ) : <span style={{ color: MUTED, display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}><span>{lookup} {allStocks.find(x => x.code === lookup)?.name || ''} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>{dropHits.map(t => <span key={t} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: 'calc(12px * var(--fz))' }}>{t}</span>)}</span>) : null}
+        ) : <span style={{ color: MUTED, display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}><span>{lookup} {allStocks.find(x => x.code === lookup)?.name || ''} 不在本資料日的任何波段持有榜上（宇宙門檻：{data.liquidityGate}；正報酬才入榜）</span>{dropHits.map(t => <span key={t} style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: 'calc(12.5px * var(--fz))' }}>{t}</span>)}</span>) : null}
       </div>
       {data.caveats?.length ? (
-        <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#f59e0b', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.5 }}>
           {data.caveats.map((c, i) => <div key={i}>⚠ {c}</div>)}
         </div>
       ) : null}
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, lineHeight: 1.5 }}>📐 {data.method}</div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED, lineHeight: 1.5 }}>📐 {data.method}</div>
 
       <div style={{ overflowX: 'auto' }}>
-        {tab === 'combo' && rankBy === 'amt' && !comboAmt ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無淨額整合榜（2026-09-18 起才產出），下方為漲幅整合榜。</div> : null}
+        {tab === 'combo' && rankBy === 'amt' && !comboAmt ? <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無淨額整合榜（2026-09-18 起才產出），下方為漲幅整合榜。</div> : null}
         {tab === 'combo' && comboAmt ? (
           <>
-            <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}｜整合＝四窗每張淨額榜的上榜數＋Σ(26−名次)</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}｜整合＝四窗每張淨額榜的上榜數＋Σ(26−名次)</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
               <thead><tr>
                 <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤</th><th style={head}>即時</th>
@@ -240,7 +240,7 @@ export default function SwingHoldBoard() {
                     <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={it.seqWin} /></td>
                     <td style={{ ...cell, fontWeight: 700, color: it.boards >= 3 ? UP : 'var(--text-primary)' }}>{it.boards}/4</td><td style={cell}>{it.score}</td>
                     {['d5', 'd10', 'd20', 'd60'].map(k => <td key={k} style={{ ...cell, color: it.amts?.[k] != null ? UP : MUTED }}>{it.amts?.[k] != null ? `${it.amts[k].toLocaleString()} (#${it.ranks[k]})` : '—'}</td>)}
-                    <td style={{ ...cell, fontFamily: 'inherit' }}>{it.streak >= 2 ? <span style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(240,62,62,0.14)', color: UP, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700 }}>🔥 連漲 {it.streak} 日</span> : <span style={{ color: MUTED }}>{it.streak} 日</span>}</td>
+                    <td style={{ ...cell, fontFamily: 'inherit' }}>{it.streak >= 2 ? <span style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(240,62,62,0.14)', color: UP, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }}>🔥 連漲 {it.streak} 日</span> : <span style={{ color: MUTED }}>{it.streak} 日</span>}</td>
                     <td style={cell}>{it.amtM.toLocaleString()}</td>
                   </tr>,
                   chartRow(it, 13),
@@ -271,13 +271,13 @@ export default function SwingHoldBoard() {
           </table>
         ) : board ? (
           <>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginBottom: 6 }}>
               <span>區間 {board.from} → {board.to}（{board.window} 個交易日）｜正報酬 {board.eligible} 檔，取前 25</span>
             </div>
-            {rankBy === 'amt' && !amtList ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無淨額榜（2026-09-18 起才產出），下方為漲幅榜。</div> : null}
+            {rankBy === 'amt' && !amtList ? <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', marginBottom: 6 }}>⚠ 這個資料日尚無淨額榜（2026-09-18 起才產出），下方為漲幅榜。</div> : null}
             {amtList ? (
               <>
-                <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
                   <thead><tr>
                     <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>起 → 收</th>
@@ -292,10 +292,10 @@ export default function SwingHoldBoard() {
                         <td style={{ ...cell, fontWeight: 800, color: UP }}>{(it.amtNet ?? 0).toLocaleString()}</td>
                         <td style={{ ...cell, color: UP }}>+{it.gain}%</td><td style={cell}>{liveCell(it.code, it.price)}</td>
                         <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={board.window} /></td>
-                        <td style={{ ...cell, fontFamily: 'inherit' }}>{it.streak >= 2 ? <span style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(240,62,62,0.14)', color: UP, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700 }}>🔥 連漲 {it.streak} 日</span> : <span style={{ color: MUTED }}>{it.streak} 日</span>}</td>
+                        <td style={{ ...cell, fontFamily: 'inherit' }}>{it.streak >= 2 ? <span style={{ padding: '1px 6px', borderRadius: 6, background: 'rgba(240,62,62,0.14)', color: UP, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }}>🔥 連漲 {it.streak} 日</span> : <span style={{ color: MUTED }}>{it.streak} 日</span>}</td>
                         <td style={cell}>{it.maxStreak}</td>
                         <td style={{ ...cell, color: it.maxDD > 12 ? '#f97316' : MUTED }}>−{it.maxDD}%</td>
-                        <td style={{ ...cell, fontFamily: 'inherit' }}><span style={{ padding: '1px 6px', borderRadius: 6, background: typeStyle[it.type].bg, color: typeStyle[it.type].fg, fontSize: 'calc(11.5px * var(--fz))' }}>{it.type}</span></td>
+                        <td style={{ ...cell, fontFamily: 'inherit' }}><span style={{ padding: '1px 6px', borderRadius: 6, background: typeStyle[it.type].bg, color: typeStyle[it.type].fg, fontSize: 'calc(12.5px * var(--fz))' }}>{it.type}</span></td>
                         <td style={cell}>{it.amtM.toLocaleString()}</td>
                       </tr>,
                       chartRow(it, 12),
@@ -318,7 +318,7 @@ export default function SwingHoldBoard() {
                     <td style={{ ...cell, textAlign: 'center' }}><SeqBars seq={it.seq} win={board.window} /></td>
                     <td style={cell}>{it.up}/{board.window}</td><td style={cell}>{it.maxStreak}</td><td style={cell}>{it.streak}</td>
                     <td style={{ ...cell, color: it.maxDD > 12 ? '#f97316' : MUTED }}>−{it.maxDD}%</td>
-                    <td style={{ ...cell, fontFamily: 'inherit' }}><span style={{ padding: '1px 6px', borderRadius: 6, background: typeStyle[it.type].bg, color: typeStyle[it.type].fg, fontSize: 'calc(11.5px * var(--fz))' }}>{it.type}</span></td>
+                    <td style={{ ...cell, fontFamily: 'inherit' }}><span style={{ padding: '1px 6px', borderRadius: 6, background: typeStyle[it.type].bg, color: typeStyle[it.type].fg, fontSize: 'calc(12.5px * var(--fz))' }}>{it.type}</span></td>
                     <td style={cell}>{it.amtM.toLocaleString()}</td>
                   </tr>,
                   chartRow(it, 12),
@@ -336,7 +336,7 @@ export default function SwingHoldBoard() {
         return (
           <div style={{ border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.05)', borderRadius: 8, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-primary)', fontWeight: 700 }}>🚪 離榜清單（提醒下車）— {title}｜{dr.prevDate ? `上一資料日 ${dr.prevDate} 在榜、本資料日 ${data.dataDate} 不在` : '沒有上一資料日的定版，無法比對'}{dr.error ? `｜⚠ ${dr.error}` : ''}</div>
-            {!dr.prevDate ? null : !list?.length ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: MUTED }}>本窗無離榜股。</div> : (
+            {!dr.prevDate ? null : !list?.length ? <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED }}>本窗無離榜股。</div> : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
                   <thead><tr>
@@ -360,11 +360,11 @@ export default function SwingHoldBoard() {
                 </table>
               </div>
             )}
-            <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>{dr.note}</div>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED }}>{dr.note}</div>
           </div>
         );
       })()}
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額＝價差×1000，未扣費稅，還原價口徑，高價股天生佔優。⭐雙榜＝同窗同時進兩榜前 25 名。兩榜都是回顧不是進場訊號。非投資建議。</div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED }}>穩健＝上漲日 ≥60% 且最大回檔 ≤8%；劇烈＝最大回檔 ＞12%。平盤日不算上漲也不中斷連漲。每張淨額＝價差×1000，未扣費稅，還原價口徑，高價股天生佔優。⭐雙榜＝同窗同時進兩榜前 25 名。兩榜都是回顧不是進場訊號。非投資建議。</div>
     </div>
   );
 }

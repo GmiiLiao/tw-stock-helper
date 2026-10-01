@@ -75,12 +75,12 @@ export default function ShortPanel() {
         }}>
           {active ? `🐻 偏空日（健康度 ${data.health}）` : `⏸ 多頭日（健康度 ${data.health ?? '—'}）`}·當沖空參考
         </span>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           資料日 {data.dataDate ?? '—'} · 過濾後 {data.totalPassed} 檔 · 入榜 {data.items.length}
         </span>
       </div>
 
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
         資格層：可先賣現股當沖·非處置股·非除權息回補期(14日)·20日均額&gt;5000萬｜
         風控層：<b>軋空候選榜反查排除</b>·券資比&gt;15%排除｜至少兩訊號共振才入榜。
         {data.skippedFilters?.length > 0 && (
@@ -89,7 +89,7 @@ export default function ShortPanel() {
       </div>
 
       {review?.latestDay && (
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: 10, padding: '6px 10px', borderRadius: 6,
+        <div style={{ fontSize: 'calc(13px * var(--fz))', marginBottom: 10, padding: '6px 10px', borderRadius: 6,
           background: 'rgba(30,41,59,0.6)', color: 'var(--text-secondary, #cbd5e1)' }}>
           📋 昨日榜回顧（{review.latestDay.boardDate}·{review.latestDay.n} 檔）：
           今日<b style={{ color: review.latestDay.winRate >= 50 ? 'var(--color-up)' : 'var(--color-down)' }}>勝率 {review.latestDay.winRate}%</b>
@@ -124,12 +124,12 @@ export default function ShortPanel() {
               >
                 {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
               </button>
-              <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
+              <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12.5px * var(--fz))' }}>↗</button>
               <AddCandidateButton code={it.code} variant="icon" />
               <span style={{ fontWeight: 700, color: it.chg < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
                 {it.price}（{it.chg > 0 ? '+' : ''}{it.chg}%）
               </span>
-              {it.open != null && <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>開 {it.open}</span>}
+              {it.open != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>開 {it.open}</span>}
               {isTwTradingHours() && live[it.code] && (() => {
                 const q = live[it.code];
                 if (!(q.price > 0) || !(q.prevClose > 0)) return null;
@@ -152,14 +152,14 @@ export default function ShortPanel() {
                   </span>
                 );
               })()}
-              {it.newAt && <span style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.4)', borderRadius: 4, padding: '1px 5px' }}>NEW {it.newAt}</span>}
-              {it.industry && <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{it.industry}</span>}
-              <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+              {it.newAt && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.4)', borderRadius: 4, padding: '1px 5px' }}>NEW {it.newAt}</span>}
+              {it.industry && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{it.industry}</span>}
+              <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                 分數 {it.score} · 券資比 {it.shortRatio ?? '—'}%
                 {it.dayTradeShort === true ? ' · 可先賣當沖' : it.dayTradeShort === null ? ' · 當沖資格未知' : ''}
                 {it.coverDays != null && <b style={{ color: '#f59e0b' }}> · ⏳回補倒數{it.coverDays}日</b>}
               </span>
-              <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary, #cbd5e1)', flexBasis: '100%' }}>
+              <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary, #cbd5e1)', flexBasis: '100%' }}>
                 {it.reasons.join('｜')}
                 {it.verdictReason && (
                   <button onClick={() => setExpanded(expanded === it.code ? null : it.code)}
@@ -169,13 +169,13 @@ export default function ShortPanel() {
                 )}
               </span>
               {it.support != null && (
-                <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', flexBasis: '100%' }}>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flexBasis: '100%' }}>
                   近月支撐 {it.support}（{it.supportPct}%·參考獲利區）｜MA20 壓力 {it.resist}（{(it.resistPct ?? 0) > 0 ? '+' : ''}{it.resistPct}%·參考停損）
                   {it.lend != null && <span>｜借券餘 {it.lend?.toLocaleString?.() ?? it.lend}{it.lendChgPct != null ? `（日增 ${it.lendChgPct}% 均量）` : ''}</span>}
                 </span>
               )}
               {expanded === it.code && it.verdictReason && (
-                <div style={{ flexBasis: '100%', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-secondary, #cbd5e1)',
+                <div style={{ flexBasis: '100%', fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary, #cbd5e1)',
                   background: 'rgba(15,23,42,0.6)', borderRadius: 6, padding: '6px 10px', lineHeight: 1.6 }}>
                   🤖 AI 利空判別：{it.verdictReason}
                   {it.verdictQuote && <div style={{ color: 'var(--text-muted)' }}>「{it.verdictQuote}」</div>}
@@ -191,7 +191,7 @@ export default function ShortPanel() {
         </div>
       )}
 
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.6 }}>
         ⚠ 空單虧損不對稱（理論無上限）——本榜已先排除軋空候選與高券資比標的，但仍須自設停損。
         📊 雙重回測結論（EXPERIMENTS ⑦+v2·可執行口徑+成本 2.8 折實算）：機械因子排序
         <b>確認無選股優勢</b>——當沖空扣成本後貼零（-0.02%），且「挑弱勢股」輸給同宇宙隨機

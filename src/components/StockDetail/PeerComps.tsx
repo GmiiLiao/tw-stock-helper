@@ -55,7 +55,7 @@ export default function PeerComps({ code }: { code: string }) {
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>共 {data.peers.length} 檔{rank ? ` · 本股評分排名第 ${rank}` : ''}{data.month ? ` · 營收月份 ${data.month}` : ''}</span>
       </div>
       {verdicts.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: 'var(--bg-tertiary)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: 'var(--bg-tertiary)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
           {verdicts.map(v => <div key={v}>• {v}</div>)}
         </div>
       )}
@@ -112,7 +112,7 @@ export default function PeerComps({ code }: { code: string }) {
           </tbody>
         </table>
       </div>
-      {data.peers.length > 30 && <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>依技術評分（未含處置／注意扣分）排序，顯示前 30／{data.peers.length} 檔。</div>}
+      {data.peers.length > 30 && <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>依技術評分（未含處置／注意扣分）排序，顯示前 30／{data.peers.length} 檔。</div>}
     </div>
   );
 }

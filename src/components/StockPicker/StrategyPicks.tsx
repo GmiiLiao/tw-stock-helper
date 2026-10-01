@@ -118,7 +118,7 @@ export default function StrategyPicks() {
     <div style={{ padding: '36px 20px', textAlign: 'center', border: '1px solid var(--border-primary)', borderRadius: 12, background: 'var(--bg-elevated)' }}>
       <div style={{ fontSize: 'calc(28px * var(--fz))', marginBottom: 8 }}>🔒</div>
       <div style={{ fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))', marginBottom: 6 }}>選股策略為高級會員功能</div>
-      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.9 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         包含五種經一年實測驗證的隔日沖策略（勝率 54%~64%）每日候選清單、<br />
         大盤 MA20 濾網紅綠燈、多重共識標記與完整操作 SOP。
       </div>
@@ -139,7 +139,7 @@ export default function StrategyPicks() {
       </div>
       {/* 今日盤型即時警示改放「即時追蹤」頁；此處僅留一行提示導向 */}
       <MarketPatternHint onNavigate={() => navigateTo('tracker')} />
-      <div style={{ margin: '2px 0 6px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: 1 }}>
+      <div style={{ margin: '2px 0 6px', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)' }}>
         ▼ 前日盤後選股策略（回答「買什麼」，收盤資料計算）
       </div>
       {d.regime && (
@@ -166,7 +166,7 @@ export default function StrategyPicks() {
           })()}
         </div>
       )}
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8, marginBottom: 14, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 14, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
         {RULES.map(r => <div key={r}>• {r}</div>)}
       </div>
 
@@ -194,7 +194,7 @@ export default function StrategyPicks() {
         return (
           <div key={key} style={{ marginBottom: 18, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 800 }}>{st.icon} {st.name}</span>
+              <span style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))' }}>{st.icon} {st.name}</span>
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }}>
                 勝率 <b style={{ color: st.winRate >= 57 ? 'var(--color-up)' : '#f59e0b' }}>{st.winRate}%</b>
                 {' · '}平均 <b style={{ color: 'var(--color-up)' }}>+{st.avgRet}%</b>/筆
@@ -213,8 +213,9 @@ export default function StrategyPicks() {
                 {st.note}
               </div>
             )}
+            {/* 2026-10-01 使用者：說明區字體太小、行距太開——改標準字級並收緊行高；卡片標題同步給 14px 維持層級 */}
             {opsOpen === key && OPS[key] && (
-              <div style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 2, color: 'var(--text-secondary)' }}>
+              <div style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
                 {OPS[key].map(s => <div key={s}>{s}</div>)}
               </div>
             )}

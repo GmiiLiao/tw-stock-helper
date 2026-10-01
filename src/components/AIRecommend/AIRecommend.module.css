@@ -25,7 +25,7 @@
 }
 
 .pageSubtitle {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9375rem * var(--fz));
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -148,7 +148,7 @@
 }
 
 .tabLabel {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
 }
 
@@ -362,7 +362,7 @@
 
 .quickInfoValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -436,12 +436,11 @@
 
 
 .detailTitle {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(1rem * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   margin-bottom: 8px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* Factor Bars */
@@ -558,7 +557,7 @@
   padding: 24px;
   text-align: center;
   color: var(--text-muted);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 .newsItem {
@@ -739,9 +738,10 @@
   background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(167,139,250,0.02));
   border: 1px solid rgba(167,139,250,0.25);
 }
+/* 2026-10-01 使用者：判讀區字體太小、行距太開——改標準字級並收緊行高（保留 rem，≥1600px 根字級放大時不會縮回；標題 .detailTitle 同步升到 1rem（基準 14px）、與內文同用 rem，寬螢幕下標題仍大於內文） */
 .aiNoteBody {
-  font-size: calc(0.84rem * var(--fz));
-  line-height: 1.7;
+  font-size: calc(0.965rem * var(--fz));
+  line-height: 1.6;
   color: var(--text-secondary);
   white-space: pre-wrap;
   margin-top: 6px;

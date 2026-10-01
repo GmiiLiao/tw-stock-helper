@@ -84,7 +84,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
 
       {/* 白話敘事（qwythos 歸因，30分更新） */}
       {data.narrative?.text && (
-        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', marginBottom: 10, fontSize: 'calc(13px * var(--fz))', lineHeight: 1.7 }}>
+        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', marginBottom: 10, fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
           🗣 {data.narrative.text}
           <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>
             AI 判讀 {new Date(data.narrative.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Taipei' })}
@@ -113,7 +113,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                 </span>
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>強勢 {t.strong}/{t.members}</span>
                 {t.wChg != null && <span title="題材成員成交值加權漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono', monospace", color: t.wChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{t.wChg >= 0 ? '+' : ''}{t.wChg}%</span>}
-                {t.valueShare != null && <span title="題材成交值占全市場比重——越大代表越多資金在這裡" style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>資金 {t.valueShare}%</span>}
+                {t.valueShare != null && <span title="題材成交值占全市場比重——越大代表越多資金在這裡" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>資金 {t.valueShare}%</span>}
                 {t.limitUps > 0 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f03e3e', fontWeight: 800 }}>漲停{t.limitUps}</span>}
                 {cb && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: cb.color, fontWeight: 700 }}>{cb.text}</span>}
                 {dm && <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: dm.color, fontWeight: 700 }}>{dm.icon} {drv!.type}</span>}
@@ -121,7 +121,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
               {open && (
                 <div style={{ padding: '2px 10px 8px 32px', fontSize: 'calc(12.5px * var(--fz))', display: 'grid', gap: 5 }}>
                   {drv && (
-                    <div style={{ color: 'var(--text-secondary)', lineHeight: 1.65 }}>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
                       {dm?.icon} <b style={{ color: dm?.color }}>{drv.type}</b>：{drv.text}
                       {drv.type === '證據弱' && <span style={{ color: 'var(--text-muted)' }}>（新聞無直接證據，屬推測）</span>}
                     </div>

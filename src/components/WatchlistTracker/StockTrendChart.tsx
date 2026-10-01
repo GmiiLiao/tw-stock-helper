@@ -628,7 +628,7 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
       </div>
 
       {mode === 'rt' && showPrev && (
-        <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: '#94a3b8', padding: '2px 8px 0' }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#94a3b8', padding: '2px 8px 0' }}>
           {prevDay
             ? <>┈┈ 昨日 {prevDay.date}：開 {prevDay.open.toFixed(2)}・高 {prevDay.high.toFixed(2)}・低 {prevDay.low.toFixed(2)}・收 {prevDay.close.toFixed(2)}（虛線；以同一時刻對齊）</>
             : prevErr ? <>⚠ {prevErr}</> : <>昨日分時載入中…</>}

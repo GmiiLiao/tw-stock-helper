@@ -383,7 +383,6 @@
   font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   font-weight: 500;
-  letter-spacing: 0.02em;
 }
 
 .roleBadge {
@@ -471,7 +470,6 @@
   color: var(--text-muted);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .dropdownItem {

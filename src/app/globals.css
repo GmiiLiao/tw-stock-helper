@@ -309,7 +309,6 @@ body {
   font-weight: 600;
   font-size: calc(12.5px * var(--fz));
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border-primary);

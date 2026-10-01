@@ -39,7 +39,6 @@
   color: var(--text-muted);
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .statIcon {
@@ -271,7 +270,6 @@
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-primary);
 }
@@ -395,8 +393,8 @@
   background: rgba(125, 211, 252, .14);
   color: var(--text-primary);
 }
-.dashTabTop { font-size: calc(.88rem * var(--fz)); font-weight: 900; }
-.dashTabHint { font-size: calc(12px * var(--fz)); color: var(--text-muted); font-weight: 400; }
+.dashTabTop { font-size: calc(0.9375rem * var(--fz)); font-weight: 900; }
+.dashTabHint { font-size: calc(12.5px * var(--fz)); color: var(--text-muted); font-weight: 400; }
 
 /* ── 市場結構三欄：風向總覽 × 籌碼訊號 × 第四法人 ──────────────────
    auto-fit 讓寬螢幕三欄、中等兩欄、手機單欄；align-items:start 避免

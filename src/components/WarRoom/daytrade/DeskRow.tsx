@@ -59,7 +59,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
     <span title={sc.missing.length ? `缺：${sc.missing.join('、')}（未知不當 0、不等比放大）` : '全部子項已知'} style={{ ...NUM, fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: 'rgba(148,163,184,0.12)', color: sc.tier ? TIER_C[sc.tier] : 'var(--text-primary)' }}>
       {sc.total}/{sc.knownMax}{sc.tier ? `·${sc.tier}` : sc.missing.length ? '·待確認' : ''}
     </span>
-  ) : <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>未監控</span>;
+  ) : <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>未監控</span>;
 
   return (
     <div className={cls} data-anchor={code} style={{ borderRadius: 8, marginTop: 4, ...(cls === 'dt-row' ? { background: open ? 'rgba(61,142,248,0.10)' : 'rgba(148,163,184,0.05)' } : {}) }}>
@@ -67,7 +67,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
         {/* ① 代號・價 */}
         <div style={{ display: 'grid', gridTemplateColumns: `1.6em 1.8em 3.7em minmax(0, 1fr) auto 4.8em ${L ? '5.2em' : '7em'}`, columnGap: 6, alignItems: 'center' }}>
           <span style={{ fontWeight: 900, textAlign: 'center', color: isOn ? (L ? 'var(--color-up)' : 'var(--color-down)') : '#f59e0b' }}>{isOn ? (L ? '▲' : '▼') : isStop ? '🏁' : ''}</span>
-          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', fontWeight: 700 }}>{base?.rank ?? '·'}</span>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 700 }}>{base?.rank ?? '·'}</span>
           <span onClick={e => { e.stopPropagation(); navigateTo('stock', code); }} style={{ ...NUM, fontWeight: 800, textDecoration: 'underline dotted' }}>{code}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
             <span title={name} style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{name}</span>
@@ -77,7 +77,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
           </span>
           {scorePill}
           <span style={{ ...NUM, textAlign: 'right', fontWeight: 700 }}>{price ?? '—'}</span>
-          <span title={L ? '今日漲跌' : '今日漲跌（做空候選＝今天已漲、等轉弱；不是放空損益）'} style={{ ...NUM, textAlign: 'right', fontWeight: 800, color: upDn(chg) }}>{L ? '' : <span style={{ fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>今日</span>}{pct(chg)}</span>
+          <span title={L ? '今日漲跌' : '今日漲跌（做空候選＝今天已漲、等轉弱；不是放空損益）'} style={{ ...NUM, textAlign: 'right', fontWeight: 800, color: upDn(chg) }}>{L ? '' : <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>今日</span>}{pct(chg)}</span>
         </div>
         {/* 一行重點 */}
         <KeyLine L={L} isOn={isOn} isStop={isStop} act={act} w={w} pEntry={pEntry} pStop={pStop} targets={targets} lp={lp} expire={expire} desk={desk} now={now} />
@@ -85,7 +85,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
       {open && (
         <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
         {/* ② 分數＋setup 狀態 */}
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 'calc(12px * var(--fz))', marginTop: 2, color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 'calc(12.5px * var(--fz))', marginTop: 2, color: 'var(--text-muted)' }}>
           {sc ? (['market', 'stock', 'entry'] as const).map(k => (
             <span key={k} style={NUM}>{k === 'market' ? 'M' : k === 'stock' ? 'S' : 'E'} <b style={{ color: 'var(--text-primary)' }}>{sc.parts[k].score}</b>/{sc.parts[k].knownMax}{sc.parts[k].knownMax < sc.parts[k].max ? <span title="有未知子項">*</span> : null}</span>
           )) : <span>{base?.label} · VWAP 乖離 {pct(base?.vwapDev)} · 最高 {pct(base?.hiUp, 1)}</span>}
@@ -95,7 +95,7 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
         </div>
         {/* ③ 計畫 */}
         {pEntry != null && pStop != null && targets ? (
-          <div style={{ ...NUM, fontSize: 'calc(12px * var(--fz))', marginTop: 2, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ ...NUM, fontSize: 'calc(12.5px * var(--fz))', marginTop: 2, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <span>{act ? '假設進場' : '觸發'} <b>{pEntry}</b></span>
             <span>停 <b style={{ color: '#f59e0b' }}>{act?.trail != null && act.trail !== act.stop ? `${act.trail}（原 ${pStop}）` : pStop}</b></span>
             <span>1R {d?.toFixed(2)}</span>
@@ -106,14 +106,14 @@ export default function DeskRow({ base, desk, now, risk, broker, dtStatus }: Des
           </div>
         ) : null}
         {/* ④ 否決／警訊／出場／名單理由 */}
-        <div title={base?.reason} style={{ fontSize: 'calc(12px * var(--fz))', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div title={base?.reason} style={{ fontSize: 'calc(12.5px * var(--fz))', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {isStop && act?.exit ? <span style={{ color: '#f59e0b', fontWeight: 800 }}>🏁 {L ? '出場' : '回補'} {hhmm(act.exit.t)} @{act.exit.px}·{act.exit.reason}·淨 {act.netR != null ? `${act.netR >= 0 ? '+' : ''}${act.netR}R` : '—'}（日誌口徑成本）</span>
             : desk?.vetoed && now - desk.vetoed.t < STOP_KEEP_MS ? <span style={{ color: '#f59e0b' }}>⛔ 否決 {desk.vetoed.type} {hhmm(desk.vetoed.t)}：{desk.vetoed.veto.join('；')}</span>
             : desk?.warnings?.length ? <span style={{ color: '#f59e0b' }}>⚠ {desk.warnings.join('、')}</span>
             : <span style={{ color: 'var(--text-muted)' }}>{base?.reason ?? ''}</span>}
         </div>
           {sc && <ScoreTable items={[...sc.market, ...sc.stock, ...sc.entry]} />}
-          {desk?.orb && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', margin: '4px 0' }}>開盤區間（{hhmm(desk.orb.formedAt)} 形成）開 {desk.orb.O}·高 {desk.orb.H}·低 {desk.orb.L}·今日假突破 {desk.falseBreaks} 次</div>}
+          {desk?.orb && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', margin: '4px 0' }}>開盤區間（{hhmm(desk.orb.formedAt)} 形成）開 {desk.orb.O}·高 {desk.orb.H}·低 {desk.orb.L}·今日假突破 {desk.falseBreaks} 次</div>}
           <StockTrendChart code={code} name={name} closePrice={price ?? 0} changePercent={chg ?? 0} />
         </div>
       )}
@@ -139,7 +139,7 @@ function KeyLine({ L, isOn, isStop, act, w, pEntry, pStop, targets, lp, expire, 
 
 function ScoreTable({ items }: { items: ScoreItem[] }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(8em, 13em) 3.2em minmax(0, 1fr)', columnGap: 8, rowGap: 2, fontSize: 'calc(11.5px * var(--fz))', marginBottom: 6 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(8em, 13em) 3.2em minmax(0, 1fr)', columnGap: 8, rowGap: 2, fontSize: 'calc(12.5px * var(--fz))', marginBottom: 6 }}>
       {items.map(i => (
         <div key={i.key} style={{ display: 'contents' }}>
           <span style={{ color: 'var(--text-muted)' }}>{i.key.startsWith('m') ? 'M' : i.key.startsWith('s') ? 'S' : 'E'}·{i.label}</span>

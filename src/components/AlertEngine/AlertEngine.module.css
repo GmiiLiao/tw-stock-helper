@@ -98,7 +98,7 @@
 }
 
 .toastTitle {
-  font-size: calc(13px * var(--fz));
+  font-size: calc(13.5px * var(--fz));  /* 內文升 13px，標題同步升半級維持層次 */
   font-weight: 700;
   line-height: 1.3;
   margin-bottom: 3px;
@@ -108,7 +108,7 @@
 }
 
 .toastDetail {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13px * var(--fz));
   opacity: 0.8;
   line-height: 1.4;
 }
@@ -119,7 +119,6 @@
   font-weight: 600;
   opacity: 0.6;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 /* Close button */

@@ -59,7 +59,7 @@ export default function HelpManual() {
     <div style={{ padding: '14px 16px', maxWidth: 900, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
         <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900 }}>📖 使用說明書</span>
-        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>操作流程 · 各頁說明 · 術語解釋（每頁也有「❔本頁說明」可就地查看）</span>
+        <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>操作流程 · 各頁說明 · 術語解釋（每頁也有「❔本頁說明」可就地查看）</span>
       </div>
 
       {/* 章節切換 */}
@@ -80,17 +80,17 @@ export default function HelpManual() {
 
       {section === 'onboard' && (
         <div style={{ display: 'grid', gap: 8 }}>
-          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.08)', border: '1px solid rgba(125,211,252,0.35)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8 }}>
+          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.08)', border: '1px solid rgba(125,211,252,0.35)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
             <div style={{ fontWeight: 900, fontSize: 'calc(14.5px * var(--fz))', marginBottom: 4 }}>{ONBOARDING.title}</div>
             <div style={{ color: 'var(--text-secondary)' }}>{ONBOARDING.intro}</div>
           </div>
           {onboardSteps.map((s2, i) => (
-            <div key={i} style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 900, color: '#7dd3fc' }}>{s2.t}</div>
+            <div key={i} style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 900, color: '#7dd3fc', fontSize: 'calc(14px * var(--fz))' }}>{s2.t}</div>
               <div style={{ color: 'var(--text-secondary)' }}>{s2.d}</div>
             </div>
           ))}
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             ⚠ 流程為工具使用順序建議、非投資建議；所有勝率為歷史回測估計非保證，交易風險自負。
           </div>
         </div>
@@ -98,17 +98,17 @@ export default function HelpManual() {
 
       {section === 'flow' && (
         <div style={{ display: 'grid', gap: 8 }}>
-          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(245,159,0,0.07)', border: '1px solid rgba(245,159,0,0.3)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8 }}>
+          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(245,159,0,0.07)', border: '1px solid rgba(245,159,0,0.3)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
             <div style={{ fontWeight: 900, fontSize: 'calc(14.5px * var(--fz))', marginBottom: 4 }}>{WORKFLOW.title}</div>
             <div style={{ color: 'var(--text-secondary)' }}>{WORKFLOW.intro}</div>
           </div>
           {flowSteps.map((s, i) => (
-            <div key={i} style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 900, color: '#f6a06a' }}>{s.t}</div>
+            <div key={i} style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 900, color: '#f6a06a', fontSize: 'calc(14px * var(--fz))' }}>{s.t}</div>
               <div style={{ color: 'var(--text-secondary)' }}>{s.d}</div>
             </div>
           ))}
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             ⚠ 本流程為工具使用順序建議，非投資建議；所有勝率為歷史回測估計、非未來保證。交易風險自負，進場鐵律：單筆風險≤1%。
           </div>
         </div>
@@ -127,17 +127,17 @@ export default function HelpManual() {
                 <div onClick={() => setOpenPage(open ? null : pid)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}>
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
-                  <span style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))' }}>{c.icon} {c.title}</span>
+                  <span style={{ fontWeight: 900, fontSize: 'calc(14.5px * var(--fz))' }}>{c.icon} {c.title}</span>
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.what}</span>
                 </div>
                 {open && (
-                  <div style={{ padding: '0 14px 12px', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
-                    <div style={{ fontWeight: 800, color: '#7dd3fc', margin: '4px 0 2px' }}>🖱 怎麼操作</div>
+                  <div style={{ padding: '0 14px 12px', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
+                    <div style={{ fontWeight: 800, color: '#7dd3fc', margin: '4px 0 2px', fontSize: 'calc(14px * var(--fz))' }}>🖱 怎麼操作</div>
                     {how.map((h, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {h}</div>)}
-                    <div style={{ fontWeight: 800, color: '#f6a06a', margin: '8px 0 2px' }}>👁 怎麼判讀</div>
+                    <div style={{ fontWeight: 800, color: '#f6a06a', margin: '8px 0 2px', fontSize: 'calc(14px * var(--fz))' }}>👁 怎麼判讀</div>
                     {read.map((r, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {r}</div>)}
                     {c.terms.length > 0 && (
-                      <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+                      <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
                         相關術語：{c.terms.join('、')}（見「📚 術語表」）
                       </div>
                     )}
@@ -156,7 +156,7 @@ export default function HelpManual() {
               border: '1px solid var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
           <div style={{ display: 'grid', gap: 6 }}>
             {glossaryEntries.map(([t, d]) => (
-              <div key={t} style={{ padding: '9px 13px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
+              <div key={t} style={{ padding: '9px 13px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
                 <b style={{ color: '#c4b5fd' }}>{t}</b>
                 <span style={{ color: 'var(--text-secondary)' }}>：{d}</span>
               </div>

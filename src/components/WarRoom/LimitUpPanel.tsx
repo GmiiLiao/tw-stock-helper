@@ -105,14 +105,14 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
     <div style={{ flex: '1 1 100%', minWidth: 0, padding: '10px 12px', borderRadius: 12, background: 'rgba(240,62,62,0.05)', border: '1px solid rgba(240,62,62,0.22)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
         <span style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: '#fda4af' }}>{source === 'live' ? '⚡ 盤中漲停預測' : '🚀 漲停預測'}</span>
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '1px 6px', borderRadius: 5, background: source === 'live' ? 'rgba(56,189,248,0.15)' : 'rgba(34,197,94,0.15)', color: source === 'live' ? '#38bdf8' : '#22c55e' }}>{source === 'live' ? '即時重算·名單會變' : '盤後定案·當天不變'}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 5, background: source === 'live' ? 'rgba(56,189,248,0.15)' : 'rgba(34,197,94,0.15)', color: source === 'live' ? '#38bdf8' : '#22c55e' }}>{source === 'live' ? '即時重算·名單會變' : '盤後定案·當天不變'}</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {data.mode === 'live' ? '盤中即時（預測今日收盤漲停）' : `盤後定案（預測下一交易日）· 資料日 ${data.dataDate}`} · 今日市場漲停 {data.mktLU} 家
         </span>
       </div>
 
       {/* 真實成績 + 回測揭露 */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.07)' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 'calc(13px * var(--fz))', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.07)' }}>
         <span>回測驗證：Top10 命中 <b style={{ color: '#fbbf24' }}>{data.backtest.top10}%</b>（基準 {data.backtest.base}% 的 <b style={{ color: '#fbbf24' }}>{data.backtest.lift10} 倍</b>）</span>
         {sb && sb.days > 0 ? (
           <span>上線後實績（{sb.days} 日）：Top10 <b style={{ color: '#7dd3fc' }}>{sb.hit10Rate}%</b> · Top30 <b style={{ color: '#7dd3fc' }}>{sb.hit30Rate}%</b> · 連板 <b style={{ color: '#7dd3fc' }}>{sb.contRate}%</b>{sb.last && <span style={{ color: 'var(--text-muted)' }}>（昨榜命中 {sb.last.hit10}/10）</span>}</span>
@@ -139,11 +139,11 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
 
       {view === 'stats' ? (
         <>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
             近 {data.stats?.windowDays ?? 60} 個交易日漲停統計（確定性計算）。回測實證：<b style={{ color: '#fda4af' }}>3月≥6板的「漲停王」隔日再漲停率 2.9 倍</b>、top3 熱門族群 1.9 倍、冷族群僅 0.22 倍——漲停有強烈的個股慣性與族群群聚性，已以 0.3 阻尼納入模型。
           </div>
           {/* 漲停王 */}
-          <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>👑 3個月漲停王（次數 Top20）</div>
+          <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>👑 3個月漲停王（次數 Top20）</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {(data.stats?.kings || []).map(k => (
               <span key={k.code} onClick={() => setOpenCode(c => c === k.code ? null : k.code)}
@@ -160,7 +160,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
             return <div style={{ marginBottom: 12 }}><StockTrendChart code={k.code} name={k.name} closePrice={0} /></div>;
           })()}
           {/* 族群排行 */}
-          <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>🏭 3個月族群漲停排行</div>
+          <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>🏭 3個月族群漲停排行</div>
           <div style={{ display: 'grid', gap: 4, marginBottom: 12 }}>
             {(data.stats?.indRank || []).map((r, i) => {
               const max = data.stats?.indRank?.[0]?.n || 1;
@@ -177,7 +177,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
             })}
           </div>
           {/* 風向 */}
-          <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>🌪 族群漲停風向（近5日 vs 前5日）</div>
+          <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>🌪 族群漲停風向（近5日 vs 前5日）</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {(data.stats?.wind || []).map(w => {
               const tc = w.trend === '升溫' ? '#f03e3e' : w.trend === '降溫' ? '#2f9e44' : '#94a3b8';
@@ -193,19 +193,20 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
           {/* 族群輪動轉換 */}
           {data.rotation && (
             <>
-              <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>🔁 族群輪動轉換</div>
-              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 2, marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>🔁 族群輪動轉換</div>
+              {/* 2026-10-01 使用者：判讀區改標準字級、收緊行高（同指數「自動判讀」框）；各段標題同步升 14px 保持層級 */}
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, marginBottom: 12 }}>
                 <div>目前主流：{data.rotation.current
                   ? <><b style={{ color: '#f03e3e' }}>{data.rotation.current}</b>（已連續 {data.rotation.streak} 日冠軍）</>
                   : <span style={{ color: 'var(--text-muted)' }}>今日無明顯主流（冠軍族群需單日≥3板）</span>}</div>
                 {data.rotation.nextLikely.length > 0 && (
                   <div>歷史輪動去向：{data.rotation.current} 退潮後接棒 → {data.rotation.nextLikely.map((x, i) => (
-                    <span key={x.ind}>{i > 0 && '、'}<b style={{ color: '#fbbf24' }}>{x.ind}</b><span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>({x.n}次)</span></span>
-                  ))}<span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>（近{data.rotation.transDays}個有主流日的轉換統計·樣本小僅供參考）</span></div>
+                    <span key={x.ind}>{i > 0 && '、'}<b style={{ color: '#fbbf24' }}>{x.ind}</b><span style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>({x.n}次)</span></span>
+                  ))}<span style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>（近{data.rotation.transDays}個有主流日的轉換統計·樣本小僅供參考）</span></div>
                 )}
                 {data.rotation.heating.length > 0 && (
                   <div>升溫中（輪動候選）：{data.rotation.heating.map((h, i) => (
-                    <span key={h.ind}>{i > 0 && '、'}<b style={{ color: '#f03e3e' }}>{h.ind}</b><span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>(5日{h.cnt5}板←前5日{h.prev5})</span></span>
+                    <span key={h.ind}>{i > 0 && '、'}<b style={{ color: '#f03e3e' }}>{h.ind}</b><span style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>(5日{h.cnt5}板←前5日{h.prev5})</span></span>
                   ))}</div>
                 )}
                 {data.rotation.igniting.length > 0 && (
@@ -217,9 +218,9 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
             </>
           )}
           {/* 今日漲停順序流 */}
-          <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>⏱ 今日漲停順序流{data.flowDate ? `（${data.flowDate}·首次鎖停時間）` : ''}</div>
+          <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#fda4af', margin: '4px 0 6px' }}>⏱ 今日漲停順序流{data.flowDate ? `（${data.flowDate}·首次鎖停時間）` : ''}</div>
           {(data.flow || []).length === 0 ? (
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>盤中逐分記錄；今日尚無鎖停紀錄（開盤後自動累積，可觀察族群點火順序）。</div>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>盤中逐分記錄；今日尚無鎖停紀錄（開盤後自動累積，可觀察族群點火順序）。</div>
           ) : (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {(data.flow || []).map(f => (
@@ -241,18 +242,18 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
             </div>
           ) : (
             <>
-              <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.07)' }}>
+              <div style={{ fontSize: 'calc(13px * var(--fz))', marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.07)' }}>
                 <b>{data.review.date}</b> 覆盤（以 {data.review.predDate} 的預測對答案）：Top10 命中 <b style={{ color: '#fbbf24' }}>{data.review.hit10}/10</b> · Top30 命中 <b style={{ color: '#fbbf24' }}>{data.review.hit30}/30</b> · 當日全市場漲停 {data.review.actualLU} 家
               </div>
               {data.review.hits.length > 0 && (
                 <>
-                  <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#f03e3e', margin: '4px 0 6px' }}>✅ 命中（{data.review.hits.length}）</div>
+                  <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#f03e3e', margin: '4px 0 6px' }}>✅ 命中（{data.review.hits.length}）</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                     {data.review.hits.map(h => <span key={h.code} style={{ padding: '3px 9px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, background: 'rgba(240,62,62,0.10)', color: '#fda4af' }}>{h.code} {h.name}</span>)}
                   </div>
                 </>
               )}
-              <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', margin: '4px 0 6px' }}>❌ 預測未漲停（{data.review.failed.length}）＋原因</div>
+              <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#f59e0b', margin: '4px 0 6px' }}>❌ 預測未漲停（{data.review.failed.length}）＋原因</div>
               <div style={{ display: 'grid', gap: 3, marginBottom: 12 }}>
                 {data.review.failed.map(f => (
                   <div key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))', padding: '3px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.05)', flexWrap: 'wrap' }}>
@@ -266,9 +267,9 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
                   </div>
                 ))}
               </div>
-              <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc', margin: '4px 0 6px' }}>🕳 漏網漲停（未預測到·{data.review.missed.length}）＋原因</div>
+              <div style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#7dd3fc', margin: '4px 0 6px' }}>🕳 漏網漲停（未預測到·{data.review.missed.length}）＋原因</div>
               {Object.keys(data.review.missTally || {}).length > 0 && (
-                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
+                <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
                   漏網原因分布：{Object.entries(data.review.missTally).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}×${v}`).join('、')}（突發消息型＝模型天生抓不到；排名外＝可調 TopN；濾網外＝低量低價股不追）
                 </div>
               )}
@@ -289,7 +290,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
         </>
       ) : view === 'a' ? (
         <>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
             依回測加權分排序的高潛力觀察名單——歷史上 Top10 每 5 檔約 1 檔隔日真漲停，<b>8 成不會漲停</b>，僅供排序觀察非保證。
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}><OnlyCandidatesToggle on={onlyCand} setOn={setOnlyCand} /></div>
@@ -298,7 +299,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '10px 4px' }}>此價格區間無標的。</div>
           ) : (
             <div style={{ display: 'grid', gap: 4 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: LU_GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: LU_GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
                 <span /><span /><span style={{ textAlign: 'right' }}>#</span><span>代號</span><span>名稱</span><span style={{ textAlign: 'center' }}>市</span>
                 <span title="收＝資料日收盤；即時＝盤中快線成交價" style={{ textAlign: 'center' }}>價</span><span style={{ textAlign: 'right' }}>現價</span><span style={{ textAlign: 'right' }}>漲跌</span>
                 <span title="資料日前一交易日收盤" style={{ textAlign: 'right' }}>昨收</span><span style={{ textAlign: 'right' }}>昨漲跌</span>
@@ -320,7 +321,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
                       <span style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c, textAlign: 'center' })}>{b.t}</span>
                       {/* 現價欄：盤中有即時成交且與資料日收盤不同＝即時價（標「即時」），否則資料日收盤（標「收」） */}
                       {(() => { const q = quotes[p.code]; const isLive = !!q?.price && q.price !== p.price; const px = isLive ? q!.price : p.price; const d = isLive ? (q!.changePercent ?? 0) : p.chg; return (<>
-                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={LU_CELL({ fontSize: 'calc(11.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center' })}>{isLive ? '即時' : '收'}</span>
+                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center' })}>{isLive ? '即時' : '收'}</span>
                         <span style={NUM_COL(0, 'var(--text-primary)', 700)}>{px}</span>
                         <span style={NUM_COL(0, d >= 0 ? '#f03e3e' : '#2f9e44', 800)}>{d >= 0 ? '+' : ''}{(+d).toFixed(2)}%</span>
                       </>); })()}
@@ -349,7 +350,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
         </>
       ) : (
         <>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8 }}>
             今日已漲停者的隔日連板機率（回測基準約 22%）。口訣：<b style={{ color: '#fda4af' }}>縮量鎖死連板(29%) &gt; 爆量首板(16%)</b>——爆量漲停＝有人在出貨。
           </div>
           {(data.bList || []).length === 0 ? (
@@ -375,7 +376,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
                     </div>
                     {open && (
                       <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6 }}>
                           連板評估：近5日 {p.luCnt5} 板 · 量比 {p.volX}x{p.volX < 1 ? '(縮量鎖死+)' : p.volX >= 4 ? '(爆量−)' : ''} · 外資佔量 {p.fShare}% · 外資連買 {p.streak} 日 → 估計連板率 <b style={{ color: tc }}>{p.est}%</b>（乘數模型·回測校準）
                         </div>
                         <StockTrendChart code={p.code} name={p.name} closePrice={p.price} />
@@ -389,7 +390,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
         </>
       )}
 
-      <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         ⚠ 漲停預測為回測校準的確定性模型（92日·walk-forward 驗證），法人因子為 t-1 EOD；漲停股常鎖死買不到，追高風險極大、處置股禁入；題材加分未回測。每日預測自動存檔對答案。非投資建議。
       </div>
     </div>

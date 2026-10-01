@@ -50,17 +50,17 @@ const SECTIONS: { t: string; items: string[] }[] = [
  *  獨立頁 PrivacyPage 保留但只是薄殼——舊連結（同意橫幅、外部書籤）不會壞。 */
 export function PrivacyContent() {
   return (
-    <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.9 }}>
+    <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
       <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 12 }}>
         更新日期：2026-07-17 · 台股助手 TW Stock Pro
       </div>
       {SECTIONS.map(sec => (
         <div key={sec.t} style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>{sec.t}</div>
+          <div style={{ fontWeight: 900, marginBottom: 6, fontSize: 'calc(14px * var(--fz))' }}>{sec.t}</div>
           {sec.items.map((it, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {it}</div>)}
         </div>
       ))}
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
         本站為投資分析工具，非證券商亦非投資顧問；所有資料與統計僅供參考，非投資建議。
       </div>
     </div>
@@ -106,7 +106,7 @@ export function ConsentBanner() {
   return (
     <div style={{ position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 950, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
       <div style={{ pointerEvents: 'auto', maxWidth: 720, width: '100%', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-        padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.4)', boxShadow: '0 8px 28px rgba(0,0,0,0.4)', fontSize: 'calc(12.5px * var(--fz))' }}>
+        padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.4)', boxShadow: '0 8px 28px rgba(0,0,0,0.4)', fontSize: 'calc(13px * var(--fz))' }}>
         <span style={{ flex: '1 1 320px', lineHeight: 1.7 }}>
           🔒 為提供投組損益、決策分析與服務改善，本站會記錄你的操作與交易記錄（僅你輸入的）；對外只使用匿名彙總。
           <b onClick={() => navigateTo('privacy')} style={{ color: '#7dd3fc', cursor: 'pointer', marginLeft: 4 }}>閱讀完整隱私聲明</b>

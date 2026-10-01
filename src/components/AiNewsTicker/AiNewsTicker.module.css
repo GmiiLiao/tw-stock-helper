@@ -206,7 +206,6 @@
   font-size: calc(13px * var(--fz));
   font-weight: 700;
   color: #c084fc;
-  letter-spacing: 0.04em;
 }
 
 .panelActions {
@@ -364,12 +363,11 @@
 
 .panelFooter {
   padding: 6px 12px;
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13px * var(--fz));
   color: var(--text-muted);
   text-align: center;
   border-top: 1px solid rgba(168,85,247,0.12);
   font-family: monospace;
-  letter-spacing: 0.03em;
 }
 
 /* ── Taiwan Index Widget ───────────────────────────────────── */
@@ -407,7 +405,6 @@
   font-size: calc(13px * var(--fz));
   color: var(--text-muted);
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
 .indexWidgetValue {
@@ -738,7 +735,6 @@
   background: rgba(168,85,247,0.25);
   color: #c084fc;
   border-radius: 999px;
-  letter-spacing: 0.04em;
   animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -750,7 +746,7 @@
 }
 
 .msgSummary {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13px * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
   display: -webkit-box;

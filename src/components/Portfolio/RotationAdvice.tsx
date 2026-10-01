@@ -42,7 +42,7 @@ export default function RotationAdvice() {
       <div style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 8 }}>♻️ 汰弱留強檢查
         <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginLeft: 8 }}>持股技術評分（未含風險扣分）vs 全市場；處置／注意另列風險（每日收盤後更新）</span>
       </div>
-      {legacy && <div style={{ fontSize: 'calc(12px * var(--fz))', color: '#fbbf24', marginBottom: 6 }}>⚠ 下方仍是舊口徑（評分含處置／注意扣分），今日收盤後重算。</div>}
+      {legacy && <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#fbbf24', marginBottom: 6 }}>⚠ 下方仍是舊口徑（評分含處置／注意扣分），今日收盤後重算。</div>}
       {data.items.map(i => (
         <div key={i.code} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 'calc(13px * var(--fz))' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -53,17 +53,17 @@ export default function RotationAdvice() {
             {i.weak && <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#f97316' }}>⚠ 技術面偏弱</span>}
           </div>
           {(i.ret20 != null || i.ret60 != null) && (
-            <div style={{ marginTop: 2, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+            <div style={{ marginTop: 2, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               近 20 日 <span style={{ color: (i.ret20 ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pctTxt(i.ret20)}</span>
               ·近 60 日 <span style={{ color: (i.ret60 ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pctTxt(i.ret60)}</span>
               {i.risk && i.scoreAdj != null && <span title={RISK_NOTE[i.risk]} style={{ cursor: 'help' }}>·排序用評分（含風險扣分）{+i.scoreAdj.toFixed(2)} ⓘ</span>}
             </div>
           )}
-          {i.note && <div style={{ marginTop: 3, fontSize: 'calc(12.5px * var(--fz))', color: '#f97316', lineHeight: 1.6 }}>{i.note.replace(/(\d+\.\d{2})\d+/g, '$1')}</div>}
+          {i.note && <div style={{ marginTop: 3, fontSize: 'calc(13px * var(--fz))', color: '#f97316', lineHeight: 1.6 }}>{i.note.replace(/(\d+\.\d{2})\d+/g, '$1')}</div>}
         </div>
       ))}
       {weak.length > 0 && data.alternatives?.length > 0 && (
-        <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
+        <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)' }}>
           目前評分最高（已排除處置／注意風險）參考：{data.alternatives.map(a => (
             <span key={a.code} onClick={() => navigateTo('stock', a.code)} style={{ cursor: 'pointer', marginRight: 8, color: '#7dd3fc' }}>
               {a.code} {a.name}（<b style={{ color: '#fbbf24' }}>{+a.score.toFixed(2)}</b>）

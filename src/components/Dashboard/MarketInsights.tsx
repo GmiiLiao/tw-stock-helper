@@ -35,7 +35,7 @@ interface EtfPremRow { code: string; name: string; nav: number; price: number; p
 interface MarginItem { code: string; name: string; shortRatio: number; marginChg: number }
 
 const card: React.CSSProperties = { background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg, 12px)', padding: '16px 18px' };
-const title: React.CSSProperties = { fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 };
+const title: React.CSSProperties = { fontWeight: 700, fontSize: 'calc(1rem * var(--fz))', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 };
 const up = 'var(--color-up)';
 const down = 'var(--color-down)';
 const sign = (v: number) => (v >= 0 ? '+' : '');
@@ -226,7 +226,7 @@ export default function MarketInsights() {
               <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{postOpen ? '收合' : '展開'}</span>
             </div>
             <div style={{
-              fontSize: 'calc(0.86rem * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
+              fontSize: 'calc(0.965rem * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
               maxHeight: postOpen ? 'none' : 46, overflow: 'hidden',
               maskImage: postOpen ? undefined : 'linear-gradient(180deg,#000 40%,transparent)',
               WebkitMaskImage: postOpen ? undefined : 'linear-gradient(180deg,#000 40%,transparent)',

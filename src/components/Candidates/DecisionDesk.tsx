@@ -22,6 +22,8 @@ import { METRIC_TIPS } from '@/lib/metric-tips';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { startLiveLoop, shouldPollThroughClose, isForeground, getSession } from '@/lib/market-clock';
+import { useBrokerSettings } from '@/lib/useBrokerSettings';
+import { calcFee } from '@/lib/tw-fee';
 
 interface CharRow { label?: string; spec?: number; corr?: number; f20?: number; t20?: number; d20?: number; fStreak?: number; tStreak?: number; dStreak?: number }
 
@@ -38,6 +40,7 @@ function overnightStance(v?: Verdict | null): { t: string; c: string; note: stri
 
 export default function DecisionDesk() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
+  const [broker] = useBrokerSettings();   // 試算手續費依使用者自己的券商折讓（2026-10-01 使用者「手續費為使用者的折扣」）
   const codes = useAppStore(s => s.compareCodes);
   const allStocks = useAppStore(s => s.allStocks);
   const clear = useAppStore(s => s.clearCandidates);
@@ -255,10 +258,10 @@ export default function DecisionDesk() {
     const lots = price > 0 ? Math.floor(budget / (price * 1000)) : 0;
     const shares = lots * 1000;
     const cost = shares * price;
-    const buyFee = shares > 0 ? Math.max(20, Math.floor(cost * 0.001425)) : 0;
+    const buyFee = shares > 0 ? calcFee(price, lots, broker) : 0;
     const sellPrice = price > 0 ? +(price * (1 + profitTarget / 100)).toFixed(2) : 0;
     const sellValue = shares * sellPrice;
-    const sellFee = shares > 0 ? Math.max(20, Math.floor(sellValue * 0.001425)) : 0;
+    const sellFee = shares > 0 ? calcFee(sellPrice, lots, broker) : 0;
     const tax = Math.floor(sellValue * (tradeDuration === 'day' ? 0.0015 : 0.003));
     const net = shares > 0 ? Math.round(sellValue - cost - buyFee - sellFee - tax) : 0;
     // 弱尾盤偵測（全市場120日統計：隔日均 -0.5%/筆、勝率40%——強力迴避濾網）
@@ -273,7 +276,7 @@ export default function DecisionDesk() {
       mgChg: row?.[1], foreignToday: v?.f, distributedPct: v?.dist, k9: row?.[9], belowMA5: row?.[10] as unknown as boolean | null, vol20: row?.[11],   // marginSnap[10]＝跌破5日線布林、[11]＝20日波動%
     });
     return { code, name: s?.name, market: s?.market, price, chg: chgNow, vol: lq?.volume ?? s?.volume, v, char: chars[code], lots, cost: cost + buyFee, sellPrice, net, weakClose, pos, row, comp };
-  }), [codes, allStocks, verdicts, chars, budget, profitTarget, tradeDuration, margins, liveQ, idxChg]);
+  }), [codes, allStocks, verdicts, chars, budget, profitTarget, tradeDuration, margins, liveQ, idxChg, broker]);
 
   const mBadge = (m?: string) => m === 'otc' ? { t: '櫃', c: '#f59e0b' } : { t: '市', c: '#3d8ef8' };
 
@@ -296,7 +299,7 @@ export default function DecisionDesk() {
       </div>
 
       {codes.length === 0 ? (
-        <div style={{ marginTop: 24, padding: '28px 20px', borderRadius: 14, textAlign: 'center', background: 'var(--bg-elevated)', border: '1px dashed var(--border-primary)', lineHeight: 2 }}>
+        <div style={{ marginTop: 24, padding: '28px 20px', borderRadius: 14, textAlign: 'center', background: 'var(--bg-elevated)', border: '1px dashed var(--border-primary)', lineHeight: 1.6 }}>
           <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, marginBottom: 6 }}>候選便條是空的</div>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)' }}>
             隔日沖選股流程：① 到 <b onClick={goPick} style={{ color: '#7dd3fc', cursor: 'pointer' }}>即時漲跌／法人籌碼</b> 分頁看資料<br />
@@ -424,7 +427,7 @@ export default function DecisionDesk() {
                         })()}
                       </div>
                     )}
-                    <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>{stance.note}</div>
+                    <div style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.7 }}>{stance.note}</div>
                     {/* 預算試算 */}
                     {c.price > 0 && (
                       <div style={{ marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
@@ -505,9 +508,9 @@ export default function DecisionDesk() {
             })}
           </div>
 
-          <div style={{ marginTop: 12, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ marginTop: 12, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             ⚠ 策略傾向由「回測背書的籌碼判讀（前一交易日 EOD）＋勝率雷達」綜合，非即時保證；勝率為歷史估計。
-            試算費率：手續費 0.1425%（未計折讓）、證交稅 {tradeDuration === 'day' ? '0.15%（當沖）' : '0.3%'}。進場鐵律：單筆風險≤1%、破前低停損。非投資建議。
+            試算費率：手續費 0.1425%{broker.discount < 1 ? `×你的券商 ${+(broker.discount * 10).toFixed(2)} 折` : '（未設定折讓＝全額）'}、證交稅 {tradeDuration === 'day' ? '0.15%（當沖）' : '0.3%'}。進場鐵律：單筆風險≤1%、破前低停損。非投資建議。
           </div>
         </>
       )}

@@ -120,7 +120,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
         </div>
 
         {!view || view.empty ? (
-          <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'calc(0.85rem * var(--fz))' }}>
+          <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'calc(0.9rem * var(--fz))' }}>
             {market === 'otc' && view ? '櫃買序列尚未累積' : '盤中序列於開盤後開始累積（每分鐘一點），今日尚無資料。'}
           </div>
         ) : (

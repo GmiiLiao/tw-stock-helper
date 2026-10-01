@@ -72,24 +72,24 @@ export default function DayTradeDesk({ snaps, marketOpen, wide }: { snaps: FadeS
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '6px 10px', borderRadius: 10, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', marginBottom: 8 }}>
         <b style={{ color: '#fbbf24' }}>⏱ {ph}</b>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{task}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           資料時間 {doc?.at ? hhmm(doc.at) : '—'}{doc?.version ? `·規則 ${doc.version}` : ''}{stale >= 3 ? <b style={{ color: '#f59e0b' }}> ·⚠ 已 {stale} 分鐘未更新（視同資料失效：不提進場）</b> : null}
         </span>
         <span role="tablist" style={{ display: 'inline-flex', padding: 2, borderRadius: 999, background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}>
           {([['desk', '工作台'], ['journal', '日誌與迭代']] as const).map(([k, l]) => (
-            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ padding: '2px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12px * var(--fz))', background: tab === k ? 'rgba(251,191,36,0.2)' : 'transparent', color: tab === k ? '#fbbf24' : 'var(--text-muted)' }}>{l}</button>
+            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ padding: '2px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))', background: tab === k ? 'rgba(251,191,36,0.2)' : 'transparent', color: tab === k ? '#fbbf24' : 'var(--text-muted)' }}>{l}</button>
           ))}
         </span>
       </div>
 
       {tab === 'journal' ? <DeskJournal /> : <>
         {/* ⚠ 觀察工具聲明（2026-09-30 使用者：規則是否有問題？——實績為負，必須放在最顯眼處，不再埋在說明文字裡） */}
-        <div style={{ padding: '8px 12px', borderRadius: 10, marginBottom: 8, border: '1px solid rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.08)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
+        <div style={{ padding: '8px 12px', borderRadius: 10, marginBottom: 8, border: '1px solid rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.08)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
           <b style={{ color: '#ef4444' }}>⚠ 觀察工具，不是買賣訊號</b>：規則 {doc?.version ?? 'v1'} 回放（扣成本）做多平均 <b>{doc?.evidence?.long?.all ? `${doc.evidence.long.all.teR}R·勝率 ${doc.evidence.long.all.teWin}%` : '—'}</b>、做空平均 <b>{doc?.evidence?.short?.all ? `${doc.evidence.short.all.teR}R·勝率 ${doc.evidence.short.all.teWin}%` : '—'}</b>——平均是虧的。
           規則驗證出正報酬之前，下方「成立」「假設進場」只供觀察與記錄；每一筆的實際結果在「日誌與迭代」，並每日餵給 AI 交易員經驗庫訓練。
         </div>
         <DeskRiskPanel risk={risk} setRisk={setRisk} broker={broker} />
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8, minHeight: '1.8em' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8, minHeight: '1.8em' }}>
           <b style={{ color: 'var(--text-primary)' }}>⚡ 成立／出場（觀察）</b>
           {!doc?.found ? <span>今日尚未啟動（09:05 開盤區間形成後開始評估）</span> : !events.length ? <span>{marketOpen ? '監控中，尚無觸發' : `非盤中·最後 ${hhmm(doc.at)}`}</span>
             : events.map(e => (
@@ -106,7 +106,7 @@ export default function DayTradeDesk({ snaps, marketOpen, wide }: { snaps: FadeS
               market={((side === 'long' ? doc?.long : doc?.short) || [])[0]?.score.market ?? null} />
           ))}
         </div>
-        <details style={{ marginTop: 8, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+        <details style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
           <summary style={{ cursor: 'pointer', color: '#7dd3fc' }}>怎麼讀（規則、出場計畫、否決條件）</summary>
           分數是<b>規則符合度，不是上漲機率</b>；有「未知」子項時只列已知分／已知滿分與待確認，不給分級（≥75 優先觀察、60–74 等待、&lt;60 低優先）。
           Setup：ORB＝前 {doc?.params?.orbBars ?? 5} 分鐘區間突破→站穩→再攻；突破回踩＝放量過昨高→量縮回測守住→再攻過短線高；開低反轉＝開低 ≥1%→較高低點＋收復 VWAP＋過短線高（11:00 前）。
@@ -143,12 +143,12 @@ function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market 
       <div style={{ padding: '8px 10px 6px', minHeight: '5.4em' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 900, color, fontSize: 'calc(14px * var(--fz))' }}>{L ? '▲ 做多（先買後賣）' : '▼ 做空（先賣後買·鏡像延伸）'}</span>
-          <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{rows.length} 檔·僅可{L ? '先買' : '先賣'}當沖、排除處置股{active ? <b style={{ color }}> · 成立中（觀察）{active}</b> : null}</span>
+          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{rows.length} 檔·僅可{L ? '先買' : '先賣'}當沖、排除處置股{active ? <b style={{ color }}> · 成立中（觀察）{active}</b> : null}</span>
         </div>
-        <div title={market?.map(i => `${i.label}：${i.score ?? '未知'}/${i.max}｜${i.evidence}`).join('\n')} style={{ fontSize: 'calc(12px * var(--fz))', marginTop: 3, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div title={market?.map(i => `${i.label}：${i.score ?? '未知'}/${i.max}｜${i.evidence}`).join('\n')} style={{ fontSize: 'calc(12.5px * var(--fz))', marginTop: 3, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           Market <b style={{ color: 'var(--text-primary)' }}>{mSum ?? '—'}/{mMax ?? 20}</b>{market ? ` · ${market.map(i => `${i.label.slice(0, 4)} ${i.score ?? '未知'}`).join(' · ')}` : ' · 盤中評估後顯示'}
         </div>
-        <div style={{ fontSize: 'calc(11.5px * var(--fz))', marginTop: 2, color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginTop: 2, color: 'var(--text-muted)' }}>
           {ev && evidence ? <>v1 回放 {evidence.from}～{evidence.to}：樣本外 n={ev.teN}、勝率 {ev.teWin}%、平均 <b style={{ color: ev.teR >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{ev.teR >= 0 ? '+' : ''}{ev.teR}R</b>（扣成本）·達 1R {ev.teHit1}%</> : '回放證據尚未載入'}
         </div>
       </div>
@@ -161,7 +161,7 @@ function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market 
             const folded = g.k === 'other' && !showOther;
             return (
               <div key={g.k} style={{ marginTop: 6 }}>
-                <div onClick={g.k === 'other' ? () => setShowOther(v => !v) : undefined} style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: g.k === 'on' ? color : g.k === 'stop' ? '#f59e0b' : 'var(--text-muted)', padding: '2px 4px', cursor: g.k === 'other' ? 'pointer' : 'default' }}>
+                <div onClick={g.k === 'other' ? () => setShowOther(v => !v) : undefined} style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: g.k === 'on' ? color : g.k === 'stop' ? '#f59e0b' : 'var(--text-muted)', padding: '2px 4px', cursor: g.k === 'other' ? 'pointer' : 'default' }}>
                   {g.k === 'other' ? `${folded ? '▸' : '▾'} ` : ''}{g.t(L)} {list.length} 檔
                 </div>
                 {!folded && list.map(r => <DeskRow key={(r.base?.code ?? r.desk!.code)} base={r.base ?? { side, code: r.desk!.code, name: r.desk!.name, market: 'tse', rank: 0, price: null, chg: null, hiUp: null, give: null, vwapDev: null, label: '監控', labelColor: 'var(--text-muted)', reason: '5 秒監控中（不在名單前 30）' }}

@@ -153,3 +153,35 @@ test('同一帳戶的快照寫入依序進行（三個排程並行呼叫也不�
   await Promise.all([lab.writeAccount(), lab.writeAccount(), lab.writeAccount()]);
   assert.equal(maxRunning, 1);
 });
+
+test('會員券商折讓：手續費＝0.1425%×折讓（整張最低 20 元）；買進成交記下折讓；實驗帳戶（無折讓）記錄不帶新欄位', async () => {
+  const { ledgerOf } = await import('./sim-ledger.mjs');
+  const { sizePicks } = await import('./ai-swing-lab.mjs');
+  const L = ledgerOf({ side: 'long', entry: { at: 1, px: 100 }, exit: { at: 2, px: 110 }, dayTrade: false, shares: 1000, feeDiscount: 0.28 });
+  assert.equal(L.buy.fee, 39); assert.equal(L.sell.fee, 43); assert.equal(L.sell.tax, 330); assert.equal(L.feeDiscount, 0.28);
+  const full = ledgerOf({ side: 'long', entry: { at: 1, px: 100 }, exit: { at: 2, px: 110 }, dayTrade: false, shares: 1000 });
+  assert.equal(full.buy.fee, 142); assert.equal('feeDiscount' in full, false, '無折讓不寫欄位（實驗帳戶記錄與舊版相同）');
+  assert.equal(ledgerOf({ side: 'long', entry: { at: 1, px: 10 }, exit: { at: 2, px: 10 }, dayTrade: false, shares: 1000, feeDiscount: 0.28 }).buy.fee, 20, '整張最低 20 元');
+  assert.equal(ledgerOf({ side: 'long', entry: { at: 1, px: 100 }, exit: { at: 2, px: 110 }, dayTrade: false, shares: 1000, feeDiscount: 5 }).buy.fee, 142, '不合法折讓＝無折讓');
+
+  const days = mkDays();
+  const docs = [buyDoc(days[0].date, '2222', 2000, 50)];
+  const opts = { initial: 0, flows: [{ date: days[0].date, amount: 500000 }] };
+  const disc = portfolioState(docs, days.slice(0, 5), null, { ...opts, feeDiscount: 0.28 });
+  const lot = disc.lots[0];
+  assert.equal(lot.buy.feeDiscount, 0.28, '買進成交記下當時折讓（之後改折讓不回頭改）');
+  assert.equal(disc.account.cash, 500000 - 100000 - 39);
+  const base = portfolioState(docs, days.slice(0, 5), null, opts);
+  assert.equal('feeDiscount' in base.lots[0].buy, false); assert.equal(base.account.cash, 500000 - 100000 - 142);
+
+  const [p] = sizePicks([{ code: '2222', priceAtDecision: 50 }], 100000, { feeDiscount: 0.28 });
+  assert.equal(p.position.estCost, p.position.shares * 50 + Math.max(20, Math.floor(p.position.shares * 50 * 0.001425 * 0.28)));
+});
+
+test('會員 prompt：有券商折讓時寫會員實際手續費；實驗帳戶交易規則文字不變', () => {
+  const base = { date: '2026-10-01', pool: [], market: null, swingPicksMeta: {}, holdings: [], cash: 300000, equity: 300000 };
+  assert.match(buildPickPrompt(base), /買進手續費 0\.1425%，賣出手續費 0\.1425%＋證交稅 0\.3%——一買一賣約 0\.59%/);
+  const mem = buildPickPrompt({ ...base, member: { capital: 300000, goal: null, feeDiscount: 0.28 } });
+  assert.match(mem, /買進手續費 0\.0399%，賣出手續費 0\.0399%（0\.1425%×會員券商 2\.8 折）＋證交稅 0\.3%——一買一賣約 0\.38%/);
+  assert.match(buildPickPrompt({ ...base, member: { capital: 300000, goal: null, feeDiscount: 1 } }), /一買一賣約 0\.59%/, '會員未設折讓＝全額');
+});

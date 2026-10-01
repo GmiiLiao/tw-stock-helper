@@ -38,7 +38,7 @@ export default function ShadowAccount() {
   return (
     <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: `1px solid ${s.violations.length ? 'rgba(239,68,68,0.4)' : 'var(--border-primary)'}` }}>
       <div onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer', flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 800, fontSize: 'calc(0.95rem * var(--fz))' }}>🪞 影子帳戶</span>
+        <span style={{ fontWeight: 800, fontSize: 'calc(1rem * var(--fz))' }}>🪞 影子帳戶</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>從你的 {s.pairsAnalyzed} 筆交易學出「實際規則」，對照鐵律抓破戒</span>
         <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc', fontWeight: 700 }}>{open ? '收合 ▸' : '展開 ▾'}</span>
       </div>
@@ -58,24 +58,24 @@ export default function ShadowAccount() {
               </div>
             ))}
           </div>
-          {/* 破戒清單 */}
+          {/* 破戒清單（2026-10-01 判讀區改標準字級 13.5px、行高 1.8→1.6；卡片標題同步 0.95rem→1rem 以維持大於內文，用 rem 以免 ≥1600px 寬螢幕反而變小） */}
           {s.violations.length > 0 && (
             <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', marginBottom: 8 }}>
               {s.violations.map((v, i) => (
-                <div key={i} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fca5a5', lineHeight: 1.8 }}>⛔ {v}</div>
+                <div key={i} style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#fca5a5', lineHeight: 1.6 }}>⛔ {v}</div>
               ))}
             </div>
           )}
           {/* 規則模擬 vs 實際 */}
           {s.ruleSim && (
-            <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
+            <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
               <b style={{ color: '#fbbf24' }}>規則模擬（{s.ruleSim.n} 筆可比對）：</b>
               若每筆都照「隔日收盤出」鐵律 → 損益 <b style={{ color: s.ruleSim.ruleBasedPnL >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(s.ruleSim.ruleBasedPnL)}</b> 元，
               你的實際 <b style={{ color: s.ruleSim.actualPnL >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(s.ruleSim.actualPnL)}</b> 元
               → 差距 <b style={{ color: s.ruleSim.diff > 0 ? '#2f9e44' : '#f03e3e', fontSize: 'calc(14px * var(--fz))' }}>{s.ruleSim.diff > 0 ? `破戒多虧 ${fmt(s.ruleSim.diff)}` : `你贏過鐵律 ${fmt(-s.ruleSim.diff)}`}</b> 元
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>全確定性計算（交易紀錄+官方收盤），每日盤後更新。非投資建議。</div>
+          <div style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>全確定性計算（交易紀錄+官方收盤），每日盤後更新。非投資建議。</div>
         </div>
       )}
     </div>

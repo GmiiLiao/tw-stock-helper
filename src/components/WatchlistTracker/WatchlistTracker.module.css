@@ -235,7 +235,6 @@
   font-weight: 600;
   color: #475569;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
   margin-bottom: 4px;
 }
 
@@ -722,7 +721,6 @@
   font-weight: 600;
   color: #8b9bb8;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .formInput {
@@ -1045,7 +1043,6 @@
   font-size: calc(12.5px * var(--fz));
   color: #8b9bb8;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .statBoxValue {

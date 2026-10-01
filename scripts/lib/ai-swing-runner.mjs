@@ -16,6 +16,7 @@ import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonO
 import { accountSummary, rebuildHistory } from './ai-swing-history.mjs';
 import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
 import { dailyFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
+import { validDiscount } from './sim-ledger.mjs';
 import { goalProgress } from './ai-lab-member.mjs';
 
 const MAX_ATTEMPTS = 3;
@@ -65,7 +66,10 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
     const today = taipeiToday(), cutoff = asOf && asOf < today ? today : asOf;
     const flows = (st.flows || []).filter(f => !cutoff || f.date <= cutoff);
     const initial = st.initial ?? 0;
-    return { opts: { initial, flows }, member: { capital: initial + flows.reduce((a, f) => a + f.amount, 0), goal: st.goal ?? null, goalDays: st.goalDays ?? null, goalStartDate: st.goalStartDate ?? null } };
+    // feeDiscount：會員自己的券商手續費折讓（2026-10-01 使用者「手續費為使用者的折扣非統一使用2.8折」）；沒設＝無折讓
+    const fd = validDiscount(st.feeDiscount);
+    return { opts: { initial, flows, ...(fd !== 1 ? { feeDiscount: fd } : {}) },
+      member: { capital: initial + flows.reduce((a, f) => a + f.amount, 0), goal: st.goal ?? null, goalDays: st.goalDays ?? null, goalStartDate: st.goalStartDate ?? null, feeDiscount: fd } };
   };
   const writeFile = (name, body, overwrite = false) => {
     if (!files || !dir) return;
@@ -101,7 +105,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const lessonsOf = code => { if (!learned || tDec < 0) return []; try { const F = dailyFeatures(days, tDec, code); return F ? matchLessons(learned, 'swing', F.f) : []; } catch { return []; } };
       const withL = x => { const L = lessonsOf(x.code); return L.length ? { ...x, lessons: L.map(r => lessonText(r, '5日淨%')), lessonIds: L.map(r => r.id) } : x; };
       const pool = pool0.map(withL);
-      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp }).map(withL) : [];
+      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp, feeDiscount: opts.feeDiscount }).map(withL) : [];
       const heldCodes = new Set(openLots.map(l => l.code));
       const lastPxOf = c => days[days.length - 1]?.m[c]?.[0] ?? null;
       const equity = state.account.freeCash + openLots.reduce((a, l) => a + (l.buy && lastPxOf(l.code) ? lastPxOf(l.code) * l.shares : (l.buy?.px ?? l.priceAtDecision ?? 0) * l.shares), 0);
@@ -122,14 +126,14 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       attempts[date] = (attempts[date] || 0) + 1;
       if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 決策${tag}：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
       const byCode = new Map(pool.map(c => [c.code, c]));
-      const sells = (parsed?.sells || []).map(x => { const h = holdings.find(y => y.code === x.code); return { code: x.code, name: h.name, key: h.key, shares: h.shares, reason: x.reason, estPx: h.lastPx, estProceeds: h.lastPx ? estSellProceeds(h.lastPx, h.shares) : 0 }; });
+      const sells = (parsed?.sells || []).map(x => { const h = holdings.find(y => y.code === x.code); return { code: x.code, name: h.name, key: h.key, shares: h.shares, reason: x.reason, estPx: h.lastPx, estProceeds: h.lastPx ? estSellProceeds(h.lastPx, h.shares, opts.feeDiscount) : 0 }; });
       // 資金池規則（2026-09-29 使用者：現金不可為負、T+2 交割、處置股需預收款）：
       //   一般買進＝可用現金（扣委託保留）＋今天賣單估計回收款×0.9（同一 T+2 交割日淨額；0.9＝跌停開盤的保守估計）
       //   處置股＝只用已交割現金；成交時 portfolioState 再依實際資金池裁減，現金永不為負
       const cashForBuys = Math.max(0, state.account.freeCash + sells.reduce((a, x) => a + x.estProceeds * 0.9, 0));
       const prefundCash = Math.max(0, state.account.settledCash - state.account.payable - state.account.reservedBuys);   // 處置股：不含任何未交割／未成交的賣出款
       const raw0 = (parsed?.picks || []).map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code)?.price ?? null, prefund: risk.disp.has(p.code) }));
-      const picks = sizePicks(raw0, cashForBuys, { prefundCash });
+      const picks = sizePicks(raw0, cashForBuys, { prefundCash, feeDiscount: opts.feeDiscount });
       const doc = { ...base, picks, review: { holdings: reviewList, sells }, account: state.account, equityAtDecision: Math.round(equity), cashForBuys: Math.round(cashForBuys),
         note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日不操作（持股全部續抱）`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
       await ref.set(dropUndefined(doc));

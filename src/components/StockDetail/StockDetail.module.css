@@ -110,7 +110,6 @@
   font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .statVal {
@@ -246,7 +245,6 @@
   font-size: calc(12.5px * var(--fz));
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 8px;
 }
 
@@ -385,18 +383,21 @@
 }
 
 .inputHelper {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13px * var(--fz));
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;
 }
 
+/* 2026-10-01 試算讀數框（與 Portfolio 同款）：0.875rem(12.25px) 比框內 12.5px 附註還小，
+   改至少 13px；取 max 避免 ≥1600px 寬螢幕 root 放大時反而縮小 */
 .costPreview {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(max(13px, 0.875rem) * var(--fz));
   color: var(--text-secondary);
   padding: 10px 12px;
   background: var(--bg-elevated);
   border-radius: var(--radius-sm);
+  line-height: 1.5;
 }
 
 .costPreview strong {

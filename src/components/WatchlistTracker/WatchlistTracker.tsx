@@ -865,7 +865,6 @@ function AiGroupPanel({
         padding: '8px 16px',
         fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
         borderBottom: '1px solid var(--border-primary)',
-        letterSpacing: '0.04em',
       }}>
         <span>代號 / 名稱 / 策略</span>
         <span>現價 / 漲跌%</span>
@@ -1203,7 +1202,7 @@ function RiskMonitorPanel({ onViewStock }: { onViewStock: (code: string, name: s
 
       {/* Info Footer */}
       <div style={{
-        padding: '12px 16px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
+        padding: '12px 16px', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)',
         borderTop: '1px solid var(--border-primary)', lineHeight: '1.6',
       }}>
         <div><strong>📌 注意股票</strong>：交易量、價格波動等異常，證交所提醒投資人注意交易風險。</div>
@@ -1360,7 +1359,7 @@ function RapidRisePanel({
       {/* Column header */}
       <div className={styles.surgeHeader} style={{
         padding: '8px 16px', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)',
-        borderBottom: '1px solid var(--border-primary)', letterSpacing: '0.04em',
+        borderBottom: '1px solid var(--border-primary)',
       }}>
         <span>代號 / 名稱</span>
         <span>現價 / 漲跌%</span>
@@ -1665,7 +1664,7 @@ function RapidFallPanel({
       {/* Column header */}
       <div className={styles.surgeHeader} style={{
         padding: '8px 16px', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)',
-        borderBottom: '1px solid var(--border-primary)', letterSpacing: '0.04em',
+        borderBottom: '1px solid var(--border-primary)',
       }}>
         <span>代號 / 名稱</span>
         <span>現價 / 跌幅%</span>
@@ -1914,7 +1913,7 @@ function InstitutionalPanel({
       <div style={{
         display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.8fr minmax(70px, auto)',
         padding: '8px 16px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)',
-        borderBottom: '1px solid var(--border-primary)', letterSpacing: '0.04em',
+        borderBottom: '1px solid var(--border-primary)',
       }}>
         <span>代號 / 名稱</span>
         <span>現價 / 漲跌%</span>

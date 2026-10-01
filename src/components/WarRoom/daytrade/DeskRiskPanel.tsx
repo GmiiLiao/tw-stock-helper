@@ -25,7 +25,7 @@ export default function DeskRiskPanel({ risk, setRisk, broker }: { risk: DeskRis
   const [open, setOpen] = useState(false);
   const missing = risk.riskCapTwd == null;
   const field = (label: string, key: keyof DeskRisk, hint: string, placeholder = '') => (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
       <span>{label}</span>
       <input key={`${key}:${String(risk[key])}`} defaultValue={risk[key] == null ? '' : String(risk[key])} placeholder={placeholder} inputMode="numeric"
         onBlur={e => {
@@ -33,14 +33,14 @@ export default function DeskRiskPanel({ risk, setRisk, broker }: { risk: DeskRis
           setRisk({ ...risk, [key]: v });
         }}
         style={{ width: '9em', padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 'calc(13px * var(--fz))', fontFamily: "'JetBrains Mono', monospace" }} />
-      <span style={{ fontSize: 'calc(11px * var(--fz))' }}>{hint}</span>
+      <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{hint}</span>
     </label>
   );
   return (
     <div style={{ borderRadius: 10, border: `1px solid ${missing ? 'rgba(245,158,11,0.45)' : 'var(--border-primary)'}`, padding: '6px 10px', marginBottom: 8, background: missing ? 'rgba(245,158,11,0.06)' : 'transparent' }}>
-      <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(13px * var(--fz))', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+      <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 800, fontSize: 'calc(13.5px * var(--fz))', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
         <span>{open ? '▾' : '▸'} 🛡 我的風控</span>
-        <span style={{ fontWeight: 600, color: missing ? '#f59e0b' : 'var(--text-muted)', fontSize: 'calc(12px * var(--fz))' }}>
+        <span style={{ fontWeight: 600, color: missing ? '#f59e0b' : 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
           {missing ? '尚未設定每筆風險上限：只列觀察名單、不算張數'
             : `每筆上限 ${risk.riskCapTwd!.toLocaleString()} 元${risk.capitalTwd ? `·資金 ${risk.capitalTwd.toLocaleString()} 元` : '·資金未設'}${risk.dailyCapTwd ? `·單日上限 ${risk.dailyCapTwd.toLocaleString()}（已虧 ${risk.todayLossTwd.toLocaleString()}）` : ''}·滑價 ${risk.slipTicks} 檔`}
           ·手續費 {broker.discount === 1 ? '無折讓' : `${+(broker.discount * 10).toFixed(2)} 折`}／低消 {broker.minFee} 元·當沖稅 0.15%
@@ -53,7 +53,7 @@ export default function DeskRiskPanel({ risk, setRisk, broker }: { risk: DeskRis
           {field('單日虧損上限（元）', 'dailyCapTwd', '到達即停止提出新的觀察進場', '例 9000')}
           {field('今日已實現虧損（元）', 'todayLossTwd', '手動填，從上限扣除', '0')}
           {field('預估單邊滑價（檔）', 'slipTicks', '進出各算一次', '1')}
-          <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', maxWidth: '32em', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', maxWidth: '32em', lineHeight: 1.6 }}>
             這些數字只存在這台裝置的瀏覽器，不會上傳。手續費折讓與低消沿用「持倉」頁的券商設定。
             張數公式：張數 × 1000 × 每股風險 ＋ 雙邊手續費 ＋ 當沖稅 ＋ 雙邊滑價 ≤ 每筆上限，且買進金額 ≤ 可用資金。
           </div>

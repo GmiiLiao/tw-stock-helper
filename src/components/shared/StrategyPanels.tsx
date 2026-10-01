@@ -16,7 +16,8 @@ const panel = (c: string): React.CSSProperties => ({
   marginTop: 8, padding: '8px 12px', borderRadius: 8,
   background: `${c}0f`, border: `1px solid ${c}33`, borderLeft: `3px solid ${c}`,
 });
-const pTitle = (c: string): React.CSSProperties => ({ fontWeight: 800, color: c, marginBottom: 2 });
+// 標題 14px：內文放大到 13.5px 後仍須比內文大一級（2026-10-01 判讀區字級統一）
+const pTitle = (c: string): React.CSSProperties => ({ fontWeight: 800, color: c, marginBottom: 2, fontSize: 'calc(14px * var(--fz))' });
 const chip = (border?: string): React.CSSProperties => ({
   padding: '2px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.25)',
   fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))',
@@ -24,7 +25,7 @@ const chip = (border?: string): React.CSSProperties => ({
 });
 const caveat: React.CSSProperties = {
   marginTop: 4, padding: '4px 8px', borderRadius: 6, background: 'rgba(245,158,11,0.10)',
-  border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24', fontSize: 'calc(12.5px * var(--fz))',
+  border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24', fontSize: 'calc(13px * var(--fz))',
 };
 
 // ── 隔日沖相似日疊圖（近5日形狀·後續5日·4 組）──────────────────────
@@ -236,14 +237,14 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
     );
   };
   return (
-    <div style={{ padding: '2px 10px 10px', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+    <div style={{ padding: '2px 10px 10px', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
       {/* 🗼 寶塔線（波段=日K×月線；短線=60分K×20根均） */}
       {(st.pagoda || st.pagoda60) && (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', padding: '6px 10px', margin: '6px 0 2px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
           <b style={{ color: 'var(--text-primary)' }}>🗼 寶塔線</b>
           {st.pagoda && pagodaChip(st.pagoda, '波段·日K')}
           {st.pagoda60 && pagodaChip(st.pagoda60, '短線·60分K')}
-          <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>古典規則·2026-08-15 檢定未過（勝率約25%·詳見說明書）</span>
+          <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>古典規則·2026-08-15 檢定未過（勝率約25%·詳見說明書）</span>
         </div>
       )}
       {/* ① 隔日沖 */}
@@ -258,7 +259,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
             ? <b style={{ color: 'var(--color-up)' }}>符合撿尾盤定版濾網</b>
             : <>不符定版濾網（缺 <b style={{ color: '#fbbf24' }}>{st.fails.join('、')}</b>）</>}
         </div>
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))' }}>
+        <div style={{ fontSize: 'calc(13.5px * var(--fz))' }}>
           鐵律：隔日沖持股一律<b style={{ color: BLUE }}>明早開盤賣出</b>（700 日實測唯一穩定淨正出場；開高續抱平均吐光溢價 -0.33%）。來回費稅約 <b>0.44%</b>。
           {st.charLabel === '長期核心' ? <b style={{ color: '#fbbf24' }}>此股屬長期核心——短線訊號是雜訊，不建議隔日沖。</b> : null}
         </div>
@@ -302,7 +303,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
       </div>
       {/* ② 持有日獲利 */}
       <div style={panel(TEAL)}>
-        <div style={pTitle(TEAL)}>🌊 波段持有日獲利<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>（該股近一年逐日進場統計·n={st.hold[0]?.n ?? '—'}）</span></div>
+        <div style={pTitle(TEAL)}>🌊 波段持有日獲利<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>（該股近一年逐日進場統計·n={st.hold[0]?.n ?? '—'}）</span></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '3px 0' }}>
           {st.hold.map(h => (
             <span key={h.d} style={chip(matched && matched.d === h.d ? `1.5px solid ${TEAL}` : undefined)}>
@@ -313,7 +314,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
         {dayNo != null && matched && (
           <div>
             你目前{mode === 'candidate' ? '操作' : '持有'}<b style={{ color: TEAL }}>第 {dayNo} 個交易日</b>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>（{mode === 'candidate' ? '以操作時間為第 1 日' : '買進日＝第 1 日'}）</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>（{mode === 'candidate' ? '以操作時間為第 1 日' : '買進日＝第 1 日'}）</span>
             {pnlPct != null && <>、帳面 <b style={{ color: pnlPct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</b></>}
             ；持有滿 <b>{matched.d}</b> 個交易日的歷史中位 {matched.med >= 0 ? '+' : ''}{matched.med}%（勝率 {matched.win}%）。
           </div>
@@ -329,7 +330,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
       )}
       {st.analog && (
         <div style={panel(VIOLET)}>
-          <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·逐點 ±3% 內·例外 ≤5 日且不超過 ±{st.analog.tube}%）</span></div>
+          <div style={pTitle(VIOLET)}>🔁 相似歷史波段<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>（全市場最像的 {st.analog.n} 段·逐點 ±3% 內·例外 ≤5 日且不超過 ±{st.analog.tube}%）</span></div>
           {st.analog.relaxedOutDays != null && (
             <div style={{ ...caveat, marginTop: 0, marginBottom: 3 }}>⚠ 標準鐵則（例外 ≤5 日）下為 0 段——已放寬至例外 ≤{st.analog.relaxedOutDays} 日找出最接近者；統計一律留空，僅供目視比對。</div>
           )}
@@ -351,7 +352,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
               </span>
             )}
           </div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>例：{st.analog.examples.map(e => `${e.code} ${e.name || ''} ${e.date} → 5日 ${e.ret5 != null ? (e.ret5 >= 0 ? '+' : '') + e.ret5 + '%' : '—'}`).join('；')}</div>
           {st.selfPath?.length ? (
             <>
               <button onClick={() => setShowChart(v => !v)}

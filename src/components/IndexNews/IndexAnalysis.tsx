@@ -530,21 +530,22 @@ export default function IndexAnalysis() {
       )}
 
       <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-        {loading ? <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>
-          : all.length ? <MultiPaneChart all={all} iv={iv} initSize={win} /> : <div style={{ fontSize: 12.5, color: '#cbd5f5', padding: 24 }}>{loadErr ? `無資料：${loadErr}` : '無資料'}</div>}
+        {loading ? <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', padding: 24 }}>載入 {name} K 線…</div>
+          : all.length ? <MultiPaneChart all={all} iv={iv} initSize={win} /> : <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', padding: 24 }}>{loadErr ? `無資料：${loadErr}` : '無資料'}</div>}
         {loadErr && all.length > 0 && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginTop: 4 }}>⚠ {loadErr}，顯示的是上次成功載入的資料</div>}
         {note && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5', marginTop: 4 }}>ℹ {note}</div>}
       </div>
 
       {read.lines.length > 0 && (
-        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 12.5, lineHeight: 1.9 }}>
-          <div style={{ fontWeight: 900, marginBottom: 4 }}>🧭 自動判讀（規則計算·非 AI 生成）：{read.headline}</div>
+        // 2026-10-01 使用者：判讀區字體太小、行距太開——改標準字級並收緊行高
+        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))', marginBottom: 4 }}>🧭 自動判讀（規則計算·非 AI 生成）：{read.headline}</div>
           {read.lines.map((l, i) => <div key={i} style={{ color: '#dbe4f5' }}>· {l}</div>)}
           {read.ind.length > 0 && <>
-            <div style={{ fontWeight: 900, margin: '8px 0 2px' }}>📐 指標讀數（描述性·非買賣訊號）</div>
+            <div style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))', margin: '8px 0 2px' }}>📐 指標讀數（描述性·非買賣訊號）</div>
             {read.ind.map((l, i) => <div key={'i' + i} style={{ color: '#dbe4f5' }}>· {l}</div>)}
           </>}
-          <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>判讀為技術面描述，非預測、非投資建議。MACD/KD 交叉類為確認型指標，本站回測無預測增量。</div>
+          <div style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: '#cbd5f5' }}>判讀為技術面描述，非預測、非投資建議。MACD/KD 交叉類為確認型指標，本站回測無預測增量。</div>
         </div>
       )}
 

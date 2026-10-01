@@ -139,10 +139,11 @@ export default function SqueezePanel() {
             padding: '8px 12px', borderRadius: 8, marginBottom: 8,
             background: danger ? 'rgba(239,68,68,0.09)' : 'var(--bg-elevated)',
             border: `1px solid ${danger ? 'rgba(239,68,68,0.5)' : 'var(--border-primary)'}`,
-            fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6,
+            fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6,
           }}>
+            {/* 2026-10-01 使用者：判讀區改標準字級（同指數「自動判讀」框），標題 14px 保持層級 */}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
-              <b>📊 大盤脈動</b>
+              <b style={{ fontSize: 'calc(14px * var(--fz))' }}>📊 大盤脈動</b>
               <span>加權 <b style={{ color: p.twii.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                 {p.twii.chg >= 0 ? '+' : ''}{p.twii.chg}%</b></span>
               {p.otc.chg != null && <span style={{ color: 'var(--text-muted)' }}>櫃買 {p.otc.chg >= 0 ? '+' : ''}{p.otc.chg}%</span>}
@@ -152,7 +153,7 @@ export default function SqueezePanel() {
               </span>}
               <span>漲停 <b style={{ color: 'var(--color-up)' }}>{p.counts.limitUp}</b>
                 ／跌停 <b style={{ color: 'var(--color-down)' }}>{p.counts.limitDown}</b>
-                <span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', marginLeft: 3 }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))', marginLeft: 3 }}>
                   {p.countsBasis === 'live' ? '即時' : '已收盤'}
                 </span>
               </span>
@@ -170,7 +171,7 @@ export default function SqueezePanel() {
                 {w.level === 'danger' ? '🚨' : w.level === 'good' ? '🚀' : '⚠️'} {w.text}
               </div>
             ))}
-            {p.volNote && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', marginTop: 2 }}>{p.volNote}</div>}
+            {p.volNote && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))', marginTop: 2 }}>{p.volNote}</div>}
           </div>
         );
       })()}
@@ -182,9 +183,9 @@ export default function SqueezePanel() {
           padding: '8px 12px', borderRadius: 8, marginBottom: 8,
           background: d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)',
           border: `1px solid ${d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.4)'}`,
-          fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.65,
+          fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6,
         }}>
-          <div style={{ fontWeight: 700, marginBottom: 2, color: d.recent.avgNextDay >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+          <div style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', marginBottom: 2, color: d.recent.avgNextDay >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
             近 30 個交易日實際戰績（同一條規則回放）
           </div>
           <div>
@@ -203,8 +204,8 @@ export default function SqueezePanel() {
 
       {/* 實證揭露：邊際效益多小，講在最前面 */}
       {ev && (
-        <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.65 }}>
-          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: 3 }}>
+        <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', color: '#f59e0b', marginBottom: 3 }}>
             實測校準（{ev.days} 日 · <b>隔日開盤·可買口徑</b>·樣本外）
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto', gap: '1px 10px', marginBottom: 3 }}>
@@ -228,7 +229,7 @@ export default function SqueezePanel() {
 
       {loading && !d && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>載入中…</div>}
       {d && d.items.length === 0 && (
-        <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
+        <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>
           今日無符合條件的個股。條件嚴格是刻意的——放寬到「券資比越高越好」實測反而更差。
         </div>
       )}
@@ -237,8 +238,8 @@ export default function SqueezePanel() {
       {rec && rec.items.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-            <b style={{ fontSize: 'calc(13px * var(--fz))' }}>🤖 開盤前新聞判別</b>
-            <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+            <b style={{ fontSize: 'calc(14px * var(--fz))' }}>🤖 開盤前新聞判別</b>
+            <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
               {/* 市況揭露（2026-08-31 實驗結論）：偏空日本策略樣本外勝率僅 49.6%。
                   刻意做成**揭露**而非濾網——試過的濾網全部沒通過安慰劑檢定，
                   但這個勝率是 41 天／397 筆的大樣本觀察，使用者有權知道。 */}
@@ -246,7 +247,7 @@ export default function SqueezePanel() {
                 <div style={{
                   margin: '6px 0', padding: '6px 10px', borderRadius: 6,
                   background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)',
-                  color: '#fbbf24', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.5,
+                  color: '#fbbf24', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.5,
                 }}>
                   ⚠ <b>今日國際盤偏空</b>——本策略在此市況的樣本外勝率僅 <b>49.6%</b>
                   （41 個交易日、397 筆），與擲硬幣相當。建議減碼或觀望。
@@ -260,7 +261,7 @@ export default function SqueezePanel() {
             const f = (st?: ReviewStat) => (st && st.n ? `${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '—');
             const rt = review.byReasonType || {}; const bc = review.byConf || {}; const bt = review.byTone || {};
             return (
-              <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
                 <button onClick={() => setShowReview(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'inherit' }}>
                   📊 對答案 {review.days} 日：newsLift <b style={{ color: (review.newsLift ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{review.newsLift ?? '—'}</b>（利多 {f(review.bull)}）{showReview ? '▴ 收起' : '▸ 明細'}
                 </button>
@@ -295,10 +296,10 @@ export default function SqueezePanel() {
                 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
-                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, fontSize: 'calc(13.5px * var(--fz))', textDecoration: 'underline dotted' }}>
                       {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
                     </button>
-                    <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
+                    <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12.5px * var(--fz))' }}>↗</button>
                     {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
                     <AddCandidateButton code={it.code} variant="icon" />
                     <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
@@ -306,30 +307,30 @@ export default function SqueezePanel() {
                     <span style={{ padding: '1px 8px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' }}>
                       {v?.label ?? '—'}
                     </span>
-                    {v?.confidence && <span title="AI 自報信心，對答案顯示無分辨力（信心高反而比信心低差），已不進任何規則，僅供參考" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>信心{v.confidence}（不進規則）</span>}
+                    {v?.confidence && <span title="AI 自報信心，對答案顯示無分辨力（信心高反而比信心低差），已不進任何規則，僅供參考" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>信心{v.confidence}（不進規則）</span>}
                     {it.reasonType?.types?.length ? it.reasonType.types.map(t => {
                       const green = t === '本業事實' || t === '技術產品';
                       const st = review?.byReasonType?.[t];
                       const hist = st && st.n ? `對答案 ${review!.days} 日：${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '對答案尚無此類樣本';
-                      return <span key={t} title={`${green ? '本業依據（加權 +1）' : '非本業依據（不加分）'}｜${hist}`} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 'calc(11.5px * var(--fz))', fontWeight: 700, background: green ? 'rgba(34,197,94,0.16)' : 'rgba(148,163,184,0.16)', color: green ? '#22c55e' : '#94a3b8' }}>{t}</span>;
+                      return <span key={t} title={`${green ? '本業依據（加權 +1）' : '非本業依據（不加分）'}｜${hist}`} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, background: green ? 'rgba(34,197,94,0.16)' : 'rgba(148,163,184,0.16)', color: green ? '#22c55e' : '#94a3b8' }}>{t}</span>;
                     }) : null}
-                    {it.newsScore != null && <span title="新聞加權＝理由類型（本業事實／技術產品 +1，其它 0）＋連動量化（0～1）；只在同一籌碼分級內排序" style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>加權 {it.newsScore >= 0 ? '+' : ''}{it.newsScore}</span>}
+                    {it.newsScore != null && <span title="新聞加權＝理由類型（本業事實／技術產品 +1，其它 0）＋連動量化（0～1）；只在同一籌碼分級內排序" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>加權 {it.newsScore >= 0 ? '+' : ''}{it.newsScore}</span>}
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                       依據{v?.basis === 'content' ? '內文' : v?.basis === 'title' ? '僅標題' : v?.basis === 'event' ? '排定事件' : '無資料'}
                       {v?.stale && <span style={{ color: '#f59e0b', marginLeft: 3 }}>⏳{v.ageDays}天前舊聞</span>}
                       {it.news ? `｜${it.news.stale ? '回溯' : '2日內'} ${it.news.checked} 則（實質 ${it.news.material}／純行情 ${it.news.priceOnly} 不計）` : ''}
                     </span>
                   </div>
-                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)', marginTop: 2 }}>
                     {v?.reason}
                   </div>
                   {(it.events?.length ?? 0) > 0 && (
-                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#38bdf8', marginTop: 1 }}>
+                    <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#38bdf8', marginTop: 1 }}>
                       📅 已排定事件：{it.events!.map(e => `${e.date.slice(5)} ${e.title}`).join('；')}
                     </div>
                   )}
                   {v?.chain && (
-                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#a78bfa', marginTop: 1 }}>
+                    <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#a78bfa', marginTop: 1 }}>
                       🔗 連動：{v.chain}
                       {it.chainLink ? (
                         it.chainLink.score != null
@@ -339,12 +340,12 @@ export default function SqueezePanel() {
                     </div>
                   )}
                   {v?.risk && v.risk !== '無' && (
-                    <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', marginTop: 1 }}>
+                    <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#f59e0b', marginTop: 1 }}>
                       ⚠ 風險：{v.risk}
                     </div>
                   )}
                   {it.news?.top?.slice(0, 2).map((n, i) => (
-                    <div key={i} style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 1 }}>
+                    <div key={i} style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 1 }}>
                       · {n.link ? <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>{n.title}</a> : n.title}
                     </div>
                   ))}
@@ -353,7 +354,7 @@ export default function SqueezePanel() {
               );
             })}
           </div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 5 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 5 }}>
             判別依據＝新聞（鉅亨有內文＋Google News 標題）<b>＋交易所事件行事曆</b>（法說會/除權息/股東會）。
             事件是已排定的事實而非傳聞，但<b>法說內容未知時不預設為利多</b>——AI 會判中性並註明。
             近 2 日查無新聞時<b>自動回退到最近 14 日內的最新報導</b>並標示「⏳N天前舊聞」；
@@ -366,7 +367,7 @@ export default function SqueezePanel() {
       )}
 
       {d && d.items.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', margin: '6px 0' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', margin: '6px 0' }}>
           <span>可選過濾（預設關，未過 v2 尺，僅揭露）：</span>
           <label style={{ cursor: 'pointer' }}><input type="checkbox" checked={fMacd} onChange={e => { setFMacd(e.target.checked); storageSet('sqzFilterMacd', e.target.checked ? '1' : '0'); }} /> MACD 0 線上且柱上升（稽核：成功率 54.5% vs 全體 55.4%，無分辨力）</label>
           <label style={{ cursor: 'pointer' }}><input type="checkbox" checked={fLearn} onChange={e => { setFLearn(e.target.checked); storageSet('sqzFilterLearn', e.target.checked ? '1' : '0'); }} /> 錯誤學習：排除已漲多(5日≥15%)／爆量(量比≥3x)／漲7～9%（稽核：55.4%→60.7%，樣本外 63.2%，n=155，同批資料挖出、前瞻未驗）</label>
@@ -410,10 +411,10 @@ export default function SqueezePanel() {
                   </td>
                   <td style={{ padding: '4px 4px', textAlign: 'left' }}>
                     <button onClick={() => setOpenCode(c => c === it.code ? null : it.code)} title="點擊展開／收合即時走勢"
-                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline dotted' }}>
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))', textDecoration: 'underline dotted' }}>
                       {it.code} {it.name} {openCode === it.code ? '▴' : '▾'}
                     </button>
-                    <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12px * var(--fz))' }}>↗</button>
+                    <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12.5px * var(--fz))' }}>↗</button>
                     {(() => { const st = statusOf(dt, it.code); return st == null ? null : <span style={{ marginLeft: 4 }}><DayTradeMark status={st} size="xs" /></span>; })()}
                     <AddCandidateButton code={it.code} variant="icon" />
                   </td>
@@ -468,8 +469,8 @@ export default function SqueezePanel() {
         const pct = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
         return (
           <div style={{ marginTop: 12, border: '1px solid rgba(245,158,11,0.35)', background: 'rgba(245,158,11,0.05)', borderRadius: 8, padding: '8px 12px' }}>
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, marginBottom: 4 }}>🚪 當日離榜（入選 → 離榜對照）｜{ledger.date} 累計入選 {ledger.count} 檔，在榜 {ledger.onBoard}，離榜 {ledger.droppedCount}</div>
-            {!dropped.length ? <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>今日尚無離榜股。</div> : (
+            <div style={{ fontSize: 'calc(13.5px * var(--fz))', fontWeight: 700, marginBottom: 4 }}>🚪 當日離榜（入選 → 離榜對照）｜{ledger.date} 累計入選 {ledger.count} 檔，在榜 {ledger.onBoard}，離榜 {ledger.droppedCount}</div>
+            {!dropped.length ? <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>今日尚無離榜股。</div> : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', minWidth: 620 }}>
                   <thead><tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
@@ -491,11 +492,11 @@ export default function SqueezePanel() {
                 </table>
               </div>
             )}
-            <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>{ledger.note}</div>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>{ledger.note}</div>
           </div>
         );
       })()}
-      <div style={{ marginTop: 10, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+      <div style={{ marginTop: 10, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         規則：{d?.rule || '漲≥5% × 券資比10~20% × 20日均量≥500張 × 價>10'}。
         「軋空啟動(A)」沿用站上撿尾盤既有的同名訊號（昨日融券增≥昨量0.5%，2 年稽核），不另立第二套定義。
         券資比＝融券餘額÷融資餘額，取<b>最近已公布</b>的交易日（t-1）；漲幅為當日。

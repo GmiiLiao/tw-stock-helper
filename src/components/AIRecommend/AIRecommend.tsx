@@ -194,9 +194,9 @@ function ScoreTable({ agg, emptyHint }: { agg: ScoreAgg; emptyHint: string }) {
                   return (
                     <td key={h} style={{ textAlign: 'right', padding: '6px 12px', fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                       <b style={{ fontSize: 'calc(13px * var(--fz))', color: tone(r.excess) }}>{signed(r.excess, 'pp')}</b>
-                      {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 'calc(12px * var(--fz))', color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
+                      {thin && <span title={`只有 ${r.entryDays} 個進場日，樣本互相重疊，尚不足以當作估計值`} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#fbbf24', marginLeft: 3 }}>⚠{r.entryDays}日</span>}
                       <div style={{ color: 'var(--text-primary)' }}>勝率 {r.winRate}%｜均報 <span style={{ color: tone(r.avgRet) }}>{signed(r.avgRet)}</span></div>
-                      {r.base && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>基準 {r.base.winRate}%｜{signed(r.base.avgRet)} · n={r.n}</div>}
+                      {r.base && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>基準 {r.base.winRate}%｜{signed(r.base.avgRet)} · n={r.n}</div>}
                     </td>
                   );
                 })}
@@ -224,7 +224,7 @@ function RecentPicks({ days }: { days: RecentDay[] }) {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
         {days.map((x, i) => (
           <button key={x.date} type="button" onClick={() => setSel(i)} aria-pressed={i === sel}
-            style={{ padding: '3px 9px', borderRadius: 999, cursor: 'pointer', fontSize: 'calc(12px * var(--fz))', border: `1px solid ${i === sel ? '#7dd3fc' : 'var(--border-primary)'}`, background: i === sel ? 'rgba(125,211,252,0.12)' : 'transparent', color: 'var(--text-primary)' }}>
+            style={{ padding: '3px 9px', borderRadius: 999, cursor: 'pointer', fontSize: 'calc(12.5px * var(--fz))', border: `1px solid ${i === sel ? '#7dd3fc' : 'var(--border-primary)'}`, background: i === sel ? 'rgba(125,211,252,0.12)' : 'transparent', color: 'var(--text-primary)' }}>
             {x.date.slice(5)}
           </button>
         ))}
@@ -497,7 +497,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                 <div className={styles.reasonsSection}>
                   <div className={styles.detailTitle}>
                     📰 新聞判別（AI 讀完內文）
-                    <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', fontWeight: 400 }}>
                       {/* 透明呈現：把它對排序的實際影響寫出來，不讓使用者猜 */}
                       {/* 目前不納入排序（等 newsLift 驗證），但把「若納入會是幾分」
                           寫出來，使用者才知道這個訊號的份量，也才看得出將來的變化 */}
@@ -521,17 +521,17 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                     <span style={{ color: 'var(--text-muted)' }}>（信心{view.newsVerdict.confidence}）</span>
                     {view.newsVerdict.reason ? `：${view.newsVerdict.reason}` : ''}
                     {view.newsVerdict.strengthBasis && (
-                      <div style={{ marginTop: 3, color: 'var(--text-secondary)', fontSize: 'calc(11.5px * var(--fz))' }}>
+                      <div style={{ marginTop: 3, color: 'var(--text-secondary)', fontSize: 'calc(12.5px * var(--fz))' }}>
                         📌 強度依據：{view.newsVerdict.strengthBasis}
                       </div>
                     )}
                     {view.newsVerdict.unverifiedNums?.length ? (
-                      <div style={{ marginTop: 3, color: 'var(--color-warn, #fbbf24)', fontSize: 'calc(11.5px * var(--fz))' }}>
+                      <div style={{ marginTop: 3, color: 'var(--color-warn, #fbbf24)', fontSize: 'calc(12.5px * var(--fz))' }}>
                         ⚠ 下列數字未能在原文查證：{view.newsVerdict.unverifiedNums.join('、')}
                       </div>
                     ) : null}
                     {view.newsVerdict.revision && (
-                      <div style={{ marginTop: 3, color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>
+                      <div style={{ marginTop: 3, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
                         🔍 四角色挑戰後：{view.newsVerdict.revision}
                       </div>
                     )}
@@ -957,7 +957,7 @@ export default function AIRecommend() {
              位置——**分桶邊界的巧合**，不是 regime 效應。提示已撤。
           但拆解同時給了一個**更強**的正面結論：超額不挑市況。這才是該講的。 */}
       {scoreboard && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.28)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.28)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
           📐 <b style={{ color: 'var(--text-primary)' }}>這張榜的超額不挑市況</b>——
           把交易日依當日大盤中位數漲幅分成六桶後，本榜前 5 名相對同桶基準的超額
           在第三獨立窗幾乎是常數（中跌 <b>+0.259</b>／小跌 <b>+0.263</b>／小漲 <b>+0.259</b> pp）。

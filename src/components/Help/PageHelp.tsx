@@ -45,18 +45,18 @@ export default function PageHelp({ id }: { id: string }) {
       </button>
 
       {open && (
-        <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
-          <div style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', marginBottom: 4 }}>{content.icon} {content.title}：{content.what}</div>
+        <div style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid rgba(125,211,252,0.25)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 900, fontSize: 'calc(14.5px * var(--fz))', marginBottom: 4 }}>{content.icon} {content.title}：{content.what}</div>
 
-          <div style={{ fontWeight: 800, color: '#7dd3fc', margin: '8px 0 2px' }}>🖱 怎麼操作</div>
+          <div style={{ fontWeight: 800, color: '#7dd3fc', margin: '8px 0 2px', fontSize: 'calc(14px * var(--fz))' }}>🖱 怎麼操作</div>
           {how.map((h, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {h}</div>)}
 
-          <div style={{ fontWeight: 800, color: '#f6a06a', margin: '8px 0 2px' }}>👁 怎麼判讀</div>
+          <div style={{ fontWeight: 800, color: '#f6a06a', margin: '8px 0 2px', fontSize: 'calc(14px * var(--fz))' }}>👁 怎麼判讀</div>
           {read.map((r, i) => <div key={i} style={{ color: 'var(--text-secondary)' }}>· {r}</div>)}
 
           {content.terms.length > 0 && (
             <>
-              <div style={{ fontWeight: 800, color: '#c4b5fd', margin: '8px 0 4px' }}>📚 本頁術語（點擊看解釋）</div>
+              <div style={{ fontWeight: 800, color: '#c4b5fd', margin: '8px 0 4px', fontSize: 'calc(14px * var(--fz))' }}>📚 本頁術語（點擊看解釋）</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {content.terms.map(t => {
                   const on = term === t;
@@ -84,7 +84,7 @@ export default function PageHelp({ id }: { id: string }) {
               style={{ padding: '4px 12px', borderRadius: 10, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: '1px solid rgba(125,211,252,0.45)', background: 'rgba(125,211,252,0.10)', color: '#7dd3fc' }}>
               📖 完整說明書（操作流程＋全部術語）
             </button>
-            <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>非投資建議。</span>
+            <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>非投資建議。</span>
           </div>
         </div>
       )}

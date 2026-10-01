@@ -22,7 +22,7 @@ interface Target {
 interface DPick { code: string; name: string; confidence: number | null; horizon: number | null; reason: string; risk: string; priceAtDecision: number | null; shares: number; estCost: number; skipReason: string | null }
 interface Decision { date: string; note: string | null; model: string | null; frozenAt: number | null; picks: DPick[]; sells: { code: string; name: string; reason: string; shares: number | null }[] }
 interface Resp {
-  access?: { swing: boolean; daytrade: boolean }; settings?: Settings; withdrawable?: number; pendingFlow?: number;
+  access?: { swing: boolean; daytrade: boolean }; settings?: Settings; withdrawable?: number; pendingFlow?: number; feeDiscount?: number;
   snapshot?: Snapshot | null; summary?: Summary | null; target?: Target | null;
   decisions?: Decision[]; error?: string;
 }
@@ -58,7 +58,7 @@ export default function MyAiLab() {
 
   if (!data) return <div style={{ padding: 20, color: loadErr ? '#ef4444' : MUTED }}>{loadErr || '載入中…'}</div>;
   if (!data.settings) {   // 未開通、非高級會員（403 只帶 error）都走這裡
-    return <div style={{ padding: 20, color: MUTED, lineHeight: 1.8 }}>🤖 AI 實驗尚未開通{data.error ? `（${data.error}）` : ''}。這是高級會員專屬功能，需由管理員開通；開通後會出現你的專屬 AI 交易員與模擬帳戶。</div>;
+    return <div style={{ padding: 20, color: MUTED, fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>🤖 AI 實驗尚未開通{data.error ? `（${data.error}）` : ''}。這是高級會員專屬功能，需由管理員開通；開通後會出現你的專屬 AI 交易員與模擬帳戶。</div>;
   }
   const st = data.settings, sm = data.summary, snap = data.snapshot;
   const history = snap?.history || [];
@@ -68,15 +68,20 @@ export default function MyAiLab() {
   // 快照之後的入金／提領（daemon 每分鐘偵測設定變更後重算；這段期間總值與總損益先補上，避免顯示「總損益 −入金」）
   const pending = data.pendingFlow ?? 0;
   const total = sm ? sm.total + pending : 0;
+  // 手續費依會員自己的券商折讓（2026-10-01 使用者「手續費為使用者的折扣非統一使用2.8折」；設定在 持倉總覽 → 資金總覽 → ⚙ 費率）
+  const disc = data.feeDiscount ?? 1;
+  const feeTxt = disc < 1
+    ? `買賣手續費各 ${+(0.1425 * disc).toFixed(4)}%（0.1425%×你的券商 ${+(disc * 10).toFixed(2)} 折）`
+    : '買賣手續費各 0.1425%（未設定券商折讓＝全額；可在「持倉總覽 → 💰 資金總覽 → ⚙ 費率」設定）';
 
   return (
     <div style={{ padding: '4px 2px', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6, width: '100%' }}>   {/* 滿版：跟投資組合頁同寬（2026-10-01 使用者） */}
       <h2 style={{ margin: '4px 0 6px', fontSize: 'calc(1.2rem * var(--fz))' }}>🤖 AI 實驗·波段 <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 400, color: MUTED }}>你的專屬 AI 交易員</span></h2>
       <div style={{ color: MUTED, marginBottom: 10 }}>
         每個交易日盤後（17:00 後），你的 AI 交易員依你的帳戶、持股與獲利目標，從本站波段候選池決定賣出與買進；下一個交易日 09:00 以開盤價模擬成交並即時記錄。
-        費用照實扣：買賣手續費各 0.1425%、賣出證交稅 0.3%。<b>模擬交易，非投資建議；過去的模擬成績不代表未來。</b>
+        費用照實扣：{feeTxt}、賣出證交稅 0.3%。<b>模擬交易，非投資建議；過去的模擬成績不代表未來。</b>
       </div>
-      {loadErr && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
+      {loadErr && <div role="alert" style={{ color: '#ef4444', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
       <SettingsCard key={`${st.capital}|${st.goalDays}|${st.growthTarget}`} settings={st} withdrawable={data.withdrawable ?? 0} hasAccount={started && !!sm} onSaved={load} msg={saveMsg} setMsg={setSaveMsg} />
 
@@ -104,7 +109,7 @@ export default function MyAiLab() {
       )}
 
       <Decisions decisions={data.decisions || []} />
-      <div style={{ marginTop: 10, color: MUTED, fontSize: 'calc(12px * var(--fz))' }}>
+      <div style={{ marginTop: 10, color: MUTED, fontSize: 'calc(13px * var(--fz))' }}>
         模擬交易僅供研究參考，非投資建議；AI 依本站資料決策，可能出錯。<CostReference holdDays={[5, 20]} />
       </div>
     </div>
@@ -119,7 +124,8 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved, msg, setMsg
   const [days, setDays] = useState(String(settings.goalDays ?? DEFAULT_GOAL_DAYS));
   const [goal, setGoal] = useState(settings.growthTarget == null ? '' : String(settings.growthTarget));
   const [busy, setBusy] = useState(false);
-  const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(/,/g, '')));
+  // 容許千分位、% 與全形字（使用者實測輸入「100%」被判為格式錯誤·2026-10-01）
+  const num = (v: string) => { const t = v.replace(/[,，\s%％]/g, '').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)); return t === '' ? null : Number(t); };
 
   const save = async () => {
     const body: Record<string, number | null> = {};
@@ -153,28 +159,28 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved, msg, setMsg
     <Section title="⚙️ 我的設定" sub="變更投入資金＝加碼或提領（帳戶延續）；提領不可超過可提領現金；目標或期間變更＝重新起算">
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <label style={field}>
-          <span>① 投入資金（元）</span>
+          <span style={{ fontSize: 'calc(13.5px * var(--fz))' }}>① 投入資金（元）</span>
           <input className="input" inputMode="numeric" value={cap} onChange={e => setCap(e.target.value)} placeholder="例：300000（最低 50,000）" aria-describedby="cap-hint" />
-          <span id="cap-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>目前淨投入 {money(settings.capital)}{hasAccount ? `·可提領 ${money(withdrawable)}·填 0＝提領全部可提領現金` : ''}</span>
+          <span id="cap-hint" style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED }}>目前淨投入 {money(settings.capital)}{hasAccount ? `·可提領 ${money(withdrawable)}·填 0＝提領全部可提領現金` : ''}</span>
         </label>
         <label style={field}>
-          <span>② 獲利期間</span>
+          <span style={{ fontSize: 'calc(13.5px * var(--fz))' }}>② 獲利期間</span>
           <select className="input" value={days} onChange={e => setDays(e.target.value)} aria-describedby="days-hint">
             {GOAL_DAY_OPTIONS.map(o => <option key={o.v} value={String(o.v)}>{o.label}</option>)}
           </select>
-          <span id="days-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>以交易日計；每期到期自動進入下一期</span>
+          <span id="days-hint" style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED }}>以交易日計；每期到期自動進入下一期</span>
         </label>
         <label style={field}>
-          <span>③ 獲利成長目標（%）</span>
+          <span style={{ fontSize: 'calc(13.5px * var(--fz))' }}>③ 獲利成長目標（%）</span>
           <input className="input" inputMode="decimal" value={goal} onChange={e => setGoal(e.target.value)} placeholder="例：10（空白＝不設）" aria-describedby="goal-hint" />
-          <span id="goal-hint" style={{ fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>每個獲利期間要達成的帳戶成長；AI 交易員以此為目標，風險控制優先</span>
+          <span id="goal-hint" style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED }}>每個獲利期間要達成的帳戶成長；AI 交易員以此為目標，風險控制優先</span>
         </label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <span aria-hidden style={{ visibility: 'hidden' }}>　</span>
+          <span aria-hidden style={{ visibility: 'hidden', fontSize: 'calc(13.5px * var(--fz))' }}>　</span>   {/* 與欄位標籤同字級，按鈕才會與輸入框對齊 */}
           <button className="btn btn-buy" disabled={busy} onClick={save} style={{ height: 36 }}>儲存設定</button>
         </div>
       </div>
-      {msg && <div role="status" style={{ marginTop: 6, fontSize: 'calc(12px * var(--fz))', color: msg.startsWith('✖') ? '#ef4444' : MUTED }}>{msg}</div>}
+      {msg && <div role="status" style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: msg.startsWith('✖') ? '#ef4444' : MUTED }}>{msg}</div>}
     </Section>
   );
 }
@@ -187,7 +193,7 @@ function GoalBar({ t }: { t: Target }) {
   return (
     <div style={{ marginTop: 10 }} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={w}
       aria-label={`獲利目標每 ${t.days} 個交易日成長 ${t.goal}%，${phase}，本期 ${t.periodRetPct}%，達成 ${t.progress}%`}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 'calc(12px * var(--fz))' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 'calc(13.5px * var(--fz))' }}>
         <span>🎯 每 <b>{t.days}</b> 個交易日成長 <b>+{t.goal}%</b>　<span style={{ color: MUTED }}>{phase}</span></span>
         <span>本期 <b style={{ color: upDn(t.periodRetPct) }}>{pct(t.periodRetPct)}</b><span style={{ color: MUTED }}>·達成 {t.progress}%</span></span>
       </div>
@@ -195,7 +201,7 @@ function GoalBar({ t }: { t: Target }) {
         <div style={{ width: `${w}%`, height: '100%', background: t.progress >= 100 ? '#22c55e' : '#7dd3fc', transition: 'width .3s' }} />
       </div>
       {t.lastPeriod && (
-        <div style={{ marginTop: 3, fontSize: 'calc(11.5px * var(--fz))', color: MUTED }}>
+        <div style={{ marginTop: 3, fontSize: 'calc(13px * var(--fz))', color: MUTED }}>
           上一期（第 {t.lastPeriod.n} 期）{pct(t.lastPeriod.retPct)}·{t.lastPeriod.achieved ? '✓ 達標' : '未達標'}
         </div>
       )}
@@ -215,12 +221,12 @@ function Decisions({ decisions }: { decisions: Decision[] }) {
         return (
           <div key={d.date} style={{ borderBottom: '1px solid var(--border-primary)', padding: '6px 0' }}>
             <button type="button" onClick={() => setOpen(isOpen ? null : d.date)} aria-expanded={isOpen}
-              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontSize: 'calc(13px * var(--fz))', textAlign: 'left', width: '100%' }}>
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontSize: 'calc(14px * var(--fz))', textAlign: 'left', width: '100%' }}>
               {isOpen ? '▾' : '▸'} <b>{d.date}</b>　賣 {d.sells.length ? d.sells.map(x => `${x.code} ${x.name}`).join('、') : '無'}｜買 {buys.length ? buys.map(p => `${p.code} ${p.name}`).join('、') : '無'}
               {d.frozenAt ? <span style={{ color: MUTED }}>　決策 {tw(d.frozenAt, true)}</span> : null}
             </button>
             {isOpen && (
-              <div style={{ marginTop: 4, fontSize: 'calc(12.5px * var(--fz))' }}>
+              <div style={{ marginTop: 4, fontSize: 'calc(13.5px * var(--fz))' }}>
                 {d.note && <div style={{ color: MUTED }}>💬 操作思路：{d.note}</div>}
                 {d.sells.map(x => <div key={`s${x.code}`} style={{ color: '#f59e0b' }}>🔻 賣出 {x.code} {x.name}{x.shares ? `（${x.shares.toLocaleString()} 股）` : ''}：{x.reason || '—'}</div>)}
                 {buys.map(p => (

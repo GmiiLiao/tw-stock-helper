@@ -26,18 +26,18 @@ const dur = (ms: number | null) => {
 export function Kpi({ label, value, sub, color, hint }: { label: string; value: string; sub?: string; color?: string; hint?: string }) {
   return (
     <div title={hint} style={{ flex: '1 1 10em', minWidth: '10em', padding: '10px 12px', borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{label}</div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{label}</div>
       <div style={{ ...MONO, fontSize: 'calc(20px * var(--fz))', fontWeight: 900, color: color || 'var(--text-primary)', lineHeight: 1.3 }}>{value}</div>
-      {sub && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</div>}
     </div>
   );
 }
 
 export function VerifyBadge({ ok, decidedAt, entryAt }: { ok: boolean | null | undefined; decidedAt?: number | null; entryAt?: number | null }) {
-  if (ok == null) return <span style={{ fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>反事實（非 AI 交易）</span>;
+  if (ok == null) return <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>反事實（非 AI 交易）</span>;
   return (
     <span title={`AI 決定：${tw(decidedAt, true)}\n進場：${tw(entryAt, true)}`}
-      style={{ fontSize: 'calc(11px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: ok ? 'rgba(34,197,94,0.14)' : 'rgba(239,68,68,0.16)', color: ok ? '#22c55e' : '#ef4444' }}>
+      style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: ok ? 'rgba(34,197,94,0.14)' : 'rgba(239,68,68,0.16)', color: ok ? '#22c55e' : '#ef4444' }}>
       {ok ? '✓ 先決定後成交' : '⚠ 時序異常（成交早於決定）'}
     </span>
   );
@@ -55,25 +55,25 @@ export function TradeSlip({ L, muted = false, withDate = false, note, counterfac
     const x = L[k];
     return (
       <div style={{ flex: '1 1 12em', minWidth: 0, padding: '6px 10px', borderRadius: 8, background: cf ? 'rgba(148,163,184,0.08)' : k === 'buy' ? 'rgba(240,62,62,0.06)' : 'rgba(47,158,68,0.06)' }}>
-        <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           {cf ? '模擬' : ''}{k === 'buy' ? '買進' : '賣出'}{k === first ? '（先）' : '（後）'} · <span style={MONO}>{tw(x.at, withDate)}</span>
         </div>
         <div style={{ ...MONO, fontWeight: 800 }}>{L.legs && L.legs.filter(g => g.side === k).length > 1 ? `均價 ${x.px}` : x.px} × {L.shares.toLocaleString()} 股</div>
-        <div style={{ ...MONO, fontSize: 'calc(12px * var(--fz))' }}>＝ {x.amount.toLocaleString()} 元<span style={{ color: 'var(--text-muted)' }}> · 手續費 {x.fee}{k === 'sell' ? ` · 稅 ${(x as SimLedger['sell']).tax}` : ''}</span></div>
+        <div style={{ ...MONO, fontSize: 'calc(12.5px * var(--fz))' }}>＝ {x.amount.toLocaleString()} 元<span style={{ color: 'var(--text-muted)' }}> · 手續費 {x.fee}{k === 'sell' ? ` · 稅 ${(x as SimLedger['sell']).tax}` : ''}</span></div>
       </div>
     );
   };
   const avoided = L.pnlTwd < 0;
   return (
     <div style={{ opacity: muted && !cf ? 0.78 : 1, ...(cf ? { border: '1px dashed rgba(148,163,184,0.55)', borderRadius: 10, padding: '6px 8px', color: 'var(--text-secondary, var(--text-muted))' } : {}) }}>
-      {cf && <div style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', marginBottom: 4 }}>🧪 AI 沒下單・以下是「若照工作台規則做」的模擬結果——不是 AI 的交易，不計入帳戶</div>}
+      {cf && <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 800, color: 'var(--text-muted)', marginBottom: 4 }}>🧪 AI 沒下單・以下是「若照工作台規則做」的模擬結果——不是 AI 的交易，不計入帳戶</div>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{first === 'buy' ? <>{leg('buy')}{leg('sell')}</> : <>{leg('sell')}{leg('buy')}</>}</div>
       {L.legs && L.legs.length > 2 && (
-        <div style={{ marginTop: 4, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>
+        <div style={{ marginTop: 4, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           分批明細：{L.legs.map((g, i) => <span key={i} style={{ ...MONO, marginRight: 10 }}>{g.side === 'buy' ? '買' : '賣'} {tw(g.at, withDate)} {g.px}×{g.shares}＝{g.amount.toLocaleString()}</span>)}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'baseline', marginTop: 4, fontSize: 'calc(12px * var(--fz))' }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'baseline', marginTop: 4, fontSize: 'calc(13px * var(--fz))' }}>
         {cf ? <>
           <span style={{ ...MONO, color: 'var(--text-muted)' }}>若照做 淨 {twd(L.pnlTwd)}（{pct(L.retPct)}）</span>
           <span style={{ fontWeight: 800, color: avoided ? '#22c55e' : '#f59e0b' }}>{avoided ? '✅ AI 放棄＝避開這筆虧損' : L.pnlTwd > 0 ? '⚠ AI 放棄＝錯過這筆獲利' : '放棄與否損益相同'}</span>
@@ -81,7 +81,7 @@ export function TradeSlip({ L, muted = false, withDate = false, note, counterfac
           <span style={{ ...MONO, fontSize: 'calc(15px * var(--fz))', fontWeight: 900, color: upDn(L.pnlTwd) }}>淨 {twd(L.pnlTwd)}</span>
           <span style={{ ...MONO, color: upDn(L.retPct) }}>{pct(L.retPct)}</span>
         </>}
-        <span style={{ color: 'var(--text-muted)' }}>費稅合計 {L.costTwd} 元 · 持有 {dur(L.holdMs)} · {L.dayTrade ? '當沖稅 0.15%' : '證交稅 0.3%'} · 手續費 0.1425% 無折讓</span>
+        <span style={{ color: 'var(--text-muted)' }}>費稅合計 {L.costTwd} 元 · 持有 {dur(L.holdMs)} · {L.dayTrade ? '當沖稅 0.15%' : '證交稅 0.3%'} · 手續費 0.1425%{L.feeDiscount ? `×券商 ${+(L.feeDiscount * 10).toFixed(2)} 折（會員自己的折讓）` : ' 無折讓'}</span>
         {!cf && <VerifyBadge ok={L.noLookahead} decidedAt={L.decidedAt} entryAt={L.entryAt} />}
         {note && <span style={{ color: '#f59e0b' }}>{note}</span>}
       </div>
@@ -98,8 +98,8 @@ export function NotesBox({ initial, meta, onSave, msg, placeholder }: { initial:
       <textarea ref={setEl} defaultValue={initial} rows={4} maxLength={4000} placeholder={placeholder}
         style={{ width: '100%', boxSizing: 'border-box', padding: 8, borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
-        <button onClick={() => el && onSave(el.value)} style={{ padding: '4px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'rgba(125,211,252,0.2)', color: '#7dd3fc', fontWeight: 800 }}>儲存</button>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{msg || '只存在獨立欄位、不改 AI 記錄；15 分鐘內同步到第二大腦'}</span>
+        <button onClick={() => el && onSave(el.value)} style={{ padding: '4px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'rgba(125,211,252,0.2)', color: '#7dd3fc', fontWeight: 800, fontSize: 'calc(13px * var(--fz))' }}>儲存</button>
+        <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{msg || '只存在獨立欄位、不改 AI 記錄；15 分鐘內同步到第二大腦'}</span>
       </div>
     </div>
   );
@@ -110,7 +110,7 @@ export function Section({ title, sub, children }: { title: string; sub?: string;
     <section style={{ marginTop: 14 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 6 }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))' }}>{title}</span>
-        {sub && <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</span>}
+        {sub && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</span>}
       </div>
       {children}
     </section>
@@ -142,7 +142,7 @@ export function ListTable({ head, rows, right = [], foot, empty = '無', maxHeig
               <tr onClick={det ? () => toggle(id) : undefined} style={{ borderBottom: isOpen ? 'none' : '1px dashed var(--border-primary)', cursor: det ? 'pointer' : undefined }}>
                 {r.map((c, i) => <td key={i} style={cell(i)}>{i === 0 && det ? <button type="button" aria-expanded={isOpen} aria-label={isOpen ? '收合明細' : '展開明細'} onClick={e => { e.stopPropagation(); toggle(id); }} style={{ background: 'none', border: 'none', padding: '0 4px 0 0', cursor: 'pointer', color: '#7dd3fc' }}>{isOpen ? '▾' : '▸'}</button> : null}{c}</td>)}
               </tr>
-              {det && isOpen && <tr style={{ borderBottom: '1px dashed var(--border-primary)' }}><td colSpan={head.length} style={{ padding: '6px 12px 10px 28px', background: 'var(--bg-secondary)', whiteSpace: 'normal', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7 }}>{det}</td></tr>}
+              {det && isOpen && <tr style={{ borderBottom: '1px dashed var(--border-primary)' }}><td colSpan={head.length} style={{ padding: '6px 12px 10px 28px', background: 'var(--bg-secondary)', whiteSpace: 'normal', fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>{det}</td></tr>}
             </Fragment>
           );
         })}</tbody>
@@ -167,8 +167,8 @@ export function Collapse({ id, title, sub, count, defaultOpen = true, tone, chil
         style={{ width: '100%', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', padding: '8px 12px', background: 'var(--bg-secondary)', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
         <span style={{ color: '#7dd3fc', width: 12 }}>{isOpen ? '▾' : '▸'}</span>
         <span style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))' }}>{title}</span>
-        {count != null && <span style={{ ...MONO, fontSize: 'calc(12px * var(--fz))', padding: '0 8px', borderRadius: 999, background: tone || 'rgba(125,211,252,0.15)', color: 'var(--text-primary)' }}>{count}</span>}
-        {sub && <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</span>}
+        {count != null && <span style={{ ...MONO, fontSize: 'calc(12.5px * var(--fz))', padding: '0 8px', borderRadius: 999, background: tone || 'rgba(125,211,252,0.15)', color: 'var(--text-primary)' }}>{count}</span>}
+        {sub && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{sub}</span>}
       </button>
       {isOpen && <div style={{ padding: '8px 10px 10px' }}>{children}</div>}
     </section>

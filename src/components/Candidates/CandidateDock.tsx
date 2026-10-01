@@ -63,7 +63,7 @@ export default function CandidateDock() {
           </div>
           <div style={{ maxHeight: 300, overflowY: 'auto', padding: '6px 6px' }}>
             {rows.length === 0 && (
-              <div style={{ padding: '10px 8px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+              <div style={{ padding: '10px 8px', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                 還沒有候選。瀏覽各頁時按 <b style={{ color: '#f59f00' }}>＋候選</b> 把有興趣的個股撿進來，
                 再到各頁開「🗒️ 只看候選」用該頁角度評估，或進決策工作台比對。
               </div>

@@ -396,7 +396,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <div className={styles.subChart}>
           <div className={styles.chartTitle}>
             三大法人買賣超（張）
-            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>
               <span style={{ color: '#f59e0b' }}>▌</span>外資　<span style={{ color: '#a78bfa' }}>▌</span>投信
               <span style={{ marginLeft: 8, opacity: 0.75 }}>收盤後歸檔，非盤中即時</span>
             </span>
@@ -419,7 +419,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                   formatter={(v, n) => [`${(v as number).toLocaleString()} 張`, n as string]}
                 />
-                <Legend wrapperStyle={{ fontSize: 'calc(12px * var(--fz))' }} />
+                <Legend wrapperStyle={{ fontSize: 'calc(12.5px * var(--fz))' }} />
               </ComposedChart>
             </ResponsiveContainer>
           )}
@@ -431,7 +431,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <div className={styles.subChart}>
           <div className={styles.chartTitle}>
             融資／融券
-            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>
               <span style={{ color: '#f03e3e' }}>▌</span>融資日增減　<span style={{ color: '#22d3ee' }}>▌</span>融券日增減　
               <span style={{ color: '#f59e0b' }}>—</span>融資餘額（右軸·張）
             </span>
@@ -456,7 +456,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 2 }}
                   formatter={(v, n) => [`${(v as number).toLocaleString()} 張`, n as string]}
                 />
-                <Legend wrapperStyle={{ fontSize: 'calc(12px * var(--fz))' }} />
+                <Legend wrapperStyle={{ fontSize: 'calc(12.5px * var(--fz))' }} />
               </ComposedChart>
             </ResponsiveContainer>
           )}
@@ -468,7 +468,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
         <div className={styles.subChart}>
           <div className={styles.chartTitle}>
             千張大戶持股比例（%）
-            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>
               集保<b>週</b>資料 · 每週一次
               {chip?.holdersFrom ? ` · 本站自 ${chip.holdersFrom} 起累積` : ''}
             </span>
@@ -493,7 +493,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
                 </LineChart>
               </ResponsiveContainer>
               {(chip?.holders?.length ?? 0) < 8 && (
-                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', marginTop: 4 }}>
+                <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#f59e0b', marginTop: 4 }}>
                   ⚠ 目前僅 {chip!.holders.length} 週，趨勢判讀需要更多週數才有意義（每週新增一點）。
                 </div>
               )}
@@ -507,7 +507,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
       <div className={styles.subChart}>
         <div className={styles.chartTitle}>
           成交量
-          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))', color: '#cbd5f5' }}>
+          <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: '#cbd5f5' }}>
             <span style={{ color: '#f03e3e' }}>▌</span>收紅　<span style={{ color: '#2f9e44' }}>▌</span>收綠
             {(() => {
               const last = chartData[chartData.length - 1];
@@ -553,7 +553,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               const last = chartData[chartData.length - 1];
               const f = (x: unknown) => (typeof x === 'number' ? x.toFixed(2) : '—');
               return (
-                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))' }}>
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))' }}>
                   <span style={{ color: '#3d8ef8' }}>— DIF {f(last?.macd)}</span>
                   <span style={{ color: '#f59e0b', marginLeft: 8 }}>— 訊號線 {f(last?.macdSignal)}</span>
                   <span style={{ color: '#cbd5f5', marginLeft: 8 }}>▌柱 {f(last?.macdHist)}（紅=正·綠=負）</span>
@@ -640,7 +640,7 @@ export default function TechnicalChart({ candles, stock, loading }: Props) {
               const last = chartData[chartData.length - 1];
               const f = (x: unknown) => (typeof x === 'number' ? x.toFixed(1) : '—');
               return (
-                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(11.5px * var(--fz))' }}>
+                <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))' }}>
                   <span style={{ color: '#22c55e' }}>— K {f(last?.k)}</span>
                   <span style={{ color: '#f97316', marginLeft: 8 }}>— D {f(last?.d)}</span>
                   {showJ && <span style={{ color: '#e879f9', marginLeft: 8 }}>— J {f(last?.j)}</span>}

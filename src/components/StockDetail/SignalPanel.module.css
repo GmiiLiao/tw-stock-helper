@@ -26,7 +26,7 @@
 }
 
 .signalDesc {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.93rem * var(--fz));
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -81,7 +81,7 @@
 }
 
 .sectionTitle {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 12px;
@@ -112,7 +112,7 @@
 
 .indValue {
   font-family: 'JetBrains Mono', monospace;
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
   flex: 1;
 }
@@ -168,7 +168,7 @@
 }
 
 .reasonItem {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   color: var(--text-primary);
   padding: 8px 12px;
   background: var(--bg-elevated);

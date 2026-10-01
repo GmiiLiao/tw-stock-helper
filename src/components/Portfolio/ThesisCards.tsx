@@ -64,7 +64,8 @@ export default function ThesisCards() {
         return (
           <div key={code} style={{ padding: '10px 0', borderBottom: '1px solid var(--border-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <b style={{ cursor: 'pointer', color: '#7dd3fc' }} onClick={() => navigateTo('stock', code)}>{code} {t.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
+              {/* 原本繼承 html 14px（未乘 --fz），桌機反而比旁邊徽章小；補倍率，維持小於卡片標題 */}
+              <b style={{ cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(13px * var(--fz))' }} onClick={() => navigateTo('stock', code)}>{code} {t.name}</b> {(() => { const st = statusOf(dt, code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: t.intact ? 'rgba(240,62,62,0.12)' : 'rgba(47,158,68,0.12)', color: t.intact ? '#f03e3e' : '#2f9e44' }}>
                 {t.intact ? `論點成立 ${okN}/${(t.pillars || []).length}` : `⚠ 論點轉弱 ${okN}/${(t.pillars || []).length}`}
               </span>
@@ -99,16 +100,16 @@ export default function ThesisCards() {
             </div>
             {(t.refs?.length ?? 0) > 0 && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 5 }}>
-                <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>參考（不在論點內）</span>
+                <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>參考（不在論點內）</span>
                 {t.refs!.map(p => (
-                  <span key={p.key} style={{ fontSize: 'calc(12px * var(--fz))', padding: '1px 7px', borderRadius: 10, color: 'var(--text-muted)', border: '1px dashed var(--border-primary)' }}>
+                  <span key={p.key} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 7px', borderRadius: 10, color: 'var(--text-muted)', border: '1px dashed var(--border-primary)' }}>
                     {p.ok ? '✓' : '✗'} {p.label}
                   </span>
                 ))}
               </div>
             )}
             {t.tech?.base != null && (
-              <div style={{ marginTop: 5, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+              <div style={{ marginTop: 5, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
                 技術評分（未含風險扣分）<b style={{ color: 'var(--text-secondary)' }}>{t.tech.base}</b>
                 {t.tech.pct != null && <>·{topPctText(t.tech.pct)}</>}
                 {t.risk && t.tech.adj != null && <span title={RISK_NOTE[t.risk]} style={{ cursor: 'help' }}>·排序用評分（含風險扣分）{t.tech.adj} ⓘ</span>}

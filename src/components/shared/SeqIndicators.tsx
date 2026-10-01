@@ -18,7 +18,7 @@ export function MaChip({ ma }: { ma?: MaFlags }) {
   const above = ma.filter(v => v === true).length, known = ma.filter(v => v != null).length;
   const title = `收盤 vs 均線：${ma.map((v, i) => `${names[i]}${v == null ? '？' : v ? '上' : '下'}`).join('・')}`;
   const all = above === known && known === 3;
-  const style: React.CSSProperties = { padding: '0 5px', borderRadius: 5, fontSize: 'calc(11px * var(--fz))', fontWeight: 800, marginLeft: 4, whiteSpace: 'nowrap',
+  const style: React.CSSProperties = { padding: '0 5px', borderRadius: 5, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, marginLeft: 4, whiteSpace: 'nowrap',
     background: all ? 'rgba(240,62,62,0.16)' : above === 0 ? 'rgba(47,158,68,0.16)' : 'rgba(251,191,36,0.16)', color: all ? UP : above === 0 ? DOWN : '#fbbf24' };
   return <span title={title} style={style}>{above === 0 ? '▽' : `▲${above}`}</span>;
 }

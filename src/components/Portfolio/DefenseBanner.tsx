@@ -26,11 +26,12 @@ export default function DefenseBanner() {
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.45)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 800, color: '#ef4444' }}>🛡 崩盤防禦清單（{rep.date}）</span>
+        <span style={{ fontWeight: 800, fontSize: 'calc(14px * var(--fz))', color: '#ef4444' }}>🛡 崩盤防禦清單（{rep.date}）</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>大盤跌幅中位 {rep.median}%、{rep.downRatio}% 個股下跌{rep.highRisk ? ` · ${rep.highRisk} 檔逼近停損` : ''}</span>
         <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', padding: '2px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
       </div>
-      {open && <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{rep.content.replace(/^#+ /gm, '').replace(/^- /gm, '· ').replace(/\*\*/g, '')}</div>}
+      {/* 2026-10-01 判讀內文改標準字級 13.5px、行高 1.8→1.6；標題原繼承未乘 --fz 的 14px，補上倍率以維持大於內文 */}
+      {open && <div style={{ marginTop: 8, fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{rep.content.replace(/^#+ /gm, '').replace(/^- /gm, '· ').replace(/\*\*/g, '')}</div>}
     </div>
   );
 }

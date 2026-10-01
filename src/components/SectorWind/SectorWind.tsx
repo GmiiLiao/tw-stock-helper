@@ -64,13 +64,13 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
           <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(240,62,62,0.08)' }}>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#f03e3e', marginBottom: 3 }}>💰 資金流入（加碼）</div>
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
               {inflow.length ? inflow.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#f03e3e' }}>▲{s.delta}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </div>
           </div>
           <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(47,158,68,0.08)' }}>
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#2f9e44', marginBottom: 3 }}>📉 資金流出（減碼）</div>
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8 }}>
+            <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
               {outflow.length ? outflow.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#2f9e44' }}>▼{Math.abs(s.delta || 0)}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </div>
           </div>

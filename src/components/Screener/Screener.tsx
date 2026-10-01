@@ -285,7 +285,7 @@ function ManageGroupsModal({ onClose }: { onClose: () => void }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <input
                       className="input"
-                      style={{ fontSize: 'calc(0.875rem * var(--fz))', padding: '6px 10px' }}
+                      style={{ fontSize: 'calc(0.9rem * var(--fz))', padding: '6px 10px' }}
                       value={editName}
                       onChange={e => setEditName(e.target.value)}
                       placeholder="請輸入群組名稱"
@@ -565,7 +565,7 @@ export default function Screener() {
     return text
       .replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text-primary); font-weight: 700;">$1</strong>')
       .replace(/\*(.*?)\*/g, '<em style="color: var(--text-secondary);">$1</em>')
-      .replace(/`(.*?)`/g, '<code style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; color: var(--accent-blue);">$1</code>');
+      .replace(/`(.*?)`/g, '<code style="background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: calc(0.9rem * var(--fz)); color: var(--accent-blue);">$1</code>');
   };
 
   const toggleCompareStock = (stock: StockInfo) => {
@@ -1439,7 +1439,7 @@ export default function Screener() {
                     onChange={e => setBudget(Math.max(0, parseInt(e.target.value) || 0))}
                     placeholder="例如 500000"
                     className="input"
-                    style={{ fontSize: 'calc(0.85rem * var(--fz))' }}
+                    style={{ fontSize: 'calc(0.9rem * var(--fz))' }}
                   />
                 </div>
                 <div className={styles.paramGroup}>
@@ -1461,7 +1461,7 @@ export default function Screener() {
                     placeholder={profitTargetType === 'percent' ? "例如 10" : "例如 50000"}
                     step={profitTargetType === 'percent' ? "0.5" : "1000"}
                     className="input"
-                    style={{ fontSize: 'calc(0.85rem * var(--fz))' }}
+                    style={{ fontSize: 'calc(0.9rem * var(--fz))' }}
                   />
                 </div>
                 <div className={styles.paramGroup}>
@@ -1506,7 +1506,7 @@ export default function Screener() {
             <div className={styles.resultsCard} style={{ padding: '60px 40px', textAlign: 'center' }}>
               <div className={styles.spinner} style={{ margin: '0 auto 16px auto' }}></div>
               <h3 style={{ margin: '0 0 8px 0', fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 700, color: 'var(--text-primary)' }}>個股資料載入中...</h3>
-              <p style={{ fontSize: 'calc(0.875rem * var(--fz))', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
+              <p style={{ fontSize: 'calc(0.93rem * var(--fz))', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto', lineHeight: 1.5 }}>
                 正在從 TWSE 載入個股即時報價與分析資料，請稍候。
               </p>
             </div>
@@ -1514,7 +1514,7 @@ export default function Screener() {
             <div className={styles.resultsCard} style={{ padding: '60px 40px', textAlign: 'center' }}>
               <span style={{ fontSize: 'calc(3rem * var(--fz))', display: 'block', marginBottom: '16px' }}>📊</span>
               <h3 style={{ margin: '0 0 8px 0', fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 700, color: 'var(--text-primary)' }}>自選股比較名單為空</h3>
-              <p style={{ fontSize: 'calc(0.875rem * var(--fz))', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 20px auto', lineHeight: 1.5 }}>
+              <p style={{ fontSize: 'calc(0.93rem * var(--fz))', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 20px auto', lineHeight: 1.5 }}>
                 您選擇的分組中目前沒有任何股票。請切換至「篩選模式」或至「個股分析」點擊星號（★）將股票加入自選。
               </p>
               <button
@@ -1863,14 +1863,14 @@ export default function Screener() {
                   
                   return currentGroupRecords.length > 0 ? (
                     <div className={styles.recordsList}>
-                      <div style={{ fontSize: 'calc(0.85rem * var(--fz))', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      <div style={{ fontSize: 'calc(0.9rem * var(--fz))', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
                         歷史報告列表 ({currentGroupRecords.length})：
                       </div>
                       <div className={styles.historyGrid}>
                         {currentGroupRecords.map((rec, index) => (
                           <div key={index} className={styles.historyItem}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left' }}>
-                              <span style={{ fontSize: 'calc(0.85rem * var(--fz))', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              <span style={{ fontSize: 'calc(0.9rem * var(--fz))', fontWeight: 600, color: 'var(--text-primary)' }}>
                                 📝 分析記錄 #{currentGroupRecords.length - index}
                               </span>
                               <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
@@ -1890,7 +1890,7 @@ export default function Screener() {
                     </div>
                   ) : (
                     !isAiAnalyzing && (
-                      <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)', fontSize: 'calc(0.875rem * var(--fz))' }}>
+                      <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)', fontSize: 'calc(0.93rem * var(--fz))' }}>
                         💡 該分組目前尚無 AI 分析記錄。點擊頂部 **「🧠 AI 深度分析」** 按鈕可立刻產出最佳選購建議與風險報告！
                       </div>
                     )

@@ -33,7 +33,7 @@ export default function DividendTaxCalc() {
   return (
     <div style={{ marginBottom: 16, padding: '14px 16px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🧾 股利稅負試算</span>
+        <span style={{ fontWeight: 700, fontSize: 'calc(1rem * var(--fz))' }}>🧾 股利稅負試算</span>
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>已婚合併申報 · 合併 8.5% 抵減 vs 28% 分離</span>
         <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', padding: '2px 10px', borderRadius: 8, border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{open ? '收合' : '展開'}</button>
       </div>
@@ -46,7 +46,8 @@ export default function DividendTaxCalc() {
             </select>
           </div>
           {r && (
-            <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 2 }}>
+            // 2026-10-01 試算結果改標準字級 13.5px、行高 2→1.6（標題同步 0.95rem→1rem 以維持大於內文；用 rem 以免 ≥1600px 寬螢幕反而變小）
+            <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
               <div style={{ color: r.better === 'A' ? '#f03e3e' : 'var(--text-secondary)' }}>
                 {r.better === 'A' ? '✓ ' : ''}A 合併課稅：應納 <b>{r.merged.toLocaleString()}</b> 元（抵減 {r.credit.toLocaleString()} 元{r.credit === 80000 ? '，已達 8 萬上限' : ''}）{r.merged < 0 ? ' → 可退稅' : ''}
               </div>
@@ -54,7 +55,7 @@ export default function DividendTaxCalc() {
                 {r.better === 'B' ? '✓ ' : ''}B 分離課稅 28%：應納 <b>{r.separate.toLocaleString()}</b> 元
               </div>
               <div style={{ color: 'var(--text-muted)' }}>另二代健保補充保費約 {r.nhi.toLocaleString()} 元（2.11%，按單筆≥2萬就源扣繳估算）</div>
-              <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>※ 法定公式試算，非稅務建議；股利所得為全戶合計，實際以國稅局核定為準。</div>
+              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>※ 法定公式試算，非稅務建議；股利所得為全戶合計，實際以國稅局核定為準。</div>
             </div>
           )}
         </div>

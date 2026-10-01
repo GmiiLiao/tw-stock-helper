@@ -46,7 +46,7 @@ export function VerdictBadge({ v, compact = false }: { v?: Verdict | null; compa
   const s = ACTION_STYLE[v.a] || ACTION_STYLE.續抱;
   return (
     <span title={`${v.r}｜${tierDisplay(v.tier)}${TIER_META[v.tier] ? `（${TIER_META[v.tier].hint}）` : ''}｜倒貨 ${v.dist}%｜外${v.f >= 0 ? '+' : ''}${v.f}/投${v.t >= 0 ? '+' : ''}${v.t}/自${v.d >= 0 ? '+' : ''}${v.d}(張)\n\n${METRIC_TIPS.勝率雷達分級}`}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 7px' : '2px 9px', borderRadius: 8, fontSize: compact ? 10.5 : 12, fontWeight: 800, background: s.bg, color: s.c, border: `1px solid ${s.c}55`, whiteSpace: 'nowrap' }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: compact ? '1px 7px' : '2px 9px', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, background: s.bg, color: s.c, border: `1px solid ${s.c}55`, whiteSpace: 'nowrap' }}>
       {s.icon} {v.a}
     </span>
   );

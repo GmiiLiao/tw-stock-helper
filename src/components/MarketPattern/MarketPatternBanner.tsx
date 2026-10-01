@@ -221,7 +221,7 @@ function TailPicksSection({ tp }: { tp: TailPicks }) {
       {tp.locked.length > 0 && (
         <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#f59e0b', marginBottom: 4 }}>🔒 已鎖漲停（買不到，改用「漲停鎖死」策略排隊）</div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             {tp.locked.map(p => `${p.code} ${p.name}`).join('、')}
           </div>
         </div>
@@ -291,9 +291,10 @@ export function MarketPatternBanner() {
       </div>
       {/* 操作說明：明顯配色＋加大字體 */}
       <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(245,158,11,0.06)' }}>
-        <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 800, color: '#7dd3fc', marginBottom: 4 }}>📖 今日出場紀律（隔日沖）</div>
+        <div style={{ fontSize: 'calc(15px * var(--fz))', fontWeight: 800, color: '#7dd3fc', marginBottom: 4 }}>📖 今日出場紀律（隔日沖）</div>
+        {/* 原寫死 15.5/14px（不吃 --fz）；改標準字級，手機仍 ≥ 原值、標題維持最大 */}
         {(MP_OPS[opsKey] ?? MP_OPS.range).map((op, i) => (
-          <div key={i} style={{ fontSize: op.strong ? 15.5 : 14, fontWeight: op.strong ? 800 : 600, lineHeight: 1.9, color: op.strong ? '#fbbf24' : 'var(--text-secondary)' }}>
+          <div key={i} style={{ fontSize: op.strong ? 'calc(14.5px * var(--fz))' : 'calc(13.5px * var(--fz))', fontWeight: op.strong ? 800 : 600, lineHeight: 1.6, color: op.strong ? '#fbbf24' : 'var(--text-secondary)' }}>
             {op.text}
           </div>
         ))}

@@ -104,7 +104,7 @@ export default function PortfolioAlerts() {
             }}>
             <span style={{ fontSize: 'calc(14.5px * var(--fz))' }}>{st.icon}</span>
             <DayTradeBadge code={a.code} size="xs" />
-            <span style={{ flex: 1, fontSize: 'calc(0.86rem * var(--fz))', color: 'var(--text-primary)', fontWeight: 600 }}>{a.message}</span>
+            <span style={{ flex: 1, fontSize: 'calc(0.9rem * var(--fz))', color: 'var(--text-primary)', fontWeight: 600 }}>{a.message}</span>
             {a.requireAck && a.id && (a.ack
               ? <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>已確認 ✓</span>
               : <button

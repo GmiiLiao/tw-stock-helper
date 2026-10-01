@@ -84,7 +84,7 @@ export default function AiDaytradeLab() {
         2026-10-01 前（v1–v3）為多空各 ≤5 筆、單筆上限 25 萬的舊規則，記錄照舊保留。
         AI 放棄的觸發另列「反事實」交易單（規則照做會怎樣）。<b>AI 有沒有用：看「成交」是否比「放棄」好。</b>模擬交易，非投資建議。
       </div>
-      {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
+      {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
       {c && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -140,8 +140,8 @@ export default function AiDaytradeLab() {
 function DayChip({ label, sub, active, onClick, color }: { label: string; sub: string; active: boolean; onClick: () => void; color?: string }) {
   return (
     <button onClick={onClick} style={{ textAlign: 'left', padding: '5px 10px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${active ? '#7dd3fc' : 'var(--border-primary)'}`, background: active ? 'rgba(125,211,252,0.12)' : 'transparent', color: 'var(--text-primary)' }}>
-      <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))' }}>{label}</div>
-      <div style={{ ...MONO, fontSize: 'calc(11.5px * var(--fz))', color: color || 'var(--text-muted)' }}>{sub}</div>
+      <div style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))' }}>{label}</div>
+      <div style={{ ...MONO, fontSize: 'calc(12.5px * var(--fz))', color: color || 'var(--text-muted)' }}>{sub}</div>
     </button>
   );
 }
@@ -156,7 +156,7 @@ function DayView({ doc, live, onSave, msg }: { doc: LabDoc; live: boolean; onSav
     <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${live ? 'rgba(125,211,252,0.45)' : 'var(--border-primary)'}` }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(16px * var(--fz))' }}>{live ? '⏳ 今天（盤中，尚未凍結）' : `🔒 ${doc.date}`}</span>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           模型 <b>{mi?.name || doc.model || '未知'}</b>{mi?.parameterSize ? `·${mi.parameterSize}·${mi.quantization}` : ''}{mi?.digest ? `·${mi.digest.slice(0, 12)}` : ''} · {doc.version}{doc.frozenAt ? ` · 凍結 ${tw(doc.frozenAt)}` : doc.updatedAt ? ` · 更新 ${tw(doc.updatedAt)}` : ''}
         </span>
       </div>
@@ -167,7 +167,7 @@ function DayView({ doc, live, onSave, msg }: { doc: LabDoc; live: boolean; onSav
       <Section title="✅ AI 成交" sub={filled.length ? `${filled.length} 筆` : '無'}>{filled.map(r => <TradeCard key={r.id} r={r} />)}</Section>
       <Section title="⏭ AI 放棄或錯過（反事實交易單）" sub="規則照做會怎樣——不是 AI 的交易">{skipped.length ? skipped.map(r => <TradeCard key={r.id} r={r} />) : <span style={{ color: 'var(--text-muted)' }}>無</span>}</Section>
       {other.length > 0 && <Section title="其他觸發" sub="額度已滿／時段外／決策失敗，未交易">
-        {other.map(r => <div key={r.id} style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}><span style={MONO}>{tw(r.triggerAt)}</span> {r.side === 'long' ? '多' : '空'} {r.code} {r.name} {r.type}：{STATUS[r.status]?.t}｜{r.reason}</div>)}
+        {other.map(r => <div key={r.id} style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}><span style={MONO}>{tw(r.triggerAt)}</span> {r.side === 'long' ? '多' : '空'} {r.code} {r.name} {r.type}：{STATUS[r.status]?.t}｜{r.reason}</div>)}
       </Section>}
 
       {!live && (
@@ -206,12 +206,12 @@ function TradeCard({ r }: { r: AiLabRecord }) {
       <div style={{ marginTop: 6 }}>
         {L ? <TradeSlip L={L} muted={!r.ledger} counterfactual={!r.ledger} note={r.ledger ? r.ledgerNote : r.maxLotsAtAsk != null ? '反事實以 1 張計（只比較方向與 R，不代表 AI 會下的張數）' : r.ledgerNote} />
           : <span style={{ color: 'var(--text-muted)' }}>{r.status === 'no-cash' || r.status === 'no-limit' || r.status === 'ineligible' ? r.reason : r.cfNote || (r.exitAt ? '無交易單' : '尚未出場')}</span>}
-        {r.ledger && r.limitLeft != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>AI 要 {r.lotsAsked ?? '—'} 張 · 成交前剩餘額度 {r.limitLeft.toLocaleString()} 元 → 成交後 {(r.limitAfter ?? 0).toLocaleString()} 元{r.sizeNote ? `（${r.sizeNote}）` : ''}</div>}
-        {r.ledger && r.limitLeft == null && r.cashBefore != null && <div style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>成交前可用現金 {r.cashBefore.toLocaleString()} 元 · 本筆預算 {r.budget?.toLocaleString()} 元（v1–v3 舊規則：上限 25 萬、整張）</div>}
+        {r.ledger && r.limitLeft != null && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>AI 要 {r.lotsAsked ?? '—'} 張 · 成交前剩餘額度 {r.limitLeft.toLocaleString()} 元 → 成交後 {(r.limitAfter ?? 0).toLocaleString()} 元{r.sizeNote ? `（${r.sizeNote}）` : ''}</div>}
+        {r.ledger && r.limitLeft == null && r.cashBefore != null && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>成交前可用現金 {r.cashBefore.toLocaleString()} 元 · 本筆預算 {r.budget?.toLocaleString()} 元（v1–v3 舊規則：上限 25 萬、整張）</div>}
       </div>
-      {r.exitReason && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>出場原因：{r.exitReason}（工作台規則）· 結構停損 {r.stop} · 觸發價 {r.triggerPx}{r.fillPx != null ? ` · AI 成交價 ${r.fillPx}${r.fillSource ? `（${r.fillSource}${r.fillQuoteAt ? `，報價時戳 ${tw(r.fillQuoteAt)}` : ''}）` : ''}` : ''}</div>}
-      <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12px * var(--fz))' }}>{open ? '▾' : '▸'} AI 理由與觸發條件</button>
-      {open && <div style={{ fontSize: 'calc(12px * var(--fz))', marginTop: 2 }}>
+      {r.exitReason && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>出場原因：{r.exitReason}（工作台規則）· 結構停損 {r.stop} · 觸發價 {r.triggerPx}{r.fillPx != null ? ` · AI 成交價 ${r.fillPx}${r.fillSource ? `（${r.fillSource}${r.fillQuoteAt ? `，報價時戳 ${tw(r.fillQuoteAt)}` : ''}）` : ''}` : ''}</div>}
+      <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12.5px * var(--fz))' }}>{open ? '▾' : '▸'} AI 理由與觸發條件</button>
+      {open && <div style={{ fontSize: 'calc(13px * var(--fz))', marginTop: 2 }}>
         <div>理由：{r.reason || '—'}</div><div style={{ color: '#f59e0b' }}>風險：{r.risk || '—'}</div>
         <div style={{ color: 'var(--text-muted)' }}>觸發：{r.why}｜規則符合度 {r.score.total}/{r.score.knownMax}{r.score.missing.length ? `（缺：${r.score.missing.join('、')}）` : ''}{r.warnings.length ? `｜警訊：${r.warnings.join('、')}` : ''}</div>
         {r.aiNetPct != null && <div style={{ color: 'var(--text-muted)' }}>報酬 {pct(r.aiNetPct)}</div>}
@@ -237,7 +237,7 @@ function LimitRequestPanel({ req, limit, onDone }: { req: LimitReq; limit: numbe
   };
   if (req.status !== 'pending') {
     if (!req.decidedAt || Date.now() - req.decidedAt > 7 * 86400000) return null;   // 已審核的只顯示一週
-    return <div style={{ marginTop: 10, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+    return <div style={{ marginTop: 10, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
       🧾 額度申請（{tw(req.at, true)}）：{req.status === 'approved' ? `已核准，額度改為 ${(req.approved ?? limit).toLocaleString()} 元` : '未核准，維持原額度'}（{req.decidedBy || '超級管理員'}·{tw(req.decidedAt, true)}）
     </div>;
   }
@@ -251,7 +251,7 @@ function LimitRequestPanel({ req, limit, onDone }: { req: LimitReq; limit: numbe
         </label>
         <button className="btn btn-buy" disabled={busy} onClick={() => decide('approve')}>核准提高</button>
         <button className="btn btn-ghost" disabled={busy} onClick={() => decide('reject')}>不核准</button>
-        {msg && <span style={{ fontSize: 'calc(12px * var(--fz))', color: msg.startsWith('✖') ? '#ef4444' : 'var(--text-muted)' }}>{msg}</span>}
+        {msg && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: msg.startsWith('✖') ? '#ef4444' : 'var(--text-muted)' }}>{msg}</span>}
       </div>
     </div>
   );

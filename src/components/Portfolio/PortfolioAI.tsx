@@ -85,7 +85,7 @@ export default function PortfolioAI({ codes }: { codes: Array<{ code: string; na
           <div style={{ fontSize: 'calc(12.5px * var(--fz))' }}>本地 AI 將分析你的每檔持股：續抱／出脫／換股建議、AI 推估目標價、近一月新聞與注意/處置股波段策略。</div>
         </div>
       ) : !data ? (
-        <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(0.85rem * var(--fz))' }}>
+        <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(0.93rem * var(--fz))' }}>
           {status?.running
             ? '常駐 AI 服務運作中，分析將於下個週期產生（約 30 分鐘一次）。'
             : '尚無分析資料。請在本機啟動常駐服務：bash scripts/install-ai-daemon.sh'}

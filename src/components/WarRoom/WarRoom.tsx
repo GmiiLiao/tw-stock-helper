@@ -198,7 +198,7 @@ export default function WarRoom() {
       <div style={{ padding: '36px 20px', textAlign: 'center', border: '1px solid var(--border-primary)', borderRadius: 12, background: 'var(--bg-elevated)', maxWidth: 560, margin: '40px auto' }}>
         <div style={{ fontSize: 'calc(28px * var(--fz))', marginBottom: 8 }}>🔒</div>
         <div style={{ fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))', marginBottom: 6 }}>盤中戰情為高級會員功能</div>
-        <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.9 }}>
+        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
           6 種盤中即時策略雷達（起漲偵測／爆量長紅／開盤強勢延續…）、<br />
           策略開關篩選、⭐多重共識、備選區續盯，60 秒即時更新。
         </div>
@@ -389,7 +389,7 @@ export default function WarRoom() {
               </>
             );
           })()}
-          <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             ⚠ 盤中偵測為即時掃描、未經隔日回測驗證（點開關可看各策略條件）；進場鐵律：單筆風險≤1%、11:30 前未走強收盤前先出、隔日 9:00–9:05 必出。非投資建議。
           </div>
         </div>
@@ -412,7 +412,7 @@ export default function WarRoom() {
             </select>
           </div>
           {bench.length === 0 ? (
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '8px 0' }}>尚無備選。主榜掉出的股票會自動出現在這裡續盯。</div>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '8px 0' }}>尚無備選。主榜掉出的股票會自動出現在這裡續盯。</div>
           ) : (
             <div style={{ display: 'grid', gap: 4 }}>
               {[...bench].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.addedAt - a.addedAt).map(b => (

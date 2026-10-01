@@ -162,7 +162,7 @@ export default function ModeSwitcher({ compact = false }: { compact?: boolean })
           display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
           background: `${COLOR[mode]}1a`, border: `1px solid ${COLOR[mode]}66`,
           color: COLOR[mode], borderRadius: 8, padding: compact ? '4px 9px' : '5px 11px',
-          fontSize: compact ? 11.5 : 12.5, fontWeight: 800, whiteSpace: 'nowrap',
+          fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, whiteSpace: 'nowrap',
         }}
       >
         <span>{cur.icon}</span>

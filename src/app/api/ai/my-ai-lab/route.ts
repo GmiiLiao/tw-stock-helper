@@ -47,9 +47,12 @@ export async function GET(request: Request) {
   if (!g.ok) return g.res;
   try {
     const base = g.db.collection('aiSwingMembers').doc(g.uid);
-    const [setSnap, accSnap, daySnap] = await Promise.all([
+    const [setSnap, accSnap, daySnap, cashSnap] = await Promise.all([
       base.get(), base.collection('state').doc('account').get(), base.collection('days').orderBy('date', 'desc').limit(DECISIONS_MAX).get(),
+      g.db.collection('users').doc(g.uid).collection('data').doc('cashLedger').get(),   // 會員自己的券商折讓（模擬手續費依此計）
     ]);
+    const rawDisc = cashSnap.data()?.broker?.discount;
+    const feeDiscount = typeof rawDisc === 'number' && rawDisc >= 0.01 && rawDisc <= 1 ? rawDisc : 1;   // 與 sim-ledger validDiscount 同規則
     const settings = setSnap.data() || {};
     const flows: Flow[] = Array.isArray(settings.flows) ? settings.flows : [];
     const capital = netInvestedOf(flows);
@@ -71,6 +74,7 @@ export async function GET(request: Request) {
       settings: { capital, growthTarget: goal, goalDays, goalStartDate, flows: flows.slice(-30), createdAt: settings.createdAt ?? null },
       withdrawable: withdrawableNow(snapshot, flows),
       pendingFlow,   // 快照之後的入金／提領（尚未反映在帳戶明細；畫面總值與總損益要補上）
+      feeDiscount,   // 模擬手續費折讓（會員自己的券商設定；1＝全額 0.1425%）
       snapshot: snapshot ? { at: snapshot.at ?? null, dataDate: snapshot.dataDate ?? null, provisional: !!snapshot.provisional, liveAt: snapshot.liveAt ?? null, holdings: snapshot.holdings || [], closed: snapshot.closed || [], history } : null,
       summary: snapshot ? (snapshot.summary ?? accountSummary(snapshot)) : null,
       target: goalProgress(fullHistory, { growthTarget: goal, goalDays, goalStartDate }),   // 獲利期間進度（滾動期間；沒設目標＝null）

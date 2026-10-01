@@ -185,7 +185,7 @@ function LimitBoard({ stocks }: { stocks: StockInfo[] }) {
         <span className={styles.heatCode}>{s.code}</span>
         <span className={styles.heatName}>{s.name}</span>
         <span className={styles.heatChange} style={{ color: up ? '#ffb3b3' : '#9fe8ac' }}>
-          {s.price} <span style={{ fontSize: '0.82em', opacity: 0.95 }}>{s.changePercent >= 0 ? '+' : ''}{s.changePercent?.toFixed(1)}%</span>
+          {s.price} <span style={{ fontSize: 'calc(12.5px * var(--fz))', opacity: 0.95 }}>{s.changePercent >= 0 ? '+' : ''}{s.changePercent?.toFixed(1)}%</span>
         </span>
       </button>
     );

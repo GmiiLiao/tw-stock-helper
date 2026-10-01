@@ -21,10 +21,10 @@ function Cell({ w }: { w: WindowStat }) {
   return (
     <td style={{ padding: '6px 10px', verticalAlign: 'top' }}>
       <div style={{ ...MONO, fontWeight: 900, fontSize: 'calc(15px * var(--fz))', color: upDn(w.ret) }}>{pct(w.ret)}</div>
-      <div style={{ fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: w.partial ? '#7dd3fc' : w.met ? '#22c55e' : '#ef4444' }}>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: w.partial ? '#7dd3fc' : w.met ? '#22c55e' : '#ef4444' }}>
         {w.partial ? `已累積 ${w.days}/${w.n} 日（未滿，不判定）` : w.met ? `✅ 達標（≥${w.target}%）` : `未達（差 ${(w.target - w.ret).toFixed(1)} 個百分點）`}
       </div>
-      {w.windows > 0 && <div style={{ ...MONO, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>
+      {w.windows > 0 && <div style={{ ...MONO, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
         滾動窗 {w.windows} 個·獲利 {w.positive}（{w.hitRate}%）·達標 {w.metWindows ?? 0}·連續獲利 {w.streak}·最佳 {pct(w.best)}／最差 {pct(w.worst)}
       </div>}
     </td>
@@ -56,7 +56,7 @@ export default function AiLabTargets() {
     <div style={{ marginBottom: 14, padding: 12, borderRadius: 12, border: '1px solid rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.05)' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 6 }}>
         <b style={{ fontSize: 'calc(15px * var(--fz))' }}>🎯 目標追蹤</b>
-        <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
           兩帳戶各 50 萬、互不挪用。近 N 日報酬＝最新帳戶總值 ÷ N 個交易日前的總值 − 1。目標由使用者訂定（5 日 ≥35%、20 日 ≥70%、60 日 ≥120%；波段帳戶累積 ≥200%＝總值 150 萬），
           遠高於本站回測可見水準（波段起漲⭐ 5 日約 +1.1%、當沖規則 v1 約 −0.33R），此表只如實呈現是否達成。模擬交易，非投資建議。
         </span>
@@ -75,10 +75,10 @@ export default function AiLabTargets() {
                 </tr>
               ) : b && (
                 <tr key={name} style={{ borderBottom: '1px dashed var(--border-primary)' }}>
-                  <td style={{ padding: '6px 10px', fontWeight: 900, whiteSpace: 'nowrap' }}>{name}<div style={{ fontWeight: 400, fontSize: 'calc(11px * var(--fz))', color: 'var(--text-muted)' }}>已記錄 {b.tradingDays} 個交易日</div></td>
+                  <td style={{ padding: '6px 10px', fontWeight: 900, whiteSpace: 'nowrap' }}>{name}<div style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>已記錄 {b.tradingDays} 個交易日</div></td>
                   <td style={{ ...MONO, padding: '6px 10px', fontWeight: 800 }}>{Math.round(b.total).toLocaleString()} 元</td>
                   <td style={{ ...MONO, padding: '6px 10px', fontWeight: 900, color: upDn(b.cumRetPct), verticalAlign: 'top' }}>{pct(b.cumRetPct)}
-                    {b.cumTarget != null && <div style={{ fontFamily: 'inherit', fontSize: 'calc(11.5px * var(--fz))', fontWeight: 800, color: b.cumMet ? '#22c55e' : 'var(--text-muted)' }}>
+                    {b.cumTarget != null && <div style={{ fontFamily: 'inherit', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: b.cumMet ? '#22c55e' : 'var(--text-muted)' }}>
                       {b.cumMet ? `✅ 達成累積目標 ≥${b.cumTarget}%` : `累積目標 ≥${b.cumTarget}%（總值 ${(b.targetTotal ?? 0).toLocaleString()} 元）·進度 ${b.cumProgress}%`}
                     </div>}
                   </td>

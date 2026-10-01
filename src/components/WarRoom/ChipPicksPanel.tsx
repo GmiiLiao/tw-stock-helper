@@ -125,10 +125,10 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
   if (!charData) return <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '14px 4px' }}>載入完整總表…</div>;
   if (!charData.found) {
     return (
-      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '16px 8px', lineHeight: 1.9 }}>
+      <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', padding: '16px 8px', lineHeight: 1.6 }}>
         📋 完整總表準備中——正在回填 3 年法人籌碼並計算「炒作 vs 長期持有」分類。
         <br />完成後此處將列出全部有法人部位的個股，一列同時看外資／投信／自營各自持有狀態＋分類標籤＋炒作活躍度。
-        <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))' }}>{RESERVED}</div>
+        <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))' }}>{RESERVED}</div>
       </div>
     );
   }
@@ -262,7 +262,7 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
           顯示更多（{Math.min(limit, rows.length)}/{rows.length.toLocaleString()}）
         </button>
       )}
-      <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         分類窗 {charData.window?.from}→{charData.window?.to}（{charData.window?.days} 日）· 三法人為近 20 日累計淨張（紅買綠賣、連買/連賣日數）· 炒作分＝週轉佔量＋籌碼領先＋建倉倒貨週期。
         <br />{RESERVED} 非投資建議。
       </div>
@@ -378,7 +378,7 @@ export default function ChipPicksPanel() {
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', flex: '1 1 auto' }}>{meta.hint}</span>
+        <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', flex: '1 1 auto' }}>{meta.hint}</span>
         <OnlyCandidatesToggle on={onlyCand} setOn={setOnlyCand} />
       </div>
 
@@ -425,7 +425,7 @@ export default function ChipPicksPanel() {
                     </div>
                     {open && (
                       <div style={{ padding: '4px 10px 10px' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6, lineHeight: 1.8 }}>
+                        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 6, lineHeight: 1.6 }}>
                           布局全貌：{p.days} 日內三大法人淨加碼 <b style={{ color: '#f6a06a' }}>{p.added.toLocaleString()} 張</b>（約 {p.valueE8} 億、佔日均量 {p.addedXVol ?? '—'} 倍、買超 {p.buyDays} 天）、期間股價 {p.rise >= 0 ? '+' : ''}{p.rise}%。
                           <br />倒貨風險進度 <b style={{ color: rc }}>{Math.min(150, p.dumpRisk)}%</b>——實證錨點：444 個布局案例中位在「漲 21%／加碼 3 倍日均量」後開始倒貨（倒貨後股價中位 −10%）。{p.dumpRisk >= 80 ? '已接近實證倒貨點，追高需極度謹慎。' : p.dumpRisk >= 50 ? '布局中段，留意外資是否先轉賣。' : '布局早期。'}
                           {p.lu60 > 0 && <><br /><span style={{ color: 'var(--text-muted)' }}>3 個月漲停 {p.lu60} 次（參考資訊——實證法人加碼≠漲停訊號，漲停是短線動能事件）</span></>}
@@ -438,7 +438,7 @@ export default function ChipPicksPanel() {
               })}
             </div>
             <PickMore ctl={ctl} setCtl={setCtl} filteredTotal={accumTotal} />
-            <div style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
+            <div style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
               ⚠ 實證：法人加碼是「週〜月」布局，與漲停（短線動能）為不同因素（漲停前法人買超佔比 58% vs 全市場 48%）——此榜用於跟隨布局與提防倒貨，非漲停預測（漲停請看 🚀 漲停預測分頁）。非投資建議。
             </div>
           </>
@@ -513,7 +513,7 @@ export default function ChipPicksPanel() {
         </div>
       )}
       {view !== 'accum' && view !== 'character' && <PickMore ctl={ctl} setCtl={setCtl} filteredTotal={filteredTotal} />}
-      <div style={{ marginTop: 8, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+      <div style={{ marginTop: 8, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         ⚠ 法人籌碼為前一交易日 EOD 累計（台股無盤中法人）；分級/勝率為回測估計，非即時保證。進場鐵律：單筆風險≤1%。非投資建議。
       </div>
     </div>

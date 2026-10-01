@@ -32,8 +32,8 @@ function StockEtf({ code }: { code: string }) {
   if (!info) return null;
   return (
     <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-      <div style={{ fontWeight: 900, fontSize: 'calc(0.95rem * var(--fz))', marginBottom: 6 }}>🏦 第四法人（ETF 被動盤）</div>
-      <div style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+      <div style={{ fontWeight: 900, fontSize: 'calc(1rem * var(--fz))', marginBottom: 6 }}>🏦 第四法人（ETF 被動盤）</div>
+      <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
         市值排名 <b style={{ color: '#7dd3fc' }}>#{info.mktRank}</b>（{fmtYi(info.mktCapYi)}）
         {info.bigEtf && info.weight != null && (
           <> · 屬 <b style={{ color: '#f03e3e' }}>0050／006208 成分</b>，市值權重約 <b style={{ color: '#f03e3e' }}>{info.weight}%</b> → ETF 資金流入的被動買盤受益股</>
@@ -105,7 +105,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
       </div>
 
       {tab === 'edge' && (
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
           <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>接近 0050 市值前50門檻，季度調整可能被動納入(強漲)/剔除(賣壓)：</div>
           <div style={{ display: 'grid', gap: 3 }}>
             {d.edge.map(e => (
@@ -121,7 +121,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
       )}
 
       {tab === 'constituents' && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
           {d.constituents.slice(0, compact ? 15 : 50).map(c => (
             <span key={c.code} onClick={() => jump(c.code)} style={{ cursor: 'pointer' }}>
               <span style={{ color: 'var(--text-muted)' }}>#{c.rank}</span> <b style={{ color: '#7dd3fc' }}>{c.code} {c.name}</b>
@@ -132,7 +132,7 @@ export default function EtfInfluence({ code, compact = false, slot = false }: { 
       )}
 
       {tab === 'premium' && (
-        <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
           <div style={{ color: '#f03e3e', fontWeight: 700 }}>溢價 &gt;1%（申購熱潮，資金流入其成份股）</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
             {d.premiumHot.length ? d.premiumHot.map(x => (

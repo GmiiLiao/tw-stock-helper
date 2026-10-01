@@ -78,7 +78,7 @@ export default function AiSwingLab() {
         <b>AI 交易能力：看帳戶總值與目標追蹤</b>；<b>選股眼光：看各持有期「超額」</b>（同部位若持有 h 日 vs 整池平均，研究用）。決策在盤後凍結、早於成交——交易單「✓ 先選後買」即查核。模擬交易，非投資建議。
         </div>
       </Collapse>
-      {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
+      {loadErr && <div style={{ color: '#ef4444', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 8 }}>⚠ 重新載入失敗（{loadErr}）——下方為上一次成功載入的資料</div>}
 
       {data.summary && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 4px' }}>
@@ -106,8 +106,8 @@ export default function AiSwingLab() {
               sub={s?.n ? `超額 ${pct(s.excess, 'pp')} · ${s.n} 筆 · ${twd(s.pnlTwd)}${s.n < 30 ? ' · 樣本少' : ''}` : '尚無結算'} hint={s?.n ? `整池平均 ${pct(s.poolAvg)}·贏池比例 ${s.beatPool}%·勝率 ${s.win}%` : undefined} />); })}
         </div>
       )}
-      {data.found && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}><CostReference holdDays={[5, 10, 20, 60, 120]} /></div>}
-      {Object.keys(data.byModel).length > 1 && <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>
+      {data.found && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}><CostReference holdDays={[5, 10, 20, 60, 120]} /></div>}
+      {Object.keys(data.byModel).length > 1 && <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 4 }}>
         依模型：{Object.entries(data.byModel).map(([m, s]) => `${m}（20 日超額 ${pct(s[20]?.excess, 'pp')}，n=${s[20]?.n ?? 0}）`).join('｜')}
       </div>}
 
@@ -117,8 +117,8 @@ export default function AiSwingLab() {
           {data.days.map(x => (
             <button key={x.date} onClick={() => { setDate(x.date); setMsg(''); setAudit(false); }}
               style={{ textAlign: 'left', padding: '5px 10px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${d?.date === x.date ? '#7dd3fc' : 'var(--border-primary)'}`, background: d?.date === x.date ? 'rgba(125,211,252,0.12)' : 'transparent', color: 'var(--text-primary)' }}>
-              <div style={{ fontWeight: 800, fontSize: 'calc(12.5px * var(--fz))' }}>{x.date.slice(5)}{x.hasNotes ? ' 📝' : ''}</div>
-              <div style={{ ...MONO, fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>選 {x.picks.length} 檔 · 已結算 {x.settled.length}/5</div>
+              <div style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))' }}>{x.date.slice(5)}{x.hasNotes ? ' 📝' : ''}</div>
+              <div style={{ ...MONO, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>選 {x.picks.length} 檔 · 已結算 {x.settled.length}/5</div>
             </button>
           ))}
         </div>
@@ -128,18 +128,18 @@ export default function AiSwingLab() {
         <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: '1px solid var(--border-primary)' }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
             <span style={{ fontWeight: 900, fontSize: 'calc(16px * var(--fz))' }}>🔒 {d.date} 盤後決策</span>
-            <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
               凍結 {tw(d.frozenAt, true)} · 模型 <b>{d.model?.name || '未知'}</b>{d.model?.parameterSize ? `·${d.model.parameterSize}·${d.model.quantization}` : ''}{d.model?.digest ? `·${d.model.digest.slice(0, 12)}` : ''} · 候選池 {d.pool.length} 檔 · {d.version}
             </span>
           </div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>大盤：{d.market || '—'}　AI 看法：{d.note || '—'}</div>
+          <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>大盤：{d.market || '—'}　AI 看法：{d.note || '—'}</div>
 
           {d.review && (
             <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
-              <div style={{ fontWeight: 900 }}>🔄 持股檢視：{d.review.holdings.length} 檔 → 賣出 {d.review.sells.length} 檔、續抱 {d.review.holdings.length - d.review.sells.length} 檔
+              <div style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))' }}>🔄 持股檢視：{d.review.holdings.length} 檔 → 賣出 {d.review.sells.length} 檔、續抱 {d.review.holdings.length - d.review.sells.length} 檔
                 {d.cashForBuys != null && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>　買進資金 {d.cashForBuys.toLocaleString()} 元（含賣出估計回收款）</span>}</div>
-              {d.review.sells.map(x => <div key={x.key} style={{ fontSize: 'calc(12.5px * var(--fz))' }}>🔻 賣出 <b>{x.code} {x.name}</b> {x.shares.toLocaleString()} 股（決定時收盤 {x.estPx ?? '—'}）：{x.reason}</div>)}
-              {d.review.holdings.filter(h => !d.review!.sells.some(x => x.key === h.key)).map(h => <div key={h.key} style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>✋ 續抱 {h.code} {h.name}（{pct(h.pnlPct)}·已持有 {h.heldDays ?? '—'} 日）</div>)}
+              {d.review.sells.map(x => <div key={x.key} style={{ fontSize: 'calc(13.5px * var(--fz))' }}>🔻 賣出 <b>{x.code} {x.name}</b> {x.shares.toLocaleString()} 股（決定時收盤 {x.estPx ?? '—'}）：{x.reason}</div>)}
+              {d.review.holdings.filter(h => !d.review!.sells.some(x => x.key === h.key)).map(h => <div key={h.key} style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>✋ 續抱 {h.code} {h.name}（{pct(h.pnlPct)}·已持有 {h.heldDays ?? '—'} 日）</div>)}
             </div>
           )}
           {!d.picks.length && <div style={{ marginTop: 10, color: 'var(--text-muted)' }}>當天未買進。</div>}
@@ -151,8 +151,8 @@ export default function AiSwingLab() {
             </div>
           </Section>
 
-          <button onClick={() => setAudit(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 10, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12px * var(--fz))' }}>{audit ? '▾' : '▸'} 稽核：完整 prompt 與 AI 原始回覆</button>
-          {audit && <pre style={{ whiteSpace: 'pre-wrap', fontSize: 'calc(11.5px * var(--fz))', background: 'var(--bg-secondary)', padding: 8, borderRadius: 8, maxHeight: 360, overflow: 'auto' }}>{d.prompt || '（無）'}{'\n\n──── AI 原始回覆 ────\n'}{d.raw || '（無）'}</pre>}
+          <button onClick={() => setAudit(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 10, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12.5px * var(--fz))' }}>{audit ? '▾' : '▸'} 稽核：完整 prompt 與 AI 原始回覆</button>
+          {audit && <pre style={{ whiteSpace: 'pre-wrap', fontSize: 'calc(12.5px * var(--fz))', background: 'var(--bg-secondary)', padding: 8, borderRadius: 8, maxHeight: 360, overflow: 'auto' }}>{d.prompt || '（無）'}{'\n\n──── AI 原始回覆 ────\n'}{d.raw || '（無）'}</pre>}
 
           <NotesBox key={d.date} initial={d.adminNotes || ''} meta={d.adminNotesAt ? `${d.adminBy}·${tw(d.adminNotesAt, true)}` : undefined} onSave={save} msg={msg}
             placeholder="例：AI 連續偏好 60 日已漲 >70% 的強勢股；20 日超額若為負，下一版 prompt 加「60 日漲幅 >50% 不選」做對照" />
@@ -261,8 +261,8 @@ export function ClosedTrades({ closed }: { closed: Closed[] }) {
 }
 
 function FillTag({ src, at }: { src?: string | null; at?: number | null }) {
-  if (src === 'live-open') return <span title="開盤當下以即時報價的今日開盤價成交並寫入記錄" style={{ marginLeft: 6, fontSize: 'calc(11px * var(--fz))', color: '#22c55e' }}>⚡即時{at ? `·記錄 ${tw(at, false)}` : ''}</span>;
-  if (src === 'archive-open') return <span title="開盤時常駐服務未即時記錄，盤後依官方開盤價補記" style={{ marginLeft: 6, fontSize: 'calc(11px * var(--fz))', color: '#f59e0b' }}>⚠盤後補記</span>;
+  if (src === 'live-open') return <span title="開盤當下以即時報價的今日開盤價成交並寫入記錄" style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#22c55e' }}>⚡即時{at ? `·記錄 ${tw(at, false)}` : ''}</span>;
+  if (src === 'archive-open') return <span title="開盤時常駐服務未即時記錄，盤後依官方開盤價補記" style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b' }}>⚠盤後補記</span>;
   return null;
 }
 
@@ -273,10 +273,10 @@ function PickCard({ p, doc }: { p: SwingPick; doc: SwingLabDoc }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(14.5px * var(--fz))' }}>{p.code} {p.name}</span>
         <span style={{ color: 'var(--text-muted)' }}>信心 {p.confidence} · AI 預期持有 {p.horizon ? `${p.horizon} 日` : '—'} · 決定時價格 {p.priceAtDecision ?? '—'}</span>
-        <span style={{ fontSize: 'calc(11.5px * var(--fz))', color: 'var(--text-muted)' }}>{p.sources.join('、')}</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{p.sources.join('、')}</span>
       </div>
-      <div style={{ marginTop: 2 }}><b>選股原因</b>：{p.reason}　<span style={{ color: '#f59e0b' }}>風險：{p.risk}</span></div>
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: p.position && !p.position.shares ? '#f59e0b' : 'var(--text-muted)' }}>
+      <div style={{ marginTop: 2, fontSize: 'calc(13.5px * var(--fz))' }}><b>選股原因</b>：{p.reason}　<span style={{ color: '#f59e0b' }}>風險：{p.risk}</span></div>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: p.position && !p.position.shares ? '#f59e0b' : 'var(--text-muted)' }}>
         {p.position
           ? p.position.shares
             ? `🏦 部位：${p.position.lots ? `${p.position.lots} 張` : ''}${p.position.oddShares ? `${p.position.lots ? '＋' : ''}${p.position.oddShares} 股零股` : ''}（約 ${p.position.estCost.toLocaleString()} 元，預算 ${p.position.budget.toLocaleString()}）· ${doc.date} 之後第一個交易日 09:00 開盤買 · 之後由 AI 每日檢視決定何時賣出${p.position.note ? `｜${p.position.note}` : ''}`
@@ -285,16 +285,16 @@ function PickCard({ p, doc }: { p: SwingPick; doc: SwingLabDoc }) {
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
         {HS.map(h => { const o = doc.outcomes?.[h]?.picks.find(x => x.code === p.code); return (
-          <span key={h} title="研究用：同部位若持有這一期的結果（帳戶實際出場以 AI 賣單為準）" style={{ ...MONO, padding: '2px 8px', borderRadius: 999, fontSize: 'calc(12px * var(--fz))', border: `1px solid ${p.horizon === h ? '#fbbf24' : 'var(--border-primary)'}`, color: o?.ledger ? upDn(o.ledger.pnlTwd) : 'var(--text-muted)' }}>
+          <span key={h} title="研究用：同部位若持有這一期的結果（帳戶實際出場以 AI 賣單為準）" style={{ ...MONO, padding: '2px 8px', borderRadius: 999, fontSize: 'calc(12.5px * var(--fz))', border: `1px solid ${p.horizon === h ? '#fbbf24' : 'var(--border-primary)'}`, color: o?.ledger ? upDn(o.ledger.pnlTwd) : 'var(--text-muted)' }}>
             {h} 日 {o?.ledger ? `${twd(o.ledger.pnlTwd)}（${pct(o.ledger.retPct)}）` : o ? o.note || '資料缺' : '未到期'}
           </span>); })}
       </div>
       {HS.some(h => doc.outcomes?.[h]?.picks.find(x => x.code === p.code)?.ledger) && (
         <>
-          <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12px * var(--fz))' }}>{open ? '▾' : '▸'} 各持有期交易單（買賣時間·金額·費稅）</button>
+          <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12.5px * var(--fz))' }}>{open ? '▾' : '▸'} 各持有期交易單（買賣時間·金額·費稅）</button>
           {open && HS.map(h => { const o = doc.outcomes?.[h]?.picks.find(x => x.code === p.code); return o?.ledger ? (
             <div key={h} style={{ marginTop: 6 }}>
-              <div style={{ fontWeight: 800, fontSize: 'calc(12px * var(--fz))' }}>持有 {h} 日　<span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>期間最深 {pct(o.maxDD)}／最高 {pct(o.maxUp)}{o.openMissing ? '·進場日無開盤價，改用收盤' : ''}</span></div>
+              <div style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))' }}>持有 {h} 日　<span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>期間最深 {pct(o.maxDD)}／最高 {pct(o.maxUp)}{o.openMissing ? '·進場日無開盤價，改用收盤' : ''}</span></div>
               <TradeSlip L={o.ledger} withDate />
             </div>) : null; })}
         </>

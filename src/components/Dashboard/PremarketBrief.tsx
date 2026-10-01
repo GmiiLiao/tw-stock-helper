@@ -63,7 +63,7 @@ export default function PremarketBrief() {
       {open && (
         <div style={{ padding: '0 16px 14px' }}>
           {/* market strategy */}
-          <div style={{ fontSize: 'calc(0.84rem * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+          <div style={{ fontSize: 'calc(0.965rem * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
             <strong style={{ color: 'var(--text-primary)' }}>🧭 大盤策略：</strong>{brief.marketStrategy}
           </div>
 

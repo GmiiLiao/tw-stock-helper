@@ -315,7 +315,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
           {/* Cost Preview */}
           {price > 0 && qty > 0 && (
             <div className={styles.costPreview} style={{ marginTop: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: 'calc(12.5px * var(--fz))' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: 'calc(13px * var(--fz))' }}>
                 <div>成交金額：<strong>{grossAmount.toLocaleString()} 元</strong></div>
                 <div>手續費(0.1425%{broker.discount < 1 ? `×${broker.discount}折讓` : ''})：<strong>{fee.toLocaleString()} 元</strong>{fee === broker.minFee && grossAmount > 0 ? <span style={{ color: 'var(--text-muted)' }}> 最低</span> : null}</div>
                 {form.type === 'sell' && <div>交易稅({taxRateLabel({ dayTrade: form.dayTrade, code: form.code })})：<strong>{tax.toLocaleString()} 元</strong></div>}
@@ -518,7 +518,7 @@ function TradeHistoryPanel({ ledger }: { ledger: Ledger }) {
             <div style={{
               fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)',
               padding: '8px 0', borderBottom: '1px solid var(--border-primary)',
-              letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6,
+              display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6,
             }}>
               <span>📅 {month.replace('-', ' 年 ')} 月 · {records.length} 筆</span>
               {monthRealized[month] != null && monthRealized[month] !== 0 && (
@@ -683,7 +683,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
       <PortfolioTradeReview ledger={ledger} />
 
       {/* 口徑說明：全部由交易紀錄重算（單位：元／張） */}
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
         📐 本頁全部數字由「交易紀錄」按時間重放重算（加權平均成本·含買進手續費），金額單位＝元、數量單位＝張。
         與紀錄當下存的值不符的筆數會列在下方「資料核對」。
       </div>
@@ -713,7 +713,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
             padding: '16px', borderRadius: '12px',
             background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)',
           }}>
-            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px', letterSpacing: '0.04em' }}>{card.label}</div>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px' }}>{card.label}</div>
             {/* ⚠ 單位「元」必須貼在數字後面（2026-08-11 手機回報）：
                 原本它是**獨立的 <div>**，所以永遠自己佔一行，而且被排在說明文字之下——
                 畫面讀起來是「+12,817 / 已實現÷平倉筆數 / 元」，
@@ -778,10 +778,11 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           padding: '16px', borderRadius: '12px',
           background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)',
         }}>
-          <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#f59e0b', marginBottom: '8px' }}>
+          {/* 2026-10-01 說明文字放大到 13px，標題 13→14px 以維持大於內文 */}
+          <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: '#f59e0b', marginBottom: '8px' }}>
             🔎 資料核對（{ledger.mismatchCount} 筆損益不一致{ledger.warnings.length ? `、${ledger.warnings.length} 項帳務警示` : ''}）
           </div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 10 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 10 }}>
             下列賣出「紀錄當下存的損益」與「依交易紀錄重算」不符——多半是當時手動持倉的成本價與交易紀錄脫鉤。
             全站顯示一律以重算為準；若是交易紀錄本身記錯價，請到「交易紀錄」分頁用 ✏️ 修正該筆。
           </div>
@@ -797,7 +798,7 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
             </div>
           ))}
           {ledger.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b', padding: '6px 0' }}>⚠ {w}</div>
+            <div key={i} style={{ fontSize: 'calc(13px * var(--fz))', color: '#f59e0b', padding: '6px 0' }}>⚠ {w}</div>
           ))}
         </div>
       )}
@@ -1037,7 +1038,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: 6 }}>
               口徑：期間內平倉的已實現淨損益（含費稅）÷ 該批平倉的對應成本；未實現損益不計入。年化為全期間單利換算。非投資建議。
             </div>
           </div>
@@ -1048,13 +1049,13 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
       {diffs.length > 0 && (
         <div style={{ padding: '14px 16px', borderRadius: 12, marginBottom: 16, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-            <div style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#f59e0b' }}>⚖️ 持倉對帳：手動持倉與交易紀錄不一致（{diffs.length} 檔）</div>
+            <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: '#f59e0b' }}>⚖️ 持倉對帳：手動持倉與交易紀錄不一致（{diffs.length} 檔）</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn btn-ghost" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px' }} onClick={() => onGoTab('trades')}>檢查交易紀錄</button>
               <button className="btn btn-buy" style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px' }} onClick={rebuild}>依交易紀錄重建持倉</button>
             </div>
           </div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)', marginBottom: 8 }}>
             持倉頁顯示的是「手動持倉」；損益分析以「交易紀錄」為準。兩邊不一致時（漏記/重複記/超賣），下表列出差異。
           </div>
           {diffs.map(d => (
@@ -1677,9 +1678,9 @@ export default function Portfolio() {
                     計算公式：單價 ({parseFloat(editForm.buyPrice).toLocaleString()} 元) × {fmtQty(parseFloat(editForm.quantity) || 0)}（{Math.round((parseFloat(editForm.quantity) || 0) * 1000).toLocaleString()} 股）
                   </div>
                   <div>
-                    預估成本 (含 0.1425% 手續費)：
+                    預估成本（含手續費 0.1425%{broker.discount < 1 ? `×你的券商 ${+(broker.discount * 10).toFixed(2)} 折` : '，未設定折讓＝全額'}）：
                     <strong>
-                      {(parseFloat(editForm.buyPrice) * (parseFloat(editForm.quantity) || 0) * 1000 * 1.001425).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 元
+                      {(() => { const px = parseFloat(editForm.buyPrice) || 0, q = parseFloat(editForm.quantity) || 0; return Math.round(px * q * 1000 + calcFee(px, q, broker)); })().toLocaleString('zh-TW')} 元
                     </strong>
                   </div>
                 </div>

@@ -13,7 +13,7 @@
 //   · 候選池只收網站當天的波段榜單（波段起漲＋波段持有整合榜），排除處置股（含已公告待生效）。
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ledgerOf, twAt, FEE_RATE, feeOf } from './sim-ledger.mjs';
+import { ledgerOf, twAt, FEE_RATE, feeOf, validDiscount } from './sim-ledger.mjs';
 import { portfolioState, portfolioSnapshot } from './ai-swing-portfolio.mjs';
 import { sizeShares, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
 
@@ -82,9 +82,14 @@ function goalLine(m, pctTxt) {
 export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings = [], cash = null, equity = null, member = null }) {
   const cap = member ? `${Math.round(member.capital || 0).toLocaleString()} 元` : '50 萬';
   const pctTxt = v => (v == null ? '尚未開始' : `${v >= 0 ? '+' : ''}${v}%`);
+  // 會員的券商折讓（2026-10-01）：手續費依會員自己的折讓；實驗帳戶（無折讓）文字與舊版完全相同
+  const disc = validDiscount(member?.feeDiscount);
+  const feeTxt = disc < 1
+    ? (() => { const r = +(FEE_RATE * 100 * disc).toFixed(4); return `買進手續費 ${r}%，賣出手續費 ${r}%（0.1425%×會員券商 ${+(disc * 10).toFixed(2)} 折）＋證交稅 0.3%——一買一賣約 ${(r * 2 + 0.3).toFixed(2)}%`; })()
+    : '買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%';
   return [
     `你是台股波段交易員，${member ? `負責一位會員的模擬帳戶（會員投入資金 ${cap}）` : '管理一個模擬帳戶（起始 50 萬元）'}。現在是 ${date} 盤後。你的任務是主動操作讓帳戶獲利：檢視現有持股決定續抱或賣出，並從本站今天的波段候選池挑選要買進的股票（最多 ${SWING_MAX_PICKS} 檔，沒有好標的可以不買）。`,
-    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。買進手續費 0.1425%，賣出手續費 0.1425%＋證交稅 0.3%——一買一賣約 0.59%，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。資金池只有 ${cap}＋已實現損益，現金不可為負：可用資金依買進檔數平均分配；成交後 T+2 交割，今天賣出的回收款可抵同一交割日的買進；處置股須以已交割現金預收款；成交時資金不足會自動減量或作廢。`,
+    `交易規則：今天盤後決定，下一個交易日 09:00 開盤成交（買賣都是）。${feeTxt}，頻繁換股會被成本吃掉，換股要有明確理由（停損、趨勢轉弱、題材消失、有更好的機會）。資金池只有 ${cap}＋已實現損益，現金不可為負：可用資金依買進檔數平均分配；成交後 T+2 交割，今天賣出的回收款可抵同一交割日的買進；處置股須以已交割現金預收款；成交時資金不足會自動減量或作廢。`,
     `只能根據提供的資料，不得編造新聞或數字。`,
     ``,
     `【帳戶】${equity != null ? `總值約 ${Math.round(equity).toLocaleString()} 元、` : ''}${cash != null ? `可用現金 ${Math.round(cash).toLocaleString()} 元（不含今天賣出的回收款）` : ''}`,
@@ -167,16 +172,18 @@ export function swingAccount(docs, beforeDate = null, days = null, opts = {}) {
 export const SWING_SIZING_RULE = 'equal-split-no-cap';   // 2026-09-28 起：可用現金依當天選股數平均分配、不設單檔上限
 
 /** 依可用現金為當天的選股定股數（不設單檔上限：剩餘現金÷剩餘檔數、可零股）；以 AI 決定當下的價格計，凍結寫入 */
-export function sizePicks(picks, cash, { prefundCash = null } = {}) {
+export function sizePicks(picks, cash, { prefundCash = null, feeDiscount = 1 } = {}) {
   // prefundCash：處置股（p.prefund）只能用已交割現金（預收款）；其餘可用含同日交割賣出款的資金（T+2 淨額）
+  // feeDiscount：會員自己的券商手續費折讓（實驗帳戶 1＝無折讓）
+  const disc = validDiscount(feeDiscount);
   let left = cash, pfLeft = prefundCash ?? cash;
   return picks.map((p, i) => {
     const split = Math.max(0, left / (picks.length - i));
     const budget = p.prefund ? Math.max(0, Math.min(split, pfLeft)) : split;
     // 預算要含買進手續費：以 budget÷(1+費率) 定股數，估計成本＝金額＋手續費
-    const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget / (1 + FEE_RATE), true) : 0;
+    const shares = budget >= SWING_MIN_POSITION ? sizeShares(p.priceAtDecision, budget / (1 + FEE_RATE * disc), true) : 0;
     const amt = Math.round(shares * (p.priceAtDecision || 0));
-    const est = shares ? amt + feeOf(amt, shares) : 0;
+    const est = shares ? amt + feeOf(amt, shares, disc) : 0;
     left -= est; if (p.prefund) pfLeft -= est;
     return { ...p, position: { shares, budget: Math.round(budget), estCost: est, sizing: SWING_SIZING_RULE, ...(p.prefund ? { prefund: true } : {}), exitH: p.horizon || SWING_DEFAULT_EXIT_H, lots: Math.floor(shares / 1000), oddShares: shares % 1000, ...(shares ? {} : { reason: `資金不足（可用 ${Math.round(budget).toLocaleString()} 元）` }) } };
   });

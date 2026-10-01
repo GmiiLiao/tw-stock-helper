@@ -83,5 +83,5 @@
     flex-direction: row;
   }
   .tabHint { display: none; }
-  .tabLabel { font-size: calc(0.85rem * var(--fz)); white-space: nowrap; }
+  .tabLabel { font-size: calc(0.9rem * var(--fz)); white-space: nowrap; }
 }

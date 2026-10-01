@@ -1812,7 +1812,13 @@ function memberSwing(uid) {
   if (!r) {
     r = createAiSwingLab({ db, askOllama, log, dir: null, getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned, loadDays: loadSwingDaysCached,
       account: { colPath: `aiSwingMembers/${uid}/days`, snapPath: `aiSwingMembers/${uid}/state/account`, files: false, research: false, priority: 0, label: `會員 ${uid.slice(0, 6)}`,
-        getSettings: async () => { const s = (await db.collection('aiSwingMembers').doc(uid).get()).data() || {}; return { initial: 0, flows: Array.isArray(s.flows) ? s.flows : [], goal: s.growthTarget ?? null, goalDays: s.goalDays ?? null, goalStartDate: s.goalStartDate ?? null }; } } });
+        // feeDiscount：會員自己在本站設定的券商手續費折讓（users/{uid}/data/cashLedger.broker.discount，與成本參考同一來源；
+        //   2026-10-01 使用者「手續費為使用者的折扣非統一使用2.8折」）；沒設＝無折讓 0.1425%
+        getSettings: async () => {
+          const [s, cl] = await Promise.all([db.collection('aiSwingMembers').doc(uid).get(), db.collection('users').doc(uid).collection('data').doc('cashLedger').get()]);
+          const x = s.data() || {};
+          return { initial: 0, flows: Array.isArray(x.flows) ? x.flows : [], goal: x.growthTarget ?? null, goalDays: x.goalDays ?? null, goalStartDate: x.goalStartDate ?? null, feeDiscount: cl.data()?.broker?.discount ?? null };
+        } } });
     _memberSwing.set(uid, r);
   }
   return r;

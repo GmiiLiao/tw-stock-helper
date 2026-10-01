@@ -49,15 +49,15 @@ export default function DailyNews() {
       {digest && !digest.found && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: 16 }}>尚無新聞資料（每日上午 7:00 自動發布）。</div>}
       {digest?.found && (
         <>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             📅 {digest.date} · 最後更新 <b style={{ color: (Date.now() - (digest.updatedAt || 0)) > 6 * 3600000 ? '#ff8787' : 'var(--text-secondary)' }}>{ago(digest.updatedAt)}</b>
             {' '}· 每日 07:00 首發、日間每 3 小時自動刷新<br />{digest.note}
           </div>
           {(digest.cats || []).map(cat => (
             <div key={cat.key} style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}>
-              <div style={{ fontWeight: 900, fontSize: 'calc(13.5px * var(--fz))', marginBottom: 6 }}>{cat.label}</div>
+              <div style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))', marginBottom: 6 }}>{cat.label}</div>
               {cat.brief && (
-                <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)', padding: '8px 10px', borderRadius: 8, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.2)', marginBottom: 8 }}>
+                <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)', padding: '8px 10px', borderRadius: 8, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.2)', marginBottom: 8 }}>
                   🧠 {cat.brief}
                 </div>
               )}

@@ -34,7 +34,7 @@ export default function AiLabLearn() {
 
   return (
     <Section title="🧠 交易員經驗庫" sub={doc ? `盤後訓練 ${doc.date}（完成 ${tw(doc.at, true)}）·樣本 ${Object.entries(doc.sources || {}).map(([k, v]) => `${k} ${v.toLocaleString()}`).join('、')}` : '每個交易日 18:30 後盤後訓練'}>
-      <div style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
         失利的共同條件＝<b style={{ color: '#ef4444' }}>⚠風險</b>（未來辨別避開）、獲利的共同條件＝<b style={{ color: '#22c55e' }}>✓優勢</b>（提升選股可靠度）。每個條件與同類其餘樣本比較；日期前 70% 訓練、後 30% 驗證，
         兩段相對差同方向且顯著（|t|≥2）才「已驗證」並提供給 AI 交易員決策參考，其餘列「觀察中」只記錄。結果存第二大腦 second-brain/ai-lab-learn/，其他功能可讀 Firestore aiLabLearn/latest。歷史統計不保證未來，非投資建議。
       </div>
@@ -45,7 +45,7 @@ export default function AiLabLearn() {
         const rules = x.rules.filter(r => showObs || r.status === 'validated');
         return (
           <div key={key} style={{ marginTop: 8 }}>
-            <div style={{ fontWeight: 800 }}>{NAME[key] || key}　<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(12px * var(--fz))' }}>樣本 {x.base.n.toLocaleString()}·整體平均 {sgn(x.base.mean)}{x.unit === '淨R' ? 'R' : '%'}·勝率 {x.base.win}%·驗證段自 {x.split.cut}</span></div>
+            <div style={{ fontWeight: 800, fontSize: 'calc(13.5px * var(--fz))' }}>{NAME[key] || key}　<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>樣本 {x.base.n.toLocaleString()}·整體平均 {sgn(x.base.mean)}{x.unit === '淨R' ? 'R' : '%'}·勝率 {x.base.win}%·驗證段自 {x.split.cut}</span></div>
             <ListTable head={['狀態', '類型', '條件', '樣本', '平均', '勝率', '其餘平均', 't', '訓練段相對差', '驗證段相對差']} right={[3, 4, 5, 6, 7, 8, 9]}
               empty={x.base.n < 60 ? `樣本還少（${x.base.n}），持續累積中` : '尚無顯著條件'}
               rows={rules.map(r => [r.status === 'validated' ? '已驗證' : '觀察中', <b key="k" style={{ color: r.kind === 'risk' ? '#ef4444' : '#22c55e' }}>{r.kind === 'risk' ? '⚠風險' : '✓優勢'}</b>, r.label,
@@ -53,7 +53,7 @@ export default function AiLabLearn() {
           </div>
         );
       })}
-      {doc && <button onClick={() => setShowObs(v => !v)} style={{ marginTop: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12px * var(--fz))' }}>{showObs ? '▾ 隱藏觀察中' : '▸ 顯示觀察中（未驗證、不提供給 AI）'}</button>}
+      {doc && <button onClick={() => setShowObs(v => !v)} style={{ marginTop: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12.5px * var(--fz))' }}>{showObs ? '▾ 隱藏觀察中' : '▸ 顯示觀察中（未驗證、不提供給 AI）'}</button>}
     </Section>
   );
 }

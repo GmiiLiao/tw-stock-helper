@@ -12,7 +12,7 @@ export default function RiskBadge({ code, size = 'sm' }: { code: string; size?: 
   const isAtt = attention.has(code) && !isDisp;
   if (!isDisp && !isAtt && !pending) return null;
 
-  const fs = size === 'xs' ? 9.5 : 11;
+  const fs = 'calc(12.5px * var(--fz))';   // 2026-10-01 全站字級下限：原 9.5/11 寫死未乘 --fz，xs/sm 一律 12.5px
   const pad = size === 'xs' ? '0px 4px' : '1px 6px';
   const dispStyle = { fontSize: fs, fontWeight: 700, color: '#ef4444', background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.35)', padding: pad, borderRadius: 4, whiteSpace: 'nowrap' as const };
   const pendingBadge = pending ? (

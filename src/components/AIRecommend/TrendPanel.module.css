@@ -14,25 +14,24 @@
   gap: 12px;
   padding: 40px 20px;
   color: var(--text-muted);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 .errorState {
   padding: 24px;
   text-align: center;
   color: var(--color-down);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 /* ─── Sections ───────────────────────────────────────── */
 .section { display: flex; flex-direction: column; gap: 10px; }
 
 .sectionTitle {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(1rem * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -96,8 +95,9 @@
   width: fit-content;
 }
 
+/* 2026-10-01 使用者：判讀區字體太小——AI 漲勢判讀改標準字級；區段標題 .sectionTitle 升到 1rem（基準 14px，與內文同用 rem 才能在寬螢幕維持層級） */
 .summaryText {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.965rem * var(--fz));
   color: var(--text-primary);
   line-height: 1.6;
   grid-column: 1;
@@ -163,7 +163,7 @@
 }
 
 .reasonTitle {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
   flex: 1;
@@ -192,7 +192,7 @@
   padding: 20px;
   text-align: center;
   color: var(--text-muted);
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 .newsCard {
@@ -224,7 +224,7 @@
 }
 
 .newsSentiment {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
 }
 
 .newsDate {
@@ -234,7 +234,7 @@
 }
 
 .newsHeadline {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.45;
@@ -502,7 +502,7 @@
 }
 
 .companyShortName {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   color: var(--text-secondary);
 }
 
@@ -537,15 +537,14 @@
 .businessSection { display: flex; flex-direction: column; gap: 6px; }
 
 .businessLabel {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(0.965rem * var(--fz));
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .businessText {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9375rem * var(--fz));
   color: var(--text-primary);
   line-height: 1.6;
 }
@@ -618,7 +617,7 @@
 .recContent { flex: 1; }
 
 .recLabel {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 800;
   margin-bottom: 4px;
 }
@@ -699,13 +698,13 @@
 }
 
 .orderLevelLabel {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 700;
   color: var(--text-primary);
   flex: 1;
 }
 
-.orderRiskIcon { font-size: calc(0.875rem * var(--fz)); flex-shrink: 0; }
+.orderRiskIcon { font-size: calc(0.9rem * var(--fz)); flex-shrink: 0; }
 
 .orderLevelPrice {
   font-family: 'JetBrains Mono', monospace;

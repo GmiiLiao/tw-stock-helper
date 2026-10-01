@@ -89,7 +89,7 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
       <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: 'var(--text-primary)' }}>
         {chunk ? '網站已更新，請重新載入' : '這一頁暫時出了問題'}
       </div>
-      <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#dbe4f5', lineHeight: 1.9, maxWidth: 520 }}>
+      <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: '#dbe4f5', lineHeight: 1.6, maxWidth: 520 }}>
         你的資料都在雲端，沒有遺失。<br />
         {chunk
           ? '這個分頁是在網站更新前開啟的，舊版的程式檔案已經不存在。自動重載剛才沒有成功，請手動按一次「重新載入」。'

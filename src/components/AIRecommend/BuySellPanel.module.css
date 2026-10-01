@@ -13,11 +13,10 @@
 }
 
 .sectionTitle {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -41,7 +40,7 @@
 }
 
 .setupStyle {
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 700;
   padding: 4px 12px;
   border-radius: 20px;
@@ -118,7 +117,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: calc(0.875rem * var(--fz));
+  font-size: calc(0.9rem * var(--fz));
   font-weight: 700;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--border-primary);
@@ -183,7 +182,6 @@
   color: #c92a2a;
   border: 1px solid rgba(201, 42, 42, 0.3);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .zonePrice {

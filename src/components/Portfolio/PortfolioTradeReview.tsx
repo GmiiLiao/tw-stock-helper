@@ -44,7 +44,7 @@ export default function PortfolioTradeReview({ ledger }: { ledger?: Ledger }) {
       border: '1px solid rgba(34,197,94,0.22)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700, fontSize: 'calc(0.95rem * var(--fz))' }}>🎓 AI 交易覆盤</span>
+        <span style={{ fontWeight: 700, fontSize: 'calc(1rem * var(--fz))' }}>🎓 AI 交易覆盤</span>
         {data.stats && (
           <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
             勝率 {data.stats.winRate}%（{data.stats.wins}勝/{data.stats.losses}負）
@@ -64,7 +64,7 @@ export default function PortfolioTradeReview({ ledger }: { ledger?: Ledger }) {
           下方數字才是最新。覆盤內文會在下一次 daemon 產出（每交易日 15:10）時更新。
         </div>
       )}
-      <div style={{ fontSize: 'calc(0.86rem * var(--fz))', lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.review}</div>
+      <div style={{ fontSize: 'calc(0.965rem * var(--fz))', lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{data.review}</div>
     </div>
   );
 }

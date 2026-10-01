@@ -66,8 +66,8 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
     <button onClick={() => toggle(k)} aria-label="說明" style={{ marginLeft: 6, width: '1.35em', height: '1.35em', minWidth: 17, borderRadius: '50%', border: '1px solid var(--border-primary)', background: open === k ? '#3d8ef8' : 'transparent', color: open === k ? '#fff' : 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: '15px', cursor: 'pointer', padding: 0, fontWeight: 700 }}>ⓘ</button>
   );
   const explainBox = (k: string) => open === k && EXPLAIN[k] ? (
-    <div style={{ margin: '6px 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-      <b style={{ color: 'var(--text-primary)' }}>{EXPLAIN[k].title}</b><br />{EXPLAIN[k].text}
+    <div style={{ margin: '6px 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+      <b style={{ color: 'var(--text-primary)', fontSize: 'calc(14px * var(--fz))' }}>{EXPLAIN[k].title}</b><br />{EXPLAIN[k].text}
     </div>
   ) : null;
 
@@ -132,13 +132,13 @@ export default function ChipWind({ compact = false, bare = false }: { compact?: 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(240,62,62,0.08)' }}>
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#f03e3e', marginBottom: 3 }}>🔺 法人加碼族群</div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
             {cur.sectorAdd.length ? cur.sectorAdd.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#f03e3e' }}>+{Math.round(s.net).toLocaleString()}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
           </div>
         </div>
         <div style={{ flex: '1 1 240px', padding: '7px 10px', borderRadius: 8, background: 'rgba(47,158,68,0.08)' }}>
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#2f9e44', marginBottom: 3 }}>🔻 法人減碼族群</div>
-          <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.9 }}>
+          <div style={{ fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.6 }}>
             {cur.sectorReduce.length ? cur.sectorReduce.map(s => <span key={s.industry} style={{ marginRight: 10 }}>{s.industry} <b style={{ color: '#2f9e44' }}>{Math.round(s.net).toLocaleString()}</b></span>) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
           </div>
         </div>

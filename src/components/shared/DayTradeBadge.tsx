@@ -21,7 +21,7 @@ export default function DayTradeBadge({ code, size = 'sm' }: { code: string; siz
 /** 列表用：外層已經拿到整份名單時用這支，避免每列各跑一次 hook。 */
 export function DayTradeMark({ status, size = 'sm' }: { status: DayTradeStatus; size?: 'sm' | 'xs' }) {
   const s = DT_STYLE[status];
-  const fs = size === 'xs' ? 9.5 : 11;
+  const fs = 'calc(12.5px * var(--fz))';   // 2026-10-01 全站字級下限：原 9.5/11 寫死未乘 --fz，xs/sm 一律 12.5px
   return (
     <span
       title={s.title}

@@ -74,7 +74,8 @@ export default function TopicPicks() {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       {/* 口徑標頭：本分頁不掛模式，所以必須自己把窗口講清楚（見檔頭） */}
-      <div style={{ padding: '9px 13px', borderRadius: 10, background: 'rgba(148,163,184,0.07)', border: '1px solid rgba(148,163,184,0.22)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
+      {/* 2026-10-01 使用者：說明區字體太小、行距太開——改標準字級並收緊行高 */}
+      <div style={{ padding: '9px 13px', borderRadius: 10, background: 'rgba(148,163,184,0.07)', border: '1px solid rgba(148,163,184,0.22)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
         🧭 <b style={{ color: 'var(--text-primary)' }}>本分頁不隨操作模式變</b>——三張清單各有各的實測窗口，混著讀就會用錯：
         <b style={{ color: '#7dd3fc' }}>反彈候選＝5 日持有</b>（非隔日沖）、
         <b style={{ color: '#7dd3fc' }}>跌破出場＝隔日弱</b>（出場/避開訊號，不是進場）、
@@ -89,13 +90,13 @@ export default function TopicPicks() {
         )}
         <span>🔥 熱門族群：{(d.hotSectors || []).map(h => `${h.ind}(${h.n}板)`).join('、') || '—'}</span>
       </div>
-      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 'calc(12.5px * var(--fz))', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(125,211,252,0.06)', border: '1px solid rgba(125,211,252,0.3)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
         方法來源：犀利媽「短線只設5日線·RSI只看最高跟最低」——本站 720 日回測拆解：<b style={{ color: 'var(--text-primary)' }}>超跌反彈✅（乖離&lt;-5%最穩·⚡雙RSI&lt;10為稀有極端加強版）、跌破出場✅、過熱勿追✅（乖離&gt;+8%較RSI≥95穩）、拉回5日線接❌（不成立、不提供）</b>。話題層（熱門族群/新聞熱度）讓超跌反彈在多空市況皆為淨正。出場鐵律照舊：破前低停損、單筆風險≤1%。
       </div>
       {sect('🟥 話題×超跌反彈候選（乖離5日線 < -5%）', d.oversold, d.evidence?.oversold, 'rgba(240,62,62,0.3)')}
       {sect('🚪 出場參考（跌破5日線／💀高檔死亡交叉）', d.breakdown, d.evidence?.breakdown, 'rgba(148,163,184,0.25)')}
       {sect('⚠️ 過熱勿追（乖離 > +8% 或雙RSI≥90）', d.overheat, d.evidence?.overheat, 'rgba(47,158,68,0.3)')}
-      <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+      <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
         反彈策略左尾重（接刀型）：分批、小部位、破前低無條件停損。<br />
         ⚠ 雙RSI≥90 的正確讀法（720日實證）：<b>不是頂點</b>——今日即未來10日最高點的機率僅 22.6%（基準 21.1%）；但5日內≥5%回檔機率 50%（基準 27%）＝<b>波動放大</b>。持有者出場實測：隔日就賣 −0.53%（最差）、抱5日 +0.44%、抱10日 +1.18%（最佳）→ 移動停利勿隔日全出。非投資建議。
       </div>

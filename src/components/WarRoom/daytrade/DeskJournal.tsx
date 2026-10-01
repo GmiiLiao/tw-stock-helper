@@ -27,13 +27,13 @@ export default function DeskJournal() {
   const stats = j.stats || [];
   return (
     <div style={{ fontSize: 'calc(12.5px * var(--fz))' }}>
-      <div style={{ color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
+      <div style={{ color: 'var(--text-muted)', marginBottom: 6, fontSize: 'calc(13px * var(--fz))', lineHeight: 1.6 }}>
         日誌期間 {j.days?.[0]}～{j.days?.at(-1)}（{j.days?.length} 個交易日）·規則版本 {j.versions?.join('、')}·否決 多 {j.vetoed?.long ?? 0}／空 {j.vetoed?.short ?? 0}·假突破 多 {j.falseBreaks?.long ?? 0}／空 {j.falseBreaks?.short ?? 0}。
         <b style={{ color: '#f59e0b' }}> 升版門檻：開發集有效成交 ≥100、之後的驗證集 ≥30，且樣本外淨期望改善；不足前只看、不調參。</b>
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 560 }}>
-          <thead><tr style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}>
+          <thead><tr style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>
             {['方向', 'Setup', '時段', 'n', '勝率', '平均淨R', '中位淨R', '最大連敗'].map(h => <th key={h} style={{ padding: '3px 8px', textAlign: h === '方向' || h === 'Setup' || h === '時段' ? 'left' : 'right', borderBottom: '1px solid var(--border-primary)' }}>{h}</th>)}
           </tr></thead>
           <tbody>

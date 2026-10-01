@@ -26,12 +26,13 @@
   padding: 12px 8px 8px;
 }
 
+/* 2026-10-01：標題 12.5→13px、拿掉字距——標題列內嵌的圖例說明已由 11.5 拉到 12.5px，
+   標題須比它大一級；中文標題加字距只會更鬆散難讀 */
 .chartTitle {
-  font-size: calc(12.5px * var(--fz));
+  font-size: calc(13px * var(--fz));
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 8px;
   padding: 0 8px;
 }
