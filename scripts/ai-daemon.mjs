@@ -13620,7 +13620,9 @@ async function computeSwingHold({ force = false } = {}) {
   //   不做交易建議，只是「你追的那檔已經不在榜上」的事實；沒有上一日定版（首日或歷史缺口）就明說 prevDate=null。
   const dropped = { prevDate: null, windows: {}, combo: [], note: '離榜＝上一資料日在該榜前 25、本資料日不在；原因：區間漲幅翻負／跌出前 25（附現名次）／只剩一榜。回顧不是進場或出場訊號。' };
   try {
-    const pq = await db.collection('swingHold').where('dataDate', '<', latest.date).orderBy('dataDate', 'desc').limit(1).get();
+    // ⚠ limit 不能是 1（2026-10-01 使用者「離榜名單各頁都沒有資料」）：swingHold/latest 帶著與上一個日期檔相同的 dataDate，
+    //   同值時降冪排序 'latest' 排在 '2026-…' 前面 ⇒ limit(1) 只拿到 latest、又被排除 ⇒ prevDate 永遠 null（09-18～09-30 多數日子離榜清單全空）
+    const pq = await db.collection('swingHold').where('dataDate', '<', latest.date).orderBy('dataDate', 'desc').limit(3).get();
     const prev = pq.docs.find(d => d.id !== 'latest')?.data() || null;
     if (prev?.boards) {
       dropped.prevDate = prev.dataDate;

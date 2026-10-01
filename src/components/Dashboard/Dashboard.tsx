@@ -375,9 +375,9 @@ export default function Dashboard() {
           icon="➡️"
         />
         <StatCard
-          label="上市股票"
+          label="上市櫃（含 ETF）"
           value={validStocks.length.toLocaleString()}
-          sub="今日有成交"
+          sub="今日有成交（漲跌家數同此範圍）"
           icon="🏢"
         />
         <StatCard

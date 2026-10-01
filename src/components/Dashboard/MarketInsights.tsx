@@ -22,7 +22,8 @@ interface RisingItem { code: string; ratio: number; change: number }
 interface RSItem { code: string; name: string; rs: number; ret60: number }
 interface TradeItem { code: string; name: string; close: number; changePct: number; amplitude: number; closePos: number }
 interface Taifex { date?: string; foreignTxfNetOI: number | null; putCallRatio: number | null }
-interface DailyPost { date?: string; post: string; breadth?: { up: number; down: number } }
+// date＝產生當天（日曆日）、dataDate＝內容的資料日；畫面標資料日（2026-10-01：凌晨重算的 09-30 總結被標成 10-01）
+interface DailyPost { date?: string; dataDate?: string; post: string; breadth?: { up: number; down: number } }
 interface ScanItem { code: string; name: string; close: number; changePct: number; volX?: number }
 interface Scanner { newHigh52: ScanItem[]; volBreakout: ScanItem[]; maBull: ScanItem[]; goldenCross: ScanItem[]; gapUp: ScanItem[]; strong: ScanItem[] }
 interface GMarket { sym: string; name: string; price: number; changePct: number }
@@ -221,7 +222,7 @@ export default function MarketInsights() {
           <Section icon="📝" name="盤後回顧" hint="AI 盤後總結 · 收盤後生成" />
           <div style={{ ...card, cursor: 'pointer' }} onClick={() => setPostOpen(o => !o)}>
             <div style={title}>📝 AI 盤後總結
-              <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{post.date}</span>
+              <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>資料日 {post.dataDate ?? post.date}</span>
               <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{postOpen ? '收合' : '展開'}</span>
             </div>
             <div style={{
