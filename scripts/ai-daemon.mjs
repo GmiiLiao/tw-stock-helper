@@ -14738,7 +14738,8 @@ async function dailyJobsLoop() {
       }
       if (Date.now() - _aiNotesAt > 15 * 60000) { _aiNotesAt = Date.now(); _aiLab.syncNotes().catch(e => log('✖ 人工檢討同步:', (e.message || '').slice(0, 60))); _aiSwing.syncNotes().catch(e => log('✖ 波段人工檢討同步:', (e.message || '').slice(0, 60))); }
       // 🤖 AI 實驗·波段持有：持有清單／每日戰績快照不綁選股時段——啟動時與每小時各刷新一次（2026-09-25：17–23 點窗被晚間長任務擠掉，清單整晚空白）
-      if (Date.now() - _aiSwingAcctAt > 3600_000) { _aiSwingAcctAt = Date.now(); _aiSwing.writeAccount().catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60))); }
+      // 傳即時報價：今日開盤即時成交後、收盤歸檔前，帳戶以盤中價補暫定日（否則每小時重算會倒回「待進場」·2026-10-01）
+      if (Date.now() - _aiSwingAcctAt > 3600_000) { _aiSwingAcctAt = Date.now(); _aiSwing.writeAccount(null, { getLive: c => _lastLive[c] }).catch(e => log('✖ 波段帳戶快照:', (e.message || '').slice(0, 60))); }
       // 🤖 AI 實驗·波段持有：17:00 起（兩榜收盤版都算完）每 10 分鐘試一次選股，成功後當天結算所有到期的持有期
       // 窗＝17:00～次日 08:30（仍早於下一交易日 09:00 開盤，先選後買不變）；pick() 以榜單資料日冪等，跨午夜不會重選
       if (((isTradingDay(tw) && mins >= 17 * 60) || mins < 8 * 60 + 30) && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {

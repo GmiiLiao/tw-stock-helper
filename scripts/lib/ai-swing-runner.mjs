@@ -16,6 +16,30 @@ import { dailyFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
 
 const MAX_ATTEMPTS = 3;
 
+const twDay = ts => new Date(ts + 8 * 3600e3).toISOString().slice(0, 10);
+/** 今日即時報價：須有開盤價、且 liveAt 是該日（跨日殘留不算） */
+const liveQuoteOf = (getLive, code, date) => { const q = getLive?.(code); return q && q.open > 0 && q.liveAt && twDay(q.liveAt) === date ? q : null; };
+/**
+ * 盤中暫定日（日線尚未歸檔的那一天）：只放「該日真的有即時報價」的個股——缺報價的不補、不沿用昨收，
+ * 以免替尚未記錄的委託捏造成交；收盤歸檔後由正式日線取代（provisional 日不進每日戰績）。
+ */
+function liveDay(lots, date, getLive) {
+  const m = {}; let liveAt = null;
+  for (const l of lots) {
+    if (l.status === 'void' || l.status === 'closed') continue;
+    const q = liveQuoteOf(getLive, l.code, date); if (!q) continue;
+    m[l.code] = [q.price > 0 ? q.price : q.open, Math.round((q.volume || 0) / 1000), q.open, q.high > 0 ? q.high : q.open, q.low > 0 ? q.low : q.open];
+    liveAt = Math.max(liveAt ?? 0, q.liveAt);
+  }
+  return { date, m, provisional: true, liveAt };
+}
+/** 已寫入成交記錄（含作廢）中、成交日晚於 lastDate 者（＝日線尚未歸檔的成交日），舊→新 */
+function fillDatesAfter(docs, lastDate) {
+  const s = new Set();
+  for (const d of docs) for (const k of ['buyFills', 'sellFills']) for (const v of Object.values(d[k] || {})) if (v?.date > lastDate) s.add(v.date);
+  return [...s].sort();
+}
+
 export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null }) {
   const attempts = {};
   const col = () => db.collection('aiSwingLab');
@@ -103,17 +127,9 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const state = portfolioState(docs, days.length ? days : null);
       const need = state.lots.filter(l => l.status === 'pending' || l.status === 'selling');
       if (!need.length) return true;
-      const twDay = ts => new Date(ts + 8 * 3600e3).toISOString().slice(0, 10);
-      const quoteOf = c => { const q = getLive(c); return q && q.open > 0 && q.liveAt && twDay(q.liveAt) === today ? q : null; };
-      const missing = need.filter(l => !quoteOf(l.code));
+      const missing = need.filter(l => !liveQuoteOf(getLive, l.code, today));
       if (missing.length && !deadline) return false;
-      const m = {};
-      for (const l of state.lots) {
-        if (l.status === 'void' || l.status === 'closed') continue;
-        const q = quoteOf(l.code); if (!q) continue;
-        m[l.code] = [q.price > 0 ? q.price : q.open, Math.round((q.volume || 0) / 1000), q.open, q.high > 0 ? q.high : q.open, q.low > 0 ? q.low : q.open];
-      }
-      const daysPlus = [...days, { date: today, m }];
+      const daysPlus = [...days, liveDay(state.lots, today, getLive)];
       let n = 0;
       for (const u of settleFills(docs, daysPlus)) {
         const upd = {};
@@ -174,16 +190,26 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       return n;
     },
 
-    /** 帳戶快照（持有清單 marked-to-market＋結算清單）→ aiLabAccounts/swing；後台讀這一份 */
-    async writeAccount(daysIn = null) {
+    /**
+     * 帳戶快照（持有清單 marked-to-market＋結算清單）→ aiLabAccounts/swing；後台讀這一份。
+     * getLive：盤中即時報價（daemon 傳 _lastLive）。已記錄、但日線尚未歸檔的成交（開盤即時成交當天）會補一個盤中暫定日——
+     * 2026-10-01 實例：09:21 即時成交 5 筆，10:11 起每小時重算只讀歸檔（到 09-30），畫面倒回「待進場／賣出委託」。
+     */
+    async writeAccount(daysIn = null, { getLive = null } = {}) {
       try {
-        const days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
         const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+        let days = daysIn || await loadDays(Math.max(...SWING_HORIZONS) + 15);
+        if (!daysIn && days.length) {
+          const pend = fillDatesAfter(docs, days[days.length - 1].date);
+          if (pend.length) { const { lots } = portfolioState(docs, days); days = [...days, ...pend.map(dt => liveDay(lots, dt, getLive))]; }
+        }
         const ref = db.collection('aiLabAccounts').doc('swing');
         const prevHist = (await ref.get()).data()?.history || [];
         const snap = swingAccountSnapshot(docs, days);
-        // 每日戰績：由記錄逐日重算整段（2026-09-30：舊版只 upsert 當天，舊列沿用寫入時的算法而前後口徑不一）
-        await ref.set(dropUndefined({ ...snap, summary: accountSummary(snap), history: rebuildHistory(docs, days, prevHist) }));
+        const last = days[days.length - 1];
+        // 每日戰績：由記錄逐日重算整段（2026-09-30：舊版只 upsert 當天，舊列沿用寫入時的算法而前後口徑不一）；只收官方收盤日
+        await ref.set(dropUndefined({ ...snap, ...(last?.provisional ? { provisional: true, liveAt: last.liveAt ?? null } : {}),
+          summary: accountSummary(snap), history: rebuildHistory(docs, days.filter(d => !d.provisional), prevHist) }));
       } catch (e) { log('✖ 波段帳戶快照:', (e.message || '').slice(0, 80)); }
     },
 

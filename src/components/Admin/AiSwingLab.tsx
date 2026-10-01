@@ -19,7 +19,8 @@ interface Closed { date: string; code: string; name: string; shares: number; sel
 interface HistRow { date: string; holdings: number; selling?: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; netMkt?: number; estSellCost?: number; total: number; dayPnl: number; cumRetPct: number }
 /** 帳戶摘要（與每日戰績同一口徑；scripts/lib/ai-swing-history.mjs） */
 interface Summary { initial: number; cash: number; mktValue: number; netMkt: number; estSellCost: number; total: number; totalPnl: number; totalRetPct: number; realized: number; unrealized: number; held: number; selling: number; pending: number; closedN: number; pool: number; reservedBuys: number; pendingSellEst: number; freeCash: number; receivable: number; payable: number }
-interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[] }
+// provisional＝今日已即時成交、日線尚未歸檔：市值用盤中即時價（liveAt），收盤歸檔後改以官方收盤重算（2026-10-01）
+interface Snapshot { at: number; dataDate: string | null; holdings: Holding[]; closed: Closed[]; history?: HistRow[]; provisional?: boolean; liveAt?: number | null }
 interface Resp { snapshot?: Snapshot | null; summary?: Summary | null; account?: Acct; openPositions?: OpenPos[]; found: boolean; stats: Record<string, SwingHorizonStat>; byModel: Record<string, Record<string, SwingHorizonStat>>; days: { date: string; model: string | null; picks: string[]; settled: number[]; hasNotes: boolean }[]; detail: SwingLabDoc | null; error?: string }
 
 const stateOf = (h: Holding): PosState => h.state ?? (h.entryPx ? (h.sellReason != null || /賣出委託/.test(h.status) ? 'selling' : 'held') : 'pending');
@@ -181,7 +182,9 @@ function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
   const hs = snapshot?.holdings || [];
   const by: Record<PosState, Holding[]> = { held: [], selling: [], pending: [] };
   for (const h of hs) by[stateOf(h)].push(h);
-  const asOf = snapshot?.dataDate ? `市值以 ${snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新';
+  const asOf = snapshot?.provisional
+    ? `市值以 ${snapshot.dataDate} 盤中即時價計${snapshot.liveAt ? `（${tw(snapshot.liveAt)}）` : '（暫無即時價者以成本計）'}，收盤歸檔後改以官方收盤重算`
+    : snapshot?.dataDate ? `市值以 ${snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新';
   const posHead = ['個股', '股數', '買進 時間·價', '成本（含手續費）', '最新收盤', '淨市值', '淨未實現', '已持有／AI 預期'];
   const posRows = (list: Holding[]) => list.map(h => [
     <b key="c">{h.code} {h.name}</b>, h.shares.toLocaleString(),

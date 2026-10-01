@@ -239,6 +239,41 @@ test('執行器：開盤即時成交——09:00 後以即時開盤價成交並�
   assert.equal(db.store[`aiSwingLab/${D0}`].buyFills['1111'].source, 'live-open');
 });
 
+test('執行器：開盤即時成交後，每小時帳戶重算（今日日線尚未歸檔）不得倒回待進場——暫定日用即時價、每日戰績只收官方收盤', async () => {
+  // 2026-10-01 實例：09:21 即時成交 5 筆，10:11 起每小時重算只讀歸檔（到 09-30）⇒ 畫面倒回「待進場／賣出委託」
+  const days = mkDays(); const D0 = days[5].date, today = days[6].date;
+  const db = fakeDb({
+    [`aiSwingLab/${D0}`]: { date: D0, frozenAt: Date.parse(`${D0}T18:00:00+08:00`), picks: [{ code: '1111', name: 'A', priceAtDecision: 104, position: { shares: 1000, budget: 110000 } }, { code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {} },
+  });
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 6) });
+  const openAt = Date.parse(`${today}T09:00:40+08:00`);
+  const live = { 1111: { price: 105.5, open: 105, high: 106, low: 104.5, volume: 5e5, liveAt: openAt, hasLive: true }, 2222: { price: 50.5, open: 50, high: 51, low: 49.8, volume: 3e5, liveAt: openAt, hasLive: true } };
+  assert.equal(await lab.executeOpen(today, c => live[c], { now: openAt, deadline: false }), true);
+  // 10:00 每小時重算：歸檔仍只到 D0
+  const at10 = openAt + 3600e3;
+  live[1111] = { ...live[1111], price: 107, high: 107.5, liveAt: at10 };
+  await lab.writeAccount(null, { getLive: c => live[c] });
+  let acct = db.store['aiLabAccounts/swing'];
+  const h1 = acct.holdings.find(h => h.code === '1111');
+  assert.equal(h1.state, 'held', '已即時成交 ⇒ 持有中，不倒回待進場');
+  assert.equal(h1.fillSource, 'live-open');
+  assert.equal(h1.lastPx, 107, '市值用盤中即時價');
+  assert.equal(acct.dataDate, today); assert.equal(acct.provisional, true); assert.equal(acct.liveAt, at10);
+  assert.ok(acct.history.every(r => r.date !== today), '每日戰績只收官方收盤（今日歸檔後才有這一列）');
+  // 沒有即時報價可用 ⇒ 成交照記錄保留，市值不捏造（以成本計、標未知）
+  await lab.writeAccount(null);
+  acct = db.store['aiLabAccounts/swing'];
+  assert.equal(acct.holdings.find(h => h.code === '2222').state, 'held');
+  assert.equal(acct.holdings.find(h => h.code === '2222').lastPx, null);
+  assert.equal(acct.liveAt, null);
+  // 今日歸檔後：回到官方收盤口徑（不再是暫定）
+  const lab2 = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async () => '{}', getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 7) });
+  await lab2.writeAccount(null, { getLive: c => live[c] });
+  acct = db.store['aiLabAccounts/swing'];
+  assert.equal(acct.provisional, undefined); assert.equal(acct.holdings.find(h => h.code === '1111').lastPx, 106, '官方收盤 100+6');
+  assert.ok(acct.history.some(r => r.date === today));
+});
+
 test('執行器：09:30 仍無開盤價的買單作廢（開盤未成交），不在盤後補', async () => {
   const days = mkDays(); const D0 = days[5].date, today = days[6].date;
   const db = fakeDb({ [`aiSwingLab/${D0}`]: { date: D0, frozenAt: 1, picks: [{ code: '2222', name: 'B', priceAtDecision: 50, position: { shares: 1000, budget: 51000 } }], outcomes: {} } });
