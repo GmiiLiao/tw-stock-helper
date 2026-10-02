@@ -77,6 +77,11 @@ for (const n of ['quoteAt', 'newestAt', 'auditedAt', 'priceAt', 'swingAt', 'last
 // 非 Firestore 欄位（寫入端仍是 updatedAt），故不需進稽核別名清單。
 AT_ALLOWLIST.add('docUpdatedAt');
 AT_ALLOWLIST.add('builtAt');
+// canonicalAt：定版記錄（事前存檔／當日名單／預測檔）寫入的時刻＝「已定版」標記，讀取端是 lib/canonical-gate.mjs 的
+//   canonicalDecision 與 daemon recordShortTraining（2026-10-02）；文件新鮮度仍看各自的 updatedAt/at。
+// warnedAt：system/canonicalGate 的「21:45 仍未到齊」警示時刻（事件戳；新鮮度看 updatedAt）。
+AT_ALLOWLIST.add('canonicalAt');
+AT_ALLOWLIST.add('warnedAt');
 AT_ALLOWLIST.add('hotAt');   // 快線文件寫入時刻（reader 帶出）
 AT_ALLOWLIST.add('snapshotAt');   // daemon 最近寫快照/指數的時刻（F13 伺服器停更警告）
 AT_ALLOWLIST.add('revealAt');   // MIS 揭示時戳 tlong（資料本身的時間；與 liveAt 抓取時刻分開，R7 口徑）   // /api/system/version：build 時注入的建置時刻（部署身分，非資料日）

@@ -35,6 +35,7 @@ import { judgePagoda } from './lib/pagoda.mjs';
 import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
+import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -101,6 +102,8 @@ const isPremiumUser = (docSnap, trial) => PAID_LEVELS.includes(docSnap.data().le
 // 於是「上線前驗證」變成猜謎（2026-08-03 為此卡了兩次，第一次還差點讓錯誤數字過夜）。
 // ONESHOT 時所有常駐迴圈都不啟動，只跑指定 job 然後退出。
 const ONESHOT = process.argv.includes('--run') ? (process.argv[process.argv.indexOf('--run') + 1] || '') : null;
+// --force（僅限手動 --run）：重寫「已定版」的事前存檔／當日記錄（修補用）；資料未到齊或已過下一個交易日開盤仍不寫（見 canonical-gate）
+const FORCE = !!ONESHOT && process.argv.includes('--force');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 常駐穩定性：Node 預設遇到未捕捉的 rejection/exception 會直接退出→被 launchd
@@ -1117,6 +1120,43 @@ async function readArchive(limit, field = 'closeJson') {
   return snap.docs.map(d => d.data()).filter(a => a && a[field]);
 }
 
+// ── 定版記錄閘門（2026-10-02；判斷在 lib/canonical-gate.mjs）─────────────────────
+//   事前存檔／當日記錄只在「該資料日的收盤歸檔兩市都確實取得並驗證」＋「宇宙兩市都在」時寫，
+//   寫一次就不再被開機／盤中／重跑覆蓋（--run X --force 修補例外），且不可在下一個交易日開盤後才寫。
+async function archiveDayReady(date) {
+  try { return archiveDayStatus((await db.collection('chipArchive').doc(date).get()).data()); }
+  catch (e) { return { ready: false, missing: [`歸檔讀取失敗 ${(e.message || '').slice(0, 40)}`] }; }
+}
+async function universeComplete() {
+  try { const codes = await getAllMarketCodes(); return codes.some(c => c.market === 'tse') && codes.some(c => c.market === 'otc'); }
+  catch { return false; }
+}
+const _isTradingDayIso = iso => isTradingDay(new Date(`${iso}T12:00:00`));
+/**
+ * 寫一份定版記錄（交易內判斷既有檔）。回傳 canonicalDecision 的結果：'write'（已寫）／'skip-exists'（早已定版）／
+ * 'skip-not-ready'／'skip-after-open'。呼叫端以 canonicalDone() 判斷「當日定版是否已完成」。
+ */
+const canonicalDone = d => d === 'write' || d === 'skip-exists';
+async function writeCanonical(ref, data, { date, label }) {
+  const st = await archiveDayReady(date);
+  const uni = await universeComplete();
+  const tw = taipei();
+  const nowTw = `${isoDate(tw)}T${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`;
+  const open = beforeNextOpen(date, nowTw, _isTradingDayIso);
+  return db.runTransaction(async tx => {
+    const existing = (await tx.get(ref)).data() || null;
+    const decision = canonicalDecision({ existing, ready: st.ready && uni, force: FORCE, open });
+    if (decision !== 'write') {
+      const why = decision === 'skip-not-ready' ? `資料未到齊（${[...st.missing, ...(uni ? [] : ['宇宙缺市場'])].join('、')}）`
+        : decision === 'skip-after-open' ? '已過下一個交易日開盤' : '已定版（重寫需 --run … --force）';
+      log(`  · ${label} ${date}：不寫定版記錄——${why}`);
+      return decision;
+    }
+    tx.set(ref, { ...data, canonicalAt: Date.now(), canonicalBasis: `收盤與法人兩市到齊（${st.basis}）`, ...(FORCE ? { canonicalForced: true } : {}) });
+    return decision;
+  });
+}
+
 // 榜單要標的「資料日」——三個時段的答案不一樣，少想一個就會標錯：
 //   ① 盤中(marketOpen)          → 今天（盤中即時價）
 //   ② 13:30 收盤後但 15:10 前   → **今天**（今天的收盤已經產生，只是還沒歸檔；
@@ -1563,6 +1603,9 @@ function accumulateFlow(code, q, tw) {
 }
 
 let _codesCache = null, _codesAt = 0, _codesCloseDate = '';
+// 開機首次載入的宇宙殘缺（2026-10-02 實案：15:53 重啟遇上游中斷，上櫃整批缺 11 分鐘，開機輪的做空候選／健康度等全以殘缺宇宙寫入）
+//   ⇒ 宇宙恢復後由 dailyJobsLoop 重跑一次開機輪，讓 latest 自行修復（定版記錄另有閘門，不受影響）
+let _bootUniversePartial = false;
 // 民國日期 1150715 → 20260715（西元 YYYYMMDD）
 const rocToYmd = s => { s = String(s).trim(); return /^\d{7}$/.test(s) ? String(+s.slice(0, 3) + 1911) + s.slice(3) : ''; };
 let _otcCloseDate = '';
@@ -1688,6 +1731,7 @@ async function getAllMarketCodes(force = false) {
     _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate;
   } else if (codes.length > 0 && !_codesCache) {
     _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate;   // 首次啟動，殘缺也好過空手
+    _bootUniversePartial = true;
     log(`  ⚠ 首次載入宇宙殘缺（tse=${hasTse} otc=${hasOtc}），暫用之並待下輪修復`);
   } else if (!hasOtc || !hasTse) {
     log(`  ⚠ 本輪宇宙殘缺（tse=${hasTse} otc=${hasOtc}）→ 不覆蓋快取，沿用上一份 ${(_codesCache || []).length} 檔`);
@@ -3431,7 +3475,11 @@ async function computeSectorSpot() {
   if (!items.length) { log('✖ 產業現貨報價：所有來源皆無資料，不寫入'); return false; }
   const doc = { date: today, dataDate: today, n: items.length, updatedAt: Date.now(), fetchedAt: Date.now(), items, sources,
     note: '免費來源的產業現貨／原物料報價（Yahoo 期貨連續合約＋DRAMeXchange 公開現貨表）。只存檔不評分。非投資建議。' };
-  await db.collection('sectorSpot').doc(today).set(doc);
+  // 日期存檔不可變薄（2026-10-02）：開機／排程重跑時某來源抓取失敗會少一組報價，不可蓋掉同日較完整的存檔
+  const dayRef = db.collection('sectorSpot').doc(today);
+  const prevN = (await dayRef.get()).data()?.items?.length ?? null;
+  if (neverThinner(prevN, items.length)) await dayRef.set(doc);
+  else log(`  · 產業現貨報價：本輪 ${items.length} 項少於 ${today} 存檔 ${prevN} 項（來源失敗？），存檔不覆蓋`);
   await db.collection('sectorSpot').doc('latest').set(doc);
   log(`✓ 產業現貨報價：${items.length} 項（${Object.keys(sources).join('＋')}）`);
   return true;
@@ -8840,7 +8888,13 @@ async function publishMorningNote() {
   lines.push('---', '> 由程式依官方資料自動彙整（零 AI 生成數字），僅供參考，非投資建議。');
   const content = lines.filter(l => l != null).join('\n');
   const docData = { date, generatedAt: Date.now(), model: 'template(zero-hallucination)', content, eventCount: todayEvents.length, forecast };
-  await db.collection('morningNote').doc(date).set(docData);   // 歷史按日期保存
+  // 歷史按日期保存＝「盤前」晨報：開盤（09:00）前每次都可更新（07:50 正常那份會蓋過凌晨重啟時缺預測的版本·審查 M2），
+  //   開盤後不覆蓋（2026-10-02：15:10 排程與每次開機都會以盤後資料重寫 morningNote/{今天}）；
+  //   若整個早上都沒產生（daemon 停擺），開盤後第一份補寫並標 late。latest 照舊每次更新。
+  const histRef = db.collection('morningNote').doc(date);
+  const preOpen = tw.getHours() * 60 + tw.getMinutes() < 9 * 60;
+  if (preOpen) await histRef.set(docData);
+  else if (!(await histRef.get()).exists) await histRef.set({ ...docData, late: true });
   await db.collection('morningNote').doc('latest').set(docData);
   log(`✓ 盤前晨報 ${date}（今日事件 ${todayEvents.length} 件）`);
 }
@@ -9653,7 +9707,10 @@ async function writePicksScoreboard(docsIn = null) {
   return doc.aggV2;
 }
 
-async function trackPicks() {
+// canonical：當日各榜名單只在「當日收盤歸檔兩市都到齊」後由資料到齊班車（或 --run trackPicks --force）定版寫一次
+//   （2026-10-02：舊版每次執行都 merge 覆蓋——15:10 寫上市版、重啟再寫一次較晚／殘缺的版本，波段起漲榜 2 檔被蓋成 0 檔）。
+//   非定版呼叫（15:10 排程、開機）只做到期評估與記分板。
+async function trackPicks({ canonical = false } = {}) {
   const tw = taipei(); if (!isTradingDay(tw)) return;
   const date = isoDate(tw);
   const snap = await readSnapshotQuotes(); const q = snap?.quotes || {};
@@ -9671,8 +9728,9 @@ async function trackPicks() {
     // ⚠各榜的欄位不一致：chipPicks.graded 用 win/netWin 沒有 score、volSurge 也沒有。
     //   Firestore 不接受 undefined，一個 undefined 會讓**整批寫入失敗**（今天踩到）。
     //   ?? null 是必要的，不是防禦性冗餘。
+    // 進場價＝當日收盤（歸檔，兩市已驗證）；快照只當後備——重啟後快照可能整批缺上櫃（2026-10-02 實案）
     .map(r => ({ code: r.code, name: r.name || r.code, score: r.score ?? r.net ?? null,
-                 price: q[r.code]?.price ?? r.price ?? 0, chg: chgOf(r.code) ?? null }))
+                 price: todayMap?.[r.code]?.[0] ?? q[r.code]?.price ?? r.price ?? 0, chg: chgOf(r.code) ?? null }))
     .filter(p => p.price > 0);
 
   const rows = {
@@ -9726,25 +9784,48 @@ async function trackPicks() {
   // ⇒ 今天之後記錄的推薦，與 2026-08-04 以前**不是同一個系統**。
   //   若混在同一個平均裡，使用者看到的 -2.12pp 會被讀成「現行推薦很爛」，
   //   但那其實是**已汰換評分器**的成績。標記版本，彙總時分開算。
-  await db.collection('picksHistory').doc(date).set({ date, calib: CALIB, ...rows }, { merge: true });
+  // 推薦 API 失敗時 rec 為 null ⇒ 四個主榜全空——這種失敗不可被定版凍結（審查 H2）；回傳 false 讓班車下一輪重試
+  let canon = null;
+  if (canonical && !rec?.recommendations?.length) { canon = 'skip-no-rec'; log(`  ⚠ 推薦成績：${date} 推薦 API 無資料，當日名單不定版（下一輪重試）`); }
+  else if (canonical) canon = await writeCanonical(db.collection('picksHistory').doc(date), { date, calib: CALIB, ...rows }, { date, label: '推薦成績·當日名單' });
+  else log(`  · 推薦成績：${date} 當日名單待收盤資料到齊後定版（本輪只做到期評估）`);
 
-  // ── 到期評估：第 5/10/20 個交易日以當日收盤凍結，同時凍結同期基準 ──
+  // ── 到期評估：進場後第 5/10/20 個「歸檔交易日」的收盤凍結，同時凍結同期基準 ──
+  //   2026-10-02 改：① 持有天數以收盤歸檔的交易日計（舊版用 picksHistory 文件序數——缺一天名單就整批錯位）；
+  //   ② 出場價取該出場日的歸檔收盤、須兩市到齊（舊版 15:10 以只有上市的今收凍結基準、以快照價評：
+  //      實測基準 547／518／575 檔＝只算上市，兩市應有 780／714／816 檔）；
+  //   ③ 錯過出場日當天（班車未跑、資料未到齊）的，出場日後 5 個交易日內補評；更早的不在例行範圍。
   const hist = await db.collection('picksHistory').get();
   const docs = hist.docs.map(d => d.data()).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
-  const idx = Object.fromEntries(docs.map((d, i) => [d.date, i]));
+  const archDates = (await db.collection('chipArchive').orderBy('date', 'desc').limit(45).select('date').get())
+    .docs.map(x => x.id).filter(x => x <= date).reverse();   // 舊→新；休市日沒有歸檔文件
+  const aIdx = Object.fromEntries(archDates.map((x, i) => [x, i]));
+  // 出場日只需兩市收盤到齊（不必等法人·審查 M-a）；判定與取價用同一份文件，避免「判定時已到齊、取價時還是只有上市」的競態
+  const exitOf = new Map();
+  const exitClose = async x => {
+    if (!exitOf.has(x)) {
+      const doc = (await db.collection('chipArchive').doc(x).get()).data();
+      exitOf.set(x, archiveCloseReady(doc) ? JSON.parse(doc.closeJson) : null);
+    }
+    return exitOf.get(x);
+  };
+  let evaluated = 0;
   for (const d of docs) {
-    const age = idx[date] - idx[d.date];
+    const ei = aIdx[d.date]; if (ei == null) continue;
     for (const h of [5, 10, 20]) {
-      if (age !== h || d[`eval${h}`]?.base) continue;      // 已評過（含基準）就跳過
+      if (d[`eval${h}`]?.base) continue;                        // 已評過（含基準）就跳過
+      const exitDate = archDates[ei + h]; if (!exitDate) continue;   // 未到期
+      if (archDates.length - 1 - (ei + h) > 5) continue;       // 出場日已超過 5 個交易日：不在例行補評範圍
+      const exitMap = await exitClose(exitDate);
+      if (!exitMap) continue;                                   // 出場日收盤兩市未到齊：之後再評
       const entryMap = await _closeMap(d.date);
-      const ePrevDate = docs[idx[d.date] - 1]?.date || null;
-      const ePrevMap = ePrevDate ? await _closeMap(ePrevDate) : null;
+      const ePrevMap = ei > 0 ? await _closeMap(archDates[ei - 1]) : null;
       const out = {};
       for (const k of PICK_LISTS) {
         // all＝全部推薦；tradable＝剔除進場日漲停（收盤價買不到的不算數）
         const all = [], tradable = [];
         for (const p of (d[k] || [])) {
-          const x = q[p.code]?.price;
+          const x = exitMap?.[p.code]?.[0];   // 出場日收盤（歸檔）——「以當日收盤凍結」
           if (!(p.price > 0) || !(x > 0)) continue;
           const r = +(((x - p.price) / p.price) * 100).toFixed(2);
           all.push(r);
@@ -9753,16 +9834,19 @@ async function trackPicks() {
         if (all.length) out[k] = { all, tradable };
       }
       // 同期基準：同一進場日、同一持有期、可交易宇宙等權
-      if (entryMap && todayMap) out.base = _baseline(entryMap, ePrevMap, todayMap);
+      if (entryMap && exitMap) out.base = _baseline(entryMap, ePrevMap, exitMap);
       d[`eval${h}`] = out;
-      await db.collection('picksHistory').doc(d.date).set({ [`eval${h}`]: out }, { merge: true });
+      await db.collection('picksHistory').doc(d.date).set({ [`eval${h}`]: out, [`eval${h}Exit`]: exitDate }, { merge: true });
+      evaluated++;
     }
   }
 
   // ── 彙總：每榜每窗 = 推薦 / 可交易推薦 / 同期基準 / 超額（lib/picks-scoreboard.mjs；基準與榜單取同一批進場日）──
   const aggV2 = await writePicksScoreboard(docs);
-  log(`✓ 推薦成績：${date} 已記錄 ${PICK_LISTS.filter(k => rows[k].length).length} 榜（歷史 ${docs.length} 日）`);
-  try { await weightsHealthCheck(aggV2); } catch (e) { log('  ⚠ 權值健康檢查失敗:', (e.message || '').slice(0, 60)); }
+  log(`✓ 推薦成績：${date} ${canon === 'write' ? `定版 ${PICK_LISTS.filter(k => rows[k].length).length} 榜` : canon === 'skip-exists' ? '名單已定版' : '名單未定版'}·到期評估 ${evaluated} 筆（歷史 ${docs.length} 日）`);
+  // 定版未完成、班車會再重試的那幾輪不做（它會推播給管理員；避免每 10 分鐘重推）
+  if (!canonical || canonicalDone(canon)) try { await weightsHealthCheck(aggV2); } catch (e) { log('  ⚠ 權值健康檢查失敗:', (e.message || '').slice(0, 60)); }
+  return canonical ? canonicalDone(canon) : true;
 }
 
 
@@ -12001,6 +12085,11 @@ async function computeChipDaily() {
     const m = await fetchT86(ymd); await sleep(400);
     if (!m || Object.keys(m).length < 50) continue; // 未公布/假日 → 跳過(下次補)
     const codes = {}; for (const c in m) { const x = m[c]; codes[c] = [x.foreign || 0, x.trust || 0, x.dealer || 0]; }
+    // 不可變薄（2026-10-02）：最近 5 日每輪重抓，上櫃那半抓取失敗時只剩上市——不可把已完整的一天蓋成單一市場
+    if (have.has(iso)) {
+      let prevN = null; try { prevN = Object.keys(JSON.parse((await db.collection('chipDaily').doc(iso).get()).data()?.codesJson || '{}')).length; } catch { /* 舊檔壞掉＝可覆蓋 */ }
+      if (!neverThinner(prevN, Object.keys(codes).length)) { log(`  · 逐日籌碼庫 ${iso}：本輪 ${Object.keys(codes).length} 檔少於既有 ${prevN} 檔，不覆蓋`); continue; }
+    }
     await db.collection('chipDaily').doc(iso).set({ date: iso, at: Date.now(), codesJson: JSON.stringify(codes) });
     if (have.has(iso)) upgraded++; else added++;
   }
@@ -12792,9 +12881,9 @@ async function loadLuArchive() {
   return days;
 }
 
-async function computeLimitUpForecast() {
+async function computeLimitUpForecast({ canonical = false } = {}) {
   const arch = await loadLuArchive();
-  if (arch.length < 22) { log('  ⚠ 漲停預測：chipArchive 不足'); return; }
+  if (arch.length < 22) { log('  ⚠ 漲停預測：chipArchive 不足'); return !canonical; }
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   const liveWindow = isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 35;
   const quo = (await readSnapshotQuotes())?.quotes || {};
@@ -12961,17 +13050,24 @@ async function computeLimitUpForecast() {
   // 盤後：存預測檔＋對答案（scoreboard，只在新資料日執行一次）
   let scoreboard = null;
   try { scoreboard = (await db.collection('limitUpForecast').doc('scoreboard').get()).data() || { history: [] }; } catch { scoreboard = { history: [] }; }
+  let luCanon = null;
   if (mode === 'close') {
     const dataDate = today.date;
     const predRef = db.collection('limitUpForecast').doc(`pred-${dataDate}`);
-    if (!(await predRef.get()).exists) {
-      await predRef.set({
-        dataDate, at: Date.now(), codes: top.map(x => x.code), bCodes: bList.map(x => ({ code: x.code, est: x.est })),
-        ranks: Object.fromEntries(aList.slice(0, 120).map((x, i) => [x.code, i + 1])), // 覆盤用：前120名排名
-      });
-      // 對前一份預測檔評分：其 Top 名單在「今日」實際漲停幾檔
+    // 預測存檔＋對答案只由資料到齊班車定版（2026-10-02 修：舊版 15:2x 第一個寫的贏，那時歸檔只有上市
+    //   ⇒ 9 月起每份 pred-{日} 前 120 名都沒有任何上櫃股，記分板一直只評上市；實際漲停也只數上市）
+    if (canonical) luCanon = await writeCanonical(predRef, {
+      dataDate, at: Date.now(), codes: top.map(x => x.code), bCodes: bList.map(x => ({ code: x.code, est: x.est })),
+      ranks: Object.fromEntries(aList.slice(0, 120).map((x, i) => [x.code, i + 1])), // 覆盤用：前120名排名
+    }, { date: dataDate, label: '漲停預測·預測存檔' });
+    else log(`  · 漲停預測：預測存檔 pred-${dataDate} 待收盤資料兩市到齊後定版`);
+    if (canonicalDone(luCanon)) {   // 審查 M-b：存檔已寫、對答案失敗時，重試要能補對（scoreboard.history 同日一筆已保證冪等）
+      // 對前一份預測檔評分：其 Top 名單在「今日」實際漲停幾檔——前一份必須正是前一個交易日的預測
+      //   （審查 M1：缺一天預測檔時，舊查詢會拿 D-2 的預測當成「隔日」來評）
       const prevPreds = await db.collection('limitUpForecast').where('dataDate', '<', dataDate).orderBy('dataDate', 'desc').limit(1).get();
-      const pd = prevPreds.docs[0]?.data();
+      const pd0 = prevPreds.docs[0]?.data();
+      const pd = pd0?.dataDate === prev.date ? pd0 : null;
+      if (pd0 && !pd) log(`  ⚠ 漲停預測：缺 ${prev.date} 的預測檔（最近一份是 ${pd0.dataDate}），${dataDate} 不對答案`);
       if (pd && !(scoreboard.history || []).some(h => h.date === dataDate)) {
         const actual = new Set();
         for (const c in today.close) { const p = prev.close[c]?.[0]; if (p && luIsLimitUp(today.close[c][0], p)) actual.add(c); }
@@ -13070,8 +13166,11 @@ async function computeLimitUpForecast() {
   // ⛔ 凍結規則（2026-09-22 使用者：盤後定案的預測名單要凍結一整天；即時預測另做戰情新頁）：
   //   每次計算都寫 live（盤中即時預測頁讀它）；latest＝盤後定案、只由**排程的 close 模式**寫，
   //   且交易日 08:30～13:35 一律不寫（名單在當天盤中不得被改）；手動 --run 一律只寫 live（我自己踩過兩次）。
+  //   2026-10-02 補：basis＝收盤歸檔兩市到齊且宇宙完整才是 complete；定案已是 complete 時，不完整的一輪（開機殘缺宇宙、
+  //   族群表抓取失敗…）不得覆蓋。--run limitUpForecast --force＝修補（同樣須資料到齊）。
+  const luBasis = mode !== 'close' ? 'live' : ((await archiveDayReady(today.date)).ready && await universeComplete()) ? 'complete' : 'partial';
   const luDoc = {
-    updatedAt: Date.now(), mode, dataDate: today.date, mktLU,
+    updatedAt: Date.now(), mode, dataDate: today.date, mktLU, basis: luBasis,
     luVersion: LU_VERSION,   // 2026-09-18 D5／D9：lift 表版本章，記分板按版本分開看
     aList: top, bList: bList.slice(0, 40),
     // 備位 31～60 名（2026-09-23）：多空同屏只列可當沖者，前 30 有不可當沖／處置股時由此遞補。
@@ -13084,10 +13183,15 @@ async function computeLimitUpForecast() {
     backtest: { top10: 21.5, top30: 17.0, lift10: 8.0, base: 2.7 }, // 驗證期實測(v2 +3月漲停/族群風向·阻尼0.3)
   };
   await db.collection('limitUpForecast').doc('live').set(luDoc);
-  const luFrozenOK = mode === 'close' && !ONESHOT && !(isTradingDay(tw) && mins >= 8 * 60 + 30 && mins < 13 * 60 + 35);
-  if (luFrozenOK) await db.collection('limitUpForecast').doc('latest').set(luDoc);
-  else log(`  · 漲停預測：${ONESHOT ? '手動執行' : mode === 'live' ? '盤中即時' : '盤中時段'}只寫 live，不動盤後定案（latest）`);
+  // 手動 --force 只在資料完整時改定案（審查 LOW：否則 --force 會以未到齊的資料改寫定案）
+  const luFrozenOK = mode === 'close' && (ONESHOT ? canonical && luBasis === 'complete' : true) && !(isTradingDay(tw) && mins >= 8 * 60 + 30 && mins < 13 * 60 + 35);
+  if (luFrozenOK) {
+    const cur = (await db.collection('limitUpForecast').doc('latest').get()).data();
+    if (cur?.basis === 'complete' && cur.dataDate === today.date && luBasis !== 'complete') log(`  · 漲停預測：定案 ${today.date} 已是兩市完整版，本輪資料不完整，不覆蓋`);
+    else await db.collection('limitUpForecast').doc('latest').set(luDoc);
+  } else log(`  · 漲停預測：${ONESHOT ? '手動執行' : mode === 'live' ? '盤中即時' : '盤中時段'}只寫 live，不動盤後定案（latest）`);
   log(`✓ 漲停預測 ${mode} ${today.date}：A榜${top.length}(最高分${top[0]?.score ?? '—'})／B榜連板${bList.length}／市場漲停${mktLU}家／漲停王 ${kings[0]?.code ?? '—'}×${kings[0]?.n ?? 0}／熱門族群 ${[...hotTop3].join('、') || '—'}`);
+  return canonical ? canonicalDone(luCanon) : true;
 }
 
 // ── 籌碼強化的持倉出貨警示（盤中即時；法人為 t-1 脈絡，價格為即時）──────
@@ -13323,9 +13427,9 @@ async function fetchPunishSet() {
   return out;
 }
 
-async function computeShortCandidates() {
+async function computeShortCandidates({ canonical = false } = {}) {
   const archRaw = await readArchive(21, 'closeJson');
-  if (archRaw.length < 21) { log('  ⚠ 做空候選：chipArchive 不足 21 日'); return; }
+  if (archRaw.length < 21) { log('  ⚠ 做空候選：chipArchive 不足 21 日'); return !canonical; }
   // readArchive 回 raw doc（closeJson 是字串）——先 parse 成 {date, map}
   // 價格結構事件還原（2026-09-17 第二批接入）：減資股事件前價格偏低會被誤判「弱勢」、面額變更股反之；
   //   只用收盤序列判弱勢，張數不動。沒有係數的事件不動。
@@ -13510,11 +13614,20 @@ async function computeShortCandidates() {
       + '風控層：軋空候選榜反查排除·券資比>15%排除。研究輔助，非投資建議。',
   };
   await db.collection('shortCandidates').doc('latest').set(doc);
-  // 排程跑才寫日期檔（review 對答案的事前存檔）；手動 CLI 只更新 latest——
+  // 事前存檔（review 對答案用）只由資料到齊班車定版寫一次（或 --run shortCandidates --force 修補）——
   // 同 squeezeRecommend 的規矩：事前存檔不可被事後重跑污染。
-  if (latest.date && !ONESHOT) await db.collection('shortCandidates').doc(latest.date).set(doc);
+  // ⚠ 2026-10-02 修：舊版「非手動就寫」⇒ 盤中每 10 分鐘以 D 日盤中資訊改寫 D-1 的事前存檔（D 日 15:10 對答案＝偷看答案），
+  //   開機重跑也會改寫；且 15:10 那版歸檔只有上市。
+  //   資格層缺資料（處置名單抓不到或為空、當沖先賣資格無資料）時不定版——那份名單會放進不可空／處置標的，
+  //   凍結後就不會再被修正（審查 H2）；回傳 false 讓班車下一輪重試。
+  let canon = null;
+  if (latest.date && canonical) {
+    if (!punish.size || !dtMap) { canon = 'skip-eligibility'; log(`  ⚠ 做空候選·事前存檔 ${latest.date}：資格層缺資料（${!punish.size ? '處置名單' : ''}${!punish.size && !dtMap ? '、' : ''}${!dtMap ? '當沖先賣資格' : ''}），不定版（下一輪重試）`); }
+    else canon = await writeCanonical(db.collection('shortCandidates').doc(latest.date), doc, { date: latest.date, label: '做空候選·事前存檔' });
+  }
   log(`✓ 做空候選：${items.length} 檔過濾後入榜 ${Math.min(20, items.length)} 檔（${mode}·健康度${health ?? '?'}）`
     + (skipped.length ? `　⚠ 跳過濾網：${skipped.join('、')}` : ''));
+  return canonical ? canonicalDone(canon) : true;
 }
 
 // ── 🐻 做空訓練樣本（2026-09-03·使用者核准）───────────────────────
@@ -13526,18 +13639,22 @@ async function computeShortCandidates() {
 async function recordShortTraining() {
   // SHORT_TRAIN_DATE=YYYY-MM-DD：以該日事前存檔 shortCandidates/{日} 回補（2026-09-29：09-24 班車被重啟跳過）
   const want = process.env.SHORT_TRAIN_DATE || null;
-  const board = (await db.collection('shortCandidates').doc(want || 'latest').get()).data();
-  if (!board?.trainJson || !board.dataDate) { log(`  ⚠ 做空訓練樣本：無${want ? ` ${want} ` : '當日'}榜`); return false; }
   const today = want || isoDate(taipei());
+  // 優先用當日定版事前存檔（2026-10-02：latest 會被開機重跑以殘缺宇宙改寫；定版只在收盤資料兩市到齊後寫一次）
+  const canon = (await db.collection('shortCandidates').doc(today).get()).data();
+  const boardBasis = canon?.canonicalAt ? 'canonical' : want ? 'dated' : 'latest-fallback';
+  const board = boardBasis === 'latest-fallback' ? (await db.collection('shortCandidates').doc('latest').get()).data() : canon;
+  if (boardBasis === 'latest-fallback') log(`  ⚠ 做空訓練樣本：${today} 尚無定版事前存檔（收盤資料未到齊？）→ 改用 latest，樣本標註 boardBasis`);
+  if (!board?.trainJson || !board.dataDate) { log(`  ⚠ 做空訓練樣本：無${want ? ` ${want} ` : '當日'}榜`); return false; }
   if (board.dataDate !== today) { log(`  ⚠ 做空訓練樣本：榜資料日 ${board.dataDate} ≠ 今日，不記（避免週末殘留混入）`); return false; }
   const rows = JSON.parse(board.trainJson);
   await db.collection('shortTraining').doc(board.dataDate).set({
     date: board.dataDate, updatedAt: Date.now(),
     n: rows.length, rowsJson: board.trainJson,
-    health: board.health ?? null, mode: board.mode,
+    health: board.health ?? null, mode: board.mode, boardBasis,
     note: '特徵快照（資格+風控層通過全體·含未入榜）。標籤訓練時從 chipArchive 現算：口徑A=隔日開→收、口徑B=5日最大跌幅。',
   });
-  log(`✓ 做空訓練樣本：${board.dataDate} ${rows.length} 檔特徵入庫`);
+  log(`✓ 做空訓練樣本：${board.dataDate} ${rows.length} 檔特徵入庫（${boardBasis}）`);
   return true;
 }
 
@@ -14686,6 +14803,8 @@ let _v3ShadowDate = '', _v3ShadowFail = { date: '', n: 0 };
 let _sfDate = '', _sfTry = { date: '', n: 0, at: 0 };   // 🎯 標靶公式影子（22:40 起、每 20 分鐘最多 4 次；完成記錄 swingFormula）   // 📐 技術評分 v3 影子（18:45 起，完成記錄 scoringV3；失敗當日最多 3 次）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
+let _otcReadyNextAt = 0, _canonLateWarned = '';   // 資料到齊班車：未到齊時下次重試時刻、當日是否已發 21:45 警示
+let _canonDone = { date: '', set: new Set(), passed: false, boards: false };   // 資料到齊班車當日進度：已完成的定版步驟、是否跑過首輪／榜單重算
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 // ⚠ **必須 return**（2026-08-31 差點釀成無窮迴圈）：
 //   舊版沒有 return，函式回傳 undefined。我改成「回報成敗」後，
@@ -14777,6 +14896,7 @@ async function dailyJobsLoop() {
         _dailyJobsDate = t;
         if (marks.finReports !== t) { await timedJob('finReports', computeFinReports, '(boot 補跑·今日未跑)'); await markJobDone('finReports', t); }
       }
+      if (marks.otcFix === t) _otcFixDate = t;   // 資料到齊班車今日已完成（定版記錄已寫）⇒ 開機不重跑；未完成則照常等到齊
       if (marks.labLearn === t) _labLearnDate = t;
       if (marks.scoringV3 === t) _v3ShadowDate = t;
       if (marks.swingFormula === t) _sfDate = t;
@@ -14788,6 +14908,14 @@ async function dailyJobsLoop() {
   }
   for (;;) {
     try {
+      // 開機輪重跑會佔住循序迴圈數分鐘：避開盤前判別／開盤（08:00–09:10）與尾盤（13:20–13:45）保護窗（審查 LOW）
+      const _m = taipei().getHours() * 60 + taipei().getMinutes();
+      const _protected = (_m >= 8 * 60 && _m < 9 * 60 + 10) || (_m >= 13 * 60 + 20 && _m < 13 * 60 + 45);
+      if (_bootUniversePartial && !_protected && (_codesCache || []).some(c => c.market === 'tse') && (_codesCache || []).some(c => c.market === 'otc')) {
+        _bootUniversePartial = false;
+        log('↻ 開機時宇宙殘缺，現已兩市到齊——重跑開機輪每日工作，修復以殘缺宇宙寫入的 latest');
+        await runDailyJobs(true);
+      }
       const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
       // 開盤前 1 小時（08:00）核對新聞內容並由 AI 判別（使用者指定）
       // 當沖資格名單盤前就發布，而它必須在 09:00 開盤前到位（使用者要靠它避免違規），
@@ -15259,33 +15387,87 @@ async function dailyJobsLoop() {
         }
       }
       // 17:00 第二大腦備份（每日、不分交易日——帳號/持倉隨時會變）。子程序執行不佔 daemon 記憶體。
-      // 16:45 上櫃檔補跑：TPEx 官方日檔約 16:00 後發布——15:10 歸檔/策略榜若因日期
-      // 不合致跳過上櫃（otcPending），此時重跑合併，並讓依賴收盤的預測用上完整資料。
-      if (mins >= 16 * 60 + 45 && _otcFixDate !== today) {
-        // 只在**上櫃來源真的抓到**時才標記今日已補：TPEx 抖一下就整天缺上櫃，
-        // 是 CLAUDE.md 記載過的痛點。後面兩個是依賴它的重算，本來就冪等，
-        // 重試不會造成重複資料。
-        let otcOk = false;
-        try { await archiveOtcIndex(); otcOk = true; } catch (e) { log('✖ 櫃買指數歸檔（將於下一輪重試）:', e.message); }
-        if (otcOk) _otcFixDate = today;
+      // 16:45 起「資料到齊班車」（2026-10-02 改；原「16:45 上櫃檔補跑」）：
+      //   使用者：「依確實取得與驗證檔案後，進行後續」。實測官方資料開放：上市收盤 13:46–13:58、上櫃收盤併入歸檔 16:07–16:49
+      //   （09-24 晚到 21:37）、上市法人 T86 16:11–16:37。舊版以「櫃買指數歸檔成功」當完成條件 ⇒ 09-24 以缺上櫃的歸檔
+      //   重算一輪就標記完成，21:37 上櫃到了也不再重算。改為：交易日要等收盤歸檔兩市收盤＋法人都到齊（寫入端已回聲驗證日期）
+      //   且宇宙兩市都在，才重算依賴收盤的榜單並寫定版記錄（推薦成績當日名單、做空事前存檔、漲停預測存檔）；
+      //   未到齊每 10 分鐘重試，21:45 仍缺記一次警示（system/canonicalGate）。非交易日照舊跑一次（無當日資料可等）。
+      if (mins >= 16 * 60 + 45 && _otcFixDate !== today && Date.now() >= _otcReadyNextAt) {
+        const tradingDay = isTradingDay(tw);
+        if (_canonDone.date !== today) _canonDone = { date: today, set: new Set(), passed: false, boards: false };
+        const firstPass = !_canonDone.passed; _canonDone.passed = true;
+        try { await archiveOtcIndex(); } catch (e) { log('✖ 櫃買指數歸檔（將於下一輪重試）:', e.message); }
         try { await archiveChipDaily(); } catch (e) { log('✖ otc補跑 archive:', e.message); }
-        try { await backfillOtcPending(); } catch (e) { log('✖ 上櫃補洞:', (e.message || '').slice(0, 60)); }   // 更早日子的 otcPending（2026-08-20 型）
-        try { await computePriceEvents(); } catch (e) { log('✖ 價格結構事件:', (e.message || '').slice(0, 60)); }   // 上櫃併入後重算係數，供下面 dailySeq／swingHold 還原
-        try { await computeStrategyPicks(); } catch (e) { log('✖ otc補跑 strategyPicks:', e.message); }
-        try { await computeLimitUpForecast(); } catch (e) { log('✖ otc補跑 limitUp:', e.message); }
-        try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
-        try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }
-        try { await computeSwingHold(); } catch (e) { log('✖ 波段持有:', e.message); }        // 5/10/20/60 日連續成長榜＋整合榜（收盤定版·存歷史）
-        try { await computeDailySeq(); } catch (e) { log('✖ dailySeq:', e.message); }          // 全市場每檔近 10 日漲跌×量＋三線位置（自選列小提示）   // 收盤定版價出貨警示（盤中另有每分檢查）
-        // 2026-09-17 缺漏審計：這三個原本只在 15:10 班車跑一次，當時歸檔還沒有上櫃 ⇒ 上櫃股整天沒有修正量／反轉訊號
-        //（今日實證：15:27 推薦修正量 571 檔全上市，靠重啟才補到 952）。上櫃併入後冪等重算。
-        try { await computeRecommendAdj(); } catch (e) { log('✖ otc補跑 recommendAdj:', (e.message || '').slice(0, 60)); }
-        try { await computeReversalSignals(); } catch (e) { log('✖ otc補跑 reversalSignals:', (e.message || '').slice(0, 60)); }
-        try { await computeWashoutMonitor(); } catch (e) { log('✖ otc補跑 washoutMonitor:', (e.message || '').slice(0, 60)); }
-        // 第2套預選：先對前幾天的答案（scoreSwingCurves 讀的是歸檔，與今日分型無關），
-        // 再產今日分型。順序反過來也不會錯，但這樣 log 讀起來是「先結算再開盤」。
-        try { await scoreSwingCurves(); } catch (e) { log('✖ 曲線記分板:', e.message); }
-        try { await computeSwingCurves(); } catch (e) { log('✖ 曲線分型:', e.message); }
+        // 缺漏掃描每日只在首輪跑（16:45；未滿 17:00 時它跳過當日——當日上櫃未併入是正常時序）。審查 M4：重試若在 17:00 後呼叫，
+        //   會以 Yahoo 逐檔補當日上櫃並把 otcPending 標成 false，蓋過之後才發布的官方檔，閘門也會誤信。
+        if (firstPass) try { await backfillOtcPending(); } catch (e) { log('✖ 上櫃補洞:', (e.message || '').slice(0, 60)); }   // 更早日子的 otcPending（2026-08-20 型）
+        const gate = tradingDay ? await archiveDayReady(today) : { ready: true, missing: [] };
+        const uniOk = await universeComplete();
+        // 21:45 仍未完成：記 system/canonicalGate 並推播管理員（每日一次）
+        const lateWarn = async what => {
+          if (mins < 21 * 60 + 45 || _canonLateWarned === today) return;
+          _canonLateWarned = today;
+          log(`⚠ 資料到齊班車 ${today}：21:45 仍未完成（${what.join('、')}）——當日定版記錄未全部寫入，持續重試至午夜`);
+          try { await db.collection('system').doc('canonicalGate').set({ date: today, ready: false, missing: what, warnedAt: Date.now(), updatedAt: Date.now() }, { merge: true }); } catch { /* 警示寫入失敗不擋重試 */ }
+          await notifyDeveloper(`⏳ 資料到齊班車 ${today}：21:45 仍未完成（${what.join('、')}），當日定版記錄（推薦成績名單／做空事前存檔／漲停預測存檔）未全部寫入，持續重試至午夜。若今日臨時休市可忽略。`, `canon-${today}`);
+        };
+        if (!gate.ready || !uniOk) {
+          const missing = [...gate.missing, ...(uniOk ? [] : ['宇宙缺市場'])];
+          _otcReadyNextAt = Date.now() + 10 * 60000;
+          log(`  ⏳ 資料到齊班車 ${today}：尚缺 ${missing.join('、')}——10 分鐘後重試，到齊前不重算榜單、不寫定版記錄`);
+          await lateWarn(missing);
+        } else {
+          // 定版步驟：成功（或早已定版）才記入；未成功者下一輪只重試它（審查 H2：失敗結果不可被凍結、也不可當作完成）
+          const pending = [];
+          const step = async (name, fn) => {
+            if (_canonDone.set.has(name)) return;
+            try { if (await fn()) _canonDone.set.add(name); else pending.push(name); }
+            catch (e) { pending.push(name); log(`✖ 到齊班車 ${name}:`, (e.message || '').slice(0, 60)); }
+          };
+          if (!_canonDone.boards) {   // 依賴收盤的榜單：到齊後重算一次
+            _canonDone.boards = true;
+            _luArch.at = 0;   // 上櫃剛併入歸檔：漲停預測的 10 分鐘歸檔快取作廢，否則定版會用到「只有上市」的舊快取
+            try { await computeChipDaily(); } catch (e) { log('✖ 到齊班車 逐日籌碼庫:', (e.message || '').slice(0, 60)); }   // T86 晚於 16:30 時補 chipDaily/{今天}
+            _chipWinCache = { date: '', n: 0, window: null };   // 審查 M3：法人視窗快取以日曆日為鍵、當天不重載——在 chipDaily 重抓之後才清，避免其他迴圈在中間重載到舊視窗
+            try { await computePriceEvents(); } catch (e) { log('✖ 價格結構事件:', (e.message || '').slice(0, 60)); }   // 上櫃併入後重算係數，供下面 dailySeq／swingHold 還原
+            try { await computeStrategyPicks(); } catch (e) { log('✖ otc補跑 strategyPicks:', e.message); }
+            await step('漲停預測存檔', () => computeLimitUpForecast({ canonical: tradingDay }));
+            try { await checkRsiHot(); } catch (e) { log('✖ rsiHot盤後:', e.message); }
+            try { await computeSwingPicks(); } catch (e) { log('✖ 波段起漲盤後:', e.message); }
+            try { await computeSwingHold(); } catch (e) { log('✖ 波段持有:', e.message); }        // 5/10/20/60 日連續成長榜＋整合榜（收盤定版·存歷史）
+            try { await computeDailySeq(); } catch (e) { log('✖ dailySeq:', e.message); }          // 全市場每檔近 10 日漲跌×量＋三線位置（自選列小提示）   // 收盤定版價出貨警示（盤中另有每分檢查）
+            // 2026-09-17 缺漏審計：這三個原本只在 15:10 班車跑一次，當時歸檔還沒有上櫃 ⇒ 上櫃股整天沒有修正量／反轉訊號
+            //（今日實證：15:27 推薦修正量 571 檔全上市，靠重啟才補到 952）。上櫃併入後冪等重算。
+            try { await computeRecommendAdj(); } catch (e) { log('✖ otc補跑 recommendAdj:', (e.message || '').slice(0, 60)); }
+            try { await computeReversalSignals(); } catch (e) { log('✖ otc補跑 reversalSignals:', (e.message || '').slice(0, 60)); }
+            try { await computeWashoutMonitor(); } catch (e) { log('✖ otc補跑 washoutMonitor:', (e.message || '').slice(0, 60)); }
+            // 第2套預選：先對前幾天的答案（scoreSwingCurves 讀的是歸檔，與今日分型無關），
+            // 再產今日分型。順序反過來也不會錯，但這樣 log 讀起來是「先結算再開盤」。
+            try { await scoreSwingCurves(); } catch (e) { log('✖ 曲線記分板:', e.message); }
+            try { await computeSwingCurves(); } catch (e) { log('✖ 曲線分型:', e.message); }
+            if (tradingDay) {   // 其餘仍是 15:10「只有上市」歸檔版的榜單（推薦成績會記錄它們）
+              try { await computeTradeSignals(); } catch (e) { log('✖ 到齊班車 tradeSignals:', (e.message || '').slice(0, 60)); }
+              try { await computeChipPicks(); } catch (e) { log('✖ 到齊班車 chipPicks:', (e.message || '').slice(0, 60)); }
+            }
+          } else await step('漲停預測存檔', () => computeLimitUpForecast({ canonical: tradingDay }));   // 上一輪未定版者重試
+          if (tradingDay) {
+            await step('做空事前存檔', () => computeShortCandidates({ canonical: true }));
+            if (_canonDone.set.has('做空事前存檔') && !_canonDone.set.has('做空對答案')) {   // 今收兩市到齊後重對（冪等：同日一筆取代）
+              try { await computeShortReview(); _canonDone.set.add('做空對答案'); } catch (e) { log('✖ 到齊班車 做空對答案:', (e.message || '').slice(0, 60)); }
+            }
+            await step('推薦成績名單', () => trackPicks({ canonical: true }));
+          }
+          if (pending.length) {
+            _otcReadyNextAt = Date.now() + 10 * 60000;
+            log(`  ⏳ 資料到齊班車 ${today}：定版未完成（${pending.join('、')}）——10 分鐘後只重試這幾項`);
+            await lateWarn(pending);
+          } else {
+            if (tradingDay) try { await db.collection('system').doc('canonicalGate').set({ date: today, ready: true, missing: [], finishedAt: Date.now(), updatedAt: Date.now() }, { merge: true }); } catch { /* 狀態記錄失敗不影響 */ }
+            _otcFixDate = today; await markJobDone('otcFix', today);
+            log(`✓ 資料到齊班車 ${today}：${tradingDay ? `兩市收盤＋法人已到齊（${gate.basis}），榜單重算、定版記錄完成` : '非交易日照常重算'}`);
+          }
+        }
       }
       if (mins >= 17 * 60 && _backupDate !== today) {
         _backupDate = today;
@@ -15534,15 +15716,22 @@ if (ONESHOT) {
     squeezeRec: () => computeSqueezeNewsVerdict(),
     limitUpRec: () => computeLimitUpNewsVerdict(),   // 漲停預測的新聞判別    // 手動產出新聞判別(讀內文+AI)
     marketWind: () => computeMarketWind(),           // 大盤風向重算（手動：只寫 latest，不改收盤歷史）
-    limitUpForecast: () => computeLimitUpForecast(), // 漲停預測榜重算（機器模型，不用 LLM；盤外自動用歸檔模式）
-    shortCandidates: () => computeShortCandidates(), // 做空風控候選榜（2026-09-03 第一期）
+    limitUpForecast: () => computeLimitUpForecast({ canonical: FORCE }), // 漲停預測榜重算（機器模型，不用 LLM；盤外自動用歸檔模式）；--force＝重寫預測存檔與定案（須資料到齊）
+    shortCandidates: () => computeShortCandidates({ canonical: FORCE }), // 做空風控候選榜（2026-09-03 第一期）；--force＝重寫當日事前存檔（須資料到齊、下一交易日開盤前）
     shortTraining: () => recordShortTraining(),      // 手動補做空訓練樣本
     shortReview: () => computeShortReview(),         // 做空榜對答案
     revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
     globalMarkets: () => computeGlobalMarkets(),
-    trackPicks: () => trackPicks(),   // 推薦成績追蹤（改榜單清單後可手動補跑一次）
+    trackPicks: () => trackPicks({ canonical: FORCE }),   // 推薦成績追蹤；--force＝重寫當日名單（須當日收盤資料到齊、下一交易日開盤前）
+    canonicalStatus: async () => {   // 唯讀：最近 8 份收盤歸檔是否兩市到齊（定版閘門的判斷依據）
+      for (const d of (await db.collection('chipArchive').orderBy('date', 'desc').limit(8).get()).docs) {
+        const st = archiveDayStatus(d.data());
+        log(`  ${d.id}：${st.ready ? '✓ 兩市到齊' : `✗ 缺 ${st.missing.join('、')}`}`);
+      }
+      log(`  宇宙兩市：${(await universeComplete()) ? '✓' : '✗'}`);
+    },
     tailTrack: () => evalTailTrack(),   // 撿尾盤對答案＋彙總整段重算（未扣成本）
     picksScoreboard: () => writePicksScoreboard(),   // 只重算記分板（讀 picksHistory，不改推薦紀錄）
     tradeSignals: () => computeTradeSignals(),   // 當沖/隔日沖候選（改口徑後手動重算）
