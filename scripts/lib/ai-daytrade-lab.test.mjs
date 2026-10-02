@@ -106,9 +106,10 @@ test('執行器：做 → 以即時價成交 → 出場結算 → 盤後凍結�
 test('執行器：剩餘額度不夠 1 張 ⇒ 記額度不足、不問 AI、不成交', async () => {
   const db = fakeDb(); const realNow = Date.now; Date.now = () => T + 70_000;
   try {
-    let asked = 0;
-    const lab = createAiDaytradeLab({ db, askOllama: async () => { asked++; return '{"decision":"take","lots":1,"confidence":60,"reason":"r","risk":"k"}'; }, log: () => {}, getQuote: () => ({ price: 1200 }), dir: mkdtempSync(join(tmpdir(), 'ailab-')), model: 'm', deskVersion: 'v', evidence: null, getRules: OK_RULES });
+    let asked = 0; const logs = [];
+    const lab = createAiDaytradeLab({ db, askOllama: async () => { asked++; return '{"decision":"take","lots":1,"confidence":60,"reason":"r","risk":"k"}'; }, log: (...x) => logs.push(x.join(' ')), getQuote: () => ({ price: 1200 }), dir: mkdtempSync(join(tmpdir(), 'ailab-')), model: 'm', deskVersion: 'v', evidence: null, getRules: OK_RULES });
     lab.consider({ side: 'long', code: '5555', name: '貴', row, trade: { ...trade(T), entry: 1200 }, id: 'x' }, '2026-09-24', T + 70_000);
+    assert.ok(logs.some(l => /5555貴 .*→ no-limit（今日交易額度已用完.*未送 AI）/.test(l)), '額度擋下也寫日誌（使用者：日誌無聲看起來像停機）');
     await new Promise(r => setTimeout(r, 5));
     await lab.writeLive(true);
     const rec = db.store.live.records[0];

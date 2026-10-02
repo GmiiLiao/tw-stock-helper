@@ -91,13 +91,15 @@ export function createAiDaytradeLab({ db, askOllama, log, getQuote, dir, model, 
         score: { total: row.score.total, knownMax: row.score.knownMax, tier: row.score.tier, parts: row.score.parts, missing: row.score.missing }, warnings: row.warnings,
         askedAt: now, decision: null, confidence: null, reason: null, risk: null, status: 'pending', fillPx: null, lagMs: null,
       };
-      if (m < 9 * 60 + 5 || m > 12 * 60 + 30) { records.push({ ...base, status: 'out-of-window', reason: '09:05–12:30 以外不提新單' }); dirty = true; return; }
+      // 不送 AI 的觸發也寫一行日誌（2026-10-02 使用者：額度用完後日誌整段無聲，看起來像停機）
+      const skipNoAi = (status, reason) => { records.push({ ...base, status, reason }); dirty = true; log(`🤖 當沖 AI：${side === 'long' ? '多' : '空'} ${code}${name} ${trade.type} → ${status}（${reason}；未送 AI）`); };
+      if (m < 9 * 60 + 5 || m > 12 * 60 + 30) return skipNoAi('out-of-window', '09:05–12:30 以外不提新單');
       // 交易所規則：處置股與非現股當沖標的不交易（做空需可先賣後買）；名單取不到一律不交易——不送 AI
       const block = tradeBlock({ side, ...(getRules(code) || { disposition: null, elig: null }) });
-      if (block) { records.push({ ...base, status: 'ineligible', reason: block }); dirty = true; return; }
-      // 每日交易額度：剩餘額度連 1 張都不夠 ⇒ 當天不再交易（不送 AI）
+      if (block) return skipNoAi('ineligible', block);
+      // 每日交易額度：剩餘額度連 1 張都不夠 ⇒ 當天不再交易（不送 AI；額度累計當天買進金額、平倉不回補——2026-10-02 使用者確認）
       const left = limitLeft(lim.value, records), maxN = maxLots(trade.entry, left);
-      if (maxN < 1) { records.push({ ...base, status: 'no-limit', reason: `今日交易額度已用完（剩 ${left.toLocaleString()} 元，1 張約 ${Math.round(trade.entry * 1000).toLocaleString()} 元）` }); dirty = true; return; }
+      if (maxN < 1) return skipNoAi('no-limit', `今日交易額度已用完：剩 ${left.toLocaleString()} 元，1 張約 ${Math.round(trade.entry * 1000).toLocaleString()} 元`);
       records.push({ ...base, limitLeftAtAsk: left, maxLotsAtAsk: maxN }); dirty = true;
       // 🧠 經驗庫（盤後訓練·已驗證）：本筆觸發條件符合哪些歷史風險／優勢特徵（特徵口徑＝訓練用 daytradeJournal 條目）
       let lessons = [];
