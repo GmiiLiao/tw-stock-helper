@@ -101,15 +101,17 @@ test('prune：除權息等跨日事件用固定 scope，每天載入／換日時
   assert.deepEqual(store.docs.get('exdiv_all'), []);
 });
 
-test('寫入失敗不丟例外、回報錯誤（通知照發；最壞情況＝重啟後可能重發一次，同舊行為）', async () => {
-  const errs = [];
-  const store = { ...mkStore(), addMany: async () => { throw new Error('quota'); } };
+test('寫入失敗不丟例外、回報錯誤，並放回暫存：下一次 flush 補寫（審查 LOW：舊版失敗即丟）', async () => {
+  const errs = []; const base = mkStore(); let fail = 1;
+  const store = { ...base, addMany: async (...a) => { if (fail-- > 0) throw new Error('quota'); return base.addMany(...a); } };
   const a = createAlertDedup('x', store, { ...manual, onError: op => errs.push(op) });
   await a.ensure('d');
   assert.equal(a.add('k'), true);
   await a.flush();
   assert.equal(a.has('k'), true);
   assert.deepEqual(errs, ['add']);
+  a.add('k2'); await a.flush();
+  assert.deepEqual(base.docs.get('x_d'), ['k', 'k2'], '失敗那筆在下一次寫入時補上');
 });
 
 test('keys()：可據以重建每人計數（早盤起漲每人每日 6 則上限，重啟後不歸零）', async () => {

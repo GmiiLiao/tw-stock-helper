@@ -26,7 +26,8 @@ export function createAlertDedup(name, store, { prune = null, autoFlush = true, 
     if (timer) { timers.clearTimeout(timer); timer = null; }
     if (!pending.length || scope == null) return;
     const batch = pending, sc = scope; pending = [];
-    try { await store.addMany(name, sc, batch); } catch (e) { err('add', e); }
+    try { await store.addMany(name, sc, batch); }
+    catch (e) { err('add', e); if (scope === sc) pending = batch.concat(pending); }   // 寫入失敗放回暫存，下次 flush 再寫（審查 LOW）
   };
   return {
     /** 每次使用前呼叫（取代舊的「換日清空」）；scope 相同且已讀成功時不重讀 */

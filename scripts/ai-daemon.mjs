@@ -37,7 +37,7 @@ import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
 import { createAlertDedup } from './lib/alert-dedup.mjs';
-import { withRetry, failStreak, sameLockDay } from './lib/fetch-retry.mjs';
+import { withRetry, failSince, sameLockDay, nonRetryable } from './lib/fetch-retry.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -95,6 +95,10 @@ const alertDedup = (name, opts = {}) => {
   }, ...opts });
   _dedups.push(d); return d;
 };
+// launchd 停止／kickstart 送 SIGTERM：先寫出通知去重暫存（最多等 3 秒）再以 143 結束（同訊號終止；KeepAlive=true 照常拉起）
+process.on('SIGTERM', () => {
+  Promise.race([Promise.all(_dedups.map(d => d.flush())), new Promise(r => setTimeout(r, 3000))]).finally(() => process.exit(143));
+});
 // ── 付費判斷（2026-09-28 WM-SCAN G1-07）：高級會員＝premium/admin/superadmin，或**註冊 14 天內的體驗期**。
 //   前端（src/lib/access.ts）一直有 14 天體驗，daemon 的 10 處判斷只看 level ⇒ 體驗期會員看得到付費頁面，
 //   卻收不到 daemon 替付費會員產生的分析／警報。註冊時間取 Firebase Auth（與前端同一來源），1 小時快取；
@@ -1625,7 +1629,8 @@ let _codesCache = null, _codesAt = 0, _codesCloseDate = '';
 // 開機首次載入的宇宙殘缺（2026-10-02 實案：15:53 重啟遇上游中斷，上櫃整批缺 11 分鐘，開機輪的做空候選／健康度等全以殘缺宇宙寫入）
 //   ⇒ 宇宙恢復後由 dailyJobsLoop 重跑一次開機輪，讓 latest 自行修復（定版記錄另有閘門，不受影響）
 let _bootUniversePartial = false;
-let _tseFailStreak = 0, _otcMissStreak = 0;   // 宇宙：上市 www 連續失敗輪數、宇宙連續缺上櫃輪數（連 3 輪推播警示·2026-10-02）
+let _tseFail = null, _otcMiss = null;   // 宇宙：上市 www 失敗、宇宙缺上櫃的連續時間（failSince·連續 20 分鐘推播一次·2026-10-02）
+let _codesInflight = null, _codesRetryAt = 0;   // 兩條報價迴圈共用進行中的請求；殘缺／失敗後冷卻 60 秒（期間沿用快取）
 // 最近一份「有收盤」的歸檔日（YYYYMMDD）：上市也抓不到、拿不到資料日時，上櫃帶日期後備用它，而不是空字串
 async function _latestArchiveYmd() {
   try { return ((await readArchive(3))[0]?.date || '').replace(/-/g, ''); } catch { return ''; }
@@ -1663,15 +1668,24 @@ async function _fetchOtcDated(dateYmd) {
 }
 async function getAllMarketCodes(force = false) {
   if (!force && _codesCache && Date.now() - _codesAt < 10 * 60000) return _codesCache;
+  // 審查 2026-10-02：hotQuoteLoop／marketSnapshotLoop 每輪都會呼叫；上一輪殘缺後冷卻 60 秒沿用快取，且共用進行中的請求——
+  //   重試與逾時不可在盤中報價熱路徑上每輪重跑（否則 5 秒快線可被卡住數十秒）
+  if (_codesCache && Date.now() < _codesRetryAt) return _codesCache;
+  if (!_codesInflight) _codesInflight = _loadMarketCodes().finally(() => { _codesInflight = null; });
+  // 已有快取且非強制：立即回傳舊快取、背景重抓（stale-while-revalidate）——上游慢（TPEx 實測 14 秒）時快線不被卡住
+  if (_codesCache && !force) { _codesInflight.catch(() => {}); return _codesCache; }
+  return _codesInflight;
+}
+async function _loadMarketCodes() {
   const codes = [];
   // TSE: PRIMARY www.twse CSV (fresh right after close), FALLBACK openapi (lags).
   let tseRows = []; let closeDate = '';
   // 上市 PRIMARY：www CSV（收盤後即時）。被中斷／回空時重新取得（2026-10-02 使用者：「上市失敗時應重新取得資料」；
   //   實案 15:53 重啟、17:40 手動執行皆在啟動當下回 terminated；舊版只試一次且沒有逾時）
   const tseWww = await withRetry(async () => {
-    const res = await fetch('https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json', { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } });
+    const res = await fetch('https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } });
     const rows = []; let cd = '';
-    if (!res.ok) return null;
+    if (!res.ok) { if (res.status >= 400 && res.status < 500) throw nonRetryable(`HTTP ${res.status}`); return null; }
     {
       for (const line of (await res.text()).split('\n')) {
         const m = line.match(/"([^"]*)"/g);
@@ -1684,16 +1698,16 @@ async function getAllMarketCodes(force = false) {
       }
     }
     return { rows, cd };
-  }, { isOk: v => v?.rows?.length > 500 });
+  }, { attempts: _codesCache ? 1 : 3, isOk: v => v?.rows?.length > 500 });   // 重試只在尚無快取（開機）時；之後每輪本身就是重新取得
   if (tseWww.ok) { tseRows = tseWww.value.rows; closeDate = tseWww.value.cd; }
   {
-    const st = failStreak(_tseFailStreak, tseWww.ok, 3); _tseFailStreak = st.n;
-    if (!tseWww.ok) log(`  ⚠ 上市 STOCK_DAY_ALL（www）重試 ${tseWww.tries} 次仍失敗（${(tseWww.error?.message || '回空').slice(0, 40)}）——連續第 ${st.n} 輪，改用 openapi 後備（落後一日）`);
-    if (st.alert) notifyDeveloper(`🚨 上市收盤 STOCK_DAY_ALL（www）連續 ${st.n} 輪（約 ${st.n * 10} 分鐘）重新取得仍失敗，宇宙改用落後一日的 openapi；請檢查上游或網路`, `tse-fetch-${isoDate(taipei())}`).catch(() => {});
+    const st = failSince(_tseFail, tseWww.ok, Date.now()); _tseFail = st;
+    if (!tseWww.ok) log(`  ⚠ 上市 STOCK_DAY_ALL（www）重試 ${tseWww.tries} 次仍失敗（${(tseWww.error?.message || '回空').slice(0, 40)}）——已連續 ${Math.round((Date.now() - st.since) / 60000)} 分鐘，改用 openapi 後備（落後一日）`);
+    if (st.alert) notifyDeveloper(`🚨 上市收盤 STOCK_DAY_ALL（www）已連續 ${Math.round((Date.now() - st.since) / 60000)} 分鐘重新取得仍失敗，宇宙改用落後一日的 openapi；請檢查上游或網路`, `tse-fetch-${isoDate(taipei())}`).catch(() => {});
   }
   if (tseRows.length === 0) {
     try {
-      const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0' } });
       if (r.ok) for (const x of await r.json()) if (/^\d{4}$/.test(x.Code) || /^00\d{2,4}$/.test(x.Code)) tseRows.push({ code: x.Code, name: x.Name, market: 'tse', close: _num(x.ClosingPrice), change: _num(x.Change), vol: _num(x.TradeVolume), open: _num(x.OpeningPrice), high: _num(x.HighestPrice), low: _num(x.LowestPrice) });
     } catch { /* tse */ }
   }
@@ -1708,8 +1722,8 @@ async function getAllMarketCodes(force = false) {
   let otcRows = []; let otcDate = '';
   // 上櫃鏡像：被中斷／回空時重新取得（同上市·2026-10-02）
   const otcMirror = await withRetry(async () => {
-    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!r.ok) return null;
+    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!r.ok) { if (r.status >= 400 && r.status < 500) throw nonRetryable(`HTTP ${r.status}`); return null; }
     const rows = []; let d = '';
     for (const x of await r.json()) {
       const code = x.SecuritiesCompanyCode || x.Code || '';
@@ -1717,7 +1731,7 @@ async function getAllMarketCodes(force = false) {
       if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) rows.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares), open: _num(x.Open), high: _num(x.High), low: _num(x.Low) });
     }
     return { rows, date: d };
-  }, { attempts: 2, isOk: v => v?.rows?.length > 500 });   // 上櫃只多試 1 次：TPEx 慢／限流時重試會加重負擔（2026-10-02 實測回應 14 秒）
+  }, { attempts: _codesCache ? 1 : 2, isOk: v => v?.rows?.length > 500 });   // 開機時上櫃只多試 1 次：TPEx 慢／限流時重試會加重負擔（2026-10-02 實測回應 14 秒）
   if (otcMirror.ok) { otcRows = otcMirror.value.rows; otcDate = otcMirror.value.date; }
   else log(`  ⚠ 上櫃 openapi 鏡像重試 ${otcMirror.tries} 次仍失敗：${(otcMirror.error?.message || '回空').slice(0, 60)}`);
   if (closeDate && otcDate && otcDate < closeDate) {
@@ -1735,7 +1749,7 @@ async function getAllMarketCodes(force = false) {
   if (otcRows.length === 0) {
     log('  ⚠ 上櫃清單抓取失敗（鏡像回空）→ 改用帶日期端點後備');
     const altDate = closeDate || _codesCloseDate || await _latestArchiveYmd();
-    const alt = (await withRetry(() => _fetchOtcDated(altDate), { attempts: 2, isOk: v => v.length > 500 })).value || [];   // 被中斷時重新取得（2026-10-02）
+    const alt = (await withRetry(() => _fetchOtcDated(altDate), { attempts: _codesCache ? 1 : 2, isOk: v => v.length > 500 })).value || [];   // 被中斷時重新取得（2026-10-02）
     if (alt.length > 500) { otcRows = alt; otcDate = closeDate || otcDate; log(`  ✓ 上櫃後備成功 ${alt.length} 檔`); }
     else {
       // 最後一道：沿用上一份快取裡的上櫃（stale-if-error）。寧可用舊的上櫃種子，
@@ -1770,16 +1784,18 @@ async function getAllMarketCodes(force = false) {
   const hasTse = codes.some(c => c.market === 'tse');
   const hasOtc = codes.some(c => c.market === 'otc');
   {
-    const st = failStreak(_otcMissStreak, hasOtc, 3); _otcMissStreak = st.n;
-    if (st.alert) notifyDeveloper(`🚨 上櫃清單連續 ${st.n} 輪（約 ${st.n * 10} 分鐘）取得失敗（鏡像、帶日期端點、快取皆無），全站上櫃可能缺席；請檢查 TPEx 上游`, `otc-universe-${isoDate(taipei())}`).catch(() => {});
+    const st = failSince(_otcMiss, hasOtc, Date.now()); _otcMiss = st;
+    if (st.alert) notifyDeveloper(`🚨 上櫃清單已連續 ${Math.round((Date.now() - st.since) / 60000)} 分鐘取得失敗（鏡像、帶日期端點、快取皆無），全站上櫃可能缺席；請檢查 TPEx 上游`, `otc-universe-${isoDate(taipei())}`).catch(() => {});
   }
   if (codes.length > 0 && hasTse && hasOtc) {
     _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate;
   } else if (codes.length > 0 && !_codesCache) {
-    _codesCache = codes; _codesAt = Date.now(); _codesCloseDate = closeDate;   // 首次啟動，殘缺也好過空手
+    _codesCache = codes; _codesAt = 0; _codesCloseDate = closeDate;   // 首次啟動，殘缺也好過空手；_codesAt=0：不等 10 分鐘 TTL，由 60 秒冷卻決定何時重抓（2026-10-02：15:53 缺口持續 11 分鐘）
     _bootUniversePartial = true;
     log(`  ⚠ 首次載入宇宙殘缺（tse=${hasTse} otc=${hasOtc}），暫用之並待下輪修復`);
-  } else if (!hasOtc || !hasTse) {
+  }
+  if (!hasTse || !hasOtc) _codesRetryAt = Date.now() + 60000;   // 殘缺：60 秒內沿用快取、不再重抓（審查：熱路徑不可每輪重試）
+  if (_codesCache && _codesCache !== codes && (!hasOtc || !hasTse)) {
     log(`  ⚠ 本輪宇宙殘缺（tse=${hasTse} otc=${hasOtc}）→ 不覆蓋快取，沿用上一份 ${(_codesCache || []).length} 檔`);
   }
   return _codesCache || [];
@@ -3179,15 +3195,26 @@ async function runBacktest() {
 // ════════════════════════════════════════════════════════════
 
 // 全市場收盤 CSV(含開/高/低/收/量) — www.twse 盤後即時更新。
+let _csvFailAt = 0, _csvInflight = null;
 async function fetchCloseCsvFull() {
   // 被中斷／回空時重新取得（2026-10-02 使用者：「上市失敗時應重新取得資料」）；回傳形狀不變：成功＝陣列（帶 dataDate）、失敗＝[]
-  const r = await withRetry(_fetchCloseCsvOnce, { isOk: v => v.length > 500 });
-  if (!r.ok) log(`  ⚠ 上市收盤 CSV（STOCK_DAY_ALL www）重試 ${r.tries} 次仍失敗——本輪依賴它的工作略過`);
-  return r.ok ? r.value : [];
+  //   審查：9 個呼叫端（含盤中警示鏈的撿尾盤）各自重試會串行卡住數分鐘 ⇒ 失敗後 60 秒內直接回空（負向快取）、共用進行中的請求；
+  //   成功不快取（呼叫端可能就地修改陣列）
+  if (Date.now() - _csvFailAt < 60000) return [];
+  if (_csvInflight) {   // 共用進行中的請求時各給一份複本（撿尾盤盤中迴圈與每日工作可能同時呼叫，不可共用同一陣列）
+    const r = await _csvInflight; if (!r.length) return [];
+    const out = r.map(x => ({ ...x })); out.dataDate = r.dataDate; return out;
+  }
+  _csvInflight = (async () => {
+    const r = await withRetry(_fetchCloseCsvOnce, { attempts: 2, isOk: v => v.length > 500 });
+    if (!r.ok) { _csvFailAt = Date.now(); log(`  ⚠ 上市收盤 CSV（STOCK_DAY_ALL www）重試 ${r.tries} 次仍失敗——60 秒內依賴它的工作略過`); }
+    return r.ok ? r.value : [];
+  })().finally(() => { _csvInflight = null; });
+  return _csvInflight;
 }
 async function _fetchCloseCsvOnce() {
   try {
-    const res = await fetch('https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json', { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } });
+    const res = await fetch('https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } });
     if (!res.ok) return [];
     const out = [];
     for (const line of (await res.text()).split('\n')) {
@@ -8288,7 +8315,7 @@ function rsiPair(series) {
 // 持股 RSI 高檔出貨警示（使用者指定 2026-07-24·影片法則「雙RSI 90+ 連續多日準備賣出」）：
 // RSI5≥90 ∧ RSI10≥90 ∧ 昨日 RSI10 亦≥90（連續）→ 每股每日提醒一次。
 // 誠實註記：本站回測 RSI≥95 高檔常見鈍化續航、死亡交叉才是穩定轉弱——建議分批非全出。
-const _rsiHotAlerted = alertDedup('rsiHot');   // 持久化去重：重啟不重發（2026-10-02）
+const _rsiHotAlerted = alertDedup('rsiHot', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 async function checkRsiHot() {
   const arch = await loadLuArchive();
   if (arch.length < 15) return;
@@ -8305,6 +8332,7 @@ async function checkRsiHot() {
   };
   const premium = await getPremiumUsers();
   for (const u of premium) {
+    const _tok = _rsiHotAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = await db.collection('users').doc(u.id).collection('data').doc('holdings').get();
       const holdings = hd.exists ? (hd.data().holdings || []) : []; if (!holdings.length) continue;
@@ -8318,8 +8346,9 @@ async function checkRsiHot() {
           message: `💣 ${name}(${code}) RSI高檔波動警戒：RSI5 ${r.rsi5}／RSI10 ${r.rsi10} 連續站上90。本站720日實證——這不是頂點訊號：今日即未來10日最高點的機率僅22.6%（基準21.1%，等於沒有抓頂能力）；但5日內出現≥5%回檔的機率50%（基準27%）＝波動放大。出場實測：隔日就賣淨-0.53%（最差且兩窗同向）、抱5日+0.44%、抱10日+1.18%（最佳）；連續達4天以上者前瞻報酬反而更強（鈍化=主升段）。建議：移動停利跟著跑、勿隔日全出；要減碼就分批，並以跌破前低或RSI死亡交叉為硬出場。非投資建議` });
       }
       if (newAlerts.length) await pushAlerts(u.id, newAlerts);   // pushAlerts 內已同步 Telegram（舊版這裡再送一次＝重複·2026-10-02）
-    } catch { /* 單用戶失敗不影響其他 */ }
+    } catch { _rsiHotAlerted.rollback(_tok); /* 單用戶失敗不影響其他 */ }
   }
+  await _rsiHotAlerted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
 }
 
 // ── 28.7) 波段第 2 套預選：PID 斜率曲線分型 swingCurvePicks ───────────────
@@ -9521,7 +9550,7 @@ if (!ONESHOT) tgLinkLoop();
 // ── 34) 停損紀律追蹤（處分效應對策：警報響過不能就算了）─────────
 // 持股跌破停損後開始逐日追蹤：每天升級提醒「已觸發 N 天未處理，
 // 若當時執行可少虧 X 元」——把拖延的代價變成具體數字。
-const _disciplineAlerted = alertDedup('discipline');   // 持久化去重：重啟不重發（2026-10-02）
+const _disciplineAlerted = alertDedup('discipline', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 let _lastDisciplineRun = 0;
 async function trackStopDiscipline() {
   if (Date.now() - _lastDisciplineRun < 10 * 60000) return; // 盤中節流：每 10 分鐘一次
@@ -9532,6 +9561,7 @@ async function trackStopDiscipline() {
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
+    const _tok = _disciplineAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const byCode = {};
@@ -9576,8 +9606,9 @@ async function trackStopDiscipline() {
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message.slice(0, 80)}`);
       }
-    } catch (e) { log('  ✖ discipline', uid, e.message); }
+    } catch (e) { _disciplineAlerted.rollback(_tok); log('  ✖ discipline', uid, e.message); }
   }
+  await _disciplineAlerted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
   log('✓ 停損紀律：追蹤完成');
 }
 
@@ -10273,7 +10304,7 @@ async function pushReversalAlerts(date, sig) {
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────
 // 除權息提醒去重：鍵 uid:code:除權息日，跨日有效——固定 scope，載入時清掉除權息日已過的鍵（2026-10-02 持久化）
-const _exdivAlerted = alertDedup('exdiv', { prune: (k, today) => k.slice(k.lastIndexOf(':') + 1) >= today });
+const _exdivAlerted = alertDedup('exdiv', { autoFlush: false, prune: (k, today) => k.slice(k.lastIndexOf(':') + 1) >= today });
 async function adviseExDiv() {
   const div = (await db.collection('dividendCalendar').doc('latest').get()).data()?.upcoming || [];
   const tw = taipei(); const today = isoDate(tw);
@@ -10286,6 +10317,7 @@ async function adviseExDiv() {
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
+    const _tok = _exdivAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const byCode = {};
@@ -10313,8 +10345,9 @@ async function adviseExDiv() {
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message.slice(0, 70)}`);
       }
-    } catch (e) { log('  ✖ exdiv', uid, e.message); }
+    } catch (e) { _exdivAlerted.rollback(_tok); log('  ✖ exdiv', uid, e.message); }
   }
+  await _exdivAlerted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
 }
 
 // ── 39) 週末復盤週報（每週六 10:00，純模板）─────────────────────
@@ -10447,7 +10480,7 @@ async function checkAnomalies(quotes, trackedCodes) {
 }
 
 // ── 41) 當沖比率出貨警示（>40% 隔日賣壓）───────────────────────
-const _dtAlerted = alertDedup('dayTradeRatio');   // 持久化去重：重啟不重發（2026-10-02）
+const _dtAlerted = alertDedup('dayTradeRatio', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 // ⚠ TWTB4U 有**兩種形狀**，而且兩種都自稱 stat=OK（2026-08-27 查證）：
 //   ① 資格清單（當日沖銷交易標的）——盤前就發布，fields 只有 3 欄
 //      ［證券代號・證券名稱・暫停現股賣出後現款買進當沖註記］
@@ -10540,6 +10573,7 @@ async function computeDayTradeRatio() {
   for (const u of usersSnap.docs) {
     if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
+    const _tok = _dtAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const wd = (await db.collection('users').doc(uid).collection('data').doc('watchlist').get()).data();
@@ -10556,8 +10590,9 @@ async function computeDayTradeRatio() {
         await aref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...prev].slice(0, 40) });
         pushAlerts(uid, newAlerts).catch(() => {});
       }
-    } catch { /* per-user skip */ }
+    } catch { _dtAlerted.rollback(_tok); /* per-user skip */ }
   }
+  await _dtAlerted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
 }
 
 // ── 41b) 當沖資格名單（全站合規標示的唯一來源·2026-08-27 使用者要求）────
@@ -10653,7 +10688,7 @@ async function computeDayTradeEligible() {
 }
 
 // ── 42) ETF 折溢價監控（官方 all_etf 淨值 vs 市價）──────────────
-const _etfAlerted = alertDedup('etfPremium');   // 持久化去重：重啟不重發（2026-10-02）
+const _etfAlerted = alertDedup('etfPremium', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 async function computeEtfPremium() {
   let j = null;
   try { const r = await fetch('https://mis.twse.com.tw/stock/data/all_etf.txt', { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://mis.twse.com.tw/' } }); if (r.ok) j = await r.json(); } catch { /* skip */ }
@@ -10676,6 +10711,7 @@ async function computeEtfPremium() {
   for (const u of usersSnap.docs) {
     if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
+    const _tok = _etfAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const wd = (await db.collection('users').doc(uid).collection('data').doc('watchlist').get()).data();
@@ -10692,12 +10728,13 @@ async function computeEtfPremium() {
         await aref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...prev].slice(0, 40) });
         pushAlerts(uid, newAlerts).catch(() => {});
       }
-    } catch { /* per-user skip */ }
+    } catch { _etfAlerted.rollback(_tok); /* per-user skip */ }
   }
+  await _etfAlerted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
 }
 
 // ── 43) ETF 定期定額提示（大盤回檔＝本月扣款好時機）─────────────
-const _dcaHinted = alertDedup('dca');   // 每人每月一次（scope＝月份；2026-10-02 持久化，舊版記憶體物件重啟即重發）
+const _dcaHinted = alertDedup('dca', { autoFlush: false });   // 每人每月一次（scope＝月份；2026-10-02 持久化，舊版記憶體物件重啟即重發）
 async function hintDca() {
   const h = (await db.collection('marketHealth').doc('latest').get()).data();
   if (!h || h.health >= 45) return; // 僅在大盤轉弱(回檔)時提示
@@ -10708,6 +10745,7 @@ async function hintDca() {
     if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
     if (_dcaHinted.has(uid)) continue;
+    const _tok = _dcaHinted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const wd = (await db.collection('users').doc(uid).collection('data').doc('watchlist').get()).data();
@@ -10720,8 +10758,9 @@ async function hintDca() {
       await aref.set({ updatedAt: Date.now(), alerts: [al, ...prev].slice(0, 40) });
       pushAlerts(uid, [al]).catch(() => {});
       log(`  🔔 ${uid} DCA 提示`);
-    } catch { /* per-user skip */ }
+    } catch { _dcaHinted.rollback(_tok); /* per-user skip */ }
   }
+  await _dcaHinted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
 }
 
 // ════════════════════════════════════════════════════════════
@@ -10755,7 +10794,7 @@ const ADR_PAIRS = [
   { adr: 'UMC', code: '2303', name: '聯電', ratio: 5 },
   { adr: 'CHT', code: '2412', name: '中華電', ratio: 10 },
 ];
-const _adrAlerted = alertDedup('adr');   // 持久化去重：重啟不重發（2026-10-02）
+const _adrAlerted = alertDedup('adr', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 async function computeAdrPremium() {
   const fxBars = await fetchYahooDaily('TWD=X', '5d'); const fx = fxBars?.[fxBars.length - 1]?.c;
   if (!(fx > 0)) return;
@@ -10782,6 +10821,7 @@ async function computeAdrPremium() {
   for (const u of usersSnap.docs) {
     if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
+    const _tok = _adrAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const wd = (await db.collection('users').doc(uid).collection('data').doc('watchlist').get()).data();
@@ -10798,8 +10838,9 @@ async function computeAdrPremium() {
         await aref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...prev].slice(0, 40) });
         pushAlerts(uid, newAlerts).catch(() => {});
       }
-    } catch { /* per-user skip */ }
+    } catch { _adrAlerted.rollback(_tok); /* per-user skip */ }
   }
+  await _adrAlerted.flush();   // 通知文件寫入成功者才記為已發（寫入失敗已 rollback）
 }
 
 // ── 46) 崩盤防禦模式（大跌日自動全持股防禦檢查）─────────────────
@@ -11791,7 +11832,7 @@ async function archiveChipDaily() {
 // ── 53) 早盤起漲提醒 earlyBird（高級會員限定）───────────────────
 // 09:00–10:30：昨日策略榜個股「已上榜但尚未發動」（漲 0.3%~2%、非高當沖、
 // 非連3停）→ 推播提醒可評估進場。每檔每日一次、每人每日上限 6 則。
-const _ebAlerted = alertDedup('earlyBird');   // 每檔每日評估一次（持久化·2026-10-02）
+const _ebAlerted = alertDedup('earlyBird', { autoFlush: false });   // 每檔每日評估一次（持久化·2026-10-02）
 const _ebSent = alertDedup('earlyBirdSent', { autoFlush: false });   // 已送出 uid:代號——每人每日 6 則上限由它重算，重啟不歸零（審查 M3）
 let _ebPicks = { date: '', map: null };
 async function checkEarlyBird() {
@@ -11856,6 +11897,7 @@ async function checkEarlyBird() {
     } catch { /* per-user skip */ }
   }
   await _ebSent.flush();
+  await _ebAlerted.flush();   // 服務完使用者才把「今日已評估」寫出（審查：避免在送出前重啟就永遠沒人收到）
 }
 
 // ── 54) 今日盤型判讀 marketPattern（開盤即時，隔日沖出場紀律）────

@@ -1,7 +1,7 @@
 // 上游重試與連續失敗警示 單元測試：node --test scripts/lib/fetch-retry.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { withRetry, failStreak, sameLockDay } from './fetch-retry.mjs';
+import { withRetry, failSince, sameLockDay, nonRetryable } from './fetch-retry.mjs';
 
 const noSleep = async () => {};
 
@@ -18,11 +18,25 @@ test('withRetry：回空也算失敗要重試；3 次都失敗回報 ok=false �
   assert.deepEqual(waits, [2000, 5000]);
 });
 
-test('failStreak：連續失敗到門檻那一輪才警示一次；成功即歸零', () => {
-  let s = 0; const alerts = [];
-  for (const ok of [false, false, false, false, true, false]) { const r = failStreak(s, ok, 3); s = r.n; alerts.push(r.alert); }
-  assert.deepEqual(alerts, [false, false, true, false, false, false]);
-  assert.equal(s, 1);
+test('withRetry：4xx（限流／封鎖）不重試，立即停止（審查：重試只會加重）', async () => {
+  let n = 0;
+  const r = await withRetry(async () => { n++; throw nonRetryable('HTTP 429'); }, { sleep: noSleep });
+  assert.equal(n, 1); assert.equal(r.ok, false); assert.equal(r.tries, 1); assert.match(r.error.message, /429/);
+});
+
+test('withRetry：attempts=1（已有快取時）只試一次、不等待', async () => {
+  const waits = [];
+  const r = await withRetry(async () => null, { attempts: 1, sleep: async ms => { waits.push(ms); } });
+  assert.equal(r.tries, 1); assert.deepEqual(waits, []);
+});
+
+test('failSince：連續失敗滿 20 分鐘那一次才警示（以時間計，不以呼叫次數）；同一段只一次；成功歸零', () => {
+  const m = 60000; let s = null; const out = [];
+  for (const [t, ok] of [[0, false], [1 * m, false], [5 * m, false], [19 * m, false], [20 * m, false], [25 * m, false], [26 * m, true], [27 * m, false]]) {
+    const r = failSince(s, ok, t); s = r; out.push(r.alert);
+  }
+  assert.deepEqual(out, [false, false, false, false, true, false, false, false]);
+  assert.equal(s.since, 27 * m, '成功後重新起算');
 });
 
 test('sameLockDay：以收盤資料日判斷「同一天重算」——週末開機資料日不變，不可再累加連續天數', () => {
