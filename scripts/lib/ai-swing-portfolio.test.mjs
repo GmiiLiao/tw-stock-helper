@@ -92,6 +92,7 @@ test('快照：持有以最新收盤計市值、列 AI 賣單；結算清單附�
   assert.equal(snap.closed.length, 1);
   assert.equal(snap.closed[0].sellReason, '漲多換股');
   assert.equal(snap.closed[0].buy.px, 102); assert.equal(snap.closed[0].sell.px, 110);
+  assert.equal(snap.closed[0].heldDays, 8, '持有日＝買進成交日到賣出成交日相隔的交易日數（days[3] 買→days[11] 賣）');
   const h = snap.holdings.find(x => x.code === '2222');
   assert.equal(h.status, '持有中'); assert.equal(h.lastPx, 50);
   assert.equal(h.cost, 50071, '買進 50,000＋手續費 71');

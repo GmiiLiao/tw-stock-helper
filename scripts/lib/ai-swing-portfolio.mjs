@@ -244,11 +244,15 @@ export function portfolioSnapshot(docs, days, opts = {}) {
   const disc = validDiscount(opts.feeDiscount);
   const last = days[days.length - 1];
   const holdings = [], closed = [];
+  const di = new Map(days.map((d, i) => [d.date, i]));
   for (const l of lots) {
     if (l.status === 'void') continue;
     if (l.status === 'closed') {
       const L = l.sell.fill.ledger;
+      // 持有日＝買進成交日到賣出成交日相隔的交易日數（2026-10-02 使用者要求已賣出表列持有日；超出日線視窗＝null）
+      const i0 = di.get(l.buy?.date), i1 = di.get(l.sell.fill.date);
       closed.push({ date: l.date, code: l.code, name: l.name, shares: l.shares, buy: L.buy, sell: L.sell, costTwd: L.costTwd, pnlTwd: L.pnlTwd, retPct: L.retPct,
+        heldDays: i0 != null && i1 != null ? i1 - i0 : null,
         exitDate: l.sell.fill.date, sellReason: l.sell.reason, sellSource: l.sell.fill.source ?? null, sellRecordedAt: l.sell.fill.recordedAt ?? null, buySource: l.buy?.source ?? null, sellOrderDate: l.sell.orderDate, buyReason: l.reason, sellNoLookahead: l.sell.fill.sellNoLookahead, noLookahead: L.noLookahead });
       continue;
     }

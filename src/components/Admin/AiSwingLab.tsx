@@ -15,7 +15,7 @@ interface OpenPos { date: string; code: string; name: string; shares: number; st
 interface SLeg { at: number | null; px: number; amount: number; fee: number; tax?: number }
 type PosState = 'held' | 'selling' | 'pending';
 export interface Holding { date: string; code: string; name: string; shares: number; horizon: number | null; reason?: string; sellReason?: string | null; state?: PosState; fillSource?: string | null; fillRecordedAt?: number | null; status: string; entryDate: string | null; entryAt: number | null; entryPx: number | null; cost: number; lastDate: string | null; lastPx: number | null; mktValue: number | null; buyFee?: number | null; estSellCost?: number | null; netValue?: number | null; unrealized: number | null; unrealizedPct: number | null; heldDays: number }
-export interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; buyReason?: string; sellOrderDate?: string; sellSource?: string | null; sellRecordedAt?: number | null; buySource?: string | null; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string }
+export interface Closed { date: string; code: string; name: string; shares: number; sellReason?: string; buyReason?: string; sellOrderDate?: string; sellSource?: string | null; sellRecordedAt?: number | null; buySource?: string | null; buy: SLeg; sell: SLeg; costTwd: number; pnlTwd: number; retPct: number; exitDate: string; heldDays?: number | null }
 export interface HistRow { date: string; holdings: number; selling?: number; pending: number; opened: number; closed: number; closedPnl: number; realized: number; unrealized: number; cash: number; mktValue: number; netMkt?: number; estSellCost?: number; total: number; dayPnl: number; cumRetPct: number; flow?: number; netInvested?: number; growth?: number }
 /** 帳戶摘要（與每日戰績同一口徑；scripts/lib/ai-swing-history.mjs） */
 export interface Summary { initial: number; cash: number; mktValue: number; netMkt: number; estSellCost: number; total: number; totalPnl: number; totalRetPct: number; realized: number; unrealized: number; held: number; selling: number; pending: number; closedN: number; pool: number; reservedBuys: number; pendingSellEst: number; freeCash: number; receivable: number; payable: number }
@@ -240,22 +240,26 @@ export function ClosedTrades({ closed }: { closed: Closed[] }) {
   const cl = closed;
   return (
     <Collapse id="swing-closed" title="✅ 已賣出" count={`${cl.length} 筆`} sub="AI 下賣單、下一交易日開盤成交的實際交易單（新→舊）；點列展開看 AI 買賣理由">
-      <ListTable stickyFirst head={['個股', '股數', '買進 時間·價·金額', '賣出 時間·價·金額', '費稅', '淨損益', '報酬', '選股日']} right={[1, 4, 5, 6]}
+      {/* 欄位順序（2026-10-02 使用者）：個股／股數／進價／賣價／淨損益／報酬／稅費／持有日／賣出日期時間；
+          買進時間與買賣金額、選股日移到展開列（查核用，不刪） */}
+      <ListTable stickyFirst head={['個股', '股數', '進價', '賣價', '淨損益', '報酬', '稅費', '持有日', '賣出日期時間']} right={[1, 2, 3, 4, 5, 6, 7]}
         empty="尚無賣出（AI 每日盤後檢視持股，決定賣出後於下一交易日開盤成交）"
         rows={cl.map(c => [
           <b key="c">{c.code} {c.name}</b>, c.shares.toLocaleString(),
-          <span key="b" style={MONO}>{tw(c.buy.at, true)} · {c.buy.px} · {c.buy.amount.toLocaleString()}</span>,
-          <span key="s" style={MONO}>{tw(c.sell.at, true)} · {c.sell.px} · {c.sell.amount.toLocaleString()}<FillTag src={c.sellSource} at={c.sellRecordedAt} /></span>,
-          c.costTwd.toLocaleString(), <b key="p" style={{ color: upDn(c.pnlTwd) }}>{twd(c.pnlTwd)}</b>, <span key="r" style={{ color: upDn(c.retPct) }}>{pct(c.retPct)}</span>, c.date,
+          <span key="b" style={MONO}>{c.buy.px}</span>, <span key="s" style={MONO}>{c.sell.px}</span>,
+          <b key="p" style={{ color: upDn(c.pnlTwd) }}>{twd(c.pnlTwd)}</b>, <span key="r" style={{ color: upDn(c.retPct) }}>{pct(c.retPct)}</span>,
+          c.costTwd.toLocaleString(), c.heldDays != null ? `${c.heldDays} 日` : '—',
+          <span key="t" style={MONO}>{tw(c.sell.at, true)}<FillTag src={c.sellSource} at={c.sellRecordedAt} /></span>,
         ])}
         details={cl.map(c => (
           <div key={`${c.code}-${c.date}`}>
+            <div style={MONO}>買進 {tw(c.buy.at, true)} · {c.buy.px} × {c.shares.toLocaleString()} 股＝{c.buy.amount.toLocaleString()} 元　→　賣出 {tw(c.sell.at, true)} · {c.sell.px}＝{c.sell.amount.toLocaleString()} 元　（{c.date} 選股）</div>
             <div style={{ color: '#f59e0b' }}>🔻 AI 賣出理由{c.sellOrderDate ? `（${c.sellOrderDate} 盤後決定）` : ''}：{c.sellReason || '—'}</div>
             {c.buyReason && <div>🧠 AI 買進理由：{c.buyReason}</div>}
             <div style={MONO}>費稅 {c.costTwd.toLocaleString()} 元＝買進手續費 {c.buy.fee.toLocaleString()} ＋ 賣出手續費 {c.sell.fee.toLocaleString()} ＋ 證交稅 {(c.sell.tax ?? 0).toLocaleString()}</div>
           </div>))}
         rowKeys={cl.map(c => `${c.date}:${c.code}:${c.exitDate}`)}
-          foot={cl.length ? ['合計', `${cl.length} 筆`, '', '', sum(cl, c => c.costTwd).toLocaleString(), twd(sum(cl, c => c.pnlTwd)), '', ''] : undefined} />
+          foot={cl.length ? ['合計', `${cl.length} 筆`, '', '', twd(sum(cl, c => c.pnlTwd)), '', sum(cl, c => c.costTwd).toLocaleString(), '', ''] : undefined} />
     </Collapse>
   );
 }
