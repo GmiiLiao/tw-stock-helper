@@ -96,7 +96,10 @@ export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings =
     ...(member?.goal ? [goalLine(member, pctTxt)] : []),
     `【大盤】${market || '未知'}${swingPicksMeta?.bearDay ? '；今日為空頭日（波段起漲訊號在空頭日較可靠）' : ''}${swingPicksMeta?.crowded ? '；⚠ 起漲訊號擁擠（崩盤型），母體已偏離回測' : ''}${swingPicksMeta?.observe ? `；⚠ 起漲訊號目前為觀察閘：${swingPicksMeta.observeWhy || ''}` : ''}`,
     `【本站實證提醒】波段起漲⭐訊號的優勢在第 5 日（持有 5 日淨均約 +1.1%）；追高（RSI5>85）對買方是較差的進場點；20日波動 ≥1.5% 才進場較好；KD 死叉破底風險高。`,
-    `【經驗庫】各檔標「經驗庫：⚠風險／✓優勢」的，是本站盤後以歷史樣本訓練、前後期一致且顯著的特徵統計（5 日淨報酬；供參考，不保證未來）。`,
+    `【經驗庫】各檔標「經驗庫：⚠風險／✓優勢」的，是本站盤後以歷史樣本訓練、前後期一致且顯著的特徵統計（5 日淨報酬；供參考，不保證未來）。${
+      // 決策層經驗（實驗＋會員帳戶的實際買賣）出現時才加說明——沒有時文字與舊版相同
+      [...pool, ...holdings].some(x => (x.lessons || []).some(s => /AI 過去買進經驗|賣太早經驗|賣得對經驗/.test(s)))
+        ? '標「AI 過去買進經驗」「賣太早經驗／賣得對經驗」的，來自實驗帳戶與會員 AI 帳戶的實際買賣，與同日其他 AI 決策比較（未扣成本）。' : ''}`,
     `【現有持股 ${holdings.length} 檔】`,
     holdings.length ? holdings.map(holdLine).join('\n') : '（無）',
     `【候選池 ${pool.length} 檔】（已持有的不能重複買）`,

@@ -15,7 +15,7 @@ import { dropUndefined } from './firestore-clean.mjs';
 import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
 import { accountSummary, rebuildHistory } from './ai-swing-history.mjs';
 import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
-import { dailyFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
+import { dailyFeatures, holdingFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
 import { validDiscount } from './sim-ledger.mjs';
 import { goalProgress } from './ai-lab-member.mjs';
 
@@ -102,16 +102,30 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       if (!days.length && openLots.length) { log('⚠ 波段 AI：日線讀不到、無法檢視持股，稍後重試'); return false; }
       // 🧠 經驗庫（盤後訓練·已驗證）：以決策日日線特徵比對，候選與持股各自標出符合的歷史風險／優勢（口徑同訓練）
       const learned = getLearned(); const tDec = days.findIndex(d => d.date === date);
-      const lessonsOf = code => { if (!learned || tDec < 0) return []; try { const F = dailyFeatures(days, tDec, code); return F ? matchLessons(learned, 'swing', F.f) : []; } catch { return []; } };
-      const withL = x => { const L = lessonsOf(x.code); return L.length ? { ...x, lessons: L.map(r => lessonText(r, '5日淨%')), lessonIds: L.map(r => r.id) } : x; };
-      const pool = pool0.map(withL);
-      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp, feeDiscount: opts.feeDiscount }).map(withL) : [];
+      // 候選：波段母體經驗＋AI 買進經驗（swing-buy）；持股：波段母體經驗＋AI 賣出經驗（swing-sell，持股特徵＝已持有天數＋持有報酬）
+      //   決策層經驗的來源＝實驗帳戶＋所有會員 AI 帳戶的實際買賣（2026-10-01 使用者；訓練見 scripts/ai-lab-learn.mjs）
+      const lessonsOf = (code, hold = null) => {
+        if (!learned || tDec < 0) return [];
+        try {
+          const F = dailyFeatures(days, tDec, code); if (!F) return [];
+          const out = matchLessons(learned, 'swing', F.f).map(r => ({ r, key: 'swing' }));
+          if (!hold) for (const r of matchLessons(learned, 'swing-buy', F.f)) out.push({ r, key: 'swing-buy' });
+          else {
+            const H = holdingFeatures(days, tDec, code, { heldDays: hold.heldDays, pnlPct: hold.lastPx > 0 && hold.buyPx > 0 ? (hold.lastPx / hold.buyPx - 1) * 100 : NaN });
+            if (H) for (const r of matchLessons(learned, 'swing-sell', H.f)) out.push({ r, key: 'swing-sell' });
+          }
+          return out;
+        } catch { return []; }
+      };
+      const withL = (x, hold = null) => { const L = lessonsOf(x.code, hold); return L.length ? { ...x, lessons: L.map(({ r, key }) => lessonText(r, '5日淨%', key)), lessonIds: L.map(({ r, key }) => (key === 'swing' ? r.id : `${key}:${r.id}`)) } : x; };
+      const pool = pool0.map(x => withL(x));
+      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp, feeDiscount: opts.feeDiscount }).map(h => withL(h, h)) : [];
       const heldCodes = new Set(openLots.map(l => l.code));
       const lastPxOf = c => days[days.length - 1]?.m[c]?.[0] ?? null;
       const equity = state.account.freeCash + openLots.reduce((a, l) => a + (l.buy && lastPxOf(l.code) ? lastPxOf(l.code) * l.shares : (l.buy?.px ?? l.priceAtDecision ?? 0) * l.shares), 0);
       const model = await getModelInfo();
       const base = { date, version: SWING_LAB_VERSION, model, market, swingMeta: { bearDay: !!sp.bearDay, crowded: !!sp.crowded, observe: !!sp.observe, observeWhy: sp.observeWhy || null }, pool, outcomes: {} };
-      const reviewList = holdings.map(h => ({ key: h.key, code: h.code, name: h.name, shares: h.shares, buyPx: h.buyPx, lastPx: h.lastPx, pnlPct: h.pnlPct, heldDays: h.heldDays, onList: h.onList }));
+      const reviewList = holdings.map(h => ({ key: h.key, code: h.code, name: h.name, shares: h.shares, buyPx: h.buyPx, lastPx: h.lastPx, pnlPct: h.pnlPct, heldDays: h.heldDays, onList: h.onList, lessonIds: h.lessonIds }));   // lessonIds：持股套用了哪些經驗（含賣出經驗；無則由 dropUndefined 略去）
       if (!pool.length && !holdings.length) {
         const doc = { ...base, picks: [], review: { holdings: [], sells: [] }, account: state.account, note: '候選池為空（兩榜皆無可選或皆為處置股）且無持股', prompt: null, raw: null, frozenAt: Date.now() };
         await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));

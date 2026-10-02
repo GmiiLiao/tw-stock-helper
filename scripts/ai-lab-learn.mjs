@@ -7,6 +7,10 @@
 //         歷史母體＝收盤歸檔近 LEARN_DAYS 個交易日、每 2 日取樣、近似波段候選池（20 日均成交額≥0.5 億、近 20 日上漲、站上≥2 條均線）
 //         ＋AI 實際候選池（aiSwingLab.pool，同一日同一檔去重）。
 //     · 當沖（key=dt-long／dt-short，y＝規則淨 R）：當沖工作台每一筆觸發（daytradeJournal，含 AI 沒做的）。
+//     · AI 決策層（2026-10-01 使用者：會員開啟的 AI 實驗所取得的經驗也列為訓練來源）：
+//         swing-buy／swing-sell＝實驗帳戶＋所有會員 AI 帳戶（aiSwingMembers/*/days）實際成交的買進／賣出；
+//         同一（決策日, 代號, 買/賣）跨帳戶只算一筆（y 相同，重複計入只會假性顯著）。會員候選池同時併入 swing 母體（去重；
+//         候選池各帳戶相同，通常不增加樣本）。樣本與輸出不帶會員身分，只記筆數。
 //   輸出：Firestore aiLabLearn/latest＋aiLabLearn/{資料日}；第二大腦 second-brain/ai-lab-learn/{資料日}.md／.json、latest.json。
 //   用法：node scripts/ai-lab-learn.mjs [--dry]（--dry 只印摘要不寫入）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,7 +19,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dailyFeatures, dtFeatures, learn, renderLearnMarkdown, LEARN_VERSION } from './lib/ai-lab-learn.mjs';
+import { dailyFeatures, dtFeatures, learn, renderLearnMarkdown, decisionSamples, LEARN_VERSION } from './lib/ai-lab-learn.mjs';
 import { horizonOutcome, grossOf } from './lib/ai-swing-lab.mjs';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
@@ -52,8 +56,16 @@ const addSwing = (t, code, src) => {
 };
 // AI 實際候選池（先加，去重時優先保留此來源）
 const labDocs = (await db.collection('aiSwingLab').orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+// 會員 AI 帳戶（listDocuments：含只有子集合的會員；取消開通者的歷史決策照樣是經驗）
+const memberRefs = await db.collection('aiSwingMembers').listDocuments();
+const memberDocs = [];
+for (const ref of memberRefs) {
+  const ds = (await ref.collection('days').orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+  if (ds.length) memberDocs.push(ds);
+}
 const idx = new Map(days.map((d, i) => [d.date, i]));
 for (const d of labDocs) { const t = idx.get(d.date); if (t == null) continue; for (const c of d.pool || []) addSwing(t, c.code, 'AI候選池'); }
+for (const ds of memberDocs) for (const d of ds) { const t = idx.get(d.date); if (t == null) continue; for (const c of d.pool || []) addSwing(t, c.code, '會員帳戶候選池'); }
 for (let t = 60; t < days.length - 5; t += 2) {
   for (const code in days[t].m) {
     if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
@@ -61,6 +73,18 @@ for (let t = 60; t < days.length - 5; t += 2) {
     if (!F || !(F.raw.amtM >= 50) || !(F.raw.gain20 > 0) || !(F.raw.maAbove >= 2)) continue;
     addSwing(t, code, '歷史母體');
   }
+}
+
+// ── AI 決策層樣本（實驗帳戶＋會員帳戶的實際買賣；y＝決策日之後 5 日報酬，未扣成本，同 swing 口徑）──
+const y5 = (date, code) => grossOf(horizonOutcome(days, date, code, 5));
+const rawIdx = new Map(raw.map(d => [d.date, d]));   // 未還原收盤：持有報酬與成交價同口徑
+const dec = decisionSamples([{ src: '實驗帳戶', docs: labDocs }, ...memberDocs.map(docs => ({ src: '會員帳戶', docs }))], days, y5,
+  { rawCloseOf: (date, code) => rawIdx.get(date)?.m?.[code]?.[0] });
+samples.push(...dec.samples);
+for (const [side, name] of [['buy', '買進'], ['sell', '賣出']]) {
+  for (const [src, n] of Object.entries(dec.stats[side])) sources[`AI${name}決策·${src}`] = n;
+  const distinct = side === 'buy' ? dec.stats.distinctBuy : dec.stats.distinctSell;
+  if (distinct) sources[`AI${name}經驗（去重·已到期）`] = distinct;
 }
 
 // ── 當沖樣本（工作台每一筆觸發；netR＝規則照做的淨 R）──
@@ -75,7 +99,7 @@ for (const d of jSnap.docs) {
 }
 
 const learned = learn(samples);
-const doc = { date: dataDate, version: LEARN_VERSION, at: Date.now(), sources, learned,
+const doc = { date: dataDate, version: LEARN_VERSION, at: Date.now(), sources, learned, accounts: { lab: 1, members: memberDocs.length },
   note: '已驗證（validated）規則提供給 AI 交易員決策參考；觀察中（observing）只記錄。歷史統計不保證未來，非投資建議。' };
 for (const [k, x] of Object.entries(learned)) {
   const v = x.rules.filter(r => r.status === 'validated');

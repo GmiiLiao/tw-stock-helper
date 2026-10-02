@@ -336,3 +336,23 @@ test('執行器：經驗庫已驗證特徵標在候選旁寫進 prompt（觀察�
   assert.doesNotMatch(prompt, /maAbove 3條/, '觀察中不進 AI');
   assert.deepEqual(db.store[`aiSwingLab/${D}`].pool[0].lessonIds, ['streak=≥5日'], '凍結檔記錄套用了哪些經驗');
 });
+
+test('執行器：決策層經驗——AI 買進經驗標在候選旁、AI 賣出經驗標在持股旁（持股特徵＝已持有天數＋持有報酬），凍結檔記錄套用的經驗', async () => {
+  const days = mkDays(); const D = days[80].date, B = days[76].date, F = days[77].date;
+  const db = fakeDb({
+    'swingPicks/latest': { dataDate: D, mode: 'close', items: [{ code: '2222', name: 'B', tier: 2, price: 50 }] }, 'swingHold/latest': { dataDate: D, combo: { items: [] } },
+    [`aiSwingLab/${B}`]: { date: B, frozenAt: Date.parse(`${B}T18:00:00+08:00`), picks: [{ code: '1111', name: 'A', reason: 'r', horizon: 20, priceAtDecision: 175, position: { shares: 100, budget: 20000 } }],
+      buyFills: { 1111: { date: F, at: Date.parse(`${F}T09:00:00+08:00`), px: 176, shares: 100, source: 'live-open' } } },
+  });
+  const rule = (id, feature, bucket) => ({ id, feature, bucket, status: 'validated', kind: 'risk', label: `${feature} ${bucket}`, n: 40, mean: -2, win: 30, restMean: 0.5, t: -2.5 });
+  const learned = { 'swing-buy': { rules: [rule('streak=0日', 'streak', '0日')] }, 'swing-sell': { rules: [rule('heldD=3~5日', 'heldD', '3~5日')] } };
+  let prompt = '';
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async p => { prompt = p; return '{"sells":[],"picks":[],"note":"x"}'; },
+    getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 81), getLearned: () => learned });
+  assert.equal(await lab.pick(), true);
+  assert.match(prompt, /2222 B.*經驗庫：⚠風險（AI 過去買進經驗）：streak 0日/);
+  assert.match(prompt, /1111 A.*經驗庫：⚠賣太早經驗：heldD 3~5日（歷史 n=40，過去在此條件賣出後 5 日平均 \+2%/);
+  assert.match(prompt, /來自實驗帳戶與會員 AI 帳戶的實際買賣，與同日其他 AI 決策比較/, '出現決策層經驗時才加圖例說明');
+  assert.deepEqual(db.store[`aiSwingLab/${D}`].review.holdings.find(h => h.code === '1111').lessonIds, ['swing-sell:heldD=3~5日'], '持股套用的經驗也記入凍結檔');
+  assert.deepEqual(db.store[`aiSwingLab/${D}`].pool.find(c => c.code === '2222').lessonIds, ['swing-buy:streak=0日']);
+});

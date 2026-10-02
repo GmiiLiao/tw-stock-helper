@@ -10,7 +10,18 @@ interface Rule { id: string; label: string; kind: 'risk' | 'edge'; status: 'vali
 interface KeyBlock { base: { n: number; mean: number | null; win: number | null }; split: { cut: string }; unit: string; rules: Rule[] }
 interface LearnDoc { date: string; version: string; at: number; sources: Record<string, number>; learned: Record<string, KeyBlock> }
 
-const NAME: Record<string, string> = { swing: '🌊 波段交易員', 'dt-long': '⏳ 當沖交易員·做多', 'dt-short': '⏳ 當沖交易員·做空' };
+const NAME: Record<string, string> = {
+  swing: '🌊 波段交易員', 'swing-buy': '🛒 AI 買進經驗（實驗＋會員帳戶的實際買進）', 'swing-sell': '📤 AI 賣出經驗（實驗＋會員帳戶的實際賣出；正＝賣出避開的跌幅）',
+  'dt-long': '⏳ 當沖交易員·做多', 'dt-short': '⏳ 當沖交易員·做空',
+};
+// 賣出經驗的 y＝賣出避開的跌幅：較差＝賣太早（賣後續漲）、較好＝賣得對（賣後下跌）；與絕對方向不一致者只是「相對」，不提供給 AI
+//   （同 scripts/lib/ai-lab-learn.mjs kindText／sellVerdictOk）
+const kindLabel = (key: string, r: Rule) => {
+  if (key !== 'swing-sell') return r.kind === 'risk' ? '⚠風險' : '✓優勢';
+  const ok = r.kind === 'edge' ? (r.mean ?? 0) > 0 : (r.mean ?? 0) < 0;
+  if (!ok) return r.kind === 'risk' ? '相對較差（不提供給 AI）' : '相對較佳（不提供給 AI）';
+  return r.kind === 'risk' ? '⚠賣太早' : '✓賣得對';
+};
 const sgn = (v: number | null) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}`);
 
 export default function AiLabLearn() {
@@ -48,7 +59,7 @@ export default function AiLabLearn() {
             <div style={{ fontWeight: 800, fontSize: 'calc(13.5px * var(--fz))' }}>{NAME[key] || key}　<span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>樣本 {x.base.n.toLocaleString()}·整體平均 {sgn(x.base.mean)}{x.unit === '淨R' ? 'R' : '%'}·勝率 {x.base.win}%·驗證段自 {x.split.cut}</span></div>
             <ListTable head={['狀態', '類型', '條件', '樣本', '平均', '勝率', '其餘平均', 't', '訓練段相對差', '驗證段相對差']} right={[3, 4, 5, 6, 7, 8, 9]}
               empty={x.base.n < 60 ? `樣本還少（${x.base.n}），持續累積中` : '尚無顯著條件'}
-              rows={rules.map(r => [r.status === 'validated' ? '已驗證' : '觀察中', <b key="k" style={{ color: r.kind === 'risk' ? '#ef4444' : '#22c55e' }}>{r.kind === 'risk' ? '⚠風險' : '✓優勢'}</b>, r.label,
+              rows={rules.map(r => [r.status === 'validated' ? '已驗證' : '觀察中', <b key="k" style={{ color: r.kind === 'risk' ? '#ef4444' : '#22c55e' }}>{kindLabel(key, r)}</b>, r.label,
                 r.n.toLocaleString(), sgn(r.mean), `${r.win}%`, sgn(r.restMean), sgn(r.t), `${sgn(r.train.diff)}（${r.train.n}）`, `${sgn(r.holdout.diff)}（${r.holdout.n}）`])} />
           </div>
         );
