@@ -47,9 +47,9 @@ export const FEATURE_LABEL = {
   heldD: '已持有天數', pnlAtSell: '持有報酬(未扣費稅·賣出決策時)',
 };
 /** 各 key 的 y 單位（顯示用） */
-export const LEARN_UNIT = { swing: '5日%（未扣成本）', 'swing-buy': '5日%（未扣成本）', 'swing-sell': '賣出避開%（賣後 5 日報酬取負號·未扣成本）' };
+export const LEARN_UNIT = { swing: '5日%（未扣成本）', 'swing-x-all': '5日%（未扣成本）', 'swing-x-cal': '5日%（未扣成本）', 'swing-x-rep': '5日%（未扣成本）', 'swing-buy': '5日%（未扣成本）', 'swing-sell': '賣出避開%（賣後 5 日報酬取負號·未扣成本）' };
 /** 各 key 的名稱（第二大腦／後台） */
-export const LEARN_NAME = { swing: '波段交易員', 'swing-buy': 'AI 買進經驗（實驗＋會員帳戶）', 'swing-sell': 'AI 賣出經驗（實驗＋會員帳戶）', 'dt-long': '當沖交易員·做多', 'dt-short': '當沖交易員·做空' };
+export const LEARN_NAME = { swing: '波段交易員', 'swing-x-rep': '波段取樣實驗①兩半複驗（奇偶兩組交易日都驗證且同向）', 'swing-x-cal': '波段取樣實驗②固定日曆錨點（日曆日偶數）', 'swing-x-all': '波段取樣實驗③每個交易日', 'swing-buy': 'AI 買進經驗（實驗＋會員帳戶）', 'swing-sell': 'AI 賣出經驗（實驗＋會員帳戶）', 'dt-long': '當沖交易員·做多', 'dt-short': '當沖交易員·做空' };
 const bucketOf = (name, v) => {
   if (!Number.isFinite(v)) return null;
   for (const [lo, hi, label] of CUTS[name]) if (v >= lo && v < hi) return label;
@@ -174,7 +174,8 @@ const r2 = v => (Number.isFinite(v) ? +v.toFixed(2) : null);
 // swing（2026-10-02 使用者核可）：母體每個取樣日數百檔、共享當天行情，問題同上且規模更大。真實資料安慰劑（同日內打亂特徵、
 //   保留每日分段占比，100 輪）：未去均每輪假驗證 15.6 條／52 分段（29.9%，與實際已驗證 15 條相當），去均後 2.1 條（4.0%）；
 //   實際已驗證 15→7 條。顯示仍用原始平均（mean／restMean），檢定與 rel 用同日相對值。
-const DEMEAN_KEYS = new Set(['swing', 'swing-buy', 'swing-sell']);
+// 波段取樣實驗（2026-10-02 使用者：三種取樣都做、分成三種實驗資源後續比對）同樣以同日為基準
+const DEMEAN_KEYS = new Set(['swing', 'swing-buy', 'swing-sell', 'swing-x-all', 'swing-x-cal', 'swing-x-rep-a', 'swing-x-rep-b']);
 const MIN_DATES = { train: 10, holdout: 5 };
 const nDates = xs => new Set(xs.map(s => s.date)).size;
 
@@ -250,6 +251,40 @@ export function lessonText(r, unit, key = 'swing') {
   if (key === 'swing-buy') return `${r.kind === 'risk' ? '⚠風險' : '✓優勢'}（AI 過去買進經驗）：${r.label}（歷史 n=${r.n}，5 日平均 ${sg(r.mean)}%、勝率 ${r.win}%，較同日其他 AI 買進 ${sg(rel)}%）`;
   const relTxt = r.rel != null ? `；較同日其他候選 ${sg(r.rel)}%` : '';
   return `${r.kind === 'risk' ? '⚠風險' : '✓優勢'}：${r.label}（歷史 n=${r.n}，平均 ${r.mean}${unit === '淨R' ? 'R' : '%'}、勝率 ${r.win}%；其餘 ${r.restMean}${unit === '淨R' ? 'R' : '%'}${relTxt}）`;
+}
+
+/**
+ * 波段取樣實驗①「兩半複驗」：把交易日分成奇偶兩組（A＝現行每 2 日那一半、B＝另一半）各自檢定，
+ * 兩組都「已驗證」且方向相同才算已驗證；只有一組驗證、或兩組方向相反 ⇒ 觀察中。
+ * 背景（2026-10-02 量測）：A、B 各驗證 10 條，共同只有 2 條；視窗每天移一格時 A、B 互換，現行規則因此逐日翻轉。
+ * 欄位沿用 learn 的規則形狀（n／mean／restMean／rel 為兩半合併；train／holdout＝A 半的訓練／驗證段），另附 halves。
+ */
+export function replicateLearned(A, B, { maxRules = 30 } = {}) {
+  const byId = new Map();
+  for (const [h, L] of [['a', A], ['b', B]]) for (const r of (L?.rules || [])) { if (!byId.has(r.id)) byId.set(r.id, {}); byId.get(r.id)[h] = r; }
+  const w = (x, y, k) => (x[k] != null && y[k] != null ? r2((x[k] * x.n + y[k] * y.n) / (x.n + y.n)) : x[k] ?? y[k] ?? null);
+  const rules = [];
+  for (const [id, { a, b }] of byId) {
+    const both = !!(a && b && a.status === 'validated' && b.status === 'validated' && a.kind === b.kind);
+    const r0 = a || b, half = x => (x ? { n: x.n, t: x.t, rel: x.rel ?? null, mean: x.mean, status: x.status, kind: x.kind } : null);
+    const merged = a && b ? { n: a.n + b.n, mean: w(a, b, 'mean'), win: w(a, b, 'win'), restMean: w(a, b, 'restMean'), rel: w(a, b, 'rel'),
+      t: r2(Math.sign(a.t) === Math.sign(b.t) ? Math.sign(a.t) * Math.min(Math.abs(a.t), Math.abs(b.t)) : 0) } : { n: r0.n, mean: r0.mean, win: r0.win, restMean: r0.restMean, rel: r0.rel ?? null, t: r0.t };
+    rules.push({ id, feature: r0.feature, bucket: r0.bucket, label: r0.label, kind: both ? a.kind : r0.kind, status: both ? 'validated' : 'observing',
+      ...merged, train: r0.train, holdout: r0.holdout, halves: { a: half(a), b: half(b) } });
+  }
+  rules.sort((x, y) => (x.status === y.status ? Math.abs(y.t) - Math.abs(x.t) : x.status === 'validated' ? -1 : 1));
+  const n = (A?.base?.n || 0) + (B?.base?.n || 0);
+  return { base: { n, mean: A && B ? r2((A.base.mean * A.base.n + B.base.mean * B.base.n) / Math.max(n, 1)) : (A || B)?.base?.mean ?? null,
+    win: A && B ? r2((A.base.win * A.base.n + B.base.win * B.base.n) / Math.max(n, 1)) : (A || B)?.base?.win ?? null },
+    split: { a: A?.split || null, b: B?.split || null, cut: A?.split?.cut ?? B?.split?.cut ?? null }, unit: LEARN_UNIT['swing-x-rep'], rules: rules.slice(0, maxRules) };
+}
+
+/** 兩次訓練之間已驗證規則的穩定度（Jaccard；0＝全換、1＝完全相同）——取樣實驗比對用 */
+export function ruleStability(prev, cur) {
+  const ids = L => new Set((L?.rules || []).filter(r => r.status === 'validated').map(r => `${r.id}|${r.kind}`));
+  const p = ids(prev), c = ids(cur);
+  const kept = [...c].filter(x => p.has(x)).length, union = new Set([...p, ...c]).size;
+  return { kept, added: c.size - kept, dropped: p.size - kept, jaccard: union ? r2(kept / union) : 1 };
 }
 
 export function renderLearnMarkdown(doc) {

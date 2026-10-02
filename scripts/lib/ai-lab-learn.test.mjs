@@ -157,3 +157,34 @@ test('learn：決策層 key 的單位與門檻', () => {
   assert.equal(learn(synth()).swing.unit, '5日%（未扣成本）', '既有 key 不變');
   assert.match(renderLearnMarkdown({ date: 'X', version: 'v', at: 0, learned: L, sources: {} }), /AI 賣出經驗/);
 });
+
+// ── 波段取樣實驗（2026-10-02 使用者：三種取樣都做、分成三種實驗資源後續比對）──
+test('replicateLearned（兩半複驗）：兩組都已驗證且同向才已驗證；只一組驗證或方向相反＝觀察中；附兩半明細', async () => {
+  const { replicateLearned } = await import('./ai-lab-learn.mjs');
+  const rule = (id, kind, status, t, n = 100) => ({ id, feature: id.split('=')[0], bucket: id.split('=')[1], label: id, kind, status, n, mean: 1, win: 50, restMean: 0.5, rel: kind === 'edge' ? 0.5 : -0.5, t,
+    train: { n: 70, diff: 0.4 }, holdout: { n: 30, diff: 0.3 } });
+  const A = { base: { n: 1000, mean: 0.5, win: 45 }, split: { cut: 'x' }, rules: [rule('g=1', 'edge', 'validated', 3), rule('h=1', 'risk', 'validated', -2.5), rule('k=1', 'edge', 'validated', 2.2)] };
+  const B = { base: { n: 1000, mean: 0.7, win: 47 }, split: { cut: 'y' }, rules: [rule('g=1', 'edge', 'validated', 4), rule('h=1', 'edge', 'validated', 2.1), rule('k=1', 'edge', 'observing', 2.4)] };
+  const R = replicateLearned(A, B);
+  const r = id => R.rules.find(x => x.id === id);
+  assert.equal(r('g=1').status, 'validated'); assert.equal(r('g=1').t, 3, '取兩半中較弱的 t'); assert.equal(r('g=1').n, 200);
+  assert.equal(r('h=1').status, 'observing', '兩半方向相反');
+  assert.equal(r('k=1').status, 'observing', '只有一半驗證');
+  assert.equal(r('g=1').halves.b.t, 4);
+  assert.equal(R.base.n, 2000); assert.equal(R.base.mean, 0.6);
+  assert.match(renderLearnMarkdown({ date: 'X', version: 'v', at: 0, learned: { 'swing-x-rep': R }, sources: {} }), /兩半複驗/);
+});
+
+test('ruleStability：兩次訓練的已驗證規則重疊度（同一條但方向翻轉算不同）', async () => {
+  const { ruleStability } = await import('./ai-lab-learn.mjs');
+  const L = rs => ({ rules: rs.map(([id, kind]) => ({ id, kind, status: 'validated' })) });
+  assert.deepEqual(ruleStability(L([['a', 'edge'], ['b', 'risk']]), L([['a', 'edge'], ['b', 'edge'], ['c', 'risk']])), { kept: 1, added: 2, dropped: 1, jaccard: 0.25 });
+  assert.equal(ruleStability(null, L([])).jaccard, 1);
+});
+
+test('learn：取樣實驗 key 同樣以同日其他樣本為基準（只跟行情日有關的特徵不驗證）', () => {
+  const S = synthDecisions().map(s => ({ ...s, key: 'swing-x-all' }));
+  const L = learn(S, { minN: { 'swing-x-all': 60 } })['swing-x-all'];
+  assert.notEqual(L.rules.find(x => x.id === 'M=高')?.status, 'validated');
+  assert.ok(L.rules.find(x => x.id === 'E=壞')?.rel < -1.5);
+});

@@ -13,6 +13,8 @@ interface LearnDoc { date: string; version: string; at: number; sources: Record<
 const NAME: Record<string, string> = {
   swing: '🌊 波段交易員', 'swing-buy': '🛒 AI 買進經驗（實驗＋會員帳戶的實際買進）', 'swing-sell': '📤 AI 賣出經驗（實驗＋會員帳戶的實際賣出；正＝賣出避開的跌幅）',
   'dt-long': '⏳ 當沖交易員·做多', 'dt-short': '⏳ 當沖交易員·做空',
+  // 波段取樣實驗（2026-10-02；只記錄比對、不提供給 AI）
+  'swing-x-rep': '🧪 取樣實驗①兩半複驗（奇偶兩組交易日都驗證且同向）', 'swing-x-cal': '🧪 取樣實驗②固定日曆錨點（日曆日偶數）', 'swing-x-all': '🧪 取樣實驗③每個交易日',
 };
 // 賣出經驗的 y＝賣出避開的跌幅：較差＝賣太早（賣後續漲）、較好＝賣得對（賣後下跌）；與絕對方向不一致者只是「相對」，不提供給 AI
 //   （同 scripts/lib/ai-lab-learn.mjs kindText／sellVerdictOk）

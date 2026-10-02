@@ -19,7 +19,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dailyFeatures, dtFeatures, learn, renderLearnMarkdown, decisionSamples, LEARN_VERSION } from './lib/ai-lab-learn.mjs';
+import { dailyFeatures, dtFeatures, learn, renderLearnMarkdown, decisionSamples, replicateLearned, ruleStability, LEARN_VERSION } from './lib/ai-lab-learn.mjs';
 import { horizonOutcome, grossOf } from './lib/ai-swing-lab.mjs';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
@@ -66,12 +66,23 @@ for (const ref of memberRefs) {
 const idx = new Map(days.map((d, i) => [d.date, i]));
 for (const d of labDocs) { const t = idx.get(d.date); if (t == null) continue; for (const c of d.pool || []) addSwing(t, c.code, 'AI候選池'); }
 for (const ds of memberDocs) for (const d of ds) { const t = idx.get(d.date); if (t == null) continue; for (const c of d.pool || []) addSwing(t, c.code, '會員帳戶候選池'); }
-for (let t = 60; t < days.length - 5; t += 2) {
+// 歷史母體：現行 swing（AI 交易員使用）＝從視窗起點每 2 日——不變。
+// 波段取樣實驗（2026-10-02 使用者：「1 2 3 都使用並分成 3 種實驗資源，後續比對哪種方式更為精準或是混合運用來驗證」）：
+//   量測：視窗每天移一格時「每 2 日」那一半整批換成另一半，A／B 兩半各驗證 10 條、共同只有 2 條 ⇒ 規則逐日翻轉。
+//   ① swing-x-rep 兩半複驗（A＝現行那一半、B＝另一半，都驗證且同向）② swing-x-cal 固定日曆錨點（日曆日偶數）③ swing-x-all 每個交易日。
+//   實驗只用歷史母體（AI 候選池另計入現行 swing），只記錄比對、不提供給 AI。
+const expSamples = [];
+for (let t = 60; t < days.length - 5; t++) {
+  const date = days[t].date, onGrid = (t - 60) % 2 === 0, calEven = Math.floor(Date.parse(date) / 864e5) % 2 === 0;
   for (const code in days[t].m) {
     if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
     const F = dailyFeatures(days, t, code);
     if (!F || !(F.raw.amtM >= 50) || !(F.raw.gain20 > 0) || !(F.raw.maAbove >= 2)) continue;
-    addSwing(t, code, '歷史母體');
+    if (onGrid) addSwing(t, code, '歷史母體');
+    const y = grossOf(horizonOutcome(days, date, code, 5)); if (y == null) continue;
+    const s = { date, f: F.f, y, src: '歷史母體' };
+    expSamples.push({ ...s, key: 'swing-x-all' }, { ...s, key: onGrid ? 'swing-x-rep-a' : 'swing-x-rep-b' });
+    if (calEven) expSamples.push({ ...s, key: 'swing-x-cal' });
   }
 }
 
@@ -99,6 +110,16 @@ for (const d of jSnap.docs) {
 }
 
 const learned = learn(samples);
+// 取樣實驗（不提供給 AI；matchLessons 只查 swing／swing-buy／swing-sell）
+{
+  const ex = learn(expSamples, { minN: { 'swing-x-all': 60, 'swing-x-cal': 60, 'swing-x-rep-a': 60, 'swing-x-rep-b': 60 } });
+  if (ex['swing-x-rep-a'] && ex['swing-x-rep-b']) learned['swing-x-rep'] = replicateLearned(ex['swing-x-rep-a'], ex['swing-x-rep-b']);
+  if (ex['swing-x-cal']) learned['swing-x-cal'] = ex['swing-x-cal'];
+  if (ex['swing-x-all']) learned['swing-x-all'] = ex['swing-x-all'];
+  // 與前一次訓練的已驗證規則重疊度（後續比對哪種取樣最穩定）
+  let prev = null; try { prev = (await db.collection('aiLabLearn').doc('latest').get()).data() || null; } catch { /* 首次或讀不到：不算穩定度 */ }
+  if (prev?.learned) for (const k of ['swing', 'swing-x-rep', 'swing-x-cal', 'swing-x-all']) if (learned[k]) learned[k].stability = { prevDate: prev.date || null, ...ruleStability(prev.learned[k], learned[k]) };
+}
 const doc = { date: dataDate, version: LEARN_VERSION, at: Date.now(), sources, learned, accounts: { lab: 1, members: memberDocs.length },
   note: '已驗證（validated）規則提供給 AI 交易員決策參考；觀察中（observing）只記錄。歷史統計不保證未來，非投資建議。' };
 for (const [k, x] of Object.entries(learned)) {
