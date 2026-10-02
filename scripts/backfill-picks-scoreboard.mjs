@@ -33,8 +33,9 @@ const CALIB = 'v2';   // 與 daemon trackPicks 的 CALIB 同步
 const main = async () => {
   // chipArchive：[收盤, 量(張), 開, 高, 低]（⚠[2] 是開盤價，不是漲跌%）
   const arch = await db.collection('chipArchive').orderBy('date').get();
+  // 空的歸檔（例：2026-07-10 颱風休市 closeJson='{}'）不是交易日——算進去會讓跨過它的持有天數少一天（2026-10-02 修，同 loadLuArchive 的 >500 檔門檻）
   const days = arch.docs.map(d => d.data()).filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v.date || '') && v.closeJson)
-    .map(v => ({ date: v.date, close: JSON.parse(v.closeJson) }));
+    .map(v => ({ date: v.date, close: JSON.parse(v.closeJson) })).filter(d => Object.keys(d.close).length > 500);
   const di = Object.fromEntries(days.map((d, i) => [d.date, i]));
   console.log(`▶ chipArchive ${days.length} 日；`);
 

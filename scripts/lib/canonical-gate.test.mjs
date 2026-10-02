@@ -21,6 +21,11 @@ test('archiveDayStatus：上櫃樣本股全數下市／轉板時，以總檔數 
   assert.equal(archiveDayStatus(mkDay({ otc: false, extra: 1100 })).ready, false, '只有上市（約 1,230 檔）不可能過');
 });
 
+test('archiveDayStatus：otcPending 旗標出現前的舊檔（undefined）只要兩市收盤都在就算到齊；只有上市的舊檔仍不算', () => {
+  assert.equal(archiveDayStatus({ ...mkDay(), otcPending: undefined }).ready, true);
+  assert.equal(archiveDayStatus({ ...mkDay({ otc: false, extra: 1100 }), otcPending: undefined }).ready, false);
+});
+
 test('archiveCloseReady：到期評估只看兩市收盤，法人缺（T86 未出）不影響；上櫃未併入則不行', () => {
   assert.equal(archiveCloseReady(mkDay({ instTse: false, instOtc: false })), true);
   assert.equal(archiveCloseReady(mkDay({ otc: false, otcPending: true, extra: 1100 })), false);

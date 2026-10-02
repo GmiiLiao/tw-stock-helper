@@ -9798,7 +9798,7 @@ async function trackPicks({ canonical = false } = {}) {
   const hist = await db.collection('picksHistory').get();
   const docs = hist.docs.map(d => d.data()).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
   const archDates = (await db.collection('chipArchive').orderBy('date', 'desc').limit(45).select('date').get())
-    .docs.map(x => x.id).filter(x => x <= date).reverse();   // 舊→新；休市日沒有歸檔文件
+    .docs.map(x => x.id).filter(x => x <= date && _isTradingDayIso(x)).reverse();   // 舊→新；休市日的空歸檔（例 07-10 颱風 closeJson='{}'）不算交易日
   const aIdx = Object.fromEntries(archDates.map((x, i) => [x, i]));
   // 出場日只需兩市收盤到齊（不必等法人·審查 M-a）；判定與取價用同一份文件，避免「判定時已到齊、取價時還是只有上市」的競態
   const exitOf = new Map();

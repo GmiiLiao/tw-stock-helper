@@ -30,7 +30,8 @@ export function archiveDayStatus(doc) {
   const close = parse(doc?.closeJson), inst = parse(doc?.instJson);
   const missing = [];
   if (!has(close, TSE_SAMPLES, 3)) missing.push('上市收盤');
-  if (doc?.otcPending !== false || !(has(close, OTC_SAMPLES, 3) || Object.keys(close || {}).length >= 1700)) missing.push('上櫃收盤');
+  // otcPending 只有明確為 true 才算未併入：寫入端一律寫布林值；undefined＝此旗標出現前（2026-07-17 以前）的舊檔，實測皆兩市完整
+  if (doc?.otcPending === true || !(has(close, OTC_SAMPLES, 3) || Object.keys(close || {}).length >= 1700)) missing.push('上櫃收盤');
   if (!has(inst, TSE_SAMPLES, 1)) missing.push('上市法人');
   if (!has(inst, OTC_SAMPLES, 1)) missing.push('上櫃法人');
   const basis = /yahoo/i.test(String(doc?.gapFixSource || '')) ? '上市官方＋上櫃含第三方補洞' : '兩市官方';
