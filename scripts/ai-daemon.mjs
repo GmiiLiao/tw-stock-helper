@@ -2240,16 +2240,20 @@ function recordIntraday(quotes, trackedSet) {
 // 壓縮格式（2026-10-02；lib/intraday-codec.mjs）：舊版單一欄位 seriesJson 追蹤檔數多時下午即超過 1MB 上限、整筆寫入失敗
 //   （09-15、10-02 各兩百多次），讀取端只看日期 ⇒ 即時走勢停在失敗前。現為 gzip：≤900KB 放主文件 seriesGz，
 //   否則先寫分片 shards/{i}（同一 gen）再更新主文件指向；舊 seriesJson 只在合計仍在單一文件預算內時才寫（相容未部署的讀取端）。
-let _intrSizeLogDay = '';
-/** 讀 marketIntraday/latest：seriesGz（單一文件）→ shards（gen 須一致）→ 舊 seriesJson；回傳 { date, updatedAt, series } 或 null */
-async function readIntradayDoc() {
+let _intrSizeLogDay = '', _intrShardIds = [], _intrShardsSwept = false;
+/**
+ * 讀 marketIntraday/latest：seriesGz（單一文件）→ shardIds（每一代各自的分片 {gen}_{i}，gen 須一致）→ 舊 seriesJson。
+ * 分片讀到不一致（讀主文件後寫入端已換代並刪舊片）重讀一次。回傳 { date, updatedAt, series } 或 null
+ */
+async function readIntradayDoc(retry = true) {
   const ref = db.collection('marketIntraday').doc('latest');
   const d = (await ref.get()).data(); if (!d) return null;
   let series = null;
   if (d.seriesGz) series = decodeIntraday([d.seriesGz]);
-  else if (d.shardCount > 0) {
-    const parts = await Promise.all(Array.from({ length: d.shardCount }, (_, i) => ref.collection('shards').doc(String(i)).get().then(s => s.data())));
-    if (parts.every(p => p && p.gen === d.gen)) series = decodeIntraday(parts.map(p => p.data));   // gen 不一致＝寫到一半，視同無資料
+  else if (Array.isArray(d.shardIds) && d.shardIds.length) {
+    const parts = await Promise.all(d.shardIds.map(id => ref.collection('shards').doc(id).get().then(s => s.data())));
+    if (parts.every(p => p && p.gen === d.gen)) series = decodeIntraday(parts.map(p => p.data));
+    else if (retry) return readIntradayDoc(false);
   } else if (d.seriesJson) series = JSON.parse(d.seriesJson);
   return { date: d.date, updatedAt: d.updatedAt || 0, series };
 }
@@ -2260,10 +2264,17 @@ async function writeIntraday() {
     const ref = db.collection('marketIntraday').doc('latest');
     const meta = { date: _intraday.date, updatedAt: gen, gen, codec: 'gzip-json', rawBytes: enc.rawBytes, gzBytes: enc.gz.length,
       codes: Object.keys(_intraday.series).length, shardCount: enc.inline ? 0 : enc.shards.length };
+    // 分片以「代」命名（{gen}_{i}）：先寫新一代、主文件換指向後才刪舊一代——讀取端不會讀到新舊混雜（審查 MEDIUM）
+    const shardIds = enc.inline ? [] : enc.shards.map((_, i) => `${gen}_${i}`);
     if (enc.inline) meta.seriesGz = enc.gz;
-    else for (let i = 0; i < enc.shards.length; i++) await ref.collection('shards').doc(String(i)).set({ gen, i, data: enc.shards[i] });
+    else { for (let i = 0; i < enc.shards.length; i++) await ref.collection('shards').doc(shardIds[i]).set({ gen, i, data: enc.shards[i] }); meta.shardIds = shardIds; }
     if (enc.legacyOk) meta.seriesJson = enc.json;
     await ref.set(meta);
+    // 清舊分片：本程序上一代＋（每個程序第一次寫入時）子集合裡所有非本代的殘片（前一個程序留下的）
+    const stale = new Set(_intrShardIds.filter(id => !shardIds.includes(id)));
+    if (!_intrShardsSwept) { _intrShardsSwept = true; try { for (const r of await ref.collection('shards').listDocuments()) if (!shardIds.includes(r.id)) stale.add(r.id); } catch { /* 下次再清 */ } }
+    _intrShardIds = shardIds;
+    for (const id of stale) ref.collection('shards').doc(id).delete().catch(() => {});
     if (!enc.legacyOk && _intrSizeLogDay !== _intraday.date) {
       _intrSizeLogDay = _intraday.date;
       log(`  · 即時走勢 ${_intraday.date}：${meta.codes} 檔、原始 ${(enc.rawBytes / 1e6).toFixed(2)}MB 超過舊欄位預算 → 只寫壓縮格式 ${(enc.gz.length / 1e3).toFixed(0)}KB（${enc.inline ? '單一文件' : `${enc.shards.length} 片`}）`);

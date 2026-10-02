@@ -18,7 +18,7 @@ export const INTRADAY_STALE_MS = 3 * 60_000;
 
 const decode = (parts: Uint8Array[]) => JSON.parse(gunzipSync(Buffer.concat(parts.map(p => Buffer.from(p)))).toString());
 
-const load = memoize<DaemonIntraday>('daemon-intraday', 3_000, async () => {
+async function readOnce(): Promise<DaemonIntraday | 'mismatch'> {
   const db = getAdminDb();
   if (!db) throw new Error('no admin db');
   const ref = db.collection('marketIntraday').doc('latest');
@@ -26,13 +26,22 @@ const load = memoize<DaemonIntraday>('daemon-intraday', 3_000, async () => {
   if (!d) throw new Error('no marketIntraday doc');
   let series: DaemonIntraday['series'] = {};
   if (d.seriesGz) series = decode([d.seriesGz]);
-  else if (d.shardCount > 0) {
-    const parts = await Promise.all(Array.from({ length: d.shardCount }, (_, i) => ref.collection('shards').doc(String(i)).get().then(s => s.data())));
-    if (!parts.every(p => p && p.gen === d.gen)) throw new Error('intraday shards generation mismatch');   // 寫到一半：負快取、下一輪再讀
+  else if (Array.isArray(d.shardIds) && d.shardIds.length) {
+    // 分片以代命名（{gen}_{i}）；讀主文件後寫入端已換代並刪舊片 ⇒ 不一致，重讀
+    const parts = await Promise.all((d.shardIds as string[]).map(id => ref.collection('shards').doc(id).get().then(s => s.data())));
+    if (!parts.every(p => p && p.gen === d.gen)) return 'mismatch';
     series = decode(parts.map(p => p!.data));
   } else if (d.seriesJson) series = JSON.parse(d.seriesJson);
   return { date: String(d.date || ''), updatedAt: Number(d.updatedAt) || 0, series };
-});
+}
+
+const load = memoize<DaemonIntraday>('daemon-intraday', 3_000, async () => {
+  const first = await readOnce();
+  if (first !== 'mismatch') return first;
+  const second = await readOnce();
+  if (second === 'mismatch') throw new Error('intraday shards generation mismatch');
+  return second;
+}, { negativeTtlMs: 5_000 });   // 失敗只冷卻 5 秒（預設 30 秒太長，盤中走勢會停在舊值）
 
 /**
  * 今日（today＝台北日期 YYYY-MM-DD）且新鮮的 daemon 分時序列；否則 null（呼叫端退回 Yahoo 等來源）。
