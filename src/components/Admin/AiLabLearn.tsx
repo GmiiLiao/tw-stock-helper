@@ -46,7 +46,7 @@ export default function AiLabLearn() {
   return (
     <Section title="🧠 交易員經驗庫" sub={doc ? `盤後訓練 ${doc.date}（完成 ${tw(doc.at, true)}）·樣本 ${Object.entries(doc.sources || {}).map(([k, v]) => `${k} ${v.toLocaleString()}`).join('、')}` : '每個交易日 18:30 後盤後訓練'}>
       <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6 }}>
-        失利的共同條件＝<b style={{ color: '#ef4444' }}>⚠風險</b>（未來辨別避開）、獲利的共同條件＝<b style={{ color: '#22c55e' }}>✓優勢</b>（提升選股可靠度）。每個條件與同類其餘樣本比較；日期前 70% 訓練、後 30% 驗證，
+        失利的共同條件＝<b style={{ color: '#ef4444' }}>⚠風險</b>（未來辨別避開）、獲利的共同條件＝<b style={{ color: '#22c55e' }}>✓優勢</b>（提升選股可靠度）。每個條件與同類其餘樣本比較（波段與 AI 決策層以同日其他樣本為基準：先減同日平均、排除當天大盤漲跌——表中平均／其餘平均是原始值，判斷看訓練段／驗證段相對差）；日期前 70% 訓練、後 30% 驗證，
         兩段相對差同方向且顯著（|t|≥2）才「已驗證」並提供給 AI 交易員決策參考，其餘列「觀察中」只記錄。結果存第二大腦 second-brain/ai-lab-learn/，其他功能可讀 Firestore aiLabLearn/latest。歷史統計不保證未來，非投資建議。
       </div>
       {state === 'loading' && <div style={{ color: 'var(--text-muted)' }}>載入中…</div>}

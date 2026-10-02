@@ -90,9 +90,11 @@ test('decisionSamples：實驗與會員帳戶的實際買賣成交 → 同一（
   assert.ok(samples.every(s => !('uid' in s)), '樣本不帶會員身分');
 });
 
-test('lessonText：波段（既有）文字不變；AI 買進經驗加註來源與同日相對差；賣出經驗以「賣後 5 日」表述', () => {
+test('lessonText：波段句尾附同日相對差（舊文件無 rel 時文字不變）；AI 買進經驗加註來源與同日相對差；賣出經驗以「賣後 5 日」表述', () => {
   const r = { kind: 'risk', label: 'RSI5 ≥85', n: 40, mean: -2.5, win: 30, restMean: 0.8 };
   assert.equal(lessonText(r, '5日淨%'), '⚠風險：RSI5 ≥85（歷史 n=40，平均 -2.5%、勝率 30%；其餘 0.8%）');
+  assert.equal(lessonText({ ...r, rel: -2.1 }, '5日淨%'), '⚠風險：RSI5 ≥85（歷史 n=40，平均 -2.5%、勝率 30%；其餘 0.8%；較同日其他候選 -2.1%）');
+  assert.equal(lessonText({ ...r, kind: 'edge', mean: 0.54, restMean: 0.45, rel: 0.23 }, '5日淨%'), '✓優勢：RSI5 ≥85（歷史 n=40，平均 0.54%、勝率 30%；其餘 0.45%；較同日其他候選 +0.23%）');
   assert.equal(lessonText({ ...r, rel: -2.1 }, '5日淨%', 'swing-buy'), '⚠風險（AI 過去買進經驗）：RSI5 ≥85（歷史 n=40，5 日平均 -2.5%、勝率 30%，較同日其他 AI 買進 -2.1%）');
   assert.equal(lessonText({ ...r, rel: -2.1 }, '5日淨%', 'swing-sell'), '⚠賣太早經驗：RSI5 ≥85（歷史 n=40，過去在此條件賣出後 5 日平均 +2.5%，較同日其他賣出 +2.1%）');
   assert.match(lessonText({ ...r, kind: 'edge', mean: 3, restMean: -0.5, rel: 2.4 }, '5日淨%', 'swing-sell'), /^✓賣得對經驗：.*賣出後 5 日平均 -3%，較同日其他賣出 -2\.4%/);
@@ -118,10 +120,23 @@ test('learn 決策層：以同日其他 AI 決策為基準——只跟行情日�
   const r = id => L.rules.find(x => x.id === id);
   assert.notEqual(r('M=高')?.status, 'validated', '大漲日比例高≠特徵有效（未去同日平均時會被誤判）');
   assert.equal(r('E=壞')?.status, 'validated'); assert.equal(r('E=壞').kind, 'risk'); assert.ok(r('E=壞').rel < -1.5, '相對同日其他決策');
-  const swingSame = learn(synthDecisions().map(s => ({ ...s, key: 'swing' }))).swing;
-  assert.equal(swingSame.rules.find(x => x.id === 'E=壞')?.rel, undefined, '既有 swing 規則格式不變（無 rel 欄）');
   const few = learn(synthDecisions({ dates: 8, perDay: 30 }))['swing-buy'];
   assert.notEqual(few.rules.find(x => x.id === 'E=壞')?.status, 'validated', '只有 8 個日期（訓練段 <10 日）⇒ 最多觀察中');
+});
+
+// 2026-10-02 使用者核可：swing 母體也是「同一天數百檔」，同樣以同日其他樣本為基準
+//   （真實資料安慰劑：同日內打亂特徵 100 輪，未去均每輪假驗證 15.6 條／52 分段，去均後 2.1 條）
+test('learn 波段（swing）：以同日其他樣本為基準——只跟行情日有關的特徵不驗證；同日內真效果仍驗證；顯示平均維持原始值', () => {
+  const S = synthDecisions().map(s => ({ ...s, key: 'swing' }));
+  const L = learn(S).swing;
+  const r = id => L.rules.find(x => x.id === id);
+  const ctrl = learn(S.map(s => ({ ...s, key: 'dt-long' })), { minN: { 'dt-long': 60 } })['dt-long'];   // 對照：不去同日平均的 key
+  assert.equal(ctrl.rules.find(x => x.id === 'M=高')?.status, 'validated', '對照組：未去同日平均時「大漲日比例高」被誤判為已驗證');
+  assert.notEqual(r('M=高')?.status, 'validated', 'swing 去同日平均後不驗證');
+  assert.equal(r('E=壞')?.status, 'validated'); assert.equal(r('E=壞').kind, 'risk'); assert.ok(r('E=壞').rel < -1.5, '相對同日其他樣本');
+  const bad = S.filter(s => s.f.E === '壞'), good = S.filter(s => s.f.E !== '壞'), avg = xs => +(xs.reduce((a, s) => a + s.y, 0) / xs.length).toFixed(2);
+  assert.equal(r('E=壞').mean, avg(bad), '平均＝原始 5 日報酬（未減同日平均）'); assert.equal(r('E=壞').restMean, avg(good));
+  assert.match(lessonText(r('E=壞'), '5日淨%'), /^⚠風險：E 壞（歷史 n=\d+，平均 -?[\d.]+%、勝率 [\d.]+%；其餘 -?[\d.]+%；較同日其他候選 -[\d.]+%）$/);
 });
 
 test('matchLessons 賣出經驗：結論要與絕對方向一致才提供給 AI；kindText 標示相對', async () => {

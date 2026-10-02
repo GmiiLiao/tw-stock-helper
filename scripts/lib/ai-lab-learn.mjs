@@ -7,7 +7,7 @@
 //       key＝'swing'｜'dt-long'｜'dt-short'。
 //   · 學法（可解釋、防過擬合）：每個「特徵=分段」與同 key 其餘樣本比較平均淨報酬（Welch t）；
 //       日期前 70% 訓練、後 30% 驗證——**兩段方向一致且合併 |t|≥2、兩段樣本都夠**才算「已驗證」，
-//       否則最多是「觀察中」（只記錄、不進 AI 決策）。
+//       否則最多是「觀察中」（只記錄、不進 AI 決策）。波段與決策層 key 先減同日平均（以同日其他樣本為基準，見 DEMEAN_KEYS）。
 //   · 結果：risk（平均顯著較差＝該避開的條件）／edge（顯著較好＝可提高可靠度的條件）。
 //   · 特徵只用決策當下（含）以前可得的資料，訓練與即時比對共用同一套函式——不偷看、口徑一致。
 //   · 決策層經驗（2026-10-01 使用者：「用戶開啟的 ai 實驗功能，取得的經驗也一併列為特徵訓練的來源」）：
@@ -171,7 +171,10 @@ const r2 = v => (Number.isFinite(v) ? +v.toFixed(2) : null);
 // 決策層 key：同一天的 AI 決策共享當天行情——以「同日其他 AI 決策」為基準（y 減同日平均、同日至少 2 筆才可比），
 //   且驗證要跨足夠多個日期。否則多一個會員只是在同一天多加樣本，t 值假性變大（2026-10-01 審查 MEDIUM：
 //   模擬零效果特徵的假驗證率由 ~5% 升到 15~18%；去同日平均後維持 1.4~2.9%，且會員越多真效果越容易被驗證）。
-const DEMEAN_KEYS = new Set(['swing-buy', 'swing-sell']);
+// swing（2026-10-02 使用者核可）：母體每個取樣日數百檔、共享當天行情，問題同上且規模更大。真實資料安慰劑（同日內打亂特徵、
+//   保留每日分段占比，100 輪）：未去均每輪假驗證 15.6 條／52 分段（29.9%，與實際已驗證 15 條相當），去均後 2.1 條（4.0%）；
+//   實際已驗證 15→7 條。顯示仍用原始平均（mean／restMean），檢定與 rel 用同日相對值。
+const DEMEAN_KEYS = new Set(['swing', 'swing-buy', 'swing-sell']);
 const MIN_DATES = { train: 10, holdout: 5 };
 const nDates = xs => new Set(xs.map(s => s.date)).size;
 
@@ -235,7 +238,9 @@ export function kindText(key, r) {
   return r.kind === 'risk' ? '⚠賣太早' : '✓賣得對';
 }
 /**
- * 給 prompt 的一行：⚠ 風險／✓ 優勢（附歷史 n、平均、勝率與整體比較）。key：swing（既有，文字不變）｜swing-buy｜swing-sell。
+ * 給 prompt 的一行：⚠ 風險／✓ 優勢（附歷史 n、平均、勝率與整體比較）。key：swing｜swing-buy｜swing-sell。
+ * swing 有 rel（去同日平均後的檢定依據）時句尾加「較同日其他候選 ±x%」——原始平均與其餘的高低可能與結論相反
+ *   （例：⚠ 20日區間位置 30~70% 平均 0.54% 高於其餘 0.45%，但比同日其他候選低 0.23%）；舊文件沒有 rel ⇒ 文字不變。
  * swing-sell 的 y＝賣出避開的跌幅，給 AI 時換回直觀的「賣後 5 日平均漲跌」（正＝賣後續漲＝賣太早）。
  */
 export function lessonText(r, unit, key = 'swing') {
@@ -243,12 +248,14 @@ export function lessonText(r, unit, key = 'swing') {
   const rel = r.rel ?? (r.mean != null && r.restMean != null ? r.mean - r.restMean : null);   // 相對同日其他 AI 決策
   if (key === 'swing-sell') return `${r.kind === 'risk' ? '⚠賣太早經驗' : '✓賣得對經驗'}：${r.label}（歷史 n=${r.n}，過去在此條件賣出後 5 日平均 ${sg(-r.mean)}%，較同日其他賣出 ${sg(rel == null ? null : -rel)}%）`;
   if (key === 'swing-buy') return `${r.kind === 'risk' ? '⚠風險' : '✓優勢'}（AI 過去買進經驗）：${r.label}（歷史 n=${r.n}，5 日平均 ${sg(r.mean)}%、勝率 ${r.win}%，較同日其他 AI 買進 ${sg(rel)}%）`;
-  return `${r.kind === 'risk' ? '⚠風險' : '✓優勢'}：${r.label}（歷史 n=${r.n}，平均 ${r.mean}${unit === '淨R' ? 'R' : '%'}、勝率 ${r.win}%；其餘 ${r.restMean}${unit === '淨R' ? 'R' : '%'}）`;
+  const relTxt = r.rel != null ? `；較同日其他候選 ${sg(r.rel)}%` : '';
+  return `${r.kind === 'risk' ? '⚠風險' : '✓優勢'}：${r.label}（歷史 n=${r.n}，平均 ${r.mean}${unit === '淨R' ? 'R' : '%'}、勝率 ${r.win}%；其餘 ${r.restMean}${unit === '淨R' ? 'R' : '%'}${relTxt}）`;
 }
 
 export function renderLearnMarkdown(doc) {
   const L = [`# 🧠 AI 交易員經驗庫 ${doc.date}`, '', `- 版本 ${doc.version}｜訓練完成 ${new Date(doc.at + 8 * 3600e3).toISOString().replace('T', ' ').slice(0, 16)}（台北）`,
     `- 方法：每個「特徵=分段」vs 同類其餘樣本的平均淨報酬（Welch t）；日期前 70% 訓練、後 30% 驗證，兩段方向一致且 |t|≥2 才「已驗證」並提供給 AI；其餘「觀察中」只記錄。`,
+    `- 波段與 AI 決策層以同日其他樣本為基準（先減同日平均，排除當天大盤漲跌）：檢定與訓練／驗證段相對差用同日相對值，表中平均、勝率、其餘平均為原始值。`,
     `- 樣本來源：${Object.entries(doc.sources || {}).map(([k, v]) => `${k} ${v}`).join('、')}`, ''];
   for (const [key, x] of Object.entries(doc.learned || {})) {
     L.push(`## ${LEARN_NAME[key] || key}（${x.unit}；n=${x.base.n}、整體平均 ${x.base.mean}、勝率 ${x.base.win}%；驗證段自 ${x.split.cut}）`, '');
