@@ -2811,7 +2811,10 @@ async function marketSnapshotLoop() {
       const marketNow = isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 35;
       // 收盤後 13:35–15:00：官方 STOCK_DAY_ALL 逐步更新今日結算價，強制刷新代碼表以便即時取得。
       const postClose = isTradingDay(tw) && mins >= 13 * 60 + 35 && mins < 15 * 60;
-      const codes = await getAllMarketCodes(postClose);
+      // 兩市種子都已是今日結算價後不再強制重抓（2026-10-02 審查建議／使用者核可：減少 13:35–15:00 對證交所／櫃買的請求，
+      //   也免去強制呼叫等網路的停頓）；之後照 10 分鐘快取＋背景重抓。上櫃抓不到時 _otcCloseDate 不會是今天 ⇒ 照舊強制
+      const seedsSettled = _codesCloseDate === ymd8(tw) && _otcCloseDate === ymd8(tw);
+      const codes = await getAllMarketCodes(postClose && !seedsSettled);
       if (codes.length === 0) { await sleep(60000); continue; }
       writeMarketIndex().catch(() => {}); // 加權指數落地（t00 收盤後仍回今日收盤，整晚有效）
       // 🗼 寶塔線每 ~15 分鐘重算（讀 Firestore 為主，無上游請求；掃描窗外也要跑——
