@@ -36,6 +36,7 @@ import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
+import { createAlertDedup } from './lib/alert-dedup.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -76,6 +77,15 @@ try {
   process.exit(1);
 }
 const db = getFirestore(app);
+// ── 通知去重（持久化·2026-10-02 第二期；lib/alert-dedup.mjs）──────────────────────
+//   舊版各通知的「已發過」只存在記憶體 Set、重啟即清空 ⇒ 開機重跑每日工作／盤中迴圈把當天已推過的 Web Push／Telegram 再推一次。
+//   alertDedup/{種類}_{scope}：keys 以 arrayUnion 累積（scope 通常是日期；跨日事件用固定 scope＋prune）。
+const _dedupStore = {
+  load: async (name, scope) => (await db.collection('alertDedup').doc(`${name}_${scope}`).get()).data()?.keys || [],
+  add: (name, scope, k) => db.collection('alertDedup').doc(`${name}_${scope}`).set({ name, scope, keys: FieldValue.arrayUnion(k), updatedAt: Date.now() }, { merge: true }),
+  replace: (name, scope, keys) => db.collection('alertDedup').doc(`${name}_${scope}`).set({ name, scope, keys, updatedAt: Date.now() }),
+};
+const alertDedup = (name, opts) => createAlertDedup(name, _dedupStore, opts);
 // ── 付費判斷（2026-09-28 WM-SCAN G1-07）：高級會員＝premium/admin/superadmin，或**註冊 14 天內的體驗期**。
 //   前端（src/lib/access.ts）一直有 14 天體驗，daemon 的 10 處判斷只看 level ⇒ 體驗期會員看得到付費頁面，
 //   卻收不到 daemon 替付費會員產生的分析／警報。註冊時間取 Firebase Auth（與前端同一來源），1 小時快取；
@@ -2893,8 +2903,8 @@ async function readSnapshotQuotes() {
 // ── 1) 自動停損/停利提醒 ──────────────────────────────────────
 // 用快照即時價 + 各用戶 portfolioAnalysis 的 AI 停損/目標價(無則 ±8%/+20%)，
 // 觸價即寫 users/{uid}/data/alerts。每用戶每股每類型每日只提醒一次。
-const _alerted = new Set(); let _alertDay = '';
-const _chipHoldAlerted = new Set(); let _chipHoldDay = ''; // 籌碼出貨警示每股每類型每日一次
+const _alerted = alertDedup('alerts');   // 持久化去重：重啟不重發（2026-10-02）
+const _chipHoldAlerted = alertDedup('chipHold');   // 持久化去重：重啟不重發（2026-10-02） // 籌碼出貨警示每股每類型每日一次
 // 停利後再進場觀察：觸發停利的個股記下，回檔約 5% 時提示可留意再進場。
 const _reentryWatch = {};
 // 移動停利高水位：記每檔持有期間最高價，獲利後自高點回落即鎖利。
@@ -2921,7 +2931,7 @@ async function checkAlerts() {
     const ms = (await db.collection('marginSnap').doc('latest').get()).data();
     if (ms?.byCodeJson) msRow = JSON.parse(ms.byCodeJson);
   } catch { /* 缺 marginSnap 就跳過 RSI 警報，其餘警報照常 */ }
-  if (_alertDay !== today) { _alerted.clear(); _alertDay = today; }
+  await _alerted.ensure(today);
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
@@ -4285,10 +4295,10 @@ async function computeMajorHoldersChange() {
 
 // ── 25) 自訂條件警報 ──────────────────────────────────────────
 // 讀各 premium 用戶 users/{uid}/data/alertRules，依即時快照檢查觸發。
-const _customAlerted = new Set(); let _customDay = '';
+const _customAlerted = alertDedup('custom');   // 持久化去重：重啟不重發（2026-10-02）
 async function checkCustomAlerts() {
   const snap = await readSnapshotQuotes(); if (!snap) return; const q = snap.quotes;
-  const today = isoDate(taipei()); if (_customDay !== today) { _customAlerted.clear(); _customDay = today; }
+  const today = isoDate(taipei()); await _customAlerted.ensure(today);
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
@@ -8009,7 +8019,7 @@ async function computePeerComps() {
 // FOMC 2026 為 Fed 已公布之官方會期（取第二日=決議日）。
 const FOMC_2026 = ['2026-01-28', '2026-03-18', '2026-04-29', '2026-06-17', '2026-07-29', '2026-09-16', '2026-10-28', '2026-12-09'];
 const rocToIso = s => { const t = String(s || '').trim(); return /^\d{7}$/.test(t) ? `${+t.slice(0, 3) + 1911}-${t.slice(3, 5)}-${t.slice(5, 7)}` : null; };
-const _catalystAlerted = new Set(); let _catalystDay = '';
+const _catalystAlerted = alertDedup('catalyst');   // 持久化去重：重啟不重發（2026-10-02）
 async function buildCatalystCalendar() {
   const tw = taipei(); const today = isoDate(tw);
   const horizon = isoDate(new Date(tw.getTime() + 35 * 86400000));
@@ -8071,7 +8081,7 @@ async function buildCatalystCalendar() {
   log(`✓ 事件日曆：${events.length} 件（→${horizon}）`);
 
   // 持股/自選 3 日內個股事件 → 警報（每人每事件每日一次）
-  if (_catalystDay !== today) { _catalystAlerted.clear(); _catalystDay = today; }
+  await _catalystAlerted.ensure(today);
   const soonLimit = isoDate(new Date(tw.getTime() + 3 * 86400000));
   const soon = events.filter(e => e.code && e.date <= soonLimit);
   if (!soon.length) return;
@@ -8230,13 +8240,13 @@ function rsiPair(series) {
 // 持股 RSI 高檔出貨警示（使用者指定 2026-07-24·影片法則「雙RSI 90+ 連續多日準備賣出」）：
 // RSI5≥90 ∧ RSI10≥90 ∧ 昨日 RSI10 亦≥90（連續）→ 每股每日提醒一次。
 // 誠實註記：本站回測 RSI≥95 高檔常見鈍化續航、死亡交叉才是穩定轉弱——建議分批非全出。
-const _rsiHotAlerted = new Set(); let _rsiHotDay = '';
+const _rsiHotAlerted = alertDedup('rsiHot');   // 持久化去重：重啟不重發（2026-10-02）
 async function checkRsiHot() {
   const arch = await loadLuArchive();
   if (arch.length < 15) return;
   const quo = (await readSnapshotQuotes())?.quotes || {};
   const tw = taipei(); const today = isoDate(tw);
-  if (_rsiHotDay !== today) { _rsiHotAlerted.clear(); _rsiHotDay = today; }
+  await _rsiHotAlerted.ensure(today);
   const liveDay = isTradingDay(tw) && arch[arch.length - 1].date !== today;
   const rsiOf = code => {
     const closes = [];
@@ -8259,7 +8269,7 @@ async function checkRsiHot() {
         newAlerts.push({ code, name, type: 'rsihot', price: r.price || 0, at: Date.now(),
           message: `💣 ${name}(${code}) RSI高檔波動警戒：RSI5 ${r.rsi5}／RSI10 ${r.rsi10} 連續站上90。本站720日實證——這不是頂點訊號：今日即未來10日最高點的機率僅22.6%（基準21.1%，等於沒有抓頂能力）；但5日內出現≥5%回檔的機率50%（基準27%）＝波動放大。出場實測：隔日就賣淨-0.53%（最差且兩窗同向）、抱5日+0.44%、抱10日+1.18%（最佳）；連續達4天以上者前瞻報酬反而更強（鈍化=主升段）。建議：移動停利跟著跑、勿隔日全出；要減碼就分批，並以跌破前低或RSI死亡交叉為硬出場。非投資建議` });
       }
-      if (newAlerts.length) { await pushAlerts(u.id, newAlerts); tgSendAlerts(u.id, newAlerts).catch(() => {}); }
+      if (newAlerts.length) await pushAlerts(u.id, newAlerts);   // pushAlerts 內已同步 Telegram（舊版這裡再送一次＝重複·2026-10-02）
     } catch { /* 單用戶失敗不影響其他 */ }
   }
 }
@@ -9463,14 +9473,14 @@ if (!ONESHOT) tgLinkLoop();
 // ── 34) 停損紀律追蹤（處分效應對策：警報響過不能就算了）─────────
 // 持股跌破停損後開始逐日追蹤：每天升級提醒「已觸發 N 天未處理，
 // 若當時執行可少虧 X 元」——把拖延的代價變成具體數字。
-const _disciplineAlerted = new Set(); let _disciplineDay = '';
+const _disciplineAlerted = alertDedup('discipline');   // 持久化去重：重啟不重發（2026-10-02）
 let _lastDisciplineRun = 0;
 async function trackStopDiscipline() {
   if (Date.now() - _lastDisciplineRun < 10 * 60000) return; // 盤中節流：每 10 分鐘一次
   _lastDisciplineRun = Date.now();
   const snap = await readSnapshotQuotes(); if (!snap) return; const q = snap.quotes;
   const today = isoDate(taipei());
-  if (_disciplineDay !== today) { _disciplineAlerted.clear(); _disciplineDay = today; }
+  await _disciplineAlerted.ensure(today);
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
@@ -9554,7 +9564,7 @@ async function buildSnipeList() {
   await db.collection('snipeList').doc('latest').set({ updatedAt: Date.now(), date: await dataDate(), byUidJson: JSON.stringify(byUid) });
   log(`✓ 買點狙擊清單：${Object.values(byUid).flat().length} 檔`);
 }
-const _snipeAlerted = new Set(); let _snipeDay = '';
+const _snipeAlerted = alertDedup('snipe');   // 持久化去重：重啟不重發（2026-10-02）
 async function checkSnipe() {
   const doc = (await db.collection('snipeList').doc('latest').get()).data();
   if (!doc?.byUidJson) return;
@@ -9562,7 +9572,7 @@ async function checkSnipe() {
   const snap = await readSnapshotQuotes(); if (!snap) return; const q = snap.quotes;
   const ctx = await getInstWeightCtx(); // 勝率雷達階段濾網用
   const today = isoDate(taipei());
-  if (_snipeDay !== today) { _snipeAlerted.clear(); _snipeDay = today; }
+  await _snipeAlerted.ensure(today);
   for (const uid in byUid) {
     const newAlerts = [];
     for (const s of byUid[uid]) {
@@ -10214,10 +10224,12 @@ async function pushReversalAlerts(date, sig) {
 }
 
 // ── 38) 除權息參與決策（事件前 5 日推稅後比較）──────────────────
-const _exdivAlerted = new Set();
+// 除權息提醒去重：鍵 uid:code:除權息日，跨日有效——固定 scope，載入時清掉除權息日已過的鍵（2026-10-02 持久化）
+const _exdivAlerted = alertDedup('exdiv', { prune: (k, today) => k.slice(k.lastIndexOf(':') + 1) >= today });
 async function adviseExDiv() {
   const div = (await db.collection('dividendCalendar').doc('latest').get()).data()?.upcoming || [];
   const tw = taipei(); const today = isoDate(tw);
+  await _exdivAlerted.ensure('all', today);
   const soon = isoDate(new Date(tw.getTime() + 5 * 86400000));
   const map = {};
   for (const x of div) { const ds = rocToIso(x.date); const cash = _f(x.cash); if (ds && ds >= today && ds <= soon && cash > 0) map[x.code] = { ds, cash }; }
@@ -10387,7 +10399,7 @@ async function checkAnomalies(quotes, trackedCodes) {
 }
 
 // ── 41) 當沖比率出貨警示（>40% 隔日賣壓）───────────────────────
-const _dtAlerted = new Set(); let _dtDay = '';
+const _dtAlerted = alertDedup('dayTradeRatio');   // 持久化去重：重啟不重發（2026-10-02）
 // ⚠ TWTB4U 有**兩種形狀**，而且兩種都自稱 stat=OK（2026-08-27 查證）：
 //   ① 資格清單（當日沖銷交易標的）——盤前就發布，fields 只有 3 欄
 //      ［證券代號・證券名稱・暫停現股賣出後現款買進當沖註記］
@@ -10474,7 +10486,7 @@ async function computeDayTradeRatio() {
   // 持股/自選高當沖警報——只在資料日就是今天時發，補抓舊日子不該吵使用者
   if (hit.iso !== todayIso) return;
   const today = todayIso;
-  if (_dtDay !== today) { _dtAlerted.clear(); _dtDay = today; }
+  await _dtAlerted.ensure(today);
   const highSet = new Map(high.map(x => [x.code, x.ratio]));
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
@@ -10593,7 +10605,7 @@ async function computeDayTradeEligible() {
 }
 
 // ── 42) ETF 折溢價監控（官方 all_etf 淨值 vs 市價）──────────────
-const _etfAlerted = new Set(); let _etfDay = '';
+const _etfAlerted = alertDedup('etfPremium');   // 持久化去重：重啟不重發（2026-10-02）
 async function computeEtfPremium() {
   let j = null;
   try { const r = await fetch('https://mis.twse.com.tw/stock/data/all_etf.txt', { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://mis.twse.com.tw/' } }); if (r.ok) j = await r.json(); } catch { /* skip */ }
@@ -10610,7 +10622,7 @@ async function computeEtfPremium() {
   log(`✓ ETF 折溢價：${items.length} 檔，最高溢價 ${sorted[0]?.code} ${sorted[0]?.premium}%`);
   // 持股/自選 ETF 偏離 ≥1% 警報
   const today = isoDate(taipei());
-  if (_etfDay !== today) { _etfAlerted.clear(); _etfDay = today; }
+  await _etfAlerted.ensure(today);
   const devMap = new Map(items.filter(x => Math.abs(x.premium) >= 1).map(x => [x.code, x]));
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
@@ -10637,22 +10649,23 @@ async function computeEtfPremium() {
 }
 
 // ── 43) ETF 定期定額提示（大盤回檔＝本月扣款好時機）─────────────
-const _dcaHinted = {};
+const _dcaHinted = alertDedup('dca');   // 每人每月一次（scope＝月份；2026-10-02 持久化，舊版記憶體物件重啟即重發）
 async function hintDca() {
   const h = (await db.collection('marketHealth').doc('latest').get()).data();
   if (!h || h.health >= 45) return; // 僅在大盤轉弱(回檔)時提示
   const ym = isoDate(taipei()).slice(0, 7);
+  await _dcaHinted.ensure(ym);
   const usersSnap = await db.collection('users').get();
   for (const u of usersSnap.docs) {
     if (!isPremiumUser(u, await trialUids())) continue;
     const uid = u.id;
-    if (_dcaHinted[uid] === ym) continue;
+    if (_dcaHinted.has(uid)) continue;
     try {
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
       const wd = (await db.collection('users').doc(uid).collection('data').doc('watchlist').get()).data();
       const etfs = [...(hd?.holdings || []).map(h2 => h2.code), ...(wd?.watchlist || []).map(w => w.code)].filter(c => /^00\d{2,4}$/.test(c));
       if (!etfs.length) continue;
-      _dcaHinted[uid] = ym;
+      _dcaHinted.add(uid);
       const al = { code: etfs[0], name: 'ETF', type: 'dca', message: `📥 大盤健康度 ${h.health}/100（${h.mood}）回檔中 — 本月 ETF 定期定額可考慮於近日扣款（你追蹤：${etfs.slice(0, 4).join('、')}）`, at: Date.now() };
       const aref = db.collection('users').doc(uid).collection('data').doc('alerts');
       const prev = (await aref.get()).data()?.alerts || [];
@@ -10694,7 +10707,7 @@ const ADR_PAIRS = [
   { adr: 'UMC', code: '2303', name: '聯電', ratio: 5 },
   { adr: 'CHT', code: '2412', name: '中華電', ratio: 10 },
 ];
-const _adrAlerted = new Set(); let _adrDay = '';
+const _adrAlerted = alertDedup('adr');   // 持久化去重：重啟不重發（2026-10-02）
 async function computeAdrPremium() {
   const fxBars = await fetchYahooDaily('TWD=X', '5d'); const fx = fxBars?.[fxBars.length - 1]?.c;
   if (!(fx > 0)) return;
@@ -10714,7 +10727,7 @@ async function computeAdrPremium() {
   log(`✓ ADR 溢價：${items.map(x => `${x.code} ${x.premium > 0 ? '+' : ''}${x.premium}%`).join('、')}`);
   // |溢價|≥3% → 持股/自選警報（每日一次）
   const today = isoDate(taipei());
-  if (_adrDay !== today) { _adrAlerted.clear(); _adrDay = today; }
+  await _adrAlerted.ensure(today);
   const big = items.filter(x => Math.abs(x.premium) >= 3);
   if (!big.length) return;
   const usersSnap = await db.collection('users').get();
@@ -11728,13 +11741,13 @@ async function archiveChipDaily() {
 // ── 53) 早盤起漲提醒 earlyBird（高級會員限定）───────────────────
 // 09:00–10:30：昨日策略榜個股「已上榜但尚未發動」（漲 0.3%~2%、非高當沖、
 // 非連3停）→ 推播提醒可評估進場。每檔每日一次、每人每日上限 6 則。
-const _ebAlerted = new Set(); let _ebDay = ''; const _ebCount = {};
+const _ebAlerted = alertDedup('earlyBird'); let _ebDay = ''; const _ebCount = {};   // _ebAlerted 持久化去重（2026-10-02）；_ebCount 仍為記憶體
 let _ebPicks = { date: '', map: null };
 async function checkEarlyBird() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   if (!(mins >= 9 * 60 && mins <= 10 * 60 + 30)) return;
   const today = isoDate(tw);
-  if (_ebDay !== today) { _ebAlerted.clear(); _ebDay = today; for (const k in _ebCount) delete _ebCount[k]; }
+  if (_ebDay !== today) { _ebDay = today; for (const k in _ebCount) delete _ebCount[k]; } await _ebAlerted.ensure(today);
   // 昨日策略榜（快取整天）
   if (_ebPicks.date !== today) {
     const sp = (await db.collection('strategyPicks').doc('latest').get()).data();
@@ -13216,7 +13229,7 @@ async function checkChipHoldings() {
   const snap = await readSnapshotQuotes(); if (!snap) return;
   const q = snap.quotes;
   const today = isoDate(taipei());
-  if (_chipHoldDay !== today) { _chipHoldAlerted.clear(); _chipHoldDay = today; }
+  await _chipHoldAlerted.ensure(today);
   const win = await loadChipWindow(60);
   if (win.length < 5) return;
   const ctx = await getInstWeightCtx();
@@ -14896,6 +14909,8 @@ async function dailyJobsLoop() {
         _dailyJobsDate = t;
         if (marks.finReports !== t) { await timedJob('finReports', computeFinReports, '(boot 補跑·今日未跑)'); await markJobDone('finReports', t); }
       }
+      if (marks.morning === t) _morningDate = t;     // 07:50 晨報段今日已完成 ⇒ 不重跑 LLM、不重推族群預警（2026-10-02）
+      if (marks.gapLuPush === t) _gapLuDate = t;     // 跳空漲停推播今日已送 ⇒ 13:36–14:10 窗內重啟不再推
       if (marks.otcFix === t) _otcFixDate = t;   // 資料到齊班車今日已完成（定版記錄已寫）⇒ 開機不重跑；未完成則照常等到齊
       if (marks.labLearn === t) _labLearnDate = t;
       if (marks.scoringV3 === t) _v3ShadowDate = t;
@@ -15000,7 +15015,7 @@ async function dailyJobsLoop() {
       }
       // 🎯 縮量跳空漲停（2026-09-05）：13:36 收盤試撮結束後從快照定榜＋推播，每日一次；15:10 歸檔後由 daily jobs 重算不推播。
       if (isTradingDay(tw) && mins >= 13 * 60 + 36 && mins < 14 * 60 + 10 && _gapLuDate !== today) {
-        try { if (await computeGapLimitUp({ push: true })) _gapLuDate = today; } catch (e) { log('✖ 跳空漲停:', (e.message || '').slice(0, 60)); }
+        try { if (await computeGapLimitUp({ push: true })) { _gapLuDate = today; await markJobDone('gapLuPush', today); } } catch (e) { log('✖ 跳空漲停:', (e.message || '').slice(0, 60)); }   // 持久完成記錄：窗內重啟不再推第二次（2026-10-02）
       }
       // 盤中即時新聞判別（09:00~13:30，每 25 分鐘一趟）。
       // 使用者 2026-08-31：欣興盤中遭搜索當日跌 7.5%、世界先進工廠失火，
@@ -15117,7 +15132,8 @@ async function dailyJobsLoop() {
         // 08:00 盤前晨報（事件日曆先更新，晨報才有今日事件）
         // 07:50（開盤前 70 分）盤前晨報：日曆→ADR→新聞風向→晨報
         if (mins >= 7 * 60 + 50 && _morningDate !== today) {
-          try { await buildCatalystCalendar(); await computeAdrPremium(); await forecastSectors(); await publishMorningNote(); } catch (e) { log('✖ morning note:', e.message); }
+          // 成功才寫持久完成記錄（2026-10-02）：舊版只記在記憶體，07:50 後任何重啟都會重跑——族群預警再呼叫一次 LLM、再推一次「今日偏空族群」
+          try { await buildCatalystCalendar(); await computeAdrPremium(); await forecastSectors(); await publishMorningNote(); await markJobDone('morning', today); } catch (e) { log('✖ morning note:', e.message); }
           _morningDate = today;
         }
         // 每月 13 日存「營收出表日期」快照（月營收10日截止後·事件研究的事件日來源，數季後解鎖）
