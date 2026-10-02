@@ -8,6 +8,7 @@ import { MarketPatternHint } from '@/components/MarketPattern/MarketPatternBanne
 import RiskBadge from '@/components/shared/RiskBadge';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 選股策略分頁：實測驗證的隔日沖策略 → 每日候選清單 ──
 // 回測依據：近一年、前 100 大成交值個股、訊號日收盤買 → 次日收盤賣。
@@ -250,7 +251,7 @@ export default function StrategyPicks() {
                     )}
                     <div style={{ display: 'flex', gap: 8, fontSize: 'calc(12.5px * var(--fz))', marginTop: 3 }}>
                       <span style={{ fontFamily: "'JetBrains Mono',monospace" }}>{p.price}</span>
-                      <span style={{ color: 'var(--color-up)', fontFamily: "'JetBrains Mono',monospace" }}>+{p.changePct}%</span>
+                      <span style={{ color: getChangeColor(p.changePct), fontFamily: "'JetBrains Mono',monospace" }}>{p.changePct > 0 ? '+' : ''}{p.changePct}%</span>
                       <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>評分 <b style={{ color: '#fbbf24' }}>{fmtScore(p.score)}</b></span>
                     </div>
                   </div>

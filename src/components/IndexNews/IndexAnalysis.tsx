@@ -22,7 +22,7 @@ const SYMS = [
 ];
 const INTERVALS = [{ id: '1d', label: '日K' }, { id: '1wk', label: '週K' }, { id: '1mo', label: '月K' }] as const;
 const WINDOWS = [60, 120, 250];
-const UP = '#f03e3e', DOWN = '#2f9e44';
+const UP = '#f03e3e', DOWN = '#2f9e44', FLAT = '#94a3b8';
 
 const fmtD = (t: number, iv: string) => {
   const d = new Date(t * 1000);
@@ -524,7 +524,7 @@ export default function IndexAnalysis() {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, rowGap: 2, flexWrap: 'wrap', fontSize: 'calc(14px * var(--fz))', fontWeight: 900, minWidth: 0, maxWidth: '100%' }}>
           <span style={{ whiteSpace: 'nowrap' }}>{name}</span>
           <span style={{ fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtN(last.c)}</span>
-          <span style={{ color: chg >= 0 ? UP : DOWN, whiteSpace: 'nowrap' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+          <span style={{ color: chg > 0 ? UP : chg < 0 ? DOWN : FLAT, whiteSpace: 'nowrap' }}>{chg > 0 ? '+' : ''}{chg.toFixed(2)}%</span>
           <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 400, color: '#cbd5f5', whiteSpace: 'nowrap' }}>{fmtD(last.t, iv)}</span>
         </div>
       )}
@@ -574,7 +574,7 @@ export default function IndexAnalysis() {
                     <td style={{ textAlign: 'left', color: '#dbe4f5' }}>{fmtD(b.t, iv)}</td>
                     <td>{fmtN(b.o)}</td><td>{fmtN(b.h)}</td><td>{fmtN(b.l)}</td>
                     <td style={{ fontWeight: 700, color: b.c >= b.o ? UP : DOWN }}>{fmtN(b.c)}</td>
-                    <td style={{ color: ch == null ? '#cbd5f5' : ch >= 0 ? UP : DOWN }}>{ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}</td>
+                    <td style={{ color: ch == null ? '#cbd5f5' : ch > 0 ? UP : ch < 0 ? DOWN : FLAT }}>{ch == null ? '—' : `${ch > 0 ? '+' : ''}${ch.toFixed(2)}%`}</td>
                     <td style={{ color: '#cbd5f5' }}>{b.v > 0 ? fmtV(b.v) : '—'}</td>
                     <td style={{ color: '#cbd5f5' }}>{r5all.r5 ?? '—'}</td>
                     <td style={{ color: '#cbd5f5' }}>{r5all.k ?? '—'}</td>

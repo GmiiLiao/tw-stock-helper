@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { StockInfo } from '@/lib/twse-api';
-import { formatVolume, formatChangePercentSign } from '@/lib/twse-api';
+import { formatVolume, formatChangePercentSign, getChangeColor } from '@/lib/twse-api';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import styles from './Screener.module.css';
 import { useShallow } from 'zustand/react/shallow';
@@ -1245,7 +1245,7 @@ export default function Screener() {
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <span
-                              className={`badge ${isUp ? 'badge-up' : stock.change < 0 ? 'badge-down' : 'badge-neutral'}`}
+                              className={`badge ${stock.change > 0 ? 'badge-up' : stock.change < 0 ? 'badge-down' : 'badge-neutral'}`}
                               style={{ fontFamily: 'JetBrains Mono, monospace' }}
                             >
                               {formatChangePercentSign(stock.changePercent)}
@@ -1321,7 +1321,7 @@ export default function Screener() {
                             {aiRating.grade}
                           </span>
                         </div>
-                        <span className={`badge ${isUp ? 'badge-up' : stock.change < 0 ? 'badge-down' : 'badge-neutral'}`}>
+                        <span className={`badge ${stock.change > 0 ? 'badge-up' : stock.change < 0 ? 'badge-down' : 'badge-neutral'}`}>
                           {formatChangePercentSign(stock.changePercent)}
                         </span>
                       </div>
@@ -1545,13 +1545,10 @@ export default function Screener() {
                   <span
                     className={styles.summaryVal}
                     style={{
-                      color:
-                        comparedStocks.reduce((a, b) => a + b.changePercent, 0) >= 0
-                          ? 'var(--color-up)'
-                          : 'var(--color-down)',
+                      color: getChangeColor(comparedStocks.reduce((a, b) => a + b.changePercent, 0) / comparedStocks.length),
                     }}
                   >
-                    {comparedStocks.reduce((a, b) => a + b.changePercent, 0) / comparedStocks.length >= 0 ? '+' : ''}
+                    {comparedStocks.reduce((a, b) => a + b.changePercent, 0) / comparedStocks.length > 0 ? '+' : ''}
                     {(comparedStocks.reduce((a, b) => a + b.changePercent, 0) / comparedStocks.length).toFixed(2)}%
                   </span>
                 </div>
@@ -1579,8 +1576,6 @@ export default function Screener() {
                     </thead>
                     <tbody>
                       {comparedStocks.map((stock, i) => {
-                        const isUp = stock.change >= 0;
-                        
                         // Calculations
                         const price = stock.price || 1;
                         let shares = 0;
@@ -1657,7 +1652,7 @@ export default function Screener() {
                               {stock.price.toFixed(2)}
                             </td>
                             <td style={{ textAlign: 'right' }}>
-                              <span className={`badge ${isUp ? 'badge-up' : 'badge-down'}`} style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                              <span className={`badge ${stock.change > 0 ? 'badge-up' : stock.change < 0 ? 'badge-down' : 'badge-neutral'}`} style={{ fontFamily: 'JetBrains Mono, monospace' }}>
                                 {formatChangePercentSign(stock.changePercent)}
                               </span>
                             </td>
@@ -1697,8 +1692,6 @@ export default function Screener() {
                 {/* Mobile Card-Based View */}
                 <div className={styles.mobileCardList}>
                   {comparedStocks.map((stock, i) => {
-                    const isUp = stock.change >= 0;
-                    
                     // Calculations
                     const price = stock.price || 1;
                     let shares = 0;
@@ -1767,7 +1760,7 @@ export default function Screener() {
                             <span className={styles.mobileName}>{stock.name}</span>
                           {(() => { const st = statusOf(dt, stock.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                           </div>
-                          <span className={`badge ${isUp ? 'badge-up' : 'badge-down'}`}>
+                          <span className={`badge ${stock.change > 0 ? 'badge-up' : stock.change < 0 ? 'badge-down' : 'badge-neutral'}`}>
                             {formatChangePercentSign(stock.changePercent)}
                           </span>
                         </div>

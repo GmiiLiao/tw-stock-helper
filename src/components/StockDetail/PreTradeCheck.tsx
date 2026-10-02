@@ -32,7 +32,7 @@ export default function PreTradeCheck({ code, price, qty }: { code: string; pric
         {buy ? <>，建議買點 <b>{buy}</b>{price > buy * 1.03 ? <span style={{ color: '#f59e0b' }}>（你的買價高出 {((price / buy - 1) * 100).toFixed(1)}%，注意追高）</span> : null}</> : null}
       </div>
       <div>· 建議停損 <b style={{ color: '#ef4444' }}>{stop}</b>（每張風險約 {riskPerLot.toLocaleString()} 元
-        {totalRisk ? <>；此筆 {qty} 張最大虧損約 <b style={{ color: '#ef4444' }}>{totalRisk.toLocaleString()}</b> 元</> : null}）
+        {totalRisk ? <>；此筆 {qty} 張最大虧損約 <b style={{ color: 'var(--color-down)' }}>{totalRisk.toLocaleString()}</b> 元</> : null}）
       </div>
       {s.stopLossRationale && <div style={{ color: 'var(--text-muted)' }}>· {s.stopLossRationale}</div>}
       <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>記錄後論點卡自動建立；跌破停損將啟動每日紀律追蹤，直到你處理為止。</div>

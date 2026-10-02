@@ -18,6 +18,7 @@ import {
   formatVolume,
   formatChangeSign,
   formatChangePercentSign,
+  getChangeColor,
   formatValue,
   type CandleData,
   type StockInfo,
@@ -952,6 +953,8 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
   const todayLow = hasOhlc ? stock.low : null;
   const amplitude = hasOhlc && prevClose > 0 ? ((stock.high - stock.low) / prevClose) * 100 : null;
   const closePos = hasOhlc && stock.high > stock.low ? (price - stock.low) / (stock.high - stock.low) : null;
+  // 開/高/低依「相對昨收」著色（台股報價慣例）；toFixed(2) 去掉 price−change 的浮點尾差，避免平盤被染色
+  const vsPrevColor = (p: number | null) => p == null ? 'var(--text-muted)' : getChangeColor(+(p - prevClose).toFixed(2));
 
   // Determine today's trend
   const isUp = changePct > 0.5;
@@ -1032,10 +1035,10 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           </div>
           <div style={{
             fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800,
-            color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)',
+            color: getChangeColor(changePct),
             fontFamily: "'JetBrains Mono', monospace",
           }}>
-            {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
+            {changePct > 0 ? '+' : ''}{changePct.toFixed(2)}%
           </div>
         </div>
         <div style={{ marginTop: '12px', fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -1047,9 +1050,9 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
       {/* 同上：內聯樣式沒有 media query 可救，寫死四欄在手機必爆 → auto-fit */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '10px' }}>
         {[
-          { label: '今日開盤', value: todayOpen == null ? '—' : todayOpen.toFixed(2), color: (todayOpen ?? prevClose) >= prevClose ? 'var(--color-up)' : 'var(--color-down)', emoji: '🔔' },
-          { label: '今日最高', value: todayHigh == null ? '—' : todayHigh.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
-          { label: '今日最低', value: todayLow == null ? '—' : todayLow.toFixed(2), color: 'var(--color-down)', emoji: '📉' },
+          { label: '今日開盤', value: todayOpen == null ? '—' : todayOpen.toFixed(2), color: vsPrevColor(todayOpen), emoji: '🔔' },
+          { label: '今日最高', value: todayHigh == null ? '—' : todayHigh.toFixed(2), color: vsPrevColor(todayHigh), emoji: '📈' },
+          { label: '今日最低', value: todayLow == null ? '—' : todayLow.toFixed(2), color: vsPrevColor(todayLow), emoji: '📉' },
           { label: '昨日收盤', value: prevClose.toFixed(2), color: 'var(--text-muted)', emoji: '📌' },
         ].map(({ label, value, color, emoji }) => (
           <div key={label} style={{
@@ -1080,13 +1083,13 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: '#fbbf24' }}>{(stock.volume / 1000).toFixed(0)} 張</div>
         </div>
         <div style={{
-          background: changePct >= 0 ? 'rgba(220,38,38,0.08)' : 'rgba(34,197,94,0.08)',
-          border: `1px solid ${changePct >= 0 ? 'rgba(220,38,38,0.25)' : 'rgba(34,197,94,0.25)'}`,
+          background: change > 0 ? 'rgba(220,38,38,0.08)' : change < 0 ? 'rgba(34,197,94,0.08)' : 'rgba(148,163,184,0.08)',
+          border: `1px solid ${change > 0 ? 'rgba(220,38,38,0.25)' : change < 0 ? 'rgba(34,197,94,0.25)' : 'rgba(148,163,184,0.25)'}`,
           borderRadius: '10px', padding: '14px', textAlign: 'center',
         }}>
-          <div style={{ fontSize: 'calc(13px * var(--fz))', color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 600, marginBottom: '6px' }}>💰 漲跌</div>
-          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-            {change >= 0 ? '+' : ''}{change.toFixed(2)}
+          <div style={{ fontSize: 'calc(13px * var(--fz))', color: getChangeColor(change), fontWeight: 600, marginBottom: '6px' }}>💰 漲跌</div>
+          <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: getChangeColor(change) }}>
+            {change > 0 ? '+' : ''}{change.toFixed(2)}
           </div>
         </div>
       </div>

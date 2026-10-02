@@ -1,6 +1,7 @@
 'use client';
 
 import styles from './BuySellPanel.module.css';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ─── Types (matches API) ─────────────────────────────────────
 
@@ -100,7 +101,7 @@ function PriceLadder({
                   {t.type === 'tp1' ? '🎯 TP1' : t.type === 'tp2' ? '🎯 TP2' : '🚀 TP3'}
                 </span>
                 <span className={styles.levelPrice}>{t.price.toFixed(2)}</span>
-                <span style={{ color: '#2f9e44', fontSize: 'calc(12.5px * var(--fz))' }}>+{gainFromBuy}%</span>
+                <span style={{ color: getChangeColor(Number(gainFromBuy)), fontSize: 'calc(12.5px * var(--fz))' }}>{Number(gainFromBuy) > 0 ? '+' : ''}{gainFromBuy}%</span>
               </div>
             </div>
           );
@@ -241,11 +242,11 @@ function TradeSetupCard({ setup }: { setup: TradeSetup }) {
       <div className={styles.setupGrid}>
         <div className={styles.setupItem}>
           <div className={styles.setupItemLabel}>最大虧損</div>
-          <div className={styles.setupItemValue} style={{ color: '#f03e3e' }}>-{setup.maxRisk}%</div>
+          <div className={styles.setupItemValue} style={{ color: 'var(--color-down)' }}>-{setup.maxRisk}%</div>
         </div>
         <div className={styles.setupItem}>
           <div className={styles.setupItemLabel}>預期獲利</div>
-          <div className={styles.setupItemValue} style={{ color: '#2f9e44' }}>+{setup.expectedGain}%</div>
+          <div className={styles.setupItemValue} style={{ color: 'var(--color-up)' }}>+{setup.expectedGain}%</div>
         </div>
         <div className={styles.setupItem}>
           <div className={styles.setupItemLabel}>持有週期</div>

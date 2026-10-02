@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { HoldingStrategyResult } from '../../../scripts/lib/holding-strategy';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 持股策略三段面板（藍=隔日沖、青=波段持有、紫=相似歷史）──────────────
 // PortfolioAI（持股卡）與 DecisionDesk（決策工作台展開區）共用——
@@ -253,7 +254,7 @@ export default function StrategyPanels({ st, pnlPct, mode = 'holding' }: { st: H
         <div style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, marginBottom: 2,
           background: st.filterPass ? 'rgba(240,62,62,0.12)' : 'rgba(148,163,184,0.12)',
           border: st.filterPass ? '1px solid rgba(240,62,62,0.35)' : '1px solid var(--border-primary)' }}>
-          今日 <b style={{ color: st.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{st.chg >= 0 ? '+' : ''}{st.chg}%</b>
+          今日 <b style={{ color: getChangeColor(st.chg) }}>{st.chg > 0 ? '+' : ''}{st.chg}%</b>
           {st.pos != null ? <>·收位 <b>{st.pos}</b></> : null}{st.charLabel ? `·${st.charLabel}` : ''}——
           {st.filterPass
             ? <b style={{ color: 'var(--color-up)' }}>符合撿尾盤定版濾網</b>

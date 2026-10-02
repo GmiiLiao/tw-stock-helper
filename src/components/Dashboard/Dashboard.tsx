@@ -110,7 +110,8 @@ function WatchlistCard() {
 
 function TopMoversTable({ title, stocks, type }: { title: string; stocks: StockInfo[]; type: 'up' | 'down' }) {
   const navigateTo = useAppStore((s) => s.navigateTo);
-  const color = type === 'up' ? 'var(--color-up)' : 'var(--color-down)';
+  // 漲跌幅顏色依「每一檔自己的漲跌」決定（上漲紅、下跌綠、平盤灰），不能依表的類型——
+  //   2026-10-02 使用者實報：成交量排行（type="up"）整欄紅字，下跌也是紅；跌勢日的漲幅榜／漲勢日的跌幅榜也會錯色
 
   return (
     <div className={styles.sectionCard}>
@@ -145,7 +146,7 @@ function TopMoversTable({ title, stocks, type }: { title: string; stocks: StockI
               <RiskBadge code={stock.code} size="xs" />
             </span>
             <span className={styles.moversPrice}>{stock.price.toFixed(2)}</span>
-            <span className={styles.moversChange} style={{ color }}>
+            <span className={styles.moversChange} style={{ color: getChangeColor(stock.changePercent) }}>
               {formatChangePercentSign(stock.changePercent)}
             </span>
             <span className={styles.moversVol}>{formatVolume(stock.volume)}</span>

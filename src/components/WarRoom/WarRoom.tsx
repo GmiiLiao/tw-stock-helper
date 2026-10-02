@@ -18,6 +18,7 @@ import DecisionDesk from '@/components/Candidates/DecisionDesk';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 import { auth } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
@@ -370,7 +371,7 @@ export default function WarRoom() {
                           {/* 目測判斷資訊列 */}
                           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 'calc(12.5px * var(--fz))', marginBottom: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
                             <span>訊號 <b style={{ color: it.signal === 'STRONG_BUY' || it.signal === 'BUY' ? '#f03e3e' : it.signal === 'SELL' ? '#2f9e44' : '#fbbf24' }}>{it.signal || '—'}</b></span>
-                            <span>開盤 <b style={{ color: it.gap >= 0 ? '#f03e3e' : '#2f9e44' }}>{it.gap >= 0 ? '跳空+' : ''}{it.gap}%</b></span>
+                            <span>開盤 <b style={{ color: getChangeColor(it.gap) }}>{it.gap > 0 ? '跳空+' : ''}{it.gap}%</b></span>
                             <span>日內位置 <b>{it.pos >= 0.85 ? '收最高附近' : it.pos >= 0.6 ? '偏高檔' : it.pos >= 0.4 ? '中段' : '偏低檔'}（{Math.round(it.pos * 100)}%）</b></span>
                             {it.maRel != null && <span>距5日線 <b style={{ color: it.maRel >= 0 ? '#f03e3e' : '#2f9e44' }}>{it.maRel >= 0 ? '+' : ''}{it.maRel}%</b></span>}
                           </div>
@@ -422,7 +423,7 @@ export default function WarRoom() {
                   <span onClick={() => navigateTo('stock', b.code)} style={{ fontWeight: 600, cursor: 'pointer' }}>{b.name}</span>
               {(() => { const st = statusOf(dt, b.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                   <span style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>{b.lastPrice}</span>
-                  <span style={{ fontWeight: 700, color: b.lastChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{b.lastChg >= 0 ? '+' : ''}{b.lastChg?.toFixed?.(1) ?? b.lastChg}%</span>
+                  <span style={{ fontWeight: 700, color: getChangeColor(b.lastChg) }}>{b.lastChg > 0 ? '+' : ''}{b.lastChg?.toFixed?.(1) ?? b.lastChg}%</span>
                   <span onClick={() => benchRemove(b.code)} title="移除" style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>✕</span>
                 </div>
               ))}

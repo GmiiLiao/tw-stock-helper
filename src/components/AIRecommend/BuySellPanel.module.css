@@ -205,7 +205,7 @@
 }
 
 .gainChip {
-  color: #2f9e44;
+  color: var(--color-up);
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
 }

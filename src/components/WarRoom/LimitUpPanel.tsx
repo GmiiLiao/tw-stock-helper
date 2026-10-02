@@ -13,6 +13,7 @@ import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { startLiveLoop, shouldPollThroughClose, isForeground } from '@/lib/market-clock';
+import { getChangeColor } from '@/lib/twse-api';
 
 interface APick {
   code: string; name: string; market: string; price: number; chg: number;
@@ -259,7 +260,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
                   <div key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'calc(12.5px * var(--fz))', padding: '3px 8px', borderRadius: 6, background: 'rgba(148,163,184,0.05)', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 700, minWidth: 40 }}>{f.code}</span>
                     <span style={{ minWidth: 64 }}>{f.name}</span>
-                    {f.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: f.chg >= 0 ? '#f03e3e' : '#2f9e44', minWidth: 52 }}>{f.chg >= 0 ? '+' : ''}{f.chg}%</span>}
+                    {f.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: getChangeColor(f.chg), minWidth: 52 }}>{f.chg > 0 ? '+' : ''}{f.chg}%</span>}
                     <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
                       {f.tags.map(tg => <span key={tg} style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 6, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', fontWeight: 700 }}>{tg}</span>)}
                     </span>
@@ -323,10 +324,10 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
                       {(() => { const q = quotes[p.code]; const isLive = !!q?.price && q.price !== p.price; const px = isLive ? q!.price : p.price; const d = isLive ? (q!.changePercent ?? 0) : p.chg; return (<>
                         <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center' })}>{isLive ? '即時' : '收'}</span>
                         <span style={NUM_COL(0, 'var(--text-primary)', 700)}>{px}</span>
-                        <span style={NUM_COL(0, d >= 0 ? '#f03e3e' : '#2f9e44', 800)}>{d >= 0 ? '+' : ''}{(+d).toFixed(2)}%</span>
+                        <span style={NUM_COL(0, getChangeColor(d), 800)}>{d > 0 ? '+' : ''}{(+d).toFixed(2)}%</span>
                       </>); })()}
                       <span style={NUM_COL(0, 'var(--text-muted)')}>{p.prevClose ?? '—'}</span>
-                      <span style={NUM_COL(0, (p.prevChg ?? 0) >= 0 ? '#f03e3e' : '#2f9e44')}>{p.prevChg != null ? `${p.prevChg >= 0 ? '+' : ''}${p.prevChg}%` : '—'}</span>
+                      <span style={NUM_COL(0, p.prevChg == null ? 'var(--text-muted)' : getChangeColor(p.prevChg))}>{p.prevChg != null ? `${p.prevChg > 0 ? '+' : ''}${p.prevChg}%` : '—'}</span>
                       <span style={NUM_COL(0, '#fbbf24', 800)}>{p.score}{p.newsBonus && <span title="題材看漲加分(前瞻·未回測)" style={{ color: '#7dd3fc', marginLeft: 3 }}>📰</span>}</span>
                       <span style={NUM_COL(0, 'var(--text-muted)')}>{p.limitPrice}</span>
                     </div>

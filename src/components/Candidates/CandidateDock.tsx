@@ -9,6 +9,7 @@ import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { useDayTradeCodes } from '@/lib/useDayTradeCodes';
 import { dayTradeTintOf } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 export default function CandidateDock() {
   const codes = useAppStore(s => s.compareCodes);
@@ -74,7 +75,7 @@ export default function CandidateDock() {
                 <span style={{ fontWeight: 800, minWidth: 40, color: '#7dd3fc' }}>{r.code}</span>
                 <span style={{ fontWeight: 600, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name || '—'}</span>
                 {r.price != null && <span style={{ color: 'var(--text-secondary)' }}>{r.price}</span>}
-                {r.chg != null && <span style={{ fontWeight: 700, minWidth: 42, textAlign: 'right', color: r.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(1)}%</span>}
+                {r.chg != null && <span style={{ fontWeight: 700, minWidth: 42, textAlign: 'right', color: getChangeColor(r.chg) }}>{r.chg > 0 ? '+' : ''}{r.chg.toFixed(1)}%</span>}
                 <button onClick={(e) => { e.stopPropagation(); toggle(r.code); }} title="移除"
                   style={{ fontSize: 'calc(13px * var(--fz))', lineHeight: 1, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 2px' }}>×</button>
               </div>

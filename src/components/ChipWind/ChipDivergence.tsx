@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 🔀 量價背離：法人籌碼 vs 股價方向（吸貨/出貨候選）──────────────
 // 吸貨＝法人5日買超但股價跌（主力低接洗盤）；出貨＝法人賣超但股價漲（趁高減碼）。
@@ -64,7 +65,7 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
               <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
               {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
-              <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: it.pricePct >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.pricePct)}%</b></span>
+              <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: getChangeColor(it.pricePct) }}>{fmt(it.pricePct)}%</b></span>
             </div>
           ))}
           {!items.length && <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', padding: '4px 8px' }}>今日無明顯{side === 'acc' ? '吸貨' : '出貨'}背離</div>}

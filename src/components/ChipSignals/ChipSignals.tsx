@@ -97,10 +97,11 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
     const st = allStocks.find(s => s.code === it.code);
     const chg = st?.changePercent;
     const price = st?.price;
-    const up = (chg ?? 0) >= 0;
-    const bg = chg == null ? 'rgba(148,163,184,0.10)' : up ? 'rgba(240,62,62,0.16)' : 'rgba(47,158,68,0.16)';
-    const bd = chg == null ? 'var(--border-primary)' : up ? 'rgba(240,62,62,0.45)' : 'rgba(47,158,68,0.45)';
-    const cc = chg == null ? 'var(--text-secondary)' : up ? '#f03e3e' : '#2f9e44';
+    const up = (chg ?? 0) > 0;
+    const flat = chg == null || chg === 0;
+    const bg = flat ? 'rgba(148,163,184,0.10)' : up ? 'rgba(240,62,62,0.16)' : 'rgba(47,158,68,0.16)';
+    const bd = flat ? 'var(--border-primary)' : up ? 'rgba(240,62,62,0.45)' : 'rgba(47,158,68,0.45)';
+    const cc = flat ? 'var(--text-secondary)' : up ? '#f03e3e' : '#2f9e44';
     const otc = st?.market === 'otc';
     const metric = rk === 'tripleAlign' ? `外${fmtLots(it.foreign)} 投${fmtLots(it.trust || 0)} 自${fmtLots(it.dealer || 0)}`
       : rk === 'foreignHeavyBuy' ? `外資 ${fmtLots(it.foreign)} 張`
@@ -117,7 +118,7 @@ export default function ChipSignals({ code, compact = false, slot = false }: { c
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
         {price != null && chg != null ? (
           <div style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: cc, fontFamily: 'JetBrains Mono, monospace' }}>
-            {price} {chg >= 0 ? '+' : ''}{chg.toFixed(1)}%
+            {price} {chg > 0 ? '+' : ''}{chg.toFixed(1)}%
           </div>
         ) : null}
         {/* ⚠ 數字不可省略（與 QuoteGrid 同一條規矩）：原本 nowrap+ellipsis 在 120px 的格子裡

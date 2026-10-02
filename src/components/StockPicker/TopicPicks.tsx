@@ -45,7 +45,7 @@ function TopicRow({ it }: { it: TopicItem }) {
       {it.ind && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{it.ind}</span>}
       {it.newsN >= 2 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc' }}>📰新聞{it.newsN}則</span>}
       <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{it.price}</span>
-      {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg >= 0 ? UP : DOWN, minWidth: 56, textAlign: 'right' }}>{it.chg >= 0 ? '+' : ''}{it.chg}%</span>}
+      {it.chg != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: it.chg > 0 ? UP : it.chg < 0 ? DOWN : 'var(--color-flat)', minWidth: 56, textAlign: 'right' }}>{it.chg > 0 ? '+' : ''}{it.chg}%</span>}
       <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', minWidth: 78, textAlign: 'right' }}>乖離{it.bias5 >= 0 ? '+' : ''}{it.bias5}%</span>
       {it.rsi5 != null && <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: (it.rsi5 < 10 || it.rsi5 >= 90) ? '#fbbf24' : 'var(--text-muted)', minWidth: 96, textAlign: 'right' }}>RSI5/10：{it.rsi5}/{it.rsi10}</span>}
     </div>

@@ -85,7 +85,9 @@ export default function AiSwingLab() {
           <Kpi label="🏦 帳戶總值（起始 50 萬）" value={`${data.summary.total.toLocaleString()} 元`} color={upDn(data.summary.totalPnl)}
             sub={`總損益 ${twd(data.summary.totalPnl)}（${pct(data.summary.totalRetPct)}）＝ 現金 ${data.summary.cash.toLocaleString()} ＋ 持倉淨市值 ${data.summary.netMkt.toLocaleString()}`}
             hint={`持倉淨市值＝市值 ${data.summary.mktValue.toLocaleString()} − 若現在賣出的手續費與證交稅 ${data.summary.estSellCost.toLocaleString()}。待進場的委託買單尚未成交，錢仍在現金裡，不計入。`} />
-          <Kpi label="損益拆解（已實現／未實現）" value={`${twd(data.summary.realized)}／${twd(data.summary.unrealized)}`} color={upDn(data.summary.realized + data.summary.unrealized)}
+          {/* 已實現／未實現各依自己的正負上色（2026-10-02 使用者：上漲紅、下跌綠；原本整張卡依兩者合計單一顏色） */}
+          <Kpi label="損益拆解（已實現／未實現）"
+            value={<><span style={{ color: upDn(data.summary.realized) }}>{twd(data.summary.realized)}</span>／<span style={{ color: upDn(data.summary.unrealized) }}>{twd(data.summary.unrealized)}</span></>}
             sub={`已實現＝${data.summary.closedN} 筆已賣出；未實現＝${data.summary.held + data.summary.selling} 檔持有中（已扣買賣費稅）`} />
           <Kpi label="可下單資金" value={`${data.summary.freeCash.toLocaleString()} 元`}
             sub={`＝ 現金 ${data.summary.cash.toLocaleString()} − 委託買單保留 ${data.summary.reservedBuys.toLocaleString()} ＋ 委託賣單估計回收 ${data.summary.pendingSellEst.toLocaleString()}`}

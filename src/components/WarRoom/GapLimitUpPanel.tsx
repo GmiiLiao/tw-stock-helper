@@ -4,7 +4,7 @@ import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
-import { isLimitUp } from '@/lib/twse-api';
+import { isLimitUp, getChangeColor } from '@/lib/twse-api';
 import { getSession, isForeground } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import CostReference from '@/components/shared/CostReference';
@@ -102,7 +102,7 @@ export default function GapLimitUpPanel() {
                 {it.punish && <span style={{ fontSize: 'calc(12.5px * var(--fz))', padding: '1px 6px', borderRadius: 6, background: 'rgba(148,163,184,0.2)', color: 'var(--text-muted)' }}>處置股</span>}
                 {showLive && (
                   <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: broke ? '#f87171' : locked ? '#fbbf24' : '#4ade80' }}>
-                    {broke ? `⛔ 已破停損 ${q.price.toFixed(2)}` : locked ? `🔒 鎖漲停 ${q.price.toFixed(2)} 買不到` : `● 可買 ${q.price.toFixed(2)} (${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%)`}
+                    {broke ? `⛔ 已破停損 ${q.price.toFixed(2)}` : locked ? `🔒 鎖漲停 ${q.price.toFixed(2)} 買不到` : <>{`● 可買 ${q.price.toFixed(2)} (`}<span style={{ color: getChangeColor(q.changePercent) }}>{`${q.changePercent > 0 ? '+' : ''}${q.changePercent.toFixed(2)}%`}</span>{')'}</>}
                   </span>
                 )}
                 {openCode === it.code && (

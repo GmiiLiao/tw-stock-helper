@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { shouldPollNow } from '@/lib/market-clock';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 大盤即時走勢浮動窗（2026-08-14 使用者需求）──────────────────────
 // 點左上「台股加權指數」卡片彈出：指數線＋平盤紅綠填色＋每分鐘成交值量條
@@ -106,10 +107,10 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
             </button>
           ))}
           {view && !view.empty && (
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))', color: view.chg >= 0 ? up : down }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 800, fontSize: 'calc(1.05rem * var(--fz))', color: getChangeColor(view.chg) }}>
               {view.last[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', marginLeft: 8 }}>
-                {view.chg >= 0 ? '+' : ''}{view.chg.toFixed(2)}（{view.chg >= 0 ? '+' : ''}{((view.chg / view.prev) * 100).toFixed(2)}%）
+                {view.chg > 0 ? '+' : ''}{view.chg.toFixed(2)}（{view.chg > 0 ? '+' : ''}{((view.chg / view.prev) * 100).toFixed(2)}%）
               </span>
             </span>
           )}
@@ -137,7 +138,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
               {/* 平盤虛線 */}
               <line x1="0" y1={view.yPrev} x2={W} y2={view.yPrev} stroke="var(--text-muted)" strokeDasharray="5 4" strokeWidth="1" vectorEffect="non-scaling-stroke" opacity="0.7" />
               {/* 指數線 */}
-              <path d={view.line} fill="none" stroke={view.chg >= 0 ? '#f03e3e' : '#2f9e44'} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+              <path d={view.line} fill="none" stroke={view.chg > 0 ? '#f03e3e' : view.chg < 0 ? '#2f9e44' : '#94a3b8'} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
               {/* 量條 */}
               {view.pts.map((p, i) => {
                 const h = (view.vols[i] / view.vMax) * (VH - 4);
@@ -163,7 +164,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
               <div style={{ position: 'absolute', top: 8, left: view.x(tip[0]) / W > 0.55 ? 8 : undefined, right: view.x(tip[0]) / W > 0.55 ? undefined : 8,
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono',monospace", pointerEvents: 'none' }}>
                 <div style={{ color: 'var(--text-muted)' }}>時間：{fmtT(tip[0])}</div>
-                <div style={{ color: tip[1] >= view.prev ? up : down }}>成交價：{tip[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}（{tip[1] >= view.prev ? '+' : ''}{(tip[1] - view.prev).toFixed(2)}）</div>
+                <div style={{ color: getChangeColor(tip[1] - view.prev) }}>成交價：{tip[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}（{tip[1] > view.prev ? '+' : ''}{(tip[1] - view.prev).toFixed(2)}）</div>
                 <div style={{ color: '#f59e0b' }}>成交值：{tipVol.toFixed(2)} 億</div>
               </div>
             )}

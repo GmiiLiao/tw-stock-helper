@@ -12,6 +12,7 @@ import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { useAppStore } from '@/lib/store';
 import HitRate from '@/components/shared/HitRate';
+import { getChangeColor } from '@/lib/twse-api';
 
 interface Surge {
   code: string; name: string; market: string; price: number; chg: number;
@@ -86,7 +87,7 @@ export default function VolSurgePanel() {
                     <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                     <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
-                    <span style={{ fontWeight: 800, color: dc }}>{p.chg >= 0 ? '+' : ''}{p.chg}%</span>
+                    <span style={{ fontWeight: 800, color: getChangeColor(p.chg) }}>{p.chg > 0 ? '+' : ''}{p.chg}%</span>
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#c4b5fd' }}>爆量 +{p.surgeLots.toLocaleString()} 張</span>
                     <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{p.rateX}x 常態/分{p.volX != null ? ` · 今日量比 ${p.volX}x` : ''}</span>
                   </div>

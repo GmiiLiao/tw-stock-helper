@@ -5,6 +5,7 @@ import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 🧭 產業風向偵測：加權分 + 資金流向(加碼/減碼) ──────────────
 // 讓看盤快速感知「錢往哪個族群跑」。加權分＝漲跌×家數廣度×籌碼傾向；
@@ -94,7 +95,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
                   </span>
                   <b style={{ color: scoreColor(s.windScore), minWidth: 34 }}>{s.windScore}</b>
                 </span>
-                <span style={{ color: s.avgChg >= 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700, minWidth: 54 }}>{s.avgChg >= 0 ? '+' : ''}{s.avgChg}%</span>
+                <span style={{ color: getChangeColor(s.avgChg), fontWeight: 700, minWidth: 54 }}>{s.avgChg > 0 ? '+' : ''}{s.avgChg}%</span>
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{s.up}漲/{s.down}跌</span>
                 {s.netInst ? <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: s.netInst > 0 ? '#f03e3e' : '#2f9e44', fontWeight: 700 }}>昨法人{s.netInst > 0 ? '+' : ''}{s.netInst.toLocaleString()}</span> : null}
                 <span style={{ marginLeft: 'auto' }}>{deltaTag(s.delta)}</span>
@@ -106,7 +107,7 @@ export default function SectorWind({ compact = false }: { compact?: boolean }) {
                     <span key={l.code} onClick={() => navigateTo('stock', l.code)} style={{ cursor: 'pointer' }}>
                       <b style={{ color: '#7dd3fc' }}>{l.code} {l.name}</b>
                       {(() => { const st = statusOf(dt, l.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
-                      <span style={{ color: l.cp >= 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4 }}>{l.cp >= 0 ? '+' : ''}{l.cp}%</span>
+                      <span style={{ color: getChangeColor(l.cp), marginLeft: 4 }}>{l.cp > 0 ? '+' : ''}{l.cp}%</span>
                       {l.netInst ? <span style={{ color: l.netInst > 0 ? '#f03e3e' : '#2f9e44', marginLeft: 4, fontSize: 'calc(12.5px * var(--fz))' }}>法人{l.netInst > 0 ? '+' : ''}{l.netInst}</span> : null}
                     </span>
                   ))}

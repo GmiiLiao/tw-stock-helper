@@ -7,6 +7,7 @@
 //   ③ 訓練資料集累積與歷史報表，可回查每一次訓練的變因實驗
 import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
+import { getChangeColor } from '@/lib/twse-api';
 
 interface Stat { n?: number; mean?: number | null; win?: number | null; buyRate?: number | null; nBuyable?: number; meanBuyable?: number | null; winBuyable?: number | null; limitUpRate?: number; squeezeRate?: number }
 // v2（2026-09-17 規則重規畫）：日層級超額 excess、95% CI、交易日數 days、三態 state；v1 文件沒有這些欄位，畫面兩者都要能讀
@@ -145,13 +146,13 @@ export default function SqueezeModel() {
               <thead><tr><th style={{ ...th, textAlign: 'left' }}>口徑</th><th style={th}>日層級超額</th><th style={th}>95% CI</th><th style={th}>逐筆平均</th><th style={th}>勝率</th><th style={th}>樣本</th><th style={th}>交易日</th></tr></thead>
               <tbody>
                 <tr><td style={{ ...td, textAlign: 'left' }}>訓練段</td><td style={td}>{pp(m.main.train.excess)}</td><td style={td}>{ciTxt(m.main.train.ci)}</td><td style={td}>{pn(m.main.train.mean)}</td><td style={td}>{m.main.train.win ?? '—'}%</td><td style={td}>{m.main.train.n}</td><td style={td}>{m.main.train.days ?? '—'}</td></tr>
-                <tr style={{ fontWeight: 700 }}><td style={{ ...td, textAlign: 'left' }}>樣本外</td><td style={{ ...td, color: stateColor(m.main.oot.state) }}>{pp(m.main.oot.excess)}</td><td style={td}>{ciTxt(m.main.oot.ci)}</td><td style={td}>{pn(m.main.oot.mean)}</td><td style={td}>{m.main.oot.win ?? '—'}%</td><td style={td}>{m.main.oot.n}</td><td style={td}>{m.main.oot.days ?? '—'}</td></tr>
+                <tr style={{ fontWeight: 700 }}><td style={{ ...td, textAlign: 'left' }}>樣本外</td><td style={{ ...td, color: getChangeColor(m.main.oot.excess ?? 0) }}>{pp(m.main.oot.excess)}</td><td style={td}>{ciTxt(m.main.oot.ci)}</td><td style={td}>{pn(m.main.oot.mean)}</td><td style={td}>{m.main.oot.win ?? '—'}%</td><td style={td}>{m.main.oot.n}</td><td style={td}>{m.main.oot.days ?? '—'}</td></tr>
                 <tr><td style={{ ...td, textAlign: 'left', color: 'var(--text-muted)' }}>純動能基準（樣本外）</td><td style={td}>0</td><td style={td}>—</td><td style={{ ...td, color: 'var(--text-muted)' }}>{pn(m.baseline.oot.momentum.mean)}</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.win}%</td><td style={{ ...td, color: 'var(--text-muted)' }}>{m.baseline.oot.momentum.n}</td><td style={td}>—</td></tr>
               </tbody>
             </table>
             {m.main.oot.net && (
               <div style={{ marginTop: 4 }}>
-                A 段閘門：樣本外絕對報酬（{(root.regime?.costPct ?? 0.4425) > 0 ? `扣 ${root.regime?.costPct ?? 0.4425}%` : '未扣成本'}）<b style={{ color: (m.main.oot.net.ci?.[0] ?? -1) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
+                A 段閘門：樣本外絕對報酬（{(root.regime?.costPct ?? 0.4425) > 0 ? `扣 ${root.regime?.costPct ?? 0.4425}%` : '未扣成本'}）<b style={{ color: getChangeColor(m.main.oot.net.mean ?? 0) }}>{pn(m.main.oot.net.mean)}</b> CI {ciTxt(m.main.oot.net.ci)}
                 {m.main.oot.byRegime && <>　市況分層超額：多頭 <b>{pp(m.main.oot.byRegime.bull.excess)}</b>（{m.main.oot.byRegime.bull.days} 日）／空頭 <b>{pp(m.main.oot.byRegime.bear.excess)}</b>（{m.main.oot.byRegime.bear.days} 日）</>}
               </div>
             )}

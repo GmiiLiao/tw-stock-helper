@@ -5,6 +5,7 @@ import { useDataUid } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 🪞 影子帳戶（借鏡 Vibe-Trading Shadow Account）──────────────
 // daemon 從交易紀錄學出「你實際在用的規則」，與鐵律比對，
@@ -49,12 +50,12 @@ export default function ShadowAccount() {
             {[
               { k: '隔日沖遵守率', v: `${L.overnightRate}%`, warn: L.overnightRate < 70, note: '鐵律 100%' },
               { k: '中位持有天數', v: `${L.medHoldDays} 天`, warn: L.medHoldDays > 1, note: '鐵律 ≤1 天' },
-              { k: '實際停損位', v: L.avgLossExit != null ? `${L.avgLossExit}%` : '—', warn: (L.avgLossExit ?? 0) < -8, note: '鐵律 -8%' },
-              { k: '實際停利位', v: L.avgWinExit != null ? `+${L.avgWinExit}%` : '—', warn: false, note: `勝率 ${L.winRate}%` },
+              { k: '實際停損位', v: L.avgLossExit != null ? `${L.avgLossExit}%` : '—', warn: (L.avgLossExit ?? 0) < -8, note: '鐵律 -8%', c: L.avgLossExit != null ? getChangeColor(L.avgLossExit) : undefined },
+              { k: '實際停利位', v: L.avgWinExit != null ? `+${L.avgWinExit}%` : '—', warn: false, note: `勝率 ${L.winRate}%`, c: L.avgWinExit != null ? getChangeColor(L.avgWinExit) : undefined },
             ].map(x => (
               <div key={x.k} style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(148,163,184,0.06)' }}>
                 <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{x.k} <span style={{ opacity: 0.7 }}>({x.note})</span></div>
-                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: x.warn ? '#2f9e44' : '#f03e3e' }}>{x.v}</div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: x.c ?? (x.warn ? '#2f9e44' : '#f03e3e') }}>{x.v}</div>
               </div>
             ))}
           </div>

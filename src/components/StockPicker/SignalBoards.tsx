@@ -3,6 +3,7 @@
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 import SwingCurveBoard from './SwingCurveBoard';
 import { MODES } from '@/lib/trading-mode';
 import HitRate from '@/components/shared/HitRate';
@@ -26,8 +27,8 @@ import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21：與波�
 //     等於宣稱它有那個持有期的實證——本站沒有測過，所以獨立成一區並明說。
 
 const up = 'var(--color-up)', down = 'var(--color-down)';
-const col = (v: number) => (v >= 0 ? up : down);
-const sign = (v: number) => (v >= 0 ? '+' : '');
+const col = (v: number) => getChangeColor(v);
+const sign = (v: number) => (v > 0 ? '+' : '');
 const card: React.CSSProperties = {
   background: 'var(--bg-card, rgba(148,163,184,0.04))', border: '1px solid var(--border-primary, rgba(148,163,184,0.18))',
   borderRadius: 10, padding: '14px 16px',

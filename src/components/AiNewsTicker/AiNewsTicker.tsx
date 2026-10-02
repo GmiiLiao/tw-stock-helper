@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getSession, isForeground, msToNextReveal, startLiveLoop, revealTick } from '@/lib/market-clock';
 import IndexIntradayModal from '@/components/shared/IndexIntradayModal';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 import styles from './AiNewsTicker.module.css';
 
 // ──────────────────────────────────────────────────────────────
@@ -206,9 +207,8 @@ export function NavbarIndexWidget() {
     </div>
   );
 
-  const isUp = data.weightedChange >= 0;
-  const color = isUp ? 'var(--color-up)' : 'var(--color-down)';
-  const sign  = isUp ? '+' : '';
+  const color = getChangeColor(data.weightedChange);
+  const sign  = data.weightedChange > 0 ? '+' : '';
 
   return (
     <>

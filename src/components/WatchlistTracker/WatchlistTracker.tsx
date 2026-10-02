@@ -16,6 +16,7 @@ import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { MaChipFor, SeqBarsFor } from '@/components/shared/SeqIndicators';
 import { useRiskCodes, isDispositionPending, taipeiToday } from '@/lib/useRiskCodes';
 import { TECH_SCORE_TIP } from '@/lib/tech-score';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ─── Shared status badges (漲跌停 / 注意 / 處置) ───────────────────────────────
 // 注意/處置名單改用全站共用 hook（2026-09-18：此處原有一份複本，處置「尚未生效」的判斷只修共用版就會漏這裡）。
@@ -24,6 +25,12 @@ function shortDate(d?: string): string {
   if (!d) return '';
   const m = d.match(/(\d{1,2})[-/](\d{1,2})$/) || d.match(/(\d{2})(\d{2})$/);
   return m ? `${parseInt(m[1], 10)}/${parseInt(m[2], 10)}` : d;
+}
+
+/** 高/低價依「相對昨收」著色（台股報價慣例：高於昨收紅、低於昨收綠、平盤灰）；缺值時中性色。
+ *  toFixed(2) 去掉 price−change 推算昨收的浮點尾差，避免平盤被染色。 */
+function vsPrevColor(p: number, prev: number): string {
+  return p > 0 && prev > 0 ? getChangeColor(+(p - prev).toFixed(2)) : 'var(--text-muted)';
 }
 
 /** Inline status tags shown next to a stock name in every tracking tab.
@@ -557,8 +564,8 @@ function StockRow({
               {(quote.open > 0 || quote.high > 0) && (
                 <>
                   <span>開 <b style={{ color: '#94a3b8' }}>{quote.open > 0 ? quote.open.toFixed(2) : '—'}</b></span>
-                  <span>高 <b style={{ color: '#ef4444' }}>{quote.high > 0 ? quote.high.toFixed(2) : '—'}</b></span>
-                  <span>低 <b style={{ color: '#3b82f6' }}>{quote.low > 0 ? quote.low.toFixed(2) : '—'}</b></span>
+                  <span>高 <b style={{ color: vsPrevColor(quote.high, quote.prevClose) }}>{quote.high > 0 ? quote.high.toFixed(2) : '—'}</b></span>
+                  <span>低 <b style={{ color: vsPrevColor(quote.low, quote.prevClose) }}>{quote.low > 0 ? quote.low.toFixed(2) : '—'}</b></span>
                 </>
               )}
               {targetPrice !== null && targetPrice !== undefined && (
@@ -968,8 +975,8 @@ function AiGroupPanel({
                   {q && (q.high > 0 || q.low > 0) && (
                     <>
                       <span>開 <span style={{ color: 'var(--text-secondary)' }}>{q.open > 0 ? q.open.toFixed(2) : '—'}</span></span>
-                      <span>高 <span style={{ color: 'var(--color-up)' }}>{q.high > 0 ? q.high.toFixed(2) : '—'}</span></span>
-                      <span>低 <span style={{ color: 'var(--color-down)' }}>{q.low > 0 ? q.low.toFixed(2) : '—'}</span></span>
+                      <span>高 <span style={{ color: vsPrevColor(q.high, q.prevClose) }}>{q.high > 0 ? q.high.toFixed(2) : '—'}</span></span>
+                      <span>低 <span style={{ color: vsPrevColor(q.low, q.prevClose) }}>{q.low > 0 ? q.low.toFixed(2) : '—'}</span></span>
                     </>
                   )}
                   {targetPrice !== null && targetPrice !== undefined && (

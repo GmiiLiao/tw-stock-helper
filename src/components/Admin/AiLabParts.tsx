@@ -2,7 +2,7 @@
 
 // 🤖 AI 實驗後台共用元件（2026-09-24 UX 重整）：數字卡、交易單、查核徽章、人工檢討框。
 // 設計原則：先給結論（淨損益元、勝率、AI 有沒有贏基準）→ 再給逐筆交易單（買賣時間、金額、費稅一眼可對）→ AI 的理由收在下面。
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import type { SimLedger } from '../../../scripts/lib/ai-swing-lab.mjs';
 import { storageGet, storageSet } from '@/lib/safe-storage';
 
@@ -23,7 +23,7 @@ const dur = (ms: number | null) => {
   return `${Math.round(m / 60 / 24)} 天`;
 };
 
-export function Kpi({ label, value, sub, color, hint }: { label: string; value: string; sub?: string; color?: string; hint?: string }) {
+export function Kpi({ label, value, sub, color, hint }: { label: string; value: ReactNode; sub?: string; color?: string; hint?: string }) {
   return (
     <div title={hint} style={{ flex: '1 1 10em', minWidth: '10em', padding: '10px 12px', borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
       <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{label}</div>

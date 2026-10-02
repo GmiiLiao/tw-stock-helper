@@ -6,6 +6,7 @@ import { useAppStore } from '@/lib/store';
 import SectorWind from '@/components/SectorWind/SectorWind';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 🌪 風向 2.0：強勢股統計 → 題材供應鏈 → 驅動力歸因 ──────────────
 // 第1層 大盤走向（結構/全面行情）；第2層 題材鏈聚集度＋上下游驗證
@@ -78,7 +79,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
       <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(61,142,248,0.08)', marginBottom: 8 }}>
         <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 900, color: dirColor, marginBottom: 3 }}>{dir.label}</div>
         <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>
-          漲 {dir.up} / 跌 {dir.down}{dir.wChg != null && <> · <span title="全市場成交值加權漲跌：資金面的大盤方向（家數只看多數個股，這個看錢往哪裡走）">成交加權 <b style={{ color: dir.wChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{dir.wChg >= 0 ? '+' : ''}{dir.wChg}%</b></span></>} · 強勢股 {dir.strongCount} 檔 · 前3題材佔強勢股 {Math.round(dir.topShare * 100)}%
+          漲 {dir.up} / 跌 {dir.down}{dir.wChg != null && <> · <span title="全市場成交值加權漲跌：資金面的大盤方向（家數只看多數個股，這個看錢往哪裡走）">成交加權 <b style={{ color: getChangeColor(dir.wChg) }}>{dir.wChg > 0 ? '+' : ''}{dir.wChg}%</b></span></>} · 強勢股 {dir.strongCount} 檔 · 前3題材佔強勢股 {Math.round(dir.topShare * 100)}%
         </div>
       </div>
 
@@ -112,7 +113,7 @@ export default function MarketWind({ compact = false, bare = false }: { compact?
                   <b style={{ minWidth: 30, color: t.score >= 55 ? '#f03e3e' : 'var(--text-secondary)' }}>{t.score}</b>
                 </span>
                 <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>強勢 {t.strong}/{t.members}</span>
-                {t.wChg != null && <span title="題材成員成交值加權漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono', monospace", color: t.wChg >= 0 ? '#f03e3e' : '#2f9e44' }}>{t.wChg >= 0 ? '+' : ''}{t.wChg}%</span>}
+                {t.wChg != null && <span title="題材成員成交值加權漲跌" style={{ fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono', monospace", color: getChangeColor(t.wChg) }}>{t.wChg > 0 ? '+' : ''}{t.wChg}%</span>}
                 {t.valueShare != null && <span title="題材成交值占全市場比重——越大代表越多資金在這裡" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>資金 {t.valueShare}%</span>}
                 {t.limitUps > 0 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: '#f03e3e', fontWeight: 800 }}>漲停{t.limitUps}</span>}
                 {cb && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: cb.color, fontWeight: 700 }}>{cb.text}</span>}

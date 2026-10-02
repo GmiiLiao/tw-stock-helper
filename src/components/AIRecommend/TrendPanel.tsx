@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { getChangeColor } from '@/lib/twse-api';
 import styles from './TrendPanel.module.css';
 
 // ─── Types ────────────────────────────────────────────────────
@@ -263,12 +264,12 @@ export default function TrendPanel({ stockCode, stockName }: { stockCode: string
               <span className={styles.priceOverValue}>{pm.todayClose.toFixed(2)}</span>
             </div>
             <div className={styles.priceOverItem} style={{ borderColor: 'rgba(240,62,62,0.3)' }}>
-              <span className={styles.priceOverLabel} style={{ color: '#f03e3e' }}>預期開盤低</span>
-              <span className={styles.priceOverValue} style={{ color: '#f03e3e' }}>{pm.expectedOpeningRange.low.toFixed(2)}</span>
+              <span className={styles.priceOverLabel} style={{ color: getChangeColor(pm.expectedOpeningRange.low - pm.todayClose) }}>預期開盤低</span>
+              <span className={styles.priceOverValue} style={{ color: getChangeColor(pm.expectedOpeningRange.low - pm.todayClose) }}>{pm.expectedOpeningRange.low.toFixed(2)}</span>
             </div>
             <div className={styles.priceOverItem} style={{ borderColor: 'rgba(240,62,62,0.3)' }}>
-              <span className={styles.priceOverLabel} style={{ color: '#f03e3e' }}>預期開盤高</span>
-              <span className={styles.priceOverValue} style={{ color: '#f03e3e' }}>{pm.expectedOpeningRange.high.toFixed(2)}</span>
+              <span className={styles.priceOverLabel} style={{ color: getChangeColor(pm.expectedOpeningRange.high - pm.todayClose) }}>預期開盤高</span>
+              <span className={styles.priceOverValue} style={{ color: getChangeColor(pm.expectedOpeningRange.high - pm.todayClose) }}>{pm.expectedOpeningRange.high.toFixed(2)}</span>
             </div>
             <div className={styles.priceOverItem} style={{ borderColor: 'rgba(47,158,68,0.3)' }}>
               <span className={styles.priceOverLabel} style={{ color: '#2f9e44' }}>建議停損</span>
@@ -411,7 +412,7 @@ export default function TrendPanel({ stockCode, stockName }: { stockCode: string
             </div>
             <div className={styles.consensusItem}>
               <span className={styles.consensusLabel}>平均目標漲幅</span>
-              <span className={styles.consensusValue} style={{ color: '#2f9e44' }}>{industryOutlook.avgTargetUpside}</span>
+              <span className={styles.consensusValue} style={{ color: getChangeColor(parseFloat(industryOutlook.avgTargetUpside)) }}>{industryOutlook.avgTargetUpside}</span>
             </div>
           </div>
           <div className={styles.catalystsSection}>

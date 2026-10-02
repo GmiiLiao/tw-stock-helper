@@ -16,6 +16,7 @@ import { METRIC_TIPS } from '@/lib/metric-tips';
 import HitRate from '@/components/shared/HitRate';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 interface Pick {
   code: string; name: string; market: string; price: number | null; chg: number;
@@ -233,7 +234,7 @@ function CharacterTable({ charData, allStocks, navigateTo, filter, setFilter, in
               <span style={{ fontWeight: 600, minWidth: 60 }}>{st?.name || '—'}</span>
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
               {st?.price != null && <span style={{ color: 'var(--text-secondary)', minWidth: 40 }}>{st.price}</span>}
-              {chg != null && <span style={{ fontWeight: 800, minWidth: 46, color: chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}%</span>}
+              {chg != null && <span style={{ fontWeight: 800, minWidth: 46, color: getChangeColor(chg) }}>{chg > 0 ? '+' : ''}{chg.toFixed(1)}%</span>}
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: ls.bg, color: ls.c }}>{r.label || '一般'}</span>
               {/* 三法人分別 20 日持有狀態 */}
               <span style={{ display: 'inline-flex', gap: 8, alignItems: 'flex-start', padding: '0 4px', borderLeft: '1px solid var(--border-primary)', borderRight: '1px solid var(--border-primary)' }}>
@@ -413,7 +414,7 @@ export default function ChipPicksPanel() {
                       <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: '#f6a06a' }}>加碼 {p.added.toLocaleString()} 張{p.addedXVol != null ? `(${p.addedXVol}x日均)` : ''}</span>
                       <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{p.valueE8} 億 · 布局 {p.days} 日 · 買超 {p.buyDays} 天</span>
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: p.rise >= 0 ? '#f03e3e' : '#2f9e44' }}>期間{p.rise >= 0 ? '+' : ''}{p.rise}%</span>
+                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: getChangeColor(p.rise) }}>期間{p.rise > 0 ? '+' : ''}{p.rise}%</span>
                       {p.lu60 > 0 && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>3月{p.lu60}板</span>}
                       {/* 倒貨風險進度條 */}
                       <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -464,7 +465,7 @@ export default function ChipPicksPanel() {
                   <span style={{ fontWeight: 600, minWidth: 68 }}>{p.name}</span>
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                   {p.price != null && <span style={{ color: 'var(--text-secondary)' }}>{p.price}</span>}
-                  <span style={{ fontWeight: 800, color: p.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{p.chg >= 0 ? '+' : ''}{p.chg}%</span>
+                  <span style={{ fontWeight: 800, color: getChangeColor(p.chg) }}>{p.chg > 0 ? '+' : ''}{p.chg}%</span>
                   {p.win != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, color: '#7dd3fc' }}>勝率 {p.win}%</span>}
                   {view === 'graded' && (() => { const cmp = compositeOf(p, liveMap.get(p.code) as { high?: number; low?: number }); return (
                     <>

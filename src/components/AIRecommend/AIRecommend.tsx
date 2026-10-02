@@ -10,6 +10,7 @@ import RiskBadge from '@/components/shared/RiskBadge';
 import CostReference from '@/components/shared/CostReference';
 import { useShallow } from 'zustand/react/shallow';
 import DayTradeBadge from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 interface BuyZone {
   label: string;
@@ -310,8 +311,8 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
   // Enriched view when available, else the base list data.
   const view = enrichedStock ?? stock;
 
-  const isUp = view.change >= 0;
-  const changeColor = isUp ? 'var(--color-up)' : 'var(--color-down)';
+  // 顏色與正負號一律跟著「畫面上顯示的那個值」(stock.*)，不是 enriched 快照
+  const changeColor = getChangeColor(stock.change);
   const signalCfg = SIGNAL_CONFIG[view.signal];
   const gradeColor = GRADE_COLORS[view.grade] || '#495057';
   const inWL = isInWatchlist(stock.code);
@@ -355,7 +356,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
         <div className={styles.priceBlock}>
           <div className={styles.price}>{stock.price.toFixed(2)}</div>
           <div className={styles.priceChange} style={{ color: changeColor }}>
-            {isUp ? '+' : ''}{stock.change.toFixed(2)} ({isUp ? '+' : ''}{stock.changePercent.toFixed(2)}%)
+            {stock.change > 0 ? '+' : ''}{stock.change.toFixed(2)} ({stock.changePercent > 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%)
           </div>
         </div>
 
@@ -404,7 +405,7 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
         <div className={styles.quickInfoItem} style={{ borderColor: 'rgba(47,158,68,0.25)' }}>
           <span className={styles.quickInfoLabel} style={{ color: '#2f9e44' }}>🟢 第一目標</span>
           <span className={styles.quickInfoValue} style={{ color: '#2f9e44' }}>
-            {firstTarget ? `${firstTarget.price.toFixed(2)} (+${firstTarget.gainPercent}%)` : '--'}
+            {firstTarget ? <>{firstTarget.price.toFixed(2)} <span style={{ color: getChangeColor(firstTarget.gainPercent) }}>(+{firstTarget.gainPercent}%)</span></> : '--'}
           </span>
         </div>
         <div className={styles.quickInfoItem} style={{ borderColor: 'rgba(134,142,150,0.2)' }}>
@@ -768,7 +769,6 @@ function MarketReportBanner() {
           {/* enriched top picks */}
           <div className={styles.reportPicks}>
             {report.topPicks.slice(0, 8).map(p => {
-              const up = p.changePercent >= 0;
               return (
                 <button key={p.code} className={styles.reportPick} onClick={() => navigateTo('stock', p.code)}>
                   <div className={styles.reportPickTop}>
@@ -777,7 +777,7 @@ function MarketReportBanner() {
                     <span className={styles.reportPickGrade}>{p.grade}</span>
                   </div>
                   <div className={styles.reportPickRow}>
-                    <span style={{ color: up ? 'var(--color-up)' : 'var(--color-down)' }}>{p.price.toFixed(2)}（{up ? '+' : ''}{p.changePercent.toFixed(2)}%）</span>
+                    <span style={{ color: getChangeColor(p.changePercent) }}>{p.price.toFixed(2)}（{p.changePercent > 0 ? '+' : ''}{p.changePercent.toFixed(2)}%）</span>
                   </div>
                   <div className={styles.reportPickRow}>
                     <span style={{ color: 'var(--color-up)' }}>買 {p.buy?.toFixed(2) ?? '--'}</span>

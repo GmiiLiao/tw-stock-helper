@@ -5,6 +5,7 @@ import { useIsPremium } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── Premium-only 開盤前 AI 策略快報 banner (Dashboard). Shows the daemon's
 //    pre-market brief: 10 picks + entry/exit + market strategy, plus the
@@ -72,14 +73,14 @@ export default function PremarketBrief() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 8, marginBottom: 12 }}>
             {brief.picks.map(p => {
               const c = SIGNAL_COLOR[p.signal] || '#868e96';
-              const up = p.changePercent >= 0;
+              const up = p.changePercent > 0;
               return (
                 <div key={p.code} style={{ border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-md)', padding: '9px 11px', background: 'var(--bg-card)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--accent-blue)' }}>{p.code}</span>
                     <span style={{ fontWeight: 600 }}>{p.name}</span>
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: `${c}1f`, color: c, border: `1px solid ${c}` }}>{p.signalLabel}</span>
-                    <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: up ? 'var(--color-up)' : 'var(--color-down)' }}>{p.price}（{up ? '+' : ''}{p.changePercent?.toFixed?.(2)}%）</span>
+                    <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', color: p.changePercent == null ? 'var(--text-muted)' : getChangeColor(p.changePercent) }}>{p.price}（{up ? '+' : ''}{p.changePercent?.toFixed?.(2)}%）</span>
                   </div>
                   <div style={{ display: 'flex', gap: 12, fontFamily: 'JetBrains Mono, monospace', fontSize: 'calc(12.5px * var(--fz))', margin: '5px 0', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ color: 'var(--color-up)' }}>買 {p.buy ?? '—'}</span>

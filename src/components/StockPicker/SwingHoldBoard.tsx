@@ -9,6 +9,7 @@ import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import RiskBadge from '@/components/shared/RiskBadge';   // 2026-09-21 使用者：光鼎 6226 處置中卻沒標示——本榜漏掛全站共用的注意/處置徽章
 import { storageGet, storageSet } from '@/lib/safe-storage';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 📈 波段持有：近 5／10／20／60 日連續成長榜＋整合榜（2026-09-16）──
 // 資料：daemon 每交易日 16:45 定版寫 swingHold/latest；歷史 swingHold/{dataDate} 可用日期選單回看。
@@ -149,7 +150,7 @@ export default function SwingHoldBoard() {
     const q = quotes[code];
     if (!q?.price) return <span style={{ color: MUTED }}>—</span>;
     const d = (q.price / price - 1) * 100;
-    return <span style={{ color: d >= 0 ? UP : DOWN }} title="即時價（相對資料日收盤）">{q.price.toFixed(2)} <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{d >= 0 ? '+' : ''}{d.toFixed(1)}%</span></span>;
+    return <span style={{ color: getChangeColor(d) }} title="即時價（相對資料日收盤）">{q.price.toFixed(2)} <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>{d > 0 ? '+' : ''}{d.toFixed(1)}%</span></span>;
   };
   const nameCell = (it: { code: string; name: string; ma?: MaFlags }) => (
     <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit' }}>
@@ -350,9 +351,9 @@ export default function SwingHoldBoard() {
                         <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit' }}><span style={{ fontFamily: mono, fontWeight: 700, cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)}>{it.code}</span> <span style={{ cursor: 'pointer' }} onClick={() => navigateTo('stock', it.code)}>{it.name}</span> <RiskBadge code={it.code} size="xs" /></td>
                         <td style={cell}>{tab === 'combo' ? `#${it.prevRank}` : [it.prevRank != null ? `漲幅 #${it.prevRank}` : null, it.prevAmtRank != null ? `淨額 #${it.prevAmtRank}` : null].filter(Boolean).join('／')}</td>
                         <td style={cell}>{it.prevPrice} → {it.price ?? '—'}</td>
-                        <td style={{ ...cell, fontWeight: 700, color: it.chgSincePrev == null ? MUTED : it.chgSincePrev >= 0 ? UP : DOWN }}>{it.chgSincePrev == null ? '—' : `${it.chgSincePrev >= 0 ? '+' : ''}${it.chgSincePrev}%`}</td>
+                        <td style={{ ...cell, fontWeight: 700, color: it.chgSincePrev == null ? MUTED : getChangeColor(it.chgSincePrev) }}>{it.chgSincePrev == null ? '—' : `${it.chgSincePrev > 0 ? '+' : ''}${it.chgSincePrev}%`}</td>
                         <td style={cell}>{it.price ? liveCell(it.code, it.price) : '—'}</td>
-                        {tab === 'combo' ? <td style={cell}>{it.prevBoards}/4 → {it.nowBoards}/4</td> : <><td style={cell}>+{it.prevGain}%</td><td style={{ ...cell, color: (it.nowGain ?? 0) > 0 ? UP : DOWN }}>{it.nowGain == null ? '—' : `${it.nowGain >= 0 ? '+' : ''}${it.nowGain}%`}</td></>}
+                        {tab === 'combo' ? <td style={cell}>{it.prevBoards}/4 → {it.nowBoards}/4</td> : <><td style={cell}>+{it.prevGain}%</td><td style={{ ...cell, color: it.nowGain == null ? MUTED : getChangeColor(it.nowGain) }}>{it.nowGain == null ? '—' : `${it.nowGain > 0 ? '+' : ''}${it.nowGain}%`}</td></>}
                         <td style={{ ...cell, textAlign: 'left', fontFamily: 'inherit', color: MUTED }}>{it.reason}</td>
                       </tr>
                     ))}

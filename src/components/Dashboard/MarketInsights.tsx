@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 第二大腦衍生洞察（常駐 daemon 計算 → Firestore → GET 端點）──
 // 產業輪動 / 法人連買 / 回測勝率 / RS選股 / 當沖隔日沖 / 外資期貨 / AI盤後總結
@@ -161,16 +162,11 @@ export default function MarketInsights() {
         {etfPrem && (etfPrem.premiumTop.length > 0 || etfPrem.discountTop.length > 0) && (
           <div style={card}>
             <div style={title}>💠 ETF 折溢價 <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>市價 vs 淨值 · 溢價買貴/折價機會</span></div>
-            {etfPrem.premiumTop.slice(0, 4).map(x => (
-              <div key={x.code} onClick={() => navigateTo('stock', x.code)} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12.5px * var(--fz))', padding: '3px 0', cursor: 'pointer' }}>
+            {/* 溢價榜／折價榜不保證正負（全市場普遍溢價時折價榜也可能是正值）：顏色與「溢／折」字樣依每一檔自己的正負（2026-10-02） */}
+            {[...etfPrem.premiumTop.slice(0, 4), ...etfPrem.discountTop.slice(0, 4)].map((x, i) => (
+              <div key={`${i < 4 ? 'p' : 'd'}-${x.code}`} onClick={() => navigateTo('stock', x.code)} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12.5px * var(--fz))', padding: '3px 0', cursor: 'pointer' }}>
                 <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ color: '#e2e8f0' }}>{x.code}</b> {x.name}</span>
-                <span style={{ fontWeight: 700, color: 'var(--color-up)', fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>溢 +{x.premium}%</span>
-              </div>
-            ))}
-            {etfPrem.discountTop.slice(0, 4).map(x => (
-              <div key={x.code} onClick={() => navigateTo('stock', x.code)} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(12.5px * var(--fz))', padding: '3px 0', cursor: 'pointer' }}>
-                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b style={{ color: '#e2e8f0' }}>{x.code}</b> {x.name}</span>
-                <span style={{ fontWeight: 700, color: 'var(--color-down)', fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>折 {x.premium}%</span>
+                <span style={{ fontWeight: 700, color: getChangeColor(x.premium), fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>{x.premium > 0 ? `溢 +${x.premium}%` : x.premium < 0 ? `折 ${x.premium}%` : '平 0%'}</span>
               </div>
             ))}
           </div>

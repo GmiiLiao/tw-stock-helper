@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAppStore } from '@/lib/store';
 import { isMarketOpen, shouldPollNow } from '@/lib/market-clock';
-import { type CandleData } from '@/lib/twse-api';
+import { type CandleData, getChangeColor } from '@/lib/twse-api';
 import { format } from 'date-fns';
 import {
   ResponsiveContainer, ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -584,8 +584,7 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
   const headlinePct = mode === 'rt' && Number.isFinite(changePercent) ? (changePercent as number) : (stats?.pct ?? 0);
   const seriesIncomplete = mode === 'rt' && Number.isFinite(changePercent) && stats != null
     && Math.abs((stats.pct ?? 0) - (changePercent as number)) > 0.5;
-  const isUp = headlinePct >= 0;
-  const chartColor = isUp ? 'var(--color-up)' : 'var(--color-down)';
+  const chartColor = getChangeColor(headlinePct);   // 漲紅跌綠、平盤灰
 
   const yDomain = useMemo(() => {
     if (chartData.length === 0) return ['auto', 'auto'] as [number | string, number | string];
@@ -604,8 +603,8 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
         <div className={styles.chartTitleArea}>
           <span className={styles.chartTitleText}>{name} ({code}) {mode === 'rt' ? '即時走勢' : `${MODE_LABEL[mode]}K線`}</span>
           {stats && (
-            <span className={styles.chartPeriodChange} style={{ color: isUp ? 'var(--color-up)' : 'var(--color-down)' }}>
-              {mode === 'rt' ? '今日漲跌' : '此區間'}：{isUp ? '▲' : '▼'}{Math.abs(mode === 'rt' ? headlinePct : stats.pct).toFixed(2)}%
+            <span className={styles.chartPeriodChange} style={{ color: chartColor }}>
+              {mode === 'rt' ? '今日漲跌' : '此區間'}：{headlinePct > 0 ? '▲' : headlinePct < 0 ? '▼' : '─'}{Math.abs(mode === 'rt' ? headlinePct : stats.pct).toFixed(2)}%
             </span>
           )}
         </div>

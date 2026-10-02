@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
-import { fetchAllStocksDayData } from '@/lib/twse-api';
+import { fetchAllStocksDayData, getChangeColor } from '@/lib/twse-api';
 import type { StockInfo } from '@/lib/twse-api';
 import { getSession, isForeground, isMarketOpen as isMarketOpenClock, msToNextReveal, revealTick } from '@/lib/market-clock';
 import styles from './Header.module.css';
@@ -344,7 +344,7 @@ export default function Header() {
   }, []);
   const marketOpen = session?.tw ?? false;
   const usOpen = session?.us ?? false;
-  const changeColor = marketIndex.change >= 0 ? 'var(--color-up)' : 'var(--color-down)';
+  const changeColor = getChangeColor(marketIndex.change);
   const isRealtime  = dataSource === 'mis_realtime';
 
   const hasNasdaqFutures = !!(usMarket && usMarket.nasdaqFuturesPrice && usMarket.nasdaqFuturesPrice > 0);
@@ -364,8 +364,8 @@ export default function Header() {
               : '--'}
           </span>
           <span className={styles.indexChange} style={{ color: changeColor }}>
-            {marketIndex.change >= 0 ? '+' : ''}{marketIndex.change.toFixed(2)}
-            ({marketIndex.changePercent >= 0 ? '+' : ''}{marketIndex.changePercent.toFixed(2)}%)
+            {marketIndex.change > 0 ? '+' : ''}{marketIndex.change.toFixed(2)}
+            ({marketIndex.changePercent > 0 ? '+' : ''}{marketIndex.changePercent.toFixed(2)}%)
           </span>
 
           {/* Data date + source badge */}
@@ -398,12 +398,12 @@ export default function Header() {
             <div className={styles.indexDivider} />
             <div className={styles.indexItem} title="iShares MSCI Taiwan ETF（美國掛牌·美元計價）。含匯率與溢價折價，僅為台股方向的粗略參考，不等於台指期夜盤。">
               <span className={styles.indexLabel}>台股ETF·美盤(EWT)</span>
-              <span className={styles.indexValue} style={{ color: twNight.change >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+              <span className={styles.indexValue} style={{ color: getChangeColor(twNight.change) }}>
                 ${twNight.price.toFixed(2)}
               </span>
-              <span className={styles.indexChange} style={{ color: twNight.change >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                {twNight.change >= 0 ? '+' : ''}{twNight.change.toFixed(2)}
-                ({twNight.changePercent >= 0 ? '+' : ''}{twNight.changePercent.toFixed(2)}%)
+              <span className={styles.indexChange} style={{ color: getChangeColor(twNight.change) }}>
+                {twNight.change > 0 ? '+' : ''}{twNight.change.toFixed(2)}
+                ({twNight.changePercent > 0 ? '+' : ''}{twNight.changePercent.toFixed(2)}%)
               </span>
             </div>
           </>
@@ -414,12 +414,12 @@ export default function Header() {
             <div className={styles.indexDivider} />
             <div className={styles.indexItem}>
               <span className={styles.indexLabel}>那指期貨</span>
-              <span className={styles.indexValue} style={{ color: nasdaqFuturesChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+              <span className={styles.indexValue} style={{ color: getChangeColor(nasdaqFuturesChange) }}>
                 {nasdaqFuturesPrice.toLocaleString('zh-TW', { maximumFractionDigits: 0 })}
               </span>
-              <span className={styles.indexChange} style={{ color: nasdaqFuturesChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                {nasdaqFuturesChange >= 0 ? '+' : ''}{Math.round(nasdaqFuturesChange)}
-                ({nasdaqFuturesChangePercent >= 0 ? '+' : ''}{nasdaqFuturesChangePercent.toFixed(2)}%)
+              <span className={styles.indexChange} style={{ color: getChangeColor(nasdaqFuturesChange) }}>
+                {nasdaqFuturesChange > 0 ? '+' : ''}{Math.round(nasdaqFuturesChange)}
+                ({nasdaqFuturesChangePercent > 0 ? '+' : ''}{nasdaqFuturesChangePercent.toFixed(2)}%)
               </span>
             </div>
           </>
@@ -429,12 +429,12 @@ export default function Header() {
               <div className={styles.indexDivider} />
               <div className={styles.indexItem}>
                 <span className={styles.indexLabel}>那斯達克</span>
-                <span className={styles.indexValue} style={{ color: usMarket.nasdaqChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                <span className={styles.indexValue} style={{ color: getChangeColor(usMarket.nasdaqChange) }}>
                   {usMarket.nasdaqPrice.toLocaleString('zh-TW', { maximumFractionDigits: 0 })}
                 </span>
-                <span className={styles.indexChange} style={{ color: usMarket.nasdaqChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                  {usMarket.nasdaqChange >= 0 ? '+' : ''}{Math.round(usMarket.nasdaqChange)}
-                  ({usMarket.nasdaqChangePercent >= 0 ? '+' : ''}{usMarket.nasdaqChangePercent.toFixed(2)}%)
+                <span className={styles.indexChange} style={{ color: getChangeColor(usMarket.nasdaqChange) }}>
+                  {usMarket.nasdaqChange > 0 ? '+' : ''}{Math.round(usMarket.nasdaqChange)}
+                  ({usMarket.nasdaqChangePercent > 0 ? '+' : ''}{usMarket.nasdaqChangePercent.toFixed(2)}%)
                 </span>
               </div>
             </>
@@ -446,12 +446,12 @@ export default function Header() {
             <div className={styles.indexDivider} />
             <div className={styles.indexItem}>
               <span className={styles.indexLabel}>台積電ADR</span>
-              <span className={styles.indexValue} style={{ color: usMarket.tsmcAdrChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+              <span className={styles.indexValue} style={{ color: getChangeColor(usMarket.tsmcAdrChange) }}>
                 {usMarket.tsmcAdrPrice.toFixed(2)}
               </span>
-              <span className={styles.indexChange} style={{ color: usMarket.tsmcAdrChange >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                {usMarket.tsmcAdrChange >= 0 ? '+' : ''}{usMarket.tsmcAdrChange.toFixed(2)}
-                ({usMarket.tsmcAdrChangePercent >= 0 ? '+' : ''}{usMarket.tsmcAdrChangePercent.toFixed(2)}%)
+              <span className={styles.indexChange} style={{ color: getChangeColor(usMarket.tsmcAdrChange) }}>
+                {usMarket.tsmcAdrChange > 0 ? '+' : ''}{usMarket.tsmcAdrChange.toFixed(2)}
+                ({usMarket.tsmcAdrChangePercent > 0 ? '+' : ''}{usMarket.tsmcAdrChangePercent.toFixed(2)}%)
               </span>
             </div>
           </>
@@ -564,9 +564,9 @@ export default function Header() {
                   <span className={styles.searchPrice}>{stock.price.toFixed(2)}</span>
                   <span
                     className={styles.searchChange}
-                    style={{ color: stock.change >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}
+                    style={{ color: getChangeColor(stock.change) }}
                   >
-                    {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)}
+                    {stock.change > 0 ? '+' : ''}{stock.change.toFixed(2)}
                   </span>
                 </div>
               </button>

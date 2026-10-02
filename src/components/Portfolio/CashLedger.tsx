@@ -226,7 +226,7 @@ export default function CashLedger() {
           {calc.schedule.map(s => (
             <div key={s.date} style={{ display: 'flex', gap: 10, fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))' }}>
               <span>{s.date}</span>
-              {s.deduct > 0 && <span style={{ color: '#ef4444' }}>扣款 −{s.deduct.toLocaleString()}</span>}
+              {s.deduct > 0 && <span style={{ color: 'var(--color-down)' }}>扣款 −{s.deduct.toLocaleString()}</span>}
               {s.credit > 0 && <span style={{ color: '#f03e3e' }}>入帳 +{s.credit.toLocaleString()}</span>}
               {s.deduct > 0 && s.credit > 0 && <span style={{ color: 'var(--text-muted)' }}>淨額 {s.credit - s.deduct >= 0 ? '+' : '−'}{Math.abs(Math.round(s.credit - s.deduct)).toLocaleString()}</span>}
               {s.sells > 0 && <span title="以全部交易紀錄重放帳本計算（成本含買進手續費、賣出已扣手續費與證交稅）" style={{ fontWeight: 700, color: s.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>實現損益 {s.pnl >= 0 ? '+' : '−'}{Math.abs(Math.round(s.pnl)).toLocaleString()}（{s.sells} 筆賣出）</span>}

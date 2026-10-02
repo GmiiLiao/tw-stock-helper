@@ -11,7 +11,7 @@ import { useAppStore } from '@/lib/store';
 import { useChipVerdicts, VerdictStrip, type Verdict } from '@/components/shared/ChipVerdict';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import TechnicalChart from '@/components/StockDetail/TechnicalChart';
-import { fetchStockHistory, type CandleData, type StockInfo } from '@/lib/twse-api';
+import { fetchStockHistory, getChangeColor, type CandleData, type StockInfo } from '@/lib/twse-api';
 import { subMonths } from 'date-fns';
 import AddCandidateButton from './AddCandidateButton';
 import PageHelp from '@/components/Help/PageHelp';
@@ -364,7 +364,7 @@ export default function DecisionDesk() {
                     {(() => { const st = statusOf(dt, c.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
                     <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c }}>{b.t}</span>
                     {c.price > 0 && <span style={{ color: 'var(--text-secondary)' }}>{c.price}</span>}
-                    {c.chg != null && <span style={{ fontWeight: 800, color: c.chg >= 0 ? '#f03e3e' : '#2f9e44' }}>{c.chg >= 0 ? '+' : ''}{c.chg.toFixed(1)}%</span>}
+                    {c.chg != null && <span style={{ fontWeight: 800, color: getChangeColor(c.chg) }}>{c.chg > 0 ? '+' : ''}{c.chg.toFixed(1)}%</span>}
                     {c.char?.label && <span style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, padding: '1px 7px', borderRadius: 6, background: c.char.label === '炒作型' ? 'rgba(240,62,62,0.14)' : c.char.label === '長期核心' ? 'rgba(61,142,248,0.14)' : 'rgba(148,163,184,0.12)', color: c.char.label === '炒作型' ? '#f03e3e' : c.char.label === '長期核心' ? '#3d8ef8' : '#94a3b8' }}>{c.char.label}{c.char.spec != null ? ` ${c.char.spec}` : ''}</span>}
                     {/* 策略傾向 + 勝率 */}
                     <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>

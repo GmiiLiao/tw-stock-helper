@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db as fsdb } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 
 // ── 🌅 盤前總覽（2026-08-05 三卡合一）────────────────────────────
 // 合併前是三張獨立卡片，由上而下排：日韓早盤風向 → 盤前晨報 → 國際盤連動。
@@ -21,8 +22,8 @@ import { useAppStore } from '@/lib/store';
 //   所有數字與警語由 daemon 帶下來，UI 不自行加工也不自行下結論。非投資建議。
 
 const UP = '#f03e3e', DOWN = '#2f9e44';
-const col = (v: number | null | undefined) => (v == null ? 'var(--text-muted)' : v >= 0 ? UP : DOWN);
-const sign = (v: number | null | undefined) => (v == null ? '--' : `${v >= 0 ? '+' : ''}${v}%`);
+const col = (v: number | null | undefined) => (v == null ? 'var(--text-muted)' : getChangeColor(v));
+const sign = (v: number | null | undefined) => (v == null ? '--' : `${v > 0 ? '+' : ''}${v}%`);
 
 interface Idx { sym: string; name: string; mkt: string; price: number; gap: number | null; drift: number | null; total: number }
 interface Sector { sector: string; twPeers: string; leaders: string; chg: number }

@@ -144,8 +144,8 @@ export default function SqueezePanel() {
             {/* 2026-10-01 使用者：判讀區改標準字級（同指數「自動判讀」框），標題 14px 保持層級 */}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
               <b style={{ fontSize: 'calc(14px * var(--fz))' }}>📊 大盤脈動</b>
-              <span>加權 <b style={{ color: p.twii.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                {p.twii.chg >= 0 ? '+' : ''}{p.twii.chg}%</b></span>
+              <span>加權 <b style={{ color: numColor(p.twii.chg) }}>
+                {p.twii.chg > 0 ? '+' : ''}{p.twii.chg}%</b></span>
               {p.otc.chg != null && <span style={{ color: 'var(--text-muted)' }}>櫃買 {p.otc.chg >= 0 ? '+' : ''}{p.otc.chg}%</span>}
               {p.twii.value != null && <span style={{ color: 'var(--text-muted)' }}>
                 成交值 {p.twii.value.toLocaleString()} 億
@@ -181,8 +181,8 @@ export default function SqueezePanel() {
       {d?.recent && (
         <div style={{
           padding: '8px 12px', borderRadius: 8, marginBottom: 8,
-          background: d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)',
-          border: `1px solid ${d.recent.avgNextDay >= 0 ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.4)'}`,
+          background: d.recent.avgNextDay >= 0 ? 'rgba(240,62,62,0.07)' : 'rgba(47,158,68,0.07)',
+          border: `1px solid ${d.recent.avgNextDay >= 0 ? 'rgba(240,62,62,0.35)' : 'rgba(47,158,68,0.4)'}`,
           fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6,
         }}>
           <div style={{ fontWeight: 700, fontSize: 'calc(14px * var(--fz))', marginBottom: 2, color: d.recent.avgNextDay >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
@@ -210,7 +210,7 @@ export default function SqueezePanel() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto', gap: '1px 10px', marginBottom: 3 }}>
             <span style={{ color: 'var(--text-muted)' }}>基準（漲≥5%）</span><span>+{ev.oosBase}%</span><span style={{ color: 'var(--text-muted)' }}>勝率 {ev.oosBaseWin}%</span><span />
-            <span style={{ fontWeight: 700, color: '#22c55e' }}>⭐⭐⭐ 券資比 ≥20%</span><span style={{ fontWeight: 700, color: 'var(--color-up)' }}>+{ev.t3}%</span><span style={{ fontWeight: 700 }}>{ev.t3Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t3n}</span>
+            <span style={{ fontWeight: 700, color: '#22c55e' }}>⭐⭐⭐ 券資比 ≥20%</span><span style={{ fontWeight: 700, color: numColor(ev.t3) }}>{fmtSigned(ev.t3)}%</span><span style={{ fontWeight: 700 }}>{ev.t3Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t3n}</span>
             <span>⭐⭐ 券資比 10~15%</span><span>+{ev.t2}%</span><span>{ev.t2Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t2n}</span>
             <span>⭐ 券資比 5~10%</span><span>+{ev.t1}%</span><span>{ev.t1Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t1n}</span>
             <span style={{ color: '#f59e0b' }}>⚠ 券資比 15~20%</span><span style={{ color: '#f59e0b' }}>+{ev.t0}%</span><span style={{ color: '#f59e0b' }}>{ev.t0Win}%</span><span style={{ color: 'var(--text-muted)' }}>n={ev.t0n}·未過基準</span>
@@ -263,10 +263,10 @@ export default function SqueezePanel() {
             return (
               <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
                 <button onClick={() => setShowReview(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'inherit' }}>
-                  📊 對答案 {review.days} 日：newsLift <b style={{ color: (review.newsLift ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{review.newsLift ?? '—'}</b>（利多 {f(review.bull)}）{showReview ? '▴ 收起' : '▸ 明細'}
+                  📊 對答案 {review.days} 日：newsLift <b style={{ color: numColor(review.newsLift) }}>{review.newsLift ?? '—'}</b>（利多 {f(review.bull)}）{showReview ? '▴ 收起' : '▸ 明細'}
                 </button>
                 {showReview && <div style={{ border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', marginTop: 4 }}>
-                <div><b style={{ color: 'var(--text-primary)' }}>📊 對答案（{review.days} 個交易日，今收→明開）</b>：利多 {f(review.bull)}｜中性 {f(review.neutral)}｜利空 {f(review.bear)}｜newsLift <b style={{ color: (review.newsLift ?? 0) > 0 ? 'var(--color-up)' : 'var(--color-down)' }}>{review.newsLift ?? '—'}</b>{review.conclusive ? '' : '（樣本未達門檻）'}</div>
+                <div><b style={{ color: 'var(--text-primary)' }}>📊 對答案（{review.days} 個交易日，今收→明開）</b>：利多 {f(review.bull)}｜中性 {f(review.neutral)}｜利空 {f(review.bear)}｜newsLift <b style={{ color: numColor(review.newsLift) }}>{review.newsLift ?? '—'}</b>{review.conclusive ? '' : '（樣本未達門檻）'}</div>
                 <div>利多×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['利多·' + c])}`).join('｜')}　中性×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['中性·' + c])}`).join('｜')}</div>
                 <div>利多理由類型：{['本業事實', '技術產品', '題材', '法人動作', '價格描述'].map(t => `${t} ${f(rt[t])}`).join('｜')}　色調：<span style={{ color: '#22c55e' }}>綠 {f(bt.green)}</span>｜灰 {f(bt.grey)}</div>
                 </div>}
@@ -278,8 +278,8 @@ export default function SqueezePanel() {
               昨夜國際盤：{['sox', 'nasdaq', 'sp500', 'n225', 'kospi', 'vix']
                 .filter(k => rec.global?.[k]).map(k => {
                   const v = rec.global![k].chg;
-                  return <span key={k} style={{ marginRight: 8, color: (v ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
-                    {k} {(v ?? 0) >= 0 ? '+' : ''}{v}%
+                  return <span key={k} style={{ marginRight: 8, color: numColor(v) }}>
+                    {k} {(v ?? 0) > 0 ? '+' : ''}{v}%
                   </span>;
                 })}
             </div>

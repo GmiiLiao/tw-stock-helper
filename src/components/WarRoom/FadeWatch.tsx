@@ -10,6 +10,7 @@ import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import RiskBadge from '@/components/shared/RiskBadge';
 import { useAppStore } from '@/lib/store';
+import { getChangeColor } from '@/lib/twse-api';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { classifyFade, TIER_STYLE, TIER_RANK, type FadeSnap, type FadeMetrics } from '@/lib/fade-patterns';
@@ -19,7 +20,7 @@ export type { FadeSnap } from '@/lib/fade-patterns';
 type Tier = import('@/lib/fade-patterns').Tier;
 const GRID = '12px 1.7em 3.8em minmax(6em, 9em) 2em 5em 4.8em 4.8em 4.4em 4.2em 3em minmax(9em, 1fr)';
 const NUM = (color: string, weight = 600): React.CSSProperties => ({ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: 'tabular-nums', color, fontWeight: weight, whiteSpace: 'nowrap' });
-const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+const pct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
 
 
 
@@ -51,7 +52,7 @@ export default function FadeWatch({ snaps, marketOpen }: { snaps: FadeSnap[]; ma
           <span title={s.name} style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name} {(() => { const st = statusOf(dt, s.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()} <RiskBadge code={s.code} size="xs" /></span>
           <span style={{ fontSize: 'calc(12.5px * var(--fz))', textAlign: 'center', color: s.market === 'otc' ? '#f59e0b' : '#3d8ef8' }}>{s.market === 'otc' ? '櫃' : '市'}</span>
           <span style={NUM('var(--text-primary)', 700)}>{s.price}</span>
-          <span style={NUM(m.chg >= 0 ? 'var(--color-up)' : 'var(--color-down)', 800)}>{pct(m.chg)}</span>
+          <span style={NUM(getChangeColor(m.chg), 800)}>{pct(m.chg)}</span>
           <span style={NUM('var(--color-up)')}>{pct(m.hiUp)}</span>
           <span style={NUM('var(--color-down)', 800)}>−{m.give.toFixed(1)}</span>
           <span title={`量比 ${m.volX.toFixed(1)}x ÷ 已過時段 → 全日節奏 ${m.pace.toFixed(1)}x`} style={NUM(m.pace >= 2 ? '#f59e0b' : 'var(--text-muted)')}>{m.pace ? `${m.pace.toFixed(1)}x` : '—'}</span>

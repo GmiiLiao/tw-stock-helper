@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
-import { tickSize, isLimitUp, isLimitDown } from '@/lib/twse-api';
+import { tickSize, isLimitUp, isLimitDown, getChangeColor } from '@/lib/twse-api';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 
 // ── 🐻 做空風控候選（2026-09-03 第一期）────────────────────────────
@@ -126,7 +126,7 @@ export default function ShortPanel() {
               </button>
               <button onClick={() => navigateTo('stock', it.code)} title="開啟個股分析" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#60a5fa', fontSize: 'calc(12.5px * var(--fz))' }}>↗</button>
               <AddCandidateButton code={it.code} variant="icon" />
-              <span style={{ fontWeight: 700, color: it.chg < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
+              <span style={{ fontWeight: 700, color: getChangeColor(it.chg) }}>
                 {it.price}（{it.chg > 0 ? '+' : ''}{it.chg}%）
               </span>
               {it.open != null && <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>開 {it.open}</span>}
@@ -142,7 +142,7 @@ export default function ShortPanel() {
                 const ld = isLimitDown(q.price, q.change);
                 return (
                   <span style={{ fontSize: 'calc(12.5px * var(--fz))', flexBasis: '100%', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <b style={{ color: q.changePercent < 0 ? 'var(--color-down, #22c55e)' : 'var(--color-up, #ef4444)' }}>
+                    <b style={{ color: getChangeColor(q.changePercent) }}>
                       ⚡ 即時 {q.price}（{q.changePercent > 0 ? '+' : ''}{q.changePercent?.toFixed(2)}%）
                     </b>
                     <span style={{ color: 'var(--text-muted)' }}>開 {q.open > 0 ? q.open : '—'} · 量 {q.volume > 0 ? Math.round(q.volume / 1000).toLocaleString() : '—'} 張</span>

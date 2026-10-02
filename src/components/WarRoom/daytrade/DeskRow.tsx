@@ -15,8 +15,8 @@ import type { BaseRow, DeskRowData, ScoreItem } from './types';
 
 const FLASH_ON_MS = 90_000, FLASH_STOP_MS = 60_000, STOP_KEEP_MS = 15 * 60_000;
 const NUM: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-const pct = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(d)}%`);
-const upDn = (v: number | null | undefined) => (v == null ? 'var(--text-muted)' : v >= 0 ? 'var(--color-up)' : 'var(--color-down)');
+const pct = (v: number | null | undefined, d = 2) => (v == null || !Number.isFinite(v) ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(d)}%`);
+const upDn = (v: number | null | undefined) => (v == null ? 'var(--text-muted)' : v > 0 ? 'var(--color-up)' : v < 0 ? 'var(--color-down)' : 'var(--text-muted)');
 export const hhmm = (t: number | null | undefined) => (t ? new Date(t).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Taipei' }) : '—');
 const tickOf = (p: number) => (p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5);
 const roundTick = (p: number, dir: number) => { const t = tickOf(p); const k = p / t; return +((dir > 0 ? Math.ceil(k - 1e-9) : Math.floor(k + 1e-9)) * t).toFixed(2); };
