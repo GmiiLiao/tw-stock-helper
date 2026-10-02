@@ -147,6 +147,13 @@ export const GET = () => latestDoc('adrPremium', 'daily');   // 讀 daemon lates
 層級：`tick`(3s) / `quote`(10s) / `intraday`(2m) / `daily`(1h) / `static` / `private`。
 `no-store` 只給真正 per-user 的資料。**daemon 每日寫一次的資料回 `no-store` 是純浪費。**
 
+**通知去重一律走 `alertDedup`（持久化），不要再寫 `const _xAlerted = new Set(); let _xDay`**
+
+記憶體 Set 重啟即清空，開機重跑與盤中迴圈會把當天已推過的 Web Push／Telegram 再推一次（2026-10-02：一天被重啟三次）。
+`alertDedup(name)`（`scripts/lib/alert-dedup.mjs`，Firestore `alertDedup/{name}_{scope}`）：使用前 `await x.ensure(today)`，
+`has`/`add` 同舊用法；高價值通知用 `{ autoFlush: false }`＋`mark`／`rollback`（通知文件寫入失敗就撤回）＋迴圈後 `flush()`。
+「每日只跑一次」的排程段落同理，成功才 `markJobDone`、開機讀回。
+
 **交易時段只有一個真相來源**
 
 ```ts

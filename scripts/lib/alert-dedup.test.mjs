@@ -3,70 +3,120 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAlertDedup } from './alert-dedup.mjs';
 
-// 假的持久層：行為同 Firestore（arrayUnion 不重複、load 讀回、可模擬失敗）
+// 假的持久層：行為同 Firestore（arrayUnion 不重複、load 讀回、可模擬失敗），並記錄寫入次數
 const mkStore = () => {
   const docs = new Map(); let failLoad = 0;
-  return {
-    docs, failNext(n = 1) { failLoad = n; },
+  const st = {
+    docs, writes: 0, failNext(n = 1) { failLoad = n; },
     async load(name, scope) { if (failLoad > 0) { failLoad--; throw new Error('unavailable'); } return [...(docs.get(`${name}_${scope}`) || [])]; },
-    async add(name, scope, k) { const id = `${name}_${scope}`; const s = docs.get(id) || []; if (!s.includes(k)) s.push(k); docs.set(id, s); },
-    async replace(name, scope, keys) { docs.set(`${name}_${scope}`, [...keys]); },
+    async addMany(name, scope, keys) { st.writes++; const id = `${name}_${scope}`; const s = docs.get(id) || []; for (const k of keys) if (!s.includes(k)) s.push(k); docs.set(id, s); },
+    async replace(name, scope, keys) { st.writes++; docs.set(`${name}_${scope}`, [...keys]); },
   };
+  return st;
 };
-const flush = () => new Promise(r => setImmediate(r));
+const manual = { autoFlush: false };
 
 test('重啟後（新的 dedup 物件）讀回當日已發過的鍵，不再重發——2026-10-02 開機重跑重發通知的修正', async () => {
   const store = mkStore();
-  const a = createAlertDedup('etf', store);
+  const a = createAlertDedup('etf', store, manual);
   await a.ensure('2026-10-02');
   assert.equal(a.add('u1:0050'), true);
   assert.equal(a.add('u1:0050'), false, '同一輪重複呼叫只算一次');
-  await flush();
-  const b = createAlertDedup('etf', store);   // 模擬 daemon 重啟
+  await a.flush();
+  const b = createAlertDedup('etf', store, manual);   // 模擬 daemon 重啟
   await b.ensure('2026-10-02');
   assert.equal(b.has('u1:0050'), true);
   assert.equal(b.add('u1:0050'), false);
 });
 
-test('跨日（換 scope）重新計算：昨天發過的今天照常可發', async () => {
+test('批次寫入：同一波多筆只寫一次（審查 M2：熱門文件每秒多次寫入）', async () => {
   const store = mkStore();
-  const a = createAlertDedup('etf', store);
-  await a.ensure('2026-10-02'); a.add('u1:0050'); await flush();
+  const a = createAlertDedup('chipHold', store, manual);
+  await a.ensure('d');
+  for (let i = 0; i < 50; i++) a.add(`u${i}:2330:dist`);
+  await a.flush();
+  assert.equal(store.writes, 1);
+  assert.equal(store.docs.get('chipHold_d').length, 50);
+});
+
+test('自動寫出：add 後在延遲內合併成一次寫入（計時器可注入）', async () => {
+  const store = mkStore(); const fired = [];
+  const timers = { setTimeout: fn => { fired.push(fn); return { unref() {} }; }, clearTimeout: () => {} };
+  const a = createAlertDedup('etf', store, { timers });
+  await a.ensure('d');
+  a.add('k1'); a.add('k2');
+  assert.equal(fired.length, 1, '同一波只排一次計時器');
+  await fired[0]();
+  assert.deepEqual(store.docs.get('etf_d'), ['k1', 'k2']);
+});
+
+test('送出失敗撤回（審查 M1）：mark/rollback 後該使用者的鍵不寫入、下一輪可重發', async () => {
+  const store = mkStore();
+  const a = createAlertDedup('alerts', store, manual);
+  await a.ensure('d');
+  a.add('u1:2330:stop'); await a.flush();
+  const tok = a.mark();
+  a.add('u2:2317:stop');
+  a.rollback(tok);   // u2 的通知文件寫入失敗
+  assert.equal(a.has('u2:2317:stop'), false);
+  await a.flush();
+  assert.deepEqual(store.docs.get('alerts_d'), ['u1:2330:stop']);
+});
+
+test('跨日（換 scope）：舊 scope 的暫存先寫出；昨天發過的今天照常可發', async () => {
+  const store = mkStore();
+  const a = createAlertDedup('etf', store, manual);
+  await a.ensure('2026-10-02'); a.add('u1:0050');
   await a.ensure('2026-10-05');
+  assert.deepEqual(store.docs.get('etf_2026-10-02'), ['u1:0050'], '換日前的暫存不遺失');
   assert.equal(a.has('u1:0050'), false);
   assert.equal(a.add('u1:0050'), true);
 });
 
-test('讀取失敗：本輪退回記憶體（與舊行為相同、不擋通知），下一次 ensure 會重讀並合併', async () => {
-  const store = mkStore();
-  await store.add('etf', '2026-10-02', 'u1:0050');
-  const a = createAlertDedup('etf', store);
+test('讀取失敗：本輪退回記憶體（與舊行為相同、不擋通知）並回報錯誤，下一次 ensure 重讀合併', async () => {
+  const store = mkStore(); const errs = [];
+  await store.addMany('etf', '2026-10-02', ['u1:0050']);
+  const a = createAlertDedup('etf', store, { ...manual, onError: (op, e) => errs.push(`${op}:${e.message}`) });
   store.failNext();
   await a.ensure('2026-10-02');
   assert.equal(a.has('u1:0050'), false, '讀不到時無從得知（同舊版記憶體行為）');
-  a.add('u2:0056'); await flush();
+  assert.deepEqual(errs, ['load:unavailable']);
+  a.add('u2:0056'); await a.flush();
   await a.ensure('2026-10-02');
   assert.equal(a.has('u1:0050'), true, '重讀成功後補回');
   assert.equal(a.has('u2:0056'), true, '本輪新增的不遺失');
 });
 
-test('prune：除權息提醒等「跨日事件」用固定 scope，載入時清掉已過期的鍵並寫回（文件不無限長大）', async () => {
+test('prune：除權息等跨日事件用固定 scope，每天載入／換日時清掉已過期的鍵並寫回', async () => {
   const store = mkStore();
   await store.replace('exdiv', 'all', ['u1:2330:2026-09-30', 'u1:2317:2026-10-06']);
   const keepFuture = (k, today) => k.slice(k.lastIndexOf(':') + 1) >= today;
-  const a = createAlertDedup('exdiv', store, { prune: keepFuture });
+  const a = createAlertDedup('exdiv', store, { ...manual, prune: keepFuture });
   await a.ensure('all', '2026-10-02');
   assert.equal(a.has('u1:2317:2026-10-06'), true);
   assert.equal(a.has('u1:2330:2026-09-30'), false);
-  await flush();
   assert.deepEqual(store.docs.get('exdiv_all'), ['u1:2317:2026-10-06']);
+  await a.ensure('all', '2026-10-07');   // 同一程序跨日（審查 LOW：舊版只在首次載入時清）
+  assert.equal(a.has('u1:2317:2026-10-06'), false);
+  assert.deepEqual(store.docs.get('exdiv_all'), []);
 });
 
-test('寫入失敗不丟例外（通知照發；最壞情況＝重啟後可能重發一次，同舊行為）', async () => {
-  const store = { ...mkStore(), add: async () => { throw new Error('quota'); } };
-  const a = createAlertDedup('x', store);
+test('寫入失敗不丟例外、回報錯誤（通知照發；最壞情況＝重啟後可能重發一次，同舊行為）', async () => {
+  const errs = [];
+  const store = { ...mkStore(), addMany: async () => { throw new Error('quota'); } };
+  const a = createAlertDedup('x', store, { ...manual, onError: op => errs.push(op) });
   await a.ensure('d');
   assert.equal(a.add('k'), true);
-  await flush();
+  await a.flush();
   assert.equal(a.has('k'), true);
+  assert.deepEqual(errs, ['add']);
+});
+
+test('keys()：可據以重建每人計數（早盤起漲每人每日 6 則上限，重啟後不歸零）', async () => {
+  const store = mkStore();
+  await store.addMany('ebSent', 'd', ['u1:2330', 'u1:2317', 'u2:2454']);
+  const a = createAlertDedup('ebSent', store, manual);
+  await a.ensure('d');
+  const cnt = {}; for (const k of a.keys()) { const u = k.slice(0, k.indexOf(':')); cnt[u] = (cnt[u] || 0) + 1; }
+  assert.deepEqual(cnt, { u1: 2, u2: 1 });
 });

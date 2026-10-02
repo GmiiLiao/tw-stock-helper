@@ -83,10 +83,18 @@ const db = getFirestore(app);
 //   alertDedup/{種類}_{scope}：keys 以 arrayUnion 累積（scope 通常是日期；跨日事件用固定 scope＋prune）。
 const _dedupStore = {
   load: async (name, scope) => (await db.collection('alertDedup').doc(`${name}_${scope}`).get()).data()?.keys || [],
-  add: (name, scope, k) => db.collection('alertDedup').doc(`${name}_${scope}`).set({ name, scope, keys: FieldValue.arrayUnion(k), updatedAt: Date.now() }, { merge: true }),
+  addMany: (name, scope, keys) => db.collection('alertDedup').doc(`${name}_${scope}`).set({ name, scope, keys: FieldValue.arrayUnion(...keys), updatedAt: Date.now() }, { merge: true }),
   replace: (name, scope, keys) => db.collection('alertDedup').doc(`${name}_${scope}`).set({ name, scope, keys, updatedAt: Date.now() }),
 };
-const alertDedup = (name, opts) => createAlertDedup(name, _dedupStore, opts);
+const _dedups = [], _dedupErrAt = {};
+// 持久層失敗時記錄（同種同操作 10 分鐘一次），去重退回記憶體行為、通知照發
+const alertDedup = (name, opts = {}) => {
+  const d = createAlertDedup(name, _dedupStore, { onError: (op, e) => {
+    const k = `${name}:${op}`; if (Date.now() - (_dedupErrAt[k] || 0) < 600000) return; _dedupErrAt[k] = Date.now();
+    log(`  ⚠ 通知去重 ${name} ${op} 失敗（退回記憶體去重，重啟後可能重發）：${(e?.message || '').slice(0, 60)}`);
+  }, ...opts });
+  _dedups.push(d); return d;
+};
 // ── 付費判斷（2026-09-28 WM-SCAN G1-07）：高級會員＝premium/admin/superadmin，或**註冊 14 天內的體驗期**。
 //   前端（src/lib/access.ts）一直有 14 天體驗，daemon 的 10 處判斷只看 level ⇒ 體驗期會員看得到付費頁面，
 //   卻收不到 daemon 替付費會員產生的分析／警報。註冊時間取 Firebase Auth（與前端同一來源），1 小時快取；
@@ -2931,8 +2939,8 @@ async function readSnapshotQuotes() {
 // ── 1) 自動停損/停利提醒 ──────────────────────────────────────
 // 用快照即時價 + 各用戶 portfolioAnalysis 的 AI 停損/目標價(無則 ±8%/+20%)，
 // 觸價即寫 users/{uid}/data/alerts。每用戶每股每類型每日只提醒一次。
-const _alerted = alertDedup('alerts');   // 持久化去重：重啟不重發（2026-10-02）
-const _chipHoldAlerted = alertDedup('chipHold');   // 持久化去重：重啟不重發（2026-10-02） // 籌碼出貨警示每股每類型每日一次
+const _alerted = alertDedup('alerts', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
+const _chipHoldAlerted = alertDedup('chipHold', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02） // 籌碼出貨警示每股每類型每日一次
 // 停利後再進場觀察：觸發停利的個股記下，回檔約 5% 時提示可留意再進場。
 const _reentryWatch = {};
 // 移動停利高水位：記每檔持有期間最高價，獲利後自高點回落即鎖利。
@@ -2963,6 +2971,7 @@ async function checkAlerts() {
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
+    const _tok = _alerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = await db.collection('users').doc(uid).collection('data').doc('holdings').get();
       const holdings = hd.exists ? (hd.data().holdings || []) : []; if (!holdings.length) continue;
@@ -3026,8 +3035,9 @@ async function checkAlerts() {
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message}`);
       }
-    } catch (e) { log('  ✖ alerts', uid, e.message); }
+    } catch (e) { _alerted.rollback(_tok); log('  ✖ alerts', uid, e.message); }
   }
+  await _alerted.flush();   // 通知文件寫入成功者才記為已發（審查 M1：寫入失敗的已 rollback，下一輪可重發）
 }
 
 // ── 2) 產業輪動偵測 ──────────────────────────────────────────
@@ -4329,13 +4339,14 @@ async function computeMajorHoldersChange() {
 
 // ── 25) 自訂條件警報 ──────────────────────────────────────────
 // 讀各 premium 用戶 users/{uid}/data/alertRules，依即時快照檢查觸發。
-const _customAlerted = alertDedup('custom');   // 持久化去重：重啟不重發（2026-10-02）
+const _customAlerted = alertDedup('custom', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 async function checkCustomAlerts() {
   const snap = await readSnapshotQuotes(); if (!snap) return; const q = snap.quotes;
   const today = isoDate(taipei()); await _customAlerted.ensure(today);
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
+    const _tok = _customAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const rd = await db.collection('users').doc(uid).collection('data').doc('alertRules').get();
       const rules = rd.exists ? (rd.data().rules || []) : []; if (!rules.length) continue;
@@ -4356,8 +4367,9 @@ async function checkCustomAlerts() {
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const a of newAlerts) log(`  🔔自訂 ${uid} ${a.message}`);
       }
-    } catch (e) { log('  ✖ custom alerts', uid, e.message); }
+    } catch (e) { _customAlerted.rollback(_tok); log('  ✖ custom alerts', uid, e.message); }
   }
+  await _customAlerted.flush();   // 通知文件寫入成功者才記為已發（審查 M1：寫入失敗的已 rollback，下一輪可重發）
 }
 
 // ── 26) 自然語言選股 ──────────────────────────────────────────
@@ -8053,7 +8065,7 @@ async function computePeerComps() {
 // FOMC 2026 為 Fed 已公布之官方會期（取第二日=決議日）。
 const FOMC_2026 = ['2026-01-28', '2026-03-18', '2026-04-29', '2026-06-17', '2026-07-29', '2026-09-16', '2026-10-28', '2026-12-09'];
 const rocToIso = s => { const t = String(s || '').trim(); return /^\d{7}$/.test(t) ? `${+t.slice(0, 3) + 1911}-${t.slice(3, 5)}-${t.slice(5, 7)}` : null; };
-const _catalystAlerted = alertDedup('catalyst');   // 持久化去重：重啟不重發（2026-10-02）
+const _catalystAlerted = alertDedup('catalyst', { autoFlush: false });   // 持久化去重：重啟不重發（2026-10-02）
 async function buildCatalystCalendar() {
   const tw = taipei(); const today = isoDate(tw);
   const horizon = isoDate(new Date(tw.getTime() + 35 * 86400000));
@@ -8122,6 +8134,7 @@ async function buildCatalystCalendar() {
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
+    const _tok = _catalystAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const codes = new Set();
       const hd = (await db.collection('users').doc(uid).collection('data').doc('holdings').get()).data();
@@ -8141,8 +8154,9 @@ async function buildCatalystCalendar() {
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message}`);
       }
-    } catch { /* per-user skip */ }
+    } catch { _catalystAlerted.rollback(_tok); /* per-user skip */ }
   }
+  await _catalystAlerted.flush();   // 通知文件寫入成功者才記為已發（審查 M1：寫入失敗的已 rollback，下一輪可重發）
 }
 
 // ── 28.5) 每日新聞頁（使用者指定 2026-07-23）：每日 07:00 聚合四類新聞 ──
@@ -11777,13 +11791,14 @@ async function archiveChipDaily() {
 // ── 53) 早盤起漲提醒 earlyBird（高級會員限定）───────────────────
 // 09:00–10:30：昨日策略榜個股「已上榜但尚未發動」（漲 0.3%~2%、非高當沖、
 // 非連3停）→ 推播提醒可評估進場。每檔每日一次、每人每日上限 6 則。
-const _ebAlerted = alertDedup('earlyBird'); let _ebDay = ''; const _ebCount = {};   // _ebAlerted 持久化去重（2026-10-02）；_ebCount 仍為記憶體
+const _ebAlerted = alertDedup('earlyBird');   // 每檔每日評估一次（持久化·2026-10-02）
+const _ebSent = alertDedup('earlyBirdSent', { autoFlush: false });   // 已送出 uid:代號——每人每日 6 則上限由它重算，重啟不歸零（審查 M3）
 let _ebPicks = { date: '', map: null };
 async function checkEarlyBird() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   if (!(mins >= 9 * 60 && mins <= 10 * 60 + 30)) return;
   const today = isoDate(tw);
-  if (_ebDay !== today) { _ebDay = today; for (const k in _ebCount) delete _ebCount[k]; } await _ebAlerted.ensure(today);
+  await _ebAlerted.ensure(today); await _ebSent.ensure(today);
   // 昨日策略榜（快取整天）
   if (_ebPicks.date !== today) {
     const sp = (await db.collection('strategyPicks').doc('latest').get()).data();
@@ -11823,6 +11838,7 @@ async function checkEarlyBird() {
     if (['S', 'A', 'B+'].includes(p.tier)) { h._phase = p; h._inst = v; good.push(h); }
   }
   const premium = await getPremiumUsers();
+  const _ebCount = {}; for (const k of _ebSent.keys()) { const id = k.slice(0, k.indexOf(':')); _ebCount[id] = (_ebCount[id] || 0) + 1; }   // 今日已送則數（持久化）
   for (const u of premium) {
     const uid = u.id;
     if ((_ebCount[uid] || 0) >= 6) continue; // 每人每日上限，防轟炸
@@ -11835,9 +11851,11 @@ async function checkEarlyBird() {
       const prev = (await aref.get()).data()?.alerts || [];
       await aref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...prev].slice(0, 40) });
       pushAlerts(uid, newAlerts).catch(() => {});
+      for (const h of batch) _ebSent.add(`${uid}:${h.code}`);   // 通知文件寫入成功才記入（計入每日上限）
       for (const al of newAlerts) log(`  🐦 ${uid.slice(0, 6)} ${al.message.slice(0, 60)}`);
     } catch { /* per-user skip */ }
   }
+  await _ebSent.flush();
 }
 
 // ── 54) 今日盤型判讀 marketPattern（開盤即時，隔日沖出場紀律）────
@@ -13275,6 +13293,7 @@ async function checkChipHoldings() {
   const premium = await getPremiumUsers();
   for (const u of premium) {
     const uid = u.id;
+    const _tok = _chipHoldAlerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
     try {
       const hd = await db.collection('users').doc(uid).collection('data').doc('holdings').get();
       const holdings = hd.exists ? (hd.data().holdings || []) : []; if (!holdings.length) continue;
@@ -13330,8 +13349,9 @@ async function checkChipHoldings() {
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message.slice(0, 60)}`);
       }
-    } catch (e) { log('  ✖ chipHoldings', uid, e.message); }
+    } catch (e) { _chipHoldAlerted.rollback(_tok); log('  ✖ chipHoldings', uid, e.message); }
   }
+  await _chipHoldAlerted.flush();   // 通知文件寫入成功者才記為已發（審查 M1：寫入失敗的已 rollback，下一輪可重發）
 }
 
 async function computeChipWind() {
@@ -15802,6 +15822,6 @@ if (ONESHOT) {
   };
   const fn = JOBS[ONESHOT];
   if (!fn) { log(`✖ 未知 job「${ONESHOT}」。可用：${Object.keys(JOBS).join(', ')}`); process.exit(1); }
-  try { await fn(); log(`✓ 單次執行完成：${ONESHOT}`); process.exit(0); }
+  try { await fn(); await Promise.all(_dedups.map(d => d.flush())); log(`✓ 單次執行完成：${ONESHOT}`); process.exit(0); }   // 去重暫存寫出後才結束（審查 LOW）
   catch (e) { log(`✖ 單次執行失敗 ${ONESHOT}:`, e.stack || e.message); process.exit(1); }
 }
