@@ -3,6 +3,7 @@ import { rateLimit } from '@/lib/rate-limit';
 import { gzipJson } from '@/lib/gzip-response';
 import { sanitizeOhlcSeries } from '@/lib/ohlc-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { getDaemonIntraday } from '@/lib/daemon-intraday';
 
 export const runtime = 'nodejs';
 
@@ -93,13 +94,13 @@ export async function GET(request: NextRequest) {
   //   Yahoo 正常時 lastT 已是最新 bar，這裡幾乎不補、零成本；Yahoo 恢復後自動讓位。
   if (fetchAs === '1m' || fetchAs === '5m' || fetchAs === '60m') {
     try {
-      const db = getAdminDb();
-      if (db) {
-        const doc = (await db.collection('marketIntraday').doc('latest').get()).data();
+      {
         const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
         const todayIso = `${twNow.getFullYear()}-${String(twNow.getMonth() + 1).padStart(2, '0')}-${String(twNow.getDate()).padStart(2, '0')}`;
-        if (doc && doc.date === todayIso && doc.seriesJson) {
-          const s = JSON.parse(doc.seriesJson)[code];
+        // 壓縮格式＋3 秒合流快取＋盤中新鮮度（src/lib/daemon-intraday.ts·2026-10-02）
+        const doc = await getDaemonIntraday(todayIso);
+        if (doc) {
+          const s = doc.series[code];
           const pts: [number, number, number][] = s?.pts || [];   // [epoch秒, 價, 累積量(股)]
           if (pts.length) {
             const sec = fetchAs === '1m' ? 60 : fetchAs === '5m' ? 300 : 3600;

@@ -38,6 +38,7 @@ import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
 import { createAlertDedup } from './lib/alert-dedup.mjs';
 import { withRetry, failSince, sameLockDay, nonRetryable } from './lib/fetch-retry.mjs';
+import { encodeIntraday, decodeIntraday } from './lib/intraday-codec.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -763,10 +764,10 @@ async function computePagodaSignals() {
       }
     }
     try {   // 今日已完成小時（marketIntraday 只有追蹤股；沒有就用到昨日，誠實即可）
-      const mi = (await db.collection('marketIntraday').doc('latest').get()).data();
+      const mi = await readIntradayDoc();   // 壓縮／分片／舊欄位皆可（2026-10-02）
       const today = isoDate(taipei());
-      if (mi?.date === today && mi.seriesJson && !days.some(d => d.date === today)) {
-        const by = JSON.parse(mi.seriesJson);
+      if (mi?.date === today && mi.series && !days.some(d => d.date === today)) {
+        const by = mi.series;
         const tw = taipei();
         const bounds = [10, 11, 12, 13].filter(hh => tw.getHours() * 60 + tw.getMinutes() >= hh * 60)
           .map(hh => { const b = new Date(tw); b.setHours(hh, 0, 0, 0); return b.getTime() / 1000; });
@@ -2236,9 +2237,39 @@ function recordIntraday(quotes, trackedSet) {
     if (s.pts.length > 400) s.pts.splice(0, s.pts.length - 400); // 全日270分＋早盤回補＋即時，留餘裕
   }
 }
+// 壓縮格式（2026-10-02；lib/intraday-codec.mjs）：舊版單一欄位 seriesJson 追蹤檔數多時下午即超過 1MB 上限、整筆寫入失敗
+//   （09-15、10-02 各兩百多次），讀取端只看日期 ⇒ 即時走勢停在失敗前。現為 gzip：≤900KB 放主文件 seriesGz，
+//   否則先寫分片 shards/{i}（同一 gen）再更新主文件指向；舊 seriesJson 只在合計仍在單一文件預算內時才寫（相容未部署的讀取端）。
+let _intrSizeLogDay = '';
+/** 讀 marketIntraday/latest：seriesGz（單一文件）→ shards（gen 須一致）→ 舊 seriesJson；回傳 { date, updatedAt, series } 或 null */
+async function readIntradayDoc() {
+  const ref = db.collection('marketIntraday').doc('latest');
+  const d = (await ref.get()).data(); if (!d) return null;
+  let series = null;
+  if (d.seriesGz) series = decodeIntraday([d.seriesGz]);
+  else if (d.shardCount > 0) {
+    const parts = await Promise.all(Array.from({ length: d.shardCount }, (_, i) => ref.collection('shards').doc(String(i)).get().then(s => s.data())));
+    if (parts.every(p => p && p.gen === d.gen)) series = decodeIntraday(parts.map(p => p.data));   // gen 不一致＝寫到一半，視同無資料
+  } else if (d.seriesJson) series = JSON.parse(d.seriesJson);
+  return { date: d.date, updatedAt: d.updatedAt || 0, series };
+}
 async function writeIntraday() {
-  try { await db.collection('marketIntraday').doc('latest').set({ date: _intraday.date, updatedAt: Date.now(), seriesJson: JSON.stringify(_intraday.series) }); }
-  catch (e) { log('✖ writeIntraday:', (e.message || '').slice(0, 80)); }
+  try {
+    const enc = encodeIntraday(_intraday.series);
+    const gen = Date.now();
+    const ref = db.collection('marketIntraday').doc('latest');
+    const meta = { date: _intraday.date, updatedAt: gen, gen, codec: 'gzip-json', rawBytes: enc.rawBytes, gzBytes: enc.gz.length,
+      codes: Object.keys(_intraday.series).length, shardCount: enc.inline ? 0 : enc.shards.length };
+    if (enc.inline) meta.seriesGz = enc.gz;
+    else for (let i = 0; i < enc.shards.length; i++) await ref.collection('shards').doc(String(i)).set({ gen, i, data: enc.shards[i] });
+    if (enc.legacyOk) meta.seriesJson = enc.json;
+    await ref.set(meta);
+    if (!enc.legacyOk && _intrSizeLogDay !== _intraday.date) {
+      _intrSizeLogDay = _intraday.date;
+      log(`  · 即時走勢 ${_intraday.date}：${meta.codes} 檔、原始 ${(enc.rawBytes / 1e6).toFixed(2)}MB 超過舊欄位預算 → 只寫壓縮格式 ${(enc.gz.length / 1e3).toFixed(0)}KB（${enc.inline ? '單一文件' : `${enc.shards.length} 片`}）`);
+    }
+  }
+  catch (e) { log('✖ writeIntraday:', (e.message || '').slice(0, 200)); }   // 不再截在 80 字（舊版看不到超出多少）
 }
 
 // 早盤回補：daemon 只從「被檢視當下」才記錄，故被檢視前的早盤缺一段。

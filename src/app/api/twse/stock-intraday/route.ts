@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { rateLimit } from '@/lib/rate-limit';
-import { getAdminDb } from '@/lib/firebase-admin';
+import { getDaemonIntraday } from '@/lib/daemon-intraday';
 import { isMarketOpen } from '@/lib/twse-api-server';
 import { cacheHeader } from '@/lib/api-cache';
 
@@ -32,13 +32,10 @@ const taipeiDate = () => {
 // Independent of Yahoo, which lags ~20min and is often empty at the open.
 async function fetchDaemonIntraday(code: string) {
   try {
-    const db = getAdminDb();
-    if (!db) return null;
-    const snap = await db.collection('marketIntraday').doc('latest').get();
-    const data = snap.data();
-    if (!data || data.date !== taipeiDate()) return null; // only today's series
-    const series = JSON.parse(data.seriesJson || '{}');
-    const s = series[code];
+    // 壓縮格式＋3 秒合流快取＋盤中新鮮度（src/lib/daemon-intraday.ts·2026-10-02）；只取今日序列
+    const data = await getDaemonIntraday(taipeiDate());
+    if (!data) return null;
+    const s = data.series[code];
     if (!s || !Array.isArray(s.pts) || s.pts.length === 0) return null;
     const ticks = s.pts.map((p: [number, number, number]) => {
       const tw = new Date(new Date(p[0] * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
