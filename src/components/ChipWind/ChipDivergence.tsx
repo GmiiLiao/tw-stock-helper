@@ -18,6 +18,8 @@ const EXPLAIN: Record<string, { title: string; text: string }> = {
 };
 
 const fmt = (n: number) => (n > 0 ? '+' : '') + Math.round(n).toLocaleString();
+// 法人淨額剛好 0 顯示「+0」（2026-10-02 使用者：法人淨額為 0 時紅色 +0 是正確的；顏色本來就是 ≥0 紅）
+const fmtInst = (n: number) => (n >= 0 ? '+' : '') + Math.round(n).toLocaleString();
 
 export default function ChipDivergence({ compact = false }: { compact?: boolean }) {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
@@ -64,7 +66,7 @@ export default function ChipDivergence({ compact = false }: { compact?: boolean 
               <span style={{ color: 'var(--text-muted)', minWidth: '2ch', fontSize: 'calc(12.5px * var(--fz))', flexShrink: 0 }}>{i + 1}</span>
               <b style={{ color: '#7dd3fc', flex: '1 1 auto', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.code} {it.name}</b>
               {(() => { const st = statusOf(dt, it.code); return st == null ? null : <DayTradeMark status={st} size="xs" />; })()}
-              <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmt(it.instNet)}</b>張</span>
+              <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>法人 <b style={{ color: it.instNet >= 0 ? '#f03e3e' : '#2f9e44' }}>{fmtInst(it.instNet)}</b>張</span>
               <span style={{ fontSize: 'calc(12.5px * var(--fz))', whiteSpace: 'nowrap', flexShrink: 0 }}>價 <b style={{ color: getChangeColor(it.pricePct) }}>{fmt(it.pricePct)}%</b></span>
             </div>
           ))}

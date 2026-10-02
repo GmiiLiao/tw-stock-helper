@@ -67,6 +67,9 @@ const numColor = (v?: number | null) =>
   v == null || v === 0 ? 'var(--text-muted)' : v > 0 ? 'var(--color-up)' : 'var(--color-down)';
 const fmtSigned = (v?: number | null) =>
   v == null ? '—' : `${v > 0 ? '+' : ''}${v.toLocaleString()}`;
+// 法人淨額（外資／投信／法人 5 日）：剛好 0 顯示紅色「+0」（2026-10-02 使用者：法人淨額為 0 時紅色 +0 是正確的；與 ChipSignals 等同口徑）
+const instColor = (v?: number | null) => (v == null ? 'var(--text-muted)' : v >= 0 ? 'var(--color-up)' : 'var(--color-down)');
+const instSigned = (v?: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toLocaleString()}`);
 
 export default function SqueezePanel() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
@@ -287,7 +290,8 @@ export default function SqueezePanel() {
           <div style={{ display: 'grid', gap: 6 }}>
             {rec.items.map(it => {
               const v = it.verdict;
-              const c = v?.label === '利多' ? '#22c55e' : v?.label === '利空' ? '#ef4444' : v?.label === '中性' ? '#94a3b8' : '#64748b';
+              const c = v?.label === '利多' ? 'var(--color-up)' : v?.label === '利空' ? 'var(--color-down)' : v?.label === '中性' ? '#94a3b8' : '#64748b';
+              const cBg = v?.label === '利多' ? 'var(--color-up-bg)' : v?.label === '利空' ? 'var(--color-down-bg)' : `${c}22`;
               return (
                 <div key={it.code} data-anchor={it.code} style={{
                   padding: '7px 11px', borderRadius: 8,
@@ -304,7 +308,7 @@ export default function SqueezePanel() {
                     <AddCandidateButton code={it.code} variant="icon" />
                     <span style={{ color: 'var(--color-up)' }}>+{it.chg}%</span>
                     <span style={{ color: 'var(--text-muted)' }}>券資比 {it.ratio}%</span>
-                    <span style={{ padding: '1px 8px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' }}>
+                    <span style={{ padding: '1px 8px', borderRadius: 999, background: cBg, color: c, fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' }}>
                       {v?.label ?? '—'}
                     </span>
                     {v?.confidence && <span title="AI 自報信心，對答案顯示無分辨力（信心高反而比信心低差），已不進任何規則，僅供參考" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>信心{v.confidence}（不進規則）</span>}
@@ -438,12 +442,12 @@ export default function SqueezePanel() {
                       ({fmtSigned(it.lendChg)})
                     </span>}
                   </td>
-                  <td style={{ padding: '4px 4px', color: numColor(it.fgn) }}>{fmtSigned(it.fgn)}</td>
-                  <td style={{ padding: '4px 4px', color: numColor(it.trust) }}>
-                    {fmtSigned(it.trust)}
+                  <td style={{ padding: '4px 4px', color: instColor(it.fgn) }}>{instSigned(it.fgn)}</td>
+                  <td style={{ padding: '4px 4px', color: instColor(it.trust) }}>
+                    {instSigned(it.trust)}
                     {(it.trustStreak ?? 0) >= 3 && <span style={{ marginLeft: 3, fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b' }}>連{it.trustStreak}</span>}
                   </td>
-                  <td style={{ padding: '4px 4px', color: numColor(it.inst5), fontWeight: 600 }}>{fmtSigned(it.inst5)}</td>
+                  <td style={{ padding: '4px 4px', color: instColor(it.inst5), fontWeight: 600 }}>{instSigned(it.inst5)}</td>
                   <td style={{ padding: '4px 4px', color: 'var(--text-muted)' }}>{it.mgn.toLocaleString()} / {it.shrt.toLocaleString()}</td>
                   <td style={{ padding: '4px 4px' }}>{it.volX}x</td>
                   <td style={{ padding: '4px 4px', whiteSpace: 'nowrap', color: it.macd ? (it.macd.ok ? '#22c55e' : !it.macd.above0 ? 'var(--color-down)' : 'var(--text-muted)') : 'var(--text-muted)' }}>{it.macd?.label ?? '—'}</td>
