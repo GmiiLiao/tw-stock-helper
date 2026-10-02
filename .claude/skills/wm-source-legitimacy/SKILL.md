@@ -4,7 +4,7 @@ description: 外部資料來源合法性登錄——每個上游網域都要登�
 ---
 # wm-source-legitimacy｜資料來源合法性登錄
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`docs/data-sources.mdx`（source-attribution manifest；逐來源寫明「儲存與顯示什麼」與「授權／署名要求」，例：SIPRI 只存衍生比率、不轉散布全庫）、`CHANGELOG.md` #8167／#5503（YouTube 頻道直播偵測因違反 ToS **整條退役**，端點改回明確錯誤碼而非靜默失敗）。**適用度：內化**（2026-09-28 使用者要求新增，第 23 條 wm 技能）。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`docs/data-sources.mdx`（source-attribution manifest；逐來源寫明「儲存與顯示什麼」與「授權／署名要求」，例：SIPRI 只存衍生比率、不轉散布全庫）、`CHANGELOG.md` #8167／#5503（YouTube 頻道直播偵測因違反 ToS **整條退役**，端點改回明確錯誤碼而非靜默失敗）。**適用度：內化**（2026-09-28 使用者要求新增，第 23 條 wm 技能）。
 
 ## 原則
 - **每個上游都是登錄過的決定，不是順手加的 fetch**：網域、提供者、取得方式（官方 API／公開頁 JSON／RSS／HTML／非公開端點）、身分（User-Agent 口徑）、落地保存什麼、節流方式，一列寫清楚。

@@ -4,7 +4,7 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 ---
 # wm-freshness-health-monitoring｜新鮮度與健康
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`api/health.js`（3,919 行；每 key `maxStaleMin`＝cron 2–3×、`minRecordCount`、STALE_CONTENT_GRACE 3h）、`scripts/check-seed-freshness.mjs`、`CONCEPTS.md`（Content-Age Contract／Activation Marker／Read Outcome）、`.github/workflows/seed-freshness-monitor.yml`（每 15 分）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`api/health.js`（3,919 行；每 key `maxStaleMin`＝cron 2–3×、`minRecordCount`、STALE_CONTENT_GRACE 3h）、`scripts/check-seed-freshness.mjs`、`CONCEPTS.md`（Content-Age Contract／Activation Marker／Read Outcome）、`.github/workflows/seed-freshness-monitor.yml`（每 15 分）。**適用度：深度內化**。
 
 ## 原則
 - 每次資料寫入同時寫 `seed-meta:{fetchedAt, recordCount, sourceVersion}`；健康端點只讀 meta，不讀大 payload。
@@ -50,3 +50,16 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 ## 2026-09-28 使用者定案
 
 - 上方更正紀錄的待確認事項已定：latestDoc **找不到文件回 200 null（正常、可快取）；讀取故障回 503 unavailable（no-store、有 log）**。見 wm-multi-tier-cache 同日定案。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- **新資料集上線的健康登記範式**（依據：`api/health.js` 新增 `pizzintHistory`、`gdeltDyadTension`）：
+  ①**啟用標記（activation marker）**：寫入端在**第一次真的寫進記錄**時才寫 `seed-activated:*`；標記出現前「不存在」算待啟用（不告警），出現後缺漏／過期一律嚴格——寬限期以**證據**結束而非「永不結束」或靠註解提醒；
+  ②**監看與提供者無關的心跳鍵**：資料桶按 UTC 日期輪替、按提供者分桶時，**不要監看某一個桶**——每到午夜會讀成 EMPTY、換備援提供者時會讀成 STALE；改監看歸檔 Lua 每次成功寫入都推進的心跳；
+  ③**「歸檔過期但即時鍵新鮮」本身就是訊號**：歸檔是 fire-and-forget 跟著即時發布寫，兩者年齡不對稱是運維者唯一能知道「歸檔停了」的線索；
+  ④**節奏改了門檻跟著改**：relay 由 10 分改 15 分，`maxStaleMin` 30→45（維持 3× 間隔）；註解寫明倍數來源；
+  ⑤「場館未開／尚未回報」：只有在提供者**乾淨地回答每一個場館且皆無即時讀數**時才推進 seed-meta，最多到上一筆即時讀數後 24h；提供者錯誤、迴圈死掉或沉默更久都**停止心跳** ⇒ 缺資料讀成 STALE_SEED。即「無資料」要由正面證據支撐（同 [[wm-authoritative-identity]] 的「無觸發要有正面訊號」）。
+- 台股助手對應規則：
+  1. **日期輪替鍵的午夜假警報**：`scripts/audit-data-sources.mjs` 的 dated 契約若直接讀「今天」的文件（例如 `xxx/{YYYY-MM-DD}`），00:00 到當日第一次寫入之間必然讀到缺漏；應讀「最近一份＋其自報資料日」，再由資料日漂移閘判斷（09-28 已加休市日不誤報，午夜窗是否涵蓋需實測）。
+  2. **歸檔與即時並寫的不對稱**：daemon 有多處「即時寫 latest、旁路寫歸檔」（chipArchive、bookDepthArchive、aiDaytradeLab 凍結檔）——稽核要能看出「latest 新鮮但歸檔停了」，不能只看 latest。
+  3. **改排程節奏時同步改 `maxStale`**：本站 CONTRACTS 的 maxStale 多為寫死分鐘數，改 daemon 時段的 commit 應同時檢查對應契約（本週 `d915839` 波段帳戶快照改獨立排程即一例）。

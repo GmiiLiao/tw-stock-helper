@@ -4,7 +4,7 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 ---
 # wm-security-model｜安全模型
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`api/_api-key.js`（session／user／enterprise 三種 kind；Origin/Referer 不可信 #3541）、`api/_rate-limit.js`＋`server/_shared/rate-limit.ts`（sliding window、failClosed、IETF RateLimit headers、`X-RateLimit-Mode: degraded`）、`scripts/enforce-rate-limit-policies.mjs`（政策 key 必須對得上真 route）、`api/_cors.js`。**適用度：部分內化**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`api/_api-key.js`（session／user／enterprise 三種 kind；Origin/Referer 不可信 #3541）、`api/_rate-limit.js`＋`server/_shared/rate-limit.ts`（sliding window、failClosed、IETF RateLimit headers、`X-RateLimit-Mode: degraded`）、`scripts/enforce-rate-limit-policies.mjs`（政策 key 必須對得上真 route）、`api/_cors.js`。**適用度：部分內化**。
 
 ## 原則
 - **Origin／Referer／Sec-Fetch-Site／X-Forwarded-For 都是 client 可寫**：不可當「真瀏覽器」或身分證明；rate-limit 的 identifier 要取**受信 proxy 附加的那一跳**，不是最左邊。
@@ -53,3 +53,13 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 - **限流器故障一律 fail-open（不阻擋請求）**——使用者明示。上方「LLM／checkout 類 fail-closed」的上游做法本站**不採用**；`src/lib/rate-limit.ts` 維持故障放行，但要留 log（降級可觀測）。新增 route 不得自行改成 fail-closed。
 - **高級會員功能伺服器端驗資格（G1-07）**：`src/lib/require-premium.ts`（premium/admin/superadmin 或註冊 14 天內體驗期，與前端 access.ts 同規則；站主只認已驗證 token email）。首例 `/api/ai/strategy-picks`，回應 `cacheHeader('private')`；daemon 付費判斷 `isPremiumUser()` 同納入體驗期。**新增付費 API 一律走 requirePremium，不可只在 UI 擋。**
 - **萬用 CORS 移除（G1-11）**：5 支 route 的 `Access-Control-Allow-Origin: *` 已刪（同源前端不需要、查無跨站呼叫端）。新增 route 不加 CORS；真有跨站需求時列舉 origin。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- **代理外部供應商的 route 一律有專屬限流**（依據：`server/_shared/rate-limit.ts` L699-717、L946-952 新增 `/api/market/v1/get-price-history` 30/60s＋理由欄）：即使參數被限縮在追蹤清單內（「最多 4 個代號」），**快取未命中仍會打 Yahoo** ⇒ 不得繼承全域 fail-open 預算；每條例外附 `reason` 寫明「它會打哪個上游、為何」。
+- **CONCEPTS「Anonymous Session」新增**（依據：CONCEPTS.md L469-473）：
+  ①**請求內容被不可信輸入操控的伺服器端呼叫者**（例如 widget agent 由模型決定要讀哪些資料）**只持有匿名權限**——以 key 標頭帶匿名 session，而不是用伺服器自己的高權限憑證；
+  ②API 對可讀 body 的呼叫者**分清兩種拒絕**：session 無效 vs 這條 route 需要比匿名更高的權限（Pro-auth 拒絕不代表 session 壞了）；在一條 route 被拒只是那條 route 的證據。
+- 台股助手對應規則：
+  1. **LLM 決定讀什麼時不得用管理員權限**：daemon 的 AI 交易員／AI 分析若讓模型選擇查詢目標（代號、collection、帳戶），實際讀取應限縮在「該任務本來就能讀的範圍」（固定白名單或該會員自己的文件），不能直接把 Admin SDK 交給模型驅動的讀取。本週新增的**會員專屬 AI 帳戶**（`3ea47f7`、`1ec8c34`）是首要檢查對象：會員目標 prompt 是使用者輸入，不可影響讀寫哪個帳戶。
+  2. 本站限流故障政策仍為 **fail-open（2026-09-28 使用者裁定）**——上游 fail-closed 只作參考，此條不變；但「打外部上游的 route 必須有專屬限流條目」與 fail-open 不衝突，可吸收。

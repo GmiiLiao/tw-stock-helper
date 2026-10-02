@@ -4,7 +4,7 @@ description: 熔斷器與降級存活——失敗計數→冷卻狀態機、tri-
 ---
 # wm-resilience-circuit-breaker｜熔斷與降級
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`src/utils/circuit-breaker.ts`（697 行；預設 maxFailures 2、cooldown 5 分、cacheTtl 10 分、persistent stale ceiling 24h、recovery probe 30s）、`src/services/smart-poll-loop.ts`。**適用度：部分（F1 進行中）**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`src/utils/circuit-breaker.ts`（697 行；預設 maxFailures 2、cooldown 5 分、cacheTtl 10 分、persistent stale ceiling 24h、recovery probe 30s）、`src/services/smart-poll-loop.ts`。**適用度：部分（F1 進行中）**。
 
 ## 原則
 - 狀態機：`failures` 達 maxFailures → `cooldownUntil`；冷卻期內直接回快取（mode=cached）或 unavailable，不打上游。

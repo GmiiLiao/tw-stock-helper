@@ -4,7 +4,7 @@ description: AI 協作工程規範——任務模式與授權分離、終端狀�
 ---
 # wm-agent-task-mode｜任務模式、授權與終端狀態
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`AGENTS.md`（Task Mode and Authority／Start Here／Verification／PR Delivery）、`scripts/agent-preflight.mjs`、`compound-engineering.local.md`（五個 review agents）。**適用度：★★★ 建議內化（零程式碼）**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`AGENTS.md`（Task Mode and Authority／Start Here／Verification／PR Delivery）、`scripts/agent-preflight.mjs`、`compound-engineering.local.md`（五個 review agents）。**適用度：★★★ 建議內化（零程式碼）**。
 
 ## 原則
 - **任務模式決定權限**：review／explain／report／diagnose ＝ 唯讀，不改檔、不推、不改外部狀態；implement／fix／ship 才改碼、驗證、交付。
@@ -39,3 +39,19 @@ description: AI 協作工程規範——任務模式與授權分離、終端狀�
 - **測試路徑→指令→閘門要寫成表，而不是讓 agent 去讀 CI 設定**（上游 `AGENTS.md`「Test path, command, and owning CI job」）。台股助手目前：`scripts/lib/*.test.mjs` → `node --test <檔>`（**未接進任何 git hook**）；`src/**` → pre-push `npx tsc --noEmit`；pre-commit（`scripts/git-hooks/pre-commit`）＝ staged `.mjs` 的 `node --check`＋`check-field-conventions`＋`audit-routes`＋`audit-ratchets`＋`enforce-safe-storage`。宣稱「測試通過」時要寫出跑的是哪一格；`node --test` 沒跑就是「未驗」，不能用 pre-commit 綠燈頂替。
 - **驗證要證明走到了測試名稱宣稱的分支**（上游 `CONCEPTS.md` Vacuous Guard 第 10–12 形：比真實函式庫更豐富的手寫 double、缺前置條件而落到 fallback 分支、fixture 用了生產不會出現的環境值）。台股助手對應：Firestore 相關測試若用手寫假 db，假 db 不可接受真 Firestore 會拒收的值（2026-09-24 `daytradeAlerts` 因 `undefined` 欄位整天寫入失敗 956 次，見 `docs/AI-LAB-2026-09-24.md`）；時間相關測試要在盤中／收盤後／休市日至少兩個值上跑（DATA-INTEGRITY-SCAN L 族）。
 - 上游終端狀態六分法原句保留（`AGENTS.md` 末段），本站 CLAUDE.md 同義，不需改動。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- **上游 `AGENTS.md`「Own the outcome」改寫**（依據：AGENTS.md L6-15）：
+  ①回報「壞了」、要求 debug／investigate／diagnose／「找出原因」＝**要解決**：證明成因 → 必要時做範圍內修補 → 驗證 → 交付 PR，不必使用者再說一次「修」；
+  ②只有**明說只診斷**、獨立 code review、純解釋才維持唯讀——**看整段請求與已接受的任務範圍，不看單一動詞**；
+  ③**授權跨回合保留**：狀態詢問或請求解釋不會取消進行中的修復；
+  ④**證據收集持續到問題被回答或遇到具體阻礙**——「原因不明」本身不是停止條件；若無法證明有缺陷，只回報證據，**不出臆測性修補**。
+- **⚠ 與本站規則衝突（待使用者決定，本技能原文與 CLAUDE.md「模式由使用者的動詞決定」維持不變）**：
+  本站使用者明訂「查看／分析／列出／為什麼／等我決定＝唯讀」、報告模式只列不修，且盤中有「不重啟／不部署影響快線」的硬規定；
+  上游新規把「為什麼壞了」視為修復授權。兩者差在**誰承擔誤修的代價**：上游有 PR／CI／人審擋在部署前，本站 disk 即部署（launchd 拉起磁碟版本）、
+  且使用者多次要求「先報告等決定」。⇒ 建議**只吸收 ③④**（授權跨回合保留、原因不明不得停在猜測），①② 不採用；由使用者裁定。
+- **上游 `CONTRIBUTING.md` 新增 CodeQL 交接程序**（依據：CONTRIBUTING.md「CodeQL scan schedule and setup handover」）：切換掃描機制時**任何時刻都不可兩者皆停**——
+  先保留舊機制審新流程 → 交接時才關舊開新 → 確認新流程每一條 job 都成功並產出該 commit 的新結果（skip 不算證明）→ 失敗或交接中斷**立刻恢復舊機制**；
+  節省成本要等 7 天實測才可宣稱。對應本站：換 daemon 排程／換資料來源／換監控時，「新路徑跑出當日實料」之前不可拔舊路徑（同 [[feedback-no-gaps-on-trading-days]]）。
+- **Dependabot 信任模型**（同檔 L515+）：擁有者 push 產生的 synchronize 事件才授權驗證「該 head」；**之後任何非擁有者 push 撤銷信任，重跑／重開不會恢復**。本站無 Dependabot，參考級；通則＝「核可綁定到被核可的那個版本，版本一變核可即失效」。

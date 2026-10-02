@@ -4,7 +4,7 @@ description: 海量資料源治理——來源可信度分級、SSRF allowlist�
 ---
 # wm-source-aggregation｜資料源聚合治理
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`src/services/runtime-config.ts`（每個供應商寫明 fallback 行為）、`docs/data-sources.mdx`、feed catalog／validation CI。**適用度：部分內化**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`src/services/runtime-config.ts`（每個供應商寫明 fallback 行為）、`docs/data-sources.mdx`、feed catalog／validation CI。**適用度：部分內化**。
 
 ## 原則
 - 每個來源有**可信度分級**（預設最低），分級表跨部署要 byte-identical 測試鎖定。

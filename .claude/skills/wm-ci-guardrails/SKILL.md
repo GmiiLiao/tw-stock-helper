@@ -4,7 +4,7 @@ description: CI 防護網與抗漂移——分層 pre-push（狀態依賴／樹�
 ---
 # wm-ci-guardrails｜CI 防護網
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`.husky/pre-commit`（合併/關閉 PR 分支拒 commit＋unicode 安全）、`.husky/pre-push`＋`scripts/prepush-attest.sh`（tiered gate、green-tree cache、identity gate）、`scripts/lint-boundaries.mjs`（types→config→services→components→app 單向）、`scripts/enforce-*.mjs`（rate-limit-policies／panel-content-writes／safe-html／api-contract／premium-fetch）、`scripts/check-sentry-coverage.mjs`、`check-inventory-count-contracts.mjs`、`CONCEPTS.md` Test & Guard Verification、43 條 workflow。**適用度：部分內化（09-04 起有 hooks）**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`.husky/pre-commit`（合併/關閉 PR 分支拒 commit＋unicode 安全）、`.husky/pre-push`＋`scripts/prepush-attest.sh`（tiered gate、green-tree cache、identity gate）、`scripts/lint-boundaries.mjs`（types→config→services→components→app 單向）、`scripts/enforce-*.mjs`（rate-limit-policies／panel-content-writes／safe-html／api-contract／premium-fetch）、`scripts/check-sentry-coverage.mjs`、`check-inventory-count-contracts.mjs`、`CONCEPTS.md` Test & Guard Verification、43 條 workflow。**適用度：部分內化（09-04 起有 hooks）**。
 
 ## 原則
 - **架構不變式要可執行**：邊界 lint 是「executable authority」，文件只是說明。
@@ -54,3 +54,18 @@ description: CI 防護網與抗漂移——分層 pre-push（狀態依賴／樹�
   2. **替身比 Firestore 寬（第 10 型實例）**：`scripts/lib/ai-daytrade-lab.test.mjs:49-56`、`ai-swing-lab.test.mjs:53-60` 的 `fakeDb.set()` 接受 `undefined`、`orderBy()` 不看欄位也不排除缺欄位文件；真實 Admin SDK 會拒收 undefined——2026-09-24 當沖警示正因 `split: undefined` 整天被拒 956 次（`daytrade-desk.test.mjs:80` 事後補了專測）。⇒ 共用一個 fake，`set/update` 深掃 undefined 即 throw。
   3. **Ratchet 寫法表要列舉＋自測**：仿 SITES 的 probe／negativeProbe，`audit-ratchets.mjs` 的 GATE／輪詢寫法各附必中與必不中樣本；以呼叫點計數（理由與實例見 wm-smart-polling-startup 本週增補）。
   4. 既有條文校正（不刪原文）：「setInterval 未接 gate 24 檔」→ 現基線 22（`route-policy.json` 註記 09-18 QuoteGrid、09-22 LimitUpPanel；後者屬寫法逃逸，非真修）。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- **上游新增 `.github/workflows/codeql.yml`（技術棧訊號：新 CI workflow）**——判定**不構成新技術族**，併入本技能（理由：它是既有「閘門選擇／不讓 skip 冒充通過」原則的又一實作；本站無 GitHub Actions、無 CodeQL）。上游作法（依據：ARCHITECTURE.md workflow 表 codeql 列、CONTRIBUTING.md 交接節）：
+  ①**依變更路徑選 job，但「查不到變更清單／查詢不完整」一律全跑**（不確定時往多掃的方向失敗）；rename 兩側與相依清單都算；動到掃描設定本身也全跑；
+  ②被選中的 job 掃整個 repo，**路徑只決定跑哪些 job，不決定掃哪些檔**；
+  ③排程與手動掃描**不會被 PR 活動取消**；只有同一 PR 的舊掃描被新 commit 取消；
+  ④明文寫出**落後窗**（預設分支 JS/TS 最多落後 1 天、其他語言 1 週）——不宣稱比實際更即時；
+  ⑤快取每次都存新 key、從不清 ⇒ 自帶 prune job 只留每組最新一份。
+- **`deploy-gate.yml` 新增 concurrency 佇列**（依據：deploy-gate.yml L30-36、evaluate-direct job）：同一 SHA 的評估排隊（`queue: max`、`cancel-in-progress: false`），**只取代尚未開始的請求；執行中的仍持有 SHA 寫入鎖；排程失效重評與手動復原永不被擠掉**。原則：**取消／去重只能作用在還沒開始的工作**，不能打斷持鎖的寫者。
+- **CONCEPTS「Reload Guard」補一句**（依據：CONCEPTS.md L215）：延後重新載入**沒有上限**，所以前提是使用者**一定關得掉**它保護的對話框——關閉鈕被遮住或失效的阻擋式對話框會讓分頁整個 session 停在舊版。
+- 台股助手對應規則：
+  1. **測試選擇要「不確定就全跑」**：`scripts/git-hooks/pre-commit:20` 只在 staged 檔落在 `scripts/lib/` 時跑 `scripts/lib/*.test.mjs`；若測試匯入的模組在 `scripts/lib` 之外（daemon 主檔、`src/lib/*` 共用純函式），改那些檔不會觸發測試 ⇒ 觸發集合應由 import 閉包推導（同 `scripts/lib/daemon-code-hash.mjs` 的作法），推導失敗時全跑。實況見本週掃描。
+  2. 去重／合流只能吃「尚未開始」的工作：daemon 排程若以旗標略過「同時段第二次觸發」，不可讓**手動補跑**被同一旗標擋掉（對照 `system/daemonJobMarks` 機制）。
+  - **更正（同日掃描實測）**：16 個 `scripts/lib/*.test.mjs` 的 import 閉包共 39 檔、**全部在 scripts/lib 內**，第 1 條「測試匯入外部模組而漏跑」目前不成立；實際缺口是未被任何測試覆蓋的模組（ledger-replay、holding-strategy 等）、`src/lib` 零測試、tech-score／risk-score 兩份實作未對拍、無測試數下限。規則本身（觸發集合由閉包推導、推導失敗全跑）保留，供未來測試跨出 scripts/lib 時使用。

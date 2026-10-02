@@ -4,7 +4,7 @@ description: 面板資料生命週期——錯誤絕不覆蓋既有好資料、s
 ---
 # wm-panel-data-lifecycle｜面板資料生命週期
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`src/components/Panel.ts`（1,715 行：`_hasData` 防錯誤覆蓋、`clearErrorState` 單一擁有者、`withRetryBackoffPreserved`、#6557 cii/strategic-risk 生產事故）、`scripts/enforce-panel-content-writes.mjs`（lint 抓自己 replaceChildren 繞過清錯的面板）。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`src/components/Panel.ts`（1,715 行：`_hasData` 防錯誤覆蓋、`clearErrorState` 單一擁有者、`withRetryBackoffPreserved`、#6557 cii/strategic-risk 生產事故）、`scripts/enforce-panel-content-writes.mjs`（lint 抓自己 replaceChildren 繞過清錯的面板）。**適用度：部分**。
 
 ## 原則
 - **一次 transient 失敗不得清掉正確資料**：錯誤只加徽章，內容保留；有資料時錯誤是附註，沒資料時錯誤才是主畫面。

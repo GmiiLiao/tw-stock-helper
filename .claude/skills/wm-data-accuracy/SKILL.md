@@ -4,7 +4,7 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 ---
 # wm-data-accuracy｜資料正確性
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`scripts/_pipeline-dedup.mjs`、`scripts/_seed-utils.mjs`（atomicPublish）、`CONCEPTS.md`（Read Outcome／Content Clock／Content-Age Contract）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`scripts/_pipeline-dedup.mjs`、`scripts/_seed-utils.mjs`（atomicPublish）、`CONCEPTS.md`（Read Outcome／Content Clock／Content-Age Contract）。**適用度：深度內化**。
 
 ## 原則（上游提煉）
 - **Read Outcome 三態**：讀取結果必須區分 hit／miss／failure。「讀不到」與「真的沒有」是相反的行動：miss 可回空、failure 必須棄權（跳過本輪、保留 last-good、回報未完成），絕不把 outage 變成自信的空答案。
@@ -44,3 +44,12 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 ## 2026-09-28 使用者定案
 
 - Seed-owned key 讀取端：本站採「故障回明確 unavailable（503＋X-Data-Status）、未寫入回 null」，不捏造後備值。見 wm-multi-tier-cache 同日定案。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- **CONCEPTS 新詞條「Source Check」**（依據：CONCEPTS.md「Widget Builder › Source Check」）：網路來源的 AI 草稿在交付前，由**獨立的第二次模型呼叫**把草稿與 agent 讀過的所有來源比對——判斷是否為正確時期的正確資料集，並列出**來源不支持的顯示數值**。只用自家資料做的草稿不需要這道檢查；**一次網路搜尋有結果，草稿就變成需檢查**。
+  - **失敗方向會切換**：第一份草稿 fail-open（檢查跑不了就照原樣交付、標未驗）；**一旦被駁回就 fail-closed**——模型只有一次修補機會，修補也要通過第二次檢查才交付；修補被駁回、複查失敗或逾時 ⇒ 整個請求回錯誤。
+  - 推論：一次「順手」的網路搜尋改變的是使用者拿到什麼，不只是成本。
+- 台股助手對應規則：
+  1. 本站 AI 新聞識讀的「AI 引文逐句驗證」（G4-09，≤3 句×60 字）是同族作法（引文必須在原文中找得到）；但**數值**（目標價、營收年增率、EPS）是否被來源支持目前沒有第二道比對——AI 摘要裡的數字若進入評分或推播，應比照 Source Check 加「數值必須出現在來源內」的驗證。
+  2. 失敗方向切換規則可直接套用：AI 判讀的第一次失敗（API 掛）可退回「未經 AI 判讀」並標示；但**一旦驗證抓到捏造**，不可再靜默退回原輸出（同 [[feedback-news-score-requires-ai-content]]）。

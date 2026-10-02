@@ -4,7 +4,7 @@ description: 即時資料種子管線——runSeed 生命週期（lock→fetch�
 ---
 # wm-realtime-seed-pipeline｜種子管線
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`scripts/_seed-utils.mjs`（2,886 行：acquireLock SET NX PX、atomicPublish、writeFreshnessMetadataSafely、PERMANENT_4XX、allSettledWithConcurrency）、195 個 `seed-*.mjs`、`scripts/ais-relay.cjs`、`CONCEPTS.md` Seed Bundle Orchestration（wall budget／section deferral／graceful skip／starved tick／chunked sweep）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`scripts/_seed-utils.mjs`（2,886 行：acquireLock SET NX PX、atomicPublish、writeFreshnessMetadataSafely、PERMANENT_4XX、allSettledWithConcurrency）、195 個 `seed-*.mjs`、`scripts/ais-relay.cjs`、`CONCEPTS.md` Seed Bundle Orchestration（wall budget／section deferral／graceful skip／starved tick／chunked sweep）。**適用度：深度內化**。
 
 ## 原則
 - 完整生命週期：lock → fetch → validate → publish（staging→canonical）→ seed-meta → release；每步失敗有明確語意。

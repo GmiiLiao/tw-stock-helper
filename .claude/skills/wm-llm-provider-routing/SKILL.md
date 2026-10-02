@@ -4,7 +4,7 @@ description: LLM 供應商路由——每個 provider 宣告 fallback 鏈、無 
 ---
 # wm-llm-provider-routing｜LLM 供應商路由
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`src/services/runtime-config.ts`（Ollama/LM Studio → Groq → OpenRouter → 瀏覽器本地模型；每項寫 `fallback` 文字；「只有 provider 明確回 401/403 才算 key 失效」）、`src/services/settings-manager.ts`。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`src/services/runtime-config.ts`（Ollama/LM Studio → Groq → OpenRouter → 瀏覽器本地模型；每項寫 `fallback` 文字；「只有 provider 明確回 401/403 才算 key 失效」）、`src/services/settings-manager.ts`。**適用度：部分**。
 
 ## 原則
 - 供應商鏈以資料宣告，每層寫明失敗降到哪；UI 顯示 disabled/limited state 而非假結果。

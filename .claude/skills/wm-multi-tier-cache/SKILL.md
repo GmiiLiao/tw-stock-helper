@@ -4,7 +4,7 @@ description: 多層快取——四層瀑布、single-flight 合流、leader/foll
 ---
 # wm-multi-tier-cache｜多層快取
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`ARCHITECTURE.md` §9（Bootstrap seed→in-memory→Upstash Redis `cachedFetchJson`→upstream）、`server/_shared/redis.ts`、`server/gateway.ts`（FNV-1a ETag）、`CONCEPTS.md`（Seed-Owned Key／One-Shot Hydration／The Lever Test／Bootstrap View Key）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`ARCHITECTURE.md` §9（Bootstrap seed→in-memory→Upstash Redis `cachedFetchJson`→upstream）、`server/_shared/redis.ts`、`server/gateway.ts`（FNV-1a ETag）、`CONCEPTS.md`（Seed-Owned Key／One-Shot Hydration／The Lever Test／Bootstrap View Key）。**適用度：深度內化**。
 
 ## 原則
 - 讀取順序固定；miss 合流（N 併發只打 1 次），leader 做副作用、follower 只等；fetcher 硬逾時防 in-flight map 永久毒化。
@@ -47,3 +47,7 @@ description: 多層快取——四層瀑布、single-flight 合流、leader/foll
 
 - **讀取故障≠尚未寫入**：`latestDoc` 與 25 支手寫 route 的故障分支改走 `unavailable(where, err)`（`src/lib/api-cache.ts`）：**503＋no-store＋`X-Data-Status: unavailable`＋console.error**，body 仍為 `null`（既有前端 `r.ok ? json : null` 與直接 `r.json()` 行為不變）。
 - 文件不存在（daemon 尚未寫入）、參數不合法仍回 200 null／原樣——那是正常狀態，不是故障。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- `server/gateway.ts` 本週唯一變更是新增 price-history 為 `static` 層（依據：gateway.ts L303）——見 [[wm-edge-gateway]] 本週增補「快取層級依資料本質」。其餘多層快取規則不變。

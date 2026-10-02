@@ -4,7 +4,7 @@ description: 契約優先 API——proto/OpenAPI 生成、allowlist 例外要有
 ---
 # wm-contract-first-api｜契約優先 API
 
-**上游依據**（基線 v2.10.0 · 90dc23a · 2026-09-26（第二大腦 second-brain/worldmonitor/））：`proto/**`（313 檔）、`api/api-route-exceptions.json`（888 行 allowlist）、`scripts/enforce-sebuf-api-contract.mjs`、`docs/adding-endpoints.mdx`。**適用度：部分（無 proto，取契約精神）**。
+**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`proto/**`（313 檔）、`api/api-route-exceptions.json`（888 行 allowlist）、`scripts/enforce-sebuf-api-contract.mjs`、`docs/adding-endpoints.mdx`。**適用度：部分（無 proto，取契約精神）**。
 
 ## 原則
 - 契約是唯一真相：路徑／動詞／驗證約束寫在 proto，四輸出（client／server／OpenAPI／bundle）由 `make generate` 生成；**不得手改生成物**。
@@ -30,3 +30,8 @@ description: 契約優先 API——proto/OpenAPI 生成、allowlist 例外要有
 - **例外條目四欄齊全、行為變就重分類**（`api/api-route-exceptions.json`）：本週新增的 `api/mcp/structured-content.ts`、`api/notification-suppressions.js` 都帶 `category`／`reason`／`owner`／`removal_issue`；`api/youtube/live.js` 行為改變（頻道直播偵測退役、改 oEmbed 代理）時在同一變更裡把 category 由 `non-json` 改為 `upstream-proxy` 並重寫 reason。本站對應：`scripts/route-policy.json` 的 `exemptMutating`（目前空）與 `_getNoCacheKnown`——route 行為改變時同一 commit 更新理由，過期理由視同違規。
 - **退役功能回明確錯誤碼，不回空**（`CHANGELOG.md` #8167）：`/api/youtube/live?channel=` 改回 **410**＋`{"error":"channel_live_detection_retired"}`（可快取一天）；已棄用欄位為 wire 相容保留但恆為固定值；CHANGELOG 寫遷移路徑與「沒有替代品」。本站：下架或「生產環境安全地壞著」的路徑，要回可辨識的錯誤碼（例：410＋`{error:'retired'}`），前端才不會把「功能已退役」當成「今天沒資料」。
 - **政策登記表每條附 reason，且對得上真路徑**（`server/_shared/rate-limit.ts` `ENDPOINT_RATE_POLICIES`＋`FAIL_CLOSED_ENDPOINT_RATE_POLICY_REQUIRED`；本週新增 12 條，全屬「呼叫端可控參數→cache miss→打外部供應商」）。本站 `rateLimit(request, name, n)` 散在 14 支 route、name 是自由字串。規則：`audit-routes.mjs --table` 應增印 name／limit，並把「外打上游且參數可控」列為**必須**有 rateLimit 的類別（Closed-World，缺即紅）——目前只檢查 mutating。
+
+## 2026-10-02 週更增補（上游 90dc23a→c34156d；1ab4284→c34156d 依據檔無變更）
+
+- **`api/api-route-exceptions.json`**（依據：該檔新增 7 條 `api/mcp/registry/*.ts`、1 條 `api/mcp/ui/news-dashboard-app.ts`）：**不匯出 HTTP route 的模組只要放在 `api/` 底下也要登記例外**（四欄：category／reason／owner／removal_issue），reason 寫明「不是 route、讀哪些既有 RPC」。即「目錄＝契約範圍」，不靠「它其實不是 route」的口頭豁免。同時清掉了檔內空行（格式由工具維持）。
+- 台股助手對應：`scripts/audit-routes.mjs` 以 `src/app/api/**/route.ts` 為普查單位；`src/app/api` 底下若有非 route 的輔助檔（`_*.ts`、`lib.ts`），應明列在普查的「非 route 清單」而非被略過。實況見本週掃描。
