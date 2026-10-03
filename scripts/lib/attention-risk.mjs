@@ -14,6 +14,8 @@
 //   純函式＋一個帶快取的抓取器（createNearDisposalSource）；校準數字讀 scripts/data/attention-calibration.json。
 // ─────────────────────────────────────────────────────────────────────────────
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** 計入處置計算的條款（官方作業要點；以 2026-10-02 兩市官方名單逐檔驗證） */
 export const COUNTING_CLAUSES = Object.freeze({ TWSE: Object.freeze([1, 2, 3, 4, 5, 7, 8]), TPEx: Object.freeze([1, 2, 3, 4, 5, 6, 7, 8]) });
@@ -140,7 +142,10 @@ export function riskTiersOf({ nearMap = null, attentionInfo = null } = {}) {
 
 // ── 校準（研究端產出；讀不到就不顯示機率，功能照常）────────────────────────────
 let CAL = null;
-try { CAL = JSON.parse(readFileSync(new URL('../data/attention-calibration.json', import.meta.url), 'utf8')); } catch { CAL = null; }
+// ⚠ 不可寫成 new URL('../data/…json', import.meta.url)：Next／webpack 會把它當成要打包的資源，scripts/data/*.json 依規定不進版控，
+//   乾淨 checkout（含雲端建置）找不到檔就整個 build 失敗（2026-10-03 在乾淨 worktree 實測：Module not found）。
+//   改用路徑組合讀檔：daemon（純 node）照舊讀得到；web 端這支只被間接引入、讀不到就 CAL=null（功能照常，只是不印機率）。
+try { CAL = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'attention-calibration.json'), 'utf8')); } catch { CAL = null; }
 export const attentionCalibration = () => CAL;
 /** 測試用：注入／清除校準資料（傳 null＝模擬檔案不存在）；回傳先前的值以便還原。正式執行不呼叫，行為仍是啟動時讀檔。
  *  scripts/data/*.json 依專案規則不進版控，所以測試不能假設 attention-calibration.json 存在。 */
