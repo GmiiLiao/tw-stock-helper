@@ -260,6 +260,13 @@ const poll = async () => {
     重啟＝整窗直接蒸發，fallback 只能寫殘缺版。要重啟就等日誌出現
     「✓ 尾盤五檔歸檔」再動手；本輪重啟造成的資料代價已經是第三次
     （bookDepthArchive 當日資料、chipArchive 空殼、即時價失憶）。
+- **上游故障中重啟 daemon** —— 部分後備是**程序記憶體**的 stale-if-error 快取（例：上櫃清單「沿用上一份快取」），
+  重啟＝快取蒸發。2026-10-03 實案：本機 DNS 解析不到 `www.tpex.org.tw`（07:00 起），13:50 為部署 wiki 整合重啟，
+  `can-restart-daemon` 因週六放行 ⇒ 全站上櫃整批消失約 30 分鐘。
+  ⇒ 已加上櫃最後一道後備：讀本地第二大腦備份 `second-brain/backup/singletons.json` 的收盤種子（`_otcFromLocalBackup`，
+    標 `_otcSeedFallback`：定版閘門視為宇宙不完整、不寫定版記錄；告警照發）。
+  ⇒ `can-restart-daemon.mjs` 現在不分交易日先掃 daemon 日誌近 15 分鐘的故障字樣（`scripts/lib/outage-scan.mjs`），
+    有就擋；確定要重啟才加 `--ack-outage`。
 - **開機時憑「時間已過」就把排程時段標成已跑** —— 2026-09-24 22:35 重啟後，開機邏輯看時間過了 21:45
   就把「資券後班車」標為今日已跑，但開機那輪根本不含借券歸檔／軋空訓練／做空樣本／軋空檢討 ⇒ 當日整段無聲跳過，
   使用者 09-29 才從「軋空檢討停在 09-23」發現。⇒ 已改為各時段**成功跑完才寫** `system/daemonJobMarks`，

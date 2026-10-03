@@ -9,12 +9,17 @@
 // 用法：
 //   node scripts/can-restart-daemon.mjs          # 人看的報告；安全 exit 0、不安全 exit 1
 //   node scripts/can-restart-daemon.mjs --quiet   # 只回 exit code，給 shell 串接用
+//   node scripts/can-restart-daemon.mjs --ack-outage   # 已知上游故障、確認接受快取蒸發的代價時才用
 //
 // 建議串接（不安全就不會執行重啟）：
 //   node scripts/can-restart-daemon.mjs --quiet && launchctl kickstart -k gui/$UID/com.gmii.twstock.ai-daemon
 // ─────────────────────────────────────────────────────────────────────────
 
 import admin from 'firebase-admin';
+import { readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { recentOutageLines } from './lib/outage-scan.mjs';
 
 const QUIET = process.argv.includes('--quiet');
 const say = (...a) => { if (!QUIET) console.log(...a); };
@@ -72,6 +77,24 @@ const isTradingDay = dow !== 0 && dow !== 6 && !holidays.has(today);
 
 say(`\n現在：${today}（週${'日一二三四五六'[dow]}）${hhmm(mins)} 台北`);
 say(`交易日：${isTradingDay ? '是' : '否'}${calOk ? '' : '（⚠ 讀不到休市日曆，只擋週末）'}`);
+
+// 上游故障中（不分交易日）：daemon 正靠記憶體的 stale-if-error 快取撐著時，重啟會讓快取蒸發
+//   （2026-10-03 實案：櫃買 DNS 故障中重啟 ⇒ 全站上櫃消失。之後已加本地備份後備，但其他記憶體快取同理）
+{
+  const LOG = join(homedir(), 'Library', 'Logs', 'twstock-ai-daemon', 'ai-daemon.out.log');
+  let tail = '';
+  try {
+    const size = statSync(LOG).size; const n = Math.min(size, 400000); const buf = Buffer.alloc(n);
+    const fd = openSync(LOG, 'r'); readSync(fd, buf, 0, n, size - n); closeSync(fd); tail = buf.toString('utf8');
+  } catch { /* 讀不到日誌就不擋 */ }
+  const hits = recentOutageLines(tail, Date.now());
+  if (hits.length && !process.argv.includes('--ack-outage')) {
+    say('\n🚫 **不建議重啟** —— 近 15 分鐘上游故障中，daemon 正靠快取／後備撐著：');
+    for (const l of hits.slice(-4)) say(`   · ${l.slice(0, 140)}`);
+    say('   重啟會失去：記憶體裡的 stale-if-error 快取（站上可能整個市場消失）。先修上游；確定要重啟加 --ack-outage。\n');
+    process.exit(1);
+  }
+}
 
 if (!isTradingDay) {
   say('\n✅ 非交易日，沒有任何累積窗在跑 —— 可以重啟。\n');

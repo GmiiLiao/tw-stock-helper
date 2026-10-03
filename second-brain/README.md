@@ -3,6 +3,7 @@
 由本地腳本生成，供本地 AI（Ollama）快速調用，**不進版控**（內容大且會變動）。
 
 ## 結構
+- `wiki/` — **台股資料 wiki**（全部個股＋ETF 的產業／產業鏈／集團／產品原料客戶廠房／新聞，Obsidian vault）。由 `scripts/build-stock-wiki.mjs` 產生，首頁 `wiki/README.md`，說明見 `docs/STOCK-WIKI.md`。
 - `reports/{YYYY-MM-DD}.md`、`reports/latest.md` — 收盤盤勢分析（由 `scripts/sync-second-brain.mjs` 從 `/api/market-report` 同步）。
 - `stocks/{code}.md` — 個股本地 AI 分析（由 `scripts/local-analyze.mjs` 用 Ollama 產生）。
 - `news/{code}.json`、`news/{code}.md` — 個股+產業新聞本地快取（daemon 每 15–30 分鐘更新，供本地 AI 取用、免每次上網）。

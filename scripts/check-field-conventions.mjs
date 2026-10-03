@@ -84,6 +84,10 @@ AT_ALLOWLIST.add('canonicalAt');
 AT_ALLOWLIST.add('warnedAt');
 AT_ALLOWLIST.add('hotAt');   // 快線文件寫入時刻（reader 帶出）
 AT_ALLOWLIST.add('snapshotAt');   // daemon 最近寫快照/指數的時刻（F13 伺服器停更警告）
+// 台股 wiki 第二大腦（scripts/lib/stock-wiki，2026-10-03）：全是本地 .cache JSON（gitignored），不寫 Firestore、不進稽核契約。
+//   checkedAt＝MOPS 快取「查無」時只記最後檢查時刻（不覆蓋好資料）；mopsAt＝頁面標示的 MOPS 抓取時刻；
+//   extractedAt／errorAt＝年報萃取狀態檔的萃取完成／失敗時刻。
+['checkedAt', 'mopsAt', 'extractedAt', 'errorAt'].forEach(n => AT_ALLOWLIST.add(n));
 AT_ALLOWLIST.add('revealAt');   // MIS 揭示時戳 tlong（資料本身的時間；與 liveAt 抓取時刻分開，R7 口徑）   // /api/system/version：build 時注入的建置時刻（部署身分，非資料日）
 
 // 資料日／日期欄位全名冊。⚠ 這不是「只准用 date」——buyDate、pubDate 這類
@@ -127,6 +131,9 @@ export const DATE_ALLOWLIST = new Set([
   'goalStartDate',
   // 上游 API 原樣欄位（TWSE openapi 的 Date、民國 rocDate；MOPS t05st02_detail 請求參數 enterDate＝民國發言日）
   'Date', 'rocDate', 'enterDate',
+  // 台股 wiki 第二大腦（本地 .cache／vault，不寫 Firestore·2026-10-03）：establishDate／listDate＝公司或 ETF 成立／掛牌日（領域日期）；
+  //   snapshotDate／emergingDate＝wiki 建置所讀本地備份快照的資料日（上市櫃／興櫃），只印在 vault 首頁，稽核契約不看它
+  'establishDate', 'listDate', 'snapshotDate', 'emergingDate',
 ]);
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，
