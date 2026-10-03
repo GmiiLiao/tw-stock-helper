@@ -33,6 +33,7 @@ import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 import { judgePagoda } from './lib/pagoda.mjs';
+import { swingBreadth } from './lib/swing-breadth.mjs';
 import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
@@ -8872,16 +8873,9 @@ async function computeSwingPicks() {
     // liveDay 只管「取價要用快照還是歸檔」，不可拿來當盤中與否的標籤（見 boardDataDate）
     const liveDay = boardLiveBar(tw, arch);
     const L = arch.length - 1;
-    // 市場寬度（regime gate·收盤即知 PIT 安全）：上漲家數比 <50% ＝空頭日
-    let up = 0, tot = 0;
-    for (const code in arch[L].close) {
-      if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
-      const cPrev = arch[L - 1].close?.[code]?.[0];
-      const cNow = liveDay ? (quo[code]?.price ?? null) : arch[L].close[code][0];
-      if (cNow > 0 && cPrev > 0) { tot++; if (cNow > cPrev) up++; }
-    }
-    const breadth = tot >= 500 ? +(up / tot * 100).toFixed(1) : null;
-    const bearDay = breadth != null ? breadth < 50 : null;
+    // 市場寬度（regime gate·收盤即知 PIT 安全）：上漲家數比 <50% ＝空頭日。
+    // 快照模式的前日是 arch[L]、不是 arch[L-1]（2026-10-03 修·見 lib/swing-breadth.mjs）
+    const { breadth, bearDay } = swingBreadth({ arch, quotes: quo, liveDay });
     let instLatest = {}, instDate = null;
     try { const w = await loadChipWindow(1); if (w.length) { instLatest = w[0].map || {}; instDate = w[0].date; } } catch { /* 可缺 */ }
     const instSameDay = !!instDate && instDate === arch[L].date;
