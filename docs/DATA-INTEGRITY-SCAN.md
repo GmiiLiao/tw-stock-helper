@@ -324,6 +324,21 @@ node scripts/ai-daemon.mjs --run canonicalStatus     # 最近 8 份歸檔是否�
 **判準**：寫任何「之後要拿來對答案」的記錄前問三件事——① 這一刻**資料**到齊了嗎（用資料判斷，不用時刻）？
 ② 之後還有誰會再寫它（開機、盤中迴圈、補跑）？③ 寫入時間是否早於它要預測的那個交易日開盤？
 
+**跨午夜補跑的前提（2026-10-03 掃描）**——班車目前刻意只跑到午夜。要讓它午夜後補跑，下列「日曆今天」用法要先改看資料日：
+- ✅ 已修：波段起漲／話題×5日線／持股 RSI 高檔警示的 `liveDay` 改走 `boardLiveBar`（交易日∧≥09:00∧歸檔無今天）。
+  舊版平日 00:00–09:00 也接快照偽 K ⇒ 波段起漲榜開盤前被清成 0（log 2026-09 起 36 夜有 33 夜），
+  10-02 01:25 兩位會員的 10-01 AI 決策就是用清空的榜（池 18 檔、少了 8084 ⭐⭐⭐／8472 ⭐⭐，凍結記錄未改）。
+  AI 波段選股另拒收 `swingPicks.priceBasis='snapshot'`。
+- 未改：`archiveChipDaily` 以日曆今天決定 T86／資券等端點的日期參數；`computeRecommendAdj`／`computeReversalSignals`
+  在非交易日直接 return（輸出已標資料日 `D.date`、不會寫錯，只是不補跑；反轉訊號會推播，補跑前要先有以資料日為鍵的去重）；
+  `checkRsiHot` 的去重範圍是日曆日；班車本身的 `_canonDone`／`markJobDone('otcFix', today)` 以日曆日為鍵；
+  `swingPicks`／`topicPicks` 的 `date` 是產生日（日曆）——依 2026-10-03 規定「非交易日的資料以最後一個交易日為記錄時間」，改前先掃消費端。
+
+```bash
+# 「交易日 ∧ 歸檔末日 ≠ 日曆今天」這種沒看時刻的偽 K 判定（應為 0 筆；要接偽 K 走 boardLiveBar）
+grep -nE "isTradingDay\(tw\) && arch\[arch\.length - 1\]\.date !==" scripts/ai-daemon.mjs
+```
+
 ---
 
 ## 執行時的紀律

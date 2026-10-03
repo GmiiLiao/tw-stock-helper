@@ -93,6 +93,8 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       if (!date || sp?.dataDate !== date || sp?.mode !== 'close') return false;   // 兩榜要是同一個收盤資料日
       const ref = col().doc(date);
       if ((await ref.get()).exists) return true;
+      // 波段起漲榜須以歸檔收盤算出：priceBasis='snapshot'＝序列末端接了快照偽 K（2026-10-03：平日午夜後曾誤接、量比≈1 整榜清空）
+      if (sp?.priceBasis === 'snapshot') { log(`⏳ 波段 AI 選股${tag}：${date} 波段起漲榜仍是快照偽 K 版（歸檔未併入），稍後重試`); return false; }
       const risk = await getRisk();
       if (!risk) { log('⚠ 波段 AI 選股：處置名單取不到或殘缺，稍後重試（不以空名單選股）'); return false; }
       const asOf = risk.asOf || null;   // 舊介面（測試／其他呼叫端）沒有 asOf ⇒ 不等

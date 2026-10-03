@@ -39,6 +39,7 @@ import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { createNearDisposalSource, attentionInfoOf } from './lib/attention-risk.mjs';
 import { fetchExright, exFactorLookup } from './lib/exright-source.mjs';
 import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
+import { needsLiveBar } from './lib/board-live-bar.mjs';
 import { createAlertDedup } from './lib/alert-dedup.mjs';
 import { withRetry, failSince, sameLockDay, nonRetryable } from './lib/fetch-retry.mjs';
 import { encodeIntraday, decodeIntraday } from './lib/intraday-codec.mjs';
@@ -1204,13 +1205,20 @@ async function writeCanonical(ref, data, { date, label }) {
 //   ② 13:30 收盤後但 15:10 前   → **今天**（今天的收盤已經產生，只是還沒歸檔；
 //                                  這格若照 dataDate() 走會退回昨天，是回歸性錯誤）
 //   ③ 收盤已歸檔／盤前／非交易日 → 最近一個有資料的歸檔日
-// ⚠ 不要拿 liveDay 當標籤依據：它的定義是「歸檔還沒有今天」，
-//   在 00:00~09:00 也成立，於是深夜的榜單會自稱「盤中即時」。
+// ⚠ 不要拿 liveDay（boardLiveBar）當標籤依據：它的定義是「今日盤已開始而歸檔還沒有今天」，
+//   13:30 收盤後到歸檔前也成立，於是收盤後的榜單會自稱「盤中即時」。盤中與否看快照的 marketOpen。
 async function boardDataDate(tw, marketOpen) {
   if (marketOpen) return isoDate(tw);
   const mins = tw.getHours() * 60 + tw.getMinutes();
   if (isTradingDay(tw) && mins >= 13 * 60 + 30) return isoDate(tw);
   return await dataDate();
+}
+
+// 榜單要不要在歸檔收盤序列後面接「今日」快照偽 K（判定在 lib/board-live-bar.mjs）。
+// 2026-10-03 修：舊版 `isTradingDay(tw) && 歸檔末日 !== 今天` 在平日 00:00–09:00 也成立，
+//   把前一交易日收盤再接一次、量比≈1 ⇒ sectorLoop 整夜把波段起漲榜蓋成空榜。
+function boardLiveBar(tw, arch) {
+  return needsLiveBar({ tradingDay: isTradingDay(tw), minutes: tw.getHours() * 60 + tw.getMinutes(), today: isoDate(tw), lastArchiveDay: arch[arch.length - 1]?.date });
 }
 
 // 「這批資料代表哪一天」——自己判斷盤中與否，呼叫端不必傳。
@@ -8457,7 +8465,7 @@ async function checkRsiHot() {
   const quo = (await readSnapshotQuotes())?.quotes || {};
   const tw = taipei(); const today = isoDate(tw);
   await _rsiHotAlerted.ensure(today);
-  const liveDay = isTradingDay(tw) && arch[arch.length - 1].date !== today;
+  const liveDay = boardLiveBar(tw, arch);
   const rsiOf = code => {
     const closes = [];
     for (let k = Math.max(0, arch.length - 41); k < arch.length; k++) { const v = arch[k].close[code]?.[0]; if (v > 0) closes.push(v); }
@@ -8862,7 +8870,7 @@ async function computeSwingPicks() {
     const marketOpen = !!_snap?.marketOpen;
     const tw = taipei();
     // liveDay 只管「取價要用快照還是歸檔」，不可拿來當盤中與否的標籤（見 boardDataDate）
-    const liveDay = isTradingDay(tw) && arch[arch.length - 1].date !== isoDate(tw);
+    const liveDay = boardLiveBar(tw, arch);
     const L = arch.length - 1;
     // 市場寬度（regime gate·收盤即知 PIT 安全）：上漲家數比 <50% ＝空頭日
     let up = 0, tot = 0;
@@ -8955,8 +8963,10 @@ async function computeSwingPicks() {
     // date＝這份榜單「產生」的日曆日；dataDate＝底層資料真正屬於哪個交易日。
     // 收盤模式下這兩者在 00:00~15:10 之間會差一天，UI 只能標 dataDate，
     // 否則就是把昨天的收盤資料掛上今天的日期（使用者 2026-08-11 已抓過同類錯誤）。
+    // priceBasis：價量取自快照偽 K（歸檔還沒有今天）或歸檔收盤——AI 波段選股只收 'archive'（ai-swing-runner pick）
     await db.collection('swingPicks').doc('latest').set({
       updatedAt: Date.now(), date: isoDate(tw), dataDate: await boardDataDate(tw, marketOpen), mode: marketOpen ? 'live' : 'close',
+      priceBasis: liveDay ? 'snapshot' : 'archive',
       breadth, bearDay, instDate, instSameDay, total, crowded,
       ...(await v2ObserveGate('swing')).asFields,   // 2026-09-18 D7：波段起漲前瞻 −0.6pp（n=53）且 v2 波段口徑無主模型 ⇒ 觀察閘
       horizon: '持有 5 個交易日（非隔日沖：本訊號隔日開賣 -0.06%／收賣 -0.44%，edge 全在第5日）·已套用 vol20≥1.5% 波動 gate',
@@ -8993,7 +9003,7 @@ async function computeTopicPicks() {
     const marketOpen = !!_snap?.marketOpen;
     const indMap = await getIndustryMap();
     const tw = taipei();
-    const liveDay = isTradingDay(tw) && arch[arch.length - 1].date !== isoDate(tw);
+    const liveDay = boardLiveBar(tw, arch);
     // 話題層①：族群5日板數 Top3（與回測同口徑）
     const cnt = {};
     for (let k = Math.max(1, arch.length - 5); k < arch.length; k++) {

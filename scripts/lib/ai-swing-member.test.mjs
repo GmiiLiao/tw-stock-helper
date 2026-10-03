@@ -185,3 +185,18 @@ test('會員 prompt：有券商折讓時寫會員實際手續費；實驗帳戶�
   assert.match(mem, /買進手續費 0\.0399%，賣出手續費 0\.0399%（0\.1425%×會員券商 2\.8 折）＋證交稅 0\.3%——一買一賣約 0\.38%/);
   assert.match(buildPickPrompt({ ...base, member: { capital: 300000, goal: null, feeDiscount: 1 } }), /一買一賣約 0\.59%/, '會員未設折讓＝全額');
 });
+
+test('pick()：波段起漲榜若以快照偽 K 算出（priceBasis=snapshot）不選股、稍後重試；歸檔版與舊版文件（無此欄）照常', async () => {
+  const days = mkDays(); const D = days[10].date;
+  const run = async (priceBasis, decided = null) => {
+    const db = fakeDb({ 'swingPicks/latest': { dataDate: D, mode: 'close', ...(priceBasis ? { priceBasis } : {}), items: [{ code: '2222', name: 'B', tier: 2, price: 50 }] }, 'swingHold/latest': { dataDate: D, combo: { items: [] } },
+      ...(decided ? { [`aiSwingLab/${D}`]: decided } : {}) });
+    let asked = 0; const logs = [];
+    const lab = createAiSwingLab({ db, log: m => logs.push(m), dir: null, askOllama: async () => { asked++; return '{"sells":[],"picks":[],"note":"n"}'; }, getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 11) });
+    return { r: await lab.pick(), asked, written: db.store[`aiSwingLab/${D}`] !== decided && !!db.store[`aiSwingLab/${D}`], waitLog: logs.some(m => /快照偽 K/.test(m)) };
+  };
+  assert.deepEqual(await run('snapshot'), { r: false, asked: 0, written: false, waitLog: true }, '2026-10-03 前平日午夜後的空榜就是這種');
+  assert.deepEqual(await run('archive'), { r: true, asked: 1, written: true, waitLog: false });
+  assert.deepEqual(await run(null), { r: true, asked: 1, written: true, waitLog: false }, '部署前寫的舊文件沒有 priceBasis：不擋（主修正在榜單端）');
+  assert.deepEqual(await run('snapshot', { date: D, picks: [] }), { r: true, asked: 0, written: false, waitLog: false }, '當日已決策：不論榜單狀態都回已完成（不重選、不覆寫）');
+});
