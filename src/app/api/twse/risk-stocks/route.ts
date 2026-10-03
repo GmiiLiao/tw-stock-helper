@@ -18,6 +18,7 @@ export interface RiskStock {
   startDate?: string;
   endDate?: string;
   measures?: string;       // 處置措施
+  date?: string;           // 注意股：該列公告日（ISO；上櫃會同時有最近兩個公告日）
   source: 'TWSE' | 'TPEx';
 }
 

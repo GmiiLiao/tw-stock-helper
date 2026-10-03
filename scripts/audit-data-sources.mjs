@@ -288,6 +288,11 @@ const FRESH_PROBES = [
   { name: '注意股·上市(rwd區間)', url: d => { const e = d, s = new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}T00:00:00Z`); s.setUTCDate(s.getUTCDate() - 7); return `https://www.twse.com.tw/rwd/zh/announcement/notice?startDate=${s.toISOString().slice(0, 10).replace(/-/g, '')}&endDate=${e}&response=json`; }, from: 'rows', rowKey: '日期', mode: 'forward', publishHour: 17 },
   // 上櫃 openapi（同一支生產路徑；Date 民國 7 碼），同樣取列的最大日期。
   { name: '注意股·上櫃(openapi)', url: () => 'https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information', from: 'rows', rowKey: 'Date', mode: 'forward', publishHour: 17 },
+  // 可能達處置名單（2026-10-03 AI 波段處置風險分級，daemon scripts/lib/attention-risk.mjs）：兩支都只回「最新一份」、忽略日期參數。
+  //   上市 title「115年10月02日 公布注意累計次數可能達處置標準…」；上櫃 tables[0].date＝20261002（from:'table'）。
+  //   公布時刻未實測，比照注意股 publishHour 17、forward（runner 另有「名單未到資料日就等到 19:30」的閘門）。
+  { name: '可能達處置·上市(rwd)', url: () => 'https://www.twse.com.tw/rwd/zh/announcement/notetrans?response=json', from: 'title', mode: 'forward', publishHour: 17 },
+  { name: '可能達處置·上櫃(www)', url: () => 'https://www.tpex.org.tw/www/zh-tw/bulletin/warning?response=json', from: 'table', mode: 'forward', publishHour: 17 },
 ];
 
 // 民國日期出現在 title 的兩種寫法都要吃（都是實測格式）：
@@ -334,7 +339,7 @@ async function probeFresh(ltd) {
         const ds = arr.map(r => normDate(Array.isArray(r) ? (idx >= 0 ? r[idx] : null) : r?.[p.rowKey])).filter(Boolean).sort();
         return ds.length ? ds[ds.length - 1] : null;
       };
-      const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : p.from === 'rows' ? rowsDate() : normDate(j.date);
+      const feedDate = p.from === 'title' ? ymdFromTitle(j.title) : p.from === 'rows' ? rowsDate() : p.from === 'table' ? normDate(j.tables?.[0]?.date) : normDate(j.date);
       // 期待值＝實際查詢的那一天（見上方 askDate）
       const beforePublish = beforePub;
       const expect = beforePublish ? prevTradingDay(ltd) : ltd;

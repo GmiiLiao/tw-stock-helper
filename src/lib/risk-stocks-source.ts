@@ -38,6 +38,9 @@ export interface RiskStockInfo {
   measures?: string;
   startDate?: string;
   endDate?: string;
+  /** 注意股：這一列的公告日（ISO）。上櫃 openapi 會同時回最近兩個公告日（2026-10-03 實測 10-01 18 列＋10-02 22 列），
+   *  要「當日注意」的消費端（daemon AI 波段處置風險分級）以此與 tpexAttentionDate 比對。 */
+  date?: string;
   source: 'TWSE' | 'TPEx';
 }
 
@@ -170,7 +173,7 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
           const code = str(r[iCode]), reason = str(r[iReason]);
           if (!isCode(code) || !reason) continue;
           const cnt = iCnt >= 0 ? str(r[iCnt]) : '';
-          attention.push({ code, name: str(r[iName]), type: 'attention', reason: (cnt ? `累計 ${cnt} 次｜` : '') + reason.slice(0, 200), source: 'TWSE' });
+          attention.push({ code, name: str(r[iName]), type: 'attention', reason: (cnt ? `累計 ${cnt} 次｜` : '') + reason.slice(0, 200), date: latest, source: 'TWSE' });
         }
       }
     }
@@ -183,7 +186,7 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
       attention.splice(0, attention.length);   // 換成更新的那批
       twseAttentionDate = d0 || twseAttentionDate;
       for (const it of list) {
-        attention.push({ code: str(it.Code || it['證券代號']), name: str(it.Name || it['證券名稱']), type: 'attention', reason: str(it.TradingInfoForAttention || it['注意交易資訊']).slice(0, 200), source: 'TWSE' });
+        attention.push({ code: str(it.Code || it['證券代號']), name: str(it.Name || it['證券名稱']), type: 'attention', reason: str(it.TradingInfoForAttention || it['注意交易資訊']).slice(0, 200), ...(d0 ? { date: d0 } : {}), source: 'TWSE' });
       }
     }
   }
@@ -207,13 +210,14 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
       ...splitPeriod(str(it.DispositionPeriod || it['處置期間'])), source: 'TWSE',
     });
   }
-  // TPEx 注意（openapi 保留最後公布的名單，帶 Date 欄）
+  // TPEx 注意（openapi 保留最近**兩個**公布日的名單，帶 Date 欄；站上沿用兩日、每列帶 date 供要「當日」的消費端過濾）
   for (const it of rows(tpAtt)) {
     const code = str(it.SecuritiesCompanyCode || it.Code);
     const reason = str(it.TradingInformation || it.Reason);
     if (isCode(code) && reason) {
-      attention.push({ code, name: str(it.CompanyName || it.Name), type: 'attention', reason: reason.slice(0, 200), source: 'TPEx' });
-      const d = rocToIso(str(it.Date || it['日期'])); if (d && (!tpexAttentionDate || d > tpexAttentionDate)) tpexAttentionDate = d;
+      const d = rocToIso(str(it.Date || it['日期']));
+      attention.push({ code, name: str(it.CompanyName || it.Name), type: 'attention', reason: reason.slice(0, 200), ...(d ? { date: d } : {}), source: 'TPEx' });
+      if (d && (!tpexAttentionDate || d > tpexAttentionDate)) tpexAttentionDate = d;
     }
   }
   // TPEx 處置
