@@ -143,7 +143,9 @@ export const REQUIRED_AUDIT_ALIASES = ['updatedAt', 'at', 'generatedAt', 'fetche
 
 const SCAN_DIRS = ['scripts', 'src'];
 const EXT = /\.(mjs|ts|tsx)$/;
-const SKIP = /node_modules|_tmp-|\.d\.ts$|check-field-conventions/;
+// .surge-cache：起漲特徵研究的本機快取／暫存（scripts/surge-lab/.surge-cache，已 gitignore，研究 agent 會在裡面放一次性腳本）——
+//   不是產品程式，沒登記的 …Date 名字不該擋住別人的提交（2026-10-03 主 checkout pre-commit 被 verify_lu_1002.mjs 擋下）
+const SKIP = /node_modules|_tmp-|\.surge-cache|\.d\.ts$|check-field-conventions/;
 
 function* walk(dir) {
   for (const f of readdirSync(dir)) {
