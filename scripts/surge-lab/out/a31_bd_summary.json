@@ -1,0 +1,311 @@
+{
+ "book_days": 46,
+ "design_days": 28,
+ "report_days": 18,
+ "design_range": [
+  "2026-07-20",
+  "2026-09-03"
+ ],
+ "report_range": [
+  "2026-09-04",
+  "2026-10-01"
+ ],
+ "selectors": [
+  {
+   "name": "D0 LU_s baseline",
+   "definition": "all stocks limit-up on s with a closing book snapshot",
+   "design_precision": 0.21947194719471946,
+   "design_picks": 606,
+   "test_precision": 0.25,
+   "test_picks": 492,
+   "test_hits": 123,
+   "wilson_lb": 0.2137742904721067,
+   "buyable_test_precision": 0.19715447154471544,
+   "test_days_with_pick": 18,
+   "picks_per_day": 27.333333333333332
+  },
+  {
+   "name": "D1 LU&q_v>=θ",
+   "definition": "LU_s & bid-queue-at-limit / day volume >= 4.034 (θ = design-period precision-max, ≥20 design picks)",
+   "design_precision": 0.5161290322580645,
+   "design_picks": 31,
+   "test_precision": 0.3125,
+   "test_picks": 16,
+   "test_hits": 5,
+   "wilson_lb": 0.14164643765150897,
+   "buyable_test_precision": 0.0625,
+   "test_days_with_pick": 11,
+   "picks_per_day": 0.8888888888888888,
+   "lowo": {
+    "picks": 57,
+    "precision": 0.45614035087719296,
+    "buyable": 0.12280701754385964,
+    "wilson_lb": 0.3337260549463177,
+    "weeks": 11,
+    "week_prec_min": 0.0,
+    "week_prec_max": 0.8333333333333334
+   }
+  },
+  {
+   "name": "D2 LU&bidlim>=θ",
+   "definition": "LU_s & bid lots queued at limit >= 14645",
+   "design_precision": 0.36065573770491804,
+   "design_picks": 61,
+   "test_precision": 0.14814814814814814,
+   "test_picks": 27,
+   "test_hits": 4,
+   "wilson_lb": 0.0591592773507091,
+   "buyable_test_precision": 0.14814814814814814,
+   "test_days_with_pick": 12,
+   "picks_per_day": 1.5,
+   "lowo": {
+    "picks": 63,
+    "precision": 0.2857142857142857,
+    "buyable": 0.19047619047619047,
+    "wilson_lb": 0.18903191922643198
+   }
+  },
+  {
+   "name": "D3 LU&oneword",
+   "definition": "LU_s & one-price locked limit-up on s (no threshold)",
+   "design_precision": 0.4931506849315068,
+   "design_picks": 73,
+   "test_precision": 0.32142857142857145,
+   "test_picks": 28,
+   "test_hits": 9,
+   "wilson_lb": 0.17933246836909303,
+   "buyable_test_precision": 0.07142857142857142,
+   "test_days_with_pick": 13,
+   "picks_per_day": 1.5555555555555556
+  },
+  {
+   "name": "D4 LU&oneword&q_v>=θ",
+   "definition": "LU_s & oneword & q_v >= 5.879 (≥10 design picks)",
+   "design_precision": 0.6666666666666666,
+   "design_picks": 15,
+   "test_precision": 0.25,
+   "test_picks": 4,
+   "test_hits": 1,
+   "wilson_lb": 0.04558726029536886,
+   "buyable_test_precision": 0.0,
+   "test_days_with_pick": 4,
+   "picks_per_day": 0.2222222222222222,
+   "lowo": {
+    "picks": 18,
+    "precision": 0.6666666666666666,
+    "buyable": 0.1111111111111111,
+    "wilson_lb": 0.4374946712512044
+   }
+  },
+  {
+   "name": "D5 top1/day M_lu (f_* only)",
+   "definition": "among LU_s with book: top-1 per day by M_lu (GBDT on f_*, trained s<=2025-12-31)",
+   "design_precision": 0.4074074074074074,
+   "design_picks": 27,
+   "test_precision": 0.5555555555555556,
+   "test_picks": 18,
+   "test_hits": 10,
+   "wilson_lb": 0.3371641549342691,
+   "buyable_test_precision": 0.2222222222222222,
+   "test_days_with_pick": 18,
+   "picks_per_day": 1.0
+  },
+  {
+   "name": "D6 top1/day M_lu+book",
+   "definition": "top-1 per day by logistic(M_lu, log q_v, log bidlim, oneword) fit on design days",
+   "design_precision": 0.5925925925925926,
+   "design_picks": 27,
+   "test_precision": 0.3333333333333333,
+   "test_picks": 18,
+   "test_hits": 6,
+   "wilson_lb": 0.16278774656229916,
+   "buyable_test_precision": 0.1111111111111111,
+   "test_days_with_pick": 18,
+   "picks_per_day": 1.0
+  },
+  {
+   "name": "D6b top3/day M_lu+book",
+   "definition": "same, top-3 per day",
+   "design_precision": 0.379746835443038,
+   "design_picks": 79,
+   "test_precision": 0.2962962962962963,
+   "test_picks": 54,
+   "test_hits": 16,
+   "wilson_lb": 0.1913742506373976,
+   "buyable_test_precision": 0.07407407407407407,
+   "test_days_with_pick": 18,
+   "picks_per_day": 3.0
+  },
+  {
+   "name": "D5b top3/day M_lu (f_* only)",
+   "definition": "top-3 per day by M_lu",
+   "design_precision": 0.34177215189873417,
+   "design_picks": 79,
+   "test_precision": 0.3888888888888889,
+   "test_picks": 54,
+   "test_hits": 21,
+   "wilson_lb": 0.27041933746990876,
+   "buyable_test_precision": 0.2037037037037037,
+   "test_days_with_pick": 18,
+   "picks_per_day": 3.0
+  },
+  {
+   "name": "D7 top10 M_nonlu & imb>=θ",
+   "definition": "non-LU: top-10/day by M_nonlu with top-5 bid/(bid+ask) >= 0.759",
+   "design_precision": 0.19642857142857142,
+   "design_picks": 56,
+   "test_precision": 0.12903225806451613,
+   "test_picks": 31,
+   "test_hits": 4,
+   "wilson_lb": 0.05134284338910198,
+   "buyable_test_precision": 0.12903225806451613,
+   "test_days_with_pick": 15,
+   "picks_per_day": 1.7222222222222223
+  },
+  {
+   "name": "D7b top10 M_nonlu",
+   "definition": "non-LU: top-10/day by M_nonlu (f_* only, control)",
+   "design_precision": 0.125,
+   "design_picks": 280,
+   "test_precision": 0.1111111111111111,
+   "test_picks": 180,
+   "test_hits": 20,
+   "wilson_lb": 0.07308754200668402,
+   "buyable_test_precision": 0.10555555555555556,
+   "test_days_with_pick": 18,
+   "picks_per_day": 10.0
+  }
+ ],
+ "report_frontier_window": {
+  "M_all": {
+   "top1/day": {
+    "prec": 0.4444444444444444,
+    "buy": 0.05555555555555555,
+    "picks": 18,
+    "lb": 0.24559518003796732
+   },
+   "top3/day": {
+    "prec": 0.46296296296296297,
+    "buy": 0.16666666666666666,
+    "picks": 54,
+    "lb": 0.33689901026924174
+   },
+   "top10/day": {
+    "prec": 0.39444444444444443,
+    "buy": 0.22777777777777777,
+    "picks": 180,
+    "lb": 0.3259682420705142
+   },
+   "top30_total": {
+    "prec": 0.4,
+    "buy": 0.06666666666666667
+   },
+   "top100_total": {
+    "prec": 0.41,
+    "buy": 0.22
+   },
+   "top300_total": {
+    "prec": 0.33,
+    "buy": 0.22
+   }
+  },
+  "M_all_buy": {
+   "top1/day": {
+    "prec": 0.3888888888888889,
+    "buy": 0.2777777777777778,
+    "picks": 18,
+    "lb": 0.2030524646285427
+   },
+   "top3/day": {
+    "prec": 0.37037037037037035,
+    "buy": 0.2962962962962963,
+    "picks": 54,
+    "lb": 0.25423375112039415
+   },
+   "top10/day": {
+    "prec": 0.36666666666666664,
+    "buy": 0.2722222222222222,
+    "picks": 180,
+    "lb": 0.2997378766989506
+   },
+   "top30_total": {
+    "prec": 0.4666666666666667,
+    "buy": 0.4
+   },
+   "top100_total": {
+    "prec": 0.36,
+    "buy": 0.3
+   },
+   "top300_total": {
+    "prec": 0.3333333333333333,
+    "buy": 0.25
+   }
+  }
+ },
+ "test2026_frontier_fstar": {
+  "M_all": {
+   "top1/day": {
+    "prec": 0.6055555555555555,
+    "buy": 0.15555555555555556,
+    "picks": 180,
+    "lb": 0.5326680813300366
+   },
+   "top3/day": {
+    "prec": 0.5351851851851852,
+    "buy": 0.17037037037037037,
+    "picks": 540,
+    "lb": 0.4930175867441573
+   },
+   "top10/day": {
+    "prec": 0.41833333333333333,
+    "buy": 0.2,
+    "picks": 1800,
+    "lb": 0.3957426565054599
+   },
+   "top30_total": {
+    "prec": 0.7333333333333333,
+    "buy": 0.1
+   },
+   "top100_total": {
+    "prec": 0.68,
+    "buy": 0.12
+   },
+   "top300_total": {
+    "prec": 0.5666666666666667,
+    "buy": 0.10666666666666667
+   }
+  },
+  "M_all_buy": {
+   "top1/day": {
+    "prec": 0.3611111111111111,
+    "buy": 0.2833333333333333,
+    "picks": 180,
+    "lb": 0.2945206718845113
+   },
+   "top3/day": {
+    "prec": 0.35,
+    "buy": 0.25925925925925924,
+    "picks": 540,
+    "lb": 0.31095861944778036
+   },
+   "top10/day": {
+    "prec": 0.315,
+    "buy": 0.23055555555555557,
+    "picks": 1800,
+    "lb": 0.2939540730333454
+   },
+   "top30_total": {
+    "prec": 0.3333333333333333,
+    "buy": 0.23333333333333334
+   },
+   "top100_total": {
+    "prec": 0.35,
+    "buy": 0.26
+   },
+   "top300_total": {
+    "prec": 0.3566666666666667,
+    "buy": 0.26666666666666666
+   }
+  }
+ }
+}

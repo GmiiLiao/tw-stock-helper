@@ -1,0 +1,11 @@
+name,definition,design_precision,valid_precision,test_precision,test_picks,test_days_with_pick,picks_per_day,wilson_lb,buyable_test_precision,valid_picks
+A1_COUNT_shared_traits,ALL 區隔 91 個 70% 共同條件中符合 >=89 個以上（門檻依 VALID 選）,0.17728,0.15385,0.21368,585,131,3.25,0.18238,0.18462,286
+A2_AND_CONT_shared,"s 日已漲停 AND f_rk_r20∈[0.9374,inf] AND x_price∈[-inf,58.9] AND f_lend_to_v∈[-inf,0.5964] AND f_fgn_1∈[-0.05692,0.2655] AND f_lend_chg20∈[-0.05958,0.1102] AND f_rk_r60∈[0.8914,1] AND f_lend_chg5∈[-0.01595,0.04427] AND f_trust_20∈[0,0] AND f_dist_hi120∈[-0.1023,inf] AND f_rk_r5∈[0.962,1]（k=10 依 VALID 選）",0.33168,0.35338,0.49065,214,123,1.1889,0.42443,0.21028,133
+A3_LLR_calibrated_top1,FRESH／CONT 各自共同條件的加權符合分數（樸素貝氏 LLR，DESIGN 上 Platt 校準）每日第 1 名,0.31346,0.30709,0.47222,180,180,1,0.40063,0.19444,127
+A4_KNN_similarity_top1,與 DESIGN 漲停前一日的最近鄰相似度（20 個共同條件參數分位＋s 日漲停／一字鎖；K=50）每日前 1 名,,0.38583,0.53889,180,180,1,0.46601,0.088889,127
+A4_KNN_similarity_top3,與 DESIGN 漲停前一日的最近鄰相似度（20 個共同條件參數分位＋s 日漲停／一字鎖；K=50）每日前 3 名,,0.35171,0.45926,540,180,3,0.41766,0.12407,381
+A5_beam_rule_CONT,s 日已漲停 AND f_ma60_slope10<=0.05321 & f_ma_tight>=0.04621 & f_day_range<=0 & f_mkt_vol_ratio<=0.703（DESIGN 上 beam 搜尋、DESIGN+VALID 下界挑；f_day_range<=0 即一字鎖）,0.75455,0.45,0.54098,122,48,0.67778,0.45266,0.17213,20
+G_ALL_top1,GBDT（117+6 參數、標籤＝隔日漲停；VALID 選深度／樹數；TEST 用 DESIGN+VALID 重訓）每日前 1 名,0.50596,0.48031,0.59444,180,180,1,0.52147,0.11667,127
+G_ALL_top3,GBDT（117+6 參數、標籤＝隔日漲停；VALID 選深度／樹數；TEST 用 DESIGN+VALID 重訓）每日前 3 名,0.42873,0.40945,0.52222,540,180,3,0.48008,0.17037,381
+G_ALL_top10,GBDT（117+6 參數、標籤＝隔日漲停；VALID 選深度／樹數；TEST 用 DESIGN+VALID 重訓）每日前 10 名,0.30187,0.28346,0.395,1800,180,10,0.37266,0.18833,1270
+G_BUY_top1,GBDT 標籤＝隔日漲停且開盤買得到（m_buy_lu）每日第 1 名,0.40204,0.33858,0.36667,180,180,1,0.29974,0.22222,127

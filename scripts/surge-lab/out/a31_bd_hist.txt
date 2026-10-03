@@ -1,0 +1,29 @@
+M_lu {'n_trees': 300, 'depth': 3, 'lr': 0.05} VALID metric=0.6877 (22s)
+M_lu {'n_trees': 300, 'depth': 5, 'lr': 0.05} VALID metric=0.6878 (42s)
+M_lu chosen {'n_trees': 300, 'depth': 5, 'lr': 0.05}; top features: log_price, f_day_range, f_close_pos, f_vr5, f_lend_to_v, f_fgn_1, f_mkt_r5, f_body, f_mkt_vol_ratio, f_inst_pct_v1, f_mkt_near_hi, f_mkt_r20
+M_lu_buy {'n_trees': 300, 'depth': 3, 'lr': 0.05} VALID metric=0.6220 (26s)
+M_lu_buy {'n_trees': 300, 'depth': 5, 'lr': 0.05} VALID metric=0.6177 (35s)
+M_lu_buy chosen {'n_trees': 300, 'depth': 3, 'lr': 0.05}; top features: log_price, f_lend_to_v, f_fgn_1, f_inst_pct_v1, f_rk_log_tv20, f_log_tv20, f_mkt_near_hi, f_mkt_r20, f_atr14, f_dist_hi240, f_dist_hi120, f_day_range
+M_nonlu {'n_trees': 300, 'depth': 4, 'lr': 0.05} VALID metric=0.8040 (294s)
+M_nonlu chosen {'n_trees': 300, 'depth': 4, 'lr': 0.05}; top features: f_day_range, f_atr14, f_n_lu_250, f_c_ma60, f_n_lu_20, f_v_rank120, f_vol10, f_lend_to_v, f_days_since_lu, f_c_ma20, f_dist_hi120, f_n_lu_60
+M_all {'n_trees': 300, 'depth': 4, 'lr': 0.05} VALID metric=0.8344 (120s)
+M_all chosen {'n_trees': 300, 'depth': 4, 'lr': 0.05}; top features: f_days_since_lu, lu_s, f_day_range, f_n_lu_250, f_n_lu_20, f_vol10, f_c_ma10, f_atr14, f_n_lu_60, f_v_rank120, f_lend_to_v, f_range20
+M_all_buy {'n_trees': 300, 'depth': 4, 'lr': 0.05} VALID metric=0.8319 (93s)
+M_all_buy chosen {'n_trees': 300, 'depth': 4, 'lr': 0.05}; top features: f_days_since_lu, f_day_range, f_n_lu_250, f_atr14, f_c_ma20, f_vol10, f_c_ma60, f_n_lu_60, f_v_rank120, f_c_ma10, f_range20, f_lend_to_v
+
+TEST 2026-01-01..10-01: 180 days, rows 323,914, base m_y 0.0278, LU_s cont 0.2608
+  M_lu      top1 /day  picks=  180 prec=0.606 LB=0.533 buy=0.111
+  M_lu      top3 /day  picks=  540 prec=0.528 LB=0.486 buy=0.174
+  M_lu      top10/day  picks= 1786 prec=0.404 LB=0.382 buy=0.191
+  M_lu_buy  top1 /day  picks=  180 prec=0.433 LB=0.363 buy=0.311
+  M_lu_buy  top3 /day  picks=  540 prec=0.380 LB=0.340 buy=0.276
+  M_lu_buy  top10/day  picks= 1786 prec=0.338 LB=0.316 buy=0.239
+  M_nonlu   top1 /day  picks=  180 prec=0.222 LB=0.168 buy=0.217
+  M_nonlu   top3 /day  picks=  540 prec=0.181 LB=0.151 buy=0.170
+  M_nonlu   top10/day  picks= 1800 prec=0.142 LB=0.126 buy=0.134
+  M_all     top1 /day  picks=  180 prec=0.606 LB=0.533 buy=0.156
+  M_all     top3 /day  picks=  540 prec=0.535 LB=0.493 buy=0.170
+  M_all     top10/day  picks= 1800 prec=0.418 LB=0.396 buy=0.200
+  M_all_buy top1 /day  picks=  180 prec=0.361 LB=0.295 buy=0.283
+  M_all_buy top3 /day  picks=  540 prec=0.350 LB=0.311 buy=0.259
+  M_all_buy top10/day  picks= 1800 prec=0.315 LB=0.294 buy=0.231

@@ -1,0 +1,7 @@
+.surge-cache/
+__pycache__/
+# 研究輸出：log／stdout 與可由腳本重生的大檔不進版控（事件目錄、摘要、凍結名單才留）
+out/*.log
+out/*.stdout
+out/a31_c_*_pool.csv
+out/surge_controls_sample.csv
