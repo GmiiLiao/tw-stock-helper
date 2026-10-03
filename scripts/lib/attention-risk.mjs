@@ -142,6 +142,9 @@ export function riskTiersOf({ nearMap = null, attentionInfo = null } = {}) {
 let CAL = null;
 try { CAL = JSON.parse(readFileSync(new URL('../data/attention-calibration.json', import.meta.url), 'utf8')); } catch { CAL = null; }
 export const attentionCalibration = () => CAL;
+/** 測試用：注入／清除校準資料（傳 null＝模擬檔案不存在）；回傳先前的值以便還原。正式執行不呼叫，行為仍是啟動時讀檔。
+ *  scripts/data/*.json 依專案規則不進版控，所以測試不能假設 attention-calibration.json 存在。 */
+export function setAttentionCalibration(cal) { const prev = CAL; CAL = cal ?? null; return prev; }
 const MKT = { TWSE: 'tse', TPEx: 'otc' };
 /** 歷史 10 個交易日內出現處置公告的機率（0~1）；無校準回 null */
 export function dispositionProb10(tier, src) {

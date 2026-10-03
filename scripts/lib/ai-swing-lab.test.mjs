@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildPool, parsePicks, horizonOutcome, poolBaseline, swingStats, SWING_COST_PCT } from './ai-swing-lab.mjs';
 import { createAiSwingLab } from './ai-swing-runner.mjs';
+import { setAttentionCalibration } from './attention-risk.mjs';
+import { ATTENTION_CAL_FIXTURE } from './attention-calibration.fixture.mjs';
+
+setAttentionCalibration(ATTENTION_CAL_FIXTURE);   // 自帶校準資料：不依賴（不進版控的）scripts/data/attention-calibration.json
 
 // 130 個交易日：1111 每日 +1 元（開＝前收），2222 持平 50
 const mkDays = (n = 130) => Array.from({ length: n }, (_, i) => ({
@@ -428,4 +432,18 @@ test('執行器 v4：名單還不是資料日 ⇒ 19:30 前稍後重試；過了
   assert.equal(await mk(db4).pick(), true);
   assert.equal(db4.store[`aiSwingLab/${D}`].review.holdings.find(x => x.code === '1111').sum5, null);
   assert.doesNotMatch(prompt, /近5日漲跌合計 /);
+});
+
+test('校準檔缺席：候選／持股仍有分級標籤，只是不印機率、不當機（dispP10＝null、說明用「—」）', async () => {
+  const { buildPickPrompt } = await import('./ai-swing-lab.mjs');
+  const prev = setAttentionCalibration(null);
+  try {
+    const pool = buildPool({ swingPicks: { items: [{ code: '1111', name: 'A', tier: 1 }] }, swingHold: { combo: { items: [] } }, riskTiers: { 1111: { tier: 'high', src: 'TWSE' } } });
+    assert.equal(pool[0].attnRisk, 'high'); assert.equal(pool[0].dispP10, null, '無校準 ⇒ null（Firestore 不收 undefined）');
+    const p = buildPickPrompt({ date: 'D', pool: [{ ...pool[0], price: 10, sources: ['波段起漲⭐'] }],
+      holdings: [{ code: '5555', name: 'E', shares: 1000, buyDate: 'X', buyPx: 10, lastPx: 12, pnlPct: 20, heldDays: 4, onList: true, reason: 'r', sum5: 25.3, attnRisk: 'mid' }] });
+    assert.match(p, /1111 A.*⚠⚠可能達處置/); assert.match(p, /5555 E.*⚠注意股（計入處置條款）/);
+    assert.doesNotMatch(p, /本站以官方處置規則回測/, '沒有校準就不宣稱回測比例');
+    assert.match(p, /【近5日漲跌合計】.*約 —、15~24% 約 —、≥24% 約 —/s);
+  } finally { setAttentionCalibration(prev); }
 });

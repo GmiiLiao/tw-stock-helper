@@ -1,7 +1,10 @@
 // 處置風險分級 單元測試：node --test scripts/lib/attention-risk.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseClauses, attentionTier, parseNearDisposal, createNearDisposalSource, riskTiersOf, dispositionProb10, NEAR_DISPOSAL_URLS, attentionInfoOf } from './attention-risk.mjs';
+import { parseClauses, attentionTier, parseNearDisposal, createNearDisposalSource, riskTiersOf, dispositionProb10, NEAR_DISPOSAL_URLS, attentionInfoOf, setAttentionCalibration } from './attention-risk.mjs';
+import { ATTENTION_CAL_FIXTURE } from './attention-calibration.fixture.mjs';
+
+setAttentionCalibration(ATTENTION_CAL_FIXTURE);   // 自帶校準資料：不依賴（不進版控的）scripts/data/attention-calibration.json
 
 test('parseClauses：上市﹝第X款﹞、上櫃(第X款)、十以上的款、無條款回空陣列', () => {
   assert.deepEqual(parseClauses('最近六個營業日累積收盤價漲幅達33.16%﹝第一款﹞。…漲幅達232.46% ﹝第二款﹞。'), [1, 2]);
@@ -91,4 +94,14 @@ test('attentionInfoOf：只收公告日＝名單日的列——上櫃 openapi �
   const noDate = attentionInfoOf({ twseAttentionDate: null, attention: [{ code: '2033', source: 'TWSE', reason: '﹝第一款﹞' }] });
   assert.deepEqual(noDate.info, {}, '名單日不明 ⇒ 不分級'); assert.deepEqual([...noDate.currentCodes], ['2033'], '但仍標注意股');
   const none = attentionInfoOf(null); assert.deepEqual(none.info, {}); assert.equal(none.tpexUndated, 0); assert.equal(none.currentCodes.size, 0);
+});
+
+test('dispositionProb10：校準缺席（檔案不存在）⇒ 回 null，不是 0；注入／還原行為正確', () => {
+  const prev = setAttentionCalibration(null);
+  try {
+    assert.equal(dispositionProb10('high', 'TWSE'), null);
+    assert.equal(dispositionProb10('none', 'TPEx'), null);
+  } finally { setAttentionCalibration(prev); }
+  assert.ok(dispositionProb10('high', 'TWSE') > 0.4, '還原後恢復');
+  assert.equal(dispositionProb10('high', 'XX'), null);
 });
