@@ -34,6 +34,7 @@ import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 import { judgePagoda } from './lib/pagoda.mjs';
 import { swingBreadth } from './lib/swing-breadth.mjs';
+import { instIsSameDay } from './lib/inst-same-day.mjs';
 import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
@@ -8878,7 +8879,8 @@ async function computeSwingPicks() {
     const { breadth, bearDay } = swingBreadth({ arch, quotes: quo, liveDay });
     let instLatest = {}, instDate = null;
     try { const w = await loadChipWindow(1); if (w.length) { instLatest = w[0].map || {}; instDate = w[0].date; } } catch { /* 可缺 */ }
-    const instSameDay = !!instDate && instDate === arch[L].date;
+    // 法人與價格同一天才算「當日法人」：盤中價格是今天、法人是 t-1 ⇒ false（2026-10-03 修·見 lib/inst-same-day.mjs）
+    const instSameDay = instIsSameDay({ instDate, liveDay, today: isoDate(tw), lastArchiveDay: arch[L].date });
 
     const items = [];
     for (const code in arch[L].close) {
@@ -9013,7 +9015,8 @@ async function computeTopicPicks() {
     // 16:30 T86 公布後取到 t——兩者對應「不同的可執行策略」，evidence 依此切換（見下）。
     let instLatest = {}, instDate = null;
     try { const w = await loadChipWindow(1); if (w.length) { instLatest = w[0].map || {}; instDate = w[0].date; } } catch { /* 缺法人不影響其餘標記 */ }
-    const instSameDay = !!instDate && instDate === arch[arch.length - 1].date;   // true＝已含今日T86
+    // true＝法人與價格同一天（盤後 T86 已含價格日）；盤中價格是今天、法人是 t-1 ⇒ false（2026-10-03 修·見 lib/inst-same-day.mjs）
+    const instSameDay = instIsSameDay({ instDate, liveDay, today: isoDate(tw), lastArchiveDay: arch[arch.length - 1].date });
     const oversold = [], overheat = [], breakdown = [];
     for (const code in arch[arch.length - 1].close) {
       if (!/^\d{4}$/.test(code) || code.startsWith('00')) continue;
