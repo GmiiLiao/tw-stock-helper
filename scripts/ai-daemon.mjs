@@ -18,13 +18,14 @@
 
 import os from 'node:os';
 import webpush from 'web-push';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
+import { loadWikiStocks, wikiPromptBlock } from './lib/wiki-facts.mjs';
 import { scoreboardDoc, recentPicks } from './lib/picks-scoreboard.mjs';
 import { baseScoreOf, percentileOf, techScoreText, riskNoteText, riskTypeOf, thesisSupport } from './lib/risk-score.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
@@ -35,6 +36,8 @@ import { judgePagoda } from './lib/pagoda.mjs';
 import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
+import { createNearDisposalSource, attentionInfoOf } from './lib/attention-risk.mjs';
+import { fetchExright, exFactorLookup } from './lib/exright-source.mjs';
 import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
 import { createAlertDedup } from './lib/alert-dedup.mjs';
 import { withRetry, failSince, sameLockDay, nonRetryable } from './lib/fetch-retry.mjs';
@@ -64,6 +67,16 @@ const ANALYZE_MS = parseInt(process.env.ANALYZE_MS || '1800000', 10);
 // News refresh: every 15–30 min (clamped); writes to the local second brain.
 const NEWS_MS = Math.min(30, Math.max(15, parseInt(process.env.NEWS_MIN || '20', 10))) * 60000;
 const NEWS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'news');
+// 台股 wiki（scripts/build-stock-wiki.mjs 產生）：新聞判讀的產業鏈／上下游／關聯群事實錨點（2026-10-03）
+const WIKI_STOCKS_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'wiki', '_graph', 'stocks.json');
+// 本地訊號檔（2026-10-03）：讓同機其他 Ollama 使用者（台股 wiki 年報萃取）避開 daemon——
+//   llm.json             佇列忙碌狀態（每個 LLM 工作開始／結束時寫）
+//   night-backfill.json  今晚夜間補判已跑完一輪（年報萃取等它才開始）
+//   寫入失敗一律吞掉：訊號是給別人參考的，不能影響 daemon 本身。
+const SIGNAL_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', '.signals');
+function writeSignal(name, obj) {
+  try { mkdirSync(SIGNAL_DIR, { recursive: true }); writeFileSync(join(SIGNAL_DIR, name), JSON.stringify({ ...obj, at: Date.now() })); } catch { /* 訊號失敗不影響 daemon */ }
+}
 const MARKET_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'market');
 const HOST = os.hostname();
 
@@ -660,7 +673,12 @@ function _drainLLM() {
   _llmQueue.sort((a, b) => b.priority - a.priority || a.seq - b.seq);
   const job = _llmQueue.shift();
   _llmBusy = true;
-  _ollamaRaw(job.prompt, job.temperature).then(job.resolve, () => job.resolve(null)).finally(() => { _llmBusy = false; _drainLLM(); });
+  writeSignal('llm.json', { busy: true, queue: _llmQueue.length });
+  _ollamaRaw(job.prompt, job.temperature).then(job.resolve, () => job.resolve(null)).finally(() => {
+    _llmBusy = false;
+    writeSignal('llm.json', { busy: _llmQueue.length > 0, queue: _llmQueue.length });
+    _drainLLM();
+  });
 }
 let _llmSeq = 0;
 function askOllama(prompt, opts = {}) {
@@ -1152,7 +1170,7 @@ async function archiveDayReady(date) {
   catch (e) { return { ready: false, missing: [`歸檔讀取失敗 ${(e.message || '').slice(0, 40)}`] }; }
 }
 async function universeComplete() {
-  try { const codes = await getAllMarketCodes(); return codes.some(c => c.market === 'tse') && codes.some(c => c.market === 'otc'); }
+  try { const codes = await getAllMarketCodes(); return codes.some(c => c.market === 'tse') && codes.some(c => c.market === 'otc') && !_otcSeedFallback; }
   catch { return false; }
 }
 const _isTradingDayIso = iso => isTradingDay(new Date(`${iso}T12:00:00`));
@@ -1639,6 +1657,32 @@ async function _latestArchiveYmd() {
 // 民國日期 1150715 → 20260715（西元 YYYYMMDD）
 const rocToYmd = s => { s = String(s).trim(); return /^\d{7}$/.test(s) ? String(+s.slice(0, 3) + 1911) + s.slice(3) : ''; };
 let _otcCloseDate = '';
+// 上櫃種子是否來自「本地備份」後備（2026-10-03）：是的話定版閘門視為宇宙不完整（不可把舊種子寫進定版記錄）
+let _otcSeedFallback = false;
+const BACKUP_SINGLETONS = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'backup', 'singletons.json');
+let _bkOtc = { mtimeMs: 0, rows: [], date: '' };
+/**
+ * 上櫃最後一道後備：本地第二大腦備份（backup-brain 每日同步的 marketSnapshot/latest，含上櫃收盤種子與名稱）。
+ *   為什麼需要：上一道「沿用上一份快取」是**程序記憶體**，daemon 一重啟就沒了——
+ *   2026-10-03 本機 DNS 解析不到 www.tpex.org.tw（鏡像、帶日期端點全掛），13:50 重啟後全站上櫃整批消失。
+ *   依檔案 mtime 快取，避免每輪重試都重新解析 27MB。只當種子（即時價仍由 MIS 覆蓋）。
+ */
+function _otcFromLocalBackup() {
+  try {
+    const st = statSync(BACKUP_SINGLETONS);
+    if (st.mtimeMs === _bkOtc.mtimeMs) return _bkOtc;
+    const snap = JSON.parse(readFileSync(BACKUP_SINGLETONS, 'utf8'))?.marketSnapshot?.latest;
+    const q = typeof snap?.quotesJson === 'string' ? JSON.parse(snap.quotesJson) : (snap?.quotesJson || {});
+    const rows = [];
+    for (const x of Object.values(q)) {
+      const code = String(x?.code || '');
+      if (x?.market !== 'otc' || !(/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code))) continue;
+      rows.push({ code, name: x.name || '', market: 'otc', close: Number(x.price) || 0, change: Number(x.change) || 0, vol: Number(x.volume) || 0, open: Number(x.open) || 0, high: Number(x.high) || 0, low: Number(x.low) || 0 });
+    }
+    _bkOtc = { mtimeMs: st.mtimeMs, rows, date: String(snap?.seedDateOtc || '') };
+    return _bkOtc;
+  } catch (e) { log(`  ⚠ 本地備份上櫃讀取失敗：${(e?.message || '').slice(0, 60)}`); return { mtimeMs: 0, rows: [], date: '' }; }
+}
 
 // TPEx 帶日期端點：openapi 鏡像落後或整個回空時的後備來源。
 // TPEx 只認 YYYY/MM/DD，且**必須回聲驗證**——否則它會靜默忽略日期參數
@@ -1721,6 +1765,7 @@ async function _loadMarketCodes() {
   // 修法：讀鏡像自報日 → 與上市的 closeDate 比對 → 落後就改用**帶日期**的
   //       afterTrading/dailyQuotes（回聲驗證，回補腳本已實測可靠）重抓。
   let otcRows = []; let otcDate = '';
+  let otcFromBackup = false; let otcFromPrev = false;
   // 上櫃鏡像：被中斷／回空時重新取得（同上市·2026-10-02）
   const otcMirror = await withRetry(async () => {
     const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -1756,12 +1801,18 @@ async function _loadMarketCodes() {
       // 最後一道：沿用上一份快取裡的上櫃（stale-if-error）。寧可用舊的上櫃種子，
       // 也不要讓整個市場從站上蒸發——即時價本來就由 MIS 逐輪覆蓋。
       const prevOtc = (_codesCache || []).filter(c => c.market === 'otc');
-      if (prevOtc.length > 0) { otcRows = prevOtc; log(`  ⚠ 上櫃後備亦失敗 → 沿用上一份快取 ${prevOtc.length} 檔（stale-if-error）`); }
-      else log('  ✗ 上櫃完全無來源且無快取可沿用——本輪宇宙將缺少上櫃');
+      if (prevOtc.length > 0) { otcRows = prevOtc; otcFromPrev = true; log(`  ⚠ 上櫃後備亦失敗 → 沿用上一份快取 ${prevOtc.length} 檔（stale-if-error）`); }
+      else {
+        // 記憶體快取在重啟後是空的 ⇒ 讀本地備份（見 _otcFromLocalBackup）
+        const bk = _otcFromLocalBackup();
+        if (bk.rows.length > 500) { otcRows = bk.rows.map(r => ({ ...r })); otcDate = bk.date; otcFromBackup = true; log(`  ⚠ 上櫃改用本地備份快照 ${bk.rows.length} 檔（種子日 ${bk.date || '未知'}；stale-if-error，定版暫停）`); }
+        else log('  ✗ 上櫃完全無來源且無快取可沿用——本輪宇宙將缺少上櫃');
+      }
     }
   }
   codes.push(...otcRows);
   _otcCloseDate = otcDate;
+  _otcSeedFallback = otcFromBackup || (otcFromPrev && _otcSeedFallback);   // 沿用的快取若本身來自備份，仍算後備
   // 只有「兩個市場都在」才可以覆蓋快取：任何一邊整批消失都視為抓取失敗，
   // 保留舊快取而不是把殘缺宇宙固化下來。
   // ⚠ **種子的開高低只有在資料日就是今天時才能用**（2026-08-29 使用者回報
@@ -1785,7 +1836,7 @@ async function _loadMarketCodes() {
   const hasTse = codes.some(c => c.market === 'tse');
   const hasOtc = codes.some(c => c.market === 'otc');
   {
-    const st = failSince(_otcMiss, hasOtc, Date.now()); _otcMiss = st;
+    const st = failSince(_otcMiss, hasOtc && !_otcSeedFallback, Date.now()); _otcMiss = st;   // 用備份撐著也要告警：上游仍是壞的
     if (st.alert) notifyDeveloper(`🚨 上櫃清單已連續 ${Math.round((Date.now() - st.since) / 60000)} 分鐘取得失敗（鏡像、帶日期端點、快取皆無），全站上櫃可能缺席；請檢查 TPEx 上游`, `otc-universe-${isoDate(taipei())}`).catch(() => {});
   }
   if (codes.length > 0 && hasTse && hasOtc) {
@@ -1881,14 +1932,48 @@ async function fetchRiskSets() {
   try {
     const rs = await fetch(`${APP_BASE}/api/twse/risk-stocks`, { signal: AbortSignal.timeout(8000) }).then(x => (x.ok ? x.json() : null));
     if (!rs || !Array.isArray(rs.disposition) || rs.dispositionComplete === false) { log('⚠ 處置/注意名單取不到或殘缺，稍後重試'); return null; }
-    return { disp: new Set(rs.disposition.filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)), attention: new Set((rs.attention || []).map(x => x.code).filter(Boolean)) };
+    // attentionInfo／asOf（2026-10-03，AI 波段處置風險分級用；其他呼叫端只讀 disp／attention，不受影響）：
+    //   條款只從 API 回的 reason 取「第X款」數字（不另抓、不另解析注意股名單——risk-stocks-source.ts 是唯一來源）；
+    //   只收公告日＝名單日的列（上櫃 openapi 會混兩天，見 attentionInfoOf）
+    const { info: attentionInfo, tpexUndated, currentCodes } = attentionInfoOf(rs);
+    return { disp: new Set(rs.disposition.filter(x => x.code && (!x.endDate || x.endDate >= today)).map(x => x.code)), attention: new Set((rs.attention || []).map(x => x.code).filter(Boolean)),
+      attentionInfo, tpexUndated, attentionCurrent: currentCodes, asOf: { twseAttention: rs.twseAttentionDate ?? null, tpexAttention: rs.tpexAttentionDate ?? null } };
   } catch (e) { log('⚠ 處置/注意名單抓取失敗:', (e.message || '').slice(0, 80)); return null; }
+}
+// 官方「注意累計次數可能達處置標準」名單（上市 rwd notetrans＋上櫃 www bulletin/warning，帶資料日回音；10 分鐘快取、
+//   失敗 1 分鐘負快取——實驗帳戶與所有會員共用，上游請求數與會員數無關）。只給 AI 波段選股用（./lib/attention-risk.mjs）。
+const _nearDisposal = createNearDisposalSource({ log });
+/** AI 波段選股用的風險名單：處置／注意＋可能達處置。可能達處置取不到 ⇒ nearMap 為 null、asOf 對應欄位 null（runner 會等到 19:30 再以未知處理） */
+async function fetchSwingRiskSets() {
+  const rs = await fetchRiskSets(); if (!rs) return null;
+  if (rs.tpexUndated) log(`⚠ 上櫃注意股 ${rs.tpexUndated} 列沒有公告日（網站尚未部署帶日期的版本），上櫃注意股本輪不分級`);
+  const nd = await _nearDisposal.get().catch(() => null);
+  const nearMap = nd && (nd.twse || nd.tpex) ? new Map([...(nd.twse?.codes || []).map(c => [c, 'TWSE']), ...(nd.tpex?.codes || []).map(c => [c, 'TPEx'])]) : null;
+  // attention：AI 波段只標「當日注意」（上櫃 openapi 混兩天；部署前缺公告日的上櫃沿用舊標示）——其他呼叫端的 attention 不變
+  return { ...rs, attention: rs.attentionCurrent, nearMap, asOf: { ...rs.asOf, twseNear: nd?.twse?.date ?? null, tpexNear: nd?.tpex?.date ?? null } };
+}
+// 持股「近 5 日漲跌合計」（2026-10-03）要以除權息參考價還原（官方注意股第一款口徑、研究端校準也是還原後）；priceEvents 只記 ±20%
+//   結構事件、沒有一般除權息 ⇒ 另抓官方除權除息計算結果表（上市 TWT49U、上櫃 exDailyQ；已登錄核准）近 20 個日曆日。
+//   每個資料日成功一次就重用（實驗與會員共用）；失敗 10 分鐘內不重打，該輪持股不顯示 sum5。
+let _exFactor = { to: null, at: 0, fn: null, inflight: null };
+async function getExFactorOf(date) {
+  if (_exFactor.to === date && (_exFactor.fn || Date.now() - _exFactor.at < 10 * 60_000)) return _exFactor.fn;
+  if (_exFactor.inflight) return _exFactor.inflight;
+  _exFactor.inflight = (async () => {
+    const from = new Date(Date.parse(`${date}T00:00:00Z`) - 20 * 86400e3).toISOString().slice(0, 10);
+    let fn = null;
+    try { const [ex, applied] = await Promise.all([fetchExright(from, date), loadPriceFactors()]); fn = exFactorLookup(ex.items, applied, { from, to: date }); }
+    catch (e) { log('⚠ 除權息係數（持股近 5 日漲跌合計用）取不到，本輪不顯示:', (e.message || '').slice(0, 60)); }
+    _exFactor = { to: date, at: Date.now(), fn, inflight: null };
+    return fn;
+  })();
+  return _exFactor.inflight;
 }
 // 🤖 AI 實驗·波段持有（2026-09-24）：盤後 Ollama 從波段榜挑 ≤5 檔 → D+1 開盤模擬買 → 5/10/20/60/120 日結算
 const _aiSwing = createAiSwingLab({ db, askOllama, log, dir: join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'swing-ai-lab'),
-  getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned,
+  getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchSwingRiskSets(), getIndustry: () => getIndustryMap(), getLearned, getExFactorOf,
   loadDays: async n => { const arch = await readArchive(n, 'closeJson'); const raw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })); return applyPriceFactors(raw, await loadPriceFactors()); } });   // 讀失敗就拋出、本輪不結算（結算寫一次不改，未還原價會永久化·G2-06）
-let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0;
+let _aiSwingDate = '', _aiSwingTryAt = 0, _aiSwingAcctAt = 0, _aiSwingSettleDay = '';
 // 🤖 會員專屬 AI 波段帳戶（2026-10-01 使用者：AI 實驗開放高級會員、先開放波段；超級管理員逐一開通；每位會員一位專屬 AI 交易員）
 //   開通＝aiLabAccess/{uid}.swing（只有超級管理員 API 能寫）且仍為付費／體驗期會員；設定與資金異動 aiSwingMembers/{uid}。
 //   每位會員一個執行器：決策 aiSwingMembers/{uid}/days、快照 …/state/account；不寫第二大腦、不做研究結算；
@@ -1917,7 +2002,7 @@ async function aiSwingMemberUids() {
 function memberSwing(uid) {
   let r = _memberSwing.get(uid);
   if (!r) {
-    r = createAiSwingLab({ db, askOllama, log, dir: null, getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchRiskSets(), getIndustry: () => getIndustryMap(), getLearned, loadDays: loadSwingDaysCached,
+    r = createAiSwingLab({ db, askOllama, log, dir: null, getModelInfo: () => getOllamaModelInfo(), getRisk: () => fetchSwingRiskSets(), getIndustry: () => getIndustryMap(), getLearned, getExFactorOf, loadDays: loadSwingDaysCached,
       account: { colPath: `aiSwingMembers/${uid}/days`, snapPath: `aiSwingMembers/${uid}/state/account`, files: false, research: false, priority: 0, label: `會員 ${uid.slice(0, 6)}`,
         // feeDiscount：會員自己在本站設定的券商手續費折讓（users/{uid}/data/cashLedger.broker.discount，與成本參考同一來源；
         //   2026-10-01 使用者「手續費為使用者的折扣非統一使用2.8折」）；沒設＝無折讓 0.1425%
@@ -5644,7 +5729,7 @@ function extensionCharsOf(name, allNames) {
 }
 
 async function judgeOneStock(it, ctx, opts = {}) {
-  const { calMap = {}, gLine = '', indMap = {} } = ctx || {};
+  const { calMap = {}, gLine = '', indMap = {}, wiki = null } = ctx || {};
     const kw = (it.name || '').replace(/[*＊\-].*$/, '').trim() || it.code;
   // ⏱ 階段計時（2026-09-01）：曾有單檔 16 分鐘的紀錄，root cause 一直沒抓到。
   //   最起碼要能回答「卡在抓取還是判別」。慢於 90 秒才輸出，不洗版。
@@ -5806,6 +5891,8 @@ async function judgeOneStock(it, ctx, opts = {}) {
       return m ? [m[0]] : [];
     }))].slice(0, 4);
     const indName = indMap[it.code] || '';
+    let wikiBlock = '';
+    try { wikiBlock = wiki ? wikiPromptBlock(it.code, wiki) : ''; } catch { /* wiki 資料異常只是少一個錨，不擋判讀 */ }
     // ══ D 拒答門檻（防幻想管線第 1 關，使用者 2026-08-29 指定順序 D→C→C→A）══
     //   問題需要的資料我有沒有？沒有就不進入生成，避免模型硬答。
     //   ⚠ 寫在程式裡而非提示詞：提示詞已寫過「提及 0 次就判資訊不足」，
@@ -5839,7 +5926,7 @@ async function judgeOneStock(it, ctx, opts = {}) {
 
 【已知事實（請以此為錨，不要臆測這家公司做什麼）】
 · ${it.code} ${it.name}${indName ? `　官方產業別：${indName}` : '　（產業別未知）'}
-${negHits.length ? `· ⚠ 內文中偵測到可能的負面事件字眼：${negHits.join('、')}。\n  請**正面回答**它對本檔是否構成實質風險；公司發重訊聲明「營運正常/無重大影響」是當事人說法，**不足以把它中和成中性**。若確實與本檔無關（例如是同業或客戶的事）才可判中性。\n` : ''}${opts.coMentionNote ? `· ${opts.coMentionNote}\n` : ''}· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
+${wikiBlock ? `${wikiBlock}\n` : ''}${negHits.length ? `· ⚠ 內文中偵測到可能的負面事件字眼：${negHits.join('、')}。\n  請**正面回答**它對本檔是否構成實質風險；公司發重訊聲明「營運正常/無重大影響」是當事人說法，**不足以把它中和成中性**。若確實與本檔無關（例如是同業或客戶的事）才可判中性。\n` : ''}${opts.coMentionNote ? `· ${opts.coMentionNote}\n` : ''}· 本檔在以下新聞中被指名提及共 ${mentions} 次${mentions === 0 ? '——**一次都沒有**，代表這些報導不是在講它，請判「資訊不足」或「中性」，不可硬扯關聯' : mentions <= 2 ? '（次數很少，可能只是順帶提及，請據此壓低信心）' : ''}
 
 嚴格規則：
 1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
@@ -5876,7 +5963,7 @@ ${negHits.length ? `· ⚠ 內文中偵測到可能的負面事件字眼：${neg
    （例：戰爭推升運價利多航運、卻壓抑觀光；油價上漲利多油氣、卻墊高塑化成本）。
    方向必須從**內文**讀出來，讀不出來就判中性。
 9. **連動要正確，不可硬扯**（這條優先於第 7、8 點）：
-   · 傳導路徑必須與上面「官方產業別」相容。產業別對不上就不要編一條鏈出來，
+   · 傳導路徑必須與上面「官方產業別」及【已知事實】中的產業鏈位置／上下游相容（「參考·未完全驗證」那段不能單獨當依據）。產業別對不上就不要編一條鏈出來，
    寧可寫「無」——錯的連動比沒有連動更糟，它會讓人以為有根據。
    · 路徑要寫清楚**這一檔在鏈上的位置**（上游材料／中游製造／下游應用／設備商），
    不能只寫「受惠 AI 需求」這種對半導體全體都成立的話。
@@ -6271,7 +6358,10 @@ async function newsJudgeContext(wantDates = []) {
     pxOpen = !!s?.marketOpen; pxAt = s?.updatedAt ?? null;
   } catch { /* 缺價只是少記一欄，不擋判別 */ }
 
-  return { gToday, gLine, calMap, indMap, px, pxOpen, pxAt };
+  // 台股 wiki（本地檔、依 mtime 快取、零上游請求）；讀不到就是 null，判讀退回只有官方產業別
+  const wiki = loadWikiStocks(WIKI_STOCKS_FILE);
+
+  return { gToday, gLine, calMap, indMap, px, pxOpen, pxAt, wiki };
 }
 // 判別寫入時附上的時點價欄位（batch／intraday 兩個寫入端共用，避免各自漂移）
 function verdictPxFields(ctx, code) {
@@ -15127,7 +15217,11 @@ async function dailyJobsLoop() {
       //   只補「使用者看得到」的股票（推薦榜/軋空候選/漲停預測）中尚無判別者。
       // ⚠ 06:30 死線：不能吃到 06:40 行事曆同步與 07:00 晨間判別。
       if (mins >= 60 + 15 && mins < 6 * 60 + 30 && _nvNightDate !== today) {
-        try { if (await computeNightBackfill()) _nvNightDate = today; }
+        try {
+          const did = await computeNightBackfill();
+          if (did) _nvNightDate = today;
+          writeSignal('night-backfill.json', { day: today, judged: !!did });   // 跑完一輪（含「沒有要補的」）就標記
+        }
         catch (e) { log('✖ 夜間補判（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 做空風控候選（2026-09-03）：盤中每 10 分鐘刷新（弱勢/處置/軋空狀態盤中都在變）。
@@ -15148,7 +15242,9 @@ async function dailyJobsLoop() {
       // 窗＝17:00～次日 08:30（仍早於下一交易日 09:00 開盤，先選後買不變）；pick() 以榜單資料日冪等，跨午夜不會重選
       if (((isTradingDay(tw) && mins >= 17 * 60) || mins < 8 * 60 + 30) && _aiSwingDate !== today && Date.now() - _aiSwingTryAt > 10 * 60000) {
         _aiSwingTryAt = Date.now();
-        try { await _aiSwing.settle(); if (await _aiSwing.pick()) _aiSwingDate = today; }   // 先結算（到期部位釋放現金）再選股定部位
+        // 先結算（到期部位釋放現金）再選股定部位。結算每個日曆日成功一次即可（v4 起選股會等注意／可能達處置名單到 19:30，
+        //   重試不必每 10 分鐘重讀 135 日歸檔與重寫帳戶快照·2026-10-03 審查 LOW）
+        try { if (_aiSwingSettleDay !== today) { await _aiSwing.settle(); _aiSwingSettleDay = today; } if (await _aiSwing.pick()) _aiSwingDate = today; }
         catch (e) { log('✖ 波段 AI 實驗（將重試）:', (e.message || '').slice(0, 60)); }
       }
       // 🤖 會員專屬 AI 交易員：實驗帳戶今天選完股後依序處理（同一時窗；單一在途、不卡主迴圈；每 10 分鐘補做未完成的會員）

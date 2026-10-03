@@ -56,3 +56,15 @@ export function mergeFactorItems(exItems, priceEventItems) {
   const pe = (priceEventItems || []).filter(e => e.factor > 0 && !exKeys.has(`${e.date}:${e.code}`));
   return [...exItems.map(([date, code, factor]) => ({ date, code, factor })), ...pe];
 }
+
+/**
+ * 官方除權息 items → (日期, 代號) ⇒ factor 查表（2026-10-03 持股「近 5 日漲跌合計」用）。
+ *   applied：已套在日線上的 priceEvents 係數 { code:[{date,factor}] }——同檔同日略過，避免重複乘。
+ *   cover：{ from, to } 查詢涵蓋的區間；區間外回 undefined（＝不知道有沒有除權息），區間內沒有事件回 null。
+ */
+export function exFactorLookup(exItems, applied = {}, cover = null) {
+  const done = new Set(Object.entries(applied || {}).flatMap(([c, evs]) => (evs || []).map(e => `${e.date}:${c}`)));
+  const m = new Map();
+  for (const [d, c, f] of exItems || []) { const k = `${d}:${c}`; if (f > 0 && !done.has(k)) m.set(k, f); }
+  return (date, code) => (cover && (date < cover.from || date > cover.to) ? undefined : m.get(`${date}:${code}`) ?? null);
+}

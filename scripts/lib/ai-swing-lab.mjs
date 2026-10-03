@@ -16,8 +16,9 @@
 import { ledgerOf, twAt, FEE_RATE, feeOf, validDiscount } from './sim-ledger.mjs';
 import { portfolioState, portfolioSnapshot } from './ai-swing-portfolio.mjs';
 import { sizeShares, SWING_DEFAULT_EXIT_H, SWING_MIN_POSITION } from './sim-account.mjs';
+import { dispositionProb10, attentionCalibration } from './attention-risk.mjs';
 
-export const SWING_LAB_VERSION = 'ai-swing-lab-v3';   // v3（2026-09-28）：帳戶改由 AI 主動操作（每日檢視持股可賣出換股，./ai-swing-portfolio.mjs）；v2：結算附交易單與防作弊時間戳
+export const SWING_LAB_VERSION = 'ai-swing-lab-v4';   // v4（2026-10-03）：候選與持股標處置風險分級（官方可能達處置名單＋注意條款，./attention-risk.mjs）、持股附近 5 日漲跌合計；v3（2026-09-28）：帳戶改由 AI 主動操作（每日檢視持股可賣出換股，./ai-swing-portfolio.mjs）；v2：結算附交易單與防作弊時間戳
 export const SWING_HORIZONS = Object.freeze([5, 10, 20, 60, 120]);
 export const SWING_MAX_PICKS = 5;
 export const SWING_POOL_MAX = 30;
@@ -29,8 +30,13 @@ export const poolGrossOf = pool => (pool?.avgRet != null ? pool.avgRet : pool?.a
 
 const f1 = v => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(+v).toFixed(1)}`);
 
-/** 候選池：波段起漲（全部）＋波段持有整合榜（前段），去重、排除處置股，最多 30 檔 */
-export function buildPool({ swingPicks, swingHold, disp = new Set(), attention = new Set(), news = {}, industry = {} }) {
+/**
+ * 候選池：波段起漲（全部）＋波段持有整合榜（前段），去重、排除處置股，最多 30 檔。
+ * riskTiers（v4·可選）：{ code: { tier:'high'|'mid'|'low', src } }（./attention-risk.mjs riskTiersOf）——
+ *   池的成員不變（研究基準＝整池，保持可比），只在截取 30 檔**之後**標記，並把「可能達處置」穩定排到最後（降權）。
+ *   不給＝舊版行為（只標 attention 布林）。
+ */
+export function buildPool({ swingPicks, swingHold, disp = new Set(), attention = new Set(), news = {}, industry = {}, riskTiers = null }) {
   const out = new Map();
   for (const it of swingPicks?.items || []) {
     if (disp.has(it.code) || !/^\d{4}$/.test(it.code)) continue;
@@ -43,7 +49,34 @@ export function buildPool({ swingPicks, swingHold, disp = new Set(), attention =
     out.set(it.code, { ...cur, sources: [...cur.sources, `波段持有整合榜#${it.rank}（上榜 ${it.boards} 張）`],
       hold: { rank: it.rank, boards: it.boards, gains: it.gains, streak: it.streak, amtM: it.amtM, ma: it.ma } });
   }
-  return [...out.values()].slice(0, SWING_POOL_MAX).map(c => ({ ...c, attention: attention.has(c.code), news: news[c.code]?.label || null, industry: industry[c.code] || null }));
+  const pool = [...out.values()].slice(0, SWING_POOL_MAX).map(c => ({ ...c, attention: attention.has(c.code), news: news[c.code]?.label || null, industry: industry[c.code] || null }));
+  if (!riskTiers) return pool;
+  const marked = pool.map(c => { const r = riskTiers[c.code]; return { ...c, attnRisk: r?.tier ?? null, dispP10: r ? dispositionProb10(r.tier, r.src) : null }; });
+  return [...marked.filter(c => c.attnRisk !== 'high'), ...marked.filter(c => c.attnRisk === 'high')];
+}
+
+/** 處置風險的單行標籤（候選與持股共用）；舊文件沒有 attnRisk ⇒ 沿用「⚠注意股」 */
+// 措辭（2026-10-03 兩輪審查）：不寫成單一充分條件——官方名單是「次一營業日再被注意且達處置標準」才處置
+//   （10-01 名單上的 3167、8996 次日只因第六款被注意、未處置；「第一款連續二次」者次日須再是第一款才處置）；
+//   上櫃第六款（估值）是計入的 ⇒ 低級不寫「估值」
+const RISK_TAG = { high: '⚠⚠可能達處置（官方名單：次一營業日再被注意且達處置標準即處置）', mid: '⚠注意股（計入處置條款）', low: '注意股（只因不計入處置的條款）' };
+const riskTag = x => (x.attnRisk ? RISK_TAG[x.attnRisk] : x.attention ? '⚠注意股' : null);
+const pctTxt0 = p => (p * 100 < 1 ? `${(p * 100).toFixed(1)}%` : `${Math.round(p * 100)}%`);
+/** 處置風險說明（只有池或持股出現分級時才加，否則 prompt 與舊版相同） */
+function riskLegend(items) {
+  if (!items.some(x => x.attnRisk)) return null;
+  const pr = (tier, src) => { const v = dispositionProb10(tier, src); return v == null ? '—' : pctTxt0(v); };
+  const has = attentionCalibration() != null;
+  return `【處置風險】處置股須以已交割現金預收款、改分盤集合競價，流動性差、不易賣出。${has
+    ? `本站以官方處置規則回測（2023~2026，流動股）10 個交易日內被處置的比例：可能達處置 上市 ${pr('high', 'TWSE')}／上櫃 ${pr('high', 'TPEx')}；注意股（計入處置條款）上市 ${pr('mid', 'TWSE')}／上櫃 ${pr('mid', 'TPEx')}；只因不計入處置的條款 上市 ${pr('low', 'TWSE')}／上櫃 ${pr('low', 'TPEx')}；未被注意 上市 ${pr('none', 'TWSE')}／上櫃 ${pr('none', 'TPEx')}。`
+    : ''}可能達處置的候選已排在候選池最後。歷史統計，不保證未來。`;
+}
+/** 持股「近 5 日漲跌合計」說明：至少一檔 ≥15% 才加（官方注意股門檻附近才有意義） */
+function sum5Legend(holdings) {
+  if (!holdings.some(h => h.sum5 != null && h.sum5 >= 15)) return null;
+  const T = attentionCalibration()?.s5Tiers;
+  const p = i => (T ? pctTxt0(T.nextDay.all[i]) : '—');
+  return `【近5日漲跌合計】官方注意股第一款看「最近 6 個交易日單日漲跌幅加總」（約 32% 以上列注意股，處置前一步）。本站統計隔日被列注意股的比例：近 5 日合計 <15% 約 ${p(0)}、15~24% 約 ${p(1)}、≥24% 約 ${p(2)}。這是狀態資訊，不是自動賣出訊號。`;
 }
 
 const line = c => {
@@ -51,14 +84,16 @@ const line = c => {
   if (c.start) parts.push(`起漲訊號：RSI5 ${c.start.rsi5}／RSI10 ${c.start.rsi10}、量比 ${c.start.volX}x、法人前日 ${c.start.instT1} 張、20日波動 ${c.start.vol20}%、KD ${c.start.kdState}、破底風險 ${c.start.breakRisk}${c.start.deepPull ? '、深回檔' : ''}`);
   if (c.hold) parts.push(`累積漲幅 5日 ${f1(c.hold.gains?.d5)}%／10日 ${f1(c.hold.gains?.d10)}%／20日 ${f1(c.hold.gains?.d20)}%／60日 ${f1(c.hold.gains?.d60)}%、連漲 ${c.hold.streak} 日、日均成交 ${c.hold.amtM} 百萬、站上均線 ${(c.hold.ma || []).filter(Boolean).length}/3`);
   if (c.news) parts.push(`新聞判讀：${c.news}`);
-  if (c.attention) parts.push('⚠注意股');
+  const tag = riskTag(c); if (tag) parts.push(tag);
   if (c.lessons?.length) parts.push(`經驗庫：${c.lessons.join('；')}`);
   return `- ${parts.join('｜')}`;
 };
 
 const f2 = v => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}`);
+// v4：sum5（近 5 日單日漲跌加總）與 attnRisk 只在 runner 有給時才印——舊文件／測試的持股行與舊版相同
 const holdLine = h => `- ${h.code} ${h.name}｜${h.shares.toLocaleString()} 股、${h.buyDate} 以 ${h.buyPx} 買進、最新收盤 ${h.lastPx ?? '—'}（${f2(h.pnlPct)}%）、已持有 ${h.heldDays ?? '—'} 個交易日、持有期間最高 ${f2(h.maxUp)}%／最低 ${f2(h.maxDD)}%`
-  + `｜${h.onList ? '今天仍在波段榜上' : '已不在今天的波段榜'}${h.news ? `｜新聞判讀：${h.news}` : ''}${h.disposition ? '｜⚠已列處置股' : ''}｜當初買進理由：${h.reason || '—'}`
+  + (h.sum5 != null ? `、近5日漲跌合計 ${f2(h.sum5)}%` : '')
+  + `｜${h.onList ? '今天仍在波段榜上' : '已不在今天的波段榜'}${h.news ? `｜新聞判讀：${h.news}` : ''}${h.disposition ? '｜⚠已列處置股' : h.attnRisk ? `｜${RISK_TAG[h.attnRisk]}` : ''}｜當初買進理由：${h.reason || '—'}`
   + (h.lessons?.length ? `｜經驗庫：${h.lessons.join('；')}` : '');
 
 /**
@@ -100,6 +135,7 @@ export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings =
       // 決策層經驗（實驗＋會員帳戶的實際買賣）出現時才加說明——沒有時文字與舊版相同
       [...pool, ...holdings].some(x => (x.lessons || []).some(s => /AI 過去買進經驗|賣太早經驗|賣得對經驗/.test(s)))
         ? '標「AI 過去買進經驗」「賣太早經驗／賣得對經驗」的，來自實驗帳戶與會員 AI 帳戶的實際買賣，與同日其他 AI 決策比較（未扣成本）。' : ''}`,
+    ...[riskLegend([...pool, ...holdings]), sum5Legend(holdings)].filter(Boolean),
     `【現有持股 ${holdings.length} 檔】`,
     holdings.length ? holdings.map(holdLine).join('\n') : '（無）',
     `【候選池 ${pool.length} 檔】（已持有的不能重複買）`,

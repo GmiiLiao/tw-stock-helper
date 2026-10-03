@@ -12,14 +12,19 @@ export declare const grossOf: (o: { ret?: number | null; net?: number | null } |
 export declare const poolGrossOf: (pool: { avgRet?: number; avg?: number } | null | undefined) => number | null;
 export interface SwingHorizonStat { pnlTwd: number | null; days: number; n: number; avg: number | null; win: number | null; poolAvg: number | null; excess: number | null; beatPool: number | null }
 export interface SwingLabDoc {
-  date: string; version: string; model: SwingModelInfo | null; market: string | null; pool: { code: string; name: string; sources: string[] }[];
+  date: string; version: string; model: SwingModelInfo | null; market: string | null;
+  /** v4：attnRisk＝處置風險分級（high＝官方可能達處置名單、mid＝注意且含計入處置條款、low＝只因不計入條款）；dispP10＝歷史 10 日內處置比例 */
+  pool: { code: string; name: string; sources: string[]; attention?: boolean; attnRisk?: SwingAttnRisk | null; dispP10?: number | null }[];
+  /** v4：分級所用四份名單的資料日；stale＝過了資料日 19:30 仍未更新的名單 */
+  attentionAsOf?: { twseAttention: string | null; tpexAttention: string | null; twseNear: string | null; tpexNear: string | null; stale: string[] };
   picks: SwingPick[]; note: string; outcomes: Record<string, SwingOutcome>; frozenAt: number; settledAll?: boolean;
   adminNotes?: string; adminNotesAt?: number; adminBy?: string; prompt?: string | null; raw?: string | null; account?: SimAccount;
   review?: SwingReview; cashForBuys?: number; equityAtDecision?: number;
   buyFills?: Record<string, SwingFill>; sellFills?: Record<string, SwingFill & { ledger?: SimLedger | null; sellNoLookahead?: boolean | null }>;
 }
 export interface SwingFill { date: string; at?: number; px?: number; openMissing?: boolean; failed?: boolean; reason?: string }
-export interface SwingReview { holdings: { key: string; code: string; name: string; shares: number; buyPx: number; lastPx: number | null; pnlPct: number | null; heldDays: number | null; onList: boolean }[]; sells: { key: string; code: string; name: string; shares: number; reason: string; estPx: number | null; estProceeds: number }[] }
+export type SwingAttnRisk = 'high' | 'mid' | 'low';
+export interface SwingReview { holdings: { key: string; code: string; name: string; shares: number; buyPx: number; lastPx: number | null; pnlPct: number | null; heldDays: number | null; onList: boolean; sum5?: number | null; attnRisk?: SwingAttnRisk | null }[]; sells: { key: string; code: string; name: string; shares: number; reason: string; estPx: number | null; estProceeds: number }[] }
 export interface SwingLot { key: string; date: string; code: string; name: string; shares: number; status: 'pending' | 'held' | 'selling' | 'closed' | 'void' }
 export const SWING_HORIZONS: readonly number[];
 export const SWING_LAB_VERSION: string;

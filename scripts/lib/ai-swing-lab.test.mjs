@@ -356,3 +356,76 @@ test('執行器：決策層經驗——AI 買進經驗標在候選旁、AI 賣�
   assert.deepEqual(db.store[`aiSwingLab/${D}`].review.holdings.find(h => h.code === '1111').lessonIds, ['swing-sell:heldD=3~5日'], '持股套用的經驗也記入凍結檔');
   assert.deepEqual(db.store[`aiSwingLab/${D}`].pool.find(c => c.code === '2222').lessonIds, ['swing-buy:streak=0日']);
 });
+
+// ── v4 處置風險分級＋持股近 5 日漲跌合計（2026-10-03）──
+test('buildPool v4：可能達處置不剔除、只在 30 檔截取後穩定排到最後；未給 riskTiers＝舊行為（沒有 attnRisk 欄）', () => {
+  const sp = { items: [{ code: '1111', name: 'A', tier: 1 }, { code: '2222', name: 'B', tier: 1 }, { code: '3333', name: 'C', tier: 1 }, { code: '4444', name: 'D', tier: 1 }] };
+  const tiers = { 1111: { tier: 'high', src: 'TWSE' }, 3333: { tier: 'mid', src: 'TPEx' }, 4444: { tier: 'low', src: 'TWSE' } };
+  const pool = buildPool({ swingPicks: sp, swingHold: { combo: { items: [] } }, attention: new Set(['3333', '4444']), riskTiers: tiers });
+  assert.deepEqual(pool.map(c => c.code), ['2222', '3333', '4444', '1111'], '成員不變、high 排最後、其餘維持原順序');
+  assert.equal(pool[3].attnRisk, 'high'); assert.ok(pool[3].dispP10 > 0.4);
+  assert.equal(pool[0].attnRisk, null); assert.equal(pool[0].dispP10, null, '無等級＝null（不是 undefined，Firestore 拒收）');
+  const old = buildPool({ swingPicks: sp, swingHold: { combo: { items: [] } }, attention: new Set(['3333']) });
+  assert.deepEqual(old.map(c => c.code), ['1111', '2222', '3333', '4444']);
+  assert.ok(!('attnRisk' in old[0]));
+});
+
+test('buildPickPrompt v4：分級標籤＋處置風險說明只在有分級時出現；持股附近 5 日漲跌合計，≥15% 才加說明', async () => {
+  const { buildPickPrompt } = await import('./ai-swing-lab.mjs');
+  const c = (code, extra = {}) => ({ code, name: code, price: 10, chg: 1, sources: ['波段起漲⭐'], ...extra });
+  const plain = buildPickPrompt({ date: 'D', pool: [c('1111', { attention: true })] });
+  assert.match(plain, /1111 1111.*⚠注意股/); assert.doesNotMatch(plain, /【處置風險】|【近5日漲跌合計】/, '沒有分級 ⇒ 與 v3 相同');
+  const p = buildPickPrompt({ date: 'D', pool: [c('1111', { attention: true, attnRisk: 'mid' }), c('2222', { attnRisk: 'high' }), c('3333', { attnRisk: 'low' })],
+    holdings: [{ code: '5555', name: 'E', shares: 1000, buyDate: 'X', buyPx: 10, lastPx: 12, pnlPct: 20, heldDays: 4, maxUp: 22, maxDD: -1, onList: true, reason: 'r', sum5: 25.3, attnRisk: 'high' }] });
+  assert.match(p, /1111 1111.*⚠注意股（計入處置條款）/);
+  assert.match(p, /2222 2222.*⚠⚠可能達處置（官方名單：次一營業日再被注意且達處置標準即處置）/);
+  assert.match(p, /3333 3333.*注意股（只因不計入處置的條款）/);
+  assert.match(p, /【處置風險】.*可能達處置 上市 \d+%／上櫃 \d+%/);
+  assert.match(p, /5555 E.*近5日漲跌合計 \+25\.3%.*⚠⚠可能達處置/);
+  assert.match(p, /【近5日漲跌合計】.*≥24% 約 \d+%.*不是自動賣出訊號/);
+  const calm = buildPickPrompt({ date: 'D', pool: [], holdings: [{ code: '5555', name: 'E', shares: 1000, buyDate: 'X', buyPx: 10, lastPx: 10, pnlPct: 0, heldDays: 4, onList: true, sum5: 3.1, attnRisk: null }] });
+  assert.match(calm, /近5日漲跌合計 \+3\.1%/); assert.doesNotMatch(calm, /【近5日漲跌合計】|【處置風險】/);
+});
+
+test('執行器 v4：名單還不是資料日 ⇒ 19:30 前稍後重試；過了 19:30 照常決策並記錄哪幾份是舊的；凍結檔帶分級與 sum5', async () => {
+  const days = mkDays(); const D = days[80].date, B = days[76].date, F = days[77].date;
+  const init = () => ({
+    'swingPicks/latest': { dataDate: D, mode: 'close', items: [{ code: '2222', name: 'B', tier: 2, price: 50 }, { code: '3333', name: 'C', tier: 1, price: 20 }] }, 'swingHold/latest': { dataDate: D, combo: { items: [] } },
+    [`aiSwingLab/${B}`]: { date: B, frozenAt: Date.parse(`${B}T18:00:00+08:00`), picks: [{ code: '1111', name: 'A', reason: 'r', horizon: 20, priceAtDecision: 175, position: { shares: 100, budget: 20000 } }],
+      buyFills: { 1111: { date: F, at: Date.parse(`${F}T09:00:00+08:00`), px: 176, shares: 100, source: 'live-open' } } },
+  });
+  let now = Date.parse(`${D}T17:30:00+08:00`), prompt = '';
+  const asOf = { twseAttention: D, tpexAttention: days[79].date, twseNear: D, tpexNear: D };
+  const risk = { disp: new Set(), attention: new Set(['2222']), attentionInfo: { 2222: { src: 'TWSE', clauses: [1] } }, nearMap: new Map([['1111', 'TPEx']]), asOf };
+  let exOf = async () => () => null;   // 除權息查表：區間內都沒有事件
+  const mk = db => createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), askOllama: async p => { prompt = p; return '{"sells":[],"picks":[],"note":"x"}'; },
+    getModelInfo: async () => ({ name: 'm' }), getRisk: async () => risk, getIndustry: async () => ({}), loadDays: async () => days.slice(0, 81), clock: () => now, getExFactorOf: d => exOf(d) });
+  const db = fakeDb(init()); const lab = mk(db);
+  assert.equal(await lab.pick(), false, '上櫃注意股名單仍是前一日、未過 19:30 ⇒ 等');
+  assert.equal(db.store[`aiSwingLab/${D}`], undefined);
+  now = Date.parse(`${D}T19:31:00+08:00`);
+  assert.equal(await lab.pick(), true, '過了 19:30 不再等');
+  const doc = db.store[`aiSwingLab/${D}`];
+  assert.deepEqual(doc.attentionAsOf.stale, ['tpexAttention']);
+  assert.equal(doc.attentionAsOf.twseNear, D);
+  assert.equal(doc.pool.find(c => c.code === '2222').attnRisk, 'mid');
+  assert.equal(doc.pool.find(c => c.code === '3333').attnRisk, null);
+  const h = doc.review.holdings.find(x => x.code === '1111');
+  assert.equal(h.attnRisk, 'high', '持股在可能達處置名單上');
+  assert.equal(typeof h.sum5, 'number');
+  assert.match(prompt, /1111 A.*近5日漲跌合計 \+\d/);
+  assert.match(prompt, /【處置風險】/);
+  // 名單都已是資料日 ⇒ 17:30 就決策、stale 為空
+  const db2 = fakeDb(init()); now = Date.parse(`${D}T17:30:00+08:00`); risk.asOf = { ...asOf, tpexAttention: D };
+  assert.equal(await mk(db2).pick(), true);
+  assert.deepEqual(db2.store[`aiSwingLab/${D}`].attentionAsOf.stale, []);
+  // 隔天早上才補跑（日曆日已不是資料日）⇒ 不等
+  const db3 = fakeDb(init()); now = Date.parse(`${days[81].date}T07:00:00+08:00`); risk.asOf = { ...asOf, twseNear: null };
+  assert.equal(await mk(db3).pick(), true);
+  assert.deepEqual(db3.store[`aiSwingLab/${D}`].attentionAsOf.stale, ['tpexAttention', 'twseNear']);
+  // 除權息係數取不到 ⇒ 持股不顯示 sum5（null），不以未還原價硬算
+  const db4 = fakeDb(init()); exOf = async () => null; prompt = '';
+  assert.equal(await mk(db4).pick(), true);
+  assert.equal(db4.store[`aiSwingLab/${D}`].review.holdings.find(x => x.code === '1111').sum5, null);
+  assert.doesNotMatch(prompt, /近5日漲跌合計 /);
+});

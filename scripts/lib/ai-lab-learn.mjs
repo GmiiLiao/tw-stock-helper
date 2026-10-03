@@ -38,13 +38,16 @@ const CUTS = {
   partPct: [[-Infinity, 40, '<40%'], [40, 70, '40~70%'], [70, Infinity, '≥70%']],
   heldD: [[-Infinity, 3, '1~2日'], [3, 6, '3~5日'], [6, 11, '6~10日'], [11, 21, '11~20日'], [21, Infinity, '>20日']],
   pnlAtSell: [[-Infinity, -5, '<-5%'], [-5, 0, '-5~0%'], [0, 5, '0~5%'], [5, 15, '5~15%'], [15, Infinity, '≥15%']],
+  // 近 5 日單日漲跌加總（2026-10-03）：官方注意股第一款看「最近 6 日單日漲跌幅加總」；切點＝研究端校準的門檻
+  //   （<15% 隔日進注意 0.1%、15~24% 約 12%、≥24% 約 60%；docs/SURGE-ATTENTION-2026-10-03.md §9.2）。只用於持股特徵。
+  sum5: [[-Infinity, 15, '<15%'], [15, 24, '15~24%'], [24, Infinity, '≥24%']],
 };
 export const FEATURE_LABEL = {
   gain5: '近5日漲幅', gain20: '近20日漲幅', gain60: '近60日漲幅', chg1: '當日漲跌', rsi5: 'RSI5', rsi14: 'RSI14', volX: '量比(當日/20日均量)',
   vol20: '20日波動', streak: '連漲天數', maAbove: '站上均線(5/20/60)', amtM: '20日均成交額', pos20: '20日區間位置',
   side: '方向', type: '型態', bucket: '觸發時段', riskPct: '每股風險(停損距離)', costR: '成本占R', scorePct: '規則符合度',
   marketPct: '大盤分項', stockPct: '個股分項', entryPct: '進場分項', regime: '大盤狀態', news: '新聞判讀', sector: '族群', warn: '警訊',
-  heldD: '已持有天數', pnlAtSell: '持有報酬(未扣費稅·賣出決策時)',
+  heldD: '已持有天數', pnlAtSell: '持有報酬(未扣費稅·賣出決策時)', sum5: '近5日漲跌合計(注意股門檻)',
 };
 /** 各 key 的 y 單位（顯示用） */
 export const LEARN_UNIT = { swing: '5日%（未扣成本）', 'swing-x-all': '5日%（未扣成本）', 'swing-x-cal': '5日%（未扣成本）', 'swing-x-rep': '5日%（未扣成本）', 'swing-buy': '5日%（未扣成本）', 'swing-sell': '賣出避開%（賣後 5 日報酬取負號·未扣成本）' };
@@ -85,12 +88,34 @@ export function dailyFeatures(days, t, code) {
  * 持股（賣出決策）特徵：決策日日線特徵＋已持有天數＋持有報酬（未扣成本）。訓練（AI 實際賣出）與即時（持股檢視）共用。
  * heldDays＝買進成交日到決策日的交易日數（含買進日，同 reviewHoldings）；pnlPct＝決策日收盤 ÷ 買進成交價 − 1（%）。
  */
-export function holdingFeatures(days, t, code, { heldDays, pnlPct } = {}) {
+export function holdingFeatures(days, t, code, { heldDays, pnlPct, sum5 = null } = {}) {
   const D = dailyFeatures(days, t, code); if (!D) return null;
   const f = { ...D.f };
   const h = bucketOf('heldD', heldDays); if (h) f.heldD = h;
   const p = bucketOf('pnlAtSell', pnlPct); if (p) f.pnlAtSell = p;
-  return { f, raw: { ...D.raw, heldDays, pnlPct } };
+  // sum5（近 5 日漲跌合計）由呼叫端給：即時＝runner 以除權息參考價還原算出（sumDailyRet＋exFactorOf）；訓練＝決策凍結檔
+  //   review.holdings[].sum5（AI 當時看到的值）——不在這裡用只還原 priceEvents 的日線重算（一般除權息沒還原，會與校準口徑不同）
+  const s = bucketOf('sum5', sum5 ?? NaN); if (s) f.sum5 = s;
+  return { f, raw: { ...D.raw, heldDays, pnlPct, sum5 } };
+}
+
+/**
+ * 近 k 個交易日（含 t）**單日收盤報酬率的算術加總**（%；官方注意股第一款「最近六個營業日累積收盤價漲幅」的算法，
+ * 研究端以 11,106 筆公告驗證 96～97% 吻合，複利只對得上 0.2～0.4%）。任一日缺收盤 ⇒ null（不猜）。
+ * exFactorOf(date, code)：除權息係數（參考價÷前收）——該日報酬改以參考價為分母（官方口徑；priceEvents 只還原 ±20% 結構事件、
+ *   沒有一般除權息）。回 undefined＝不知道該日有沒有除權息 ⇒ null；未給＝不還原（只供測試／研究對照）。
+ */
+export function sumDailyRet(days, t, code, k = 5, exFactorOf = null) {
+  if (!(t >= k)) return null;
+  let s = 0;
+  for (let i = t - k + 1; i <= t; i++) {
+    const a = days[i]?.m?.[code]?.[0], b = days[i - 1]?.m?.[code]?.[0];
+    if (!(a > 0) || !(b > 0)) return null;
+    const f = exFactorOf ? exFactorOf(days[i].date, code) : null;
+    if (f === undefined) return null;
+    s += (a / (b * (f > 0 ? f : 1)) - 1) * 100;
+  }
+  return +s.toFixed(2);
 }
 
 const twDateOf = at => (Number.isFinite(at) ? new Date(at + 8 * 3600e3).toISOString().slice(0, 10) : null);
@@ -125,7 +150,9 @@ export function decisionSamples(accounts, days, y5, { rawCloseOf = null } = {}) 
       const k = `s:${d.date}:${code}`; if (seen.has(k)) continue;
       // 持有報酬用「未還原」收盤（與即時持股檢視同口徑：成交價是當時的原始價；還原價遇減資／除權會失真·審查 LOW）
       const tb = idx.get(twDateOf(sf.ledger.buy.at)), close = rawCloseOf?.(d.date, code) ?? days[t].m?.[code]?.[0];
-      const H = holdingFeatures(days, t, code, { heldDays: tb != null ? t - tb + 1 : NaN, pnlPct: close > 0 ? (close / sf.ledger.buy.px - 1) * 100 : NaN });
+      // sum5：賣出決策當下凍結的值（v4 起；之前的文件沒有 ⇒ 不帶此特徵）
+      const sum5 = (d.review?.holdings || []).find(h => h?.code === code)?.sum5 ?? null;
+      const H = holdingFeatures(days, t, code, { heldDays: tb != null ? t - tb + 1 : NaN, pnlPct: close > 0 ? (close / sf.ledger.buy.px - 1) * 100 : NaN, sum5 });
       const y = y5(d.date, code);
       if (!H || y == null) continue;
       seen.add(k); samples.push({ key: 'swing-sell', date: d.date, code, f: H.f, y: -y, src }); stats.distinctSell++;

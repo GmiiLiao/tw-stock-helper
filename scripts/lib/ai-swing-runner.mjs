@@ -15,11 +15,16 @@ import { dropUndefined } from './firestore-clean.mjs';
 import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
 import { accountSummary, rebuildHistory } from './ai-swing-history.mjs';
 import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
-import { dailyFeatures, holdingFeatures, matchLessons, lessonText } from './ai-lab-learn.mjs';
+import { dailyFeatures, holdingFeatures, matchLessons, lessonText, sumDailyRet } from './ai-lab-learn.mjs';
+import { riskTiersOf } from './attention-risk.mjs';
 import { validDiscount } from './sim-ledger.mjs';
 import { goalProgress } from './ai-lab-member.mjs';
 
 const MAX_ATTEMPTS = 3;
+// v4：注意／可能達處置名單於盤後傍晚才公布（2026-10-02 的 17:04 選股用到的是前一日名單）。名單日期還沒到資料日、
+//   且仍在資料日當晚 19:30 以前 ⇒ 稍後重試；過了就用現有名單並記下哪幾份是舊的（不無限期等，也不假裝是新的）。
+const RISK_LIST_DEADLINE_MIN = 19 * 60 + 30;
+const RISK_LIST_KEYS = Object.freeze(['twseAttention', 'tpexAttention', 'twseNear', 'tpexNear']);
 
 const twDay = ts => new Date(ts + 8 * 3600e3).toISOString().slice(0, 10);
 /** 今日即時報價：須有開盤價、且 liveAt 是該日（跨日殘留不算） */
@@ -45,10 +50,12 @@ function fillDatesAfter(docs, lastDate) {
   return [...s].sort();
 }
 
-export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, account = {}, clock = () => Date.now() }) {
+// getExFactorOf(date)：除權息係數查表（./exright-source.mjs exFactorLookup），持股「近 5 日漲跌合計」用；回 null＝取不到 ⇒ 不顯示 sum5
+export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, getExFactorOf = async () => null, account = {}, clock = () => Date.now() }) {
   const { colPath = 'aiSwingLab', snapPath = 'aiLabAccounts/swing', files = true, research = true, label = '', getSettings = null, priority = 3 } = account;
   const attempts = {};
   const taipeiToday = () => new Date(clock() + 8 * 3600_000).toISOString().slice(0, 10);   // clock：測試可注入
+  const taipeiMins = () => { const t = new Date(clock() + 8 * 3600_000); return t.getUTCHours() * 60 + t.getUTCMinutes(); };
   // 同一帳戶的快照依序寫（2026-10-01 審查 LOW：開盤成交、盤後結算、定時重算三個排程各有忙碌旗標，擋不住同帳戶並行——
   //   較舊的計算結果可能蓋掉較新的快照，短暫高估可提領現金）
   let acctLock = Promise.resolve();
@@ -88,10 +95,17 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       if ((await ref.get()).exists) return true;
       const risk = await getRisk();
       if (!risk) { log('⚠ 波段 AI 選股：處置名單取不到或殘缺，稍後重試（不以空名單選股）'); return false; }
+      const asOf = risk.asOf || null;   // 舊介面（測試／其他呼叫端）沒有 asOf ⇒ 不等
+      const staleLists = asOf ? RISK_LIST_KEYS.filter(k => !(asOf[k] >= date)) : [];
+      if (staleLists.length && taipeiToday() === date && taipeiMins() < RISK_LIST_DEADLINE_MIN) {
+        log(`⏳ 波段 AI 選股${tag}：等 ${date} 的注意／可能達處置名單（尚未更新：${staleLists.join('、')}），19:30 前稍後重試`);
+        return false;
+      }
+      const riskTiers = risk.attentionInfo || risk.nearMap ? riskTiersOf({ nearMap: risk.nearMap || null, attentionInfo: risk.attentionInfo || null }) : null;
       let news = {}; try { const nv = (await db.collection('newsVerdict').doc('latest').get()).data(); const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : {}; for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; } catch { news = {}; }
       let market = null; try { const w = (await db.collection('marketWind').doc('latest').get()).data(); market = w?.direction ? `${w.direction.label}（上漲 ${w.direction.up}／下跌 ${w.direction.down}）` : null; } catch { market = null; }
       const industry = await getIndustry().catch(() => ({}));
-      const pool0 = buildPool({ swingPicks: sp, swingHold: sh, disp: risk.disp, attention: risk.attention, news, industry });
+      const pool0 = buildPool({ swingPicks: sp, swingHold: sh, disp: risk.disp, attention: risk.attention, news, industry, riskTiers });
       // v3（2026-09-28）：帳戶由 AI 主動操作——先由記錄＋日線重建持股，交給 AI 檢視續抱／賣出，再決定買進
       const prevDocs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
       const days = await loadDays(Math.max(...SWING_HORIZONS) + 15);   // 價格事件讀失敗會拋出 ⇒ 呼叫端稍後重試
@@ -111,7 +125,7 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
           const out = matchLessons(learned, 'swing', F.f).map(r => ({ r, key: 'swing' }));
           if (!hold) for (const r of matchLessons(learned, 'swing-buy', F.f)) out.push({ r, key: 'swing-buy' });
           else {
-            const H = holdingFeatures(days, tDec, code, { heldDays: hold.heldDays, pnlPct: hold.lastPx > 0 && hold.buyPx > 0 ? (hold.lastPx / hold.buyPx - 1) * 100 : NaN });
+            const H = holdingFeatures(days, tDec, code, { heldDays: hold.heldDays, pnlPct: hold.lastPx > 0 && hold.buyPx > 0 ? (hold.lastPx / hold.buyPx - 1) * 100 : NaN, sum5: hold.sum5 ?? null });
             if (H) for (const r of matchLessons(learned, 'swing-sell', H.f)) out.push({ r, key: 'swing-sell' });
           }
           return out;
@@ -119,13 +133,20 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       };
       const withL = (x, hold = null) => { const L = lessonsOf(x.code, hold); return L.length ? { ...x, lessons: L.map(({ r, key }) => lessonText(r, '5日淨%', key)), lessonIds: L.map(({ r, key }) => (key === 'swing' ? r.id : `${key}:${r.id}`)) } : x; };
       const pool = pool0.map(x => withL(x));
-      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp, feeDiscount: opts.feeDiscount }).map(h => withL(h, h)) : [];
+      // v4 持股狀態：近 5 日單日漲跌加總（注意股第一款的算法）與處置風險分級——只給 AI 參考，不自動賣出
+      //   sum5 以除權息參考價還原（官方口徑）；除權息係數取不到 ⇒ null（不顯示、不進經驗比對）
+      const exOf = openLots.length && tDec >= 0 ? await getExFactorOf(date).catch(() => null) : null;
+      const holdState = h => ({ ...h, sum5: exOf ? sumDailyRet(days, tDec, h.code, 5, exOf) : null, ...(riskTiers ? { attnRisk: riskTiers[h.code]?.tier ?? null } : {}) });
+      const holdings = days.length ? reviewHoldings(state.lots, days, { pool, news, disp: risk.disp, feeDiscount: opts.feeDiscount }).map(h => { const x = holdState(h); return withL(x, x); }) : [];
       const heldCodes = new Set(openLots.map(l => l.code));
       const lastPxOf = c => days[days.length - 1]?.m[c]?.[0] ?? null;
       const equity = state.account.freeCash + openLots.reduce((a, l) => a + (l.buy && lastPxOf(l.code) ? lastPxOf(l.code) * l.shares : (l.buy?.px ?? l.priceAtDecision ?? 0) * l.shares), 0);
       const model = await getModelInfo();
-      const base = { date, version: SWING_LAB_VERSION, model, market, swingMeta: { bearDay: !!sp.bearDay, crowded: !!sp.crowded, observe: !!sp.observe, observeWhy: sp.observeWhy || null }, pool, outcomes: {} };
-      const reviewList = holdings.map(h => ({ key: h.key, code: h.code, name: h.name, shares: h.shares, buyPx: h.buyPx, lastPx: h.lastPx, pnlPct: h.pnlPct, heldDays: h.heldDays, onList: h.onList, lessonIds: h.lessonIds }));   // lessonIds：持股套用了哪些經驗（含賣出經驗；無則由 dropUndefined 略去）
+      // attentionAsOf：這次分級用的四份名單各是哪一天的（stale＝過了 19:30 仍未更新、以舊名單決策）
+      const base = { date, version: SWING_LAB_VERSION, model, market, swingMeta: { bearDay: !!sp.bearDay, crowded: !!sp.crowded, observe: !!sp.observe, observeWhy: sp.observeWhy || null }, pool, outcomes: {},
+        ...(asOf ? { attentionAsOf: { ...Object.fromEntries(RISK_LIST_KEYS.map(k => [k, asOf[k] ?? null])), stale: staleLists } } : {}) };
+      const reviewList = holdings.map(h => ({ key: h.key, code: h.code, name: h.name, shares: h.shares, buyPx: h.buyPx, lastPx: h.lastPx, pnlPct: h.pnlPct, heldDays: h.heldDays, onList: h.onList, lessonIds: h.lessonIds,
+        sum5: h.sum5 ?? null, ...(riskTiers ? { attnRisk: h.attnRisk ?? null } : {}) }));   // lessonIds：持股套用了哪些經驗（含賣出經驗；無則由 dropUndefined 略去）
       if (!pool.length && !holdings.length) {
         const doc = { ...base, picks: [], review: { holdings: [], sells: [] }, account: state.account, note: '候選池為空（兩榜皆無可選或皆為處置股）且無持股', prompt: null, raw: null, frozenAt: Date.now() };
         await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));

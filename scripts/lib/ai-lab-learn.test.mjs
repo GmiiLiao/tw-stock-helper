@@ -1,7 +1,7 @@
 // AI 交易員經驗庫 單元測試：node --test scripts/lib/ai-lab-learn.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dailyFeatures, dtFeatures, learn, matchLessons, lessonText, renderLearnMarkdown, holdingFeatures, decisionSamples } from './ai-lab-learn.mjs';
+import { dailyFeatures, dtFeatures, learn, matchLessons, lessonText, renderLearnMarkdown, holdingFeatures, decisionSamples, sumDailyRet } from './ai-lab-learn.mjs';
 
 const mkDays = (n = 80) => Array.from({ length: n }, (_, i) => ({ date: `D${String(i).padStart(3, '0')}`, m: { 1111: [100 + i, 1000 + (i % 5) * 100, 99 + i, 101 + i, 98 + i] } }));
 
@@ -68,6 +68,36 @@ test('holdingFeatures：日線特徵＋已持有天數、持有報酬（賣出�
   assert.equal(holdingFeatures(days, 30, '1111', { heldDays: 4, pnlPct: 1 }), null, '日線不足 60 日');
 });
 
+test('sumDailyRet：近 k 日單日報酬「算術加總」（注意股第一款算法，不是複利）；缺一天收盤或資料不足 ⇒ null', () => {
+  const d = closes => closes.map((c, i) => ({ date: `x${i}`, m: { 9999: [c, 1, c, c, c] } }));
+  const days = d([100, 110, 121, 133.1, 146.41, 161.051]);   // 每日 +10%
+  assert.equal(sumDailyRet(days, 5, '9999', 5), 50, '5 × 10% = 50（複利會是 61.05）');
+  assert.equal(sumDailyRet(days, 5, '9999', 2), 20);
+  assert.equal(sumDailyRet(days, 4, '9999', 5), null, 't < k：缺起點');
+  const gap = days.map((x, i) => (i === 3 ? { ...x, m: {} } : x));
+  assert.equal(sumDailyRet(gap, 5, '9999', 5), null, '停牌／缺值不補');
+  assert.equal(sumDailyRet(d([100, 90, 99]), 2, '9999', 2), 0, '−10%＋10%＝0');
+});
+
+test('sumDailyRet：除權息日以參考價為分母（官方口徑）；查表回 undefined（區間外、不知道有沒有除權息）⇒ null', () => {
+  const d = closes => closes.map((c, i) => ({ date: `x${i}`, m: { 9999: [c, 1, c, c, c] } }));
+  // x4 除息 4 元：參考價 129.1（係數 129.1/133.1），收 142.01＝參考價 +10%；x5 再 +10%
+  const days = d([100, 110, 121, 133.1, 142.01, 156.211]);
+  const ex = (date, code) => (date === 'x4' && code === '9999' ? 129.1 / 133.1 : null);
+  assert.ok(Math.abs(sumDailyRet(days, 5, '9999', 5, ex) - 50) < 0.01, '還原後每日 +10% ⇒ 50');
+  assert.ok(sumDailyRet(days, 5, '9999', 5) < 47, '不還原會把除息日的漲幅算小（142.01/133.1＝+6.7%）');
+  assert.equal(sumDailyRet(days, 5, '9999', 5, () => undefined), null);
+});
+
+test('holdingFeatures：sum5 由呼叫端給（即時＝除權息還原、訓練＝凍結值）→ 分段 <15%／15~24%／≥24%；不給＝不帶此特徵', () => {
+  const days = realDays();
+  assert.equal(holdingFeatures(days, 70, '1111', { heldDays: 4, pnlPct: 1, sum5: 3.2 }).f.sum5, '<15%');
+  assert.equal(holdingFeatures(days, 70, '1111', { heldDays: 4, pnlPct: 1, sum5: 15 }).f.sum5, '15~24%');
+  assert.equal(holdingFeatures(days, 70, '1111', { heldDays: 4, pnlPct: 1, sum5: 24 }).f.sum5, '≥24%');
+  assert.equal(holdingFeatures(days, 70, '1111', { heldDays: 4, pnlPct: 1 }).f.sum5, undefined);
+  assert.equal(dailyFeatures(days, 70, '1111').f.sum5, undefined, '不進候選的日線特徵（波段母體不變）');
+});
+
 test('decisionSamples：實驗與會員帳戶的實際買賣成交 → 同一（決策日, 代號, 買/賣）只算一筆；賣出 y＝賣後 5 日報酬取負號（賣出避開的跌幅）', () => {
   const days = realDays(); const D = days[70].date, S = days[75].date, D2 = days[72].date;
   const y5 = (date, code) => ({ [`${D}:1111`]: 3, [`${D}:2222`]: -1, [`${D2}:3333`]: 2, [`${S}:1111`]: 4 }[`${date}:${code}`] ?? null);
@@ -75,7 +105,7 @@ test('decisionSamples：實驗與會員帳戶的實際買賣成交 → 同一（
   const doc = (date, picks, fills = {}, sellFills = {}) => ({ date, picks, buyFills: fills, sellFills });
   const lab = [
     doc(D, [buy('1111'), buy('2222')], { 1111: { px: 171, date: days[71].date }, 2222: { failed: true } }),
-    doc(S, [], {}, { [`${D}_1111`]: { date: days[76].date, px: 176, ledger: { buy: { px: 171, at: tAt(days[71].date, '09:00') }, sell: { px: 176 } } } }),
+    { ...doc(S, [], {}, { [`${D}_1111`]: { date: days[76].date, px: 176, ledger: { buy: { px: 171, at: tAt(days[71].date, '09:00') }, sell: { px: 176 } } } }), review: { holdings: [{ code: '1111', sum5: 26.4 }] } },
   ];
   const memA = [doc(D, [buy('1111')], { 1111: { px: 171, date: days[71].date } }), doc(D2, [buy('3333')], { 3333: { px: 72.8, date: days[73].date } })];
   const memB = [doc(D, [buy('1111')], { 1111: { px: 171, date: days[71].date } })];
@@ -87,6 +117,7 @@ test('decisionSamples：實驗與會員帳戶的實際買賣成交 → 同一（
   assert.equal(sells.length, 1); assert.equal(sells[0].y, -4, '賣後續漲 4% ⇒ 賣太早（避開 −4%）');
   assert.equal(sells[0].f.heldD, '3~5日', '71→75 持有 5 個交易日（與 reviewHoldings 同口徑：含買進日）');
   assert.equal(sells[0].f.pnlAtSell, '0~5%', '決策日收盤 175 vs 買進 171');
+  assert.equal(sells[0].f.sum5, '≥24%', 'sum5 取賣出決策當下凍結的值（AI 當時看到的）');
   assert.ok(samples.every(s => !('uid' in s)), '樣本不帶會員身分');
 });
 
