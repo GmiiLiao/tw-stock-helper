@@ -339,6 +339,49 @@ node scripts/ai-daemon.mjs --run canonicalStatus     # 最近 8 份歸檔是否�
 grep -nE "isTradingDay\(tw\) && arch\[arch\.length - 1\]\.date !==" scripts/ai-daemon.mjs
 ```
 
+### O. 官方彙總表分成多張子表，只抓到其中一張（2026-10-04 補入）
+
+**特徵**：同一份官方報表依身分拆成幾個檔（本國／外國、上市／上櫃），程式只抓了其中一張；筆數看起來很完整（1,800+），
+稽核的 minN 全綠，缺的是**某一類公司整批**。共同點：網址只差一個尾碼、欄位完全相同，所以「解析成功」不代表「抓齊了」。
+
+**2026-10-04 實案**：MOPS 月營收彙總表 `t21sc03_{民國年}_{月}_0.html` 只有**本國**公司，外國公司（-KY／DR）在 `_1.html`。
+`backfill-mops-revenue.mjs` 只抓 `_0` ⇒ `revenueArchive` 每月缺上市 KY 78~93 檔、上櫃 KY 27~30 檔（研究測試期 73 檔 KY 月營收 100% 缺值，
+被 centeredRank 當中性 0）；同時站上排行在同月改走 openapi（`archId > apiId`），而 openapi `t187ap05_L＋_P` 沒有上櫃、還混入 `_P` 的 273 家未上市公司。
+**修法**：`scripts/lib/mops-revenue.mjs` 的 `T21_PAGES`（上市／上櫃 × `_0`／`_1`）＋每頁回音（標題的市場年月＋表尾「全部國內／國外…公司合計」）；
+歸檔帶 `bySrc`（上市／上櫃／上市KY／上櫃KY／留存）與 `kyN`；稽核 `PERIODIC_ARCHIVES.revenueArchive.composition` 對每份 v2 月份要求上市 KY ≥60、上櫃 KY ≥20；
+排行同月以歸檔為準（`>=`）。舊月份由 `scripts/backfill-revenue-from-mirror.mjs` 從第二大腦鏡像零網路補。
+
+```bash
+# 官方來源網址裡寫死的子表尾碼（_0、type=、selectType=、TYPEK=）：逐一問「同一張報表還有哪幾個尾碼？」
+grep -nE "_0\.html|selectType=|TYPEK=|type=ALL" scripts/*.mjs scripts/lib/*.mjs src/lib/*.ts | grep -v test
+# 依市場／身分分組的歸檔，寫入端有沒有帶組成（bySrc／market）讓稽核能分組計數
+grep -nE "collection\('(revenueArchive|chipArchive|tdccArchive)'\)\.doc\([^)]*\)\.(set|update|create)\(" scripts/*.mjs
+```
+
+### P. 以筆數門檻當「已完整」而永久凍結（晚到的資料永遠補不進來，2026-10-04 補入）
+
+**特徵**：回補器用「既有 ≥N 筆就跳過」防重抓；門檻是當時量到的「一個完整月的筆數」。但申報期後才上表的資料（晚申報、更正）
+讓真正完整的筆數比門檻多，第一次寫入時只要已過門檻，這個月就**永遠不再抓**。不報錯、筆數也正常，只是少了晚到的那幾檔。
+
+**2026-10-04 實案**：`backfill-mops-revenue.mjs` 的 `prevN >= 1700` 凍結：2026-07 在 08-10 20:14 寫入、2026-08 在 09-11 15:14 寫入，
+當時金控／保險（2880~2892、5880、2816、2832、2850~2852、2905 等）還沒上表 ⇒ 晚申報者 2026-07 漏 16 檔上市＋1 檔上櫃（2073）、
+2026-08 漏 15 檔上市，之後永不補（鏡像 10-04 版對照；另有數檔是下面「依現行名冊重產」的新上市櫃代號，不是晚申報）。
+同一個凍結也讓「事後補 KY」無從進行。**修法**：略過條件改為「v2 且依資料定版」（`shouldSkipMonth`）；定版＝4 頁皆成功、
+次月 11 日（含）起相隔 ≥3 個日曆日的兩次抓取合併筆數沒有增加（`revenueFinal`＋文件內 `fetchLog`）；合併依代號聯集、永不變薄。
+鏡像（`official-mirror` 的 `mops_t21sc03{,_ky}`）同樣把「次月 11 日的隔天」時鐘定版改為內容穩定（去掉「出表日期」時戳後雜湊相同、相隔 ≥3 日）。
+
+**附帶發現（判讀要知道）**：MOPS 的歷史月份頁是**依現行名冊重新產生**的——2026-08~09 才上市櫃的 2237、7812、7855、2938、7825、7856
+會出現在 2023~2026 年各月的頁面上（上市櫃前的營收），已下市的 2867、5371、8183 則從舊頁消失。歸檔是「各次抓取的聯集」，所以兩者都在；
+`bySrc.留存` 就是「歸檔有、這次頁面沒有」的檔數。研究端以代號對面板，上市前沒有價量，影響限於「當時上市家數」這類統計。
+
+```bash
+# 「≥N 就跳過／已完整」的筆數門檻：逐一問「完整的定義是資料說的，還是當時量到的數字？之後還會不會再長？」
+grep -nE "(prevN|exist\w*|\.n) >= ?[0-9]{3,}|>= ?[0-9]{3,}\) \{ ?skip" scripts/*.mjs
+# 歸檔文件有沒有「定版」依據（final＋觀測紀錄），還是只有筆數；月營收的組成與定版看稽核的 [週期歸檔] 行
+node scripts/audit-data-sources.mjs --no-external | grep -E "週期歸檔"
+# v2 但 final:false 的月份要有下一次抓取：daemon 只管最近 2 個月，更舊的用 `node scripts/backfill-mops-revenue.mjs 36`（每月 4 請求、間隔 ≥3 秒）
+```
+
 ---
 
 ## 執行時的紀律
