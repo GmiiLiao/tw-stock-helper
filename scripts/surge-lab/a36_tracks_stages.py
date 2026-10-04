@@ -3,6 +3,7 @@ events：SEL+HC 全部 T1 事件逐件歸軌與對帳（HOLDOUT 不讀標籤）�
 未扣成本·事後欄位以 m_ 標示·非投資建議。
 """
 import glob
+import hashlib
 import json
 import os
 import subprocess
@@ -287,6 +288,22 @@ def day_compare(I, s, snap_f, snap_t, feat_new, fw):
 
 
 # ───────────────────────── report ─────────────────────────
+def g012():
+    """feature_windows_t1.json 已單獨 commit 且與磁碟上的檔案位元組相同（sha256 記在該 commit 訊息）。"""
+    rel = 'out/tracks_t1/feature_windows_t1.json'
+    path = os.path.join(BLD.OUT_DIR, 'feature_windows_t1.json')
+    run = lambda *a: subprocess.run(['git', '-C', L.LAB, *a], capture_output=True, text=True)
+    commit = run('log', '-1', '--format=%H', '--', rel).stdout.strip()
+    if not commit:
+        return dict(pass_=False, why='尚未 commit')
+    blob = subprocess.run(['git', '-C', L.LAB, 'show', f'{commit}:scripts/surge-lab/{rel}'], capture_output=True).stdout
+    sha = hashlib.sha256(blob).hexdigest()
+    files = run('show', '--name-only', '--format=', commit).stdout.split()
+    msg = run('log', '-1', '--format=%B', commit).stdout
+    return dict(pass_=sha == L.file_sha256(path) and files == [f'scripts/surge-lab/{rel}'] and sha in msg, commit=commit, sha256=sha,
+                only_file_in_commit=files == [f'scripts/surge-lab/{rel}'], sha_in_message=sha in msg)
+
+
 def git_state():
     run = lambda *a: subprocess.run(['git', '-C', L.LAB, *a], capture_output=True, text=True).stdout.strip()
     mine = [f for f in ('a36_tracks_lib.py', 'a36_tracks_build.py', 'a36_tracks_stages.py', 'a36_tracks_test.py', 'tracks')]
@@ -319,7 +336,7 @@ def stage_report():
         'G0.10': dict(outputs=True, disposal_zero_months={k: v['zero_months'] for k, v in cov['disposal'].items()},
                       attention_zero_days={k: v['zero_trading_days'] for k, v in cov['attention'].items()},
                       nan_cells=dict(disposal=cov['disposal_mask_cells'], attention=cov['attention_mask_cells'])),
-        'G0.11': b['survivorship']['pass_'], 'G0.12': '待 feature_windows_t1.json 單獨 commit',
+        'G0.11': b['survivorship']['pass_'], 'G0.12': g012(),
     }
     outs = sorted(glob.glob(os.path.join(BLD.CACHE_DIR, 'a36_*.npz')) + glob.glob(os.path.join(BLD.OUT_DIR, '*.csv'))
                   + [os.path.join(BLD.OUT_DIR, 'feature_windows_t1.json')])
