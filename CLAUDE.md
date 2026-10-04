@@ -3,7 +3,7 @@
 # 台股助手 tw-stock-app
 
 Next.js 15 App Router + React 19 + zustand + Firebase（Auth / Firestore / App Hosting）。
-116 支 API route（`find src/app/api -name route.ts | wc -l`，2026-09-28 量測；舊值 80 已過時）、33k 行 TS/TSX。
+120 支 API route（`find src/app/api -name route.ts | wc -l`）、約 48k 行 TS/TSX（`find src \( -name '*.ts' -o -name '*.tsx' \) | xargs cat | wc -l` 得 48,495）——2026-10-04 於 HEAD `2825dce` 量測；舊值 116 支／33k 行已過時。
 
 > **版控歸屬（進場先看）**：本專案的 git 根是 `tw-stock-app/` 本身，不是家目錄。
 > 先跑 `git rev-parse --show-toplevel` 確認輸出是 `.../股票助手app/tw-stock-app`。
@@ -37,6 +37,21 @@ Next.js on Firebase App Hosting（us-central1）
   ▼
 瀏覽器
 ```
+
+**本機 launchd 排程（2026-10-04 盤點·WM-SCAN G4-35）**——全部跑磁碟上的版本（disk 即部署同樣適用），與 daemon 共用出口 IP：
+
+| 排程（`~/Library/LaunchAgents/…plist`） | 時刻 | 程式／安裝 |
+|---|---|---|
+| `com.gmii.twstock.ai-daemon` | 常駐（KeepAlive） | `scripts/ai-daemon.mjs`／`scripts/install-ai-daemon.sh` |
+| 官方鏡像 `official-mirror.daily` | 平日 22:40＋週六 10:00（範本已改；**已安裝的仍是 22:15，需重跑安裝腳本**） | `scripts/official-mirror.mjs`；範本 `scripts/official-mirror/launchd/`；安裝 `scripts/install-official-mirror-schedule.sh` |
+| 官方鏡像 `official-mirror.retry` | 週二～週六 06:45 | 同上（`_alerts` 經稽核的 `officialMirror(本機)` 列進 dataHealth） |
+| 官方鏡像 `official-mirror.backfill` | 每晚 23:20＋週末 11:00（每日上限 2,500 請求） | 同上 |
+| wiki `wiki-nightly` | 每晚 23:40 | `scripts/stock-wiki-nightly.mjs`／`scripts/install-stock-wiki-schedule.sh` |
+| wiki `wiki-monthly` | 每月 1 日 20:30 | 同上 |
+| 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:30／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
+
+鏡像與 daemon 共用出口：鏡像程式避開平日 07:30–15:30 與 daemon 重任務窗 16:25–16:55、21:40–22:35（`scripts/lib/official-mirror.mjs` 的 `DAEMON_BUSY_WINDOWS`）。
+新增排程時把它加進這張表，並確認不落在上述窗內。
 
 **Cloud Function 在 us-central1，美國 IP 已被 mis.twse.com.tw 封鎖**
 （`src/lib/twse-api-server.ts:929-931`、`src/app/api/twse/market-index/route.ts:10-11` 都有註解）。
@@ -392,9 +407,13 @@ rate limit 目前是 per-instance in-memory，要全域一致需自行申請 Ups
 ```bash
 npx tsc --noEmit && npx eslint .
 npm run build          # 只能在 Mac 上跑
-node scripts/audit-data-sources.mjs     # 全站資料源健康稽核（52 內部 + 6 外部）
+node scripts/audit-data-sources.mjs     # 全站資料源健康稽核（2026-10-04：96 契約＋官方鏡像本機列；外部 probe 另計）
 node scripts/check-field-conventions.mjs  # 欄位命名契約（新 xxxAt/xxxDate 名字必須登記，防止讀寫兩端相撞）
+node scripts/check-test-count.mjs         # scripts/**/*.test.mjs 全跑＋測試數不得低於 scripts/test-baseline.json（新增測試後 --update）
 ```
+
+pre-commit（`scripts/git-hooks/pre-commit`）只檢查 **staged 快照**：把 index 的 src/、scripts/ 匯出到暫存目錄，用 staged 版的工具與政策檔以 `--root` 掃；
+別人的未追蹤／未暫存檔不會擋你的 commit，工作樹已修好但 staged 仍壞也擋得下（2026-10-04·G3-30）。各工具不帶 `--root` 直接跑＝掃工作樹。
 
 ### 資料源健康稽核（wm-freshness-health-monitoring）
 
