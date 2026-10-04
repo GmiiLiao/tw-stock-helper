@@ -5,3 +5,9 @@ out/*.log
 out/*.stdout
 out/a31_c_*_pool.csv
 out/surge_controls_sample.csv
+
+# 起漲影子：凍結名單與對答案的本機輸出（存證在 Firestore surgeShadow/* 的 sha256＋reportJson；不進版控，2026-10-04）
+out/shadow_*.json
+out/shadow_hist/
+out/shadow_hist_score_pooled*
+out/a35_shadow_daily_status.json
