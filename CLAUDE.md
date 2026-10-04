@@ -49,6 +49,7 @@ Next.js on Firebase App Hosting（us-central1）
 | wiki `wiki-nightly` | 每晚 23:40 | `scripts/stock-wiki-nightly.mjs`／`scripts/install-stock-wiki-schedule.sh` |
 | wiki `wiki-monthly` | 每月 1 日 20:30 | 同上 |
 | 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:30／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
+| 起漲影子 `surge-shadow` | 平日 17:30／19:30／21:00／22:40／23:50＋週二～週六 07:05 | `scripts/surge-lab/a35_shadow_daily.mjs`；範本 `scripts/surge-lab/launchd/com.gmii.twstock.surge-shadow.plist`（2026-10-04 使用者核可安裝）。資料到齊（收盤＋法人＋站上 pred 定版＋資券/借券/當沖）才凍結、下一交易日 09:00 前；研究程序在跑會略過；網路只有除權息 2 請求；寫 Firestore `surgeShadow/*`；日誌 `~/Library/Logs/twstock-surge-shadow/` |
 
 鏡像與 daemon 共用出口：鏡像程式避開平日 07:30–15:30 與 daemon 重任務窗 16:25–16:55、21:40–22:35（`scripts/lib/official-mirror.mjs` 的 `DAEMON_BUSY_WINDOWS`）。
 新增排程時把它加進這張表，並確認不落在上述窗內。
