@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { PriceCell, StockCell } from '@/components/AfterMarket/shared';
 import styles from './DailyHeatmap.module.css';
 
 // ── 📊 每日熱力：最後交易日報告頁（技能 tw-daily-heatmap）────────────────
@@ -81,10 +82,10 @@ function MemberList({ members, showResonance }: { members?: Member[]; showResona
   return (
     <div className={styles.memberBox}>
       <table className={styles.tbl}>
-        <thead><tr><th>個股</th><th>漲跌%</th><th>成交(百萬)</th><th>標記</th>{showResonance && <th>共振</th>}<th>詳細分析</th></tr></thead>
+        <thead><tr><th>個股</th><th>價格</th><th>當日漲跌%</th><th>成交(百萬)</th><th>標記</th>{showResonance && <th>共振</th>}<th>詳細分析</th></tr></thead>
         <tbody>{members.map(m => (
           <tr key={m.code}>
-            <td><button className={styles.link} onClick={() => navigateTo('stock', m.code)}>{m.code} {m.name}</button></td>
+            <td><StockCell code={m.code} name={m.name} /></td><td><PriceCell code={m.code} showChange={false} /></td>
             <td className={tone(m.ret)}>{sg(m.ret)}</td><td>{m.valM?.toLocaleString() ?? '—'}</td><td>{flagText(m.flags) || '—'}</td>
             {showResonance && <td>{m.resonance ? RES[m.resonance] : '—'}</td>}
             <td><button className={styles.link} onClick={() => navigateTo('stock', m.code)}>分析 ›</button></td>
@@ -119,15 +120,14 @@ function LayerTable({ title, rows, note }: { title: string; rows: Layer[]; note:
 }
 
 function BoardTable({ title, rows }: { title: string; rows: BoardRow[] }) {
-  const navigateTo = useAppStore(s => s.navigateTo);
   return (
     <section className={styles.block}>
       <h3>{title}</h3>
       <table className={styles.tbl}>
-        <thead><tr><th>個股</th><th>產業</th><th>漲跌%</th><th>成交(百萬)</th><th>共振</th><th>wiki 連動（站內整理）</th></tr></thead>
+        <thead><tr><th>個股</th><th>價格</th><th>產業</th><th>當日漲跌%</th><th>成交(百萬)</th><th>共振</th><th>wiki 連動（站內整理）</th></tr></thead>
         <tbody>{rows.slice(0, 15).map(s => (
           <tr key={s.code}>
-            <td><button className={styles.link} onClick={() => navigateTo('stock', s.code)}>{s.code} {s.name}</button></td>
+            <td><StockCell code={s.code} name={s.name} /></td><td><PriceCell code={s.code} showChange={false} /></td>
             <td>{s.industry ?? '—'}</td><td className={tone(s.ret)}>{sg(s.ret)}</td><td>{s.valM?.toLocaleString() ?? '—'}</td><td>{s.resonanceName}</td>
             <td>{[...(s.links?.chains?.map(c => c.name) ?? []), s.links?.group?.name].filter(Boolean).join('；') || '—'}</td>
           </tr>
@@ -141,7 +141,6 @@ export default function DailyHeatmap() {
   const [d, setD] = useState<Doc | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'empty' | 'error'>('loading');
   const [tab, setTab] = useState<Tab>('industry');
-  const navigateTo = useAppStore(s => s.navigateTo);
   const ind = useOpenSet();
 
   useEffect(() => {
@@ -216,9 +215,9 @@ export default function DailyHeatmap() {
               {ix.grade === '紅' && <> ⛔ 歸因不可靠，以下僅供對照、不作結論。</>}
             </p>
             <table className={styles.tbl}>
-              <thead><tr><th>#</th><th>個股</th><th>前日權重%</th><th>收盤後權重%</th><th>漲跌%</th><th>貢獻(點)</th><th>隔日 1% 敏感度(點)</th></tr></thead>
+              <thead><tr><th>#</th><th>個股</th><th>價格</th><th>前日權重%</th><th>收盤後權重%</th><th>漲跌%</th><th>貢獻(點)</th><th>隔日 1% 敏感度(點)</th></tr></thead>
               <tbody>{ix.top.slice(0, 10).map((x, i) => (
-                <tr key={x.code}><td>{i + 1}</td><td><button className={styles.link} onClick={() => navigateTo('stock', x.code)}>{x.code} {x.name}</button></td>
+                <tr key={x.code}><td>{i + 1}</td><td><StockCell code={x.code} name={x.name} /></td><td><PriceCell code={x.code} showChange={false} /></td>
                   <td>{x.wPrev}</td><td>{x.wClose}</td><td className={tone(x.ret)}>{sg(x.ret)}</td><td className={tone(x.pts)}>{sg(x.pts, 1)}</td><td>{x.sens1pctPts}</td></tr>
               ))}</tbody>
             </table>
@@ -270,7 +269,7 @@ export default function DailyHeatmap() {
                 <ul className={styles.list}>{d.watch[k].slice(0, 15).map(w => (
                   <li key={`${k}${w.key}`}>
                     {w.kind === 'stock'
-                      ? <><button className={styles.link} onClick={() => navigateTo('stock', w.key)}><b>{w.key} {w.name ?? ''}</b></button>{w.ret != null && <span className={tone(w.ret)}>　{sg(w.ret)}%</span>}</>
+                      ? <><StockCell code={w.key} name={w.name} /><span>　現價 </span><PriceCell code={w.key} />{w.ret != null && <span className={tone(w.ret)}>　當日 {sg(w.ret)}%</span>}</>
                       : <b>{w.key}</b>}
                     <br />
                     <span>{w.reason ?? w.trigger.rule}</span>

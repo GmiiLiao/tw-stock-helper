@@ -46,3 +46,19 @@ test('官方：例行（權重 0）與未分類不入排行；依權重排序；
   assert.ok(r.items.every(x => x.basis === '主旨'));
   assert.ok(Math.abs(r.items.reduce((s, x) => s + x.share, 0) - 1) < 1e-3);
 });
+
+test('官方：同公司同事件類型多則公告合併成一列、權重不隨則數累加；不同事件類型各自一列', () => {
+  const r = rankOfficial([
+    { code: '6787', name: '晶瑞光', subject: '公告本公司現金增資暫定承銷價格', at: 1 },
+    { code: '6787', name: '晶瑞光', subject: '公告本公司現金增資認股繳款期間', at: 3 },
+    { code: '6787', name: '晶瑞光', subject: '公告本公司現金增資全體董事放棄認購', at: 2 },
+    { code: '6787', name: '晶瑞光', subject: '公告本公司取得重大訂單', at: 4 },
+    { code: '2330', name: '台積電', subject: '公告本公司取得重大訂單', at: 5 },
+  ]);
+  assert.equal(r.items.length, 3);
+  const cap = r.items.find(x => x.code === '6787' && x.type === 'C09');
+  assert.equal(cap.count, 3); assert.equal(cap.weight, 0.35);
+  assert.deepEqual(cap.announcements.map(a => a.at), [3, 2, 1], '展開清單依時間新到舊');
+  assert.equal(cap.subject, '公告本公司現金增資認股繳款期間');
+  assert.equal(r.rankedAnnouncements, 5); assert.equal(r.ranked, 3);
+});

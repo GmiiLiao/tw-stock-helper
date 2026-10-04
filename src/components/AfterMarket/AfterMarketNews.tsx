@@ -2,7 +2,7 @@
 
 import { Fragment, useState, type ReactNode } from 'react';
 import type { MediaRank, OfficialRank } from '../../../scripts/lib/after-market-news.mjs';
-import { Card, Detail, StockLink, amStyles as s, tone, useApi, useNameOf } from './shared';
+import { Card, Detail, PriceCell, StockCell, amStyles as s, tone, useApi, useNameOf } from './shared';
 
 // ── 📰 當晚消息：媒體判別（AI 讀完內文）與官方重大訊息，各自依影響比重排行 ─────────────
 // 排序＝顯示用先驗權重（tw-news-impact-analyst §0：沒有一個經過量測），不是分數、不進任何模型；
@@ -96,7 +96,7 @@ function Media({ d }: { d: NewsDoc['media'] }) {
         <button type="button" onClick={() => setOpen(new Set())}>全部收合</button>
       </div>
       <table className={s.tbl}>
-        <thead><tr><th></th><th>#</th><th>個股</th><th>方向</th><th>影響比重</th><th>判讀要素</th><th>事件類型</th></tr></thead>
+        <thead><tr><th></th><th>#</th><th>個股</th><th>價格</th><th>方向</th><th>影響比重</th><th>判讀要素</th><th>事件類型</th></tr></thead>
         <tbody>{d.items.map(x => {
           const isOpen = open.has(x.code);
           const name = nameOf(x.code);
@@ -117,7 +117,7 @@ function FragmentRow({ x, isOpen, onToggle, children }: { x: MediaRank['items'][
     <>
       <tr>
         <td><button type="button" className={s.toggle} aria-expanded={isOpen} aria-label={isOpen ? '收合' : '展開'} onClick={onToggle}>{isOpen ? '▾' : '▸'}</button></td>
-        <td>{x.order}</td><td><StockLink code={x.code} name={nameOf(x.code)} /></td>
+        <td>{x.order}</td><td><StockCell code={x.code} name={nameOf(x.code)} /></td><td><PriceCell code={x.code} /></td>
         <td className={dirTone(x.label)}><b>{x.label}</b></td>
         <td><span className={tone(x.label === '利多' ? 1 : -1)}>{pct(x.share)}</span><ShareBar share={x.share} /></td>
         <td>
@@ -131,7 +131,7 @@ function FragmentRow({ x, isOpen, onToggle, children }: { x: MediaRank['items'][
         </td>
         <td>{x.eventType ?? '—'}</td>
       </tr>
-      {isOpen && <tr className={s.detailRow}><td colSpan={7}>{children}</td></tr>}
+      {isOpen && <tr className={s.detailRow}><td colSpan={8}>{children}</td></tr>}
     </>
   );
 }
@@ -140,12 +140,12 @@ const MOPS_URL = 'https://mops.twse.com.tw/mops/web/t05st02_1';
 
 function Official({ d }: { d: NewsDoc['official'] }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const keyOf = (x: NewsDoc['official']['items'][number]) => `${x.code}|${x.at}|${x.order}`;
+  const keyOf = (x: NewsDoc['official']['items'][number]) => `${x.code}|${x.type}`;
   const toggle = (k: string) => setOpen(o => { const n = new Set(o); if (!n.delete(k)) n.add(k); return n; });
   return (
     <Card title="官方重大訊息 · 依事件基礎權重排行" state="ok" tier="官方 O" dateLabel="公告時間" dataDate={d.since ? hhmm(d.since) + ' 起' : null}
-      note="事件類型僅依公告主旨比對（未讀內文），權重為 tw-news-impact-analyst §4.1 的先驗；方向只有規則強制類型才標示，其餘需讀內文。例行公告（股東會、更名、背書保證等）與未分類只計數、不入排行。點 ▸ 展開公告內文。">
-      <p className={s.note}>收盤後公告共 {d.total} 則：入排行 {d.ranked}／例行 {d.routine}／未分類 {d.unclassified}</p>
+      note="同一家公司同一類事件的多則公告合併成一列（標「共 N 則」，展開看全部公告內文），權重不隨則數累加。事件類型僅依公告主旨比對（未讀內文），權重為 tw-news-impact-analyst §4.1 的先驗；方向只有規則強制類型才標示，其餘需讀內文。例行公告（股東會、更名、背書保證等）與未分類只計數、不入排行。">
+      <p className={s.note}>收盤後公告共 {d.total} 則：入排行 {d.rankedAnnouncements ?? d.ranked} 則（合併為 {d.ranked} 列）／例行 {d.routine}／未分類 {d.unclassified}</p>
       {d.items.length === 0 ? <p className={s.note}>（無可排名的事件）</p> : (
         <>
           <div className={s.bulk}>
@@ -153,26 +153,33 @@ function Official({ d }: { d: NewsDoc['official'] }) {
             <button type="button" onClick={() => setOpen(new Set())}>全部收合</button>
           </div>
           <table className={s.tbl}>
-            <thead><tr><th></th><th>#</th><th>個股</th><th>事件類型</th><th>方向(規則)</th><th>影響比重</th><th>權重</th><th>公告主旨</th></tr></thead>
+            <thead><tr><th></th><th>#</th><th>個股</th><th>價格</th><th>事件類型</th><th>方向(規則)</th><th>影響比重</th><th>公告主旨</th></tr></thead>
             <tbody>{d.items.map(x => {
               const k = keyOf(x), isOpen = open.has(k);
               return (
                 <Fragment key={k}>
                   <tr>
                     <td><button type="button" className={s.toggle} aria-expanded={isOpen} aria-label={isOpen ? '收合' : '展開'} onClick={() => toggle(k)}>{isOpen ? '▾' : '▸'}</button></td>
-                    <td>{x.order}</td><td><StockLink code={x.code} name={x.name} /></td><td style={{ textAlign: 'left' }}>{x.typeLabel}</td>
-                    <td className={x.dir ? dirTone(x.dir) : ''}>{x.dir ?? '需讀內文'}</td><td>{pct(x.share)}</td><td>{x.weight.toFixed(2)}</td>
-                    <td style={{ textAlign: 'left', whiteSpace: 'normal', minWidth: 220 }}>{x.subject}</td>
+                    <td>{x.order}</td><td><StockCell code={x.code} name={x.name} /></td><td><PriceCell code={x.code} /></td><td style={{ textAlign: 'left' }}>{x.typeLabel}</td>
+                    <td className={x.dir ? dirTone(x.dir) : ''}>{x.dir ?? '需讀內文'}</td><td>{pct(x.share)}</td>
+                    <td style={{ textAlign: 'left', whiteSpace: 'normal', minWidth: 220 }}>
+                      {x.subject}{x.count > 1 && <span className={s.chip} style={{ marginLeft: 6 }}>共 {x.count} 則</span>}
+                    </td>
                   </tr>
                   {isOpen && (
                     <tr className={s.detailRow}><td colSpan={8}>
                       <div className={s.detailGrid}>
-                        <Detail title="公告內文（公開資訊觀測站，節錄）">
-                          {x.body ? <pre className={s.pre}>{x.body}</pre> : <p>內文來源未提供。</p>}
+                        <Detail title={`公告內文（公開資訊觀測站，節錄；共 ${x.count} 則，新到舊）`}>
+                          {x.announcements.map(a => (
+                            <div key={`${a.at}${a.subject}`} style={{ marginBottom: 10 }}>
+                              <p><b>{hhmm(a.at)}</b>　{a.subject}</p>
+                              {a.body ? <pre className={s.pre}>{a.body}</pre> : <p>內文來源未提供。</p>}
+                            </div>
+                          ))}
                         </Detail>
                         <Detail title="事件分類與連結">
-                          <p>類型 <b>{x.type}</b>（{x.typeLabel}）｜基礎權重 {x.weight.toFixed(2)}｜判斷依據：公告主旨（未讀內文）｜方向：{x.dir ?? '需讀內文，不憑主旨給方向'}。</p>
-                          <p>公告時間 {hhmm(x.at)}　<a href={MOPS_URL} target="_blank" rel="noreferrer noopener">公開資訊觀測站・重大訊息</a></p>
+                          <p>類型 <b>{x.type}</b>（{x.typeLabel}）｜基礎權重 {x.weight.toFixed(2)}（不隨則數累加）｜判斷依據：公告主旨（未讀內文）｜方向：{x.dir ?? '需讀內文，不憑主旨給方向'}。</p>
+                          <p><a href={MOPS_URL} target="_blank" rel="noreferrer noopener">公開資訊觀測站・重大訊息</a></p>
                         </Detail>
                       </div>
                     </td></tr>

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { useAppStore } from '@/lib/store';
+import { marketBadge, type StockInfo } from '@/lib/twse-api';
+import RiskBadge from '@/components/shared/RiskBadge';
 import styles from './AfterMarket.module.css';
 
 // 盤後報告共用骨架：一張卡＝一個公開 API。掛載時 fetch 一次（不輪詢），失敗只顯示本卡錯誤、不影響其他卡。
@@ -39,6 +41,41 @@ export function useNameOf(): (code: string) => string {
 export const sg = (x: number | null | undefined, d = 2) => (x == null || !Number.isFinite(x) ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(d)}`);
 /** 台股慣例：紅漲綠跌 */
 export const tone = (x: number | null | undefined) => (x == null || x === 0 ? '' : x > 0 ? styles.up : styles.dn);
+
+// 代號→即時清單（價格、市場別）：以 allStocks 陣列為鍵快取，避免每一列各建一份 Map。
+const STOCK_MAPS = new WeakMap<StockInfo[], Map<string, StockInfo>>();
+function stockMapOf(list: StockInfo[]): Map<string, StockInfo> {
+  let m = STOCK_MAPS.get(list);
+  if (!m) { m = new Map(list.map(x => [x.code, x])); STOCK_MAPS.set(list, m); }
+  return m;
+}
+export function useStockInfo(): (code: string) => StockInfo | undefined {
+  const list = useAppStore(s => s.allStocks);
+  const m = stockMapOf(list);
+  return code => m.get(code);
+}
+
+const MARKET_TITLE: Record<string, string> = { 市: '上市', 櫃: '上櫃', 創: '創新板', 興: '興櫃', ETF: 'ETF' };
+
+/** 個股欄：市場別小圖示（市／櫃／創…）＋代號名稱（可點進個股分析）＋注意／處置標記（全站共用 RiskBadge）。 */
+export function StockCell({ code, name }: { code: string; name?: string }) {
+  const info = useStockInfo()(code);
+  const b = info ? marketBadge(info) : null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+      {b && <span title={MARKET_TITLE[b.t] ?? b.t} style={{ fontSize: 'calc(12px * var(--fz))', fontWeight: 800, color: b.c, border: `1px solid ${b.c}55`, borderRadius: 4, padding: '0 4px', lineHeight: 1.4 }}>{b.t}</span>}
+      <StockLink code={code} name={name ?? info?.name} />
+      <RiskBadge code={code} size="xs" />
+    </span>
+  );
+}
+
+/** 價格欄：現價（收盤後即收盤價）與漲跌%，來自全站即時清單；清單沒有該檔顯示「—」。 */
+export function PriceCell({ code, showChange = true }: { code: string; showChange?: boolean }) {
+  const info = useStockInfo()(code);
+  if (!info || !(info.price > 0)) return <span>—</span>;
+  return <span title="盤中為即時價，收盤後為收盤價"><b>{info.price.toFixed(2)}</b>{showChange && <> <span className={tone(info.changePercent)}>{sg(info.changePercent)}%</span></>}</span>;
+}
 
 export function StockLink({ code, name }: { code: string; name?: string }) {
   const navigateTo = useAppStore(s => s.navigateTo);

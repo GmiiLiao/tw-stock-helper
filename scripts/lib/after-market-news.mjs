@@ -88,22 +88,29 @@ export function classifyOfficial(subject) {
   return { id: null, label: '未分類', weight: null, dir: null };
 }
 
-/** 官方重大訊息：按事件基礎權重排序；例行（權重 0）與未分類只計數、不入排行。 */
+/** 官方重大訊息：同一家公司同一事件類型的多則公告合併成一列（「共 N 則」，展開看全部），按事件基礎權重排序。
+ *  權重不隨則數累加（來源越多槓桿越大是已知問題，tw-news-impact-analyst §2）；例行（權重 0）與未分類只計數、不入排行。 */
 export function rankOfficial(items, { limit = 40 } = {}) {
-  const classified = [];
-  let routine = 0, unclassified = 0;
+  const groups = new Map();
+  let routine = 0, unclassified = 0, rankedAnn = 0;
   for (const it of items || []) {
     const c = classifyOfficial(it.subject);
     if (c.id === null) { unclassified++; continue; }
     if (c.weight === 0) { routine++; continue; }
-    classified.push({ code: it.code, name: it.name, subject: String(it.subject || '').replace(/\s+/g, ' ').slice(0, 120), at: it.at ?? null,
-      body: it.body ? String(it.body).slice(0, 900) : null,
-      type: c.id, typeLabel: c.label, dir: c.dir, weight: c.weight, basis: '主旨' });
+    rankedAnn++;
+    const ann = { subject: String(it.subject || '').replace(/\s+/g, ' ').slice(0, 160), at: it.at ?? null, body: it.body ? String(it.body).slice(0, 900) : null };
+    const k = `${it.code}|${c.id}`;
+    const g = groups.get(k) || groups.set(k, { code: it.code, name: it.name, type: c.id, typeLabel: c.label, dir: c.dir, weight: c.weight, basis: '主旨', announcements: [] }).get(k);
+    g.announcements.push(ann);
   }
-  classified.sort((a, b) => b.weight - a.weight || (b.at ?? 0) - (a.at ?? 0) || (a.code < b.code ? -1 : 1));
-  const total = classified.reduce((s, x) => s + x.weight, 0);
+  const rows = [...groups.values()].map(g => {
+    g.announcements.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+    return { ...g, announcements: g.announcements.slice(0, 8), count: g.announcements.length, subject: g.announcements[0].subject, at: g.announcements[0].at };
+  });
+  rows.sort((a, b) => b.weight - a.weight || b.count - a.count || (b.at ?? 0) - (a.at ?? 0) || (a.code < b.code ? -1 : 1));
+  const total = rows.reduce((s, x) => s + x.weight, 0);
   return {
-    items: classified.slice(0, limit).map((x, i) => ({ ...x, order: i + 1, share: total ? r4(x.weight / total) : null })),
-    total: (items || []).length, ranked: classified.length, routine, unclassified,
+    items: rows.slice(0, limit).map((x, i) => ({ ...x, order: i + 1, share: total ? r4(x.weight / total) : null })),
+    total: (items || []).length, ranked: rows.length, rankedAnnouncements: rankedAnn, routine, unclassified,
   };
 }
