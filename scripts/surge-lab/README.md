@@ -106,3 +106,21 @@ python3 export_attention_calibration.py 2026-10-03   # → scripts/data/attentio
 - `panel.py` 舊版先套一次 priceEvents，`build.adjust` 又套一次 ⇒ 24 檔減資／面額變更股被乘兩次，事件日被誤判結構斷點（26 個事件日中 25 個；修正後 2 個）、8 個假漲停。現在面板只存原始價，還原只在 `build.adjust` 做一次。T1 外樣本總成績不變（同日 AUC 0.815、lift@10 8.30）。
 - `exright-history.json` 止於 09-30；`.surge-cache/exright_delta.json`（`fetch_exright_delta.mjs`）補上市 09-30～10-02，上櫃端點 10-03 連不上，尚缺。
 - `a30_live_list.py 日期…`：以驗證同一程序訓練到「打分日 −11 個交易日」、對指定日全母體打分，對下一交易日的實際漲停，並把前 50 名凍結到 `out/live_lists_*.json`（附 sha256）供下一交易日對答案。
+
+## T1 分軌研究 Phase 0（a36_tracks，2026-10-05）
+
+事前登錄：`tracks/REGISTRATION_t1_tracks.md`＋`tracks/registration_t1_tracks.json`（v2 封存，不得修改；偏差只寫 `tracks/DEVIATIONS_t1_tracks.md`）。
+只讀隔離快取 `.surge-cache-T`；每段 < 9 分鐘，中間檔寫 `SURGE_CACHE/tracks/`，報告寫 `out/tracks_t1/`。
+
+```bash
+export SURGE_CACHE=…/.surge-cache-T SURGE_OFFICIAL_LIMIT=$SURGE_CACHE/official_limits.npz SURGE_REVENUE=revenue_official.json SURGE_PIT_STRICT=1
+python3 a36_tracks_test.py                      # 上市日規則、R 專用特徵、分區、Qmax、窗長表、錨定百分位（合成資料）
+python3 a36_tracks_build.py build               # 驗登錄／輸入雜湊 → 每列恰屬一軌＋多標籤濾網 → tracks/a36_tracks_{M,Mp,R,S,W,NE}.npz、feature_windows_t1.json
+python3 a36_tracks_build.py events              # SEL+HC 全部 T1 事件逐件歸軌、兩版漲停判定、與 official_cv_t1L_official_*.csv 對帳（不讀 HOLDOUT 標籤）
+python3 a36_tracks_build.py trunc --part 0 --of 2; python3 a36_tracks_build.py trunc --part 1 --of 2   # G0.6 截斷測試（fixedadj／pit 兩變體）
+python3 a36_tracks_build.py report              # → out/tracks_t1/tracks_t1_G0.json
+```
+
+各軌資料集欄位：`m_s／m_j／m_y／m_track／m_window／m_fold`、多標籤濾網 `k_f*`（fP10、fP5、fV300、fV100、fVnan、fH125、fA60、fN20、fBP、fCD）、
+PIT 描述 `k_*`（收盤、vol20、cnt130、nan20、hist_len、age_off、age_cap、listing_src、DK_s、at_known*、Qmax、R_core）、事後 `m_*`（鎖死、可買、c1／c5／c10、t 日量、m_disp_t_exec、m_fBF＝brk_future 描述）、
+特徵 `f_*`（cv_official 'official' 162 個原值＋登錄額外 15 個；短歷史 NaN 規則由 `a36_tracks_lib.apply_short_history` 依 feature_windows_t1.json 套用，M0 不套）。
