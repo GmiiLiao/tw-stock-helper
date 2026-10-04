@@ -88,6 +88,9 @@ AT_ALLOWLIST.add('snapshotAt');   // daemon 最近寫快照/指數的時刻（F1
 //   checkedAt＝MOPS 快取「查無」時只記最後檢查時刻（不覆蓋好資料）；mopsAt＝頁面標示的 MOPS 抓取時刻；
 //   extractedAt／errorAt＝年報萃取狀態檔的萃取完成／失敗時刻。
 ['checkedAt', 'mopsAt', 'extractedAt', 'errorAt'].forEach(n => AT_ALLOWLIST.add(n));
+// writtenAt：a35 凍結檔 site.writtenAt（站上 limitUpForecast/pred 文件的寫入時刻，由研究端讀出後帶入；研究 JSON，不寫 Firestore·2026-10-04）。
+//   後台 surgeShadow 文件改名 site.written；只有 surge-shadow-report 讀取端與測試夾具會出現這個鍵。
+AT_ALLOWLIST.add('writtenAt');
 AT_ALLOWLIST.add('revealAt');   // MIS 揭示時戳 tlong（資料本身的時間；與 liveAt 抓取時刻分開，R7 口徑）   // /api/system/version：build 時注入的建置時刻（部署身分，非資料日）
 
 // 資料日／日期欄位全名冊。⚠ 這不是「只准用 date」——buyDate、pubDate 這類
@@ -134,6 +137,10 @@ export const DATE_ALLOWLIST = new Set([
   // 台股 wiki 第二大腦（本地 .cache／vault，不寫 Firestore·2026-10-03）：establishDate／listDate＝公司或 ETF 成立／掛牌日（領域日期）；
   //   snapshotDate／emergingDate＝wiki 建置所讀本地備份快照的資料日（上市櫃／興櫃），只印在 vault 首頁，稽核契約不看它
   'establishDate', 'listDate', 'snapshotDate', 'emergingDate',
+  // 起漲影子名單 a35 凍結檔（scripts/surge-lab/out/*.json，研究 JSON，不寫 Firestore·2026-10-04）的輸入欄位：
+  //   training.cutoffDate／lastLabelDate＝訓練列截止日／最晚標籤日。只在 surge-shadow-report 的讀取端與測試夾具出現；
+  //   寫上後台的 surgeShadow 文件改名 trainCutoff／lastLabel（reportJson 內），稽核契約不看它。
+  'cutoffDate', 'lastLabelDate',
 ]);
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，
