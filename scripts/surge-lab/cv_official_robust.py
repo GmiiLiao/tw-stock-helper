@@ -1,7 +1,9 @@
 """官方化重訓的穩健度（2026-10-04；由 scratchpad robust.py 移入版控）。
 
 輸入：{SP}/dataset_{task}_off.npz＋cv_official.py 存的 {SP}/official_cv_scores_{task}.npz（base／official 3 種子平均外樣本分數）。
-      分數檔的列指紋（m_s／m_j／m_y 的 sha256）必須與資料集相同——資料集重建後沒重跑 cv_official 就拒跑，避免修正前後口徑混用。
+      分數檔的列指紋（m_s／m_j／m_y 的 sha256）必須與資料集相同，而且分數檔記錄的輸入指紋（fingerprint.scores_inputs：
+      資料集 npz 的「內容」sha256、月營收檔、官方漲停價檔）必須與磁碟上現在的檔逐項相同——任一不符就拒跑。
+      只比列指紋不夠：T2L 修正前後列與標籤完全相同（7ea21009…），只有 26 個特徵欄變了。沒有輸入指紋的舊分數檔一律拒收。
 輸出：out/official_cv_robust.json（只含本次指定的任務；整份覆寫）
   overall      每日前 10 名精確度（%）
   by_half      分半年：天數、base／official 精確度、official−base 的配對 20 日區塊 bootstrap 95% 區間（百分點）
@@ -18,6 +20,7 @@ import sys
 import numpy as np
 import pandas as pd
 import build as B
+import fingerprint as FP
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'out')
@@ -54,6 +57,10 @@ def load(task):
     sig = rows_sig(d)
     if str(sc['rows_sig']) != sig or int(sc['n_rows']) != len(d['m_s']):
         raise SystemExit(f'{task}：分數檔列指紋 {sc["rows_sig"]}／{int(sc["n_rows"])} 列 ≠ 資料集 {sig}／{len(d["m_s"])} 列（資料集重建後要重跑 cv_official）')
+    if 'inputs' not in sc.files:
+        raise SystemExit(f'{task}：分數檔 {sp} 沒有輸入指紋（舊版 cv_official 產生）——列指紋抓不到「只有特徵變」，重跑 cv_official {task}')
+    bad = FP.verify_inputs(json.loads(str(sc['inputs'])), d, B.SP)
+    if bad: raise SystemExit(f'{task}：分數檔與現在的輸入不符，拒跑（避免修正前後口徑混用）：\n  ' + '\n  '.join(bad))
     return d, sc
 
 
@@ -117,7 +124,8 @@ def analyse(task):
     n = len(d['m_s']); extra = d['m_extra'].astype(bool) if 'm_extra' in d.files else np.zeros(n, bool)
     tdr = d['m_tdr'].astype(bool)
     dates = np.array(d['dates']); s = d['m_s']; y = d['m_y'].astype(int)
-    rep = {'task': task, 'rows_sig': str(sc['rows_sig']), 'scores_env': json.loads(str(sc['env'])), 'scores_quick': bool(sc['quick'])}
+    rep = {'task': task, 'rows_sig': str(sc['rows_sig']), 'scores_env': json.loads(str(sc['env'])), 'scores_quick': bool(sc['quick']),
+           'scores_inputs': json.loads(str(sc['inputs']))}
     rng = np.random.default_rng(7)
     picks = pick_lists(d, sc, s, extra, tdr, y, dates)
     rep['overall'] = {m: round(picks[m].y.mean() * 100, 2) for m in picks}

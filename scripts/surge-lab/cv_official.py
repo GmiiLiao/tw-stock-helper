@@ -11,12 +11,14 @@ base 與 official 各跑 3 個種子（負例抽樣＋GBDT 隨機性），其餘
 命中／漏網兩份逐件記錄（使用者 2026-10-04 規定，記憶 feedback-backtest-hits-and-misses）：base 與 official 各寫
   out/official_cv_{task}_{模型}_hits.csv、_misses.csv（日期、代號、名稱、市場、分數、同日名次、關鍵特徵同日百分位、各來源當天有無值），
   T1／T2 另寫 _outside.csv（事件發生但不在母體：被哪道濾網擋掉），以及 _hitmiss_summary.json（命中 vs 漏網的特徵百分位與缺值率差異）。
-逐列分數：base 與 official 的 3 種子平均外樣本分數存 {SP}/official_cv_scores_{task}.npz（含列指紋與環境變數），供 cv_official_robust.py。
+逐列分數：base 與 official 的 3 種子平均外樣本分數存 {SP}/official_cv_scores_{task}.npz（含列指紋、環境變數、輸入指紋＝資料集內容＋月營收檔＋官方漲停價檔），
+  供 cv_official_robust.py（逐項比對，任一不符即拒跑）；同一份輸入指紋也寫進 out/official_cv_{task}.json 的 _meta.inputs。
 用法：SURGE_CACHE=<快取> python3 cv_official.py t1|t2|lu1 [--quick]
 """
 import os, sys, json, time, hashlib
 import numpy as np, pandas as pd
 import build as B, run_cv
+import fingerprint as FP
 from models import HistGBDT
 from official_features import GROUPS, EXPERIMENTAL, NON_OFFICIAL_BASE
 
@@ -28,6 +30,7 @@ BLOCK, NBOOT = 20, 2000
 
 def load(task):
     d = np.load(f'{B.SP}/dataset_{task}_off.npz')
+    dataset_sha = FP.npz_content_sha256(d)                      # 同一個檔案代號：指紋＝實際讀到的內容
     names = sorted(k[2:] for k in d.files if k.startswith('f_'))
     X = np.stack([d[f'f_{k}'] for k in names], 1).astype(np.float32)
     raw_names = []
@@ -38,7 +41,7 @@ def load(task):
     n = len(d['m_s'])
     D = dict(dates=list(d['dates']), s=d['m_s'], j=d['m_j'], codes=list(d['codes']), y=d['m_y'].astype(np.int8), names=names + raw_names, raw_names=set(raw_names),
              extra=(d['m_extra'].astype(bool) if 'm_extra' in d.files else np.zeros(n, bool)), tdr=d['m_tdr'].astype(bool), X=X,
-             cat={k[4:]: d[k] for k in d.files if k.startswith('cat_')})
+             cat={k[4:]: d[k] for k in d.files if k.startswith('cat_')}, dataset_sha=dataset_sha)
     return D
 
 
@@ -139,15 +142,18 @@ def rows_sig(D):
     return h.hexdigest()[:16]
 
 
-def save_scores(task, D, saved, quick):
+def save_scores(task, D, saved, quick, inputs):
     """base／official 的逐列外樣本分數（3 種子平均；NaN＝不在任何測試折）→ {SP}/official_cv_scores_{task}.npz，
-    供 cv_official_robust.py 做分半年／可買進／報酬分析（原本只在 scratchpad 的 save_scores.py 重跑一次才有）。"""
+    供 cv_official_robust.py 做分半年／可買進／報酬分析（原本只在 scratchpad 的 save_scores.py 重跑一次才有）。
+    inputs（開跑時的 FP.scores_inputs）：資料集內容指紋＋月營收檔／官方漲停價檔指紋——robust 逐項比對，
+    列指紋 rows_sig 抓不到「列與標籤不變、只有特徵變」（T2L 修正前後同為 7ea21009…），所以不能只靠它。"""
     env = {k: os.environ.get(k, '') for k in ('SURGE_OFFICIAL_LIMIT', 'SURGE_REVENUE', 'SURGE_PIT_STRICT')}
     path = f'{B.SP}/official_cv_scores_{task}.npz'; tmp = f'{path}.tmp{os.getpid()}.npz'
     np.savez_compressed(tmp, **saved, rows_sig=np.array(rows_sig(D)), n_rows=np.array(len(D['s'])), seeds=np.array(SEEDS),
-                        quick=np.array(bool(quick)), env=np.array(json.dumps(env, ensure_ascii=False)))
+                        quick=np.array(bool(quick)), env=np.array(json.dumps(env, ensure_ascii=False)),
+                        inputs=np.array(json.dumps(inputs, ensure_ascii=False)))
     os.replace(tmp, path)
-    print(f'[{task}] 逐列分數 → {path}（rows_sig {rows_sig(D)}）', flush=True)
+    print(f'[{task}] 逐列分數 → {path}（rows_sig {rows_sig(D)}、資料集內容 {inputs["dataset"]["sha256"][:12]}）', flush=True)
 
 
 def summarize(st, base_rate):
@@ -170,7 +176,7 @@ def paired_boot(stA, stB, rng):
 def main():
     task = sys.argv[1]; quick = '--quick' in sys.argv
     K = 10
-    D = load(task); R = ranks(D, task)
+    D = load(task); inputs = FP.scores_inputs(task, D['dataset_sha']); R = ranks(D, task)
     names = D['names']; ix = {n: i for i, n in enumerate(names)}
     off = [g for gl in GROUPS.values() for g in gl]
     new_names = {n for gl in GROUPS.values() for n in gl} | {n for gl in EXPERIMENTAL.values() for n in gl}   # 官方新特徵（含 mkt_lu_off 等市場層）一律不進 base
@@ -197,7 +203,7 @@ def main():
         if name in ('base', 'official'):
             res[name]['hitmiss'] = write_records(task, name, sc, D, R, test, K)
             saved[name] = sc.astype(np.float32)
-            if len(saved) == 2: save_scores(task, D, saved, quick)
+            if len(saved) == 2: save_scores(task, D, saved, quick, inputs)
         if task.startswith('lu1'):
             st30 = day_stats(sc[test], D['s'][test], D['y'][test], 30); res[name]['prec30'] = float(st30.hit.sum() / max(st30.n.sum(), 1))
         print(f'[{task}] {name:<12} 特徵 {len(cols):>3}  同日AUC {res[name]["auc"]:.4f}  前{K}精確度 {res[name]["prec"] * 100:5.2f}%  lift {res[name]["lift"]:.2f}  （{round(time.time() - t0)}s）', flush=True)
@@ -205,7 +211,8 @@ def main():
     for name in res:
         if name != 'base': res[name]['vs_base'] = paired_boot(stats[name], stats['base'], rng)
     res['_meta'] = dict(task=task, K=K, test_rows=int(test.sum()), positives=int(D['y'][test].sum()), days=int(len(stats['base'])), base_rate=float(base_rate),
-                        protocol='run_cv 每季一折 2025Q1～2026Q3、purge 11、負例 10%、HistGBDT depth2×250；排除進行中區段列與 91xx TDR', groups=GROUPS)
+                        protocol='run_cv 每季一折 2025Q1～2026Q3、purge 11、負例 10%、HistGBDT depth2×250；排除進行中區段列與 91xx TDR', groups=GROUPS,
+                        inputs=inputs)
     json.dump(res, open(f'{OUT}/official_cv_{task}.json', 'w'), ensure_ascii=False, indent=1)
     print(json.dumps({k: {kk: v[kk] for kk in ('auc', 'prec', 'lift') if kk in v} | ({'vs_base': v['vs_base']} if 'vs_base' in v else {}) for k, v in res.items() if k != '_meta'}, ensure_ascii=False, indent=0))
 
