@@ -16,3 +16,14 @@ out/shadow_*.json
 out/shadow_hist/
 out/shadow_hist_score_pooled*
 out/a35_shadow_daily_status.json
+
+# T1 分軌（DEV-005，2026-10-05）：以下原檔以 gzip 存在 out/tracks_t1/gz/（mtime=0 可重現；原檔與 .gz 的 sha256 對照見
+# out/tracks_t1/tracks_t1_ARTIFACT_MANIFEST.json，還原：gunzip -c gz/<檔名>.gz > <檔名>）。原檔不重複進版控。
+out/tracks_t1/tracks_t1_M_misses.csv
+out/tracks_t1/tracks_t1_M_picks.csv
+out/tracks_t1/tracks_t1_Mp_picks.csv
+out/tracks_t1/tracks_t1_R_picks.csv
+out/tracks_t1/tracks_t1_S_picks.csv
+out/tracks_t1/tracks_t1_HO_M_picks.csv
+out/tracks_t1/tracks_t1_HO_Mp_picks.csv
+out/tracks_t1/tracks_t1_events_SELHC.csv

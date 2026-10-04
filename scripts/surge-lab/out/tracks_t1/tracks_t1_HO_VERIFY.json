@@ -1,0 +1,188 @@
+{
+ "generated_by": "scripts/surge-lab/a36_tracks_t1_audit.py verify-ho",
+ "time_start": "2026-10-05T01:48:03+0800",
+ "time_end": "2026-10-05T01:48:16+0800",
+ "head": "5fda1c7508afb2a62b9bde473e8b0b864379869a",
+ "registration_sha256": "065a92c6b063ccfb0bcb5a8facc99734e4f7d769f7af66198953cd7f5592c3e3",
+ "lock_time": "2026-10-05T01:19:32+0800",
+ "lock_head": "4080028d63b5a38b35aaffc7e3047ecdb24880e9",
+ "code_sha256_equal_lock": true,
+ "code_sha256_now": {
+  "a36_tracks_cv.py": "d2b19b2656a72ccaebf99c077d0d68f1728b5148a2f7496175a274545054285f",
+  "a36_tracks_eval.py": "7ea10156c1cadfba8437b3f1869e510386562dd4877cd432c78c8b301d968a54",
+  "a36_tracks_decide.py": "31538c186533ab4815a4a6243696324a3f2f4ca8f1e3e2138f8d0f82fd52d068",
+  "a36_tracks_ho.py": "f653979edfc4bc5f78370d137eed070876c426186e5b533078d874d6a18e423a",
+  "a36_tracks_fit.py": "1716bb9559cb54cf91e797885e93b06891ae9c3c15e845a2fcaceb09dca8eea9",
+  "a36_tracks_proxy.py": "0e69e1d7a3dfca407c0609e11f9d9773adbb7874850afe3b7147301342b52247",
+  "a36_tracks_gate.py": "4ba0407b2080850aa1c42f2a097140472f949161d36cb2c8965a62deab4a551d",
+  "a36_tracks_lib.py": "e1ec6280d58dd3219a180a84438b8b80685141378725d1d4a67a4558f97a5ce0",
+  "a36_tracks_build.py": "fb393a36f07f4b375e9afb3f3993234e18709fcb42cf5af5bfdb37ab04f48810",
+  "a36_tracks_stages.py": "815d75dd1478f18602d9dc99734314b1689e67c61209945598c3312d1a3540ca",
+  "a36_tracks_t1_audit.py": "8f2f45e0b3b58e7e5526c0ae351a9ce1d95bfcde731364aa49427aeb7efc8bc1"
+ },
+ "decisions_now": {
+  "Mp": "MP-REJECT",
+  "R": "R-WATCH-ONLY",
+  "S": "S-KEEP-AS-SHADOW",
+  "S_FB": "SFB-KEEP-AS-SHADOW",
+  "DD": "DD-INCONCLUSIVE",
+  "M": "M-UNCHANGED",
+  "W": "W-WATCH-ONLY"
+ },
+ "decisions_lock": {
+  "Mp": "MP-REJECT",
+  "R": "R-WATCH-ONLY",
+  "S": "S-KEEP-AS-SHADOW",
+  "S_FB": "SFB-KEEP-AS-SHADOW",
+  "DD": "DD-INCONCLUSIVE",
+  "M": "M-UNCHANGED",
+  "W": "W-WATCH-ONLY"
+ },
+ "decisions_equal": true,
+ "verify_identical": true,
+ "summary_equal_except_deviations": true,
+ "deviations_at_lock": [
+  "DEV-001　窗長表漏列 5 個新模型會用到的特徵（登錄規則照字面無法執行）",
+  "DEV-002　登錄未寫明的實作細節（不改任何登錄規則，記錄以便審查）",
+  "DEV-003　Phase 1 CV 的實作細節（登錄未寫明處；不改任何登錄規則）",
+  "DEV-004　HOLDOUT 哨兵之後、ho-eval 之前修正一個實作錯誤（不改規則）"
+ ],
+ "deviations_now": [
+  "DEV-001　窗長表漏列 5 個新模型會用到的特徵（登錄規則照字面無法執行）",
+  "DEV-002　登錄未寫明的實作細節（不改任何登錄規則，記錄以便審查）",
+  "DEV-003　Phase 1 CV 的實作細節（登錄未寫明處；不改任何登錄規則）",
+  "DEV-004　HOLDOUT 哨兵之後、ho-eval 之前修正一個實作錯誤（不改規則）"
+ ],
+ "files": {
+  "tracks_t1_HO_M_hits.csv": {
+   "lock": "762f5498a133b1a0136f26d606ed7207bf7dcc1df2fd27eecfa52ffcd7c11947",
+   "now": "762f5498a133b1a0136f26d606ed7207bf7dcc1df2fd27eecfa52ffcd7c11947",
+   "disk": "762f5498a133b1a0136f26d606ed7207bf7dcc1df2fd27eecfa52ffcd7c11947",
+   "equal": true
+  },
+  "tracks_t1_HO_M_misses.csv": {
+   "lock": "e5d0011dbd031dd76e503dede68d1e059249d2710dc55d1568464767a86297fc",
+   "now": "e5d0011dbd031dd76e503dede68d1e059249d2710dc55d1568464767a86297fc",
+   "disk": "e5d0011dbd031dd76e503dede68d1e059249d2710dc55d1568464767a86297fc",
+   "equal": true
+  },
+  "tracks_t1_HO_M_picks.csv": {
+   "lock": "af6cd731a29618bd5bb8f78c7af6731dbf27fbd7f180c705a5fd43f0816e19ab",
+   "now": "af6cd731a29618bd5bb8f78c7af6731dbf27fbd7f180c705a5fd43f0816e19ab",
+   "disk": "af6cd731a29618bd5bb8f78c7af6731dbf27fbd7f180c705a5fd43f0816e19ab",
+   "equal": true
+  },
+  "tracks_t1_HO_Mp_hits.csv": {
+   "lock": "84408f03c77f7ba43837c5145a0ab333bd7ef2506b4322ccae377d57b620ca5b",
+   "now": "84408f03c77f7ba43837c5145a0ab333bd7ef2506b4322ccae377d57b620ca5b",
+   "disk": "84408f03c77f7ba43837c5145a0ab333bd7ef2506b4322ccae377d57b620ca5b",
+   "equal": true
+  },
+  "tracks_t1_HO_Mp_misses.csv": {
+   "lock": "ee97a261d5ef4826fee756a2fdc99f8fafcc39aef07d48538eb08ec6fdd890e9",
+   "now": "ee97a261d5ef4826fee756a2fdc99f8fafcc39aef07d48538eb08ec6fdd890e9",
+   "disk": "ee97a261d5ef4826fee756a2fdc99f8fafcc39aef07d48538eb08ec6fdd890e9",
+   "equal": true
+  },
+  "tracks_t1_HO_Mp_picks.csv": {
+   "lock": "ea94f545261b3002326f7a92c349f32a1cb85c3914a4058bd46baf45c464ce6f",
+   "now": "ea94f545261b3002326f7a92c349f32a1cb85c3914a4058bd46baf45c464ce6f",
+   "disk": "ea94f545261b3002326f7a92c349f32a1cb85c3914a4058bd46baf45c464ce6f",
+   "equal": true
+  },
+  "tracks_t1_HO_R_hits.csv": {
+   "lock": "ccd1d7ac3e375b65e774ce143b30a9ec5c2c91bacbf59c3bffbd656fbf53c448",
+   "now": "ccd1d7ac3e375b65e774ce143b30a9ec5c2c91bacbf59c3bffbd656fbf53c448",
+   "disk": "ccd1d7ac3e375b65e774ce143b30a9ec5c2c91bacbf59c3bffbd656fbf53c448",
+   "equal": true
+  },
+  "tracks_t1_HO_R_misses.csv": {
+   "lock": "12903db13f46e4b53180932a5ade0c4275f41fd68e8e49514dc7c93c1aba126a",
+   "now": "12903db13f46e4b53180932a5ade0c4275f41fd68e8e49514dc7c93c1aba126a",
+   "disk": "12903db13f46e4b53180932a5ade0c4275f41fd68e8e49514dc7c93c1aba126a",
+   "equal": true
+  },
+  "tracks_t1_HO_R_picks.csv": {
+   "lock": "5daabb42f1c332e4d1dc834c81a9b0f60f2828d235dfff3a89038733b5759505",
+   "now": "5daabb42f1c332e4d1dc834c81a9b0f60f2828d235dfff3a89038733b5759505",
+   "disk": "5daabb42f1c332e4d1dc834c81a9b0f60f2828d235dfff3a89038733b5759505",
+   "equal": true
+  },
+  "tracks_t1_HO_S_hits.csv": {
+   "lock": "df02ea5774f012772bbeee8de3809969f8188a9000ee95b9e03e78264abaa919",
+   "now": "df02ea5774f012772bbeee8de3809969f8188a9000ee95b9e03e78264abaa919",
+   "disk": "df02ea5774f012772bbeee8de3809969f8188a9000ee95b9e03e78264abaa919",
+   "equal": true
+  },
+  "tracks_t1_HO_S_misses.csv": {
+   "lock": "2af0ae7f99893dfe7e886f7fc1412858336fc4d1f1f1da4861b2f579f527f990",
+   "now": "2af0ae7f99893dfe7e886f7fc1412858336fc4d1f1f1da4861b2f579f527f990",
+   "disk": "2af0ae7f99893dfe7e886f7fc1412858336fc4d1f1f1da4861b2f579f527f990",
+   "equal": true
+  },
+  "tracks_t1_HO_S_picks.csv": {
+   "lock": "31c2cda821263ff38bcd4f1128cf8da25b2c6361cc14ebd05a5f3df0c4ed4612",
+   "now": "31c2cda821263ff38bcd4f1128cf8da25b2c6361cc14ebd05a5f3df0c4ed4612",
+   "disk": "31c2cda821263ff38bcd4f1128cf8da25b2c6361cc14ebd05a5f3df0c4ed4612",
+   "equal": true
+  },
+  "tracks_t1_HO_W_hits.csv": {
+   "lock": "c850eb28c10333eafd307540f398082be94f34262c5ebeb74df6c38f54a66c04",
+   "now": "c850eb28c10333eafd307540f398082be94f34262c5ebeb74df6c38f54a66c04",
+   "disk": "c850eb28c10333eafd307540f398082be94f34262c5ebeb74df6c38f54a66c04",
+   "equal": true
+  },
+  "tracks_t1_HO_W_misses.csv": {
+   "lock": "c5b0327f0e553c47691cf7093b2a817f1794970e742759fb206af6dc4ecb4217",
+   "now": "c5b0327f0e553c47691cf7093b2a817f1794970e742759fb206af6dc4ecb4217",
+   "disk": "c5b0327f0e553c47691cf7093b2a817f1794970e742759fb206af6dc4ecb4217",
+   "equal": true
+  },
+  "tracks_t1_HO_W_picks.csv": {
+   "lock": "4a60065fe036e983875594ffd117adc9f336bd9107fb232573a7859ab5e64d49",
+   "now": "4a60065fe036e983875594ffd117adc9f336bd9107fb232573a7859ab5e64d49",
+   "disk": "4a60065fe036e983875594ffd117adc9f336bd9107fb232573a7859ab5e64d49",
+   "equal": true
+  },
+  "tracks_t1_HO_outside.csv": {
+   "lock": "56ae0ec35628d82a5b745dc52c85e7d1d9acfcbfe4bce4d4d59fa5be4b0f6791",
+   "now": "56ae0ec35628d82a5b745dc52c85e7d1d9acfcbfe4bce4d4d59fa5be4b0f6791",
+   "disk": "56ae0ec35628d82a5b745dc52c85e7d1d9acfcbfe4bce4d4d59fa5be4b0f6791",
+   "equal": true
+  },
+  "tracks_t1_HO_summary.json": {
+   "lock": "c88a48d3e5a2400eb03d65684efdf0481588cb7009cdebd0fa12dbeab2bdcfbd",
+   "now": "c88a48d3e5a2400eb03d65684efdf0481588cb7009cdebd0fa12dbeab2bdcfbd",
+   "disk": "c88a48d3e5a2400eb03d65684efdf0481588cb7009cdebd0fa12dbeab2bdcfbd",
+   "equal": true
+  }
+ },
+ "method": "HO.run(load_all, evaluate, STARTED.selection, ho_models_and_lists)＝ho-eval --verify-identical 的同一條程式路徑；只比對，不寫任何 HO 產出",
+ "note_deviations": "HO 摘要內嵌 a36_tracks_cv.deviations()（偏差紀錄的標題清單）與 code_sha256；偏差紀錄增列後，嚴格逐位只會在該欄不同，因此另報 summary_equal_except_deviations",
+ "note": "未扣成本·事後欄位以 m_ 標示·非投資建議",
+ "prior_cli_run": {
+  "command": "a36_tracks_cv.py ho-eval --verify-identical",
+  "stdout_sha256": "38cc111f745441980ed5e078fbec7b2ddc476eb684109962d7a7116d9cbe4ab6",
+  "verify_identical": true,
+  "files_equal": {
+   "tracks_t1_HO_M_hits.csv": true,
+   "tracks_t1_HO_M_misses.csv": true,
+   "tracks_t1_HO_M_picks.csv": true,
+   "tracks_t1_HO_Mp_hits.csv": true,
+   "tracks_t1_HO_Mp_misses.csv": true,
+   "tracks_t1_HO_Mp_picks.csv": true,
+   "tracks_t1_HO_R_hits.csv": true,
+   "tracks_t1_HO_R_misses.csv": true,
+   "tracks_t1_HO_R_picks.csv": true,
+   "tracks_t1_HO_S_hits.csv": true,
+   "tracks_t1_HO_S_misses.csv": true,
+   "tracks_t1_HO_S_picks.csv": true,
+   "tracks_t1_HO_W_hits.csv": true,
+   "tracks_t1_HO_W_misses.csv": true,
+   "tracks_t1_HO_W_picks.csv": true,
+   "tracks_t1_HO_outside.csv": true,
+   "tracks_t1_HO_summary.json": true
+  },
+  "note": "同一工作階段先以 CLI 跑過一次（stdout 只印到終端，原本無存檔）；本檔為可稽核版本"
+ }
+}

@@ -1,0 +1,860 @@
+{
+ "generated_by": "scripts/surge-lab/a36_tracks_t1_audit.py pack",
+ "time": "2026-10-05T01:57:48+0800",
+ "head": "5fda1c7508afb2a62b9bde473e8b0b864379869a",
+ "registration_sha256": "065a92c6b063ccfb0bcb5a8facc99734e4f7d769f7af66198953cd7f5592c3e3",
+ "registration_file_sha256": "669171301e5b4308b8a45526adc0cb3cb8fe944be97319e06b42e7d807a48eb5",
+ "code_sha256": {
+  "a36_tracks_cv.py": "d2b19b2656a72ccaebf99c077d0d68f1728b5148a2f7496175a274545054285f",
+  "a36_tracks_eval.py": "7ea10156c1cadfba8437b3f1869e510386562dd4877cd432c78c8b301d968a54",
+  "a36_tracks_decide.py": "31538c186533ab4815a4a6243696324a3f2f4ca8f1e3e2138f8d0f82fd52d068",
+  "a36_tracks_ho.py": "f653979edfc4bc5f78370d137eed070876c426186e5b533078d874d6a18e423a",
+  "a36_tracks_fit.py": "1716bb9559cb54cf91e797885e93b06891ae9c3c15e845a2fcaceb09dca8eea9",
+  "a36_tracks_proxy.py": "0e69e1d7a3dfca407c0609e11f9d9773adbb7874850afe3b7147301342b52247",
+  "a36_tracks_gate.py": "4ba0407b2080850aa1c42f2a097140472f949161d36cb2c8965a62deab4a551d",
+  "a36_tracks_lib.py": "e1ec6280d58dd3219a180a84438b8b80685141378725d1d4a67a4558f97a5ce0",
+  "a36_tracks_build.py": "fb393a36f07f4b375e9afb3f3993234e18709fcb42cf5af5bfdb37ab04f48810",
+  "a36_tracks_stages.py": "815d75dd1478f18602d9dc99734314b1689e67c61209945598c3312d1a3540ca",
+  "a36_tracks_t1_audit.py": "53a7e55a2a4f31f4d183b0d9b7bcfac55053b12a6d69f030f9ab8e928c3850ea"
+ },
+ "g0_provenance": {
+  "g0_status_recomputed_equals_summary_G0": true,
+  "report_fields_equal": {
+   "registration": true,
+   "generated_by": true,
+   "G0": true,
+   "build": true,
+   "events": true,
+   "truncation": true,
+   "output_sha256_note": true,
+   "disclosures": true,
+   "note": true
+  },
+  "report_all_fields_equal": true,
+  "output_sha256_entries": 11,
+  "output_sha256_all_equal": true,
+  "output_sha256_mismatch": {},
+  "file_git_head": "64b60f6df576ce85d60ce9e032c23dd6a709d2f3",
+  "file_git_a36_dirty": [],
+  "file_mtime": "2026-10-05T00:43:42+0800",
+  "summary_commit": "2df3c676b6b482d4b6fc6164e3b37f4e94585fe5 2026-10-05T01:15:01+08:00",
+  "note": "G0.json 的 git.head 是它寫出當下的 HEAD；SEL 摘要的 G0 欄位由 select 階段以 g0_status() 讀這個檔產生"
+ },
+ "files": {
+  "tracks_t1_M_hits.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 262113,
+   "sha256": "1cfbb83b0bd91682b3f2a580c19eefc43c7bf3e8da0155376b551196d264c16e",
+   "rows": 360,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "1cfbb83b0bd91682b3f2a580c19eefc43c7bf3e8da0155376b551196d264c16e",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_M_misses.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 2624672,
+   "sha256": "7682bf7f7a454085fcde57965d8241471c5d6c33190de10d05f45dd18fc9e588",
+   "rows": 3600,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "7682bf7f7a454085fcde57965d8241471c5d6c33190de10d05f45dd18fc9e588",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_M_misses.csv.gz",
+     "bytes": 330410,
+     "sha256": "c1833576632c40fc1b49c4774a43319669b3db2064ef37a9390fa6ff65d2c467"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_M_misses.csv.gz | gunzip > tracks_t1_M_misses.csv"
+  },
+  "tracks_t1_M_picks.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 4268998,
+   "sha256": "e688ea75bb092b54056f5737382147c68f9ac189614f5ecc95390cd153c73330",
+   "rows": 8300,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "e688ea75bb092b54056f5737382147c68f9ac189614f5ecc95390cd153c73330",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_M_picks.csv.gz",
+     "bytes": 343786,
+     "sha256": "c0153a838d65818a5ea7aea0906f38d83fcb108cb9da152ec82d125d24bfc2d4"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_M_picks.csv.gz | gunzip > tracks_t1_M_picks.csv"
+  },
+  "tracks_t1_Mp_hits.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 15712,
+   "sha256": "681c91ccbf01598819bc18aa87fe8e39ea43d3e2b302c02b790ddf96cc15688c",
+   "rows": 21,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "681c91ccbf01598819bc18aa87fe8e39ea43d3e2b302c02b790ddf96cc15688c",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_Mp_misses.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 52406,
+   "sha256": "34a851f1202dfb61df290036b8ea4b95a7f5c803324cf68eab17ad9ec44cf0a9",
+   "rows": 71,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "34a851f1202dfb61df290036b8ea4b95a7f5c803324cf68eab17ad9ec44cf0a9",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_Mp_picks.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 7490416,
+   "sha256": "e1913502caab74d89e0768a4bb6ea16a8cccbfad18fb0ab4a1046c5329b8dc57",
+   "rows": 14525,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "e1913502caab74d89e0768a4bb6ea16a8cccbfad18fb0ab4a1046c5329b8dc57",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_Mp_picks.csv.gz",
+     "bytes": 592497,
+     "sha256": "45c36875851204cef5dcfcaa0c6960a397b600b8387a25469774aa9559ca92de"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_Mp_picks.csv.gz | gunzip > tracks_t1_Mp_picks.csv"
+  },
+  "tracks_t1_R_hits.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 136335,
+   "sha256": "48beb225947d554f2136a0129906621c7d64a8d650c391569cca6225594f719c",
+   "rows": 185,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "48beb225947d554f2136a0129906621c7d64a8d650c391569cca6225594f719c",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_R_misses.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 571390,
+   "sha256": "a0d261534b76bb1214abb213e8039efedf690ceb6cdea9d8b80d2aa029df142d",
+   "rows": 775,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "a0d261534b76bb1214abb213e8039efedf690ceb6cdea9d8b80d2aa029df142d",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_R_picks.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 3241879,
+   "sha256": "259f96605b58577c583446bbf3c11c9796976c6f3dc241cf65d4b047dacf4bfb",
+   "rows": 6216,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "259f96605b58577c583446bbf3c11c9796976c6f3dc241cf65d4b047dacf4bfb",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_R_picks.csv.gz",
+     "bytes": 262023,
+     "sha256": "35173c276a05cb234b016a0f9e24e2b80baf3e716979cb2abbacad6fa2dca594"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_R_picks.csv.gz | gunzip > tracks_t1_R_picks.csv"
+  },
+  "tracks_t1_S_hits.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 83369,
+   "sha256": "385fafe4860624d8448569893711a3ff7b330e92851dc07ffbad58d644b9ed97",
+   "rows": 114,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "385fafe4860624d8448569893711a3ff7b330e92851dc07ffbad58d644b9ed97",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_S_misses.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 603099,
+   "sha256": "4ecf1f17ed00b0f6f4dc268b773f59a124a375fac878abca968a4f0eaf1edacc",
+   "rows": 825,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "4ecf1f17ed00b0f6f4dc268b773f59a124a375fac878abca968a4f0eaf1edacc",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_S_picks.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 3246706,
+   "sha256": "99b66755f8f21906049645ab23a74547608b16126c10b6397c1c644ae6ca4689",
+   "rows": 6225,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "99b66755f8f21906049645ab23a74547608b16126c10b6397c1c644ae6ca4689",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_S_picks.csv.gz",
+     "bytes": 236814,
+     "sha256": "afc3cfeb18696ca0b12a35d0c6edb1eec2c9d011d0263642a0b64944be91ed22"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_S_picks.csv.gz | gunzip > tracks_t1_S_picks.csv"
+  },
+  "tracks_t1_W_hits.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 20124,
+   "sha256": "48c358eac56cbab765036704008a8678b5df623907adfb62a55ce2ea327b3456",
+   "rows": 27,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "48c358eac56cbab765036704008a8678b5df623907adfb62a55ce2ea327b3456",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_W_misses.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 339264,
+   "sha256": "970632f47caf3e3c3cdecbd580289072cc4ff39e9af236abcaeceb4c236df34f",
+   "rows": 461,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "970632f47caf3e3c3cdecbd580289072cc4ff39e9af236abcaeceb4c236df34f",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_W_picks.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 656728,
+   "sha256": "c9db55455438d12176d0c54bb42cb794cf6333dca187a1049f9f6c7c8771c1b5",
+   "rows": 1245,
+   "refs": {
+    "SEL 摘要 record_files": {
+     "sha256": "c9db55455438d12176d0c54bb42cb794cf6333dca187a1049f9f6c7c8771c1b5",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_outside.csv": {
+   "role": "selection_and_half_confirm",
+   "bytes": 9118,
+   "sha256": "bcea7c7bfbfb94d0c2f9e1445d6292b6222a8163cd71fb6bf8fc85d81b6e9600",
+   "rows": 29,
+   "refs": {
+    "G0.json output_sha256": {
+     "sha256": "bcea7c7bfbfb94d0c2f9e1445d6292b6222a8163cd71fb6bf8fc85d81b6e9600",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（本次補 commit，DEV-005）"
+  },
+  "tracks_t1_summary.json": {
+   "role": "selection_and_half_confirm",
+   "bytes": 172017,
+   "sha256": "96efb14789444348e7bd2258a2fc308497b3274a49790eccee8b68118ef1a372",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "feature_windows_t1.json": {
+   "role": "selection_and_half_confirm",
+   "bytes": 10557,
+   "sha256": "3dcf0e0a86815c3e19e5500809b92f00a31ebc81cf07000c374ebc592240d459",
+   "rows": null,
+   "refs": {
+    "G0.json output_sha256": {
+     "sha256": "3dcf0e0a86815c3e19e5500809b92f00a31ebc81cf07000c374ebc592240d459",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_G0.json": {
+   "role": "selection_and_half_confirm",
+   "bytes": 58037,
+   "sha256": "f85da69dd573b8a1ee255d095a4182eeed2f365dcae1a5363e5efd66431fbcb4",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（本次補 commit，DEV-005）"
+  },
+  "tracks_t1_HO_DRYRUN.json": {
+   "role": "holdout_run_files",
+   "bytes": 5830,
+   "sha256": "2bd25c7b8801db229e9bc1b2b374f582e00fbf78da3868eba7f39bf8831633a4",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_STARTED.json": {
+   "role": "holdout_run_files",
+   "bytes": 1405,
+   "sha256": "7d0c0111f2b2259230e00b6839498150a076f0311d1e262ff4b24da196dfd1db",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_ATTEMPTS.jsonl": {
+   "role": "holdout_run_files",
+   "bytes": 8641,
+   "sha256": "8a313db070529c5032171ba31b5a6703c366f59242ed8aea57c44598f800751c",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": false,
+   "lines_at_head": 3,
+   "lines_now": 8,
+   "note": "只增不改：HEAD 之後附加的列是鎖後稽核紀錄（post-lock:*），本次一併 commit"
+  },
+  "tracks_t1_HO_M_hits.csv": {
+   "role": "holdout_separate",
+   "bytes": 168787,
+   "sha256": "762f5498a133b1a0136f26d606ed7207bf7dcc1df2fd27eecfa52ffcd7c11947",
+   "rows": 232,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "762f5498a133b1a0136f26d606ed7207bf7dcc1df2fd27eecfa52ffcd7c11947",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "762f5498a133b1a0136f26d606ed7207bf7dcc1df2fd27eecfa52ffcd7c11947",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_M_misses.csv": {
+   "role": "holdout_separate",
+   "bytes": 1254333,
+   "sha256": "e5d0011dbd031dd76e503dede68d1e059249d2710dc55d1568464767a86297fc",
+   "rows": 1721,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "e5d0011dbd031dd76e503dede68d1e059249d2710dc55d1568464767a86297fc",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "e5d0011dbd031dd76e503dede68d1e059249d2710dc55d1568464767a86297fc",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_M_picks.csv": {
+   "role": "holdout_separate",
+   "bytes": 3559018,
+   "sha256": "af6cd731a29618bd5bb8f78c7af6731dbf27fbd7f180c705a5fd43f0816e19ab",
+   "rows": 6940,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "af6cd731a29618bd5bb8f78c7af6731dbf27fbd7f180c705a5fd43f0816e19ab",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "af6cd731a29618bd5bb8f78c7af6731dbf27fbd7f180c705a5fd43f0816e19ab",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_HO_M_picks.csv.gz",
+     "bytes": 282387,
+     "sha256": "6a86ae1d733926d794bd5c6e88d4c2fe431991681a6eaded1a13adfe878d1f41"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_HO_M_picks.csv.gz | gunzip > tracks_t1_HO_M_picks.csv"
+  },
+  "tracks_t1_HO_Mp_hits.csv": {
+   "role": "holdout_separate",
+   "bytes": 9085,
+   "sha256": "84408f03c77f7ba43837c5145a0ab333bd7ef2506b4322ccae377d57b620ca5b",
+   "rows": 12,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "84408f03c77f7ba43837c5145a0ab333bd7ef2506b4322ccae377d57b620ca5b",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "84408f03c77f7ba43837c5145a0ab333bd7ef2506b4322ccae377d57b620ca5b",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_Mp_misses.csv": {
+   "role": "holdout_separate",
+   "bytes": 12000,
+   "sha256": "ee97a261d5ef4826fee756a2fdc99f8fafcc39aef07d48538eb08ec6fdd890e9",
+   "rows": 16,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "ee97a261d5ef4826fee756a2fdc99f8fafcc39aef07d48538eb08ec6fdd890e9",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "ee97a261d5ef4826fee756a2fdc99f8fafcc39aef07d48538eb08ec6fdd890e9",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_Mp_picks.csv": {
+   "role": "holdout_separate",
+   "bytes": 6250072,
+   "sha256": "ea94f545261b3002326f7a92c349f32a1cb85c3914a4058bd46baf45c464ce6f",
+   "rows": 12145,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "ea94f545261b3002326f7a92c349f32a1cb85c3914a4058bd46baf45c464ce6f",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "ea94f545261b3002326f7a92c349f32a1cb85c3914a4058bd46baf45c464ce6f",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_HO_Mp_picks.csv.gz",
+     "bytes": 489305,
+     "sha256": "042d2f9aabf0bf76dd34c3f2144ca0e8e4b25fe028546e1652e586f650740d9d"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_HO_Mp_picks.csv.gz | gunzip > tracks_t1_HO_Mp_picks.csv"
+  },
+  "tracks_t1_HO_R_hits.csv": {
+   "role": "holdout_separate",
+   "bytes": 59950,
+   "sha256": "ccd1d7ac3e375b65e774ce143b30a9ec5c2c91bacbf59c3bffbd656fbf53c448",
+   "rows": 81,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "ccd1d7ac3e375b65e774ce143b30a9ec5c2c91bacbf59c3bffbd656fbf53c448",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "ccd1d7ac3e375b65e774ce143b30a9ec5c2c91bacbf59c3bffbd656fbf53c448",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_R_misses.csv": {
+   "role": "holdout_separate",
+   "bytes": 155829,
+   "sha256": "12903db13f46e4b53180932a5ade0c4275f41fd68e8e49514dc7c93c1aba126a",
+   "rows": 211,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "12903db13f46e4b53180932a5ade0c4275f41fd68e8e49514dc7c93c1aba126a",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "12903db13f46e4b53180932a5ade0c4275f41fd68e8e49514dc7c93c1aba126a",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_R_picks.csv": {
+   "role": "holdout_separate",
+   "bytes": 1814780,
+   "sha256": "5daabb42f1c332e4d1dc834c81a9b0f60f2828d235dfff3a89038733b5759505",
+   "rows": 3468,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "5daabb42f1c332e4d1dc834c81a9b0f60f2828d235dfff3a89038733b5759505",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "5daabb42f1c332e4d1dc834c81a9b0f60f2828d235dfff3a89038733b5759505",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_S_hits.csv": {
+   "role": "holdout_separate",
+   "bytes": 16491,
+   "sha256": "df02ea5774f012772bbeee8de3809969f8188a9000ee95b9e03e78264abaa919",
+   "rows": 22,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "df02ea5774f012772bbeee8de3809969f8188a9000ee95b9e03e78264abaa919",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "df02ea5774f012772bbeee8de3809969f8188a9000ee95b9e03e78264abaa919",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_S_misses.csv": {
+   "role": "holdout_separate",
+   "bytes": 109732,
+   "sha256": "2af0ae7f99893dfe7e886f7fc1412858336fc4d1f1f1da4861b2f579f527f990",
+   "rows": 149,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "2af0ae7f99893dfe7e886f7fc1412858336fc4d1f1f1da4861b2f579f527f990",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "2af0ae7f99893dfe7e886f7fc1412858336fc4d1f1f1da4861b2f579f527f990",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_S_picks.csv": {
+   "role": "holdout_separate",
+   "bytes": 911616,
+   "sha256": "31c2cda821263ff38bcd4f1128cf8da25b2c6361cc14ebd05a5f3df0c4ed4612",
+   "rows": 1735,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "31c2cda821263ff38bcd4f1128cf8da25b2c6361cc14ebd05a5f3df0c4ed4612",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "31c2cda821263ff38bcd4f1128cf8da25b2c6361cc14ebd05a5f3df0c4ed4612",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_W_hits.csv": {
+   "role": "holdout_separate",
+   "bytes": 13574,
+   "sha256": "c850eb28c10333eafd307540f398082be94f34262c5ebeb74df6c38f54a66c04",
+   "rows": 18,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "c850eb28c10333eafd307540f398082be94f34262c5ebeb74df6c38f54a66c04",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "c850eb28c10333eafd307540f398082be94f34262c5ebeb74df6c38f54a66c04",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_W_misses.csv": {
+   "role": "holdout_separate",
+   "bytes": 250560,
+   "sha256": "c5b0327f0e553c47691cf7093b2a817f1794970e742759fb206af6dc4ecb4217",
+   "rows": 340,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "c5b0327f0e553c47691cf7093b2a817f1794970e742759fb206af6dc4ecb4217",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "c5b0327f0e553c47691cf7093b2a817f1794970e742759fb206af6dc4ecb4217",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_W_picks.csv": {
+   "role": "holdout_separate",
+   "bytes": 549919,
+   "sha256": "4a60065fe036e983875594ffd117adc9f336bd9107fb232573a7859ab5e64d49",
+   "rows": 1041,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "4a60065fe036e983875594ffd117adc9f336bd9107fb232573a7859ab5e64d49",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "4a60065fe036e983875594ffd117adc9f336bd9107fb232573a7859ab5e64d49",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_outside.csv": {
+   "role": "holdout_separate",
+   "bytes": 3959,
+   "sha256": "56ae0ec35628d82a5b745dc52c85e7d1d9acfcbfe4bce4d4d59fa5be4b0f6791",
+   "rows": 23,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "56ae0ec35628d82a5b745dc52c85e7d1d9acfcbfe4bce4d4d59fa5be4b0f6791",
+     "equal": true
+    },
+    "HO 摘要 record_files": {
+     "sha256": "56ae0ec35628d82a5b745dc52c85e7d1d9acfcbfe4bce4d4d59fa5be4b0f6791",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_summary.json": {
+   "role": "holdout_separate",
+   "bytes": 559448,
+   "sha256": "c88a48d3e5a2400eb03d65684efdf0481588cb7009cdebd0fa12dbeab2bdcfbd",
+   "rows": null,
+   "refs": {
+    "HO_LOCK outputs_sha256": {
+     "sha256": "c88a48d3e5a2400eb03d65684efdf0481588cb7009cdebd0fa12dbeab2bdcfbd",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_LOCK.json": {
+   "role": "holdout_separate",
+   "bytes": 3013,
+   "sha256": "97d596b33752b8fac1dac6aabab15d5a1fe83cd29545a1c1ebfcad6e5eaa6ef0",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_events_SELHC.csv": {
+   "role": "phase0_extra（未列於登錄 outputs）",
+   "bytes": 786967,
+   "sha256": "d9f0712a4c522a12dc50516baf21e770963ac74d8a49dc12e9f1ba4e1afd31ea",
+   "rows": 2516,
+   "refs": {
+    "G0.json output_sha256": {
+     "sha256": "d9f0712a4c522a12dc50516baf21e770963ac74d8a49dc12e9f1ba4e1afd31ea",
+     "equal": true
+    }
+   },
+   "storage": "git gzip（本次補 commit，原檔不進版控，DEV-005）",
+   "gz": [
+    {
+     "path": "gz/tracks_t1_events_SELHC.csv.gz",
+     "bytes": 106650,
+     "sha256": "c32a2619ab4a153eed2e03ae9a975c048326348717dbdffb5fcedd4010a1e823"
+    }
+   ],
+   "gz_roundtrip_identical": true,
+   "restore": "cat gz/tracks_t1_events_SELHC.csv.gz | gunzip > tracks_t1_events_SELHC.csv"
+  },
+  "tracks_t1_events_limit_rule_diff.csv": {
+   "role": "phase0_extra（未列於登錄 outputs）",
+   "bytes": 92,
+   "sha256": "07bb0b8683e19feea9bcdcb10541fb99ac40ded5008364c619d457bd77131e5b",
+   "rows": 1,
+   "refs": {
+    "G0.json output_sha256": {
+     "sha256": "07bb0b8683e19feea9bcdcb10541fb99ac40ded5008364c619d457bd77131e5b",
+     "equal": true
+    }
+   },
+   "storage": "git 原檔（本次補 commit，DEV-005）"
+  },
+  "tracks_t1_G0_gate.json": {
+   "role": "phase0_extra（未列於登錄 outputs）",
+   "bytes": 5482,
+   "sha256": "013ca0ccb30cf96510ec0c010d266f06e3878f66a7f8d14239d44dea3d2439aa",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（先前已 commit）",
+   "committed_blob_sha256_equal_disk": true
+  },
+  "tracks_t1_HO_VERIFY.json": {
+   "role": "post_lock_audit",
+   "bytes": 9189,
+   "sha256": "a06e58395e9713cdaa5eb92589730276e48d9c6ca6c30f31e840dfb4ab1daec2",
+   "rows": null,
+   "refs": {},
+   "storage": "git 原檔（本次補 commit，DEV-005）"
+  }
+ },
+ "addendum_files": {
+  "addendum/tracks_t1_HO_ADDENDUM_summary.json": {
+   "bytes": 211741,
+   "sha256": "1abc3bf42e7c68220e659e99945553945776cd992dd7b52461a5f284e0d583d0"
+  },
+  "addendum/tracks_t1_HO_addendum_M0at20_picks.csv.gz": {
+   "bytes": 384763,
+   "sha256": "5f3d8d04cfc0f1835f32831f770cc5a92839c0d2c11136a6e2acc2f6cc31b640"
+  },
+  "addendum/tracks_t1_HO_addendum_M_extra_hits.csv.gz": {
+   "bytes": 24084,
+   "sha256": "cb24f2fa9314892ca95dddacec77f71103e53bdfbfc12117f266dade6a5a368f"
+  },
+  "addendum/tracks_t1_HO_addendum_M_extra_misses.csv.gz": {
+   "bytes": 216569,
+   "sha256": "15399c88199af6f71bc0034df24ed128e446a2c90725085699540e3f1729a1d6"
+  },
+  "addendum/tracks_t1_HO_addendum_composite_final_lists_hits.csv.gz": {
+   "bytes": 13558,
+   "sha256": "4ee0e051094b6a3f0c058b4460d0450c9e834a20bbaaa816a3ce63de3b67c516"
+  },
+  "addendum/tracks_t1_HO_addendum_composite_final_lists_misses.csv.gz": {
+   "bytes": 78736,
+   "sha256": "6ee0883e0d6c8571064197d72dee1c99cafac6ef16b21007104712b22ec16586"
+  },
+  "addendum/tracks_t1_HO_addendum_composite_final_lists_picks.csv.gz": {
+   "bytes": 385992,
+   "sha256": "d7468a92e05cd46a5548414a0b1ea6d916a150946d1b3cdc7d95935a3be118d1"
+  },
+  "addendum/tracks_t1_HO_addendum_composite_proxy_lists_hits.csv.gz": {
+   "bytes": 13728,
+   "sha256": "865b824b4f742c0adee64dff396def5450c13faf2f3bc799f19426766b845835"
+  },
+  "addendum/tracks_t1_HO_addendum_composite_proxy_lists_misses.csv.gz": {
+   "bytes": 78207,
+   "sha256": "4d8fa8afcffe082492b35da7904189fe6d0c5d0145fb71a32572b55b273a01f5"
+  },
+  "addendum/tracks_t1_HO_addendum_composite_proxy_lists_picks.csv.gz": {
+   "bytes": 373456,
+   "sha256": "ddc1bbc221f94a65fb2e51e28ee3183663c9a354c66642daa0eff267db2d7602"
+  },
+  "addendum/tracks_t1_HO_addendum_picks_annotation.csv.gz": {
+   "bytes": 502829,
+   "sha256": "8ff7ddfe4ea03571537fa3baf47c0ac166e3084db51c421dfc205408ee270704"
+  },
+  "addendum/tracks_t1_SELHC_ADDENDUM_summary.json": {
+   "bytes": 136780,
+   "sha256": "a7df42abe8987d7e28eef64f274b56a3e47c1818acb4c45a86a4545c607b63c2"
+  },
+  "addendum/tracks_t1_SELHC_addendum_M0at20_picks.csv.gz": {
+   "bytes": 464426,
+   "sha256": "9b90c544d8e959d65e42d115c25c5e05d0ebb7d1686607572f1d9e63e13c87a9"
+  },
+  "addendum/tracks_t1_SELHC_addendum_M_extra_hits.csv.gz": {
+   "bytes": 41618,
+   "sha256": "dbd01666f929b134416f4c8623fe290210d1d1111764abf130bf3dfbff66f639"
+  },
+  "addendum/tracks_t1_SELHC_addendum_M_extra_misses.csv.gz": {
+   "bytes": 442106,
+   "sha256": "9cfb35f3549c20194576670f2f9d7b62c81f0f249ee434cd0e2ee8d426f8b3b9"
+  },
+  "addendum/tracks_t1_SELHC_addendum_composite_final_lists_hits.csv.gz": {
+   "bytes": 20857,
+   "sha256": "c474ab7301414eb8a259d62fb18883ddcc6d4b60c1511677154d677ac3dcfbee"
+  },
+  "addendum/tracks_t1_SELHC_addendum_composite_final_lists_misses.csv.gz": {
+   "bytes": 161166,
+   "sha256": "937156426174180ad27bcdabbe2af6a513386bd4f552702bbd682851bcf6e98f"
+  },
+  "addendum/tracks_t1_SELHC_addendum_composite_final_lists_picks.csv.gz": {
+   "bytes": 457212,
+   "sha256": "8da8b1cdde15dae618ad2a51c4e92928a81826ca95e71fa9d9189e71864c57c0"
+  },
+  "addendum/tracks_t1_SELHC_addendum_composite_proxy_lists_hits.csv.gz": {
+   "bytes": 19081,
+   "sha256": "8a24dcd0259fdbd14ddc8bce87cbed0a10712e44165ee35ae07052385f8fd975"
+  },
+  "addendum/tracks_t1_SELHC_addendum_composite_proxy_lists_misses.csv.gz": {
+   "bytes": 162773,
+   "sha256": "8a1fca0ef0433192b757729e4993e30535abc735ae0ee3fd8e8d22acb48938f4"
+  },
+  "addendum/tracks_t1_SELHC_addendum_composite_proxy_lists_picks.csv.gz": {
+   "bytes": 451685,
+   "sha256": "66ffd88e82cd8ea401214566a2577de37c3c21bdb64f249b83e7da08629b0d3f"
+  },
+  "addendum/tracks_t1_SELHC_addendum_picks_annotation.csv.gz": {
+   "bytes": 732357,
+   "sha256": "be592907b85f52cb02f547c0cd67d49fdf3c782d820d51b5a831a8566f881a97"
+  }
+ },
+ "rules": {
+  "raw_commit_max_bytes": 500000,
+  "gzip": "gzip -9、mtime＝0（可重現）",
+  "shard_if_gz_bytes_over": 1000000,
+  "shard_restore": "分片依序串接後 gunzip 逐位還原（gzip 多成員串流）"
+ },
+ "all_refs_equal": true,
+ "to_git_add": [
+  "out/tracks_t1/gz/tracks_t1_HO_M_picks.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_HO_Mp_picks.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_M_misses.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_M_picks.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_Mp_picks.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_R_picks.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_S_picks.csv.gz",
+  "out/tracks_t1/gz/tracks_t1_events_SELHC.csv.gz",
+  "out/tracks_t1/tracks_t1_G0.json",
+  "out/tracks_t1/tracks_t1_HO_VERIFY.json",
+  "out/tracks_t1/tracks_t1_events_limit_rule_diff.csv",
+  "out/tracks_t1/tracks_t1_outside.csv"
+ ],
+ "note": "鎖後描述（2026-10-05 審查補遺）：不參與任何判定，不得用於重新選模·未扣成本·事後欄位以 m_ 標示·非投資建議"
+}
