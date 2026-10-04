@@ -35,7 +35,10 @@ def main():
     prev = np.vstack([np.full((1, N), np.nan), Cff[:-1]])
     lim = B.limit_up_price(B.round_tick(prev * F_day))
     U = B.official_limit_up(T, N)
-    if U is not None: lim = np.where(np.isfinite(U) & (U > 0) & (U < 9000), U, lim)   # 一字鎖／開盤即漲停也以官方漲停價判定
+    nolim = np.zeros((T, N), bool)                                                   # 官方 9995 佔位＝當日無漲跌幅限制（未設官方矩陣時全否）
+    if U is not None:                                                                # 一字鎖／開盤即漲停也以官方漲停價判定
+        has, nolim = B.official_limit_masks(U)
+        lim = np.where(nolim, np.inf, np.where(has, U, lim))                         # 無漲跌幅日沒有漲停價：不可能一字鎖／開盤即漲停
     oneword = LU & np.isfinite(O) & (O >= lim - 1e-9) & (L >= lim - 1e-9)          # 一字鎖：開低收都在漲停價
     open_lim = np.isfinite(O) & (O >= lim - 1e-9)                                   # 開盤即漲停（買不到）
 
@@ -62,6 +65,7 @@ def main():
                     bids, asks = v.get('bid') or [], v.get('ask') or []
                     bid = float(sum(x[1] or 0 for x in bids)); ask = float(sum(x[1] or 0 for x in asks))
                     bl = float(sum((x[1] or 0) for x in bids if x[0] and np.isfinite(lim[t, j]) and x[0] >= lim[t, j] - 1e-9))
+                    if nolim[t, j]: bl = np.nan                                      # 無漲跌幅日「漲停價委買」無定義——缺值，不填 0
                 BD['bd_has'][t, j] = 1; BD['bd_bid'][t, j] = bid; BD['bd_ask'][t, j] = ask; BD['bd_bidlim'][t, j] = bl
                 BD['bd_imb'][t, j] = bid / (bid + ask) if bid + ask > 0 else np.nan
                 BD['bd_q_v'][t, j] = bl / Vv[t, j] if np.isfinite(bl) and Vv[t, j] > 0 else np.nan

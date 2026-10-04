@@ -271,10 +271,11 @@ def official_limit_flags(P, M):
     """官方漲跌停判定（原始未還原價對官方漲跌停價）：LU 收盤＝漲停價、LD 收盤＝跌停價、TOUCH 盤中觸及漲停但未收在漲停、ONE 一字鎖漲停。"""
     C, H, O, L = P['C'], P['H'], P['O'], P['L']; U, Dn = M['LIMUP'], M['LIMDN']
     ok = np.isfinite(C) & np.isfinite(U) & (U > 0)
+    _, nolim = B.official_limit_masks(U)                    # 9995／0.01 佔位＝無漲跌幅：不算漲停／跌停／觸及（ok 不動，滾動計數照舊）
     eps = 1e-6
     with np.errstate(all='ignore'):
-        LU = ok & (C >= U - eps); LD = np.isfinite(C) & np.isfinite(Dn) & (Dn > 0) & (C <= Dn + eps)
-        TOUCH = ok & np.isfinite(H) & (H >= U - eps) & ~LU
+        LU = ok & (C >= U - eps) & ~nolim; LD = np.isfinite(C) & np.isfinite(Dn) & (Dn > 0) & (C <= Dn + eps) & ~nolim
+        TOUCH = ok & np.isfinite(H) & (H >= U - eps) & ~LU & ~nolim
         ONE = LU & np.isfinite(O) & np.isfinite(L) & (O >= U - eps) & (L >= U - eps)
     return dict(ok=ok, LU=LU, LD=LD, TOUCH=TOUCH, ONE=ONE)
 
@@ -375,7 +376,8 @@ def main():
     EV = B.build_events(P, A, F_day)
     F, cov = compute(dates, codes, P, A, EV)
     cells = cov['limit_check'].pop('_cells', [])
-    pd.DataFrame([dict(date=dates[t], code=codes[j], close=c, official_limit_up=u, official_lu=o, rule_lu=not o) for t, j, c, u, o in cells]).to_csv(
+    pd.DataFrame([dict(date=dates[t], code=codes[j], close=c, official_limit_up=u, official_lu=o, rule_lu=not o) for t, j, c, u, o in cells],
+                 columns=['date', 'code', 'close', 'official_limit_up', 'official_lu', 'rule_lu']).to_csv(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out', 'official_limit_disagree.csv'), index=False)
     print('官方檔數', {k: v for k, v in cov.items() if k not in ('coverage',)})
     print('特徵覆蓋（全格）', cov['coverage'])

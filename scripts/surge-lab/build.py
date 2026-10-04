@@ -86,6 +86,9 @@ def adjust(dates, codes, P, events):
 
 
 # ───────────────────────── 事件／標籤 ─────────────────────────
+NO_LIMIT_PLACEHOLDER = 9995.0   # 官方「無漲跌幅限制」佔位（新上市首五日等：漲停 9995／跌停 0.01）——不是價格
+
+
 def official_limit_up(T, N):
     """官方當日漲停價（T×N，上市 TWT84U、上櫃前一交易日 dailyQuotes「次日漲停價」）；環境變數 SURGE_OFFICIAL_LIMIT 指到
     official_limits.py 產生的 npz 才啟用（2026-10-04：官方判定與檔位推算 99.991% 一致，不一致處以官方為準）。"""
@@ -96,6 +99,15 @@ def official_limit_up(T, N):
     return U
 
 
+def official_limit_masks(U):
+    """官方漲停價矩陣 → (has, nolim)。has＝官方有給值（含佔位）；nolim＝9995 佔位＝當日無漲跌幅限制。
+    nolim 格一律判「不可能漲停」，不可退回檔位推算（2026-10-04 實測：退回推算會多出 51 格假漲停）；
+    真實高價股（U≥9000，如 5274／6515／2059）照官方價判定——舊版 U<9000 上限把 12 格真漲停判成否。"""
+    has = np.isfinite(U) & (U > 0)
+    nolim = has & (np.abs(U - NO_LIMIT_PLACEHOLDER) < 1e-6)
+    return has, nolim
+
+
 def build_events(P, A, F_day):
     C, Ca = P['C'], A['C']
     T, N = C.shape
@@ -104,9 +116,9 @@ def build_events(P, A, F_day):
     ref = round_tick(Cprev_raw * F_day)
     LU = (C >= limit_up_price(ref) - 1e-9) & np.isfinite(ref) & (ref > 0) & np.isfinite(C)
     U = official_limit_up(T, N)
-    if U is not None:                                                    # 官方有漲停價的格子以官方為準（含首五日無漲跌幅的 9995 佔位）
-        has = np.isfinite(U) & (U > 0)
-        LU = np.where(has, np.isfinite(C) & (C >= U - 1e-6) & (U < 9000), LU)
+    if U is not None:                                                    # 官方有漲停價的格子以官方為準；9995 佔位（無漲跌幅）判否
+        has, nolim = official_limit_masks(U)
+        LU = np.where(has, np.isfinite(C) & (C >= U - 1e-6) & ~nolim, LU)
     Caff = pd.DataFrame(Ca).ffill().values
     Caprev = np.vstack([np.full((1, N), np.nan), Caff[:-1]])
     with np.errstate(invalid='ignore', divide='ignore'):

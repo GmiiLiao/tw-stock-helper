@@ -76,8 +76,9 @@ def forward_meta(si, ji, A, P, F_day, T):
     meta['f_mindn5_vs_open'] = (lmin5[si, ji] / Oa[np.minimum(si + 1, T - 1), ji] - 1).astype(np.float32)
     Craw = P['C']; ref_t = B.round_tick(Craw[si, ji] * F_day[np.minimum(si + 1, T - 1), ji]); lim_t = B.limit_up_price(ref_t)
     U = B.official_limit_up(*Craw.shape)
-    if U is not None:
-        u1 = U[np.minimum(si + 1, T - 1), ji]; lim_t = np.where(np.isfinite(u1) & (u1 > 0) & (u1 < 9000), u1, lim_t)
+    if U is not None:                                    # 官方漲停價為準；9995 佔位＝無漲跌幅 ⇒ 不存在「開盤即鎖漲停」（lim＝∞）
+        u1 = U[np.minimum(si + 1, T - 1), ji]; has1, nol1 = B.official_limit_masks(u1)
+        lim_t = np.where(nol1, np.inf, np.where(has1, u1, lim_t))
     opn = P['O'][np.minimum(si + 1, T - 1), ji]
     meta['locked_open'] = (np.isfinite(opn) & (opn >= lim_t - 1e-9)).astype(np.int8)
     meta['close_raw'] = Craw[si, ji].astype(np.float32)
