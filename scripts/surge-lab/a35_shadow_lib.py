@@ -46,14 +46,16 @@ import pandas as pd                                            # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path: sys.path.insert(0, HERE)
 import build as B                                              # noqa: E402
+import surge_inputs as SI                                      # noqa: E402
 from a32_walkforward_gbdt import FastGBDT                      # noqa: E402
 
 SP = B.SP
-OUT = os.path.join(HERE, 'out')
+# 輸出目錄：預設本檔旁的 out/；協調器演練（--cache 複本＋--no-publish）以 SURGE_SHADOW_OUT 指到別處，正式 out/ 不會被演練的名單污染（2026-10-04 審查）
+OUT = os.environ.get('SURGE_SHADOW_OUT') or os.path.join(HERE, 'out')
 MODEL_DIR = os.path.join(SP, 'a35_models')
 X_PATH = os.path.join(SP, 'a32_walkforward_X.npy')
 META_PATH = os.path.join(SP, 'a32_walkforward_meta.npz')
-MATRIX_SIDECAR = os.path.join(SP, 'a32_walkforward_build.json')     # a32_walkforward_prep.py 寫：矩陣內容雜湊＋建置時的 revenue.json 雜湊
+MATRIX_SIDECAR = os.path.join(SP, 'a32_walkforward_build.json')     # a32_walkforward_prep.py 寫：矩陣內容雜湊＋建置時的輸入雜湊清單（surge_inputs）
 REVENUE_PATH = os.path.join(SP, 'revenue.json')
 META_JS = os.path.join(HERE, 'a35_shadow_meta.mjs')
 DAEMON_PLIST = os.path.expanduser('~/Library/LaunchAgents/com.gmii.twstock.ai-daemon.plist')
@@ -66,6 +68,7 @@ TRADING_MARK_RE = re.compile(r'開始交易|最後交易')   # 官方休市表�
 EXIT_MISSED, EXIT_NOT_READY, EXIT_INCONSISTENT, EXIT_CALENDAR = 4, 5, 6, 7
 
 SCHEMA = 'a35.shadow.v1'
+REBUILD_CMD = f'{SI.EXTRA_EXRIGHT_ENV}=1 python3 build_lu1.py && python3 a32_walkforward_prep.py'   # 重建訓練矩陣（含逐日補抓除權息＝與上線特徵一致）
 PARAMS = dict(n_trees=600, depth=4, lr=0.05, l2=20.0, colsample=0.5, subsample=0.8, min_child_h=3.0)
 NEG_FRAC = 0.15
 PURGE_DAYS = 3                 # 訓練列 s' ≤ 打分日 − 3 個交易日
@@ -96,9 +99,8 @@ def load_default_panel():
 def load_extra_exright() -> tuple:
     """a35_shadow_fetch.mjs 補抓的官方除權息（上市＋上櫃，.surge-cache/a35_shadow_exright_{日}.json）。回傳 (items[(日期,代號,factor)], cover[(日期,error,counts,twseOnly)])。
     研究快取的 exright_delta.json 只有上市（上櫃 2026-10-03 連不上），上櫃 09-30～10-02 的除權息要靠這裡補，否則該日除權息股的漲停判定會錯。"""
-    import glob
     items, cover = [], []
-    for p in sorted(glob.glob(f'{SP}/a35_shadow_exright_*.json')):
+    for p in SI.extra_exright_paths(SP):
         j = json.load(open(p)); cover.append((j.get('date'), j.get('error'), j.get('counts'), bool(j.get('twseOnly'))))
         items += [tuple(i) for i in j.get('items', [])]
     return items, cover
@@ -109,9 +111,7 @@ def build_ctx(dates=None, codes=None, P=None, with_features=True, extra_factor_i
     T, N = P['C'].shape
     events = B.load_factor_events(dates, codes)
     if isinstance(extra_factor_items, str): extra_factor_items = load_extra_exright()[0]
-    if extra_factor_items:                      # 掃描日的額外除權息（a35_shadow_fetch.mjs 產出）；同檔同日已存在者不重複
-        have = {(c, d) for (c, d, _s, _f) in events}
-        events = events + [(c, d, 'a35_extra', f) for (d, c, f) in extra_factor_items if f > 0 and (c, d) not in have]
+    events = SI.merge_extra_exright(events, extra_factor_items)   # 掃描日的額外除權息（a35_shadow_fetch.mjs 產出）；與 build_lu1 訓練端同一支
     A, F_day, _ = B.adjust(dates, codes, P, events)
     EV = B.build_events(P, A, F_day)
     x = Ctx()
@@ -217,7 +217,7 @@ def check_store(store: Store, cutoff_idx: int) -> None:
     last = int(store.s.max())
     if last < cutoff_idx:
         raise RuntimeError(f'訓練矩陣只到 s={store.dates[last]}，不足訓練截止日索引 {cutoff_idx}（{store.dates[cutoff_idx] if cutoff_idx < len(store.dates) else "?"}）。'
-                           f'請先刷新：python3 panel.py && python3 build_lu1.py && python3 a32_walkforward_prep.py（見 a35_shadow_RUNBOOK.md）')
+                           f'請先刷新：python3 panel.py && {REBUILD_CMD}（見 a35_shadow_RUNBOOK.md）')
 
 
 def train_rows(store: Store, cutoff_idx: int, seed: int, tag: str) -> tuple:
@@ -262,7 +262,7 @@ def fit_job(args: tuple) -> dict:
 
 
 def _model_path(cutoff_date: str, seed: int, sig: str, data_sig: str) -> str:
-    """模型快取鍵＝超參數＋截止日＋seed＋訓練列簽章（列與標籤）＋特徵資料簽章（矩陣內容＋revenue.json）。
+    """模型快取鍵＝超參數＋截止日＋seed＋訓練列簽章（列與標籤）＋特徵資料簽章（矩陣內容＋輸入清單 surge_inputs）。
     只用訓練列簽章時，矩陣或營收被重建後同截止日會誤用舊模型（2026-10-04 審查）；modelHash 仍只由 trainSig＋模型內容決定。"""
     ph = hashlib.sha256(json.dumps([PARAMS, NEG_FRAC, PURGE_DAYS], sort_keys=True).encode()).hexdigest()[:8]
     return os.path.join(MODEL_DIR, f'shadow_{cutoff_date}_s{seed}_{ph}_{sig[:12]}_d{data_sig[:12]}.pkl')
@@ -547,29 +547,38 @@ def read_json(path: str) -> dict:
         return None
 
 
-def matrix_consistency(sidecar: dict, mid: str, revenue_now: str) -> str:
-    """訓練矩陣與「現在上線特徵要讀的 revenue.json」是否同一版：
-    ok｜no-sidecar（舊版建置、沒有側檔）｜stale-sidecar（側檔記的不是目前這份矩陣）｜unknown-revenue（建置時沒記營收）｜revenue-changed。"""
+def inputs_now() -> dict:
+    """上線特徵現在要讀的輸入雜湊清單（build_ctx 一律併入逐日補抓除權息 ⇒ a35ExtraExright.enabled=True）。"""
+    return SI.input_manifest(SP, B.REPO, REVENUE_PATH, extra_exright=True)
+
+
+def matrix_consistency(sidecar: dict, mid: str, inputs: dict) -> str:
+    """訓練矩陣與「現在上線特徵要讀的輸入」是否同一版：
+    ok｜no-sidecar（舊版建置、沒有側檔）｜stale-sidecar（側檔記的不是目前這份矩陣）｜
+    research-env（dataset 建置時帶研究用環境變數）｜unknown-inputs（建置時沒記輸入清單，例如 v1 側檔）｜inputs-changed（任一輸入不同）。"""
     if not sidecar: return 'no-sidecar'
     if sidecar.get('buildId') != mid: return 'stale-sidecar'
-    if not sidecar.get('revenueSha256'): return 'unknown-revenue'
-    return 'ok' if sidecar['revenueSha256'] == revenue_now else 'revenue-changed'
+    if ((sidecar.get('dataset') or {}).get('env')): return 'research-env'
+    if not sidecar.get('inputs'): return 'unknown-inputs'
+    return 'inputs-changed' if SI.manifest_diff(sidecar['inputs'], inputs) else 'ok'
 
 
 def feature_data() -> dict:
-    """特徵資料簽章：模型快取鍵與凍結檔都記。sig＝sha256(矩陣內容雜湊＋目前 revenue.json 雜湊)。"""
-    mid, rev = matrix_id(), file_sha256(REVENUE_PATH)
+    """特徵資料簽章：模型快取鍵與凍結檔都記。sig＝sha256(矩陣內容雜湊＋上線輸入清單)；inputsDiff＝與矩陣建置時不同的輸入。"""
+    mid, inp = matrix_id(), inputs_now()
     sc = read_json(MATRIX_SIDECAR)
-    sig = hashlib.sha256(json.dumps({'matrix': mid, 'revenue': rev}, sort_keys=True).encode()).hexdigest()
-    return dict(sig=sig, matrixId=mid, revenueSha256=rev, matrixRevenueSha256=(sc or {}).get('revenueSha256'),
-                matrixBuilt=(sc or {}).get('generatedAt'), consistency=matrix_consistency(sc, mid, rev))
+    sig = hashlib.sha256(json.dumps({'matrix': mid, 'inputs': inp}, sort_keys=True).encode()).hexdigest()
+    built = (sc or {}).get('inputs')
+    return dict(sig=sig, matrixId=mid, revenueSha256=inp['revenue'], matrixRevenueSha256=(sc or {}).get('revenueSha256'),
+                matrixBuilt=(sc or {}).get('generatedAt'), consistency=matrix_consistency(sc, mid, inp), inputs=inp,
+                inputsDiff=SI.manifest_diff(built, inp) if built else None)
 
 
 def rebuild_reasons(meta_dates: list, max_s_idx: int, panel_dates: list, day: str, consistency: str) -> list:
     """訓練矩陣要不要重建（build_lu1.py → a32_walkforward_prep.py）。回傳理由清單（空＝不必）。
     · alignment：面板日期序列不是矩陣日期的延伸（中間補日／重排會讓 s 索引錯位）
     · rows：矩陣最晚的 s < 打分日索引 − PURGE_DAYS（訓練列不夠新）
-    · 其餘＝matrix_consistency 的非 ok 狀態（沒有側檔／側檔過期／營收版本不同）"""
+    · 其餘＝matrix_consistency 的非 ok 狀態（沒有側檔／側檔過期／研究環境建置／沒有輸入清單／任一輸入不同）"""
     if day not in panel_dates: raise ValueError(f'面板沒有 {day}')
     out = []
     n = len(meta_dates)

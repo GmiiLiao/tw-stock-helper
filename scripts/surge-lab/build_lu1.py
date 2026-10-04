@@ -11,25 +11,36 @@ s+1 日結構斷點（還原後仍跳動 >±10.5%，多為停牌復牌／未還�
   · 尾盤五檔（bookDepthArchive，2026-07-20 起、47 日）：x_bd_has（有無資料）、x_bd_bidlim（委買在漲停價的張數）、
     x_bd_bid/x_bd_ask（五檔委買／委賣總張）、x_bd_imb（委買÷(委買+委賣)）、x_bd_q_v（漲停委買張÷當日成交張）。
 """
-import gzip, json, os, hashlib, datetime
+import gzip, json, os, datetime
 import numpy as np, pandas as pd
 import build as B, build_v2 as V
+import surge_inputs as SI
 
 SHOCK = ('2025-04-07', '2025-04-10')
 
 
-def file_sha256(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for b in iter(lambda: f.read(1 << 24), b''): h.update(b)
-    return h.hexdigest()
+RESEARCH_ENV = ('SURGE_OFFICIAL_LIMIT', 'SURGE_REVENUE', 'SURGE_PIT_STRICT', 'SURGE_DATASET_SUFFIX')
 
 
-def write_build_sidecar(ds_path, rev_sha, dates):
-    """{dataset}.build.json：dataset 檔雜湊＋建置時讀的 revenue.json 雜湊（a32_walkforward_prep.py 核對 dataset 雜湊後轉記）。"""
-    side = dict(schema='dataset_lu1.build.v1', generatedAt=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(timespec='seconds'),
-                datasetSha256=file_sha256(ds_path), revenueSha256=rev_sha, panelFirst=str(dates[0]), panelLast=str(dates[-1]), panelDays=len(dates),
-                env={k: os.environ.get(k) for k in ('SURGE_OFFICIAL_LIMIT', 'SURGE_REVENUE', 'SURGE_PIT_STRICT', 'SURGE_DATASET_SUFFIX') if k in os.environ})
+def revenue_path():
+    """compute_features 實際讀的月營收檔：研究線 build.revenue_path()（吃 SURGE_REVENUE）合併後以它為準，合併前是 {SP}/revenue.json。"""
+    return B.revenue_path() if hasattr(B, 'revenue_path') else f'{B.SP}/revenue.json'
+
+
+def factor_events(dates, codes):
+    """還原係數事件：build.load_factor_events ＋（SURGE_SHADOW_EXTRA_EXRIGHT=1 時）逐日補抓的官方除權息 a35_shadow_exright_*。
+    開關只由起漲影子協調器設——研究 build 預設與 main 逐位相同（2026-10-04 審查：不可悄悄改變研究資料集）。"""
+    ev = B.load_factor_events(dates, codes)
+    return SI.merge_extra_exright(ev, SI.load_extra_exright_items(B.SP)) if SI.extra_exright_enabled() else ev
+
+
+def write_build_sidecar(ds_path, rev_path, inputs, dates):
+    """{dataset}.build.json：dataset 檔雜湊＋建置時所有輸入的雜湊清單（surge_inputs.input_manifest）＋研究用環境變數。
+    a32_walkforward_prep.py 核對 dataset 雜湊後轉記；起漲影子據此判斷訓練矩陣與上線特徵是否同一版。"""
+    side = dict(schema='dataset_lu1.build.v2', generatedAt=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(timespec='seconds'),
+                datasetSha256=SI.file_sha256(ds_path), revenuePath=os.path.relpath(rev_path, B.SP), revenueSha256=inputs['revenue'], inputs=inputs,
+                panelFirst=str(dates[0]), panelLast=str(dates[-1]), panelDays=len(dates),
+                env={k: os.environ.get(k) for k in RESEARCH_ENV if k in os.environ})
     path = ds_path[:-4] + '.build.json'
     tmp = f'{path}.tmp{os.getpid()}'
     with open(tmp, 'w', encoding='utf-8') as f: json.dump(side, f, ensure_ascii=False, indent=1, sort_keys=True)
@@ -37,9 +48,10 @@ def write_build_sidecar(ds_path, rev_sha, dates):
 
 
 def main():
-    rev_sha = file_sha256(f'{B.SP}/revenue.json')              # 建置時讀的營收版本（compute_features → revenue_matrices）
+    rev_path = revenue_path()
+    inputs = SI.input_manifest(B.SP, B.REPO, rev_path, SI.extra_exright_enabled())   # 建置前記下輸入版本（建置中被改寫也看得出來：側檔會對不上上線）
     dates, codes, P = B.load_panel(); T, N = P['C'].shape
-    A, F_day, _ = B.adjust(dates, codes, P, B.load_factor_events(dates, codes))
+    A, F_day, _ = B.adjust(dates, codes, P, factor_events(dates, codes))
     EV = B.build_events(P, A, F_day); LU = EV['LU']; brk = EV['brk']
     Ca, C, O, H, L, Vv = A['C'], P['C'], P['O'], P['H'], P['L'], P['V']
     vol20 = pd.DataFrame(Vv).rolling(20, min_periods=15).mean().values
@@ -112,7 +124,7 @@ def main():
     with open(tmp, 'wb') as fh:
         np.savez_compressed(fh, dates=d_arr, codes=np.array(codes), **{f'm_{k}': v for k, v in meta.items()}, **X)
     os.replace(tmp, out)
-    write_build_sidecar(out, rev_sha, dates)
+    write_build_sidecar(out, rev_path, inputs, dates)
     y, lu_s, buy = meta['y'], meta['lu_s'], meta['buy_lu']
     print(f'正例（隔日漲停）{int(y.sum()):,}（基準率 {y.mean() * 100:.2f}%）：其中前日已漲停（延續）{int((y & lu_s).sum()):,}、新起漲 {int((y & ~lu_s.astype(bool)).sum()):,}；'
           f'隔日開盤買得到的漲停 {int(buy.sum()):,}；前日已漲停者隔日續漲停率 {y[lu_s == 1].mean() * 100:.1f}%（開盤買得到 {buy[lu_s == 1].mean() * 100:.1f}%）')

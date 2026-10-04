@@ -7,8 +7,9 @@
   · 不含尾盤五檔 x_bd_*（2026-07-20 起才有）
 輸出：{SURGE_CACHE}/a32_walkforward_X.npy（float32，約 1.5M×124，memmap）與 a32_walkforward_meta.npz，
       ＋側檔 a32_walkforward_build.json（2026-10-04 起；起漲影子每日流程據此判斷「訓練矩陣與上線特徵是否同一版」）：
-      buildId＝X 檔案雜湊＋meta 內容雜湊（matrix_build_id；同資料重建得同一個 id）；revenueSha256＝build_lu1.py 建 dataset 時讀的 revenue.json 雜湊（取自 dataset 側檔，
-      且 dataset 檔的雜湊要對得上才採信；對不上或沒有側檔就記 null，不猜）。
+      buildId＝X 檔案雜湊＋meta 內容雜湊（matrix_build_id；同資料重建得同一個 id）；inputs／revenueSha256＝build_lu1.py 建 dataset 時的輸入雜湊清單
+      （surge_inputs.input_manifest：營收、除權息／減資、產業、市場別、逐日補抓除權息）——取自 dataset 側檔，且 dataset 檔的雜湊要對得上、
+      建置時沒有研究用環境變數才採信；否則記 null，不猜。
 快取目錄＝環境變數 SURGE_CACHE，否則本檔所在目錄的 .surge-cache（2026-10-04 前寫死後者）。
 寫入是原子的：先寫暫存檔再 os.replace——正在 memmap 讀舊矩陣的程序不會讀到半套。
 """
@@ -55,10 +56,19 @@ def matrix_build_id(x_path: str, meta_path: str) -> str:
     return hashlib.sha256((file_sha256(x_path) + npz_content_sha256(meta_path)).encode()).hexdigest()
 
 
+def dataset_sidecar_trusted(ds_sidecar: dict, ds_sha: str) -> bool:
+    """dataset 側檔描述的正是這份 dataset 檔（雜湊相符），且建置時沒有研究用環境變數（官方漲停價／營收版本／PIT 嚴格／後綴）。"""
+    return bool(ds_sidecar) and ds_sidecar.get('datasetSha256') == ds_sha and not ds_sidecar.get('env')
+
+
 def dataset_revenue_sha(ds_sidecar: dict, ds_sha: str) -> str:
-    """dataset 側檔記的 revenue.json 雜湊——只有側檔描述的正是這份 dataset 檔（雜湊相符）才採信，否則 None。"""
-    if not ds_sidecar or ds_sidecar.get('datasetSha256') != ds_sha: return None
-    return ds_sidecar.get('revenueSha256') or None
+    """dataset 側檔記的營收檔雜湊——側檔可信（dataset_sidecar_trusted）才採信，否則 None。"""
+    return (ds_sidecar.get('revenueSha256') or None) if dataset_sidecar_trusted(ds_sidecar, ds_sha) else None
+
+
+def dataset_inputs(ds_sidecar: dict, ds_sha: str) -> dict:
+    """dataset 側檔記的輸入雜湊清單——側檔可信才採信，否則 None（舊版 v1 側檔沒有清單也是 None）。"""
+    return (ds_sidecar.get('inputs') or None) if dataset_sidecar_trusted(ds_sidecar, ds_sha) else None
 
 
 def main() -> None:
@@ -108,10 +118,10 @@ def main() -> None:
     except (OSError, ValueError):
         pass
     max_s = int(s.max())
-    side = dict(schema='a32.walkforward.build.v1', generatedAt=datetime.datetime.now(TZ).isoformat(timespec='seconds'),
+    side = dict(schema='a32.walkforward.build.v2', generatedAt=datetime.datetime.now(TZ).isoformat(timespec='seconds'),
                 buildId=hashlib.sha256((x_sha + meta_sha).encode()).hexdigest(), xSha256=x_sha, metaContentSha256=meta_sha,
                 rows=int(n), features=len(names), maxS=str(dates[max_s]), maxSIdx=max_s, lastDate=str(dates[-1]),
-                datasetSha256=ds_sha, revenueSha256=dataset_revenue_sha(ds_side, ds_sha), dataset=ds_side)
+                datasetSha256=ds_sha, revenueSha256=dataset_revenue_sha(ds_side, ds_sha), inputs=dataset_inputs(ds_side, ds_sha), dataset=ds_side)
     tmp = f'{SIDECAR_OUT}.tmp{os.getpid()}'
     with open(tmp, 'w', encoding='utf-8') as f: json.dump(side, f, ensure_ascii=False, indent=1, sort_keys=True)
     os.replace(tmp, SIDECAR_OUT)

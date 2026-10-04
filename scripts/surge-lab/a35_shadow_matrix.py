@@ -4,8 +4,9 @@
 重建條件（任一成立，見 a35_shadow_lib.rebuild_reasons）：
   · 矩陣最晚的 s < 打分日索引 − 3（訓練列不夠新）
   · 面板日期序列不是矩陣日期的延伸（alignment）
-  · 沒有建置側檔／側檔記的不是目前這份矩陣／建置時的 revenue.json 與目前不同（訓練與上線特徵不一致）
-重建＝python3 build_lu1.py && python3 a32_walkforward_prep.py（同一個 SURGE_CACHE）。
+  · 沒有建置側檔／側檔記的不是目前這份矩陣／dataset 建置時帶研究用環境變數／側檔沒有輸入清單／任一輸入與上線不同
+    （surge_inputs.input_manifest：營收、exright-history、exright_delta、priceEvents、產業、市場別、逐日補抓除權息；訓練與上線特徵不一致）
+重建＝SURGE_SHADOW_EXTRA_EXRIGHT=1 python3 build_lu1.py && python3 a32_walkforward_prep.py（同一個 SURGE_CACHE；開關＝併入逐日補抓除權息，與上線一致）。
 """
 import os
 import sys

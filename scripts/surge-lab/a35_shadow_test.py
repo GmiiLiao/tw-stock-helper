@@ -175,18 +175,24 @@ def test_research_env_guard():
 
 
 def test_matrix_consistency_and_rebuild_reasons():
-    sc = {'buildId': 'm1', 'revenueSha256': 'r1'}
-    assert L.matrix_consistency(sc, 'm1', 'r1') == 'ok'
-    assert L.matrix_consistency(sc, 'm1', 'r2') == 'revenue-changed'
-    assert L.matrix_consistency(sc, 'm2', 'r1') == 'stale-sidecar'
-    assert L.matrix_consistency({'buildId': 'm1', 'revenueSha256': None}, 'm1', 'r1') == 'unknown-revenue'
-    assert L.matrix_consistency(None, 'm1', 'r1') == 'no-sidecar'
+    inp = {'revenue': 'r1', 'priceEvents': 'p1', 'a35ExtraExright': {'enabled': True, 'files': {'a35_shadow_exright_2026-10-02.json': 'e1'}}}
+    sc = {'buildId': 'm1', 'revenueSha256': 'r1', 'inputs': inp, 'dataset': {'env': {}}}
+    assert L.matrix_consistency(sc, 'm1', inp) == 'ok'
+    assert L.matrix_consistency(sc, 'm1', dict(inp, revenue='r2')) == 'inputs-changed'
+    assert L.matrix_consistency(sc, 'm1', dict(inp, priceEvents='p2')) == 'inputs-changed', '減資／面額變更事件變了也要判出來'
+    assert L.matrix_consistency(sc, 'm1', dict(inp, a35ExtraExright={'enabled': True, 'files': {}})) == 'inputs-changed'
+    assert L.matrix_consistency(dict(sc, inputs=dict(inp, a35ExtraExright={'enabled': False, 'files': {}})), 'm1', inp) == 'inputs-changed', \
+        '沒開 SURGE_SHADOW_EXTRA_EXRIGHT 建的矩陣 ≠ 上線'
+    assert L.matrix_consistency(sc, 'm2', inp) == 'stale-sidecar'
+    assert L.matrix_consistency(dict(sc, dataset={'env': {'SURGE_REVENUE': 'revenue_official.json'}}), 'm1', inp) == 'research-env'
+    assert L.matrix_consistency({'buildId': 'm1', 'revenueSha256': 'r1'}, 'm1', inp) == 'unknown-inputs', 'v1 側檔沒有輸入清單'
+    assert L.matrix_consistency(None, 'm1', inp) == 'no-sidecar'
     panel = ['2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07']
     meta = panel[:4]                                   # 矩陣建於 10-02，最晚 s＝10-01（idx 2）
     assert L.rebuild_reasons(meta, 2, panel, '2026-10-05', 'ok') == []          # 需要 s ≤ idx 1
     assert L.rebuild_reasons(meta, 2, panel, '2026-10-06', 'ok') == []          # 需要 s ≤ idx 2
     assert L.rebuild_reasons(meta, 2, panel, '2026-10-07', 'ok') == ['rows']    # 需要 s ≤ idx 3
-    assert L.rebuild_reasons(meta, 2, panel, '2026-10-05', 'revenue-changed') == ['revenue-changed']
+    assert L.rebuild_reasons(meta, 2, panel, '2026-10-05', 'inputs-changed') == ['inputs-changed']
     assert L.rebuild_reasons(['2026-09-28'] + meta[1:], 2, panel, '2026-10-05', 'no-sidecar') == ['alignment', 'no-sidecar']
     try: L.rebuild_reasons(meta, 2, panel, '2026-10-08', 'ok'); raise AssertionError('面板沒有該日應丟錯')
     except ValueError: pass
@@ -208,6 +214,36 @@ def test_matrix_id_matches_prep_build_id():
     assert PREP.dataset_revenue_sha({'datasetSha256': 'ds', 'revenueSha256': 'rv'}, 'ds') == 'rv'
     assert PREP.dataset_revenue_sha({'datasetSha256': 'old', 'revenueSha256': 'rv'}, 'ds') is None
     assert PREP.dataset_revenue_sha(None, 'ds') is None
+    assert PREP.dataset_revenue_sha({'datasetSha256': 'ds', 'revenueSha256': 'rv', 'env': {'SURGE_PIT_STRICT': '1'}}, 'ds') is None, '研究環境建的 dataset 不採信'
+    assert PREP.dataset_inputs({'datasetSha256': 'ds', 'inputs': {'revenue': 'rv'}, 'env': {}}, 'ds') == {'revenue': 'rv'}
+    assert PREP.dataset_inputs({'datasetSha256': 'ds', 'inputs': {'revenue': 'rv'}, 'env': {'SURGE_REVENUE': 'x'}}, 'ds') is None
+    assert PREP.dataset_inputs({'datasetSha256': 'ds', 'revenueSha256': 'rv'}, 'ds') is None
+
+
+def test_input_manifest_and_extra_exright_merge():
+    """輸入清單：priceEvents 只雜湊 (代號, 日期, factor)、檔頭變動不算；逐日補抓除權息只有開關打開才列入；訓練／上線共用同一支合併。"""
+    import surge_inputs as SI
+    d = tempfile.mkdtemp(prefix='a35in_'); repo = tempfile.mkdtemp(prefix='a35repo_')
+    os.makedirs(os.path.join(repo, 'scripts/data'))
+    json.dump({'items': []}, open(os.path.join(repo, 'scripts/data/exright-history.json'), 'w'))
+    json.dump({'r': 1}, open(os.path.join(d, 'revenue.json'), 'w'))
+    pe = {'window': {'from': '2026-05-20', 'to': '2026-10-02'}, 'fetchedAt': 1, 'items': [{'code': '4806', 'date': '2026-10-02', 'factor': 1.43, 'name': 'x'}]}
+    json.dump(pe, open(os.path.join(d, 'priceEvents.json'), 'w'))
+    json.dump({'date': '2026-10-02', 'items': [['2026-10-02', '2330', 1.01], ['2026-10-02', '2330', 1.01], ['2026-10-02', '1101', 0]]},
+              open(os.path.join(d, 'a35_shadow_exright_2026-10-02.json'), 'w'))
+    m_on = SI.input_manifest(d, repo, os.path.join(d, 'revenue.json'), True)
+    m_off = SI.input_manifest(d, repo, os.path.join(d, 'revenue.json'), False)
+    assert m_on['a35ExtraExright']['files'] and not m_off['a35ExtraExright']['files'] and m_on['exrightDelta'] is None
+    assert SI.manifest_diff(m_off, m_on)[0] == 'a35ExtraExright.enabled'
+    json.dump(dict(pe, window={'from': '2026-05-21', 'to': '2026-10-05'}, fetchedAt=2), open(os.path.join(d, 'priceEvents.json'), 'w'))
+    assert SI.input_manifest(d, repo, os.path.join(d, 'revenue.json'), True) == m_on, '只有檔頭（window／fetchedAt）變不算輸入改變'
+    json.dump(dict(pe, items=pe['items'] + [{'code': '2330', 'date': '2026-06-01', 'factor': 2.0}]), open(os.path.join(d, 'priceEvents.json'), 'w'))
+    assert SI.manifest_diff(m_on, SI.input_manifest(d, repo, os.path.join(d, 'revenue.json'), True)) == ['priceEvents']
+    ev = [('1101', '2026-09-01', 'exright', 1.1)]
+    merged = SI.merge_extra_exright(ev, SI.load_extra_exright_items(d))
+    assert merged == ev + [('2330', '2026-10-02', 'a35_extra', 1.01)], merged          # 重複列只收一次、factor 0 不收、原表不變
+    assert ev == [('1101', '2026-09-01', 'exright', 1.1)]
+    assert SI.extra_exright_enabled({'SURGE_SHADOW_EXTRA_EXRIGHT': '1'}) and not SI.extra_exright_enabled({})
 
 
 def test_exright_coverage_statuses():

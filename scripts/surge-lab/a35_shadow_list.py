@@ -8,12 +8,12 @@
 輸出 out/shadow_{日}.json：產生時間（Asia/Taipei）、訓練截止日、模型雜湊、分市場／整體前 30（含分數與已漲停／一字鎖旗標）、
       站上同日已發佈 pred 前 30、當日兩市漲跌停／成交值上下文、整份 canonical JSON 的 sha256。
       另記資料依據（2026-10-04 每日自動化）：targetDayBasis（休市日曆來源）、dataBasis（打分日收盤歸檔的到齊狀態與是否含第三方補洞）、
-      revenueSha256（上線特徵讀的 revenue.json）、exrightCoverage（除權息涵蓋）、featureData（訓練矩陣與營收是否同一版）。
+      revenueSha256（上線特徵讀的 revenue.json）、exrightCoverage（除權息涵蓋）、featureData（訓練矩陣與上線輸入是否同一版：營收、除權息／減資、產業、市場別）。
 目標日＝休市日曆（Firestore system/tradingCalendar，退回本機官方鏡像休市表）推得的下一交易日；--target-day 與日曆不符就拒絕。
 時鐘閘：事前凍結（打分日＝面板最後一日）必須在目標日 09:00（台北）前寫成；來不及就寫 out/shadow_missed_{日}.json 並以結束碼 4 退出。
 協定細節見 a35_shadow_lib.py 檔頭與 a35_shadow_RUNBOOK.md。⚠ 影子模式：不改站上預測、不寫 Firestore。
 輸出檔已存在時拒絕覆蓋（凍結檔只寫一次），除非 --force 或 --out 另指新路徑。
-結束碼：0 寫入；4 錯過凍結時限（missed）；5 打分日資料未到齊；6 訓練矩陣與營收版本不一致；7 休市日曆問題；1 其他拒絕。
+結束碼：0 寫入；4 錯過凍結時限（missed）；5 打分日資料未到齊（收盤＋法人，或模型輸入：資券／借券／當沖）；6 訓練矩陣與上線輸入不一致；7 休市日曆問題；1 其他拒絕。
 """
 import os
 import sys
@@ -93,25 +93,29 @@ def main() -> int:
     L.log(f'當日收盤檔數 上市 {n_tse}、上櫃 {n_tpex}')
     if n_tpex < 500: return refuse(L.EXIT_NOT_READY, f'上櫃收盤只有 {n_tpex} 檔（< 500），疑似上櫃資料尚未到齊，拒絕凍結（見 TPEx 延遲問題）')
     basis = L.data_basis(day)
-    L.log(f'資料依據（快取 chipArchive/{day}）：' + (basis.get('error') or f'ready={basis.get("ready")} {basis.get("basis")} 缺 {basis.get("missing")}'))
+    L.log(f'資料依據（快取 chipArchive/{day}）：' + (basis.get('error') or f'ready={basis.get("ready")} {basis.get("basis")} 缺 {basis.get("missing")}；'
+                                                       f'模型輸入 {basis.get("inputsReady")} 缺 {basis.get("inputsMissing")} {basis.get("inputCounts")}'))
     if kind == 'frozen-forward' and not basis.get('ready'):
         return refuse(L.EXIT_NOT_READY, f'打分日 {day} 的收盤歸檔未到齊或無法判定（{basis.get("error") or basis.get("missing")}），拒絕凍結')
+    if kind == 'frozen-forward' and basis.get('inputsReady') is not True:
+        # 模型吃資券／借券／當沖（ML、MS、LEND、DT 共 11 欄）；這些 19:45～21:49 才進歸檔——缺了就凍結＝用殘缺資料定版（2026-10-04 審查）
+        return refuse(L.EXIT_NOT_READY, f'打分日 {day} 的模型輸入未到齊（{basis.get("inputsMissing")}），拒絕凍結')
 
     store = L.Store()
     L.check_alignment(store, x)
     fd = L.feature_data()
     L.log(f'特徵資料：矩陣 {fd["matrixId"][:12]}、revenue.json {fd["revenueSha256"][:12]}、一致性 {fd["consistency"]}')
-    if fd['consistency'] == 'revenue-changed':
-        return refuse(L.EXIT_INCONSISTENT, f'訓練矩陣建置時的 revenue.json（{(fd["matrixRevenueSha256"] or "")[:12]}）與目前（{fd["revenueSha256"][:12]}）不同——'
-                      '訓練與上線特徵會不一致，請先重建：python3 build_lu1.py && python3 a32_walkforward_prep.py')
+    if fd['consistency'] in ('inputs-changed', 'research-env'):
+        why = f'輸入不同：{"、".join(fd["inputsDiff"] or [])}' if fd['consistency'] == 'inputs-changed' else '矩陣建置時帶研究用環境變數'
+        return refuse(L.EXIT_INCONSISTENT, f'訓練矩陣與上線特徵不是同一版（{why}）——請先重建：{L.REBUILD_CMD}')
     if a.require_matrix_sidecar and fd['consistency'] != 'ok':
-        return refuse(L.EXIT_INCONSISTENT, f'訓練矩陣一致性 {fd["consistency"]}（--require-matrix-sidecar）：請先重建 build_lu1.py && a32_walkforward_prep.py')
+        return refuse(L.EXIT_INCONSISTENT, f'訓練矩陣一致性 {fd["consistency"]}（--require-matrix-sidecar）：請先重建 {L.REBUILD_CMD}')
     ens = L.train_ensemble(L.cutoff_index(x.dates, t), workers=a.workers, reuse=not a.no_reuse, store=store, data_sig=fd['sig'])
     fs = {} if a.no_firestore else L.site_from_firestore([day])
     if not a.no_firestore: L.log(f'Firestore 站上 pred-{day}：' + ('讀到' if fs.get(day) else '讀不到→退回 lu_scoreboard.json 快照'))
     extra = dict(targetDayBasis=target_basis, freezeDeadline=deadline.isoformat(), dataBasis=basis,
                  revenueSha256=fd['revenueSha256'], exrightCoverage=L.exright_coverage(x.dates, day),
-                 featureData={k: fd[k] for k in ('sig', 'matrixId', 'revenueSha256', 'matrixRevenueSha256', 'matrixBuilt', 'consistency')})
+                 featureData={k: fd[k] for k in ('sig', 'matrixId', 'revenueSha256', 'matrixRevenueSha256', 'matrixBuilt', 'consistency', 'inputs', 'inputsDiff')})
     obj = L.build_frozen(x, t, ens, store.names, kind=kind, fs=fs, target_day=target, command=cmd, extra=extra)
     if kind == 'frozen-forward' and not L.frozen_before_open(obj['generatedAt'], target):
         p = record_missed(day, target, 'clock-gate-after-training', cmd)
