@@ -56,6 +56,10 @@ export const DATED = [
   { id: 'mops_t21sc03', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,
     request: ctx => ({ url: `https://mopsov.twse.com.tw/nas/t21/${ctx.market}/t21sc03_${ctx.rocYear}_${ctx.month}_0.html` }),
     spec: { mustContain: ['{rocYear}年{month}月'], emptyRe: '查無|無資料', minLen: 5000 }, finalAfterDay: 11 },
+  // 外國公司（-KY）月營收在 _1 表，_0 只有本國公司（2026-10-04 漏網分析：73 檔 KY 測試期月營收 100% 缺值）
+  { id: 'mops_t21sc03_ky', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,  // 2026-10-04 實抓 115/8 上市＋上櫃 _1 表通過 spec、錯月會擋
+    request: ctx => ({ url: `https://mopsov.twse.com.tw/nas/t21/${ctx.market}/t21sc03_${ctx.rocYear}_${ctx.month}_1.html` }),
+    spec: { mustContain: ['{rocYear}年{month}月', '-KY'], emptyRe: '查無|無資料', minLen: 2000 }, finalAfterDay: 11 },
   { id: 'mops_t100sb02_1', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'utf-8', priority: 2, from: '2022-07-01', verified: true,
     request: post('https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1', 'encodeURIComponent=1&step=1&firstin=1&off=1&TYPEK={market}&year={rocYear}&month={month2}'),
     spec: { mustContain: ['公司代號'], emptyRe: '查無|無資料', minLen: 500 } },
