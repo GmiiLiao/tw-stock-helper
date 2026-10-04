@@ -1,0 +1,24 @@
+window,fold,date_s,event_day_t,code,name,market,track,failing_filters,hist_len,listing_src,m_c5,note
+HO,1,2023-08-09,2023-08-10,6236,中湛,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,258,official_prepanel,10.0,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,1,2023-08-25,2023-08-28,6212,理銘,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fH125|fN20,270,official_prepanel,2.388,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,1,2023-09-13,2023-09-14,1435,中福,TWSE,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,283,official_prepanel,37.647,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,1,2023-09-14,2023-09-15,3036,文曄,TWSE,NE_SUSP,fP10|fP5|fN20,284,official_prepanel,27.792,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,1,2023-09-27,2023-09-28,2429,銘旺科,TWSE,NE_SUSP,fP10|fP5|fV300|fV100|fN20,293,official_prepanel,11.57,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,2,2023-10-02,2023-10-03,2443,,TWSE,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,295,fallback_prepanel,-7.792,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,2,2023-10-11,2023-10-12,4806,桂田文創,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,300,official_prepanel,46.166,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,2,2023-11-24,2023-11-27,9103,美德醫療-DR,TWSE,NE_TDR,fP10,332,official_prepanel,26.565,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,2,2023-11-27,2023-11-28,4420,光明,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fH125|fN20,333,official_prepanel,26.728,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,3,2024-01-23,2024-01-24,8080,泰霖,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,373,official_prepanel,44.751,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,3,2024-02-20,2024-02-21,3191,雲嘉南,TPEx,NE_SUSP,fP10|fP5|fV300|fN20|fBF(前視·描述),386,official_prepanel,-2.179,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,3,2024-02-21,2024-02-22,2718,全心投控,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fN20,387,official_prepanel,8.0,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,3,2024-03-04,2024-03-05,3067,全域,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fN20,394,official_prepanel,16.718,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,4,2024-06-13,2024-06-14,9105,泰金寶-DR,TWSE,NE_TDR,fP10|fP5,463,official_prepanel,18.056,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,4,2024-06-24,2024-06-25,9136,巨騰-DR,TWSE,NE_TDR,fP10,470,official_prepanel,9.167,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,5,2024-07-04,2024-07-05,9105,泰金寶-DR,TWSE,NE_TDR,fP10,478,official_prepanel,17.32,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,5,2024-08-09,2024-08-12,6108,競國,TWSE,NE_SUSP,fP10|fP5|fN20,502,official_prepanel,10.0,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,5,2024-08-27,2024-08-28,6541,泰福-KY,TWSE,NE_SUSP,fP10|fP5|fV300|fN20,514,official_prepanel,9.538,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,5,2024-09-04,2024-09-05,4950,金耘國際,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,520,official_prepanel,39.344,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,5,2024-09-27,2024-09-30,6287,,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20,536,fallback_prepanel,-3.01,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,6,2024-10-18,2024-10-21,8249,菱光,TWSE,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20|fBF(前視·描述),548,official_prepanel,15.556,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,6,2024-11-18,2024-11-19,8101,華冠,TWSE,NE_SUSP,fP10|fP5|fV300|fV100|fVnan|fH125|fN20|fBF(前視·描述),568,official_prepanel,44.976,未扣成本·事後欄位以 m_ 標示·非投資建議
+HO,6,2024-12-17,2024-12-18,4131,浩泰,TPEx,NE_SUSP,fP10|fP5|fV300|fV100|fN20,589,official_prepanel,-1.372,未扣成本·事後欄位以 m_ 標示·非投資建議
