@@ -40,6 +40,15 @@ test('_0 解析：11 欄、<Td 大寫、千分位、負百分比；產業標題�
   assert.equal(rows[1].prev, 0); assert.equal(rows[1].last, 0);   // 金額欄官方寫 0 就是 0
 });
 
+test('名冊 t21Codes：列出全部 4 碼代號（含營收 0 的列）；出表日期 t21Gen 是台北時刻', () => {
+  assert.deepEqual(R.t21Codes(SII0), ['1101', '3718', '6785'], '6785 營收 0：parse 不收、名冊要有');
+  assert.deepEqual(R.t21Codes(SII1), ['4157', '9105'], '6 碼存託憑證不在名冊');
+  assert.equal(R.t21Gen(SII0), Date.parse('2026-10-04T12:00:18Z'));
+  assert.equal(R.t21Gen('<div>出表日期：115/9/12</div>'), Date.parse('2026-09-12T00:00:00+08:00'), '只有日期＝台北當日 00:00');
+  assert.equal(R.t21Gen('<div>沒有日期</div>'), null);
+  assert.equal(R.prevMonthId('2026-01'), '2025-12'); assert.equal(R.prevMonthId('2026-10'), '2026-09');
+});
+
 test('_1 解析：KY 名稱照留（含 *）、4 碼 DR 保留、6 碼存託憑證不收', () => {
   const rows = R.parseT21sc03(SII1);
   assert.deepEqual(rows.map(r => `${r.c}${r.n}`), ['4157太景*-KY', '9105泰金寶-DR']);
@@ -47,7 +56,7 @@ test('_1 解析：KY 名稱照留（含 *）、4 碼 DR 保留、6 碼存託憑�
 });
 
 test('回音：市場＋民國年＋月＋本國／外國都要相符；1 月與 11 月不互相誤配', () => {
-  assert.deepEqual(R.t21Echo(SII0), { market: 'sii', roc: 115, month: 8, kind: '0', kindMarket: 'sii' });
+  assert.deepEqual(R.t21Echo(SII0), { market: 'sii', roc: 115, month: 8, kind: '0', kindMarket: 'sii', gen: Date.parse('2026-10-04T20:00:18+08:00') });
   assert.equal(R.echoOk(SII0, 'sii', 115, 8, '0'), true);
   assert.equal(R.echoOk(SII1, 'sii', '115', '8', '1'), true);
   assert.equal(R.echoOk(OTC1, 'sii', 115, 8), false, '上櫃頁當成上市送進來要被拒');
@@ -110,7 +119,7 @@ test('rowsOf：陣列／物件皆可；沒有 rowsJson 回空；壞 JSON 丟錯'
 });
 
 const at = iso => Date.parse(iso);   // 以 UTC 寫時刻；台北＝+8
-test('定版看資料：次月 11 日起兩次成功抓取相隔 ≥3 日且筆數沒增加才定版', () => {
+test('穩定條件 revenueFinal：次月 11 日起兩次成功抓取相隔 ≥3 日且筆數沒增加（定版還要名冊完整，見 isMonthFinal）', () => {
   const id = '2026-08';
   assert.equal(R.nextMonthDay(id, 11), '2026-09-11');
   assert.equal(R.nextMonthDay('2026-12', 11), '2027-01-11', '跨年');
@@ -155,4 +164,56 @@ test('捏造的 0 修正：只在歸檔是 0 且官方該格留白時改 null，
   assert.equal(rows[1].yoy, 0, '官方是 10.64 不是留白：不動（數值差異不屬本修正）');
   assert.equal(rows[2].yoy, 0, '官方頁沒有這個代號：不動');
   assert.equal(arch[0].yoy, 0, '輸入未被改動');
+});
+
+test('fetchLog 觀測時刻以出表日期為準：09-14 抓到 09-10 產生的快取頁＝申報期內觀測；同一份頁（gen 相同）不重複記', () => {
+  const id = '2026-08'; const g = iso => Date.parse(iso);
+  let log = R.appendFetchLog([], { at: at('2026-09-14T07:00Z'), gen: g('2026-09-10T20:00+08:00'), n: 1900 }, { monthId: id });
+  log = R.appendFetchLog(log, { at: at('2026-09-17T07:00Z'), gen: g('2026-09-10T20:00+08:00'), n: 1900 }, { monthId: id });
+  assert.equal(log.length, 1, '同一份快取頁不是新觀測');
+  log = R.appendFetchLog(log, { at: at('2026-09-18T07:00Z'), gen: g('2026-09-12T08:00+08:00'), n: 1900 }, { monthId: id });
+  assert.equal(R.revenueFinal(id, log), false, '11 日後只有 09-12 一次觀測（抓取時鐘 09-14／09-18 不算）');
+  log = R.appendFetchLog(log, { at: at('2026-09-18T09:00Z'), gen: g('2026-09-15T08:00+08:00'), n: 1900 }, { monthId: id });
+  assert.equal(R.revenueFinal(id, log), true, '09-12 與 09-15 兩份頁');
+  assert.equal(R.obsTime({ at: 5, gen: null }), 5); assert.equal(R.obsTime({ at: 5, gen: 3 }), 3);
+});
+
+test('名冊比對：上月代號扣掉上月留存、本月 4 頁都沒有的才算缺；參照不可用回 null', () => {
+  const prev = { v: 2, bySrc: {}, retained: ['2867'], rowsJson: JSON.stringify(['1101', '2880', '2881', '2867', '4157'].map(c => ({ c }))) };
+  assert.deepEqual(R.missingVsPrev(prev, ['1101', '4157', '6785']), ['2880', '2881'], '2867 是上月自己的留存，不算');
+  assert.deepEqual(R.missingVsPrev(prev, new Set(['1101', '2880', '2881', '4157'])), []);
+  assert.equal(R.missingVsPrev(null, ['1101']), null, '沒有上月文件');
+  assert.equal(R.missingVsPrev({ n: 2, rowsJson: '[{"c":"1101"}]' }, []), null, '上月是 openapi 薄版（混未上市 _P）');
+  assert.equal(R.missingVsPrev({ v: 2, rowsJson: '{bad' }, []), null);
+  const v1 = { n: 2, bySrc: { 上市: 2 }, rowsJson: JSON.stringify([{ c: '1101' }, { c: '2880' }]) };
+  assert.deepEqual(R.missingVsPrev(v1, ['1101']), ['2880'], '舊版文件（有 bySrc、沒有 retained）全部代號當參照');
+  assert.deepEqual(R.missingSummary(['1', '2']), { n: 2, codes: ['1', '2'] }); assert.equal(R.missingSummary(null), null);
+  assert.equal(R.missingSummary(Array.from({ length: 100 }, (_, i) => String(i))).codes.length, 40);
+});
+
+test('定版三條件（審查實例）：09-11、09-12、09-14 都 1954 檔但金融 15 檔還沒上表 ⇒ 不定版；09-15 上表後 09-18 才定版', () => {
+  const id = '2026-08'; const fin = Array.from({ length: 15 }, (_, i) => String(2880 + i));
+  let log = [];
+  for (const d of ['2026-09-11', '2026-09-12', '2026-09-14']) log = R.appendFetchLog(log, { at: at(`${d}T07:00Z`), n: 1954 }, { monthId: id });
+  assert.equal(R.revenueFinal(id, log), true, '只看筆數穩定的話會定版（舊實作的漏洞）');
+  assert.equal(R.isMonthFinal(id, { allPages: true, missing: fin, fetchLog: log }), false, '名冊缺 15 檔');
+  log = R.appendFetchLog(log, { at: at('2026-09-15T07:00Z'), n: 1969 }, { monthId: id });
+  assert.equal(R.isMonthFinal(id, { allPages: true, missing: [], fetchLog: log }), false, '筆數剛增加');
+  log = R.appendFetchLog(log, { at: at('2026-09-18T07:00Z'), n: 1969 }, { monthId: id });
+  assert.equal(R.isMonthFinal(id, { allPages: true, missing: [], fetchLog: log }), true);
+  assert.equal(R.isMonthFinal(id, { allPages: true, missing: ['2867', '5371', '8183'], fetchLog: log }), true, '下市 ≤5 檔容許');
+  assert.equal(R.isMonthFinal(id, { allPages: true, missing: ['1', '2', '3', '4', '5', '6'], fetchLog: log }), false);
+  assert.equal(R.isMonthFinal(id, { allPages: true, missing: null, fetchLog: log }), false, '無參照＝無法證明完整');
+  assert.equal(R.isMonthFinal(id, { allPages: false, missing: [], fetchLog: log }), false);
+});
+
+test('既有列何時可覆蓋：已有申報期後觀測（fetchLog 或舊文件寫入時刻 ≥ 次月 11 日）⇒ 只補缺', () => {
+  const id = '2026-08';
+  assert.equal(R.hasSettledObservation(id, null), false);
+  assert.equal(R.hasSettledObservation(id, { fetchLog: [{ at: at('2026-09-08T07:00Z'), n: 900 }] }), false, '只有申報期內觀測');
+  assert.equal(R.hasSettledObservation(id, { fetchLog: [{ at: at('2026-09-12T07:00Z'), n: 1900 }] }), true);
+  assert.equal(R.hasSettledObservation(id, { fetchLog: [{ at: at('2026-09-14T07:00Z'), gen: at('2026-09-10T12:00Z'), n: 1900 }] }), false, '快取頁產生於申報期內');
+  assert.equal(R.hasSettledObservation(id, { n: 1832, at: at('2026-09-11T07:14Z') }), true, '舊文件 09-11 15:14 寫入');
+  assert.equal(R.hasSettledObservation(id, { n: 1688, at: at('2026-09-10T08:33Z') }), false);
+  assert.equal(R.hasSettledObservation('2023-08', { n: 1775, at: at('2026-08-10T12:14Z') }), true, '歷史月份');
 });

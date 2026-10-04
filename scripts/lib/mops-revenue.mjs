@@ -7,13 +7,23 @@
 //   （研究測試期 73 檔 KY 月營收 100% 缺）。兩表欄位完全相同（11 欄、單位千元），代號零重疊。
 // 為什麼要「依資料定版」：舊版以「既有 ≥1700 檔」當完整並永久略過 ⇒ 次月 10 日後才上表的晚申報者
 //   （金控／保險 2880~2892、5880、2816 等）在 2026-07、2026-08 永久漏掉 17~22 檔。
-//   現在定版只看資料：4 頁皆成功，且次月 11 日（含）起、相隔 ≥3 個日曆日的兩次成功抓取，合併筆數沒有增加。
+//   現在定版三個條件都要（isMonthFinal）：
+//   ① 4 頁皆成功；
+//   ② 名冊完整：上月文件的代號（扣掉上月自己的「留存」）在本月 4 頁名冊缺 ≤ MAX_MISSING_VS_PREV 檔
+//      ——晚申報者上月有申報，本月還沒上表就會在這裡被點名（2026-10-04 審查：只看「筆數沒增加」擋不住
+//      「11 日後隔幾天才整批上表」的金融業）；
+//   ③ 穩定：次月 11 日（含）起、相隔 ≥3 個日曆日的兩次觀測，合併筆數沒有增加。
+//   觀測時刻用頁面自報的「出表日期」（gen），不用抓取時鐘：MOPS 回的是快取頁（實測可舊 3 天以上）。
 
 export const REV_DOC_VERSION = 2;
 export const MAX_DOC_BYTES = 900_000;          // Firestore 單文件上限 1,048,487 bytes；留 15% 餘裕
 export const FETCH_LOG_MAX = 8;
 export const FINAL_AFTER_DAY = 11;             // 法定申報期限＝次月 10 日 ⇒ 11 日（含）起的觀測才算數
 export const FINAL_MIN_GAP_DAYS = 3;
+// 名冊比對容許的缺檔（下市／暫停）：2026-10-04 實測，08-10 寫入的上月文件對 10-04 產生的本月頁，
+//   8 週內下市 3 檔（2867、5371、8183）；晚申報的金融群一次 15~17 檔。5 介於兩者之間。
+export const MAX_MISSING_VS_PREV = 5;
+const MISSING_CODES_KEPT = 40;                 // 文件裡只留前 40 個缺檔代號給稽核看（筆數另記）
 
 /** 4 張表：市場 × 本國(_0)／外國(_1)。label 也是 bySrc 的鍵。 */
 export const T21_PAGES = Object.freeze([
@@ -24,6 +34,8 @@ export const T21_PAGES = Object.freeze([
 ]);
 export const RETAINED_LABEL = '留存';          // 既有文件有、本次各頁都沒出現的代號（只加不減，保留舊值）
 
+const pad2 = n => String(n).padStart(2, '0');
+
 /** 民國年、月份**不補零**（是 `_8_` 不是 `_08_`）。 */
 export function t21Url(mkt, roc, month, page) {
   return `https://mopsov.twse.com.tw/nas/t21/${mkt}/t21sc03_${roc}_${month}_${page}.html`;
@@ -33,23 +45,29 @@ const num = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); re
 // 增減 % 欄：官方表在「基期為 0」時留白 ⇒ 存 null，不可補 0（補 0 是捏造：會被當成「持平」）
 const pct = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? +n.toFixed(2) : null; };
 
+/** 頁面上每一列「≥8 欄、第 1 欄是 4 碼代號」的儲存格（表頭、產業標題、合計列、6 碼存託憑證都被這道濾掉）。 */
+function* t21CodeRows(html) {
+  for (const m of String(html ?? '').matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const tds = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+      .map(x => x[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
+    if (tds.length >= 8 && /^\d{4}$/.test(tds[0])) yield tds;
+  }
+}
+
 /**
  * 解析一張 t21sc03 表（已用 big5 解碼的 HTML）→ [{c,n,rev,prev,last,mom,yoy,cum}]（金額單位千元、% 兩位小數）。
  * 篩法沿用舊回補器（頁面有 68 個排版用巢狀 table，不能用第 N 個表定位）：≥8 欄、第 1 欄是 4 碼代號、當月營收 > 0。
- * 表頭、產業標題列、合計列都被「4 碼代號」這道濾掉；6 碼的存託憑證（912000）同樣不收（全站消費端只認 4 碼）。
+ * ⚠ 當月營收 ≤ 0 的列**照舊不收**——這包含官方公布的負營收（金控／證券評價損失，例 2881 2023-11 −8,994,147）
+ *   與 0 營收，不只是「新上市未公布」。是否改收要與研究端 revenue_official.py（同一條規則）一起改並記 EXPERIMENTS，
+ *   2026-10-04 審查列為另案。名冊比對不受這條影響（用 t21Codes，含這些列）。
  */
 export function parseT21sc03(html) {
   const out = [];
-  for (const m of String(html).matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
-    const tds = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
-      .map(x => x[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
-    if (tds.length < 8) continue;
-    const code = tds[0];
-    if (!/^\d{4}$/.test(code)) continue;
+  for (const tds of t21CodeRows(html)) {
     const rev = num(tds[2]);
-    if (rev <= 0) continue;                       // 無營收（新上市未公布）不佔位
+    if (rev <= 0) continue;                       // 見上方 ⚠：負值／0 營收不收（沿用舊行為）
     out.push({
-      c: code, n: tds[1],
+      c: tds[0], n: tds[1],
       rev: Math.round(rev),                       // 當月營收（千元）
       prev: Math.round(num(tds[3])),              // 上月營收
       last: Math.round(num(tds[4])),              // 去年當月營收
@@ -61,8 +79,19 @@ export function parseT21sc03(html) {
   return out;
 }
 
+/** 頁面列出的全部 4 碼代號（含當月營收 0／負值的列）——名冊比對用，與 parseT21sc03 的營收篩選無關。 */
+export function t21Codes(html) { return [...t21CodeRows(html)].map(tds => tds[0]); }
+
+/** 頁面自報的產生時刻「出表日期：115/10/04<!--20:00:18-->」→ epoch ms（台北時間）；只有日期記當日 00:00；認不得回 null。 */
+export function t21Gen(html) {
+  const m = String(html ?? '').match(/出表日期[：:]\s*(\d{2,3})\/(\d{1,2})\/(\d{1,2})\s*(?:<!--\s*(\d{1,2}):(\d{2}):(\d{2})\s*-->)?/);
+  if (!m) return null;
+  const t = Date.parse(`${+m[1] + 1911}-${pad2(m[2])}-${pad2(m[3])}T${pad2(m[4] ?? 0)}:${m[5] ?? '00'}:${m[6] ?? '00'}+08:00`);
+  return Number.isFinite(t) ? t : null;
+}
+
 /**
- * 頁面自報身分（回音）：標題「上市公司115年8月份」＋表尾「全部國內／國外上市公司合計」。
+ * 頁面自報身分（回音）：標題「上市公司115年8月份」＋表尾「全部國內／國外上市公司合計」＋產生時刻 gen。
  * 認不得標題回 null；表尾認不得時 kind／kindMarket 為 null。
  */
 export function t21Echo(html) {
@@ -74,6 +103,7 @@ export function t21Echo(html) {
     market: t[1] === '上市' ? 'sii' : 'otc', roc: +t[2], month: +t[3],
     kind: k ? (k[1] === '國內' ? '0' : '1') : null,
     kindMarket: k ? (k[2] === '上市' ? 'sii' : 'otc') : null,
+    gen: t21Gen(s),
   };
 }
 
@@ -100,7 +130,7 @@ export function combinePages(pages) {
 
 /**
  * 依代號聯集，**永不變薄**：舊列一律保留（順序不變）；新代號接在後面。
- * override=true：同代號以新值取代（daemon 重抓官方頁＝較新的官方值）；false：舊值不動（只補缺）。
+ * override=true：同代號以新值取代；false：舊值不動（只補缺）。何時可以 override 見 hasSettledObservation。
  * 回傳新陣列，不改動輸入。
  */
 export function mergeRows(oldRows, newRows, { override = false } = {}) {
@@ -144,7 +174,6 @@ export function isOpenapiDoc(doc) { return !!doc && doc.v == null && doc.bySrc =
 export function shouldSkipMonth(doc) { return !!doc && Number(doc.v) >= REV_DOC_VERSION && doc.final === true; }
 
 // ── 定版（看資料不看時鐘）───────────────────────────────────────────
-const pad2 = n => String(n).padStart(2, '0');
 /** 毫秒時戳 → 台北日曆日 YYYY-MM-DD。 */
 export function taipeiDay(ms) { return new Date(Number(ms) + 8 * 3600e3).toISOString().slice(0, 10); }
 /** 'YYYY-MM' 的次月第 day 日（YYYY-MM-DD）。 */
@@ -153,21 +182,30 @@ export function nextMonthDay(monthId, day) {
   const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1];
   return `${ny}-${pad2(nm)}-${pad2(day)}`;
 }
+/** 'YYYY-MM' 的上個月（名冊比對的參照月）。 */
+export function prevMonthId(monthId) {
+  const [y, m] = String(monthId).split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${pad2(m - 1)}`;
+}
 const dayDiff = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 864e5);
-const validEntry = e => e && Number.isFinite(Number(e.at)) && Number.isFinite(Number(e.n));
+/** 觀測時刻：頁面自報的產生時刻 gen 優先（MOPS 會回快取頁），沒有才用抓取時刻 at。 */
+export const obsTime = e => (e?.gen != null && Number.isFinite(Number(e.gen)) ? Number(e.gen) : Number(e?.at));
+const validEntry = e => e && Number.isFinite(obsTime(e)) && Number.isFinite(Number(e.n));
 
 /**
- * 記一次「4 頁皆成功」的觀測 {at(ms), n(合併後筆數), src}。
+ * 記一次「4 頁皆成功」的觀測 {at(抓取 ms), gen(4 頁中最早的產生時刻 ms), n(合併後筆數), src}。
+ * 同一個產生時刻（gen 相同＝同一份快取頁）不是新觀測 ⇒ 不記。
  * 同筆數的連續觀測只留該段的第一筆＋最新一筆（不跨過次月 11 日的界線），長度上限 max——
  * 定版只需要「該段在 11 日後的起點」與「最新一筆」，一天三輪的抓取不會把起點擠掉。
  */
 export function appendFetchLog(log, entry, { monthId, afterDay = FINAL_AFTER_DAY, max = FETCH_LOG_MAX } = {}) {
   const prev = (Array.isArray(log) ? log : []).filter(validEntry);
+  if (entry?.gen != null && prev.some(e => e.gen != null && Number(e.gen) === Number(entry.gen))) return prev;
   const th = monthId ? nextMonthDay(monthId, afterDay) : null;
-  const side = e => (th ? taipeiDay(e.at) >= th : true);
+  const side = e => (th ? taipeiDay(obsTime(e)) >= th : true);
   const k = prev.length;
-  // 比最新一筆還舊的觀測（例：daemon 已抓過之後才跑鏡像回補）⇒ 依時間插入，不做合併
-  if (k && Number(entry.at) < Number(prev[k - 1].at)) return [...prev, entry].sort((a, b) => a.at - b.at).slice(-max);
+  // 比最新一筆還舊的觀測（例：daemon 已抓過之後才跑鏡像回補）⇒ 依觀測時刻插入，不做合併
+  if (k && obsTime(entry) < obsTime(prev[k - 1])) return [...prev, entry].sort((a, b) => obsTime(a) - obsTime(b)).slice(-max);
   if (k >= 2 && prev[k - 1].n === entry.n && prev[k - 2].n === entry.n
     && side(prev[k - 2]) === side(entry) && side(prev[k - 1]) === side(entry)) {
     return [...prev.slice(0, -1), entry].slice(-max);
@@ -176,18 +214,54 @@ export function appendFetchLog(log, entry, { monthId, afterDay = FINAL_AFTER_DAY
 }
 
 /**
- * 月份是否已定版：次月 afterDay 日（含）起的成功觀測中，最新一筆的筆數已持續 ≥minGapDays 個日曆日沒有增加。
- * 只有一次觀測、或都在申報期內 ⇒ 未定版。
+ * 穩定條件：次月 afterDay 日（含）起的觀測中，最新一筆的筆數已持續 ≥minGapDays 個日曆日沒有增加（日期以觀測時刻 gen 優先）。
+ * 只有一次觀測、或都在申報期內 ⇒ false。這只是三個定版條件之一，定版一律走 isMonthFinal。
  */
 export function revenueFinal(monthId, fetchLog, { afterDay = FINAL_AFTER_DAY, minGapDays = FINAL_MIN_GAP_DAYS } = {}) {
   const th = nextMonthDay(monthId, afterDay);
   const obs = (Array.isArray(fetchLog) ? fetchLog : []).filter(validEntry)
-    .map(e => ({ at: Number(e.at), n: Number(e.n) })).filter(e => taipeiDay(e.at) >= th).sort((a, b) => a.at - b.at);
+    .map(e => ({ t: obsTime(e), n: Number(e.n) })).filter(e => taipeiDay(e.t) >= th).sort((a, b) => a.t - b.t);
   if (obs.length < 2) return false;
   const last = obs[obs.length - 1];
   let i = obs.length - 1;
   while (i > 0 && obs[i - 1].n === last.n) i--;
-  return dayDiff(taipeiDay(obs[i].at), taipeiDay(last.at)) >= minGapDays;
+  return dayDiff(taipeiDay(obs[i].t), taipeiDay(last.t)) >= minGapDays;
+}
+
+/**
+ * 名冊比對（資料完整性）：上月文件的代號——扣掉上月文件自己的「留存」（retained，當時頁面已沒有的舊代號）——
+ * 在本月各頁名冊（codes，t21Codes 的聯集）都找不到的 ⇒ 尚未申報或已下市，排序後回傳。
+ * 參照不可用（沒有上月文件、上月是 openapi 薄版、讀不懂）回 null ⇒ 完整性無法證明、不定版。
+ */
+export function missingVsPrev(prevDoc, codes) {
+  if (!prevDoc || isOpenapiDoc(prevDoc)) return null;
+  let rows;
+  try { rows = rowsOf(prevDoc); } catch { return null; }
+  if (!rows.length) return null;
+  const retained = new Set(Array.isArray(prevDoc.retained) ? prevDoc.retained.map(String) : []);
+  const have = new Set([...(codes || [])].map(String));
+  return [...new Set(rows.map(r => String(r.c)))].filter(c => !retained.has(c) && !have.has(c)).sort();
+}
+/** 寫進文件給稽核看的摘要：{n, codes(前 40)}；參照不可用為 null。 */
+export const missingSummary = missing => (Array.isArray(missing) ? { n: missing.length, codes: missing.slice(0, MISSING_CODES_KEPT) } : null);
+
+/** 定版：①4 頁皆成功 ②名冊完整（較上月缺 ≤ maxMissing）③穩定（revenueFinal）——三者皆成立。 */
+export function isMonthFinal(monthId, { allPages, missing, fetchLog }, { maxMissing = MAX_MISSING_VS_PREV, ...opts } = {}) {
+  return !!allPages && Array.isArray(missing) && missing.length <= maxMissing && revenueFinal(monthId, fetchLog, opts);
+}
+
+/**
+ * 是否已有「申報期後」的觀測（觀測時刻 ≥ 次月 11 日）：有的話既有列一律不動、只補缺——
+ * 事後更正的官方值不回寫歷史（研究以「次月 11 日可得」使用歸檔值，回寫＝前視；2026-10-04 審查實測 52 列金額被更正過）。
+ * 依據：fetchLog 的觀測時刻；沒有 fetchLog 的舊文件看寫入時刻 at。
+ */
+export function hasSettledObservation(monthId, doc, { afterDay = FINAL_AFTER_DAY } = {}) {
+  if (!doc) return false;
+  const th = nextMonthDay(monthId, afterDay);
+  const log = (Array.isArray(doc.fetchLog) ? doc.fetchLog : []).filter(validEntry);
+  if (log.length) return log.some(e => taipeiDay(obsTime(e)) >= th);
+  const at = Number(doc.at);
+  return Number.isFinite(at) && at > 0 && taipeiDay(at) >= th;
 }
 
 /**
