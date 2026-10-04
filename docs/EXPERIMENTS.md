@@ -450,3 +450,17 @@ n=48 20 日淨 +7.71%／中位 +3.09%／勝率 56.3%／10 日 +7.2%；含倍量�
 - 結論：價量／籌碼／財報類官方資料對「起漲日」排序已到頂；漏網主因是消息驅動（31%）、大型股（28%，2026 占比升到 37%）、冷門股首次發動（27%），要靠新資訊（MOPS 重大訊息時間戳、集保、期交所）而不是更多同類特徵。LU1 前 10 有 96% 是當日已漲停的延續股，開盤買得到只 19%。
 - PIT 稽核：截斷重算 55 個特徵 0 差異；官方漲停價日期對齊上市 99.86%／上櫃 99.40%。未扣成本；非投資建議。
 - 重跑前注意：`retrain_official.sh` 只用 `.surge-cache-L`；帶 `SURGE_OFFICIAL_LIMIT/SURGE_REVENUE/SURGE_PIT_STRICT` 跑 build 一定要 `SURGE_DATASET_SUFFIX=L`；`cv_official_robust` 會比對資料集／月營收／漲停價指紋，不符拒跑。
+
+## 2026-10-05 T1 連板起漲分軌研究（事前登錄 v2、HOLDOUT 只算一次）——**沒有任何清單達到可交易；只有 S 代理的同日 lift 時間外複製成功**
+
+- 報告 `docs/SURGE-TRACKS-T1-2026-10-05.md`；登錄 `scripts/surge-lab/tracks/REGISTRATION_t1_tracks.md`（JSON 正規化 sha256 `065a92c6…c3e3`）；偏差 `tracks/DEVIATIONS_t1_tracks.md` DEV-001～008；程式 `scripts/surge-lab/a36_tracks_*.py`；輸出 `scripts/surge-lab/out/tracks_t1/`。
+- 設計：每個 (s, 個股) 歸到 M／Mp／R（冷卻期再點火）／S（vol20 100～300）／W 其中一軌、各軌各自排名；預設勝者是代理或 M0，挑戰者要在 SELECTION（2025）配對 CI 勝出；2026 已污染只作方向閘；HOLDOUT 2023-08～2024-12（347 日，新模型只在 2024Q2～Q4 186 日判定）只算一次並鎖檔；Holm（H_Mp、H_R、H_S）。未扣成本。
+- 判定（HOLDOUT）：M-UNCHANGED（M0 前 10 lift 10.95）；**MP-REJECT**（c5 非劣性 p 0.185）；**R-WATCH-ONLY**（選定的 R1 在 HO-model 輸 R0 −0.645pp [−1.83, 0.54] ⇒ 退回 R0）；**S-KEEP-AS-SHADOW**（S0 atr14@5 對隨機 +1.11pp [0.62, 1.66]、lift 8.24、Holm 後 p 0.0015——登錄前已知會過，屬代理 lift 的時間外複製）；SFB-KEEP-AS-SHADOW（探索性）；DD-INCONCLUSIVE（+1.03% [−0.28, 2.24]）；W-WATCH-ONLY。
+- **負面結果**：
+  - 沒有任何清單的非處置選股 c5／c10 逐日平均 CI 下界 > 0（S0 c5 +0.10% [−0.79, 1.01]）；S 的超額 +0.19% [−0.47, 0.88] 只是「不顯著為負」。命中密度沒有轉成報酬。
+  - 新模型沒有增益：R1 HOLDOUT 確認失敗；S1、S2 在 SELECTION 就不合格；Mp1 c5 非劣性不成立。
+  - 等名額（M 前 10＋R0 前 5＋S0 前 5 對 M0 前 20）HOLDOUT +0.16pp [−0.13, 0.43]、SEL −0.04、HC −0.45，皆不顯著。
+  - S 容量很小：HOLDOUT 只有 39% 的選股單筆上限（1%×vol20）≥ 2 張。
+  - 處置漂移只有已污染的 2026 顯著。
+- 鎖後審查（17 項，全部屬實、判定不變）：補 commit 12 份未進版控的登錄產出（大檔 gzip）＋產出清單、HO 逐位重現補成產物（17 檔全同）、Holm 改用精確 p 重算（拒絕相同）、出場日無收盤的選股揭露與敏感度、`tradable_status` 只代表處置狀態、轉市場股與 999 哨兵值留給下一輪登錄；DEV-004 冒充試跑的 patch 未留存，「未讀 HO 標籤」無法驗證（最壞只會先看到 HO 各軌事件數）。
+- 重跑前注意：HOLDOUT 已用掉，不得再拿來選模；R0 對隨機 p 0.0065 只是描述（當初依登錄選了 R1）；W 在 HO 的正報酬不是登錄檢定、HC 方向相反，不得當依據；落選挑戰者沒有 HO 記錄（DEV-006）。下一步是 G1：S0 與 S_FB 進前向影子（觀察／研究榜、不可交易）、R0 與 W 只做灰底觀察，要使用者核可。
