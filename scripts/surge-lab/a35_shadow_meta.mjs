@@ -3,7 +3,9 @@
 //   calendar  → Firestore system/tradingCalendar（唯讀 get）：{ holidays, coverYear, official, adHoc, updatedAt }
 //               憑證只走環境變數 GOOGLE_APPLICATION_CREDENTIALS（由 a35_shadow_lib.calendar_from_firestore 帶入，不印出）。
 //   basis D   → 本機快取 chipArchive.json.gz 裡 D 那份文件的到齊狀態——與 daemon 定版閘門同一支 archiveDayStatus（scripts/lib/canonical-gate.mjs），
-//               另標上櫃收盤是否含第三方（Yahoo）補洞：{ date, found, ready, missing, basis, nonOfficialOtcClose, gapFixSource, otcPending, complete, nClose }
+//               另標上櫃收盤是否含第三方（Yahoo）補洞，以及模型輸入（資券／借券兩市、上市當沖；surge-shadow-daily.modelInputsStatus）是否已進歸檔：
+//               { date, found, ready, missing, basis, nonOfficialOtcClose, gapFixSource, otcPending, complete, nClose, inputsReady, inputsMissing, inputCounts }
+//               ready 只代表收盤＋法人（daemon 定版閘門）；事前凍結名單要 ready 且 inputsReady（2026-10-04 審查：資券／借券／當沖 19:45～21:49 才到）。
 //               快取目錄＝SURGE_CACHE，否則本檔所在目錄的 .surge-cache。
 // 用法：node a35_shadow_meta.mjs calendar｜node a35_shadow_meta.mjs basis 2026-10-02
 import { readFileSync } from 'node:fs';
@@ -11,6 +13,7 @@ import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { archiveDayStatus } from '../lib/canonical-gate.mjs';
+import { modelInputsStatus } from '../lib/surge-shadow-daily.mjs';
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SP = process.env.SURGE_CACHE || fileURLToPath(new URL('./.surge-cache/', import.meta.url));
@@ -29,14 +32,16 @@ async function calendar() {
 
 /** chipArchive 單日文件 → 到齊狀態（純函式；欄位缺就照實回 null，不補預設值） */
 export function basisOf(date, doc) {
-  if (!doc) return { date, found: false, ready: false, missing: ['文件不存在'], basis: null };
+  if (!doc) return { date, found: false, ready: false, missing: ['文件不存在'], basis: null, inputsReady: false, inputsMissing: ['文件不存在'], inputCounts: null };
   const st = archiveDayStatus(doc);
+  const mi = modelInputsStatus(doc);
   let nClose = null;
   try { nClose = doc.closeJson ? Object.keys(JSON.parse(doc.closeJson)).length : 0; } catch { nClose = null; }
   return {
     date, found: true, ready: st.ready, missing: st.missing, basis: st.basis,
     nonOfficialOtcClose: /yahoo/i.test(String(doc.gapFixSource || '')),
     gapFixSource: doc.gapFixSource ?? null, otcPending: doc.otcPending ?? null, complete: doc.complete ?? null, nClose,
+    inputsReady: mi.ready, inputsMissing: mi.missing, inputCounts: mi.counts,
   };
 }
 

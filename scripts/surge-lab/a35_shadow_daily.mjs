@@ -3,19 +3,25 @@
 // 起漲影子（a35 shadow）每日流程協調器（2026-10-04）：每個交易日在定版資料到齊後產生名單、下一交易日 09:00 前凍結、
 // 到期對答案、發佈到超級管理員後台——全自動。可重入、冪等：同一個時段重跑只會補做還沒做的步驟。
 //
-//   ① 鎖（mkdir，崩潰後由下一輪依 pid 回收）＋前置檢查（研究用環境變數、研究程序正在改寫共用快取就不跑）
-//   ② 唯讀 Firestore：休市日曆、最近幾份 chipArchive 的到齊狀態（canonical-gate.archiveDayStatus）、站上 pred 是否定版（canonicalAt）
-//      D＝到齊且 pred 已定版、還沒有名單的打分日；現在 ≥ 下一交易日 08:45 ⇒ 記為缺口（missed），不產生
+//   ① 鎖（mkdir，固定在本檔旁 .a35_shadow_daily.lock——與快取無關，排程與手動演練互斥；崩潰後由下一輪依 pid 回收）
+//      ＋前置檢查（研究用環境變數、研究程序正在改寫共用快取就不跑——被擋的時刻記入狀態檔，缺口原因會註明）
+//   ② 唯讀 Firestore：休市日曆、最近幾份 chipArchive 的到齊狀態（canonical-gate.archiveDayStatus）＋模型輸入（資券／借券兩市、上市當沖；
+//      surge-shadow-daily.modelInputsStatus）、站上 pred 是否定版（canonicalAt）
+//      D＝收盤＋法人到齊、pred 已定版、模型輸入到齊、還沒有名單的打分日；現在 ≥ 下一交易日 08:45 ⇒ 記為缺口（missed），不產生
+//      （資券／借券／當沖 19:45～21:49 才進歸檔 ⇒ 正常交易日最早 22:40 那一輪產生；2026-10-04 審查）
+//      整天沒有歸檔、之後的交易日已有歸檔 ⇒ 疑似臨時休市（suspectedClosures，與缺口分開；休市日曆補上後自動剔除）
 //   ③ fetch_cache（明確指定 SURGE_CACHE）→ panel.py → 除權息補抓（a35_shadow_fetch.mjs d --no-close）
-//   ④ 對答案：每份事前凍結名單，目標日收盤到齊且還沒對過 ⇒ a35_shadow_score.py（失敗不中止）
-//   ⑤ 訓練矩陣需要時重建（a35_shadow_matrix.py 判斷 → build_lu1.py → a32_walkforward_prep.py）
+//   ④ 對答案：每份事前凍結名單，有效目標日（以現在的休市日曆重算；臨時休市事後才進日曆）收盤到齊且還沒對過 ⇒ a35_shadow_score.py（失敗不中止）
+//   ⑤ 訓練矩陣需要時重建（a35_shadow_matrix.py 判斷 → SURGE_SHADOW_EXTRA_EXRIGHT=1 build_lu1.py → a32_walkforward_prep.py）
 //   ⑥ a35_shadow_list.py --day D --target-day 下一交易日（永不 --force）
 //   ⑦ a35_shadow_publish.mjs（永不 --allow-replace；out/ 沒變就不重寫）→ 若有 surge_lab_publish.mjs 則 --only mirror,pipeline
 //   ⑧ 狀態檔 out/a35_shadow_daily_status.json
 //
-// 用法：node scripts/surge-lab/a35_shadow_daily.mjs [--dry-run] [--now YYYY-MM-DDTHH:MM] [--out <out 目錄>]（後兩者僅限 dry-run） [--cache <快取目錄>]
-//   --dry-run：只讀 Firestore 與本機檔，印出這一輪會做什麼；不取鎖、不跑任何子程序、不寫任何檔。
-//   --no-publish：照常執行但不跑 publish／surge_lab_publish（本機演練：除了 Firestore 唯讀，不碰外部寫入）。
+// 用法：node scripts/surge-lab/a35_shadow_daily.mjs [--dry-run] [--now YYYY-MM-DDTHH:MM] [--out <out 目錄>] [--cache <快取目錄>] [--no-publish]
+//   --dry-run：只讀 Firestore 與本機檔，印出這一輪會做什麼；不取鎖、不跑任何子程序、不寫任何檔。--now 只限 dry-run。
+//   --no-publish：照常執行但不跑 publish／surge_lab_publish。
+//   --cache：正式執行時只能搭配 --no-publish（演練）；演練的輸出一律寫到 --out 或「<快取>-out-rehearsal」，絕不寫正式 out/
+//            （否則演練產生的事前凍結名單會被下一輪排程當成正式紀錄發佈；2026-10-04 審查）。子程序以 SURGE_SHADOW_OUT 接收輸出目錄。
 // 憑證：GOOGLE_APPLICATION_CREDENTIALS；沒有就從 daemon 的 launchd plist 讀路徑（不印出內容）。
 // 排程：scripts/surge-lab/launchd/com.gmii.twstock.surge-shadow.plist（安裝屬持久設定，需使用者核可）。
 // 影子模式：不取代、不修改站上漲停預測；寫入只有 surgeShadow/*（經 publish）。非投資建議。
@@ -27,16 +33,20 @@ import { homedir, hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { archiveDayStatus, archiveCloseReady } from '../lib/canonical-gate.mjs';
+import { archiveCloseReady } from '../lib/canonical-gate.mjs';
 import {
   envLeak, makeCalendar, isTradingDay, nextTradingDay, tradingDaysBetween, taipeiNow, deadlineOf, planDays, scorePlan,
-  exrightPlan, parsePs, foreignResearchProcs, lockVerdict, mergeMissed, addDaysIso, PIPELINE_START, LOOKBACK_DOCS,
+  exrightPlan, parsePs, foreignResearchProcs, lockVerdict, mergeMissed, addDaysIso, pruneNonTrading, effectiveTarget, PIPELINE_START, LOOKBACK_DOCS,
 } from '../lib/surge-shadow-daily.mjs';
+import { basisOf } from './a35_shadow_meta.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
-let OUT = join(HERE, 'out');                          // --out 只限 dry-run（正式執行時 python 端一律寫 HERE/out）
+const PROD_OUT = join(HERE, 'out');
+let OUT = PROD_OUT;                                   // 正式＝本檔旁 out/；dry-run 可 --out；演練（--cache＋--no-publish）強制改到別處
 let STATUS_PATH = join(OUT, 'a35_shadow_daily_status.json');
+const LOCK_DIR = join(HERE, '.a35_shadow_daily.lock'); // 固定位置（與 --cache 無關）：排程與手動演練互斥（gitignore）
+const MAX_BLOCKS = 50;
 const PY = '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3';   // 有 numpy／pandas；/usr/local/bin/python3（3.13）沒有
 const NODE = '/opt/homebrew/bin/node';
 const PLIST = join(homedir(), 'Library/LaunchAgents/com.gmii.twstock.ai-daemon.plist');
@@ -58,7 +68,7 @@ function writeJsonAtomic(path, obj) {
 }
 
 function parseArgs(argv) {
-  const a = { dryRun: false, now: null, cache: null, out: null, noPublish: false };
+  const a = { dryRun: false, now: null, cache: null, out: null, noPublish: false, rehearsal: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--dry-run') a.dryRun = true;
     else if (argv[i] === '--now') a.now = argv[++i];
@@ -67,7 +77,14 @@ function parseArgs(argv) {
     else if (argv[i] === '--no-publish') a.noPublish = true;
     else throw new Error(`未知參數：${argv[i]}`);
   }
-  if ((a.now || a.out) && !a.dryRun) throw new Error('--now／--out 只能搭配 --dry-run（正式執行一律用現在時刻與本檔旁的 out/）');
+  if (a.now && !a.dryRun) throw new Error('--now 只能搭配 --dry-run（正式執行一律用現在時刻）');
+  if (!a.dryRun && a.cache) {
+    if (!a.noPublish) throw new Error('--cache 正式執行只能搭配 --no-publish（演練）：別的快取產生的名單不可進正式 out/、更不可發佈');
+    a.rehearsal = true;
+    a.out = a.out || `${a.cache.replace(/\/+$/, '')}-out-rehearsal`;
+  }
+  if (!a.dryRun && a.out && !a.rehearsal) throw new Error('--out 只能搭配 --dry-run 或演練（--cache＋--no-publish）');
+  if (a.rehearsal && resolve(a.out) === PROD_OUT) throw new Error(`演練輸出不可指到正式 out/（${PROD_OUT}）`);
   if (a.now && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(a.now)) throw new Error('--now 格式 YYYY-MM-DDTHH:MM（台北時間）');
   return a;
 }
@@ -126,12 +143,9 @@ async function initDb(cred) {
   initializeApp({ credential: cert(JSON.parse(readFileSync(cred, 'utf8'))) });
   return getFirestore();
 }
-const STATUS_FIELDS = ['date', 'closeJson', 'instJson', 'otcPending', 'gapFixSource', 'complete'];
-const basisSummary = (date, doc) => {
-  if (!doc) return { date, found: false, ready: false, missing: ['文件不存在'], basis: null };
-  const st = archiveDayStatus(doc);
-  return { date, found: true, ready: st.ready, missing: st.missing, basis: st.basis, nonOfficialOtcClose: /yahoo/i.test(String(doc.gapFixSource || '')), gapFixSource: doc.gapFixSource ?? null, otcPending: doc.otcPending ?? null };
-};
+// 收盤＋法人（定版閘門）＋模型輸入（資券／借券／當沖）——與 a35_shadow_meta.basisOf（名單產生端讀本機快取）同一支判斷
+const STATUS_FIELDS = ['date', 'closeJson', 'instJson', 'otcPending', 'gapFixSource', 'complete', 'marginJson', 'lendingJson', 'dayTradeJson'];
+const basisSummary = (date, doc) => basisOf(date, doc);
 function mirrorHolidayRows() {
   try {
     const mf = readJson(join(MIRROR_HOLIDAY_DIR, '_manifest.json'));
@@ -140,7 +154,7 @@ function mirrorHolidayRows() {
 }
 
 /** 讀 Firestore 與本機 out/，算出這一輪的計畫（純讀取） */
-async function survey(db, nowTw, prevMissed) {
+async function survey(db, nowTw, prevMissed, blocks) {
   const calDoc = (await db.collection('system').doc('tradingCalendar').get()).data() || null;   // 唯讀
   const cal = makeCalendar(calDoc, mirrorHolidayRows());
   if (!cal) throw new Error('休市日曆讀不到（Firestore system/tradingCalendar 與本機鏡像皆無）');
@@ -159,21 +173,25 @@ async function survey(db, nowTw, prevMissed) {
     days.push({ ...b, canonical });
   }
   const missedBefore = new Set([...prevMissed.map(m => m.scoringDay), ...readdirSync(OUT).map(f => f.match(/^shadow_missed_(\d{4}-\d{2}-\d{2})\.json$/)?.[1]).filter(Boolean)]);
-  const plan = planDays({ days, cal, nowTw, hasList, missedBefore });
-  // 事前凍結名單與對答案
+  const plan = planDays({ days, cal, nowTw, hasList, missedBefore, blocks });
+  // 事前凍結名單與對答案：有效目標日＝以現在的休市日曆重算（颱風假等臨時休市封印時不在日曆；只看封印的 targetDay 會永遠等不到歸檔）
   const forward = readdirSync(OUT).filter(f => FROZEN_RE.test(f)).map(f => readJson(join(OUT, f))).filter(f => f?.kind === 'frozen-forward' && f.sha256);
   const scoreSha = new Map(forward.map(f => [f.scoringDay, readJson(join(OUT, `shadow_score_${f.scoringDay}.json`))?.frozenSha256 ?? null]));
+  const target = new Map(forward.map(f => [f.scoringDay, effectiveTarget(f, cal)]));
+  const targetOf = f => target.get(f.scoringDay);
   const closeReady = new Set();
   for (const f of forward) {
-    if (scoreSha.get(f.scoringDay) === f.sha256 || f.targetDay > today) continue;
-    const doc = docs.has(f.targetDay) ? docs.get(f.targetDay) : (await db.collection('chipArchive').doc(f.targetDay).get()).data();   // 唯讀
-    if (doc && archiveCloseReady(doc)) closeReady.add(f.targetDay);
+    const t = targetOf(f);
+    if (scoreSha.get(f.scoringDay) === f.sha256 || t > today) continue;
+    const doc = docs.has(t) ? docs.get(t) : (await db.collection('chipArchive').doc(t).get()).data();   // 唯讀
+    if (doc && archiveCloseReady(doc)) closeReady.add(t);
   }
-  const scores = scorePlan({ forward, scoreSha, closeReady });
+  const scores = scorePlan({ forward, scoreSha, closeReady, targetOf });
+  const targetShifts = forward.filter(f => targetOf(f) !== f.targetDay).map(f => ({ scoringDay: f.scoringDay, sealedTargetDay: f.targetDay, effectiveTargetDay: targetOf(f) }));
   const latest = days.at(-1) || null;
   let latestNext = null;
   try { latestNext = latest ? nextTradingDay(latest.date, cal) : null; } catch (e) { plan.errors.push({ date: latest?.date, error: e.message }); }
-  return { cal, plan, scores, days, latest, latestNext };
+  return { cal, plan, scores, days, latest, latestNext, targetShifts };
 }
 
 function exrightTodo(cal, upto, cache) {
@@ -251,11 +269,13 @@ async function produce(st, p, step) {
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (a.out) { OUT = a.out; STATUS_PATH = join(OUT, 'a35_shadow_daily_status.json'); }
+  if (a.rehearsal) { mkdirSync(OUT, { recursive: true }); log(`演練模式：快取 ${a.cache}、輸出 ${OUT}（不發佈；正式 out/ 不動）`); }
   const cache = a.cache || join(HERE, '.surge-cache');
   const nowTw = a.now || taipeiNow();
   const prev = readJson(STATUS_PATH) || {};
-  const st = { schema: 'a35.shadowDaily.v1', lastRunAt: new Date().toISOString(), nowTw, dryRun: a.dryRun, cache, D: null, nextTD: null, deadline: null,
-    plan: null, steps: [], produced: [], scored: [], missed: prev.missed || [], revenueSha256: null, dataBasis: null, lastPublish: prev.lastPublish || null };
+  const st = { schema: 'a35.shadowDaily.v1', lastRunAt: new Date().toISOString(), nowTw, dryRun: a.dryRun, rehearsal: a.rehearsal, cache, out: OUT, D: null, nextTD: null, deadline: null,
+    plan: null, steps: [], produced: [], scored: [], missed: prev.missed || [], suspectedClosures: prev.suspectedClosures || [], targetShifts: [],
+    preflightBlocks: prev.preflightBlocks || [], revenueSha256: null, dataBasis: null, lastPublish: prev.lastPublish || null };
   // ① 前置：研究用環境變數、SURGE_CACHE 指到別處、執行檔不在
   const leak = envLeak(process.env);
   if (process.env.SURGE_CACHE && resolve(process.env.SURGE_CACHE) !== cache) leak.push(`SURGE_CACHE=${process.env.SURGE_CACHE}`);
@@ -264,7 +284,7 @@ async function main() {
     console.error(`✖ 前置檢查失敗：${[leak.length && `研究用環境變數 ${leak.join(', ')}`, missingBin.length && `找不到 ${missingBin.join(', ')}`, !existsSync(cache) && `沒有快取目錄 ${cache}`, !existsSync(OUT) && `沒有 ${OUT}`].filter(Boolean).join('；')}`);
     return 2;
   }
-  const lockDir = join(cache, 'a35_shadow_daily.lock');
+  const lockDir = LOCK_DIR;
   if (!a.dryRun && !acquireLock(lockDir)) return 0;
   const onSignal = sig => { if (current) killGroup(current, 'SIGTERM'); if (!a.dryRun) releaseLock(lockDir); console.error(`收到 ${sig}，中止`); process.exit(143); };
   process.on('SIGTERM', onSignal); process.on('SIGINT', onSignal);
@@ -273,22 +293,26 @@ async function main() {
     if (foreign.length) {
       const msg = `研究程序正在使用共用快取，本輪不做：${foreign.map(f => `${f.pid} ${f.command.slice(0, 120)}`).join(' | ')}`;
       log(msg); st.steps.push({ name: 'preflight', ok: false, ms: 0, err: msg });
+      st.preflightBlocks = [...st.preflightBlocks, nowTw].slice(-MAX_BLOCKS);   // 之後若因此錯過期限，缺口原因會註明（planDays blocks）
       if (!a.dryRun) writeJsonAtomic(STATUS_PATH, st);
       return 0;
     }
     let cred, sv;
-    try { cred = credPath(); sv = await survey(await initDb(cred), nowTw, st.missed); } catch (e) {
+    try { cred = credPath(); sv = await survey(await initDb(cred), nowTw, st.missed, st.preflightBlocks); } catch (e) {
       const msg = `讀取 Firestore／日曆失敗：${String(e?.message || e).slice(0, 400)}`;
       console.error(`✖ ${msg}`); st.steps.push({ name: 'survey', ok: false, ms: 0, err: msg });
       if (!a.dryRun) writeJsonAtomic(STATUS_PATH, st);
       return 1;
     }
-    const { plan, scores, latest, latestNext } = sv;
-    st.missed = mergeMissed(st.missed, plan.missed.map(m => ({ ...m, recordedAt: new Date().toISOString() })));
-    st.plan = { produce: plan.produce, waiting: plan.waiting, done: plan.done, errors: plan.errors, newlyMissed: plan.missed, score: scores };
+    const { plan, scores, latest, latestNext, cal } = sv;
+    const at = new Date().toISOString();
+    st.missed = pruneNonTrading(mergeMissed(st.missed, plan.missed.map(m => ({ ...m, recordedAt: at }))), cal);   // 日曆補上的臨時休市不算缺口
+    st.suspectedClosures = pruneNonTrading(mergeMissed(st.suspectedClosures, plan.suspected.map(m => ({ ...m, recordedAt: at }))), cal);
+    st.targetShifts = sv.targetShifts;
+    st.plan = { produce: plan.produce, waiting: plan.waiting, done: plan.done, errors: plan.errors, newlyMissed: plan.missed, suspected: plan.suspected, score: scores };
     if (latest) { st.D = latest.date; st.nextTD = latestNext; st.deadline = latestNext ? deadlineOf(latestNext) : null; st.dataBasis = latest; }
     log(`現在 ${nowTw}（台北）；最近交易日 ${st.D ?? '—'}（到齊 ${latest?.ready ?? '—'}、${latest?.basis ?? ''}）→ 下一交易日 ${st.nextTD ?? '—'}，期限 ${st.deadline ?? '—'}`);
-    log(`計畫：產生 ${plan.produce.map(p => `${p.date}→${p.nextTD}`).join(', ') || '無'}｜等待 ${plan.waiting.map(w => `${w.date}（${w.why}）`).join(', ') || '無'}｜新缺口 ${plan.missed.map(m => `${m.scoringDay}（${m.reason}）`).join(', ') || '無'}｜對答案 ${scores.map(s => `${s.scoringDay}→${s.targetDay}`).join(', ') || '無'}｜已完成 ${plan.done.join(', ') || '無'}${plan.errors.length ? `｜錯誤 ${JSON.stringify(plan.errors)}` : ''}`);
+    log(`計畫：產生 ${plan.produce.map(p => `${p.date}→${p.nextTD}`).join(', ') || '無'}｜等待 ${plan.waiting.map(w => `${w.date}（${w.why}）`).join(', ') || '無'}｜新缺口 ${plan.missed.map(m => `${m.scoringDay}（${m.reason}）`).join(', ') || '無'}｜對答案 ${scores.map(s => `${s.scoringDay}→${s.targetDay}${s.targetDay !== s.sealedTargetDay ? `（封印 ${s.sealedTargetDay}）` : ''}`).join(', ') || '無'}｜已完成 ${plan.done.join(', ') || '無'}${plan.suspected.length ? `｜疑似臨時休市 ${plan.suspected.map(x => x.scoringDay).join(', ')}` : ''}${plan.errors.length ? `｜錯誤 ${JSON.stringify(plan.errors)}` : ''}`);
     if (a.dryRun) {
       const needData = plan.produce.length > 0 || scores.length > 0;
       const upto = [...plan.produce.map(p => p.date), ...scores.map(s => s.targetDay)].sort().at(-1);
@@ -297,7 +321,7 @@ async function main() {
         steps.push(`node fetch_cache.mjs ${cache}`, 'python3 panel.py');
         for (const d of exrightTodo(sv.cal, upto, cache)) steps.push(`node a35_shadow_fetch.mjs ${d} --no-close`);
         for (const s of scores) steps.push(`python3 a35_shadow_score.py out/shadow_${s.scoringDay}.json`);
-        for (const p of plan.produce) steps.push(`python3 a35_shadow_matrix.py --day ${p.date}（需要時 build_lu1.py → a32_walkforward_prep.py）`, `python3 a35_shadow_list.py --day ${p.date} --target-day ${p.nextTD} --workers 3 --require-matrix-sidecar`);
+        for (const p of plan.produce) steps.push(`python3 a35_shadow_matrix.py --day ${p.date}（需要時 SURGE_SHADOW_EXTRA_EXRIGHT=1 build_lu1.py → a32_walkforward_prep.py）`, `python3 a35_shadow_list.py --day ${p.date} --target-day ${p.nextTD} --workers 3 --require-matrix-sidecar`);
       }
       const fp = outFingerprint();
       steps.push(st.lastPublish?.ok && st.lastPublish.fingerprint === fp && !needData ? '（publish 略過：out/ 自上次發佈後沒有變動）' : 'node a35_shadow_publish.mjs');
@@ -305,7 +329,10 @@ async function main() {
       console.log(`--dry-run：這一輪會依序執行（不取鎖、不寫檔、不跑子程序）：\n${steps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`);
       return 0;
     }
-    const env = { ...process.env, SURGE_CACHE: cache, GOOGLE_APPLICATION_CREDENTIALS: cred, PATH: `${dirname(PY)}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` };
+    // SURGE_SHADOW_OUT：python 端（list／score／missed 檔）的輸出目錄＝本輪 OUT（演練不寫正式 out/）；
+    // SURGE_SHADOW_EXTRA_EXRIGHT=1：build_lu1 併入逐日補抓除權息（與上線特徵一致；研究 build 預設不開）
+    const env = { ...process.env, SURGE_CACHE: cache, SURGE_SHADOW_OUT: OUT, SURGE_SHADOW_EXTRA_EXRIGHT: '1', GOOGLE_APPLICATION_CREDENTIALS: cred,
+      PATH: `${dirname(PY)}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` };
     try { await execute(st, { env, cache, survey: sv, noPublish: a.noPublish }); } catch (e) {
       console.error('✖ 執行中斷：', e?.stack || e);
       st.steps.push({ name: 'execute', ok: false, ms: 0, err: String(e?.message || e).slice(0, 600) });
