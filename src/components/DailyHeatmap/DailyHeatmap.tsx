@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import styles from './DailyHeatmap.module.css';
 
@@ -11,14 +11,15 @@ import styles from './DailyHeatmap.module.css';
 interface Industry {
   key: string; n: number; ew: number | null; exMkt: number | null; med: number | null; z: number | null;
   upRatio: number | null; luN: number; capW: number | null; shape: string | null; singleStockDriven: boolean;
-  listable: boolean; heat: number | null; heatPct: number | null;
+  listable: boolean; heat: number | null; heatPct: number | null; members?: Member[];
 }
 interface Weighted { code: string; name: string; wPrev: number; wClose: number; ret: number; pts: number; sens1pctPts: number }
 interface Split { n: number; weight: number; pts: number; restPts: number; shareOfChange: number | null }
-interface Layer { key: string; tier: string; n: number; lowN: boolean; ew: number; exMkt: number; z: number | null; up: number; dn: number; luN: number }
+interface Member { code: string; name: string; ret: number | null; valM: number | null; flags: number; resonance: string | null }
+interface Layer { key: string; tier: string; n: number; lowN: boolean; ew: number; exMkt: number; z: number | null; up: number; dn: number; luN: number; members?: Member[] }
 interface Link { chains?: { name: string }[]; group?: { name: string } | null }
 interface BoardRow { code: string; name: string; industry: string | null; ret: number; valM: number | null; resonanceName: string; links: Link | null }
-interface WatchItem { list: string; key: string; trigger: { rule: string; values: Record<string, unknown> }; evidence: { level: string; caveat: string } }
+interface WatchItem { list: string; kind: 'group' | 'stock'; key: string; name?: string; ret?: number; reason?: string; trigger: { rule: string; values: Record<string, unknown> }; evidence: { level: string; caveat: string } }
 interface Doc {
   dataDate: string; canonicalAt: string; degraded?: string[];
   useRules: { disclaimer: string };
@@ -49,16 +50,68 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'wiki', label: 'wiki 連動' }, { id: 'watch', label: '次日觀察' },
 ];
 
+// 旗標位元（scripts/lib/daily-heatmap/compute.mjs flagsOf）：1 漲停、2 跌停、4 鎖死(一字)、32 除權息日、64 無漲跌幅限制
+const FLAG_TEXT: [number, string][] = [[1, '漲停'], [2, '跌停'], [4, '鎖死'], [32, '除權息'], [64, '無漲跌幅限制']];
+const flagText = (f: number) => FLAG_TEXT.filter(([b]) => f & b).map(([, t]) => t).join('・');
+const RES: Record<string, string> = { A: '族群共振', B: '產業共振', C: '個股獨行', D: '無緊密群連結' };
+
+/** 展開集合：點 ▸ 切換單列、全部展開／全部收合。 */
+function useOpenSet() {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  return {
+    has: (k: string) => open.has(k),
+    toggle: (k: string) => setOpen(o => { const n = new Set(o); if (!n.delete(k)) n.add(k); return n; }),
+    all: (keys: string[]) => setOpen(new Set(keys)),
+    none: () => setOpen(new Set()),
+  };
+}
+
+function BulkButtons({ keys, o }: { keys: string[]; o: ReturnType<typeof useOpenSet> }) {
+  return <div className={styles.bulk}><button type="button" onClick={() => o.all(keys)}>全部展開</button><button type="button" onClick={o.none}>全部收合</button></div>;
+}
+
+function Toggle({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return <button type="button" className={styles.toggle} aria-expanded={open} aria-label={open ? '收合' : '展開'} onClick={onClick}>{open ? '▾' : '▸'}</button>;
+}
+
+/** 成分個股：代號＋名稱，點「分析」進入該股詳細分析頁（navigateTo('stock')）。 */
+function MemberList({ members, showResonance }: { members?: Member[]; showResonance?: boolean }) {
+  const navigateTo = useAppStore(s => s.navigateTo);
+  if (!members || members.length === 0) return <p className={styles.note}>此資料日尚無成分個股明細（舊版定版檔）。</p>;
+  return (
+    <div className={styles.memberBox}>
+      <table className={styles.tbl}>
+        <thead><tr><th>個股</th><th>漲跌%</th><th>成交(百萬)</th><th>標記</th>{showResonance && <th>共振</th>}<th>詳細分析</th></tr></thead>
+        <tbody>{members.map(m => (
+          <tr key={m.code}>
+            <td><button className={styles.link} onClick={() => navigateTo('stock', m.code)}>{m.code} {m.name}</button></td>
+            <td className={tone(m.ret)}>{sg(m.ret)}</td><td>{m.valM?.toLocaleString() ?? '—'}</td><td>{flagText(m.flags) || '—'}</td>
+            {showResonance && <td>{m.resonance ? RES[m.resonance] : '—'}</td>}
+            <td><button className={styles.link} onClick={() => navigateTo('stock', m.code)}>分析 ›</button></td>
+          </tr>
+        ))}</tbody>
+      </table>
+      <p className={styles.note}>共 {members.length} 檔，依當日漲跌由高到低；漲跌幅以官方參考價計。</p>
+    </div>
+  );
+}
+
 function LayerTable({ title, rows, note }: { title: string; rows: Layer[]; note: string }) {
+  const o = useOpenSet();
   if (!rows.length) return null;
   return (
     <section className={styles.block}>
       <h3>{title} <span className={styles.tier}>{note}</span></h3>
+      <BulkButtons keys={rows.slice(0, 15).map(x => x.key)} o={o} />
       <table className={styles.tbl}>
-        <thead><tr><th>名稱</th><th>n</th><th>等權%</th><th>超額pp</th><th>z</th><th>漲/跌</th><th>漲停</th></tr></thead>
+        <thead><tr><th></th><th>名稱</th><th>n</th><th>等權%</th><th>超額pp</th><th>z</th><th>漲/跌</th><th>漲停</th></tr></thead>
         <tbody>{rows.slice(0, 15).map(x => (
-          <tr key={x.key}><td>{x.key}{x.lowN && <span className={styles.tier}> 僅觀察</span>}</td><td>{x.n}</td>
-            <td className={tone(x.ew)}>{sg(x.ew)}</td><td className={tone(x.exMkt)}>{sg(x.exMkt)}</td><td>{x.z ?? '—'}</td><td>{x.up}/{x.dn}</td><td>{x.luN}</td></tr>
+          <Fragment key={x.key}>
+            <tr><td><Toggle open={o.has(x.key)} onClick={() => o.toggle(x.key)} /></td>
+              <td>{x.key}{x.lowN && <span className={styles.tier}> 僅觀察</span>}</td><td>{x.n}</td>
+              <td className={tone(x.ew)}>{sg(x.ew)}</td><td className={tone(x.exMkt)}>{sg(x.exMkt)}</td><td>{x.z ?? '—'}</td><td>{x.up}/{x.dn}</td><td>{x.luN}</td></tr>
+            {o.has(x.key) && <tr className={styles.detailRow}><td colSpan={8}><MemberList members={x.members} showResonance />{(x.members?.length ?? 0) < x.n && x.members && <p className={styles.note}>成員 {x.n} 檔，此處列前 {x.members.length} 檔。</p>}</td></tr>}
+          </Fragment>
         ))}</tbody>
       </table>
     </section>
@@ -89,6 +142,7 @@ export default function DailyHeatmap() {
   const [state, setState] = useState<'loading' | 'ok' | 'empty' | 'error'>('loading');
   const [tab, setTab] = useState<Tab>('industry');
   const navigateTo = useAppStore(s => s.navigateTo);
+  const ind = useOpenSet();
 
   useEffect(() => {
     let live = true;
@@ -131,15 +185,20 @@ export default function DailyHeatmap() {
         <section className={styles.block}>
           <h3>官方產業別熱力 <span className={styles.tier}>官方</span></h3>
           <p className={styles.note}>heat＝0.5·Z(超額等權)＋0.5·Z(漲停占比)，僅 n≥8 排序。歷史統計約 40% 預測力來自今日漲停連板（買不到），僅供描述。</p>
+          <BulkButtons keys={d.industries.map(x => x.key)} o={ind} />
           <table className={styles.tbl}>
-            <thead><tr><th>產業</th><th>n</th><th>等權%</th><th>超額pp</th><th>中位%</th><th>z</th><th>上漲比</th><th>漲停</th><th>市值權%</th><th>形態</th><th>heat</th></tr></thead>
+            <thead><tr><th></th><th>產業</th><th>n</th><th>等權%</th><th>超額pp</th><th>中位%</th><th>z</th><th>上漲比</th><th>漲停</th><th>市值權%</th><th>形態</th><th>heat</th></tr></thead>
             <tbody>{d.industries.map(x => (
-              <tr key={x.key} className={x.listable ? '' : styles.dim}>
+              <Fragment key={x.key}>
+              <tr className={x.listable ? '' : styles.dim}>
+                <td><Toggle open={ind.has(x.key)} onClick={() => ind.toggle(x.key)} /></td>
                 <td>{x.key}{!x.listable && <span className={styles.tier}> n&lt;8</span>}</td><td>{x.n}</td>
                 <td className={tone(x.ew)}>{sg(x.ew)}</td><td className={tone(x.exMkt)}>{sg(x.exMkt)}</td><td className={tone(x.med)}>{sg(x.med)}</td>
                 <td>{x.z ?? '—'}</td><td>{x.upRatio ?? '—'}</td><td>{x.luN}</td><td className={tone(x.capW)}>{sg(x.capW)}</td>
                 <td>{x.shape ?? '—'}{x.singleStockDriven ? '・單檔帶動' : ''}</td><td>{x.heat ?? '—'}</td>
               </tr>
+              {ind.has(x.key) && <tr className={styles.detailRow}><td colSpan={12}><MemberList members={x.members} /></td></tr>}
+              </Fragment>
             ))}</tbody>
           </table>
           <p className={styles.note}>熱度前 5：{hot.slice(0, 5).map(x => `${x.key} ${sg(x.ew)}%`).join('、')}；後 5：{hot.slice(-5).reverse().map(x => `${x.key} ${sg(x.ew)}%`).join('、')}</p>
@@ -199,12 +258,24 @@ export default function DailyHeatmap() {
       {tab === 'watch' && (
         <section className={styles.block}>
           <h3>下一交易日觀察清單 <span className={styles.tier}>只描述，不計分</span></h3>
-          {([['continue', '延續候選（產業群）'], ['catchup', '落後補漲候選（先驗·未驗證）'], ['risk', '獨行大漲回吐風險']] as const).map(([k, name]) => (
+          {([
+            ['continue', '延續候選（產業群）', '今天明顯強於大盤、且普遍上漲的產業；歷史上隔天這類產業平均仍略強於大盤。'],
+            ['catchup', '落後補漲候選（先驗·未驗證）', '同一族群的同伴今天大漲，這檔卻沒跟上；是否補漲沒有可靠驗證，只列為觀察點。'],
+            ['risk', '獨行大漲回吐風險', '今天單獨大漲、但同族群沒有一起漲的個股；歷史上隔天多半小幅回吐。'],
+          ] as const).map(([k, name, what]) => (
             <div key={k}>
               <h4>{name}</h4>
+              <p className={styles.note}>{what}</p>
               {d.watch[k].length === 0 ? <p className={styles.note}>（無符合觸發條件者）</p> : (
                 <ul className={styles.list}>{d.watch[k].slice(0, 15).map(w => (
-                  <li key={`${k}${w.key}`}><b>{w.key}</b>　{w.trigger.rule}<br /><span className={styles.note}>{JSON.stringify(w.trigger.values)}｜{w.evidence.level}｜{w.evidence.caveat}</span></li>
+                  <li key={`${k}${w.key}`}>
+                    {w.kind === 'stock'
+                      ? <><button className={styles.link} onClick={() => navigateTo('stock', w.key)}><b>{w.key} {w.name ?? ''}</b></button>{w.ret != null && <span className={tone(w.ret)}>　{sg(w.ret)}%</span>}</>
+                      : <b>{w.key}</b>}
+                    <br />
+                    <span>{w.reason ?? w.trigger.rule}</span>
+                    <br /><span className={styles.note}>證據等級：{w.evidence.level}｜{w.evidence.caveat}</span>
+                  </li>
                 ))}</ul>
               )}
             </div>

@@ -66,7 +66,7 @@ export function renderMarkdown(p, meta = {}) {
     L.push('', `### ${name}`);
     const a = p.watch[k];
     if (!a.length) { L.push('（無符合觸發條件者）'); continue; }
-    for (const w of a.slice(0, 15)) L.push(`- **${w.key}**：${w.trigger.rule}｜${JSON.stringify(w.trigger.values)}｜證據：${w.evidence.level}｜${w.evidence.caveat}`);
+    for (const w of a.slice(0, 15)) L.push(`- **${w.key}${w.name ? ' ' + w.name : ''}**：${w.reason ?? w.trigger.rule}（證據：${w.evidence.level}；${w.evidence.caveat}）`);
   }
 
   L.push('', '## 7. 資料與口徑', '');

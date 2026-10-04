@@ -115,7 +115,7 @@ export default function MarketInsights() {
             <div style={title}>📅 事件日曆 <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>除權息·股東會·財報·FOMC</span></div>
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
               {cal.slice(0, 25).map((e, i) => (
-                <div key={`${e.date}-${e.type}-${e.code || i}`} onClick={() => e.code && navigateTo('stock', e.code)}
+                <div key={`${e.date}-${e.type}-${e.code || i}-${i}`} onClick={() => e.code && navigateTo('stock', e.code)}
                   style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--border-primary)', fontSize: 'calc(13px * var(--fz))', cursor: e.code ? 'pointer' : 'default' }}>
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 'calc(12.5px * var(--fz))', color: '#7dd3fc', flexShrink: 0 }}>{e.date.slice(5)}</span>
                   {/* ⚠ 這裡不能用 nowrap+ellipsis：事件標題是**整句話**不是短標籤，

@@ -34,6 +34,13 @@ export function rankMediaVerdicts(verdicts, { limit = 40 } = {}) {
       code, label: v.label, strength: v.strength ?? null, confidence: v.confidence ?? null, certainty: v.certainty ?? null,
       novelty: v.novelty ?? null, priced: v.priced ?? null, eventType: v.eventType ?? null,
       reason: v.reason ?? null, impactPath: v.impactPath ?? null, keyQuote: v.keyQuote ?? null,
+      // AI 判讀分析明細（收合區顯示）：原文引句與核對、AI 自我挑戰與修正、強度依據、未被原文支持的說法、讀了幾篇、判別通道
+      challenge: v.challenge ?? null, revision: v.revision ?? null, strengthBasis: v.strengthBasis ?? null,
+      quotes: Array.isArray(v.quotes) ? v.quotes.slice(0, 5).map(q => String(q).slice(0, 200)) : [],
+      quoteVerified: Number.isFinite(v.quoteVerified) ? v.quoteVerified : null, quoteFailed: Number.isFinite(v.quoteFailed) ? v.quoteFailed : null,
+      unsupported: Array.isArray(v.unsupported) ? v.unsupported.slice(0, 3).map(q => String(q).slice(0, 200)) : [],
+      basis: v.basis ?? null, articlesRead: Number.isFinite(v.n) ? v.n : null, pass: v.pass ?? null, verdictAt: Number.isFinite(v.at) ? v.at : null,
+      px: Number.isFinite(v.px) ? v.px : null, pxSrc: v.pxSrc ?? null,
       weight: r4(weight),
     });
   }
@@ -90,6 +97,7 @@ export function rankOfficial(items, { limit = 40 } = {}) {
     if (c.id === null) { unclassified++; continue; }
     if (c.weight === 0) { routine++; continue; }
     classified.push({ code: it.code, name: it.name, subject: String(it.subject || '').replace(/\s+/g, ' ').slice(0, 120), at: it.at ?? null,
+      body: it.body ? String(it.body).slice(0, 900) : null,
       type: c.id, typeLabel: c.label, dir: c.dir, weight: c.weight, basis: '主旨' });
   }
   classified.sort((a, b) => b.weight - a.weight || (b.at ?? 0) - (a.at ?? 0) || (a.code < b.code ? -1 : 1));

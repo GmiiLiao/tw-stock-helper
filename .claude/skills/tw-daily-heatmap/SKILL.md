@@ -56,7 +56,7 @@ node scripts/daily-heatmap.mjs --force               # 開盤前修補：舊檔�
 - 裁定：①熱力輸出**不進任何模型、不做畫面警示**（維持描述）；②做成站上**最後交易日報告頁**，掛在首頁（市場總覽）分頁「🌙 盤後報告」；③排程用獨立 LaunchAgent；④資料缺漏要補齊與校正；⑤08:30 未定版只寫 `_alerts`。
 - 發佈：`scripts/publish-daily-heatmap.mjs` 把定版寫到 Firestore `dailyHeatmap/latest`＋`/{資料日}`（不含緊湊陣列 `stocks`，Firestore 不允許巢狀陣列）；API `GET /api/twse/daily-heatmap`（`latestDoc('dailyHeatmap','daily')`）；`audit-data-sources.mjs` CONTRACTS 與 `backup-brain.mjs` DATED 已加。
 - 排程：`bash scripts/install-daily-heatmap-schedule.sh`（週一～五 22:30 起每 10 分鐘輪詢、週二～六 06:50 補班；入口 `scripts/daily-heatmap-run.mjs`）。缺資料時先呼叫官方鏡像 `retry --days 5` 補漏（鏡像自帶靜默窗／鎖／封鎖即停）再重試；補回歷史缺檔用 `node scripts/daily-heatmap.mjs --backfill N`（標 `rebuilt`、不動 latest）。
-- 頁面：`src/components/AfterMarket/`（分頁主機 `AfterMarketReport.tsx`；子分頁＝當晚消息／熱力·權值股／市場結構／籌碼／選股訊號／事件日曆，切到才掛載）。只放公開、盤後定版或收盤後穩定的資料；**不放**盤中即時、盤前、會員限定（盤中戰情區）、管理營運、使用者專屬資料。
+- 頁面：`src/components/AfterMarket/`（分頁主機 `AfterMarketReport.tsx`；子分頁＝當晚消息／熱力·權值股／事件與現貨，切到才掛載）。**只放「大盤總覽」與「每日新聞」沒有的收盤後資料**（2026-10-04 使用者：重疊太多）：已移除與大盤總覽重複的風向總覽、籌碼訊號、第四法人、大盤體質、法人連買、ETF 折溢價、借券、千張大戶、外資期貨、高當沖、事件日曆、盤後回顧，以及與每日新聞重複的要聞導讀。不放盤中即時、盤前、會員限定（盤中戰情區）、管理營運、使用者專屬資料。選股訊號分頁（選股掃描、RS、隔日沖、軋空、推薦成績、話題、波段）與「選股」頁重複，也已依建議移除。
 - 當晚消息排行（`GET /api/twse/after-market-news`、純函式 `scripts/lib/after-market-news.mjs`）：**媒體 M**（`newsVerdict`，AI 讀完內文）依「強度×信心×確定性×新穎×尚未反映」先驗權重排序；**官方 O**（`mopsNews` 收盤後公告）依 §4.1 事件基礎權重排序，類型只靠公告主旨比對（未讀內文），方向只有規則強制類才標；例行公告與未分類只計數。**O、M 分開排、分開算占比、不加總**；輸出叫 weight／share，不叫 score／signal；權重未經量測，頁面明標「顯示排序，非分數」。
 
 ## 6A. 對帳與校正（`node scripts/verify-daily-heatmap.mjs --days 60`，2026-10-04 結果）

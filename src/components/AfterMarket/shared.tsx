@@ -45,20 +45,35 @@ export function StockLink({ code, name }: { code: string; name?: string }) {
   return <button className={styles.link} onClick={() => navigateTo('stock', code)}>{code}{name && name !== code ? ` ${name}` : ''}</button>;
 }
 
-/** 卡片外框：標題、等級標籤、資料日、載入／空／錯誤狀態統一處理。state 非 ok 時不渲染 children。 */
-export function Card({ title, state, dataDate, dateLabel = '資料日', tier, note, children }: {
-  title: string; state: ApiState; dataDate?: string | null; dateLabel?: string; tier?: string; note?: string; children?: ReactNode;
+/** 卡片外框：標題、等級標籤、資料日、載入／空／錯誤狀態統一處理；標題列可點擊收合（預設展開，收合只隱藏內容、不重打 API）。 */
+export function Card({ title, state, dataDate, dateLabel = '資料日', tier, note, defaultOpen = true, wide = false, children }: {
+  title: string; state: ApiState; dataDate?: string | null; dateLabel?: string; tier?: string; note?: string; defaultOpen?: boolean; wide?: boolean; children?: ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className={styles.card}>
-      <h3>{title}{tier && <span className={styles.tier}>{tier}</span>}{dataDate && <span className={styles.date}>{dateLabel} {dataDate}</span>}</h3>
-      {state === 'loading' && <p className={styles.note}>載入中…</p>}
-      {state === 'error' && <p className={styles.note}>暫時讀取失敗，稍後再試（不影響其他區塊）。</p>}
-      {state === 'empty' && <p className={styles.note}>尚無資料（收盤後由系統整理，來源未提供時不補值）。</p>}
-      {state === 'ok' && children}
-      {state === 'ok' && note && <p className={styles.note}>{note}</p>}
+    <section className={`${styles.card} ${wide ? styles.wide : ''}`}>
+      <h3>
+        <button type="button" className={styles.fold} aria-expanded={open} onClick={() => setOpen(o => !o)}>
+          <span aria-hidden>{open ? '▾' : '▸'}</span> {title}
+        </button>
+        {tier && <span className={styles.tier}>{tier}</span>}{dataDate && <span className={styles.date}>{dateLabel} {dataDate}</span>}
+      </h3>
+      {open && (
+        <>
+          {state === 'loading' && <p className={styles.note}>載入中…</p>}
+          {state === 'error' && <p className={styles.note}>暫時讀取失敗，稍後再試（不影響其他區塊）。</p>}
+          {state === 'empty' && <p className={styles.note}>尚無資料（收盤後由系統整理，來源未提供時不補值）。</p>}
+          {state === 'ok' && children}
+          {state === 'ok' && note && <p className={styles.note}>{note}</p>}
+        </>
+      )}
     </section>
   );
+}
+
+/** 列內展開用的小區塊（標題＋內容）；詳情區統一版型。 */
+export function Detail({ title, children }: { title: string; children: ReactNode }) {
+  return <div className={styles.detail}><h4>{title}</h4>{children}</div>;
 }
 
 export { styles as amStyles };

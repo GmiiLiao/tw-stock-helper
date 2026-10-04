@@ -141,6 +141,10 @@ test('computeHeatmap：wiki 連動欄位（chains／group／families）不影響
   const core = o => JSON.stringify({ market: o.market, industries: o.industries, index: o.index, breadth: o.breadth, universe: o.universe });
   assert.equal(core(alt), core(base));
   assert.ok(alt.layers.chains.length > 0);
+  const ind = alt.industries.find(x => x.key === '水泥工業');
+  assert.equal(ind.members.length, ind.n);
+  assert.ok(ind.members.every((m, i, a) => i === 0 || a[i - 1].ret >= m.ret), '成分股依報酬由高到低');
+  assert.ok(ind.members.every(m => m.code && m.name && m.resonance === null));
 });
 
 test('evaluateGates：缺輸入、回聲日不符、殘差過大、上櫃殘缺都不定版', () => {

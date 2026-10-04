@@ -97,6 +97,12 @@ function marketStats(univ) {
   };
 }
 
+/** 成分股明細（頁面收合區用）：代號、名稱、報酬、成交值、旗標、共振標籤；依報酬由高到低。 */
+const memberRow = (s, lab) => ({
+  code: s.code, name: s.name, ret: r(s.ret), valM: s.val != null ? Math.round(s.val / 1e6) : null, flags: flagsOf(s), resonance: lab?.get(s.code) ?? null,
+});
+const membersOut = (arr, lab) => [...arr].sort((a, b) => b.ret - a.ret || (a.code < b.code ? -1 : 1)).map(s => memberRow(s, lab));
+
 const asMember = s => ({ code: s.code, ret: s.ret, val: s.val, cap: s.cap, lu: s.lu, ld: s.ld, lockU: s.lockU, inst: s.inst, close: s.close });
 
 /** wiki 連動層的分組鍵（段只收有位置的 上游/中游/下游）。 */
@@ -111,13 +117,13 @@ function bucket(map, key, item) { (map.get(key) || map.set(key, []).get(key)).pu
 
 const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
-function layerOut(map, tier, minN, mkt) {
+function layerOut(map, tier, minN, mkt, lab) {
   return [...map.entries()].filter(([, v]) => v.length >= minN).map(([key, v]) => {
     const g = groupStats(v.map(asMember), mkt);
     return {
       key, tier, n: g.n, lowN: g.n < MIN_SHOW, ew: r(g.ew), exMkt: r(g.exMkt), med: r(g.med), z: r(g.z, 1),
       up: g.up, dn: g.dn, luN: g.luN, capContribPp: r(g.capContribPp, 3),
-      codes: v.slice(0, 40).map(m => m.code),
+      members: membersOut(v, lab).slice(0, 60),
     };
   }).sort((a, b) => b.exMkt - a.exMkt || byKey(a, b));
 }
@@ -194,14 +200,15 @@ export function computeHeatmap(inp) {
   const indMap = new Map();
   let noIndustry = 0;
   for (const s of univ) { const k = indOf(s.code); if (k) bucket(indMap, k, s); else noIndustry++; }
-  const inds = [...indMap.entries()].map(([key, v]) => ({ key, g: groupStats(v.map(asMember), mkt) }));
+  const inds = [...indMap.entries()].map(([key, v]) => ({ key, g: groupStats(v.map(asMember), mkt), members: v }));
   const listable = inds.filter(x => x.g.n >= MIN_LIST);
   const zE = zscores(listable.map(x => x.g.exMkt)), zL = zscores(listable.map(x => x.g.luRatio));
   const heat = new Map(listable.map((x, i) => [x.key, 0.5 * zE[i] + 0.5 * zL[i]]));
   const heatSorted = [...heat.values()].sort((a, b) => a - b);
   const pct = h => r(heatSorted.filter(x => x <= h).length / heatSorted.length * 100, 0);
-  const industries = inds.filter(x => x.g.n >= MIN_SHOW).map(({ key, g }) => ({
+  const industries = inds.filter(x => x.g.n >= MIN_SHOW).map(({ key, g, members }) => ({
     ...roundGroup(g, { key, tier: '官方' }),
+    members: membersOut(members, null), // 核心不含共振標籤（共振依 wiki 連動層，不得影響核心數字）
     ok: true, listable: g.n >= MIN_LIST,
     heat: heat.has(key) ? r(heat.get(key), 2) : null, heatPct: heat.has(key) ? pct(heat.get(key)) : null,
   })).sort((a, b) => (b.heat ?? -99) - (a.heat ?? -99) || byKey(a, b));
@@ -213,8 +220,8 @@ export function computeHeatmap(inp) {
     for (const t of Object.keys(L)) for (const k of wk[t]) bucket(L[t], k, s);
   }
   const layers = {
-    chains: layerOut(L.chain, '站內整理', 3, mkt), segments: layerOut(L.seg, '站內整理', 3, mkt),
-    groups: layerOut(L.group, '站內推導', 3, mkt), families: layerOut(L.fam, 'AI待驗', 5, mkt),
+    chains: layerOut(L.chain, '站內整理', 3, mkt, lab), segments: layerOut(L.seg, '站內整理', 3, mkt, lab),
+    groups: layerOut(L.group, '站內推導', 3, mkt, lab), families: layerOut(L.fam, 'AI待驗', 5, mkt, lab),
   };
 
   // 指數貢獻（上市）
@@ -281,7 +288,10 @@ export function computeHeatmap(inp) {
   const top5 = industries.filter(x => x.listable).slice(0, 5)
     .filter(x => x.exMkt >= 1.0 && x.z >= 2)
     .map(x => watchItem('continue', 'group', x.key, `heat 前5 且 exMkt≥+1.0pp 且 z≥2`, { heat: x.heat, exMkt: x.exMkt, z: x.z, n: x.n, luRatio: x.luRatio },
-      { level: '實測（隔日群超額正向慣性，等權毛額、未扣成本）', caveat: '約 40% 來自今日已漲停連板（買不到）；非個股動能' }));
+      { level: '實測（隔日群超額正向慣性，等權毛額、未扣成本）', caveat: '約 40% 來自今日已漲停連板（買不到）；非個股動能' },
+      {
+        reason: `${x.key}今日等權 ${sgn(x.ew)}%，高出大盤 ${sgn(x.exMkt)}pp；${x.n} 檔中 ${Math.round((x.upRatio ?? 0) * 100)}% 上漲、漲停 ${x.luN} 檔${x.shape ? `，型態「${x.shape}」` : ''}。熱度居前 5 且統計上明顯強於大盤，列為次日持續觀察的族群。`,
+      }));
   const catchup = [];
   const risk = [];
   for (const s of liquid) {
@@ -289,9 +299,17 @@ export function computeHeatmap(inp) {
     const ex = s.ret - mkt.ew;
     const nb = neighborLeadGap(s, wiki, univ, mkt);
     if (nb && nb.mean >= 3 && ex <= 0.3) catchup.push(watchItem('catchup', 'stock', s.code, '同族(段/鏈/產品族)鄰居 LOO 超額≥+3pp 且自己≤+0.3pp、非漲跌停、成交≥1億', { nbMeanPp: r(nb.mean), exMktPp: r(ex), via: nb.via, n: nb.n },
-      { level: '先驗·未驗證', caveat: '2022–2023 年無效果、含 wiki 前視偏誤；AI 待驗層來源已標' }));
+      { level: '先驗·未驗證', caveat: '2022–2023 年無效果、含 wiki 前視偏誤；AI 待驗層來源已標' },
+      {
+        name: s.name, ret: r(s.ret),
+        reason: `${s.name}今日 ${sgn(s.ret)}%（${sgn(ex)}pp，相對大盤持平或偏弱），但${viaText(nb.via)}的 ${nb.n} 檔同伴平均高出大盤 ${sgn(nb.mean)}pp，本檔尚未跟上同族走勢；成交值 ≥1 億、未漲跌停，列為次日觀察是否補上。`,
+      }));
     if (ex >= 4 && lab.get(s.code) !== 'A') risk.push(watchItem('risk', 'stock', s.code, '超額≥+4pp、非漲停、非族群共振(B/C/D)', { exMktPp: r(ex), resonance: lab.get(s.code) },
-      { level: '實測（歷史多數日隔日超額 −0.1～−0.3pp，個別日變異遠大於此）', caveat: '2022–2026 逐年皆負但幅度小；描述統計非訊號' }));
+      { level: '實測（歷史多數日隔日超額 −0.1～−0.3pp，個別日變異遠大於此）', caveat: '2022–2026 逐年皆負但幅度小；描述統計非訊號' },
+      {
+        name: s.name, ret: r(s.ret),
+        reason: `${s.name}今日 ${sgn(s.ret)}%（高出大盤 ${sgn(ex)}pp、未漲停），${RES_WHY[lab.get(s.code)] ?? '與所屬族群未同步'}，屬個股獨行的大漲；歷史上這類個股隔日多半小幅回吐（平均約 0.1～0.3pp，個別日差異很大），列為次日留意追價風險。`,
+      }));
   }
   const cap = (a, f, n) => desc(a, f).slice(0, n);
   const watch = {
@@ -324,8 +342,18 @@ export function computeHeatmap(inp) {
   };
 }
 
-function watchItem(list, kind, key, rule, values, evidence) {
-  return { list, kind, key, trigger: { rule, values }, evidence, usedForScoring: false };
+const sgn = x => (x == null ? '—' : `${x > 0 ? '+' : ''}${(+x).toFixed(2)}`);
+const RES_WHY = { B: '只有產業層同向、緊密族群沒有跟著漲', C: '有緊密族群連結但同族同伴沒有同向上漲', D: '查不到緊密的族群連結（wiki 無連結不等於沒有關聯）' };
+const VIA_LABEL = { chain: '主題鏈', seg: '鏈內段', fam: '產品族（AI待驗）' };
+/** via 形如 'chain:矽晶圓'／'fam:晶圓代工（AI待驗）' → 「主題鏈「矽晶圓」」。 */
+function viaText(via) {
+  const i = String(via).indexOf(':');
+  const t = via.slice(0, i), k = via.slice(i + 1).replace('（AI待驗）', '');
+  return `${VIA_LABEL[t] ?? '族群'}「${k}」`;
+}
+
+function watchItem(list, kind, key, rule, values, evidence, extra = {}) {
+  return { list, kind, key, ...extra, trigger: { rule, values }, evidence, usedForScoring: false };
 }
 
 /** 同族(段/鏈/產品族)鄰居 LOO 超額均值（≥3 檔鄰居才算）；取最強者。 */

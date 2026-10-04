@@ -1,4 +1,4 @@
-.wrap { display: flex; flex-direction: column; gap: 16px; }
+.wrap { display: flex; flex-direction: column; gap: 18px; }
 .head h2 { margin: 0 0 6px; font-size: calc(1.25rem * var(--fz)); }
 .note { margin: 4px 0; font-size: calc(12.5px * var(--fz)); color: var(--text-muted); line-height: 1.7; }
 .warn { margin: 4px 0; font-size: calc(12.5px * var(--fz)); color: #f59f00; }
@@ -12,11 +12,11 @@
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .tabs button { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border-primary); background: var(--bg-elevated); color: var(--text-secondary); cursor: pointer; font-size: calc(13.5px * var(--fz)); }
 .tabs button.tabOn { border-color: var(--border-accent); color: var(--text-primary); font-weight: 700; }
-.block { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 14px; overflow-x: auto; }
+.block { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 16px 18px; overflow-x: auto; }
 .block h3 { margin: 0 0 8px; font-size: calc(1rem * var(--fz)); }
 .block h4 { margin: 12px 0 4px; font-size: calc(0.95rem * var(--fz)); }
 .tier { font-size: calc(11.5px * var(--fz)); font-weight: 500; color: var(--text-muted); border: 1px solid var(--border-primary); border-radius: 6px; padding: 1px 6px; margin-left: 4px; }
-.tbl { width: 100%; border-collapse: collapse; font-size: calc(13px * var(--fz)); margin: 8px 0; }
+.tbl { width: 100%; border-collapse: collapse; font-size: calc(13px * var(--fz)); margin: 8px 0; font-variant-numeric: tabular-nums; }
 .tbl th, .tbl td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--border-primary); white-space: nowrap; }
 .tbl th:first-child, .tbl td:first-child { text-align: left; }
 .tbl th { color: var(--text-muted); font-weight: 600; }
@@ -26,3 +26,19 @@
 .link { background: none; border: 0; padding: 0; color: #7dd3fc; cursor: pointer; font: inherit; }
 .list { margin: 0; padding-left: 18px; line-height: 1.8; font-size: calc(13px * var(--fz)); }
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+
+.toggle { background: none; border: 1px solid var(--border-primary); border-radius: 6px; color: var(--text-secondary); cursor: pointer; padding: 0 7px; font-size: calc(12px * var(--fz)); }
+.toggle:hover { border-color: var(--border-accent); }
+.bulk { display: flex; gap: 8px; margin: 4px 0 6px; }
+.bulk button { background: var(--bg-elevated); border: 1px solid var(--border-primary); border-radius: 8px; color: var(--text-secondary); cursor: pointer; padding: 3px 10px; font-size: calc(12.5px * var(--fz)); }
+.detailRow > td { text-align: left !important; white-space: normal !important; background: var(--bg-elevated); padding: 10px 14px !important; }
+.memberBox { max-height: 360px; overflow: auto; }
+
+.tbl th { white-space: normal; line-height: 1.3; font-size: calc(12px * var(--fz)); }
+.tbl tbody tr:nth-child(even):not(.detailRow) { background: rgba(255,255,255,0.018); }
+.tbl tbody tr:hover:not(.detailRow) { background: rgba(61,142,248,0.07); }
+.tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin; }
+.tabs button { flex: 0 0 auto; white-space: nowrap; border-radius: 999px; padding: 8px 16px; }
+.list li { margin-bottom: 8px; }
+.block h3 { padding-bottom: 8px; border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; }
+@media (max-width: 720px) { .block { padding: 12px; } .tbl th, .tbl td { padding: 6px 7px; } }
