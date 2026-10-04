@@ -178,8 +178,48 @@ def streak(cond):
         out[t] = run
     return pd.DataFrame(out, index=cond.index, columns=cond.columns)
 
+# ───────────────────────── 公告資料的可用日（PIT）─────────────────────────
+REVENUE_DEFAULT = 'revenue.json'
+
+
+def avail_index(d_arr, deadline):
+    """法定期限 deadline（YYYY-MM-DD）→ 第一個可用的面板索引：期限遇休市先順延到下一交易日（行政程序法 §48），
+    再取「其後」第一個交易日（期限當天申報者盤後才公告）。回傳 ≥ len(d_arr) 代表面板內不可用。
+    以交易日近似行政機關上班日：兩者不一致時（結算交割日、補班日）只會更晚、不會偷看。"""
+    return int(np.searchsorted(d_arr, deadline)) + 1
+
+
+def _next_month(month):
+    y, mo = int(month[:4]), int(month[5:7])
+    return (y + 1, 1) if mo == 12 else (y, mo + 1)
+
+
+def revenue_avail_index(d_arr, month):
+    """月營收 month（YYYY-MM）在面板中第一個可用的索引——build.revenue_matrices 與 official_features.revenue_traits 共用。
+    SURGE_PIT_STRICT=1：法定期限次月 10 日（遇休市順延）之後的第一個交易日；
+    未設（預設，影子與舊資料集逐位重現）：次月 11 日起第一個交易日——期限落在休市日時早一個交易日（2022-08～2026-06 有 19 個月）。"""
+    ny, nm = _next_month(month)
+    if os.environ.get('SURGE_PIT_STRICT') == '1':
+        return avail_index(d_arr, f'{ny:04d}-{nm:02d}-10')
+    return int(np.searchsorted(d_arr, f'{ny:04d}-{nm:02d}-11'))
+
+
+def revenue_path():
+    """月營收來源檔：預設 {SP}/revenue.json（Firestore revenueArchive 匯出，只有本國公司）；
+    SURGE_REVENUE=revenue_official.json 改用 revenue_official.py 由 MOPS 鏡像合併的版本（含 -KY、2022-06 起）。"""
+    name = os.environ.get('SURGE_REVENUE') or REVENUE_DEFAULT
+    path = name if os.path.isabs(name) else os.path.join(SP, name)
+    if not os.path.isfile(path): raise FileNotFoundError(f'月營收檔不存在：{path}（SURGE_REVENUE={name!r}）')
+    return path
+
+
+def load_revenue():
+    with open(revenue_path()) as f:
+        return json.load(f)
+
+
 def revenue_matrices(dates, codes):
-    rev = json.load(open(f'{SP}/revenue.json'))
+    rev = load_revenue()
     T, N = len(dates), len(codes)
     ci = {c: i for i, c in enumerate(codes)}
     yoy = np.full((T, N), np.nan); mom = np.full((T, N), np.nan); yoyp = np.full((T, N), np.nan); age = np.full((T, N), np.nan)
@@ -187,19 +227,11 @@ def revenue_matrices(dates, codes):
     months = sorted(rev.keys())
     prev_yoy = {}
     for mi, m in enumerate(months):
-        # 月營收法定公布期限＝次月 10 日；保守取次月 11 日起可用
-        y, mo = int(m[:4]), int(m[5:7])
-        ny, nm = (y + 1, 1) if mo == 12 else (y, mo + 1)
-        avail = f'{ny:04d}-{nm:02d}-11'
-        t0 = np.searchsorted(d_arr, avail)
+        # 月營收法定公布期限＝次月 10 日；可用日見 revenue_avail_index（預設次月 11 日起、SURGE_PIT_STRICT=1 期限順延後再隔一交易日）
+        t0 = revenue_avail_index(d_arr, m)
         if t0 >= T: continue
         # 到下一個月營收可用日為止
-        if mi + 1 < len(months):
-            y2, mo2 = int(months[mi + 1][:4]), int(months[mi + 1][5:7])
-            ny2, nm2 = (y2 + 1, 1) if mo2 == 12 else (y2, mo2 + 1)
-            t1 = np.searchsorted(d_arr, f'{ny2:04d}-{nm2:02d}-11')
-        else:
-            t1 = T
+        t1 = min(revenue_avail_index(d_arr, months[mi + 1]), T) if mi + 1 < len(months) else T
         rows = rev[m]['rows']
         for r in rows:
             j = ci.get(r['c'])
@@ -339,7 +371,7 @@ def compute_features(dates, codes, P, A, EV, elig_base):
     F['lend_chg20'] = ((LEND - LEND.shift(20)) / av20).values
     F['dt_ratio'] = (DT / V.replace(0, np.nan)).values
     F['dt_ratio20'] = (DT.rolling(20, min_periods=15).sum() / V.rolling(20, min_periods=15).sum().replace(0, np.nan)).values
-    # 營收（PIT：次月 11 日起可用）
+    # 營收（PIT：可用日見 revenue_avail_index；來源檔見 revenue_path）
     yoy, mom, yoyp = revenue_matrices(dates, codes)
     F['rev_yoy'] = yoy; F['rev_mom'] = mom; F['rev_yoy_acc'] = yoy - yoyp
     # 市場環境（s 當天，全市場同值）與橫斷面

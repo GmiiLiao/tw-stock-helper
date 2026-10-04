@@ -15,7 +15,8 @@
 台股 wiki（second-brain/wiki/_graph/stocks.json）的官方產業別（MOPS t05st03）衍生同產業共振，取代覆蓋 67% 的 peerComps 產業；
 集團（wiki 由官方董監／法人持股推導的單一最大法人股東樹）是 2026-10 的靜態快照，回測有前視 ⇒ 只做實驗組、不併入 all。
 
-PIT：全部只用 ≤ s 的資料；月營收沿用次月 11 日可用（同 build.revenue_matrices）。
+PIT：全部只用 ≤ s 的資料；月營收的來源檔與可用日與 build.revenue_matrices 共用（B.load_revenue／B.revenue_avail_index：
+     SURGE_REVENUE 換來源檔、SURGE_PIT_STRICT=1 改「次月 10 日期限遇休市順延後的下一交易日」）；
 輸出：把新特徵（f_o_*）與 m_tdr（91xx 台灣存託憑證，評估時排除）附加到既有資料集的同一批列 → dataset_{t1,t2,lu1}_off.npz。
 用法：SURGE_CACHE=<快取目錄> python3 official_features.py [--only t1,t2,lu1]
 """
@@ -139,15 +140,15 @@ def overhead(Ca, V, win):
 
 
 def revenue_traits(dates, codes):
-    """月營收創 12 月新高、連續年增月數（PIT：次月 11 日起可用，同 build.revenue_matrices）。"""
-    rev = json.load(open(f'{B.SP}/revenue.json'))
+    """月營收創 12 月新高、連續年增月數。來源檔與可用日與 build.revenue_matrices 共用同一個函式
+    （B.load_revenue／B.revenue_avail_index：SURGE_REVENUE、SURGE_PIT_STRICT 兩處同時生效）。"""
+    rev = B.load_revenue()
     T, N = len(dates), len(codes); ci = {c: i for i, c in enumerate(codes)}; d_arr = np.array(dates)
     hi12 = np.full((T, N), np.nan); ystreak = np.full((T, N), np.nan)
     months = sorted(rev.keys()); hist = {}; streak = {}
-    avail = lambda m: f'{int(m[:4]) + (m[5:7] == "12"):04d}-{(int(m[5:7]) % 12) + 1:02d}-11'
     for mi, m in enumerate(months):
-        t0 = int(np.searchsorted(d_arr, avail(m)))
-        t1 = int(np.searchsorted(d_arr, avail(months[mi + 1]))) if mi + 1 < len(months) else T
+        t0 = B.revenue_avail_index(d_arr, m)
+        t1 = min(B.revenue_avail_index(d_arr, months[mi + 1]), T) if mi + 1 < len(months) else T
         for r in rev[m]['rows']:
             c = r['c']; h = hist.setdefault(c, [])
             v = r.get('rev'); y = r.get('yoy')
@@ -335,6 +336,7 @@ def compute(dates, codes, P, A, EV):
     F['o_rev_hi12'] = hi12; F['o_rev_yoy_streak'] = ystreak
     lim, chk = limit_features(P, M, EV['LU']); F.update(lim); cov['limit_check'] = chk
     fin, n_fin = fin_features(dates, codes, Craw); F.update(fin); cov['fin_rows'] = n_fin
+    cov['revenue_source'] = os.path.basename(B.revenue_path()); cov['pit_strict'] = os.environ.get('SURGE_PIT_STRICT') == '1'
     el = np.isfinite(Craw) & (Craw >= B.MIN_PRICE)
     r5 = (df(Ca) / df(Ca).shift(5) - 1).values
     ind = wiki_map('industry'); grp = wiki_map('group')
