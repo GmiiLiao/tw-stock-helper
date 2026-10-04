@@ -129,6 +129,126 @@ def test_end_to_end_tiny_models_and_crosscheck():
         assert rec[day]['act'] <= r['truth']['nLimitUp'] <= rec[day]['act'] + 10, (r['truth']['nLimitUp'], rec[day]['act'])
 
 
+# ───────────── 每日自動化（2026-10-04）：目標日、時鐘閘、矩陣重建判斷、資料依據（純函式；不連網、不讀 Firestore） ─────────────
+# 休市表案例與 scripts/lib/surge-shadow-daily.test.mjs 同一組（兩種語言實作同一條規則）
+MIRROR_ROWS = [
+    {'Name': '中華民國開國紀念日', 'Date': '1150101'}, {'Name': '國曆新年開始交易日', 'Date': '1150102'},
+    {'Name': '農曆春節前最後交易日', 'Date': '1150211'}, {'Name': '市場無交易，僅辦理結算交割作業', 'Date': '1150212'},
+    {'Name': '國慶日', 'Date': '1151009'}, {'Name': '國慶日', 'Date': '1151010'},
+    {'Name': '臺灣光復暨金門古寧頭大捷紀念日', 'Date': '1151025'}, {'Name': '臺灣光復暨金門古寧頭大捷紀念日', 'Date': '1151026'},
+    {'Name': '行憲紀念日', 'Date': '1151225'},
+]
+FS_DOC = {'holidays': ['2026-01-01', '2026-02-12', '2026-10-09', '2026-10-26', '2026-12-25'], 'coverYear': 2026, 'official': ['2026-01-01']}
+
+
+def test_next_trading_day_skips_makeup_holidays():
+    cal = L.make_calendar(None, MIRROR_ROWS)
+    assert '2026-02-12' in cal['holidays'] and '2026-01-02' not in cal['holidays'] and '2026-02-11' not in cal['holidays']
+    for c in (cal, L.make_calendar(FS_DOC, None), L.make_calendar(FS_DOC, MIRROR_ROWS)):
+        assert L.next_trading_day('2026-10-02', c) == '2026-10-05'
+        assert L.next_trading_day('2026-10-08', c) == '2026-10-12'      # 10-09 補假
+        assert L.next_trading_day('2026-10-23', c) == '2026-10-27'      # 10-26 補假
+        assert L.next_trading_day('2026-12-24', c) == '2026-12-28'
+    assert L.next_trading_day('2025-12-31', cal) == '2026-01-02'
+    for day, c in (('2026-12-31', cal), ('2026-10-02', None)):
+        try: L.next_trading_day(day, c); raise AssertionError('應該丟 CalendarError')
+        except L.CalendarError: pass
+    assert L.make_calendar(None, None) is None and L.make_calendar({'holidays': []}, []) is None
+
+
+def test_freeze_gate_is_target_day_0900_taipei():
+    assert L.frozen_before_open('2026-10-04T21:00:00+08:00', '2026-10-05')
+    assert L.frozen_before_open('2026-10-05T08:59:59+08:00', '2026-10-05')
+    assert not L.frozen_before_open('2026-10-05T09:00:00+08:00', '2026-10-05')
+    assert not L.frozen_before_open('2026-10-05T01:00:00+00:00', '2026-10-05')     # = 09:00 台北
+    assert not L.frozen_before_open('2026-10-05T08:00:00', '2026-10-05')           # 沒時區＝不可判定 ⇒ 不算
+    assert not L.frozen_before_open(None, '2026-10-05')
+
+
+def test_research_env_guard():
+    assert L.research_env_leak({'PATH': '/bin', 'SURGE_CACHE': '/x'}) == []
+    assert L.research_env_leak({'SURGE_REVENUE': '', 'SURGE_DATASET_SUFFIX': 'L'}) == ['SURGE_REVENUE', 'SURGE_DATASET_SUFFIX']
+    import subprocess, sys as _sys
+    r = subprocess.run([_sys.executable, '-c', 'import a35_shadow_lib'], cwd=L.HERE, capture_output=True, text=True,
+                       env=dict(os.environ, SURGE_OFFICIAL_LIMIT='/tmp/x.npz'), timeout=60)
+    assert r.returncode == 1 and 'SURGE_OFFICIAL_LIMIT' in r.stderr, (r.returncode, r.stderr[-300:])
+
+
+def test_matrix_consistency_and_rebuild_reasons():
+    sc = {'buildId': 'm1', 'revenueSha256': 'r1'}
+    assert L.matrix_consistency(sc, 'm1', 'r1') == 'ok'
+    assert L.matrix_consistency(sc, 'm1', 'r2') == 'revenue-changed'
+    assert L.matrix_consistency(sc, 'm2', 'r1') == 'stale-sidecar'
+    assert L.matrix_consistency({'buildId': 'm1', 'revenueSha256': None}, 'm1', 'r1') == 'unknown-revenue'
+    assert L.matrix_consistency(None, 'm1', 'r1') == 'no-sidecar'
+    panel = ['2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07']
+    meta = panel[:4]                                   # 矩陣建於 10-02，最晚 s＝10-01（idx 2）
+    assert L.rebuild_reasons(meta, 2, panel, '2026-10-05', 'ok') == []          # 需要 s ≤ idx 1
+    assert L.rebuild_reasons(meta, 2, panel, '2026-10-06', 'ok') == []          # 需要 s ≤ idx 2
+    assert L.rebuild_reasons(meta, 2, panel, '2026-10-07', 'ok') == ['rows']    # 需要 s ≤ idx 3
+    assert L.rebuild_reasons(meta, 2, panel, '2026-10-05', 'revenue-changed') == ['revenue-changed']
+    assert L.rebuild_reasons(['2026-09-28'] + meta[1:], 2, panel, '2026-10-05', 'no-sidecar') == ['alignment', 'no-sidecar']
+    try: L.rebuild_reasons(meta, 2, panel, '2026-10-08', 'ok'); raise AssertionError('面板沒有該日應丟錯')
+    except ValueError: pass
+
+
+def test_matrix_id_matches_prep_build_id():
+    """lib 的矩陣內容雜湊＝prep 側檔 buildId 的同一公式；dataset 側檔只有雜湊相符才採信營收版本。"""
+    import a32_walkforward_prep as PREP
+    d = tempfile.mkdtemp(prefix='a35mx_')
+    xp, mp = os.path.join(d, 'X.npy'), os.path.join(d, 'meta.npz')
+    np.save(xp, np.arange(6, dtype=np.float32).reshape(2, 3)); np.savez(mp, a=np.arange(3))
+    old = L.X_PATH, L.META_PATH
+    L.X_PATH, L.META_PATH = xp, mp
+    try: mid = L.matrix_id()
+    finally: L.X_PATH, L.META_PATH = old
+    assert mid == PREP.matrix_build_id(xp, mp) == __import__('hashlib').sha256((PREP.file_sha256(xp) + PREP.npz_content_sha256(mp)).encode()).hexdigest()
+    mp2 = os.path.join(d, 'meta2.npz'); np.savez_compressed(mp2, a=np.arange(3))                     # 同內容、不同檔案位元組
+    assert PREP.npz_content_sha256(mp2) == PREP.npz_content_sha256(mp) and PREP.file_sha256(mp2) != PREP.file_sha256(mp)
+    assert PREP.dataset_revenue_sha({'datasetSha256': 'ds', 'revenueSha256': 'rv'}, 'ds') == 'rv'
+    assert PREP.dataset_revenue_sha({'datasetSha256': 'old', 'revenueSha256': 'rv'}, 'ds') is None
+    assert PREP.dataset_revenue_sha(None, 'ds') is None
+
+
+def test_exright_coverage_statuses():
+    dates = ['2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05']
+    cover = [('2026-10-01', None, {}, False), ('2026-10-02', 'tpex down', {}, True)]
+    r = L.exright_coverage_from(dates, '2026-10-05', '2026-09-29', '2026-09-30', cover)
+    assert [(x['date'], x['status']) for x in r['days']] == [('2026-09-30', 'delta-twse-only'), ('2026-10-01', 'fetched'),
+                                                            ('2026-10-02', 'fetched-twse-only'), ('2026-10-05', 'missing')]
+    assert r['complete'] is False
+    assert L.exright_coverage_from(dates, '2026-10-01', '2026-09-30', None, cover)['complete'] is True
+
+
+def test_resolve_target_uses_calendar_and_rejects_mismatch():
+    import a35_shadow_list as LS
+    cal = L.make_calendar(None, MIRROR_ROWS)
+    fake = L.Ctx(); fake.dates = ['2026-10-07', '2026-10-08']; fake.T = 2
+    orig = L.load_calendar
+    try:
+        L.load_calendar = lambda use_firestore=True, mirror_dir=None: cal
+        assert LS.resolve_target('2026-10-08', fake, 1, None, False)[0] == '2026-10-12'
+        assert LS.resolve_target('2026-10-08', fake, 1, '2026-10-12', False)[0] == '2026-10-12'
+        try: LS.resolve_target('2026-10-08', fake, 1, '2026-10-09', False); raise AssertionError('與日曆不符應拒絕')
+        except L.CalendarError: pass
+        assert LS.resolve_target('2026-10-07', fake, 0, None, False)[0] == '2026-10-08'        # 補產：以面板實際下一日為準
+        L.load_calendar = lambda use_firestore=True, mirror_dir=None: None
+        assert LS.resolve_target('2026-10-08', fake, 1, '2026-10-12', False)[0] == '2026-10-12'  # 無日曆：只接受明確指定
+        try: LS.resolve_target('2026-10-08', fake, 1, None, False); raise AssertionError('無日曆又沒指定應拒絕')
+        except L.CalendarError: pass
+    finally:
+        L.load_calendar = orig
+
+
+def test_frozen_extra_fields_are_sealed_and_cannot_clobber():
+    o = L.seal({'a': 1, 'dataBasis': {'ready': True, 'basis': '兩市官方'}, 'revenueSha256': 'ab' * 32})
+    assert L.verify_seal(json.loads(json.dumps(o, ensure_ascii=False, sort_keys=True, indent=1)))
+    o2 = json.loads(json.dumps(o)); o2['dataBasis']['basis'] = '上市官方＋上櫃含第三方補洞'
+    assert not L.verify_seal(o2)
+    try: L.build_frozen(None, 0, {}, [], kind='x', target_day=None); raise AssertionError('沒有目標日應拒絕')
+    except ValueError: pass
+
+
 if __name__ == '__main__':
     import sys
     fails = 0
