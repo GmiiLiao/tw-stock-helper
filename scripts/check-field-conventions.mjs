@@ -91,6 +91,9 @@ AT_ALLOWLIST.add('snapshotAt');   // daemon 最近寫快照/指數的時刻（F1
 // writtenAt：a35 凍結檔 site.writtenAt（站上 limitUpForecast/pred 文件的寫入時刻，由研究端讀出後帶入；研究 JSON，不寫 Firestore·2026-10-04）。
 //   後台 surgeShadow 文件改名 site.written；只有 surge-shadow-report 讀取端與測試夾具會出現這個鍵。
 AT_ALLOWLIST.add('writtenAt');
+// lastRunAt：起漲影子每日流程協調器的本機狀態檔 scripts/surge-lab/out/a35_shadow_daily_status.json（gitignored）的「這一輪開始時刻」（2026-10-04）。
+//   讀取端是 surge_lab_publish.mjs 的 pipeline 發佈（另一條工作線）；不是 Firestore 文件新鮮度戳，稽核契約不看它。
+AT_ALLOWLIST.add('lastRunAt');
 AT_ALLOWLIST.add('revealAt');   // MIS 揭示時戳 tlong（資料本身的時間；與 liveAt 抓取時刻分開，R7 口徑）   // /api/system/version：build 時注入的建置時刻（部署身分，非資料日）
 
 // 資料日／日期欄位全名冊。⚠ 這不是「只准用 date」——buyDate、pubDate 這類

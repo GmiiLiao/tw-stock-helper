@@ -7,9 +7,10 @@
 // （a35_shadow_score.py --fetch 會自己帶入憑證；憑證路徑取自 daemon 的 launchd plist，不印出。）
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { fetchExright } from '../lib/exright-source.mjs';
+import { exrightRank } from '../lib/surge-shadow-daily.mjs';
 
 const date = process.argv.slice(2).find(a => /^\d{4}-\d{2}-\d{2}$/.test(a));
 if (!date) { console.error('需要 YYYY-MM-DD'); process.exit(2); }
@@ -49,6 +50,13 @@ if (!noEx) {
     } catch (e2) { rec.twseError = String(e2?.message || e2); }
     console.error(`除權息（上市＋上櫃）抓取失敗：${rec.error}；上市單獨補抓 ${rec.twseOnly ? `成功 ${rec.items.length} 檔` : '也失敗'}`);
   }
-  writeFileSync(`${SP}/a35_shadow_exright_${date}.json`, JSON.stringify(rec));
+  // 不准變差（2026-10-04 每日自動化會重試失敗的日子）：既有檔較完整（兩市 > 只有上市 > 都失敗）就保留，不用較差的結果覆蓋
+  const path = `${SP}/a35_shadow_exright_${date}.json`;
+  let prev = null;
+  try { prev = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null; } catch { prev = null; }
+  if (prev && exrightRank(prev) > exrightRank(rec)) console.error(`除權息 ${date}：這次結果較差，保留既有檔（${exrightRank(prev)} > ${exrightRank(rec)}）`);
+  else writeFileSync(path, JSON.stringify(rec));
+  // 只補除權息（--no-close，每日協調器用）時，任一市場沒抓到就以 4 結束，讓狀態檔看得到；對答案的 --fetch 路徑結束碼不變
+  if (noClose && rec.error) rc = 4;
 }
 process.exit(rc);

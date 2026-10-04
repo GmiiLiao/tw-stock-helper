@@ -1,6 +1,6 @@
 # a35 shadow — 影子漲停預測：指令手冊（只列做法與指令，不含結論）
 
-**影子模式**：不取代、不修改站上預測（`scripts/ai-daemon.mjs`）、不寫 Firestore。新檔皆為 `scripts/surge-lab/a35_shadow_*`；輸出在 `out/` 與 `.surge-cache/a35_shadow_*`。
+**影子模式**：不取代、不修改站上預測（`scripts/ai-daemon.mjs`）；研究腳本不寫 Firestore，只有 `a35_shadow_publish.mjs` 寫 `surgeShadow/*`。新檔皆為 `scripts/surge-lab/a35_shadow_*`；輸出在 `out/` 與 `.surge-cache/a35_shadow_*`。
 所有指令都在 `scripts/surge-lab/` 目錄下執行（`cd scripts/surge-lab`）。研究型 GBDT 與 a32 逐月前推的 OLD/ALL 協定相同，只把「月初」換成「打分日」。
 
 ## 檔案
@@ -14,6 +14,10 @@
 | `a35_shadow_site.mjs` | 唯讀讀站上 `limitUpForecast/pred-{日}`（憑證取自 daemon 的 launchd plist，不印出） |
 | `a35_shadow_fetch.mjs` | 唯讀補抓下一交易日 `chipArchive/{日}` 收盤＋官方除權息（上市＋上櫃）→ `.surge-cache/a35_shadow_{close,exright}_{日}.json` |
 | `a35_shadow_parity.py` / `a35_shadow_test.py` | 防呆：live 特徵 vs 資料集逐欄對照、重現 a32 快取分數；單元＋端對端測試 |
+| `a35_shadow_daily.mjs` | **每日自動化協調器**（見下節）；決策邏輯在 `scripts/lib/surge-shadow-daily.mjs`（`node --test scripts/lib/surge-shadow-daily.test.mjs`） |
+| `a35_shadow_matrix.py` | 訓練矩陣要不要重建（唯讀，印 JSON） |
+| `a35_shadow_meta.mjs` | 唯讀中繼資料：Firestore 休市日曆；快取 chipArchive 某日的到齊狀態（與 daemon 定版閘門同一支判斷） |
+| `launchd/com.gmii.twstock.surge-shadow.plist` | 排程（安裝屬持久設定，需使用者核可） |
 
 ## 協定（凍結名單）
 
@@ -51,23 +55,43 @@ python3 a35_shadow_score.py 'out/shadow_hist/shadow_*.json' --quiet-days --out o
 python3 a35_shadow_score.py out/shadow_hist/shadow_2026-10-01.json
 ```
 
-## 下一個交易日再產生新名單（例：2026-10-05 盤後）
+## 每日自動化（2026-10-04 起：`a35_shadow_daily.mjs`＋LaunchAgent）
+
+協調器每個時段跑一次（平日 17:30／19:30／21:00／22:40／23:50，週二～週六 07:05 補跑），可重入、冪等：
+
+1. 鎖（`.surge-cache/a35_shadow_daily.lock`）＋前置：研究用環境變數（`SURGE_OFFICIAL_LIMIT／SURGE_REVENUE／SURGE_PIT_STRICT／SURGE_DATASET_SUFFIX`）有設、或研究程序（cv_official／build_v2／official_features／retrain_official／save_scores／build_lu1／a32_walkforward_prep／panel.py…）正在跑 ⇒ 本輪不做。
+2. 唯讀 Firestore：休市日曆、最近 chipArchive 的到齊狀態（`canonical-gate.archiveDayStatus`）、`limitUpForecast/pred-D` 是否已定版（`canonicalAt`）。D＝到齊＋定版＋還沒有名單；**現在 ≥ 下一交易日 08:45 ⇒ 記為缺口（missed），不產生**。
+3. `fetch_cache.mjs`（明確指定 SURGE_CACHE）→ `panel.py` → 缺的除權息 `a35_shadow_fetch.mjs d --no-close`（每輪最多 5 天、每天 2 個請求、間隔 ≥3 秒）。
+4. 每份還沒對答案、目標日收盤已到齊的事前凍結名單 ⇒ `a35_shadow_score.py`（失敗不中止）。
+5. `a35_shadow_matrix.py --day D` 判斷訓練矩陣要不要重建（最晚 s < idx(D)−3、面板不是矩陣日期的延伸、沒有建置側檔、或建置時的 revenue.json 與目前不同）⇒ `build_lu1.py` → `a32_walkforward_prep.py`。
+6. `a35_shadow_list.py --day D --target-day 下一交易日 --workers 3 --require-matrix-sidecar`（永不 `--force`）。
+7. `a35_shadow_publish.mjs`（永不 `--allow-replace`；out/ 沒變就略過）→ 若有 `surge_lab_publish.mjs` 則 `--only mirror,pipeline`。
+8. 狀態 `out/a35_shadow_daily_status.json`（lastRunAt、D、nextTD、steps[{name,ok,ms,err}]、missed[]、revenueSha256、dataBasis）。
 
 ```bash
-cd /Users/gmii/Documents/股票助手app/tw-stock-app
-export GOOGLE_APPLICATION_CREDENTIALS="$(python3 - <<'PY'
-import plistlib, os
-print(plistlib.load(open(os.path.expanduser('~/Library/LaunchAgents/com.gmii.twstock.ai-daemon.plist'),'rb'))['EnvironmentVariables']['GOOGLE_APPLICATION_CREDENTIALS'])
-PY
-)"
-node scripts/surge-lab/fetch_cache.mjs            # Firestore → .surge-cache（唯讀；chipArchive 全量，數分鐘）
-cd scripts/surge-lab && python3 panel.py          # → panel.npz（含新的一天；兩市收盤要到齊才跑）
-for d in 2026-10-05; do node a35_shadow_fetch.mjs $d --no-close; done    # 補官方除權息（上市＋上櫃；exright_delta.json 只有上市）
-python3 a35_shadow_list.py --day 2026-10-05          # 訓練資料矩陣不必重建：最晚訓練列 s′＝10-05 − 3 個交易日＝09-30，現有矩陣已到 s=10-01
+node scripts/surge-lab/a35_shadow_daily.mjs --dry-run                          # 只印這一輪會做什麼（唯讀 Firestore；不取鎖、不寫檔）
+node scripts/surge-lab/a35_shadow_daily.mjs --dry-run --now 2026-10-05T17:30   # 假設時刻（只限 dry-run）
 ```
 
-訓練矩陣（`a32_walkforward_X.npy`）只在需要比目前矩陣更新的訓練日時才要重建：`python3 build_lu1.py && python3 a32_walkforward_prep.py`（腳本會檢查日期序列是否為面板的前綴、並在涵蓋不足時中止）。
-`panel.py` 會覆寫共用的 `.surge-cache/panel.npz`，其他研究腳本也讀它——日期只往後增加所以索引不變。
+凍結檔新增的資料依據欄位（封印涵蓋）：`targetDayBasis`（休市日曆來源）、`freezeDeadline`、`dataBasis`（打分日歸檔是否兩市官方、上櫃收盤是否含 Yahoo 補洞）、
+`revenueSha256`、`exrightCoverage`、`featureData`（矩陣內容雜湊、建置時營收雜湊、一致性）。模型快取鍵含特徵資料簽章（矩陣內容＋revenue.json），矩陣或營收變了就不會誤用舊模型；
+`modelHash` 仍只由訓練列簽章＋模型內容決定（同資料重產逐位相同，已驗 2026-10-02）。
+
+## 手動產生下一個交易日的名單（例：2026-10-05 盤後；自動化未安裝時）
+
+```bash
+cd /Users/gmii/Documents/股票助手app/tw-stock-app/scripts/surge-lab      # 所有指令都在這個目錄跑
+export SURGE_CACHE="$PWD/.surge-cache"                                    # 明確指定（fetch_cache 2026-10-04 前預設寫到 cwd/.surge-cache）
+export GOOGLE_APPLICATION_CREDENTIALS="$(/usr/bin/plutil -extract EnvironmentVariables.GOOGLE_APPLICATION_CREDENTIALS raw ~/Library/LaunchAgents/com.gmii.twstock.ai-daemon.plist)"
+node fetch_cache.mjs "$SURGE_CACHE"                # Firestore → 研究快取（唯讀；chipArchive 全量，數分鐘）
+python3 panel.py                                   # → panel.npz（含新的一天；兩市收盤要到齊才跑）
+node a35_shadow_fetch.mjs 2026-10-05 --no-close    # 補官方除權息（上市＋上櫃；exright_delta.json 只有上市）
+python3 a35_shadow_matrix.py --day 2026-10-05      # rebuild=true 就先 python3 build_lu1.py && python3 a32_walkforward_prep.py
+python3 a35_shadow_list.py --day 2026-10-05        # 目標日由休市日曆推得（10-09、10-26 補假）；過了目標日 09:00 會拒寫並記缺口
+```
+
+`python3` 必須是有 numpy 的 3.14（`/Library/Frameworks/Python.framework/Versions/3.14/bin/python3`）。
+`panel.py`、`build_lu1.py`、`a32_walkforward_prep.py`、`fetch_cache.mjs` 都改成原子寫入（暫存檔＋rename），但仍會改寫研究共用的 `.surge-cache`——研究重訓請用隔離的快取目錄（`SURGE_CACHE=…/.surge-cache-L`）。
 
 ## 產物（2026-10-04 產生）
 

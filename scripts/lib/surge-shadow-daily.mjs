@@ -1,0 +1,163 @@
+// ── 起漲影子（a35 shadow）每日流程的決策邏輯（純函式，不碰 I/O）────────────────────────────
+// 協調器 scripts/surge-lab/a35_shadow_daily.mjs 用：哪一天要產生名單、哪一天已錯過、哪些名單要對答案、哪幾天要補抓除權息、
+// 有沒有研究程序正在改寫共用快取、鎖是否還有人持有。
+//   · 下一交易日一律由休市日曆推得（Firestore system/tradingCalendar ∪ 本機官方鏡像休市表）；平日落在日曆未涵蓋的年份就丟錯，
+//     不猜「下一個週一～五」（2026-10-09、10-26 是補假）。與 a35_shadow_lib.py 的 next_trading_day 同一條規則（兩邊測試同一組案例）。
+//   · 錯過＝現在已過「下一交易日 08:45」還沒有事前凍結名單（名單本身的凍結閘是 09:00，留 15 分鐘給訓練）。
+// 影子模式：不取代、不修改站上預測。非投資建議。
+
+export const RESEARCH_ENV_VARS = ['SURGE_OFFICIAL_LIMIT', 'SURGE_REVENUE', 'SURGE_PIT_STRICT', 'SURGE_DATASET_SUFFIX'];
+export const PIPELINE_START = '2026-10-02';      // 第一份事前凍結名單的打分日；更早的日子只有歷史回推，不算缺口
+export const DEADLINE_HHMM = '08:45';
+export const TRADING_MARK_RE = /開始交易|最後交易/;
+export const LOOKBACK_DOCS = 8;                  // 每輪讀最近幾份 chipArchive（只取判斷到齊需要的欄位）
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 環境中有設的研究用變數（有設＝存在，空字串也算） */
+export const envLeak = env => RESEARCH_ENV_VARS.filter(k => Object.prototype.hasOwnProperty.call(env || {}, k));
+
+export function addDaysIso(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+const dow = iso => new Date(`${iso}T00:00:00Z`).getUTCDay();
+export const rocToIso = roc => (/^\d{7}$/.test(String(roc || '')) ? `${+String(roc).slice(0, 3) + 1911}-${String(roc).slice(3, 5)}-${String(roc).slice(5, 7)}` : null);
+
+/**
+ * 休市日曆：Firestore 文件（holidays／coverYear／official）與鏡像原文列（{Name, Date 民國 7 碼}）取聯集。
+ * @returns {{ holidays:Set<string>, covered:Set<number>, sources:string[] } | null}
+ */
+export function makeCalendar(fsDoc, mirrorRows) {
+  const holidays = new Set(); const covered = new Set(); const sources = [];
+  if (fsDoc && Array.isArray(fsDoc.holidays) && fsDoc.holidays.length) {
+    for (const d of fsDoc.holidays) holidays.add(String(d));
+    const cy = fsDoc.coverYear ?? (Array.isArray(fsDoc.official) && fsDoc.official.length ? String(fsDoc.official[0]).slice(0, 4) : null);
+    if (cy) covered.add(Number(cy));
+    sources.push('firestore:system/tradingCalendar');
+  }
+  if (Array.isArray(mirrorRows) && mirrorRows.length) {
+    let n = 0;
+    for (const row of mirrorRows) {
+      const iso = rocToIso(row?.Date);
+      if (!iso) continue;
+      n++; covered.add(Number(iso.slice(0, 4)));
+      if (!TRADING_MARK_RE.test(String(row.Name || ''))) holidays.add(iso);
+    }
+    if (n) sources.push('mirror:twse_oa_holidaySchedule');
+  }
+  return sources.length ? { holidays, covered, sources } : null;
+}
+
+/** 是否交易日（平日且不在休市表；不檢查涵蓋年份——只用來篩已存在的歸檔日） */
+export const isTradingDay = (iso, cal) => dow(iso) !== 0 && dow(iso) !== 6 && !cal.holidays.has(iso);
+
+/** iso 之後第一個交易日。平日落在日曆未涵蓋的年份 ⇒ 丟錯（不猜）。 */
+export function nextTradingDay(iso, cal) {
+  if (!cal) throw new Error('沒有休市日曆（Firestore 與本機鏡像都讀不到）');
+  let d = iso;
+  for (let i = 0; i < 31; i++) {
+    d = addDaysIso(d, 1);
+    if (dow(d) === 0 || dow(d) === 6) continue;
+    if (!cal.covered.has(Number(d.slice(0, 4)))) throw new Error(`休市日曆未涵蓋 ${d.slice(0, 4)} 年（來源 ${cal.sources.join('、')}）——無法判定 ${iso} 的下一交易日`);
+    if (!cal.holidays.has(d)) return d;
+  }
+  throw new Error(`${iso} 之後 31 天內找不到交易日（日曆異常）`);
+}
+
+/** (fromExcl, toIncl] 之間的交易日（升冪） */
+export function tradingDaysBetween(fromExcl, toIncl, cal) {
+  const out = [];
+  for (let d = addDaysIso(fromExcl, 1); d <= toIncl; d = addDaysIso(d, 1)) if (isTradingDay(d, cal)) out.push(d);
+  return out;
+}
+
+/** 台北時間 'YYYY-MM-DDTHH:MM'（台灣無日光節約，固定 +8） */
+export const taipeiNow = (ms = Date.now()) => new Date(ms + 8 * 3600_000).toISOString().slice(0, 16);
+export const deadlineOf = (nextTD, hhmm = DEADLINE_HHMM) => `${nextTD}T${hhmm}`;
+
+/**
+ * 每個候選打分日的處置（升冪處理）：
+ *   done＝out/shadow_{日}.json 已存在；missed＝已過下一交易日 08:45 仍沒有名單（已記過的不重記）；
+ *   produce＝期限前、收盤歸檔已到齊（archiveDayStatus.ready）且站上 pred 已定版（canonicalAt）；waiting＝期限前但條件未齊。
+ * days：[{ date, ready, missing, canonical }]——視窗內每個交易日一筆（沒有歸檔文件的交易日 ready=false、missing=['文件不存在']）。
+ */
+export function planDays({ days, cal, nowTw, hasList, missedBefore = new Set(), start = PIPELINE_START }) {
+  const plan = { produce: [], missed: [], waiting: [], done: [], errors: [] };
+  for (const d of [...days].sort((a, b) => a.date.localeCompare(b.date))) {
+    if (!DAY_RE.test(d.date || '') || d.date < start) continue;
+    if (hasList(d.date)) { plan.done.push(d.date); continue; }
+    let nextTD;
+    try { nextTD = nextTradingDay(d.date, cal); } catch (e) { plan.errors.push({ date: d.date, error: String(e.message || e) }); continue; }
+    const deadline = deadlineOf(nextTD);
+    if (nowTw >= deadline) {
+      if (!missedBefore.has(d.date)) {
+        const reason = !d.ready ? `收盤歸檔未到齊（${(d.missing || []).join('、') || '未知'}）` : !d.canonical ? '站上 pred 未定版（無 canonicalAt）' : '期限前未產生（協調器未執行或失敗）';
+        plan.missed.push({ scoringDay: d.date, targetDay: nextTD, deadline, reason });
+      }
+      continue;
+    }
+    if (d.ready && d.canonical) plan.produce.push({ date: d.date, nextTD, deadline });
+    else plan.waiting.push({ date: d.date, nextTD, deadline, why: !d.ready ? `收盤歸檔未到齊：${(d.missing || []).join('、')}` : '站上 pred 尚未定版' });
+  }
+  return plan;
+}
+
+/**
+ * 要對答案的事前凍結名單：還沒有對應封印的 shadow_score 檔，且目標日的收盤歸檔已到齊（只需收盤，archiveCloseReady）。
+ * forward：[{ scoringDay, targetDay, sha256 }]；scoreSha：Map(scoringDay → 已有 score 檔的 frozenSha256)；closeReady：Set(日期)。
+ */
+export function scorePlan({ forward, scoreSha, closeReady }) {
+  return forward.filter(f => scoreSha.get(f.scoringDay) !== f.sha256 && closeReady.has(f.targetDay))
+    .map(f => ({ scoringDay: f.scoringDay, targetDay: f.targetDay }))
+    .sort((a, b) => a.scoringDay.localeCompare(b.scoringDay));
+}
+
+/** 除權息補抓檔的完整度：2＝兩市、1＝只有上市、0＝都失敗、-1＝沒有檔 */
+export const exrightRank = rec => (!rec ? -1 : !rec.error ? 2 : rec.twseOnly ? 1 : 0);
+
+/**
+ * 要補抓除權息的日子：exright-history 之後到 upto 的交易日，沒有檔就抓；不完整（只有上市／都失敗）的只在 retryFrom 之後重試。
+ * 每輪最多 cap 天（網路節制：每天 2 個請求、間隔 ≥3 秒），新日子優先。
+ */
+export function exrightPlan({ tradingDays, historyTo, files, upto, retryFrom, cap = 5 }) {
+  const days = tradingDays.filter(d => d > historyTo && d <= upto).sort().reverse();
+  const missing = days.filter(d => !files.has(d));
+  const retry = days.filter(d => files.has(d) && exrightRank(files.get(d)) < 2 && d >= retryFrom);
+  return [...missing, ...retry].slice(0, cap);
+}
+
+/** `ps -axo pid=,ppid=,command=` 輸出 → [{ pid, ppid, command }] */
+export function parsePs(text) {
+  return String(text || '').split('\n').map(l => l.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
+    .map(m => ({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] }));
+}
+
+// 會改寫或大量讀取共用 .surge-cache 的研究程序（2026-10-04 決議清單＋本流程自己的步驟腳本）
+export const FOREIGN_PATTERNS = [
+  /\b(cv_official|build_v2|official_features|save_scores)\b/,
+  /retrain_official/,
+  /\b(build_lu1|a32_walkforward_prep|panel|a35_shadow_list|a35_shadow_score|a35_shadow_history)\.py\b/,
+  /\bfetch_cache\.mjs\b/,
+];
+const NON_RUNNER = /^(\S*\/)?(ps|pgrep|grep|rg|less|more|tail|head|cat|vim?|nvim|nano|emacs)$/;
+
+/** 不屬於本程序（含其子孫）的研究程序；看到就不跑，避免共用快取被同時改寫。 */
+export function foreignResearchProcs(rows, selfPid) {
+  const kids = new Map();
+  for (const r of rows) { if (!kids.has(r.ppid)) kids.set(r.ppid, []); kids.get(r.ppid).push(r.pid); }
+  const mine = new Set([selfPid]); const q = [selfPid];
+  while (q.length) for (const k of kids.get(q.shift()) || []) if (!mine.has(k)) { mine.add(k); q.push(k); }
+  return rows.filter(r => !mine.has(r.pid) && !NON_RUNNER.test(r.command.split(/\s+/)[0]) && FOREIGN_PATTERNS.some(re => re.test(r.command)));
+}
+
+/** 鎖目錄已存在時：持有者還活著＝busy；沒有持有者資料或持有者已死＝stale（可回收）。 */
+export const lockVerdict = (owner, isAlive) => (owner && Number.isInteger(owner.pid) && isAlive(owner.pid) ? 'busy' : 'stale');
+
+/** 缺口紀錄合併：依打分日去重（保留第一次記錄）、升冪、最多留 maxN 筆 */
+export function mergeMissed(prev = [], add = [], maxN = 200) {
+  const m = new Map();
+  for (const r of [...prev, ...add]) if (r?.scoringDay && !m.has(r.scoringDay)) m.set(r.scoringDay, r);
+  return [...m.values()].sort((a, b) => a.scoringDay.localeCompare(b.scoringDay)).slice(-maxN);
+}
