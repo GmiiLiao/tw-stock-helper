@@ -106,9 +106,9 @@ def test_end_to_end_tiny_models_and_crosscheck():
         L.PARAMS.update(old_params); L.MODEL_DIR = old_dir
     assert L.verify_seal(fz) and fz['scoringDay'] == day and fz['targetDay'] == '2026-10-01'
     for name in ('overallTop30', 'twseTop30', 'tpexTop30', 'freshTop30', 'continuationTop30', 'researchUniverseTop30'):
-        lst = fz['lists'][name]; assert len(lst) == 30, name
-        assert [e['rank'] for e in lst] == list(range(1, 31))
-        assert all(lst[i]['score'] >= lst[i + 1]['score'] for i in range(29))
+        lst = fz['lists'][name]; assert 30 <= len(lst) <= L.TOPK, (name, len(lst))
+        assert [e['rank'] for e in lst] == list(range(1, len(lst) + 1))
+        assert all(lst[i]['score'] >= lst[i + 1]['score'] for i in range(len(lst) - 1))
     assert all(e['market'] == 'tse' for e in fz['lists']['twseTop30']) and all(e['market'] == 'otc' for e in fz['lists']['tpexTop30'])
     assert all(not e['limitUpAtS'] for e in fz['lists']['freshTop30']) and all(e['limitUpAtS'] for e in fz['lists']['continuationTop30'])
     assert fz['site']['source'] and len(fz['site']['codes']) == 30          # 以 lu_scoreboard.json 快照為來源

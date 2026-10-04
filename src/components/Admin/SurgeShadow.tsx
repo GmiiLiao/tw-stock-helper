@@ -70,9 +70,17 @@ function Summary({ ix }: { ix: Index }) {
   );
 }
 
+const LIST_BASE = 30;   // 預設顯示前 30 名
+const LIST_STEP = 20;   // 每按一次 +20 檔
+const LIST_MAX = 100;   // 名單最多存前 100 名（2026-10-04 起；更早的名單只存 30）
+
 function ListTable({ rows, scored }: { rows: Row[]; scored: boolean }) {
+  const [shown, setShown] = useState(LIST_BASE);
   const th = { padding: '3px 10px', textAlign: 'right' as const, borderBottom: '1px solid var(--border-primary)', fontWeight: 600 };
   const td = { padding: '3px 10px', textAlign: 'right' as const };
+  const limit = Math.min(LIST_MAX, rows.length);
+  const visible = rows.slice(0, Math.min(shown, limit));
+  const btn = { padding: '3px 14px', borderRadius: 999, border: '1px solid var(--border-primary)', background: 'transparent', color: '#7dd3fc', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))' };
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ borderCollapse: 'collapse', fontFamily: MONO, fontSize: 'calc(13px * var(--fz))', whiteSpace: 'nowrap' }}>
@@ -80,7 +88,7 @@ function ListTable({ rows, scored }: { rows: Row[]; scored: boolean }) {
           {['#', '代號', '名稱', '市場', '收盤', '漲跌%', '打分日', '分數', '站上名次', '隔日結果'].map(h => <th key={h} style={h === '名稱' || h === '隔日結果' ? { ...th, textAlign: 'left' } : th}>{h}</th>)}
         </tr></thead>
         <tbody>
-          {rows.map(r => {
+          {visible.map(r => {
             const [t, c] = outcomeText(r, scored);
             return (
               <tr key={r.code} style={{ borderBottom: '1px solid var(--border-primary)' }}>
@@ -99,6 +107,18 @@ function ListTable({ rows, scored }: { rows: Row[]; scored: boolean }) {
           })}
         </tbody>
       </table>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
+        <span style={{ color: 'var(--text-muted)' }}>顯示前 {visible.length}／{limit} 檔</span>
+        {visible.length < limit && (
+          <button type="button" style={btn} onClick={() => setShown(s => Math.min(s + LIST_STEP, limit))}>＋{Math.min(LIST_STEP, limit - visible.length)} 檔</button>
+        )}
+        {visible.length > LIST_BASE && (
+          <button type="button" style={{ ...btn, color: 'var(--text-muted)' }} onClick={() => setShown(LIST_BASE)}>收回前 {LIST_BASE}</button>
+        )}
+        {rows.length > 0 && rows.length <= LIST_BASE && (
+          <span style={{ color: 'var(--text-muted)' }}>（這一天的名單只存前 {rows.length} 名）</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -126,7 +146,7 @@ function DayView({ day }: { day: Day }) {
             style={{ padding: '3px 12px', borderRadius: 999, border: '1px solid var(--border-primary)', cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))', background: list === k ? 'rgba(125,211,252,0.18)' : 'transparent', color: list === k ? '#7dd3fc' : 'var(--text-muted)' }}>{l}</button>
         ))}
       </div>
-      <ListTable rows={day.lists[list] || []} scored={!!o} />
+      <ListTable key={list} rows={day.lists[list] || []} scored={!!o} />
       <div style={{ marginTop: 8, color: 'var(--text-muted)', wordBreak: 'break-all' }}>同日站上漲停預測前30（{day.site.dataDate ?? '—'}）：{siteMarks || '—'}</div>
     </div>
   );

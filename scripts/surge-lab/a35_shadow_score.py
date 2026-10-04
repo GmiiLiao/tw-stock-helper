@@ -150,7 +150,7 @@ def score_one(fz: dict, x: L.Ctx, t: int, t1: int, allow_incomplete: bool, exrig
     res['lists']['site_top30'] = {'30': stats_of(sel['site_top30'], ci, lu_s, lu1, buy1, x.mk)}
     res['lists']['site_B'] = {'B': stats_of(sel['site_B'], ci, lu_s, lu1, buy1, x.mk)}
     nb = len(sel['site_B'])
-    cont = [e['code'] for e in fz['lists'].get('continuationTop30', [])]
+    cont = [e['code'] for e in fz['lists'].get('continuationTop30', [])][:L.EVAL_TOP]   # 舊名單只有 30 列：比對口徑固定前 30
     res['lists']['model_cont_matchedB'] = {'B': stats_of(cont, ci, lu_s, lu1, buy1, x.mk, nb)} if nb else {}
     hit_of = lambda e: dict(rank=e['rank'], code=e['code'], name=e['name'], market=e['market'], lu=bool(lu1[ci[e['code']]]) if e['code'] in ci else None,
                             buyable=bool(buy1[ci[e['code']]]) if e['code'] in ci else None, limitUpAtS=e['limitUpAtS'])

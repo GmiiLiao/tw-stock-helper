@@ -43,7 +43,8 @@ PARAMS = dict(n_trees=600, depth=4, lr=0.05, l2=20.0, colsample=0.5, subsample=0
 NEG_FRAC = 0.15
 PURGE_DAYS = 3                 # 訓練列 s' ≤ 打分日 − 3 個交易日
 SEEDS = (1, 2, 3)
-TOPK = 30
+TOPK = 100                     # 每個子榜存前 100 名（後台每次 +20 檔瀏覽；2026-10-04 使用者要求，舊名單只存 30）
+EVAL_TOP = 30                  # 成績口徑仍是前 10／前 30（鍵名 *Top30 沿用舊名，內容最多 TOPK 列）
 SHOCK = ('2025-04-07', '2025-04-10')
 
 
@@ -434,7 +435,7 @@ def build_frozen(x: Ctx, t: int, ens: dict, store_names: list, kind: str, fs: di
         researchUniverseTop30=top_list(x, t, js, z, np.ones(len(js), bool)),
     )
     site = site_block(s_day, fs)
-    top30_codes = {e['code'] for e in lists['overallTop30']}
+    top30_codes = {e['code'] for e in lists['overallTop30'][:EVAL_TOP]}
     site30 = set(site.get('codes') or [])
     gen = now_iso()
     if target_day is None:
