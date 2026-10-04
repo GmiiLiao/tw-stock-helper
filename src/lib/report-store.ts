@@ -31,7 +31,7 @@ export interface MarketReport {
   topPicks: ReportPick[];
   riskHighlights: string[];
   summary: string;
-  meta: { totalAnalyzed: number; enriched: number; historyCovered: number };
+  meta: { totalAnalyzed: number; enriched: number; historyCovered: number; /** false＝處置名單殘缺，精選未能排除處置股（G2-10） */ dispositionComplete?: boolean };
 }
 
 const COLLECTION = 'marketReports';

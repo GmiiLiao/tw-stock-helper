@@ -13,6 +13,7 @@ import SqueezeModel from './SqueezeModel';
 import ViewAsPanel from './ViewAsPanel';
 import { useShallow } from 'zustand/react/shallow';
 import { invalidateAiLabAccess } from '@/lib/useAiLabAccess';
+import { startLiveLoop, isForeground } from '@/lib/market-clock';
 
 interface UserDoc {
   uid: string;
@@ -81,9 +82,6 @@ export default function AdminPanel() {
   const [isTriggeringAgent, setIsTriggeringAgent] = useState(false);
 
   // System Metric Mocks
-  const [cpuUsage, setCpuUsage] = useState(12);
-  const [memUsage, setMemUsage] = useState(42);
-  const [cacheHit, setCacheHit] = useState(94.2);
 
   // Handle user level promotion/demotion
   const handleUpdateUserLevel = async (targetUid: string, newLevel: string) => {
@@ -224,20 +222,13 @@ export default function AdminPanel() {
   useEffect(() => {
     if (!isAdmin) return;
     fetchMessages();
-    const timer = setInterval(fetchMessages, 15000);
-    return () => clearInterval(timer);
+    // G3-24（2026-10-04）：原本無閘 setInterval 15s——背景分頁整夜打。Agent 推送休市也會有 ⇒ 只擋背景分頁；
+    // startLiveLoop＝在途不疊打＋回前景立即補一次。
+    const stop = startLiveLoop(() => (isForeground() ? fetchMessages() : undefined), () => 15_000);
+    return stop;
   }, [isAdmin]);
-
-  // CPU/Memory simulation
-  useEffect(() => {
-    if (!isAdmin) return;
-    const interval = setInterval(() => {
-      setCpuUsage(Math.min(100, Math.max(5, Math.round(15 + Math.random() * 20 - 10))));
-      setMemUsage(Math.min(100, Math.max(30, Math.round(42 + Math.random() * 4 - 2))));
-      setCacheHit(Math.min(99.9, Math.max(90, parseFloat((94.2 + Math.random() * 2 - 1).toFixed(1)))));
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [isAdmin]);
+  // G3-24/G3-31（使用者 2026-10-04 裁定刪除）：原「系統運作指標」是每 4 秒 Math.random 的假數字，
+  // 計時器還讓整棵後台（含起漲影子 100 列表格）每 4 秒重繪——整段移除，不要再加回假指標。
 
   // Toggle Agent state
   const handleToggleAgent = async () => {
@@ -836,49 +827,6 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* System Metrics */}
-          <div className={styles.metricsPanel}>
-            <h3>🖥️ 系統運作指標</h3>
-            <div className={styles.metricItem}>
-              <div className={styles.metricLabel}>
-                <span>CPU 負載</span>
-                <span>{cpuUsage}%</span>
-              </div>
-              <div className={styles.progressBarBg}>
-                <div
-                  className={styles.progressBarFill}
-                  style={{ width: `${cpuUsage}%`, backgroundColor: cpuUsage > 75 ? 'var(--color-up)' : 'var(--accent-blue)' }}
-                />
-              </div>
-            </div>
-
-            <div className={styles.metricItem}>
-              <div className={styles.metricLabel}>
-                <span>記憶體佔用</span>
-                <span>{memUsage}%</span>
-              </div>
-              <div className={styles.progressBarBg}>
-                <div
-                  className={styles.progressBarFill}
-                  style={{ width: `${memUsage}%`, backgroundColor: 'var(--accent-blue)' }}
-                />
-              </div>
-            </div>
-
-            <div className={styles.metricItem}>
-              <div className={styles.metricLabel}>
-                <span>API 緩存命中率</span>
-                <span>{cacheHit}%</span>
-              </div>
-              <div className={styles.progressBarBg}>
-                <div
-                  className={styles.progressBarFill}
-                  style={{ width: `${cacheHit}%`, backgroundColor: '#2f9e44' }}
-                />
-              </div>
-            </div>
           </div>
 
           {/* Latest logs from ai-analysis */}

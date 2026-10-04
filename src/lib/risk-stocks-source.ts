@@ -239,7 +239,11 @@ const _riskStocks = memoize('risk-stocks', TTL, async (): Promise<RiskStocksResu
 }, { timeoutMs: 12_000, isDegraded: v => {
   // 降級 ⇒ memoize 回上一份完整結果（沒有就回 null），30s 後重試；不讓殘缺名單蓋掉好的
   const r = v as RiskStocksResult; return !r.dispositionComplete || (!r.attention.length && !r.disposition.length);
-} });
+},
+  // 降級供應舊名單的年齡上限（G2-09）：名單一天換一次（盤後公告、隔日生效），6 小時內的完整舊名單
+  // 遠比「殘缺空名單」可靠；更舊就回 null ⇒ fetchRiskStocks 回 dispositionComplete:false，消費端改走保守路徑。
+  maxStaleMs: 6 * 3600_000,
+});
 
 export async function fetchRiskStocks(): Promise<RiskStocksResult> {
   return (await _riskStocks()) ?? { attention: [], disposition: [], fetchedAt: new Date().toISOString(), dispositionComplete: false };

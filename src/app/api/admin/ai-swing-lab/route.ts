@@ -56,7 +56,9 @@ export async function GET(request: Request) {
       detail,
     }, { 'Cache-Control': 'no-store' });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // G1-24：錯誤細節只進 server log，不回前端
+    console.error('[api/admin/ai-swing-lab]', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 
@@ -76,6 +78,8 @@ export async function POST(request: Request) {
     await ref.update({ adminNotes: notes, adminNotesAt: Date.now(), adminBy: gate.email || '超級管理員' });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // G1-24：錯誤細節只進 server log，不回前端
+    console.error('[api/admin/ai-swing-lab]', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

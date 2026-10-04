@@ -5,6 +5,18 @@
 
 方法：**從症狀反推特徵，用特徵掃全站**。2026-08-29 第一次系統化執行，六族掃完，兩族有貨。
 
+**事故標記**（2026-10-04·WM-SCAN G4-26 起）：每件已修的事故在所屬族下留一行 `事故：<commit> <日期> <一句話>`，
+`grep -n "事故：" docs/DATA-INTEGRITY-SCAN.md` 即得全部事故索引；新 fix commit 歸族時照同格式補一行（找不到合適的族就開新族，寫特徵＋判準＋grep）。
+
+| 事故 | 族 |
+|---|---|
+| 19a2c2d 即時走勢單欄位破 1MB，寫入失敗、讀端只驗日期⇒停在舊資料 | Q |
+| d061734 通知去重只存記憶體，重啟後重發當日推播 | R |
+| d0d5b1d 上市收盤單次抓取無逾時無重試⇒宇宙缺上櫃；連續鎖漲停天數用日曆日 | S／B |
+| 74cfd6c instSameDay 比歸檔末日而非價格日⇒盤中恆標「含今日 T86」 | L |
+| 507ca71 快照模式寬度前日取 arch[L-1]⇒盤中拿即時價比前天 | C |
+| a916af4 讀未進版控的 scripts/data 檔⇒乾淨 checkout build 失敗 | T |
+
 ---
 
 ## 掃描族譜與指令
@@ -51,6 +63,8 @@ node scripts/audit-data-sources.mjs
 
 **判準**：`date` 可以是產生日，但**資料日一律另存 `dataDate`**（走 `currentDataDate()` / `boardDataDate()`）。
 
+- 事故：d0d5b1d 2026-10-02 策略選股「連續鎖漲停天數」以日曆日判斷是否同一天 ⇒ 週末／假日開機也 +1；改依收盤資料日 `lockDataDate`（同 commit 的抓取重試見 S 族）。
+
 ### C. 空殼文件導致整體位移一格
 
 ```bash
@@ -59,6 +73,15 @@ grep -rn "chipArchive').orderBy" scripts/ src/     # 應只有 readArchive 內�
 
 **2026-08-29 結果：乾淨。** daemon 33 處全走 `readArchive`；網站端兩處無法 import 它，
 但都有過濾（`if (!raw) continue`、`.filter(a => a && a.closeJson)`）。
+
+**同形變體：快照模式的「前一日」索引沒跟著位移**——歸檔還沒有今天時，`arch[L]` 已經是前一交易日，
+仍取 `arch[L-1]` 當「前日」＝拿今天的即時價比前天。
+- 事故：507ca71 2026-10-03 波段起漲空頭日 gate 的市場寬度在盤中（快照模式）比到前天 ⇒ 10-01 盤中 61.7–66.8%「多頭日」、收盤 38.7%「空頭日」，⭐⭐⭐ 盤中全被壓掉；改 `scripts/lib/swing-breadth.mjs`（前日＝`arch[liveDay ? L : L-1]`）。
+
+```bash
+# 快照／歸檔兩種模式共用索引的地方：「前一日」是否隨 liveDay 位移
+grep -nE "arch\[L ?- ?1\]|arch\[arch\.length ?- ?2\]" scripts/ai-daemon.mjs
+```
 
 ### D. 張→股 ×1000 漏掉
 
@@ -241,6 +264,9 @@ grep -rnE "T00:00:00\+08:00'\)\.getTime\(\)" src/ scripts/
 - 日期解析要對 **0 日／0 月／13 月**這類上游髒值有明確處置（換算或拒收，不可默吞）
 - 每月首個交易日的盤前，值得把日期敏感的 probe 都掃一輪——那是全年僅 12 次的觀測窗
 
+**2026-10-04 追加：判定「是不是同一天」要比對資料的日子，不是歸檔末日**（盤中歸檔末日恆為昨天，判斷式整個盤中恆真；收盤後才變對——只在盤中看得到）。
+- 事故：74cfd6c 2026-10-03 `instSameDay` 寫成 `instDate === 歸檔末日` ⇒ 盤中恆為 true，話題榜／波段起漲榜盤中誤標「含今日 T86 → 明日買進」（自 07-27 上線即如此）；改 `scripts/lib/inst-same-day.mjs`（價格日＝`liveDay ? 今天 : 歸檔末日`）。
+
 ### M. Firestore 拒收 undefined＋同一 try 區塊連坐（2026-09-28 補入·WM-SCAN G4-12）
 
 **特徵**：寫入 payload 裡**任何一層**出現 `undefined`（常見於 `{...obj, x: undefined}`、
@@ -388,6 +414,60 @@ grep -nE "(prevN|exist\w*|\.n) >= ?[0-9]{3,}|>= ?[0-9]{3,}\) \{ ?skip" scripts/*
 node scripts/audit-data-sources.mjs --no-external | grep -E "週期歸檔"
 # v2 但 final:false 的月份：daemon 只管最近 2 個月（未定版就每輪 4 頁×2 月）；更舊月份的 final 沒有消費端，不必為了定版重抓。
 #   要看某月為何未定版：文件的 missingVsPrev（名冊缺檔）與 fetchLog（觀測時刻 gen／筆數 n）
+```
+
+### Q. 隨規模長大的單一文件撞 Firestore 1MB 上限，寫入失敗而讀端只驗日期（2026-10-04 補入·G4-26）
+
+**特徵**：把「所有被追蹤個股」之類會隨使用量長大的東西塞進單一欄位／文件；平常量小沒事，某天下午超過 1,048,487 bytes 寫入開始失敗，
+讀取端只檢查「日期是今天」⇒ 畫面安靜地停在失敗前那一份，沒有任何告警。
+
+- 事故：19a2c2d 2026-10-02 `marketIntraday/latest.seriesJson` 破 1MB：09-15 13:03 起失敗 305 次、10-02 12:31 起 257 次，即時走勢停住；改 gzip＋超過 900KB 用多個壓縮分片（`scripts/lib/intraday-codec.mjs`），讀端盤中 3 分鐘未更新視同停擺。
+
+```bash
+# 會隨追蹤檔數／天數長大的 JSON 欄位：逐一估「最大的一天」有多大
+grep -nE "Json: JSON\.stringify\(" scripts/ai-daemon.mjs | head -50
+# 寫入失敗的日誌有沒有被截斷到看不出原因（舊版截 80 字）
+grep -nE "e\.message\|\|''\)\.slice\(0, ?(40|60|80)\)" scripts/ai-daemon.mjs | head
+```
+
+**判準**：會長大的文件先估上限（大文件壓縮＋分片，不要拆成每檔一份）；讀取端除了日期還要看「多久沒更新」。
+
+### R. 只存在程序記憶體的狀態被重啟清空（重啟失憶，2026-10-04 補入·G4-26）
+
+**特徵**：「今天已做過／已推過／上一份好資料」只放在 daemon 記憶體（`new Set()`、`let _xDay`、stale-if-error 快取）。
+launchd 會拉起、其他工作階段會重啟 ⇒ 重啟後重做一次（重複推播）、或失去後備（退回殘缺）。同一族的前例：
+`_lastLive` 失憶（07-17、08-12，CLAUDE.md「以為重啟 daemon 沒有副作用」）、10-03 上櫃 stale-if-error 快取蒸發。
+
+- 事故：d061734 2026-10-02 通知去重只存記憶體 Set，一天被重啟三次就重發三次當日 Web Push／Telegram；改 `scripts/lib/alert-dedup.mjs`（Firestore `alertDedup/{種類}_{scope}`），每日時段成功才寫 `system/daemonJobMarks`。
+
+```bash
+# 記憶體去重／每日旗標（應走 alertDedup 或 daemonJobMarks）
+grep -nE "const _\w+(Alerted|Sent|Pushed) = new Set\(\)|let _\w+Day = " scripts/ai-daemon.mjs
+```
+
+### S. 單次抓取無逾時無重試，多來源合併時一邊失敗就整批殘缺（2026-10-04 補入·G4-26）
+
+**特徵**：同一時刻幾個上游一起抖一下（重啟當下、上游慢），只試一次又沒有逾時的抓取一失敗，後備又依賴它（例：上櫃後備要上市回的日期），
+結果是「宇宙缺一整個市場」；與 CLAUDE.md「抓取失敗時仍把殘缺的宇宙寫進快取」（2026-08-19）是同一條鏈的上游端。
+
+- 事故：d0d5b1d 2026-10-02 15:53 重啟時上市 STOCK_DAY_ALL、上櫃鏡像、上櫃帶日期端點同時 terminated，各只試一次 ⇒ 宇宙缺上櫃 11 分鐘；改 `scripts/lib/fetch-retry.mjs`（withRetry／failStreak），上市失敗時上櫃後備改用最近歸檔日，連續失敗推播管理員。
+
+```bash
+# 沒有 AbortSignal.timeout 的 fetch（daemon 內每一處都要有逾時）
+grep -nE "await fetch\([^)]*\)\s*;?$" scripts/ai-daemon.mjs | grep -v "signal" | head
+```
+
+### T. 只在這個工作樹成立：依賴未進版控的檔（2026-10-04 補入·G4-26）
+
+**特徵**：程式讀 gitignored／未追蹤的檔（`scripts/data/*.json`、本機快取），主 checkout 有那個檔所以一切正常；
+乾淨 checkout、CI、另一個 worktree 才現形。同族的閘門版：pre-commit 掃工作樹而非 staged 快照（G3-30，2026-10-04 改為只掃 staged）。
+
+- 事故：a916af4 2026-10-03 `attention-risk.mjs` 用 `new URL('../data/attention-calibration.json', import.meta.url)` 讀未進版控的校準檔，webpack 當成要打包的資源 ⇒ 乾淨 checkout 的 `npm run build` 失敗；改用路徑組合讀檔（缺檔回 null）。
+
+```bash
+# 以 new URL(…, import.meta.url) 指向 data／快取檔（會被 bundler 當資源）
+grep -rnE "new URL\(['\"]\.\./data/" scripts/lib src
+# 驗證法：git archive HEAD 匯出乾淨副本再跑 build／測試（WM-SCAN 10-04 G3 的方法）
 ```
 
 ---

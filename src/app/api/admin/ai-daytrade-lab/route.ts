@@ -74,7 +74,9 @@ export async function GET(request: Request) {
       live, detail,
     }, { 'Cache-Control': 'no-store' });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // G1-24：錯誤細節只進 server log，不回前端
+    console.error('[api/admin/ai-daytrade-lab]', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 
@@ -96,7 +98,9 @@ export async function POST(request: Request) {
     await ref.update({ adminNotes: notes, adminNotesAt: Date.now(), adminBy: gate.email || '超級管理員' });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // G1-24：錯誤細節只進 server log，不回前端
+    console.error('[api/admin/ai-daytrade-lab]', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 
@@ -125,6 +129,8 @@ async function decideLimit(db: NonNullable<ReturnType<typeof getAdminDb>>, body:
     if ('error' in out) return NextResponse.json({ error: out.error }, { status: 409 });
     return NextResponse.json(out);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // G1-24：錯誤細節只進 server log，不回前端
+    console.error('[api/admin/ai-daytrade-lab]', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

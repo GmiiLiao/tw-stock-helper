@@ -19,8 +19,12 @@ import { dailyFeatures, holdingFeatures, matchLessons, lessonText, sumDailyRet }
 import { riskTiersOf } from './attention-risk.mjs';
 import { validDiscount } from './sim-ledger.mjs';
 import { goalProgress } from './ai-lab-member.mjs';
+import { askWithOutcome, llmNextStep, isInfraFailure, OLLAMA_KIND_LABEL, isFailureFreeze, twClock, addMinutes } from './ai-lab-guard.mjs';
 
 const MAX_ATTEMPTS = 3;
+// G2-24（2026-10-04）：新聞判讀／市況／產業對照「讀取失敗」（丟錯）時稍後重試，最多再試 2 輪；之後照常決策並在凍結檔標記缺哪些輸入。
+//   文件不存在（來源本身沒有資料）不重試，只標記。
+const INPUT_RETRIES = 2;
 // v4：注意／可能達處置名單於盤後傍晚才公布（2026-10-02 的 17:04 選股用到的是前一日名單）。名單日期還沒到資料日、
 //   且仍在資料日當晚 19:30 以前 ⇒ 稍後重試；過了就用現有名單並記下哪幾份是舊的（不無限期等，也不假裝是新的）。
 const RISK_LIST_DEADLINE_MIN = 19 * 60 + 30;
@@ -51,9 +55,13 @@ function fillDatesAfter(docs, lastDate) {
 }
 
 // getExFactorOf(date)：除權息係數查表（./exright-source.mjs exFactorLookup），持股「近 5 日漲跌合計」用；回 null＝取不到 ⇒ 不顯示 sum5
-export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, getExFactorOf = async () => null, account = {}, clock = () => Date.now() }) {
+// askOllamaEx（daemon 提供）：回 { text, kind:'ok'|'connect'|'http'|'timeout'|'empty', detail }——分清「Ollama 連不上」與「回覆看不懂」（G4-19）
+// getFreezeGate(date, swingHold, swingPicks)（daemon 提供）：凍結前的兩市到齊閘門 → { ready, missing[] }（G2-30；lib/ai-lab-guard swingFreezeGate）
+export function createAiSwingLab({ db, askOllama, askOllamaEx = null, log, dir, getModelInfo, loadDays, getRisk, getIndustry, getLearned = () => null, getExFactorOf = async () => null, getFreezeGate = null, onFreezeFailure = null, account = {}, clock = () => Date.now() }) {
   const { colPath = 'aiSwingLab', snapPath = 'aiLabAccounts/swing', files = true, research = true, label = '', getSettings = null, priority = 3 } = account;
-  const attempts = {};
+  const attempts = {};      // 資料日 → 「回覆無法解析」次數（計入 MAX_ATTEMPTS）
+  const infraFails = {};    // 資料日 → Ollama 連不上／HTTP 錯／逾時次數（不計入額度，只供記錄）
+  const inputTries = {};    // 資料日 → 輸入讀取失敗而延後的次數（INPUT_RETRIES）
   const taipeiToday = () => new Date(clock() + 8 * 3600_000).toISOString().slice(0, 10);   // clock：測試可注入
   const taipeiMins = () => { const t = new Date(clock() + 8 * 3600_000); return t.getUTCHours() * 60 + t.getUTCMinutes(); };
   // 同一帳戶的快照依序寫（2026-10-01 審查 LOW：開盤成交、盤後結算、定時重算三個排程各有忙碌旗標，擋不住同帳戶並行——
@@ -85,16 +93,82 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
   };
 
   return {
-    /** 回傳 true＝今天這一格已完成（含已存在）；'skip'＝會員尚未投入資金、不必決策（視同完成）；false＝資料未齊或本次失敗、稍後重試 */
-    async pick() {
+    /**
+     * 回傳 true＝這個資料日已完成（含已存在）；'skip'＝會員尚未投入資金、不必決策（視同完成）；
+     *   'expired'＝已過決策時窗仍無決策；'data-not-ready'＝時窗最後一輪資料仍未到齊、已寫失敗凍結（兩者呼叫端記為缺漏，不算決策完成）；
+     *   'kept'＝重新決策時已有成功決策（或期間被寫入），未覆蓋；
+     * false＝資料未齊或本次失敗、稍後重試。
+     * opts（daemon 提供；不給＝舊行為）：
+     *   forDay：這一輪應處理的資料日（G2-31：冪等鍵＝資料日）。榜單資料日不等於它就不動作。
+     *   deadline：決策時窗終點 'YYYY-MM-DDTHH:MM'（台北；資料日之後下一個交易日 08:30）。Ollama 連不上時撐到最後一次（retryMin 內）才以「Ollama 未回應」凍結。
+     *   redecide：手動重新決策——只覆蓋「失敗凍結」（Ollama 未回應／回覆無法解析），成功的決策永不覆蓋；新結果也必須成功才寫。
+     */
+    async pick({ forDay = null, deadline = null, retryMin = 20, redecide = false } = {}) {
       const sp = (await db.collection('swingPicks').doc('latest').get()).data();
       const sh = (await db.collection('swingHold').doc('latest').get()).data();
       const date = sh?.dataDate;
       if (!date || sp?.dataDate !== date || sp?.mode !== 'close') return false;   // 兩榜要是同一個收盤資料日
+      if (forDay && date !== forDay) {
+        log(`⏳ 波段 AI 選股${tag}：榜單資料日 ${date} ≠ 本輪應處理的 ${forDay}${date < forDay ? '（今日收盤版尚未產出）' : ''}，稍後重試`);
+        return false;
+      }
       const ref = col().doc(date);
-      if ((await ref.get()).exists) return true;
+      const existing = (await ref.get()).data();
+      if (existing) {
+        if (!redecide) return true;
+        if (!isFailureFreeze(existing)) { log(`· 波段 AI 重新決策${tag}：${date} 已有成功的決策（${(existing.note || '').slice(0, 30)}），未覆蓋`); return 'kept'; }
+      } else if (redecide) { log(`· 波段 AI 重新決策${tag}：${date} 尚無凍結檔，改走一般決策`); }
+      /**
+       * 寫凍結檔（審查 L3：daemon 與手動 oneshot 同時跑時，檢查與寫入之間不可被對方插隊）：
+       *   一般決策＝ref.create()（已存在就失敗、不覆蓋——不論對方寫的是成功或失敗版）；
+       *   重新決策＝transaction 內再讀一次：仍是失敗凍結（或不存在）才覆蓋，並記下被取代者；成功版永不覆蓋。
+       *   假物件沒有 create／runTransaction 時退回讀後寫（只供測試）。回傳 true＝已寫；false＝對方已先寫（未覆蓋）。
+       */
+      const freeze = async doc0 => {
+        let doc = doc0;
+        if (redecide && existing) {
+          const decide = cur => (cur && !isFailureFreeze(cur)) ? null
+            : { ...doc0, redecided: { at: Date.now(), replaced: { frozenAt: cur?.frozenAt ?? null, note: cur?.note ?? null, failure: cur?.failure ?? null } } };
+          if (typeof db.runTransaction === 'function') {
+            doc = await db.runTransaction(async tx => { const d = decide((await tx.get(ref)).data()); if (d) tx.set(ref, dropUndefined(d)); return d; });
+          } else { doc = decide((await ref.get()).data()); if (doc) await ref.set(dropUndefined(doc)); }
+          if (!doc) { log(`· 波段 AI 重新決策${tag}：${date} 期間已有成功決策，未覆蓋`); return false; }
+        } else if (typeof ref.create === 'function') {
+          try { await ref.create(dropUndefined(doc)); }
+          catch (e) {
+            if (e?.code === 6 || /ALREADY_EXISTS|already exists/i.test(String(e?.message || ''))) { log(`· 波段 AI 決策${tag}：${date} 期間已有凍結檔（另一個行程先寫），不覆蓋`); return false; }
+            throw e;
+          }
+        } else await ref.set(dropUndefined(doc));
+        writeFile(`${date}.md`, renderSwingMarkdown(doc), redecide); writeFile(`${date}.json`, JSON.stringify(doc, null, 1), redecide);
+        return true;
+      };
+      const nowTw = twClock(clock());
+      if (deadline && nowTw >= deadline) {
+        log(`⚠ 波段 AI 選股${tag}：${date} 已過決策時窗（${deadline}，下一交易日開盤前），${existing ? '不重新決策' : '當日無決策（不補，避免開盤後才下單）'}`);
+        return 'expired';   // 走到這裡＝沒有凍結檔，或重新決策的對象（失敗凍結）——都不覆蓋、不補
+      }
+      const lastChance = !!deadline && addMinutes(nowTw, retryMin) >= deadline;   // 下一輪就過時窗了 ⇒ 這是最後一次
       // 波段起漲榜須以歸檔收盤算出：priceBasis='snapshot'＝序列末端接了快照偽 K（2026-10-03：平日午夜後曾誤接、量比≈1 整榜清空）
       if (sp?.priceBasis === 'snapshot') { log(`⏳ 波段 AI 選股${tag}：${date} 波段起漲榜仍是快照偽 K 版（歸檔未併入），稍後重試`); return false; }
+      // G2-30：凍結檔寫一次不改——收盤歸檔兩市到齊、兩張榜也都是到齊後重算的版本才凍結（上櫃晚到的日子不可只用上市候選池）
+      if (getFreezeGate) {
+        let g;
+        try { g = await getFreezeGate(date, sh, sp); } catch (e) { g = { ready: false, missing: [`閘門讀取失敗 ${(e?.message || '').slice(0, 40)}`] }; }
+        if (!g?.ready) {
+          const missing = g?.missing?.length ? g.missing : ['未知'];
+          if (!lastChance || redecide) { log(`⏳ 波段 AI 選股${tag}：${date} 資料未到齊（${missing.join('、')}），稍後重試、不凍結`); return false; }
+          // 審查 M2：決策時窗最後一輪仍未到齊（例：TPEx 整晚連不上）⇒ 寫持久的「資料未到齊」失敗凍結（不以殘缺候選池決策、沒有委託、持股續抱），
+          //   之後資料到齊仍可在時窗內以 aiSwingRedecide 取代（isFailureFreeze 涵蓋 failure.kind）
+          log(`⚠ 波段 AI 選股${tag}：${date} 至決策時窗結束（${deadline}）資料仍未到齊（${missing.join('、')}），以「資料未到齊」凍結、當日不操作`);
+          const doc = { date, version: SWING_LAB_VERSION, model: null, market: null, pool: [], picks: [], review: { holdings: [], sells: [] }, outcomes: {},
+            note: `資料未到齊（${missing.join('、')}），至決策時窗結束仍未到齊，今日不操作（持股全部續抱）`,
+            failure: { kind: 'data-not-ready', missing, deadline, at: Date.now() }, prompt: null, raw: null, frozenAt: Date.now() };
+          const wrote = await freeze(doc);
+          if (wrote) { try { await onFreezeFailure?.({ date, kind: 'data-not-ready', missing, label }); } catch { /* 通知失敗不影響凍結 */ } }
+          return 'data-not-ready';
+        }
+      }
       const risk = await getRisk();
       if (!risk) { log('⚠ 波段 AI 選股：處置名單取不到或殘缺，稍後重試（不以空名單選股）'); return false; }
       const asOf = risk.asOf || null;   // 舊介面（測試／其他呼叫端）沒有 asOf ⇒ 不等
@@ -104,12 +178,34 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
         return false;
       }
       const riskTiers = risk.attentionInfo || risk.nearMap ? riskTiersOf({ nearMap: risk.nearMap || null, attentionInfo: risk.attentionInfo || null }) : null;
-      let news = {}; try { const nv = (await db.collection('newsVerdict').doc('latest').get()).data(); const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : {}; for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; } catch { news = {}; }
-      let market = null; try { const w = (await db.collection('marketWind').doc('latest').get()).data(); market = w?.direction ? `${w.direction.label}（上漲 ${w.direction.up}／下跌 ${w.direction.down}）` : null; } catch { market = null; }
-      const industry = await getIndustry().catch(() => ({}));
+      // G2-24：輸入讀取失敗不可靜默變成 {}／null——讀取丟錯 ⇒ 稍後重試（最多 INPUT_RETRIES 輪）；文件不存在 ⇒ 只標記
+      const inputsMissing = [], readErrors = [];
+      let news = {};
+      try {
+        const nd = await db.collection('newsVerdict').doc('latest').get();
+        if (!nd.exists) inputsMissing.push('新聞判讀（newsVerdict/latest 不存在）');
+        else { const nv = nd.data(); const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : null; if (!v) inputsMissing.push('新聞判讀（無判讀內容）'); else for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; }
+      } catch (e) { news = {}; readErrors.push(`新聞判讀（${(e?.message || '讀取失敗').slice(0, 40)}）`); }
+      let market = null;
+      try {
+        const wd = await db.collection('marketWind').doc('latest').get();
+        const w = wd.exists ? wd.data() : null;
+        market = w?.direction ? `${w.direction.label}（上漲 ${w.direction.up}／下跌 ${w.direction.down}）` : null;
+        if (!market) inputsMissing.push(wd.exists ? '市況（無方向資料）' : '市況（marketWind/latest 不存在）');
+      } catch (e) { market = null; readErrors.push(`市況（${(e?.message || '讀取失敗').slice(0, 40)}）`); }
+      let industry = {};
+      try { industry = (await getIndustry()) || {}; if (!Object.keys(industry).length) inputsMissing.push('產業對照（空）'); }
+      catch (e) { industry = {}; readErrors.push(`產業對照（${(e?.message || '讀取失敗').slice(0, 40)}）`); }
+      if (readErrors.length) {
+        inputTries[date] = (inputTries[date] || 0) + 1;
+        if (inputTries[date] <= INPUT_RETRIES && !lastChance) { log(`⚠ 波段 AI 選股${tag}：輸入讀取失敗（${readErrors.join('、')}），第 ${inputTries[date]} 次，稍後重試`); return false; }
+        log(`⚠ 波段 AI 選股${tag}：輸入讀取仍失敗（${readErrors.join('、')}），照常決策並在凍結檔標記缺漏`);
+        inputsMissing.push(...readErrors);
+      }
       const pool0 = buildPool({ swingPicks: sp, swingHold: sh, disp: risk.disp, attention: risk.attention, news, industry, riskTiers });
       // v3（2026-09-28）：帳戶由 AI 主動操作——先由記錄＋日線重建持股，交給 AI 檢視續抱／賣出，再決定買進
-      const prevDocs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+      //   重新決策時排除被取代的那份失敗凍結檔（它沒有委託，但不讓它參與重建）
+      const prevDocs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data()).filter(d => d?.date !== date);
       const days = await loadDays(Math.max(...SWING_HORIZONS) + 15);   // 價格事件讀失敗會拋出 ⇒ 呼叫端稍後重試
       const { opts, member } = await acctOf(date);
       const state = portfolioState(prevDocs, days.length ? days : null, date, opts);
@@ -146,22 +242,33 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const model = await getModelInfo();
       // attentionAsOf：這次分級用的四份名單各是哪一天的（stale＝過了 19:30 仍未更新、以舊名單決策）
       const base = { date, version: SWING_LAB_VERSION, model, market, swingMeta: { bearDay: !!sp.bearDay, crowded: !!sp.crowded, observe: !!sp.observe, observeWhy: sp.observeWhy || null }, pool, outcomes: {},
-        ...(asOf ? { attentionAsOf: { ...Object.fromEntries(RISK_LIST_KEYS.map(k => [k, asOf[k] ?? null])), stale: staleLists } } : {}) };
+        ...(asOf ? { attentionAsOf: { ...Object.fromEntries(RISK_LIST_KEYS.map(k => [k, asOf[k] ?? null])), stale: staleLists } } : {}),
+        ...(inputsMissing.length ? { inputsMissing } : {}),
+        // G4-25：會員決策當下的設定快照（結構化；事後可查「AI 是依哪一組資金／目標／折讓做的決定」）
+        ...(member ? { settings: { asOf: date, capital: member.capital, flowsN: (opts.flows || []).length, goal: member.goal, goalDays: member.goalDays, goalStartDate: member.goalStartDate, feeDiscount: member.feeDiscount } } : {}) };
       const reviewList = holdings.map(h => ({ key: h.key, code: h.code, name: h.name, shares: h.shares, buyPx: h.buyPx, lastPx: h.lastPx, pnlPct: h.pnlPct, heldDays: h.heldDays, onList: h.onList, lessonIds: h.lessonIds,
         sum5: h.sum5 ?? null, ...(riskTiers ? { attnRisk: h.attnRisk ?? null } : {}) }));   // lessonIds：持股套用了哪些經驗（含賣出經驗；無則由 dropUndefined 略去）
       if (!pool.length && !holdings.length) {
         const doc = { ...base, picks: [], review: { holdings: [], sells: [] }, account: state.account, note: '候選池為空（兩榜皆無可選或皆為處置股）且無持股', prompt: null, raw: null, frozenAt: Date.now() };
-        await ref.set(dropUndefined(doc)); writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
-        return true;
+        return (await freeze(doc)) ? true : (redecide ? 'kept' : true);
       }
       const hist = member ? ((await snapRef().get()).data()?.history || []) : [];
       const cumRetPct = member ? (hist.at(-1)?.cumRetPct ?? null) : null;
       const progress = member?.goal ? goalProgress(hist, { growthTarget: member.goal, goalDays: member.goalDays, goalStartDate: member.goalStartDate }) : null;
       const prompt = buildPickPrompt({ date, pool, market, swingPicksMeta: base.swingMeta, holdings, cash: state.account.freeCash, equity, member: member ? { ...member, cumRetPct, progress } : null });
-      const raw = await askOllama(prompt, { priority, temperature: 0.2 });   // 會員帳戶排在實驗帳戶之後
-      const parsed = parseDecision(raw, new Set(pool.map(c => c.code)), new Set(holdings.map(h => h.code)), heldCodes);
-      attempts[date] = (attempts[date] || 0) + 1;
-      if (!parsed && attempts[date] < MAX_ATTEMPTS) { log(`⚠ 波段 AI 決策${tag}：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
+      const { text: raw, kind, detail } = await askWithOutcome({ askOllama, askOllamaEx }, prompt, { priority, temperature: 0.2 });   // 會員帳戶排在實驗帳戶之後
+      const infra = isInfraFailure(kind);
+      const parsed = infra ? null : parseDecision(raw, new Set(pool.map(c => c.code)), new Set(holdings.map(h => h.code)), heldCodes);
+      if (infra) infraFails[date] = (infraFails[date] || 0) + 1;
+      else if (!parsed) attempts[date] = (attempts[date] || 0) + 1;
+      const step = llmNextStep({ kind, parsedOk: !!parsed, attempts: attempts[date] || 0, maxAttempts: MAX_ATTEMPTS, lastChance });
+      const why = infra ? `Ollama 未回應（${OLLAMA_KIND_LABEL[kind] || kind}${detail ? `：${String(detail).slice(0, 60)}` : ''}）` : '回覆無法解析';
+      if (redecide && step !== 'ok') { log(`✖ 波段 AI 重新決策${tag} ${date}：${why}，保留原凍結檔`); return false; }
+      if (step === 'retry-infra') { log(`⚠ 波段 AI 決策${tag}：${why}，第 ${infraFails[date]} 次，不計入重試次數；決策時窗至 ${deadline || '下一交易日開盤前'}，稍後重試`); return false; }
+      if (step === 'retry-parse') { log(`⚠ 波段 AI 決策${tag}：回覆無法解析（第 ${attempts[date]} 次），稍後重試`); return false; }
+      // 失敗凍結：原因分清（連不上 vs 看不懂），可在時窗內以手動重新決策取代
+      const failure = step === 'freeze-infra' ? { kind: 'ollama-unreachable', cause: kind, detail: detail ? String(detail).slice(0, 120) : null, infraFails: infraFails[date], parseAttempts: attempts[date] || 0, deadline, at: Date.now() }
+        : step === 'freeze-parse' ? { kind: 'unparseable', attempts: attempts[date] || 0, infraFails: infraFails[date] || 0, at: Date.now() } : null;
       const byCode = new Map(pool.map(c => [c.code, c]));
       const sells = (parsed?.sells || []).map(x => { const h = holdings.find(y => y.code === x.code); return { code: x.code, name: h.name, key: h.key, shares: h.shares, reason: x.reason, estPx: h.lastPx, estProceeds: h.lastPx ? estSellProceeds(h.lastPx, h.shares, opts.feeDiscount) : 0 }; });
       // 資金池規則（2026-09-29 使用者：現金不可為負、T+2 交割、處置股需預收款）：
@@ -172,9 +279,11 @@ export function createAiSwingLab({ db, askOllama, log, dir, getModelInfo, loadDa
       const raw0 = (parsed?.picks || []).map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code)?.price ?? null, prefund: risk.disp.has(p.code) }));
       const picks = sizePicks(raw0, cashForBuys, { prefundCash, feeDiscount: opts.feeDiscount });
       const doc = { ...base, picks, review: { holdings: reviewList, sells }, account: state.account, equityAtDecision: Math.round(equity), cashForBuys: Math.round(cashForBuys),
-        note: parsed ? parsed.note : `Ollama 回覆 ${MAX_ATTEMPTS} 次皆無法解析，今日不操作（持股全部續抱）`, rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
-      await ref.set(dropUndefined(doc));
-      writeFile(`${date}.md`, renderSwingMarkdown(doc)); writeFile(`${date}.json`, JSON.stringify(doc, null, 1));
+        note: parsed ? parsed.note
+          : failure?.kind === 'ollama-unreachable' ? `${why}，重試至決策時窗結束仍無回應，今日不操作（持股全部續抱）`
+          : `Ollama 回覆 ${attempts[date] || MAX_ATTEMPTS} 次皆無法解析，今日不操作（持股全部續抱）`,
+        ...(failure ? { failure } : {}), rejected: parsed?.rejected ?? null, prompt, raw: raw ? String(raw).slice(0, 3000) : null, frozenAt: Date.now() };
+      if (!(await freeze(doc))) return redecide ? 'kept' : true;
       log(`✓ 波段 AI 決策${tag} ${date}（${model?.name || '?'}）：持股 ${holdings.length} 檔 → 賣 ${sells.map(x => x.code).join('、') || '無'}；池 ${pool.length} 檔 → 買 ${picks.filter(p => p.position?.shares).map(p => p.code).join('、') || '無'}`);
       await this.writeAccount(days);
       return true;

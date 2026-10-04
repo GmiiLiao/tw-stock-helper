@@ -69,6 +69,8 @@ export async function GET(request: Request) {
       },
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    // G1-24：錯誤細節只進 server log，不回前端
+    console.error('[api/admin/squeeze-model]', e);
+    return NextResponse.json({ error: 'internal error' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
 }

@@ -129,8 +129,8 @@ export async function GET(request: NextRequest) {
       const { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched } =
         enrichScoredStock(base, bars, fund, news, livePrice);
       return NextResponse.json(
-        { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched, dataDate, generatedAt: new Date().toISOString() },
-        { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30' } },
+        { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched, dataDate, generatedAt: new Date().toISOString(), dispositionComplete: riskData.dispositionComplete },
+        { headers: { 'Cache-Control': riskData.dispositionComplete ? 'public, s-maxage=60, stale-while-revalidate=30' : 'public, s-maxage=15' } },
       );
     }
 
@@ -142,8 +142,9 @@ export async function GET(request: NextRequest) {
       ratings[r.code] = r;
     }
 
-    const payload = { ratings, dataDate, generatedAt: new Date().toISOString(), count: Object.keys(ratings).length };
-    const headers: Record<string, string> = { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30' };
+    // G2-10：dispositionComplete=false 時 risk:null 不代表確認非處置股（signal 已壓成 WATCH）
+    const payload = { ratings, dataDate, generatedAt: new Date().toISOString(), count: Object.keys(ratings).length, dispositionComplete: riskData.dispositionComplete };
+    const headers: Record<string, string> = { 'Cache-Control': riskData.dispositionComplete ? 'public, s-maxage=60, stale-while-revalidate=30' : 'public, s-maxage=15' };
     // 全市場評分包較大且被 Screener/自選/NL 選股高頻取用 → gzip 省 ~80% 流量
     if ((request.headers.get('accept-encoding') || '').includes('gzip')) {
       const gz = gzipSync(Buffer.from(JSON.stringify(payload)));

@@ -19,11 +19,13 @@
 //     REQUIRED_AUDIT_ALIASES 的每一項——單方面改任一邊都會在這裡爆。
 //   ③ --selftest：對合成樣本驗證「新名字必被抓到」，證明閘門活著。
 //
-// 執行：node scripts/check-field-conventions.mjs [--selftest]
+// 執行：node scripts/check-field-conventions.mjs [--selftest] [--root <dir>]
+//   --root：改掃該目錄（pre-commit 以 staged 快照目錄呼叫——未追蹤／未暫存的別人工作檔不再擋別人的 commit，
+//           也不會遮住 staged 版本的問題，2026-10-04 WM-SCAN G3-30）；預設＝本 repo 工作樹（含未追蹤檔，人工全掃用）
 // 掛載：audit-data-sources.mjs 每日 16:10 順跑（見該檔）；CLAUDE.md 驗證節。
 // ─────────────────────────────────────────────────────────────────────────
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -157,12 +159,13 @@ const EXT = /\.(mjs|ts|tsx)$/;
 //   不是產品程式，沒登記的 …Date 名字不該擋住別人的提交（2026-10-03 主 checkout pre-commit 被 verify_lu_1002.mjs 擋下）
 const SKIP = /node_modules|_tmp-|\.surge-cache|\.d\.ts$|check-field-conventions/;
 
-function* walk(dir) {
+// SKIP 以「相對於掃描根」的路徑比對（--root 指向暫存目錄時，暫存目錄自己的路徑不可誤中 SKIP）
+function* walk(dir, root = ROOT) {
   for (const f of readdirSync(dir)) {
     const p = join(dir, f);
-    if (SKIP.test(p)) continue;
+    if (SKIP.test(p.slice(root.length))) continue;
     const st = statSync(p);
-    if (st.isDirectory()) yield* walk(p);
+    if (st.isDirectory()) yield* walk(p, root);
     else if (EXT.test(f)) yield p;
   }
 }
@@ -190,13 +193,14 @@ export function scanSource(text, file) {
   return bad;
 }
 
-export function runCheck() {
+/** root：要掃的樹（預設本 repo）。audit-data-sources.mjs 以無參數呼叫＝工作樹，行為不變。 */
+export function runCheck(root = ROOT) {
   const problems = [];
-  for (const dir of SCAN_DIRS) for (const f of walk(join(ROOT, dir))) {
-    problems.push(...scanSource(readFileSync(f, 'utf8'), f.slice(ROOT.length + 1)));
+  for (const dir of SCAN_DIRS) for (const f of walk(join(root, dir), root)) {
+    problems.push(...scanSource(readFileSync(f, 'utf8'), f.slice(root.length + 1)));
   }
   // 交叉檢查：稽核的別名清單必須含 REQUIRED_AUDIT_ALIASES 每一項
-  const audit = readFileSync(join(ROOT, 'scripts/audit-data-sources.mjs'), 'utf8');
+  const audit = readFileSync(join(root, 'scripts/audit-data-sources.mjs'), 'utf8');
   const aliasLine = audit.match(/for \(const k of \[([^\]]+)\]\)/);
   const aliases = aliasLine ? aliasLine[1].match(/'[^']+'/g).map(x => x.slice(1, -1)) : [];
   for (const req of REQUIRED_AUDIT_ALIASES) {
@@ -218,9 +222,14 @@ function selftest() {
   return okAt && okDate && clean.length === 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// 直接執行才跑主程式（被 audit-data-sources import 時不跑）。⚠ 兩邊都取 realpath 再比（2026-10-04）：
+//   macOS 的 /var → /private/var 符號連結、或路徑含 `//` 時，舊的字串相等判斷會不成立 ⇒ 主程式不執行、exit 0＝靜默通過
+//   （pre-commit 以暫存目錄呼叫時實際發生，Vacuous Guard）。
+const _isMain = (() => { try { return !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })();
+if (_isMain) {
   if (process.argv.includes('--selftest')) process.exit(selftest() ? 0 : 1);
-  const problems = runCheck();
+  const ri = process.argv.indexOf('--root');
+  const problems = runCheck(ri > 0 ? resolve(process.argv[ri + 1]) : ROOT);
   if (problems.length) { console.log(`❌ 欄位命名契約 ${problems.length} 項違規：`); for (const p of problems) console.log('  ' + p); process.exit(1); }
   console.log(`✓ 欄位命名契約：全站掃描通過（時間戳 ${AT_ALLOWLIST.size} 個已登記名·資料日 ${DATE_ALLOWLIST.size} 個·稽核別名交叉檢查通過）`);
 }

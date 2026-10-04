@@ -5,6 +5,7 @@ import { getStockDayAllDataInternal, isMarketOpen } from '@/lib/twse-api-server'
 import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/scoring-server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { getInstWeights } from '@/lib/inst-weight-server';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +23,10 @@ export const runtime = 'nodejs';
 
 const gradeOf = (s: number) => (s >= 85 ? 'A+' : s >= 75 ? 'A' : s >= 65 ? 'B+' : s >= 55 ? 'B' : 'C');
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 專屬限流（G1-23）：全市場評分＋快取未命中時打處置／收盤上游；前端 30~60 秒輪詢 ⇒ 120/分鐘很寬，只擋濫用。
+  const limited = await rateLimit(request, 'intraday-picks', 120);
+  if (limited) return limited;
   try {
     const marketOpen = isMarketOpen();
     const [live, base, riskData, iw, sqDoc] = await Promise.all([
@@ -102,7 +106,8 @@ export async function GET() {
         ...full,
         score: total, grade: gradeOf(total),
         // 與 scoreStock 同規則：處置股不給買進訊號、注意股最多 WATCH（2026-09-30 全站稽核：原本重算時漏了這道閘）
-        signal: full.isDisposition ? 'NEUTRAL' : total >= 60 && full.isAttention ? 'WATCH' : total >= 75 ? 'STRONG_BUY' : total >= 60 ? 'BUY' : 'WATCH',
+        // G2-10：處置名單殘缺時無法確認是否處置股 ⇒ 同注意股，最多 WATCH
+        signal: full.isDisposition ? 'NEUTRAL' : total >= 60 && (full.isAttention || full.riskListIncomplete) ? 'WATCH' : total >= 75 ? 'STRONG_BUY' : total >= 60 ? 'BUY' : 'WATCH',
         reasons: reasons.length ? reasons : full.reasons,
         instW,
         squeeze: isSqueeze,
@@ -131,8 +136,8 @@ export async function GET() {
     }
 
     return gzipJsonAuto(   // 2026-09-18：58KB 未壓縮 → gzip
-      { picks, marketOpen, universe: candidates.length, progress: +progress.toFixed(2), generatedAt: new Date().toISOString() },
-      { 'Cache-Control': marketOpen ? 'public, s-maxage=30' : 'public, s-maxage=300' },
+      { picks, marketOpen, universe: candidates.length, progress: +progress.toFixed(2), generatedAt: new Date().toISOString(), dispositionComplete: riskData.dispositionComplete },
+      { 'Cache-Control': !riskData.dispositionComplete ? 'public, s-maxage=15' : marketOpen ? 'public, s-maxage=30' : 'public, s-maxage=300' },
     );
   } catch (e) {
     console.error('[intraday-picks] error:', e);

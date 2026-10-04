@@ -8,15 +8,10 @@
 // 顏色刻意不用紅/綠（那是漲跌語意）：委買＝藍、委賣＝橙，避免與漲跌顏色混淆。
 
 import { useEffect, useState } from 'react';
-import { startLiveLoop, shouldPollThroughClose } from '@/lib/market-clock';
+import { startLiveLoop, shouldPollThroughClose, isTwTradingHours } from '@/lib/market-clock';
 
 interface DepthRow { bid: [number, number][]; ask: [number, number][] }
 
-function isTwTradingHours(): boolean {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-}
 
 export default function OrderBookDepth({ code, price }: { code: string; price?: number }) {
   // G3-19：原本 tradingNow 只在 render 時算——元件沒重繪就不會跨過 13:35 關閉（收盤後續打），

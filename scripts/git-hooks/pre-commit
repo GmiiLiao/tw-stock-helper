@@ -1,32 +1,66 @@
 #!/bin/sh
 # 台股助手 pre-commit 閘門（wm-ci-guardrails·2026-09-04）
 # 目的：磁碟上任何時刻不可放語法壞碼——launchd 會在 daemon 死亡時拉起磁碟版
-#（2026-08-31 `_sma` 重複宣告 crash loop 事故）。輕量兩項，~3 秒；tsc 放 pre-push。
+#（2026-08-31 `_sma` 重複宣告 crash loop 事故）。tsc 放 pre-push。
+#
+# ⚠ 只檢查 **staged 快照**（2026-10-04·WM-SCAN G3-30）：
+#   舊版各工具掃工作樹 ⇒ 另一個工作階段的未追蹤／未暫存檔紅燈時，所有人的 commit 都被擋；
+#   反過來工作樹若已修好、staged 版本仍壞，也會被遮住。現在把 index 裡 src/ 與 scripts/ 的內容
+#   用 `git checkout-index` 匯出到暫存目錄，**用 staged 版的工具與政策檔**（route-policy.json、source-registry.json、
+#   test-baseline.json）以 --root 掃那個目錄。各工具直接執行時（不帶 --root）仍掃工作樹，行為不變。
 cd "$(git rev-parse --show-toplevel)" || exit 1
+REPO="$(pwd)"
+STAGED="$(git diff --cached --name-only --diff-filter=ACMRD)"
+[ -z "$STAGED" ] && exit 0
+
+SNAP="$(mktemp -d "${TMPDIR:-/tmp}/twstock-staged.XXXXXX")" || { echo "❌ 無法建立 staged 快照暫存目錄"; exit 1; }
+SNAP="$(cd "$SNAP" && pwd -P)"   # 真實路徑（TMPDIR 尾端斜線、/var→/private/var 符號連結都會讓工具的路徑比對失準）
+OUT="$SNAP.out"
+trap 'rm -rf "$SNAP" "$OUT"' EXIT INT TERM
+mkdir -p "$OUT"
+# index 中 src/、scripts/ 與根目錄設定檔的 staged 內容（staged 刪除的檔不會出現；未追蹤檔不在 index）
+git ls-files -z -- src scripts package.json tsconfig.json next.config.ts \
+  | git checkout-index -z --stdin --prefix="$SNAP/" || { echo "❌ 匯出 staged 快照失敗"; exit 1; }
+[ -e "$REPO/node_modules" ] && ln -s "$REPO/node_modules" "$SNAP/node_modules"
+[ -f "$SNAP/scripts/check-field-conventions.mjs" ] || { echo "❌ staged 快照缺 scripts/check-field-conventions.mjs——快照異常，視為失敗"; exit 1; }
+
 fail=0
-for f in $(git diff --cached --name-only --diff-filter=ACM | grep -E '^scripts/.*\.mjs$'); do
-  node --check "$f" || { echo "❌ 語法錯誤：$f"; fail=1; }
-done
-if git diff --cached --name-only | grep -qE '\.(ts|tsx|mjs)$'; then
-  node scripts/check-field-conventions.mjs >/tmp/fc.out 2>&1 || { cat /tmp/fc.out; echo "❌ 欄位命名契約違規（先到 check-field-conventions.mjs 登記）"; fail=1; }
-fi
-if git diff --cached --name-only | grep -qE '^src/'; then
-  node scripts/audit-routes.mjs >/tmp/ar.out 2>&1 || { cat /tmp/ar.out; echo "❌ route 封閉世界普查違規（scripts/route-policy.json）"; fail=1; }
-  node scripts/audit-ratchets.mjs >/tmp/rt.out 2>&1 || { cat /tmp/rt.out; echo "❌ Ratchet 違規（setInterval 未接 gate）"; fail=1; }
-  node scripts/enforce-safe-storage.mjs >/tmp/ss.out 2>&1 || { cat /tmp/ss.out; echo "❌ 原生 localStorage 呼叫（改用 @/lib/safe-storage）"; fail=1; }
-fi
-# scripts/lib 單元測試（2026-09-28·WM-SCAN G3-08／G4-14）：daemon 的純函式與執行器都在 scripts/lib，
-# 測試原本沒接任何閘門 ⇒ 改壞了照樣 commit、disk 即部署。只在動到 scripts/lib/ 時跑（~0.2 秒）。
-if git diff --cached --name-only | grep -qE '^scripts/lib/'; then
-  set -- scripts/lib/*.test.mjs
-  if [ -e "$1" ]; then
-    node --test "$@" >/tmp/lt.out 2>&1 || { cat /tmp/lt.out; echo "❌ scripts/lib 單元測試失敗（node --test scripts/lib/*.test.mjs）"; fail=1; }
-    [ $fail -eq 0 ] && echo "✓ scripts/lib 單元測試通過（$# 檔）"
+has() { printf '%s\n' "$STAGED" | grep -qE "$1"; }
+run() {   # 名稱 失敗訊息 指令...（工具沒有任何輸出＝沒真的跑＝視為失敗，防靜默通過）
+  name="$1"; msg="$2"; shift 2
+  if "$@" >"$OUT/$name" 2>&1; then
+    [ -s "$OUT/$name" ] || { echo "❌ $msg——工具沒有任何輸出（沒有真的執行？），視為失敗"; fail=1; }
+  else
+    cat "$OUT/$name"; echo "❌ $msg"; fail=1
   fi
+}
+
+# 語法：staged 內容（不是工作樹那份）
+for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '^scripts/.*\.mjs$'); do
+  node --check "$SNAP/$f" || { echo "❌ 語法錯誤：$f"; fail=1; }
+done
+if has '\.(ts|tsx|mjs)$'; then
+  run fc "欄位命名契約違規（先到 check-field-conventions.mjs 登記）" node "$SNAP/scripts/check-field-conventions.mjs" --root "$SNAP"
+fi
+if has '^src/|^scripts/(route-policy|source-registry)\.json$|^scripts/(audit-routes|audit-ratchets|enforce-safe-storage)\.mjs$'; then
+  run ar "route 封閉世界普查違規（scripts/route-policy.json）" node "$SNAP/scripts/audit-routes.mjs" --root "$SNAP"
+  run rt "Ratchet 違規（setInterval 未接 gate）" node "$SNAP/scripts/audit-ratchets.mjs" --root "$SNAP"
+  run ss "原生 localStorage 呼叫（改用 @/lib/safe-storage）" node "$SNAP/scripts/enforce-safe-storage.mjs" --root "$SNAP"
+fi
+# 相對 import 存在性（2026-10-04 審查 M3）：只暫存 ai-daemon.mjs、它 import 的新 lib 仍未追蹤 ⇒ HEAD 的 daemon 缺檔、launchd 拉起即 crash。
+#   快照裡只有 index 的內容，未暫存的新檔不存在 ⇒ 這裡會紅並列出缺的檔。
+if has '^(src/|scripts/)'; then
+  run im "相對 import 指向 staged 快照裡不存在的檔（新檔忘了 git add？）" node "$SNAP/scripts/check-imports.mjs" --root "$SNAP"
+fi
+# scripts 單元測試（2026-09-28·G3-08；2026-10-04·G3-29 改遞迴收集 scripts/**/*.test.mjs＋測試數下限 scripts/test-baseline.json）
+#   測試匯入閉包全在 scripts/ 內（WM-SCAN 2026-10-02 實測）⇒ 動到 scripts/ 就全跑（~1.5 秒）
+if has '^scripts/'; then
+  run lt "scripts 單元測試失敗或測試數低於基線（node scripts/check-test-count.mjs）" node "$SNAP/scripts/check-test-count.mjs" --root "$SNAP"
+  [ -s "$OUT/lt" ] && grep -E '^(✓|ℹ)' "$OUT/lt"
 fi
 # 外部資料來源登錄（2026-09-28·wm-source-legitimacy／WM-SCAN G4-10）：程式碼出現未登錄或未核准的網域即擋。
-if git diff --cached --name-only | grep -qE '^(src/|scripts/)'; then
-  node scripts/check-source-registry.mjs >/tmp/sr.out 2>&1 || { cat /tmp/sr.out; echo "❌ 外部來源未登錄／未核准（scripts/source-registry.json，見 wm-source-legitimacy）"; fail=1; }
+if has '^(src/|scripts/)'; then
+  run sr "外部來源未登錄／未核准（scripts/source-registry.json，見 wm-source-legitimacy）" node "$SNAP/scripts/check-source-registry.mjs" --root "$SNAP"
 fi
-[ $fail -eq 0 ] && echo "✓ pre-commit：語法＋欄位契約＋route 普查＋ratchet＋safe-storage＋來源登錄 通過"
+[ $fail -eq 0 ] && echo "✓ pre-commit（staged 快照）：語法＋import 存在性＋欄位契約＋route 普查＋ratchet＋safe-storage＋測試＋來源登錄 通過"
 exit $fail

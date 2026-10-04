@@ -28,6 +28,7 @@ import { settleDate, isSettled, tradingDaysUntilSettle } from '@/lib/tw-settleme
 import { useChipVerdicts, VerdictBadge, VerdictStrip } from '@/components/shared/ChipVerdict';
 import WeeklyReport from './WeeklyReport';
 import DefenseBanner from './DefenseBanner';
+import { useModalDismiss } from './useModalDismiss';
 import DividendTaxCalc from './DividendTaxCalc';
 import RiskBadge from '@/components/shared/RiskBadge';
 import { useDataUid, useIsSimulating } from '@/lib/view-as';
@@ -76,11 +77,14 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
     quantity: '',
     unit: (storageGet('tradeUnit') === 'share' ? 'share' : 'lot') as 'lot' | 'share',   // 張/股·記住上次選擇（零股使用者不必每次重切）
     date: taipeiToday(),   // 台北日期（UTC 在 00:00–08:00 會變成前一天·2026-10-01 實測）
-    note: '',
     dayTrade: false,
   });
   const [searchQuery, setSearchQuery] = useState('');
   const codeInputRef = useRef<HTMLInputElement>(null);
+  // G3-22：備注改非受控（父層有即時報價輪詢，受控文字框在手機 IME 下游標會被打回開頭）
+  const noteRef = useRef<HTMLInputElement>(null);
+  const isDirty = () => !!(form.code || form.price || form.quantity || noteRef.current?.value || codeInputRef.current?.value);
+  const { overlayProps } = useModalDismiss(onClose, isDirty);
   const [showSearch, setShowSearch] = useState(false);
 
   const matchedStocks = useMemo(() => {
@@ -135,7 +139,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
       tax,
       totalAmount,
       date: form.date,
-      note: form.note || undefined,
+      note: noteRef.current?.value.trim() || undefined,
       realizedPnL,
       costBasis: avgCostBasis || undefined,
       dayTrade: form.dayTrade || undefined,
@@ -145,8 +149,8 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+    <div className={styles.modalOverlay} {...overlayProps}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }} role="dialog" aria-modal="true" aria-label="新增交易紀錄">
         <div className={styles.modalHeader}>
           <h3>📝 新增交易紀錄</h3>
           {/* 2026-09-30 使用者「按鈕移到上方」：取消／送出放在標題列（取消＝關閉，取代 ×） */}
@@ -305,11 +309,7 @@ function AddTradeModal({ onClose }: { onClose: () => void }) {
           {/* Note */}
           <div className={styles.formGroup}>
             <label>備注</label>
-            <input
-              className="input" type="text" placeholder="可選填"
-              value={form.note}
-              onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-            />
+            <input ref={noteRef} className="input" type="text" placeholder="可選填" defaultValue="" />
           </div>
 
           {/* Cost Preview */}
@@ -359,9 +359,12 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
     price: String(trade.price),
     quantity: String(trade.quantity),
     date: trade.date,
-    note: trade.note || '',
     dayTrade: !!trade.dayTrade,
   });
+  const noteRef = useRef<HTMLInputElement>(null);   // G3-22：備注非受控
+  const isDirty = () => form.price !== String(trade.price) || form.quantity !== String(trade.quantity)
+    || form.date !== trade.date || form.dayTrade !== !!trade.dayTrade || (noteRef.current?.value ?? '') !== (trade.note || '');
+  const { overlayProps } = useModalDismiss(onClose, isDirty);
   const price = parseFloat(form.price) || 0;
   const qty = parseFloat(form.quantity) || 0;
   const cost = trade.type === 'dividend'
@@ -370,15 +373,15 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
   const save = () => {
     if (price <= 0 || qty <= 0 || !form.date) { alert('請輸入正確的價格、張數與日期！'); return; }
     updateTradeRecord(trade.id, {
-      price, quantity: qty, date: form.date, note: form.note || undefined,
+      price, quantity: qty, date: form.date, note: noteRef.current?.value.trim() || undefined,
       dayTrade: form.dayTrade || undefined,
       fee: cost.fee, tax: cost.tax, totalAmount: cost.net,
     });
     onClose();
   };
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+    <div className={styles.modalOverlay} {...overlayProps}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }} role="dialog" aria-modal="true" aria-label="修改交易">
         <div className={styles.modalHeader}>
           <h3>✏️ 修改交易 — {trade.code} {trade.name}（{trade.type === 'buy' ? '買入' : trade.type === 'sell' ? '賣出' : '股利'}）</h3>
           <div className={styles.modalActions}>
@@ -412,8 +415,7 @@ function EditTradeModal({ trade, onClose }: { trade: TradeRecord; onClose: () =>
           )}
           <div className={styles.formGroup}>
             <label>備注</label>
-            <input className="input" type="text" value={form.note}
-              onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
+            <input ref={noteRef} className="input" type="text" defaultValue={trade.note || ''} />
           </div>
           {price > 0 && qty > 0 && (
             <div className={styles.costPreview}>
@@ -1076,6 +1078,103 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
 const MyAiLab = dynamic(() => import('@/components/AiLab/MyAiLab'), { loading: () => <div style={{ padding: 20, color: 'var(--text-muted)' }}>載入中…</div> });
 type PortfolioTab = 'overview' | 'trades' | 'analytics' | 'ailab';
 
+// ─── Edit Holding Modal ──────────────────────────────────────────────────
+// G3-22（2026-10-04）：原本內嵌在 Portfolio 主元件（每拍報價都重繪），備注是受控文字框、點遮罩直接丟掉輸入。
+// 抽出後：數字／日期仍受控（驅動下方成本試算，type=number/date 無 IME 組字問題），備注非受控。
+interface HoldingPatch { buyPrice: number; quantity: number; buyDate: string; note: string }
+function EditHoldingModal({ holding, onSave, onClose }: {
+  holding: { code: string; name?: string; stockName?: string; buyPrice: number; quantity: number; buyDate: string; note?: string };
+  onSave: (patch: HoldingPatch) => void;
+  onClose: () => void;
+}) {
+  const [broker] = useBrokerSettings();
+  const [editForm, setEditForm] = useState({
+    buyPrice: String(holding.buyPrice),
+    quantity: String(holding.quantity),
+    buyDate: holding.buyDate,
+  });
+  const noteRef = useRef<HTMLInputElement>(null);
+  const isDirty = () => editForm.buyPrice !== String(holding.buyPrice) || editForm.quantity !== String(holding.quantity)
+    || editForm.buyDate !== holding.buyDate || (noteRef.current?.value ?? '') !== (holding.note || '');
+  const { overlayProps } = useModalDismiss(onClose, isDirty);
+  const save = () => {
+    const buyPrice = parseFloat(editForm.buyPrice);
+    const quantity = parseFloat(editForm.quantity || '0');
+    if (isNaN(buyPrice) || buyPrice <= 0 || isNaN(quantity) || quantity <= 0) {
+      alert('請輸入正確的單價與張數！');
+      return;
+    }
+    if (!editForm.buyDate) {
+      alert('請選擇買進日期！');
+      return;
+    }
+    onSave({ buyPrice, quantity, buyDate: editForm.buyDate, note: noteRef.current?.value ?? '' });
+  };
+  return (
+    <div className={styles.modalOverlay} {...overlayProps}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="修改持倉">
+        <div className={styles.modalHeader}>
+          <h3>修改持倉 — {holding.code} {holding.stockName || holding.name}</h3>
+          <div className={styles.modalActions}>
+            <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            <button className="btn btn-buy" onClick={save}>儲存修改</button>
+          </div>
+        </div>
+        <div className={styles.modalBody}>
+          <div className={styles.formGroup}>
+            <label>買進單價 (每股)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={editForm.buyPrice}
+              onChange={e => setEditForm(f => ({ ...f, buyPrice: e.target.value }))}
+              className="input"
+            />
+            <span className={styles.inputHelper}>請以「每股單價」輸入，如台積電輸入 600、大立光輸入 2500，而非整張數百萬元。</span>
+          </div>
+          <div className={styles.formGroup}>
+            <label>買進張數（可含零股：0.35 張＝350 股）</label>
+            <input
+              type="number"
+              min="0.001"
+              step="0.001"
+              value={editForm.quantity}
+              onChange={e => setEditForm(f => ({ ...f, quantity: e.target.value }))}
+              className="input"
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label>買進日期</label>
+            <input
+              type="date"
+              value={editForm.buyDate}
+              onChange={e => setEditForm(f => ({ ...f, buyDate: e.target.value }))}
+              className="input"
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label>備注</label>
+            <input ref={noteRef} type="text" placeholder="可選填" defaultValue={holding.note || ''} className="input" />
+          </div>
+          {editForm.buyPrice && editForm.quantity && (
+            <div className={styles.costPreview}>
+              <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: '4px', opacity: 0.8 }}>
+                計算公式：單價 ({parseFloat(editForm.buyPrice).toLocaleString()} 元) × {fmtQty(parseFloat(editForm.quantity) || 0)}（{Math.round((parseFloat(editForm.quantity) || 0) * 1000).toLocaleString()} 股）
+              </div>
+              <div>
+                預估成本（含手續費 0.1425%{broker.discount < 1 ? `×你的券商 ${+(broker.discount * 10).toFixed(2)} 折` : '，未設定折讓＝全額'}）：
+                <strong>
+                  {(() => { const px = parseFloat(editForm.buyPrice) || 0, q = parseFloat(editForm.quantity) || 0; return Math.round(px * q * 1000 + calcFee(px, q, broker)); })().toLocaleString('zh-TW')} 元
+                </strong>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Portfolio Component ────────────────────────────────────────────
 
 export default function Portfolio() {
@@ -1092,31 +1191,17 @@ export default function Portfolio() {
   const ledger = useMemo(() => buildLedger(tradeRecords), [tradeRecords]);
 
   const [editingHolding, setEditingHolding] = useState<any | null>(null);
-  const [editForm, setEditForm] = useState({
-    buyPrice: '',
-    quantity: '',
-    buyDate: '',
-    note: '',
-  });
 
   // ── Live MIS quotes for held stocks (shared hook: 5s intraday / Taipei-time) ──
   const holdingCodes = useMemo(() => [...new Set(holdings.map(h => h.code))], [holdings]);
   const liveQuotes = useLiveQuotes(holdingCodes);
   // Honest data-source state: 即時 only when MIS is actually live this cycle.
   const isLive = useMemo(
-    () => Object.values(liveQuotes).some(q => q.source === 'mis_realtime'),
+    () => Object.values(liveQuotes).some(q => q.source === 'mis_realtime' && !q.stale),   // stale＝本拍沒帶到、沿用上一拍（useLiveQuotes G3-17）
     [liveQuotes],
   );
 
-  const startEdit = (item: any) => {
-    setEditingHolding(item);
-    setEditForm({
-      buyPrice: item.buyPrice.toString(),
-      quantity: item.quantity.toString(),
-      buyDate: item.buyDate,
-      note: item.note || '',
-    });
-  };
+  const startEdit = (item: any) => setEditingHolding(item);   // 表單初值由 EditHoldingModal 依 holding 建立
 
   // Use MIS real-time prices as primary, fallback to allStocks, then buyPrice.
   // Recomputes instantly when holdings are edited/removed (reactive on holdings).
@@ -1596,98 +1681,14 @@ export default function Portfolio() {
         </>
       )}
 
-      {/* Edit Holding Modal */}
+      {/* Edit Holding Modal（G3-22：抽成獨立元件——備注非受控、Esc／遮罩防呆） */}
       {editingHolding && (
-        <div className={styles.modalOverlay} onClick={() => setEditingHolding(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>修改持倉 — {editingHolding.code} {editingHolding.stockName || editingHolding.name}</h3>
-              <div className={styles.modalActions}>
-                <button className="btn btn-ghost" onClick={() => setEditingHolding(null)}>取消</button>
-                <button
-                  className="btn btn-buy"
-                  onClick={() => {
-                    const buyPrice = parseFloat(editForm.buyPrice);
-                    const quantity = parseFloat(editForm.quantity || '0');
-                    if (isNaN(buyPrice) || buyPrice <= 0 || isNaN(quantity) || quantity <= 0) {
-                      alert('請輸入正確的單價與張數！');
-                      return;
-                    }
-                    if (!editForm.buyDate) {
-                      alert('請選擇買進日期！');
-                      return;
-                    }
-                    updateHolding(editingHolding.id, {
-                      buyPrice,
-                      quantity,
-                      buyDate: editForm.buyDate,
-                      note: editForm.note,
-                    });
-                    setEditingHolding(null);
-                  }}
-                >
-                  儲存修改
-                </button>
-              </div>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label>買進單價 (每股)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={editForm.buyPrice}
-                  onChange={e => setEditForm(f => ({ ...f, buyPrice: e.target.value }))}
-                  className="input"
-                />
-                <span className={styles.inputHelper}>請以「每股單價」輸入，如台積電輸入 600、大立光輸入 2500，而非整張數百萬元。</span>
-              </div>
-              <div className={styles.formGroup}>
-                <label>買進張數（可含零股：0.35 張＝350 股）</label>
-                <input
-                  type="number"
-                  min="0.001"
-                  step="0.001"
-                  value={editForm.quantity}
-                  onChange={e => setEditForm(f => ({ ...f, quantity: e.target.value }))}
-                  className="input"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>買進日期</label>
-                <input
-                  type="date"
-                  value={editForm.buyDate}
-                  onChange={e => setEditForm(f => ({ ...f, buyDate: e.target.value }))}
-                  className="input"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>備注</label>
-                <input
-                  type="text"
-                  placeholder="可選填"
-                  value={editForm.note}
-                  onChange={e => setEditForm(f => ({ ...f, note: e.target.value }))}
-                  className="input"
-                />
-              </div>
-              {editForm.buyPrice && editForm.quantity && (
-                <div className={styles.costPreview}>
-                  <div style={{ fontSize: 'calc(12.5px * var(--fz))', marginBottom: '4px', opacity: 0.8 }}>
-                    計算公式：單價 ({parseFloat(editForm.buyPrice).toLocaleString()} 元) × {fmtQty(parseFloat(editForm.quantity) || 0)}（{Math.round((parseFloat(editForm.quantity) || 0) * 1000).toLocaleString()} 股）
-                  </div>
-                  <div>
-                    預估成本（含手續費 0.1425%{broker.discount < 1 ? `×你的券商 ${+(broker.discount * 10).toFixed(2)} 折` : '，未設定折讓＝全額'}）：
-                    <strong>
-                      {(() => { const px = parseFloat(editForm.buyPrice) || 0, q = parseFloat(editForm.quantity) || 0; return Math.round(px * q * 1000 + calcFee(px, q, broker)); })().toLocaleString('zh-TW')} 元
-                    </strong>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <EditHoldingModal
+          key={editingHolding.id}
+          holding={editingHolding}
+          onSave={patch => { updateHolding(editingHolding.id, patch); setEditingHolding(null); }}
+          onClose={() => setEditingHolding(null)}
+        />
       )}
     </div>
   );

@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { storageGet, storageSet } from '@/lib/safe-storage';
-import { shouldPollNow , inPreOpenBlackout} from '@/lib/market-clock';
+import { shouldPollNow, inPreOpenBlackout, isTwTradingHours, startLiveLoop } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
@@ -39,11 +39,6 @@ const strengthOf = (chg: number): { t: string; c: string } => {
   return { t: '溫和', c: '#94a3b8' };
 };
 
-function isTwTradingHours(): boolean {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-}
 
 // 單欄初次渲染的方塊數上限。全市場約 900 漲 / 800 跌，全畫會讓低階手機捲不動。
 const INITIAL_TILES = 200;
@@ -215,10 +210,9 @@ export default function RiseFallPanel({ initialView }: { initialView?: RfView } 
     // 10 秒：API 已含 5 秒快線覆蓋（正在看的股票），30 秒會吃掉快線的增益
     // ⚠ 間隔每一拍重算（CLAUDE.md：三元判斷只在掛載時算一次，之後永不重算——盤中掛載的分頁
     //   收盤後仍每 10 秒打 308KB 一整夜；2026-09-18 Hosting 下載量事故的一半來自這裡）。
-    let t: ReturnType<typeof setTimeout>;
-    const tick = () => { load(); t = setTimeout(tick, isTwTradingHours() ? 10000 : 120000); };
-    t = setTimeout(tick, isTwTradingHours() ? 10000 : 120000);
-    return () => { live = false; clearTimeout(t); };
+    // G3-18：改走 startLiveLoop（間隔每拍重算＋回前景立即補一次）；盤中判斷看休市日
+    const stop = startLiveLoop(() => load(), () => (isTwTradingHours() ? 10000 : 120000));
+    return () => { live = false; stop(); };
   }, [view]);
 
   const sorter = (k: SortKey, up: boolean) => (a: Snap, b: Snap) =>

@@ -23,7 +23,7 @@ import { logActivity } from '@/lib/activity-logger';
 import PageHelp from '@/components/Help/PageHelp';
 import HitRate from '@/components/shared/HitRate';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
-import { startLiveLoop, revealTick, shouldPollThroughClose, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, revealTick, shouldPollThroughClose, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 
 // 等級清單已集中到 lib/view-as（PREMIUM_LEVELS）——此處不再各自定義，避免模擬只改到一半
@@ -52,11 +52,6 @@ const STRAT_FALLBACK: Record<string, { name: string; icon: string; note: string 
 };
 interface BenchItem { code: string; name: string; market: string; addedAt: number; pinned: boolean; lastPrice: number; lastChg: number }
 
-const isTwTradingHours = () => {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-};
 const todayTw = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 
 export default function WarRoom() {

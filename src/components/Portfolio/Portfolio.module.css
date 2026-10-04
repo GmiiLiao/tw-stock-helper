@@ -217,17 +217,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;   /* G3-22：視窗不貼齊螢幕邊緣 */
   animation: fadeIn 0.15s ease-out;
 }
 
+/* G3-22（2026-10-04）：9cc5c94 把取消／送出移到標題列後，.modal 沒有高度上限——
+   矮螢幕或手機鍵盤彈出時標題列（唯一的關閉鈕）可能跑出畫面。
+   改成：視窗高度封頂、標題列固定不捲、表單本體內部捲動。dvh 會跟著手機瀏覽器網址列伸縮，vh 為舊瀏覽器後備。 */
 .modal {
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
   width: 100%;
   max-width: 440px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: var(--shadow-lg);
   animation: fadeIn 0.2s ease-out;
+}
+
+/* 矮視窗（橫放手機、鍵盤彈出後的可視區）：視窗靠上，標題列不會被置中推到可視區外 */
+@media (max-height: 640px) {
+  .modalOverlay { align-items: flex-start; padding-top: 8px; }
+  .modal { max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); }
 }
 
 .modalHeader {
@@ -238,6 +253,8 @@
   gap: 10px 12px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;   /* G3-22：標題列（取消／送出）永遠在視窗頂端，不隨表單捲走 */
+  background: var(--bg-card);
 }
 
 .modalHeader h3 {
@@ -262,6 +279,11 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;              /* flex 子項才捲得動 */
+  overflow-y: auto;
+  overscroll-behavior: contain;   /* 捲到底不帶動背景頁 */
+  -webkit-overflow-scrolling: touch;
 }
 
 .formGroup {

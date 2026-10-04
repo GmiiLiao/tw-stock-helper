@@ -51,14 +51,46 @@ export async function findAnnualReport(code, { rocYear, fetchImpl = fetch, paceM
   return null;
 }
 
-export async function downloadAnnualPdf(code, filename, file, { fetchImpl = fetch, paceMs = 3000 } = {}) {
+/** 年報 PDF 大小上限（G1-29·2026-10-04）：舊版整包 arrayBuffer() 讀進記憶體、沒有上限。
+ *  上市櫃年報多在 5–40MB，留到 100MB；超過就放棄這檔（不寫檔），由 runner 記為失敗、下次再試。 */
+export const MAX_PDF_BYTES = 100 * 1024 * 1024;
+
+/**
+ * 讀回應本體但不超過 maxBytes：先看 Content-Length，再邊讀邊數（伺服器不給或謊報長度也擋得住）。
+ * 超過即取消串流並丟例外。
+ * @returns {Promise<Buffer>}
+ */
+export async function readBodyCapped(r, maxBytes = MAX_PDF_BYTES) {
+  const declared = Number(r.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error(`PDF 過大（宣告 ${declared} bytes > 上限 ${maxBytes}）`);
+  if (!r.body?.getReader) {
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > maxBytes) throw new Error(`PDF 過大（${buf.length} bytes > 上限 ${maxBytes}）`);
+    return buf;
+  }
+  const reader = r.body.getReader();
+  const chunks = []; let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch { /* 取消失敗不影響丟例外 */ }
+      throw new Error(`PDF 過大（已讀 ${total} bytes > 上限 ${maxBytes}）`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks.map(c => Buffer.from(c.buffer, c.byteOffset, c.byteLength)), total);
+}
+
+export async function downloadAnnualPdf(code, filename, file, { fetchImpl = fetch, paceMs = 3000, maxBytes = MAX_PDF_BYTES } = {}) {
   const html = await fetchBig5(`${DOC_BASE}/server-java/t57sb01?step=9&kind=F&co_id=${code}&filename=${encodeURIComponent(filename)}`, fetchImpl);
   const href = pickPdfHref(html);
   if (!href) throw new Error('取不到 PDF 連結');
   await sleep(paceMs);
   const r = await fetchImpl(DOC_BASE + href, { headers: UA, signal: AbortSignal.timeout(180000) });
   if (!r.ok) throw new Error(`PDF HTTP ${r.status}`);
-  const buf = Buffer.from(await r.arrayBuffer());
+  const buf = await readBodyCapped(r, maxBytes);
   if (buf.subarray(0, 4).toString() !== '%PDF') throw new Error('不是 PDF');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, buf);

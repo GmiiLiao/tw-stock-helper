@@ -139,6 +139,11 @@ export async function POST(request: NextRequest) {
 
     // ── 5. Risk highlights + summary ──
     const riskHighlights: string[] = [];
+    // G2-10：處置名單殘缺時 !s.isDisposition 篩不掉處置股，要在報告上明說（signal 已由 scoreStock 壓成 WATCH）
+    if (!riskData.dispositionComplete) {
+      console.warn('[cron/daily-close] 處置名單殘缺（來源故障），精選名單未能排除處置股');
+      riskHighlights.push('⚠️ 處置股名單本次未能完整取得，精選名單可能含處置股，交易前請自行查核');
+    }
     if (riskData.disposition.length) riskHighlights.push(`🔴 處置股票 ${riskData.disposition.length} 檔`);
     if (riskData.attention.length) riskHighlights.push(`🟡 注意股票 ${riskData.attention.length} 檔`);
     const overheated = candidates.filter(s => (marginMap[s.code]?.utilization ?? 0) >= 80).length;
@@ -162,6 +167,7 @@ export async function POST(request: NextRequest) {
         totalAnalyzed: total,
         enriched: enrichedPicks.filter(e => e.enriched.buyZones).length,
         historyCovered: histories.size,
+        dispositionComplete: riskData.dispositionComplete,
       },
     };
 

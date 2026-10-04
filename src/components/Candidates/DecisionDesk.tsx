@@ -21,7 +21,7 @@ import OrderBookDepth from '@/components/shared/OrderBookDepth';
 import { METRIC_TIPS } from '@/lib/metric-tips';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
-import { startLiveLoop, shouldPollThroughClose, isForeground, getSession } from '@/lib/market-clock';
+import { startLiveLoop, shouldPollThroughClose, isForeground, getSession, isTwTradingHours } from '@/lib/market-clock';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { calcFee } from '@/lib/tw-fee';
 
@@ -119,11 +119,7 @@ export default function DecisionDesk() {
   useEffect(() => {
     if (codes.length === 0) return;
     let live = true;
-    const inHours = () => {
-      const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-      const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-      return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-    };
+    const inHours = () => isTwTradingHours();   // G3-18：market-clock 單一真相（看休市日）
     // gated=false：首次載入不設閘（盤後打開也要看到資料）；之後每拍：
     //   即時報價/加權指數只在盤中變 ⇒ shouldPollThroughClose（含 13:30–13:45 收盤定價窗）；大盤寬度 daemon 盤後批次仍會重算 ⇒ 只擋背景分頁。
     const tick = async (gated: boolean) => {

@@ -3,6 +3,7 @@ import { closePositionOf } from '@/lib/scoring-server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
+import { rateLimit } from '@/lib/rate-limit';
 
 // ============================================================
 // Stock Trend Analysis API
@@ -10,8 +11,19 @@ import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 // to generate near-term price trend reasons + market context
 // ============================================================
 
+// 代號格式：4~6 碼，ETF／特別股可能帶英文尾碼（00632R、2881A）。不合格式直接 400——
+// 任意字串會讓每個不同 URL 都打穿 CDN 並觸發 3 個外部上游（WM-SCAN G1-22）。
+const CODE_RE = /^\d{4}[0-9A-Z]{0,2}$/;
+
 export async function GET(request: NextRequest) {
-  const code = request.nextUrl.searchParams.get('code') || '';
+  const code = (request.nextUrl.searchParams.get('code') || '').trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    return NextResponse.json({ error: 'invalid code' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+  }
+  // 專屬限流（G1-22）：每次快取未命中打 3 個外部上游（TWSE／TPEx 公司基本資料、TWSE 公告）。
+  // 前端只在開個股頁／趨勢面板時打一次 ⇒ 60/分鐘很寬，只擋濫用。限流器故障 fail-open（2026-09-28 裁定）。
+  const limited = await rateLimit(request, 'trend-analysis', 60);
+  if (limited) return limited;
 
   try {
     // Fetch in parallel: company info (Listed + OTC), announcements

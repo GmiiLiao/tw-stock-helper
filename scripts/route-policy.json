@@ -1,8 +1,15 @@
 {
   "_doc": "scripts/audit-routes.mjs 的封閉世界政策。exemptMutating：無 auth 也無 rateLimit 的 mutating route 豁免＋理由（過期即紅）。getNoCacheBaseline：GET 無 cache 宣告的支數上限，雙向 Ratchet（多了紅、少了要降基線）。",
   "exemptMutating": {},
+  "_upstreamDoc": "2026-10-04（WM-SCAN G1-19）：打外部上游（route 或其 import 的 src 模組含 source-registry 上游網域字面）必須有 rateLimit。exemptUpstreamRateLimit＝真的不需要限流的（理由必填，已不適用即紅）；upstreamNoRateLimitKnown＝應補但尚未補的已知債（補上後必須刪除該列，雙向）。",
+  "exemptUpstreamRateLimit": {
+    "/admin/ai-swing-lab": "僅超級管理員（requireAdmin）可呼叫，呼叫數與線上人數無關；route 只讀 Firestore——上游網域字面來自它 import 的 scripts/lib 共用模組，route 未呼叫任何抓取函式",
+    "/cron/backtest": "CRON_SECRET（timing-safe）保護，只由本機 daemon 觸發；呼叫數＝daemon 排程次數，與線上人數無關",
+    "/cron/daily-close": "CRON_SECRET 保護＋交易日閘門，只由本機 daemon 每日 18:05 觸發一次；呼叫數與線上人數無關"
+  },
+  "upstreamNoRateLimitKnown": {},
   "getNoCacheBaseline": 1,
-  "pollNoGateBaseline": 13,
+  "pollNoGateBaseline": 12,
   "_pollNoGateNote": "2026-09-22 LimitUpPanel 改遞迴 setTimeout → 22；2026-09-18 QuoteGrid 接 gate → 23；2026-09-04 量測 24 檔（docs/OPTIMIZATION-TODO.md 的 F5 清單）；每接一檔 gate 就把這個數字降 1，雙向 Ratchet 會逼你更新",
   "_getNoCacheKnown": [
     "/cron/daily-close（CRON_SECRET 保護的觸發端點，GET 只給手動觸發，不進 CDN）"

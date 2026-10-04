@@ -3,8 +3,12 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // 檢查請求用戶是否為超級管理員 nicholas@gmii.tw
+    // G1-25（2026-10-04）：補 email_verified，與伺服器端 requireAdmin 口徑一致——
+    //   未驗證信箱的 token 不能憑 email 字串取得管理員權限（例如以他人信箱註冊尚未驗證的帳號）。
     function isAdmin() {
-      return request.auth != null && request.auth.token.email == 'nicholas@gmii.tw';
+      return request.auth != null
+        && request.auth.token.email == 'nicholas@gmii.tw'
+        && request.auth.token.email_verified == true;
     }
 
     // 檢查請求用戶是否為該文檔擁有者
@@ -43,8 +47,24 @@ service cloud.firestore {
 
     // 使用記錄集合 (Activity Logs)
     match /activity_logs/{logId} {
-      // 任何登入的使用者皆可新增操作日誌
-      allow create: if request.auth != null;
+      // 登入使用者可新增「自己的」操作日誌（G1-14，2026-10-04）。欄位對齊唯一寫入端 src/lib/activity-logger.ts：
+      //   { uid, email, displayName, action, details, timestamp }。
+      //   · uid 必須是自己、email 必須是自己 token 上的 email（不可冒名他人）
+      //   · 只准這 6 個欄位 ⇒ 不能寫 type／adminUid／targetUid 偽造 admin_impersonate_read 稽核紀錄
+      //     （真的稽核紀錄由 api/admin/impersonate 以 Admin SDK 寫入，不受本規則限制）
+      //   · action 不得含 admin／impersonat 字樣（防偽造管理類事件），長度有限
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'action', 'details', 'timestamp'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.get('email', null) == request.auth.token.get('email', null)
+        && request.resource.data.action is string
+        && request.resource.data.action.size() > 0 && request.resource.data.action.size() <= 64
+        && request.resource.data.action.matches('[A-Za-z0-9_:.-]+')   // 只准單行識別字（擋換行繞過下一條）
+        && !request.resource.data.action.lower().matches('.*(admin|impersonat).*')
+        && request.resource.data.get('displayName', '') is string
+        && request.resource.data.get('displayName', '').size() <= 200
+        && request.resource.data.get('details', {}) is map
+        && request.resource.data.timestamp is number;
       // 僅限超級管理員可以讀取與修改日誌
       allow read: if isAdmin();
       allow update, delete: if isAdmin();

@@ -3,6 +3,7 @@
 // 只做三件事：①依樣板組請求 ②驗證官方回應「是不是這一天／這一期」③原樣 gzip 存檔＋逐檔清單。不解析、不改欄位。
 // 存放：second-brain/official/{host}/{dataset}/{key}.json.gz（JSON：{meta, payload}）或 {key}.{html|csv|txt}.gz（原始位元組，meta 在 _manifest.json）。
 // 節奏：同一出口 IP 也是站上 daemon 的出口 ⇒ 每個機構（證交所系／櫃買系／期交所）一條佇列、逐請求 ≥3 秒＋抖動；平日 07:30～15:30 不跑；
+//       每日 16:25–16:55、21:40–22:35 也不跑（daemon 上櫃併入／資料到齊班車、資券歸檔＋訓練窗，2026-10-04·WM-SCAN G4-32）；
 //       403／30x／429／封鎖頁立即停該機構；5xx 退避重試一次；連續 3 次失敗停（2026-10-04 程式審查修正）。
 import { createHash } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -57,6 +58,23 @@ export function normDate(v) {
 export function inQuietWindow(now = new Date()) {
   const tw = taipeiNow(now); const dow = tw.getUTCDay(); const m = tw.getUTCHours() * 60 + tw.getUTCMinutes();
   return dow >= 1 && dow <= 5 && m >= 7 * 60 + 30 && m < 15 * 60 + 30;
+}
+
+/**
+ * daemon 的重任務窗（台北，每天都避開；2026-10-04·WM-SCAN G4-32）：
+ *   16:25–16:55 上櫃收盤併入＋資料到齊班車（打 TPEx／TWSE 帶日期端點）；
+ *   21:40–22:35 資券後班車（21:45 資券／借券歸檔、軋空訓練、做空樣本、檢討）。
+ * 鏡像與 daemon 共用出口 IP：在這兩段被上游限流時，連坐的是 daemon 的交易日歸檔（資料缺漏）。
+ */
+export const DAEMON_BUSY_WINDOWS = [[16 * 60 + 25, 16 * 60 + 55, '16:25–16:55 daemon 上櫃併入／資料到齊班車'], [21 * 60 + 40, 22 * 60 + 35, '21:40–22:35 daemon 資券歸檔＋訓練']];
+export function inDaemonBusyWindow(now = new Date()) {
+  const tw = taipeiNow(now); const m = tw.getUTCHours() * 60 + tw.getUTCMinutes();
+  return DAEMON_BUSY_WINDOWS.find(([a, b]) => m >= a && m < b)?.[2] || null;
+}
+/** 鏡像全部禁跑窗（平日盤中＋daemon 重任務窗）：回傳原因字串（真值）或 null。FamilyQueue 預設用這個。 */
+export function blockedReason(now = new Date()) {
+  if (inQuietWindow(now)) return '平日 07:30～15:30 禁跑窗';
+  return inDaemonBusyWindow(now);
 }
 
 // ── 驗證：回傳 {status: ok|empty|mismatch|bad, echo, rows, note} ───────────────
@@ -313,17 +331,18 @@ export function familyOf(host) {
  * 結果分類：failed 計入連續失敗；neutral（官方還沒出這天、回聲不符）不計也不清零；其餘清零。
  */
 export class FamilyQueue {
-  constructor(family, { gapMs = MIN_GAP_MS, quiet = inQuietWindow, log = console.log, sleepFn = sleep } = {}) {
+  constructor(family, { gapMs = MIN_GAP_MS, quiet = blockedReason, log = console.log, sleepFn = sleep } = {}) {
     this.family = family; this.gapMs = Math.max(MIN_GAP_MS, gapMs); this.quiet = quiet; this.log = log; this.sleep = sleepFn;
     this.consecFail = 0; this.stopped = false; this.stopReason = null; this.last = 0; this.count = 0;
   }
   stop(reason) { if (!this.stopped) { this.stopped = true; this.stopReason = reason; this.log(`[${this.family}] 停止：${reason}`); } }
   async gate() {
     if (this.stopped) return false;
-    if (this.quiet()) { this.stop('進入平日 07:30～15:30 禁跑窗'); return false; }
+    const why = q => `進入禁跑窗（${typeof q === 'string' ? q : '平日 07:30～15:30／daemon 重任務窗'}）`;
+    let q = this.quiet(); if (q) { this.stop(why(q)); return false; }
     const wait = this.last + this.gapMs + Math.floor(Math.random() * 800) - Date.now();
     if (wait > 0) await this.sleep(wait);
-    if (this.quiet()) { this.stop('進入平日 07:30～15:30 禁跑窗'); return false; }
+    q = this.quiet(); if (q) { this.stop(why(q)); return false; }
     return true;
   }
   async run(fn) {
@@ -348,11 +367,42 @@ export function queueFor(host, opts) { const f = familyOf(host); if (!QUEUES.has
 export function resetQueues() { QUEUES.clear(); }
 
 /**
+ * 空表定版要「隔一段時間再看一次仍是空」（2026-10-04·WM-SCAN G2-37）：非 must 的帶日期表回空表，舊版直接 final＝永不重抓——
+ * 官方當下還沒出表、或一次錯誤回應，就會把那天永久標成「沒有資料」（MI_INDEX 空＝休市，連帶整天的帶日期表都不抓）。
+ * 第一次空：寫 empty、final=false、emptySince＝這次時刻；之後的補漏／retry 再抓，距 emptySince ≥ EMPTY_CONFIRM_MS 仍空才定版。
+ * 快照（snapshot）與內容穩定資料集（ad.stable）不適用（各有自己的規則）；已定版的舊空列不降級。
+ */
+export const EMPTY_CONFIRM_MS = 6 * 3600e3;   // daily 22:40 → retry 隔日 06:45 約 8 小時；同一輪內的重抓不算確認
+export function emptyDecision(prev, at, callerFinal) {
+  const since = prev?.status === 'empty' ? (prev.emptySince || prev.at || null) : null;
+  const confirmed = !!since && Date.parse(at) - Date.parse(since) >= EMPTY_CONFIRM_MS;
+  return { final: !!callerFinal && confirmed, emptySince: since || at, emptySeen: (prev?.status === 'empty' ? (prev.emptySeen || 1) : 0) + 1 };
+}
+
+/**
+ * 快照鍵用官方回聲日（2026-10-04·WM-SCAN G2-37）：舊版一律用執行日（asOf），openapi 這類整批落後一日的快照會把
+ * 昨天的內容存成今天的鍵（PIT 錯位）。keyByEcho 時以驗證器的 echo（YYYY-MM-DD）為鍵；同一回聲日已存不同內容 ⇒ 加 .rN。
+ * 回傳 { key, same }：same＝該鍵已存同一份內容（不必再寫檔）。echo 不是日期 ⇒ 用原本的 key。
+ */
+export function echoKeyFor(man, key, echo, hash) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(echo || ''))) return { key, same: false, echoUsed: false };
+  let k = echo; let n = 2;
+  for (;;) {
+    const r = man.rows?.[k];
+    if (!r) return { key: k, same: false, echoUsed: true };
+    if (r.sha256 === hash) return { key: k, same: true, echoUsed: true };
+    if (!isFinal(man, k)) return { key: k, same: false, echoUsed: true };   // 未定版（失敗／待確認）的列可覆寫
+    k = `${echo}.r${n++}`;
+  }
+}
+
+/**
  * 抓一個鍵：組請求 → 送出 → 解碼 → 驗證 → 存檔＋更新清單。
  * opts.final：寫入列是否定版（月表當月、申報期內傳 false）；opts.mustHaveRows：已確認是交易日、這張表不可能為空 ⇒ empty 不定版。
+ * opts.keyByEcho：快照改用官方回聲日當鍵（回傳的 key 才是實際寫入的鍵，呼叫端要用它讀清單列）。
  * 已有好資料時，這次失敗／空／不符都不會覆蓋（只記 lastTry）。
  */
-export async function fetchAndStore(ad, { root, key, ctx, man, fetchImpl, now = new Date(), snapshot = false, final = true, mustHaveRows = false }) {
+export async function fetchAndStore(ad, { root, key, ctx, man, fetchImpl, now = new Date(), snapshot = false, final = true, mustHaveRows = false, keyByEcho = false }) {
   const req = ad.request(ctx);
   const res = await httpFetch(req, { fetchImpl });
   const at = now.toISOString();
@@ -373,16 +423,31 @@ export async function fetchAndStore(ad, { root, key, ctx, man, fetchImpl, now = 
   if (v.status === 'empty' && mustHaveRows) v = { ...v, status: 'pending', note: '已確認交易日卻是空表（官方可能尚未出表）' };
   const hash = sha256(res.buf);
   if (v.status === 'ok' || v.status === 'empty') {
-    if (snapshot && man.lastHash === hash) { man.rows[key] = { status: 'unchanged', same: man.lastFile, at, final }; return { row: man.rows[key] }; }
-    if (v.status === 'empty' && hasGood(man, key)) return keep({ status: 'empty', at }, { neutral: true });   // 已有內容的不被空表蓋掉
+    const runKey = key;
+    if (snapshot && keyByEcho) {
+      const ek = echoKeyFor(man, key, v.echo, hash);
+      if (ek.echoUsed && ek.same) {   // 同一回聲日已存同一份內容：不另存，只記再確認時刻
+        man.rows[ek.key] = { ...man.rows[ek.key], recheck: at };
+        if (man.lastHash === hash) man.lastFile = man.rows[ek.key].file || man.lastFile;
+        return { row: man.rows[ek.key], key: ek.key };
+      }
+      key = ek.key;
+    }
+    if (snapshot && man.lastHash === hash) { man.rows[key] = { status: 'unchanged', same: man.lastFile, at, final, ...(key !== runKey ? { runKey } : {}) }; return { row: man.rows[key], key }; }
+    if (v.status === 'empty' && hasGood(man, key)) return { ...keep({ status: 'empty', at }, { neutral: true }), key };   // 已有內容的不被空表蓋掉
     // 內容穩定規則的資料集：定版由觀測決定，呼叫端傳的 final 不採用（要在寫檔前先讀舊檔的雜湊與上一期名冊）
     let fin = final; let stab = {};
     if (ad.stable) ({ fin, stab } = stableRow(root, ad, man, key, ctx, text, at));
+    else if (v.status === 'empty' && !snapshot) {   // 空表要隔 ≥EMPTY_CONFIRM_MS 再看一次仍空才定版（G2-37）
+      if (isFinal(man, key)) return { row: man.rows[key], key };                       // 已定版的舊空列：不降級、不重寫
+      const ed = emptyDecision(man.rows[key], at, final);
+      fin = ed.final; stab = { emptySince: ed.emptySince, emptySeen: ed.emptySeen };
+    }
     const meta = { url: req.url, method: req.method || 'GET', fetchedAt: at, http: res.status, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, bytes: res.buf.length, source: 'official' };
     const file = writeEntry(root, ad.host, ad.id, key, ad.kind === 'json' ? { kind: 'json', payload, meta } : { kind: 'text', ext: ad.ext || 'txt', buffer: res.buf, meta });
-    man.rows[key] = { status: v.status, file, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, at, final: fin, attempts: man.rows[key]?.attempts, ...stab };
+    man.rows[key] = { status: v.status, file, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, at, final: fin, attempts: man.rows[key]?.attempts, ...stab, ...(key !== runKey ? { runKey } : {}) };
     if (snapshot) { man.lastHash = hash; man.lastFile = file; }
-    return { row: man.rows[key] };
+    return { row: man.rows[key], key };
   }
   // JSON 回聲不符／待出表＝官方還沒出這一天（或非交易日）：中性，不算主機故障；文字頁缺必要字樣多半是錯誤頁：算失敗
   const neutral = ad.kind === 'json' && (v.status === 'mismatch' || v.status === 'pending');

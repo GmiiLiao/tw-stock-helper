@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- 第二大腦官方鏡像·盤後：平日 22:15（daemon 21:50 資券班車之後；先以上市 MI_INDEX 回聲確認交易日）＋週六 10:00（週快照、非交易日快照） -->
+<!-- 第二大腦官方鏡像·盤後：平日 22:40（避開 daemon 21:40–22:35 資券歸檔＋訓練窗與 16:25–16:55 上櫃併入窗，2026-10-04·WM-SCAN G4-32；先以上市 MI_INDEX 回聲確認交易日）＋週六 10:00（週快照、非交易日快照）。安裝：bash scripts/install-official-mirror-schedule.sh -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.gmii.twstock.official-mirror.daily</string>
@@ -9,11 +9,11 @@
   <key>WorkingDirectory</key><string>/Users/gmii/Documents/股票助手app/tw-stock-app</string>
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer></dict>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>15</integer></dict>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>40</integer></dict>
     <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key><string>/Users/gmii/Library/Logs/twstock-official-mirror/daily.log</string>

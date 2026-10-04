@@ -16,7 +16,12 @@
 //       持股與目標做出的不同買賣決策」。同一（決策日, 代號, 買/賣）跨帳戶 y 完全相同，只算一筆——重複計入只會讓 t 值假性變大。
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LEARN_VERSION = 'lab-learn-v1';
+import { createHash } from 'node:crypto';
+
+// 版本（2026-10-04 G4-20 升 v2）：v1 之後方法改過四次（00ed2cc 決策層去同日平均、d88e3d1 swing 去同日平均、c34c68e 取樣實驗、sum5 持股特徵），
+//   版本號一直沒動，線上產物分不出新舊規則。v2 起另附 methodId（方法參數的雜湊，learnMethodId）——切點／去均 key／驗證門檻／取樣設定任何一項變了，
+//   methodId 就不同，即使忘了升版本號也能由產物區分。v2 同時：殘缺日不再整天濾掉（交易日序列對齊·G2-28）、會員樣本依開通現況剔除（G4-21）。
+export const LEARN_VERSION = 'lab-learn-v2';
 
 // ── 分段表（固定切點＝可讀、可比；改切點＝改版本）───────────────────────────
 const CUTS = {
@@ -132,22 +137,26 @@ export function decisionSamples(accounts, days, y5, { rawCloseOf = null } = {}) 
   const seen = new Set(), samples = [];
   const stats = { buy: {}, sell: {}, distinctBuy: 0, distinctSell: 0 };
   const bump = (side, src) => { stats[side][src] = (stats[side][src] || 0) + 1; };
-  for (const { src, docs } of accounts || []) for (const d of docs || []) {
+  // 來源會員（G4-21）：accounts[].uid（會員帳戶才有）。同一筆樣本可能由多位會員的相同決策貢獻 ⇒ 記全部 uid（provenance）；
+  //   provenance 只供不公開的樣本台帳（取消開通／帳號刪除時可追溯），learn() 與對外產物不使用。
+  const prov = new Map();
+  const note = (k, uid) => { if (!uid) return; const s = prov.get(k) || new Set(); s.add(uid); prov.set(k, s); };
+  for (const { src, docs, uid = null } of accounts || []) for (const d of docs || []) {
     const t = idx.get(d.date); if (t == null) continue;
     for (const p of d.picks || []) {
       const fill = d.buyFills?.[p.code];
       if (!(p.position?.shares > 0) || !(fill?.px > 0) || fill.failed) continue;
       bump('buy', src);
-      const k = `b:${d.date}:${p.code}`; if (seen.has(k)) continue;
+      const k = `b:${d.date}:${p.code}`; note(k, uid); if (seen.has(k)) continue;
       const F = dailyFeatures(days, t, p.code), y = y5(d.date, p.code);
       if (!F || y == null) continue;
-      seen.add(k); samples.push({ key: 'swing-buy', date: d.date, code: p.code, f: F.f, y, src }); stats.distinctBuy++;
+      seen.add(k); samples.push({ key: 'swing-buy', date: d.date, code: p.code, f: F.f, y, src, pk: k }); stats.distinctBuy++;
     }
     for (const [lk, sf] of Object.entries(d.sellFills || {})) {
       if (!sf?.ledger?.buy?.px || sf.failed) continue;
       const code = sf.code || lk.slice(lk.indexOf('_') + 1);
       bump('sell', src);
-      const k = `s:${d.date}:${code}`; if (seen.has(k)) continue;
+      const k = `s:${d.date}:${code}`; note(k, uid); if (seen.has(k)) continue;
       // 持有報酬用「未還原」收盤（與即時持股檢視同口徑：成交價是當時的原始價；還原價遇減資／除權會失真·審查 LOW）
       const tb = idx.get(twDateOf(sf.ledger.buy.at)), close = rawCloseOf?.(d.date, code) ?? days[t].m?.[code]?.[0];
       // sum5：賣出決策當下凍結的值（v4 起；之前的文件沒有 ⇒ 不帶此特徵）
@@ -155,10 +164,12 @@ export function decisionSamples(accounts, days, y5, { rawCloseOf = null } = {}) 
       const H = holdingFeatures(days, t, code, { heldDays: tb != null ? t - tb + 1 : NaN, pnlPct: close > 0 ? (close / sf.ledger.buy.px - 1) * 100 : NaN, sum5 });
       const y = y5(d.date, code);
       if (!H || y == null) continue;
-      seen.add(k); samples.push({ key: 'swing-sell', date: d.date, code, f: H.f, y: -y, src }); stats.distinctSell++;
+      seen.add(k); samples.push({ key: 'swing-sell', date: d.date, code, f: H.f, y: -y, src, pk: k }); stats.distinctSell++;
     }
   }
-  return { samples, stats };
+  // uids：此樣本由哪些會員的決策貢獻（無＝只來自實驗帳戶）；新物件，不改 samples 內既有物件以外的狀態
+  const out = samples.map(({ pk, ...s }) => (prov.has(pk) ? { ...s, uids: [...prov.get(pk)].sort() } : s));
+  return { samples: out, stats };
 }
 
 // ── 當沖：觸發當下的特徵（訓練用 daytradeJournal 條目；即時用觸發事件，欄位相同）──────────────
@@ -204,9 +215,20 @@ const r2 = v => (Number.isFinite(v) ? +v.toFixed(2) : null);
 // 波段取樣實驗（2026-10-02 使用者：三種取樣都做、分成三種實驗資源後續比對）同樣以同日為基準
 const DEMEAN_KEYS = new Set(['swing', 'swing-buy', 'swing-sell', 'swing-x-all', 'swing-x-cal', 'swing-x-rep-a', 'swing-x-rep-b']);
 const MIN_DATES = { train: 10, holdout: 5 };
+const DEFAULT_MIN_N = Object.freeze({ swing: 60, 'swing-buy': 30, 'swing-sell': 30, 'dt-long': 20, 'dt-short': 20 });
 const nDates = xs => new Set(xs.map(s => s.date)).size;
 
-export function learn(samples, { minN = { swing: 60, 'swing-buy': 30, 'swing-sell': 30, 'dt-long': 20, 'dt-short': 20 }, maxRules = 30 } = {}) {
+/**
+ * 方法識別（G4-20）：版本號＋切點表＋去均 key＋驗證門檻＋呼叫端給的設定（取樣、視窗、資料對齊方式…）的雜湊前 12 碼。
+ * 同一份方法 ⇒ 同一個 methodId；任何參數改變 ⇒ 不同。訓練產物（aiLabLearn）帶 version＋methodId。
+ */
+export function learnMethodId(extra = {}) {
+  const spec = { v: LEARN_VERSION, cuts: CUTS, demean: [...DEMEAN_KEYS].sort(), minDates: MIN_DATES, minN: DEFAULT_MIN_N, split: 0.7, tMin: 2, extra };
+  const json = JSON.stringify(spec, (k, v) => (typeof v === 'number' && !Number.isFinite(v) ? String(v) : v));
+  return createHash('sha256').update(json).digest('hex').slice(0, 12);
+}
+
+export function learn(samples, { minN = DEFAULT_MIN_N, maxRules = 30 } = {}) {
   const out = {};
   for (const key of [...new Set(samples.map(s => s.key))]) {
     let S = samples.filter(s => s.key === key && Number.isFinite(s.y));

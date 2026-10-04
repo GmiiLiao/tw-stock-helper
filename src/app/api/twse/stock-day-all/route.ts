@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { gzipSync } from 'node:zlib';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import { cacheHeader } from '@/lib/api-cache';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
+  // 專屬限流（G1-23）：快照缺時會退回打 openapi／TPEx 收盤；前端 30 秒輪詢 ⇒ 240/分鐘很寬，只擋濫用。
+  const limited = await rateLimit(request, 'stock-day-all', 240);
+  if (limited) return limited;
   try {
     const data = await getStockDayAllDataInternal();
     const misCount = data.filter(d => d._source === 'mis_merged').length;

@@ -5,7 +5,7 @@
 // 此為單位時間量能暴增（上市≥500張級、上櫃依比例），官方三大法人 15:00 後才公布。
 
 import { useEffect, useState } from 'react';
-import { startLiveLoop, shouldPollThroughClose } from '@/lib/market-clock';
+import { startLiveLoop, shouldPollThroughClose, isTwTradingHours } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
@@ -20,11 +20,6 @@ interface Surge {
 }
 interface VsData { found: boolean; updatedAt: number; date: string; mode: string; items: Surge[] }
 
-function isTwTradingHours(): boolean {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-}
 
 export default function VolSurgePanel() {
   const [data, setData] = useState<VsData | null>(null);

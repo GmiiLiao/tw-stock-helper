@@ -143,6 +143,9 @@ export async function latestDoc(
       }
       return { ok: true, data };
     },
+    // 降級上限依資料節奏（審查 M2）：daily／static 文件一天才寫一次，閒置實例遇單次讀取失敗仍應回舊文件；
+    // 盤中層維持預設（TTL×10，至少 10 分鐘）——舊盤中值太久不如誠實 503。
+    { maxStaleMs: tier === 'daily' || tier === 'static' ? 12 * 3600_000 : undefined },
   );
 
   const result = await read();

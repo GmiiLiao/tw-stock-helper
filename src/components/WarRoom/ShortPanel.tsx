@@ -2,7 +2,7 @@
 
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { useEffect, useState } from 'react';
-import { startLiveLoop, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, isForeground, isTwTradingHours as twTradingHours } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { tickSize, isLimitUp, isLimitDown, getChangeColor } from '@/lib/twse-api';
@@ -28,11 +28,8 @@ interface ShortDoc {
   skippedFilters: string[]; note: string;
 }
 
-const isTwTradingHours = () => {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 45;
-};
+// G3-18：口徑收斂到 market-clock（看休市日）；本面板沿用 13:45 收盤後緩衝
+const isTwTradingHours = () => twTradingHours(13 * 60 + 45);
 
 export default function ShortPanel() {
   const [data, setData] = useState<ShortDoc | null>(null);

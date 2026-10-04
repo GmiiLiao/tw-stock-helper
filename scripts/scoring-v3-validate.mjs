@@ -55,7 +55,9 @@ async function loadDays(db) {
     .filter(d => Object.keys(d.m).length >= 1500).reverse();
   // 還原係數＝官方除權息歷史（backfill-exright-history.mjs）＋ priceEvents 的減資／面額變更；同檔同日以官方除權息為準（不重複乘）
   const ex = JSON.parse(readFileSync(join(ROOT, 'scripts', 'data', 'exright-history.json'), 'utf8'));
-  const merged = mergeFactorItems(ex.items, (await db.collection('priceEvents').doc('latest').get()).data()?.items);
+  const peItems = (await db.collection('priceEvents').doc('latest').get()).data()?.items;
+  if (!Array.isArray(peItems)) throw new Error('priceEvents/latest 不存在或沒有 items（G2-26：不可當成無事件）');
+  const merged = mergeFactorItems(ex.items, peItems);
   return { raw, days: applyPriceFactors(raw, factorsFromItems(merged)), nEvents: merged.length, exRange: [ex.from, ex.to] };
 }
 

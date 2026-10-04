@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- 第二大腦官方鏡像·補抓：週二～週六 06:45（07:30 禁跑窗前結束）；P1 仍缺寫 second-brain/official/_alerts/ -->
+<!-- 第二大腦官方鏡像·補抓：週二～週六 06:45（07:30 禁跑窗前結束；距前晚 22:40 daily ≥6 小時＝空表確認窗）；P1 仍缺寫 second-brain/official/_alerts/（audit-data-sources 的 officialMirror(本機) 列會帶進 dataHealth）。安裝：bash scripts/install-official-mirror-schedule.sh -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.gmii.twstock.official-mirror.retry</string>
