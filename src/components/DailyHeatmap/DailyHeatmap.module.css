@@ -1,0 +1,28 @@
+.wrap { display: flex; flex-direction: column; gap: 16px; }
+.head h2 { margin: 0 0 6px; font-size: calc(1.25rem * var(--fz)); }
+.note { margin: 4px 0; font-size: calc(12.5px * var(--fz)); color: var(--text-muted); line-height: 1.7; }
+.warn { margin: 4px 0; font-size: calc(12.5px * var(--fz)); color: #f59f00; }
+.msg { padding: 24px; color: var(--text-muted); text-align: center; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.card { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.card span { font-size: calc(12.5px * var(--fz)); color: var(--text-muted); }
+.card b { font-size: calc(1.3rem * var(--fz)); }
+.card i { font-style: normal; font-size: calc(12px * var(--fz)); color: var(--text-muted); }
+.card em { font-style: normal; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs button { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border-primary); background: var(--bg-elevated); color: var(--text-secondary); cursor: pointer; font-size: calc(13.5px * var(--fz)); }
+.tabs button.tabOn { border-color: var(--border-accent); color: var(--text-primary); font-weight: 700; }
+.block { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 14px; overflow-x: auto; }
+.block h3 { margin: 0 0 8px; font-size: calc(1rem * var(--fz)); }
+.block h4 { margin: 12px 0 4px; font-size: calc(0.95rem * var(--fz)); }
+.tier { font-size: calc(11.5px * var(--fz)); font-weight: 500; color: var(--text-muted); border: 1px solid var(--border-primary); border-radius: 6px; padding: 1px 6px; margin-left: 4px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: calc(13px * var(--fz)); margin: 8px 0; }
+.tbl th, .tbl td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--border-primary); white-space: nowrap; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl th { color: var(--text-muted); font-weight: 600; }
+.dim { opacity: 0.6; }
+.up { color: var(--color-up, #f03e3e); }
+.dn { color: var(--color-down, #2f9e44); }
+.link { background: none; border: 0; padding: 0; color: #7dd3fc; cursor: pointer; font: inherit; }
+.list { margin: 0; padding-left: 18px; line-height: 1.8; font-size: calc(13px * var(--fz)); }
+@media (max-width: 720px) { .cards { grid-template-columns: repeat(2, 1fr); } }

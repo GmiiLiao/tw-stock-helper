@@ -1,0 +1,24 @@
+.wrap { display: flex; flex-direction: column; gap: 16px; }
+.head h2 { margin: 0 0 6px; font-size: calc(1.25rem * var(--fz)); }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs button { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border-primary); background: var(--bg-elevated); color: var(--text-secondary); cursor: pointer; font-size: calc(13.5px * var(--fz)); }
+.tabs button.tabOn { border-color: var(--border-accent); color: var(--text-primary); font-weight: 700; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-items: start; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 14px; overflow-x: auto; }
+.card h3 { margin: 0 0 8px; font-size: calc(1rem * var(--fz)); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.card h4 { margin: 10px 0 4px; font-size: calc(0.92rem * var(--fz)); }
+.tier { font-size: calc(11.5px * var(--fz)); font-weight: 500; color: var(--text-muted); border: 1px solid var(--border-primary); border-radius: 6px; padding: 1px 6px; }
+.date { font-size: calc(11.5px * var(--fz)); font-weight: 400; color: var(--text-muted); margin-left: auto; }
+.note { margin: 4px 0; font-size: calc(12.5px * var(--fz)); color: var(--text-muted); line-height: 1.7; }
+.tbl { width: 100%; border-collapse: collapse; font-size: calc(13px * var(--fz)); margin: 6px 0; }
+.tbl th, .tbl td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border-primary); white-space: nowrap; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl th { color: var(--text-muted); font-weight: 600; }
+.list { margin: 0; padding-left: 18px; line-height: 1.8; font-size: calc(13px * var(--fz)); }
+.up { color: var(--color-up, #f03e3e); }
+.dn { color: var(--color-down, #2f9e44); }
+.link { background: none; border: 0; padding: 0; color: #7dd3fc; cursor: pointer; font: inherit; }
+.bar { height: 6px; border-radius: 3px; background: var(--border-primary); overflow: hidden; min-width: 60px; }
+.barFill { height: 100%; background: #7dd3fc; }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }

@@ -39,6 +39,7 @@ const FULL = process.argv.includes('--full');
 const DATED = [
   'chipArchive', 'chipDaily', 'newsDaily', 'morningNote', 'marketReports', 'premarketBrief',
   'picksHistory', 'limitUpForecast', 'marketWind', 'sectorWind',
+  'dailyHeatmap',           // 2026-10-04：每日熱力報告頁（本機另有 second-brain/daily-heatmap 定版檔）
   // ↓ 2026-08-10 補：先前完全未備份的歷史序列
   'tdccArchive',            // 集保股權分散（每週；官方只留 51 週，斷了就永遠補不回）
   'revenueArchive',         // MOPS 月營收逐檔（每月）

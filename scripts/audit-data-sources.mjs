@@ -146,6 +146,8 @@ const CONTRACTS = [
   { c: 'sectorRotation',   kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'sectorWind',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'marketWind',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
+  // 每日熱力（技能 tw-daily-heatmap）：獨立 LaunchAgent 22:30 起輪詢、06:50 補班，經 publish-daily-heatmap 發佈
+  { c: 'dailyHeatmap',     kind: 'latest',  maxStale: 36 * HOUR, session: 'daily', dateField: 'dataDate' },
   { c: 'marketHealth',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'topicPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'swingPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },

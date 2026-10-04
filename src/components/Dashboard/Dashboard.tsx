@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useAppStore } from '@/lib/store';
 import type { StockInfo } from '@/lib/twse-api';
 import { formatVolume, formatChangeSign, formatChangePercentSign, getChangeColor, isLimitUp, isLimitDown, marketBadge, isExchangeListed } from '@/lib/twse-api';
@@ -19,6 +20,9 @@ import styles from './Dashboard.module.css';
 import PageHelp from '@/components/Help/PageHelp';
 import { useShallow } from 'zustand/react/shallow';
 import { useDayTradeCodes, statusOf, DT_STYLE } from '@/lib/useDayTradeCodes';
+
+// 盤後報告頁（每日熱力、當晚消息排行、盤後整理的分析資料）：只有點到分頁才下載（首屏不增加 bundle）
+const AfterMarketReport = dynamic(() => import('@/components/AfterMarket/AfterMarketReport'));
 
 function StatCard({
   label,
@@ -293,6 +297,7 @@ const DASH_TABS = [
   { id: 'market', icon: '📊', label: '大盤總覽', hint: '風向 · 籌碼 · 漲跌停 · 排行' },
   { id: 'index',  icon: '📈', label: '指數分析', hint: '日週月K · 自動判讀' },
   { id: 'news',   icon: '📰', label: '每日新聞', hint: '07:00 首發 · 3小時滾動刷新' },
+  { id: 'report', icon: '🌙', label: '盤後報告', hint: '最後交易日 · 熱力 · 權值股貢獻 · 盤後整理' },
 ] as const;
 type DashTab = typeof DASH_TABS[number]['id'];
 
@@ -334,6 +339,7 @@ export default function Dashboard() {
 
       {tab === 'index' && <IndexAnalysis />}
       {tab === 'news' && <DailyNews />}
+{tab === 'report' && <AfterMarketReport />}
 
       {tab === 'market' && (<>
       {/* 🌅 盤前總覽：隔夜國際盤 × 今晨日韓 × 盤前晨報 三合一（見 PremarketHub 檔頭） */}
