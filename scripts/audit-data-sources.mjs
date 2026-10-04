@@ -744,7 +744,11 @@ const PERIODIC_ARCHIVES = [
   { c: 'tdccArchive',    label: '集保股權分散(週)', maxDays: 12, minN: 800,
     note: '官方只保留 51 週且無批次歷史端點 → 斷一週就永久缺一週' },
   { c: 'revenueArchive', label: 'MOPS月營收(月)',   maxDays: 70, minN: 1700,
-    note: '每月 10 日前公布上月；<1700 檔代表只有 openapi 薄版，需 MOPS 彙總表加厚' },
+    note: '每月 10 日前公布上月；<1700 檔代表只有 openapi 薄版，需 MOPS 彙總表加厚',
+    // 市場組成閘門（2026-10-04）：外國公司（-KY／DR）在 MOPS t21sc03 的 _1 表，只抓 _0 時 KY 整批缺、n 仍 1,800+ 看不出來。
+    //   v2 文件（backfill-mops-revenue／backfill-revenue-from-mirror 寫的）帶 bySrc；實測上市 KY 78~93、上櫃 KY 27~30 檔/月。
+    //   每一份 v2 月份都要過（不是只看最新）：鏡像缺頁的月份（例 2026-03 上市）會被點名。
+    composition: { minV: 2, min: { 上市KY: 60, 上櫃KY: 20 } } },
 ];
 
 async function auditPeriodic(db) {
@@ -753,10 +757,11 @@ async function auditPeriodic(db) {
     // ⚠ 不要用 `.orderBy('__name__','desc')` —— Firestore 對 document id 的降冪排序
     //   需要單獨建索引，會直接丟 FAILED_PRECONDITION。這兩個集合是週/月頻，
     //   總量只有幾十份，`select('n')` 全取回來在本地排序反而更省事也不需索引。
-    let docs = [];
+    let docs = []; let all = [];
     try {
-      const snap = await db.collection(spec.c).select('n').get();
-      docs = snap.docs.slice().sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, 1);
+      const snap = spec.composition ? await db.collection(spec.c).select('n', 'v', 'bySrc').get() : await db.collection(spec.c).select('n').get();
+      all = snap.docs.slice().sort((a, b) => (a.id < b.id ? 1 : -1));
+      docs = all.slice(0, 1);
     } catch (e) { out.push({ name: spec.label, status: 'ERROR', note: e.message }); continue; }
     if (!docs.length) { out.push({ name: spec.label, status: 'MISSING', note: '完全沒有歸檔' }); continue; }
     const d = docs[0];
@@ -764,8 +769,21 @@ async function auditPeriodic(db) {
     const idDate = d.id.length === 7 ? `${d.id}-01` : d.id;
     const ageDays = Math.floor((Date.now() - new Date(`${idDate}T00:00:00+08:00`).getTime()) / 86400000);
     const n = d.data()?.n ?? 0;
-    const status = ageDays > spec.maxDays ? 'STALE' : (n < spec.minN ? 'THIN' : 'OK');
-    out.push({ name: spec.label, status, latest: d.id, ageDays, n, note: status === 'OK' ? '' : spec.note });
+    let status = ageDays > spec.maxDays ? 'STALE' : (n < spec.minN ? 'THIN' : 'OK');
+    let note = status === 'OK' ? '' : spec.note;
+    if (spec.composition) {
+      const { minV, min } = spec.composition;
+      const short = all.filter(x => Number(x.data()?.v) >= minV).map(x => {
+        const by = x.data()?.bySrc || {};
+        const miss = Object.entries(min).filter(([k, m]) => !(Number(by[k]) >= m)).map(([k, m]) => `${k} ${by[k] ?? 0}<${m}`);
+        return miss.length ? `${x.id}（${miss.join('、')}）` : null;
+      }).filter(Boolean);
+      if (short.length) {
+        if (status === 'OK') status = 'THIN';
+        note = `${note ? `${note}；` : ''}市場組成不足 ${short.length} 個月：${short.slice(0, 6).join('、')}${short.length > 6 ? '…' : ''}——外國公司 _1 表缺頁或未抓（鏡像補頁後跑 backfill-revenue-from-mirror，或 backfill-mops-revenue 重抓）`;
+      }
+    }
+    out.push({ name: spec.label, status, latest: d.id, ageDays, n, note });
   }
   return out;
 }
