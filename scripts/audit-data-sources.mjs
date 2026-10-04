@@ -972,7 +972,7 @@ async function main() {
   // 2026-09-04 現況 72 設 60；2026-09-28 契約 88 條（WM-SCAN G2-13：60 的餘裕大到契約表悄悄縮掉 20 多條也不會吼）
   // ⇒ 改「現況減 4」。新增契約時順手上調；刪契約要同時下調並寫明理由。低於此值＝範圍異常。
   // 2026-10-04：契約 96 條（+G2-21 的 scoringV3／swingFormula／picksHistory／squeezeReview／aiSwingMembers×2／surgeShadow）＋officialMirror 本機列 ⇒ 92。
-  const MIN_SOURCES = 92;
+  const MIN_SOURCES = 94;   // 2026-10-04 rebase 後實測 98 個資料源（含 dailyHeatmap、KY 組成閘門）⇒ 現況減 4
   const auditIncomplete = results.length < MIN_SOURCES;
   if (auditIncomplete) console.log(`\n❌ 稽核範圍異常：只檢查了 ${results.length} 個資料源（下限 ${MIN_SOURCES}）——契約表或 probe 流程有問題，本次「全綠」不可信`);
 

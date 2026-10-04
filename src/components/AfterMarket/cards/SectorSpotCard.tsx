@@ -3,7 +3,7 @@
 import { Card, amStyles, sg, tone, useApi } from '../shared';
 
 // /api/ai/sector-spot（sectorSpot/latest）：Yahoo 期貨連續合約（原油／布蘭特／天然氣／銅／鋁／金／銀）＋DRAMeXchange 公開 DRAM 現貨。
-// 注意：文件的 date／dataDate 是 daemon 抓取日（可為休市日／週末），真正的報價所屬日在各 item.asOf。
+// 注意：文件的 date／dataDate 是記錄日（2026-10-04 起非交易日記為最後交易日），真正的報價所屬日在各 item.asOf。
 interface SpotItem { key: string; name: string; unit?: string; price?: number | null; chgPct?: number | null; asOf?: string | null; source?: string; sectors?: string[] }
 interface SpotDoc { items?: SpotItem[] }
 
