@@ -248,7 +248,10 @@ def per_pick(x) -> dict:
 def split_table(pk, col) -> dict:
     out = {}
     for k, g in pk.groupby(col):
-        out[str(k)] = dict(picks=int(len(g)), hits=int(g.y.sum()), precision_pct=r(g.y.mean() * 100))
+        b = g[g.buyable & np.isfinite(g.m_c5.values)]
+        d5 = b.groupby('s').m_c5.mean()
+        out[str(k)] = dict(picks=int(len(g)), hits=int(g.y.sum()), precision_pct=r(g.y.mean() * 100),
+                           c5_daily_mean_pct=r(d5.mean() * 100) if len(d5) else None, c5_days=int(len(d5)))
     return out
 
 
