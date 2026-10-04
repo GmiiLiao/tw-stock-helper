@@ -187,7 +187,7 @@ def records(df, group, lists) -> dict:
         files[f'{pre}{t}_misses.csv'] = EV.csv_bytes(ev[ev.result == '漏網'] if len(ev) else ev)
         files[f'{pre}{t}_picks.csv'] = EV.csv_bytes(pk)
     if group != 'SELHC':
-        ne = df[df.ne & (df.y == 1) & df.track_name.isin(('NE_SUSP', 'NE_TDR'))]
+        ne = df[df['ne'].values & (df.y.values == 1) & df.track_name.isin(('NE_SUSP', 'NE_TDR')).values]   # df.ne 是 DataFrame 方法，不可用屬性存取
         out = pd.DataFrame({'window': win_name(ne), 'fold': ne.fold.values + 1, 'date_s': ne.date_s.values, 'event_day_t': ne.date_t.values,
                             'code': ne.code.values, 'name': ne.name.values, 'market': ne.market.values, 'track': ne.track_name.values,
                             'failing_filters': EV.failing(ne) if len(ne) else [], 'hist_len': ne.hist_len.values, 'listing_src': ne.listing.values,

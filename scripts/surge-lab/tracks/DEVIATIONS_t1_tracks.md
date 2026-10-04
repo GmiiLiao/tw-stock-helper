@@ -68,4 +68,15 @@
   11. **輸出目錄**：依登錄 `outputs.dir`＝`scripts/surge-lab/out/tracks_t1/`（任務文字寫的 out/tracks/ 與登錄不同，以登錄為準）。
 - **可能影響**：第 1 點只影響 R1、R2 的輸入表示；第 3 點已由 G0.9 逐數重現驗證；其餘不改變任何數值或只影響描述欄。
 
+---
+
+## DEV-004　HOLDOUT 哨兵之後、ho-eval 之前修正一個實作錯誤（不改規則）
+
+- **日期／階段**：2026-10-05，哨兵 `tracks_t1_HO_STARTED.json` 已 commit（94cebd4）、HO 各折擬合進行中、**ho-eval 尚未執行**。
+- **發現方式**：以 SELECTION 資料冒充 HO 視窗跑一次 HO 程式路徑（`EV.WIN_ID['HO']→SEL`、擬合檢查點名稱改讀 SEL 折，不讀任何 HO 標籤、報酬或 HO 檢查點），在寫 `tracks_t1_HO_outside.csv` 時崩潰。
+- **錯誤**：`a36_tracks_cv.records()` 以 `df.ne` 取「NE 列」欄，但 `ne` 是 pandas DataFrame 的方法名（不等於比較），屬性存取拿到方法而非欄位 ⇒ AssertionError。SEL+HC 路徑不寫 outside 檔，所以乾跑沒有走到這行。
+- **修正**：改用 `df['ne']`。只影響 HO 的 outside 記錄檔；不改任何規則、指標或判定程式。修正後同一冒充路徑全程跑完，判定樹的「經確認／未經確認」兩支、挑戰者（R1，HO-model）與代理（S0）兩種窗都走過一次。
+- **當下已看過的結果**：沒有任何 HOLDOUT 數字（擬合只在背景寫檢查點，未讀其分數）；冒充路徑輸出的是 SELECTION 資料的數字，不作任何用途。
+- **對判定的可能影響**：無。哨兵記的程式雜湊與 ho-eval 時的雜湊會不同（只差 a36_tracks_cv.py），鎖檔記錄 ho-eval 當下的雜湊。
+
 *未扣成本·非投資建議。*
