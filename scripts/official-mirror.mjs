@@ -73,7 +73,8 @@ function dayInfo(until) {
 }
 const months = (from, to) => { const out = []; let [y, m] = from.split('-').map(Number); const [ty, tm] = to.split('-').map(Number); while (y < ty || (y === ty && m <= tm)) { out.push([y, m]); if (++m > 12) { m = 1; y++; } } return out; };
 const ymKey = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
-/** 月表何時定版：月底過後（月營收 t21sc03＝次月 finalAfterDay 日的隔天起）。 */
+/** 月表何時定版（時鐘規則）：月底過後（次月 finalAfterDay 日的隔天起，預設 2 日）。
+ *  月營收 t21sc03／t21sc03_ky 不用這條：它們帶 ad.stable，改由內容穩定（兩次觀測相隔 ≥3 日內容相同）定版，見 lib fetchAndStore。 */
 function monthFinal(ad, y, m, today) { const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1]; return today >= `${ny}-${String(nm).padStart(2, '0')}-${String((ad.finalAfterDay ?? 1) + 1).padStart(2, '0')}`; }
 /** 季財報何時定版：各業最晚法定期限翌日。 */
 function quarterFinal(y, q, today) { return today >= (q === 4 ? `${y + 1}-04-01` : `${y}-${['06-01', '09-01', '12-01'][q - 1]}`); }
@@ -144,7 +145,7 @@ async function runJobs(jobs, a, { budget = Infinity } = {}) {
       requests += q.count - before;
       if (out?.skipped) { bump('skipped'); continue; }
       const row = man.rows[j.key];
-      if (row && !C.isFinal(man, j.key)) man.rows[j.key] = { ...row, attempts: prevAttempts + 1 };
+      if (row && !C.isFinalFor(j.ad, man, j.key)) man.rows[j.key] = { ...row, attempts: prevAttempts + 1 };
       const st = row?.lastTry ? `${row.status}(保留·本次${row.lastTry.status})` : (row?.status || 'fail');
       bump(st); C.saveManifest(ROOT, man);
       if (!/^(ok|unchanged|empty)$/.test(st)) log(`  ${j.ad.id} ${j.key}：${st}${row?.note ? `（${row.note}）` : ''}`);
@@ -184,11 +185,12 @@ async function cmdDaily(a) {
       if (ad.unit !== 'month') { jobs.push(...jobsFor(ad, { day: D }, { must: !!ad.must })); continue; }
       jobs.push(...jobsFor(ad, { y, m: mo }, { final: false, force: true }));                                   // 當月表逐日長大：每晚覆蓋、不定版
       const [py, pm] = mo === 1 ? [y - 1, 12] : [y, mo - 1]; const man = C.loadManifest(ROOT, ad.host, ad.id);
-      for (const j of jobsFor(ad, { y: py, m: pm }, { final: monthFinal(ad, py, pm, today), force: true })) if (!C.isFinal(man, j.key) && (ad.id !== 'mops_t21sc03' || dd <= 15 || j.final)) jobs.push(j);
+      // 上月表：未定版就抓。月營收 t21sc03 兩表（ad.stable）由內容穩定定版（fetchAndStore 不採用這裡的 final），申報期後仍每晚抓到兩次觀測一致為止
+      for (const j of jobsFor(ad, { y: py, m: pm }, { final: monthFinal(ad, py, pm, today), force: true })) if (!C.isFinalFor(ad, man, j.key)) jobs.push(j);
     }
   }
   if (a.slot !== 'main') jobs.push(...snapshotJobs(D, state, a, today));
-  const todo = jobs.filter(j => j.force || j.snapshot || !C.isFinal(C.loadManifest(ROOT, j.ad.host, j.ad.id), j.key));
+  const todo = jobs.filter(j => j.force || j.snapshot || !C.isFinalFor(j.ad, C.loadManifest(ROOT, j.ad.host, j.ad.id), j.key));
   const r1 = await runJobs(todo, a);
   const cu = catchUpJobs(5, a.only, today); const r2 = cu.jobs.length ? await runJobs(cu.jobs, a) : { requests: 0, stats: {} };
   const requests = r0.requests + r1.requests + r2.requests; const stats = mergeStats(r0.stats, r1.stats, r2.stats);
@@ -260,7 +262,7 @@ async function cmdBackfill(a) {
     const cand = ad.unit === 'month'
       ? months(from.slice(0, 7), today.slice(0, 7)).slice(0, -1).flatMap(([y, m]) => jobsFor(ad, { y, m }, { final: monthFinal(ad, y, m, today) }))
       : (ad.id === MI.id ? info.candidates : [...info.confirmed].sort()).filter(d => d >= from && d < today).flatMap(d => jobsFor(ad, { day: d }, { must: !!ad.must && ad.id !== MI.id }));
-    for (const j of cand) if (!C.isFinal(man, j.key) && (man.rows?.[j.key]?.attempts || 0) < 3) jobs.push(j);
+    for (const j of cand) if (!C.isFinalFor(ad, man, j.key) && (man.rows?.[j.key]?.attempts || 0) < 3) jobs.push(j);
   }
   log(`backfill：待抓 ${jobs.length} 個鍵；今日剩餘額度 ${left} 個請求`);
   const r = await runJobs(jobs, a, { budget: left });

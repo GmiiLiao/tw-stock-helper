@@ -166,7 +166,54 @@ export function isFinal(man, key) {
 /** 有好資料（可能尚未定版）。 */
 export function hasGood(man, key) { const r = man.rows?.[key]; return !!r && (r.status === 'ok' || r.status === 'unchanged'); }
 
+/**
+ * 依資料集規則判定定版：ad.stable（內容穩定規則）的資料集只認「由內容穩定判定的定版」（finalBy='stable'）；
+ * 舊時鐘規則留下的 final=true 不算，會被每日／回補重抓一次來取得第二次觀測。其他資料集同 isFinal。
+ */
+export function isFinalFor(ad, man, key) {
+  if (!isFinal(man, key)) return false;
+  return ad?.stable ? man.rows[key].finalBy === 'stable' : true;
+}
+
 export function sha256(buf) { return createHash('sha256').update(buf).digest('hex'); }
+
+// ── 內容穩定定版（2026-10-04：月營收 t21sc03 兩表；取代「次月 11 日的隔天」時鐘規則）────────────
+// 官方頁面每次產生都帶「出表日期：115/10/04<!--20:00:18-->」⇒ 原始位元組的 sha256 每次都不同，
+// 要先去掉產生時戳（ad.stable.strip）再比。定版條件：次月 afterDay 日（含）起、相隔 ≥minGapDays 個日曆日的
+// 兩次成功抓取，內容雜湊相同。申報期內或內容還在變 ⇒ final=false，每日／回補會繼續抓。
+/** 去掉產生時戳後的內容雜湊。 */
+export function stableShaOf(text, spec) {
+  const s = String(text ?? '');
+  return sha256(spec?.strip ? s.replace(new RegExp(spec.strip, 'g'), '') : s);
+}
+/** 月表期間（ctx.year／ctx.month）的次月 afterDay 日（YYYY-MM-DD）。 */
+export function stableThreshold(ctx, afterDay) {
+  const [ny, nm] = Number(ctx.month) === 12 ? [Number(ctx.year) + 1, 1] : [Number(ctx.year), Number(ctx.month) + 1];
+  return `${ny}-${pad2(nm)}-${pad2(afterDay)}`;
+}
+/**
+ * prev：上一筆清單列（可能是舊規則留下的列：沒有 stableSha 時由呼叫端補算；沒有 stableFrom 時以它的 at 當起點）。
+ * 回傳 { final, stableFrom }：stableFrom＝目前這份內容在門檻日（含）之後第一次被觀測到的時刻（ISO）。
+ */
+export function stableDecision(prev, { stableSha, at, ctx, spec }) {
+  const th = stableThreshold(ctx, spec.afterDay ?? 11);
+  const day = taipeiDate(new Date(at));
+  if (day < th) return { final: false, stableFrom: null };
+  const good = prev && (prev.status === 'ok' || prev.status === 'empty');
+  const from = good ? (prev.stableFrom ?? (prev.at && taipeiDate(new Date(prev.at)) >= th ? prev.at : null)) : null;
+  if (good && from && prev.stableSha === stableSha) {
+    const gap = Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${taipeiDate(new Date(from))}T00:00:00Z`)) / 864e5);
+    return { final: gap >= (spec.minGapDays ?? 3), stableFrom: from };
+  }
+  return { final: false, stableFrom: at };
+}
+/** 舊列沒有 stableSha 時，從已存的檔案補算（只讀本機檔，0 請求）；讀不到回 null（當成沒有前一次觀測）。 */
+function prevStableSha(root, ad, prev) {
+  if (!prev) return null;
+  if (prev.stableSha) return prev.stableSha;
+  if (!prev.file || !(prev.status === 'ok' || prev.status === 'empty')) return null;
+  try { return stableShaOf(decodeBody(readEntry(root, ad.host, ad.id, prev.file), ad.encoding), ad.stable); } catch { return null; }
+}
 
 function writeAtomic(p, buf) { const tmp = `${p}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, p); }
 
@@ -274,9 +321,18 @@ export async function fetchAndStore(ad, { root, key, ctx, man, fetchImpl, now = 
   if (v.status === 'ok' || v.status === 'empty') {
     if (snapshot && man.lastHash === hash) { man.rows[key] = { status: 'unchanged', same: man.lastFile, at, final }; return { row: man.rows[key] }; }
     if (v.status === 'empty' && hasGood(man, key)) return keep({ status: 'empty', at }, { neutral: true });   // 已有內容的不被空表蓋掉
+    // 內容穩定規則的資料集：定版由兩次觀測決定，呼叫端傳的 final 不採用（要在寫檔前先讀舊檔的雜湊）
+    let fin = final; let stab = {};
+    if (ad.stable) {
+      const prev = man.rows[key];
+      const stableSha = stableShaOf(text, ad.stable);
+      const d = stableDecision(prev ? { ...prev, stableSha: prevStableSha(root, ad, prev) } : null, { stableSha, at, ctx, spec: ad.stable });
+      fin = d.final;
+      stab = { stableSha, stableFrom: d.stableFrom, ...(d.final ? { finalBy: 'stable' } : {}) };
+    }
     const meta = { url: req.url, method: req.method || 'GET', fetchedAt: at, http: res.status, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, bytes: res.buf.length, source: 'official' };
     const file = writeEntry(root, ad.host, ad.id, key, ad.kind === 'json' ? { kind: 'json', payload, meta } : { kind: 'text', ext: ad.ext || 'txt', buffer: res.buf, meta });
-    man.rows[key] = { status: v.status, file, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, at, final, attempts: man.rows[key]?.attempts };
+    man.rows[key] = { status: v.status, file, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, at, final: fin, attempts: man.rows[key]?.attempts, ...stab };
     if (snapshot) { man.lastHash = hash; man.lastFile = file; }
     return { row: man.rows[key] };
   }

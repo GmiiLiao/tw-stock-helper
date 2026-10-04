@@ -7,6 +7,10 @@ const get = url => ctx => ({ url: url.replace(/\{(\w+)\}/g, (_, k) => ctx[k]) })
 const post = (url, body) => ctx => ({ url, method: 'POST', body: body.replace(/\{(\w+)\}/g, (_, k) => ctx[k]) });
 const twse = (id, path, priority, extra = {}) => ({ id, host: TWSE, unit: 'day', kind: 'json', validator: 'twseDate', priority, from: '2022-07-18', verified: true, request: get(`https://www.twse.com.tw${path}`), ...extra });
 const tpex = (id, path, priority, extra = {}) => ({ id, host: TPEX, unit: 'day', kind: 'json', validator: 'tpexDate', priority, from: '2022-07-18', verified: true, request: get(`https://www.tpex.org.tw${path}`), ...extra });
+// 月營收 t21sc03 的定版：看資料不看時鐘（2026-10-04）。舊規則「次月 11 日的隔天起定版」會在晚申報者（金控／保險）上表前就定版。
+//   改為次月 11 日（含）起、相隔 ≥3 個日曆日的兩次成功抓取，去掉產生時戳後內容雜湊相同才定版（lib stableDecision）。
+//   頁面每次產生都帶「出表日期：115/10/04<!--20:00:18-->」，不去掉的話雜湊永遠不同、永遠不會定版。
+const T21_STABLE = Object.freeze({ afterDay: 11, minGapDays: 3, strip: '出表日期[：:][^<]*(?:<!--[^>]*-->)?' });
 
 export const DATED = [
   // ── 上市（www.twse.com.tw rwd）──
@@ -55,11 +59,11 @@ export const DATED = [
   // ── 公開資訊觀測站（mopsov，月）──
   { id: 'mops_t21sc03', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,
     request: ctx => ({ url: `https://mopsov.twse.com.tw/nas/t21/${ctx.market}/t21sc03_${ctx.rocYear}_${ctx.month}_0.html` }),
-    spec: { mustContain: ['{rocYear}年{month}月'], emptyRe: '查無|無資料', minLen: 5000 }, finalAfterDay: 11 },
+    spec: { mustContain: ['{rocYear}年{month}月'], emptyRe: '查無|無資料', minLen: 5000 }, stable: T21_STABLE },
   // 外國公司（-KY）月營收在 _1 表，_0 只有本國公司（2026-10-04 漏網分析：73 檔 KY 測試期月營收 100% 缺值）
   { id: 'mops_t21sc03_ky', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,  // 2026-10-04 實抓 115/8 上市＋上櫃 _1 表通過 spec、錯月會擋
     request: ctx => ({ url: `https://mopsov.twse.com.tw/nas/t21/${ctx.market}/t21sc03_${ctx.rocYear}_${ctx.month}_1.html` }),
-    spec: { mustContain: ['{rocYear}年{month}月', '-KY'], emptyRe: '查無|無資料', minLen: 2000 }, finalAfterDay: 11 },
+    spec: { mustContain: ['{rocYear}年{month}月', '-KY'], emptyRe: '查無|無資料', minLen: 2000 }, stable: T21_STABLE },
   { id: 'mops_t100sb02_1', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'utf-8', priority: 2, from: '2022-07-01', verified: true,
     request: post('https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1', 'encodeURIComponent=1&step=1&firstin=1&off=1&TYPEK={market}&year={rocYear}&month={month2}'),
     spec: { mustContain: ['公司代號'], emptyRe: '查無|無資料', minLen: 500 } },

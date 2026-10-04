@@ -148,6 +148,53 @@ test('櫃買區間公告與月表的回聲；文字頁 mustMatch', () => {
   assert.equal(C.VALIDATORS.contains('上市公司 第二季 <th>公司<br>代號</th><td> 2330 </td>' + 'x'.repeat(300), q, { mustContain: ['{marketName}', '{seasonZh}'], mustMatch: ['<td[^>]*>\\s*\\d{4}\\s*</td>'] }).status, 'ok');
 });
 
+// ── 月營收 t21sc03：內容穩定定版（取代「次月 11 日的隔天」時鐘規則·2026-10-04）──
+const T21_STABLE = { afterDay: 11, minGapDays: 3, strip: '出表日期[：:][^<]*(?:<!--[^>]*-->)?' };
+const t21Ad = { id: 't21', host: 'm', kind: 'text', ext: 'html', encoding: 'utf-8', request: ctx => ({ url: `https://m/t21sc03_${ctx.rocYear}_${ctx.month}_0.html` }), spec: { mustContain: ['{rocYear}年{month}月'] }, stable: T21_STABLE };
+const t21Page = (stamp, body = '1101 台泥 13,515,534') => `上市公司115年8月份營業收入統計表<div class=tt>出表日期：${stamp}</div><table>${body}</table>` + 'x'.repeat(400);
+const aug = C.ctxOf({ year: 2026, month: 8, market: 'sii' });
+
+test('內容穩定定版：去掉出表日期後比雜湊；次月 11 日起相隔 ≥3 日兩次相同才定版；申報期內不定版', async () => {
+  const root = tmp();
+  try {
+    const man = { id: 't21', host: 'm', rows: {} }; const k = '2026-08.sii';
+    const go = (iso, page) => C.fetchAndStore(t21Ad, { root, key: k, ctx: aug, man, now: new Date(iso), final: true, fetchImpl: textRes(page) });
+    assert.equal(C.stableShaOf(t21Page('115/09/12<!--20:00:18-->'), T21_STABLE), C.stableShaOf(t21Page('115/09/15<!--09:01:02-->'), T21_STABLE), '產生時戳不影響內容雜湊');
+    assert.notEqual(C.stableShaOf(t21Page('115/09/12'), T21_STABLE), C.stableShaOf(t21Page('115/09/12', '1101 台泥 13,515,535'), T21_STABLE));
+    let r = await go('2026-09-10T12:00:00Z', t21Page('115/09/10<!--20:00:00-->'));            // 台北 09-10：申報期內
+    assert.equal(r.row.final, false, '呼叫端傳 final:true 也不採用'); assert.equal(r.row.stableFrom, null);
+    r = await go('2026-09-11T12:00:00Z', t21Page('115/09/11<!--20:00:00-->'));
+    assert.equal(r.row.final, false); assert.equal(r.row.stableFrom, '2026-09-11T12:00:00.000Z');
+    r = await go('2026-09-13T12:00:00Z', t21Page('115/09/13<!--20:00:00-->'));
+    assert.equal(r.row.final, false, '只差 2 日'); assert.equal(C.isFinalFor(t21Ad, man, k), false);
+    r = await go('2026-09-14T12:00:00Z', t21Page('115/09/14<!--20:00:00-->'));
+    assert.equal(r.row.final, true); assert.equal(r.row.finalBy, 'stable'); assert.equal(C.isFinalFor(t21Ad, man, k), true);
+    assert.notEqual(r.row.sha256, r.row.stableSha, '原始位元組雜湊含時戳，另存內容雜湊');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('內容穩定定版：晚申報者上表（內容變了）⇒ 起點重算；舊時鐘規則的 final 不算數、以舊檔當第一次觀測', async () => {
+  const root = tmp();
+  try {
+    const man = { id: 't21', host: 'm', rows: {} }; const k = '2026-08.sii';
+    const go = (iso, page) => C.fetchAndStore(t21Ad, { root, key: k, ctx: aug, man, now: new Date(iso), fetchImpl: textRes(page) });
+    await go('2026-09-11T02:00:00Z', t21Page('115/09/11'));
+    let r = await go('2026-09-14T02:00:00Z', t21Page('115/09/14', '1101 台泥 13,515,534 2880 華南金 1,234'));
+    assert.equal(r.row.final, false, '內容變了'); assert.equal(r.row.stableFrom, '2026-09-14T02:00:00.000Z');
+    r = await go('2026-09-17T02:00:00Z', t21Page('115/09/17', '1101 台泥 13,515,534 2880 華南金 1,234'));
+    assert.equal(r.row.final, true);
+    // 舊列：時鐘規則標 final:true、沒有 stableSha／stableFrom／finalBy（2026-10-04 鏡像回補留下的）
+    const legacy = { id: 't21', host: 'm', rows: {} }; const lk = '2026-07.sii';
+    const file = C.writeEntry(root, 'm', 't21', lk, { kind: 'text', ext: 'html', buffer: Buffer.from(t21Page('115/10/04<!--18:00:04-->').replace('8月', '7月')) });
+    legacy.rows[lk] = { status: 'ok', file, echo: '2026-07', rows: null, sha256: 'old', at: '2026-10-04T10:00:04.000Z', final: true };
+    const jul = C.ctxOf({ year: 2026, month: 7, market: 'sii' });
+    assert.equal(C.isFinal(legacy, lk), true); assert.equal(C.isFinalFor(t21Ad, legacy, lk), false, '舊時鐘定版不算數 ⇒ 會被重抓');
+    assert.equal(C.isFinalFor({ id: 'other' }, legacy, lk), true, '其他資料集（沒有 stable）仍照 isFinal');
+    const again = await C.fetchAndStore(t21Ad, { root, key: lk, ctx: jul, man: legacy, now: new Date('2026-10-07T10:00:00Z'), fetchImpl: textRes(t21Page('115/10/07<!--09:00:00-->').replace('8月', '7月')) });
+    assert.equal(again.row.final, true, '舊檔內容（去時戳）相同且相隔 3 日'); assert.equal(again.row.stableFrom, '2026-10-04T10:00:04.000Z');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('文字頁（MOPS／期交所）：原始位元組存 .html.gz、清單有 sha256；年月不符不存', async () => {
   const root = tmp();
   try {
