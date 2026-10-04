@@ -7073,6 +7073,10 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
 //   晨間趟自然讀得到盤後趟的 seen 清單，跨日承接的特例也就不需要了。
 function newsVerdictTargetIso(pass, tw) {
   if (pass === 'morning' && isTradingDay(tw)) return isoDate(tw);
+  // 跨午夜（2026-10-04 修）：盤後類工作在 00:00–09:00 執行（夜間補判 01:15–06:30、手動補跑、重啟後續跑）時，
+  //   要服務的是「今天」這個交易日；舊版一律取「下一個」交易日 ⇒ 平日夜間補判寫進後天的文件、開盤用不到。
+  //   週末／休市日凌晨不受影響（今天非交易日，照舊往後找）；23:00 的盤後趟也不受影響。
+  if (tw.getHours() < 9 && isTradingDay(tw)) return isoDate(tw);
   const d = new Date(tw.getTime());
   do { d.setDate(d.getDate() + 1); } while (!isTradingDay(d));
   return isoDate(d);
