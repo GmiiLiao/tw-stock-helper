@@ -154,7 +154,8 @@ def main():
     D = load(task); R = ranks(D, task)
     names = D['names']; ix = {n: i for i, n in enumerate(names)}
     off = [g for gl in GROUPS.values() for g in gl]
-    base_cols = [i for i, n in enumerate(names) if not n.startswith('o_')]
+    new_names = {n for gl in GROUPS.values() for n in gl} | {n for gl in EXPERIMENTAL.values() for n in gl}   # 官方新特徵（含 mkt_lu_off 等市場層）一律不進 base
+    base_cols = [i for i, n in enumerate(names) if not n.startswith('o_') and n not in new_names]
     grp_cols = {g: [ix[n] for n in gl if n in ix] for g, gl in GROUPS.items()}
     nonoff = {ix[n] for n in NON_OFFICIAL_BASE if n in ix}
     all_cols = [i for i in base_cols if i not in nonoff] + [ix[n] for n in off if n in ix]
