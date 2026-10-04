@@ -1,0 +1,716 @@
+{
+ "registration": "065a92c6b063ccfb0bcb5a8facc99734e4f7d769f7af66198953cd7f5592c3e3",
+ "rule": "hist_len < window ⇒ NaN（新模型與代理組成項；M0 不適用）",
+ "removed_from_new_models": [
+  "rk_log_tv20",
+  "rk_r20",
+  "rk_r5",
+  "rk_r60",
+  "rk_vr20"
+ ],
+ "deviation_supplement": {
+  "rs20": 21,
+  "log10_vol20": 20,
+  "log10_close": 1,
+  "is_R": 0,
+  "is_S": 0
+ },
+ "windows": {
+  "atr14": {
+   "window": 15,
+   "rule": "exact"
+  },
+  "bb_pctb": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "bbw": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "bbw_rank120": {
+   "window": 139,
+   "rule": "exact"
+  },
+  "body": {
+   "window": 2,
+   "rule": "exact"
+  },
+  "brk20": {
+   "window": 21,
+   "rule": "brk{k}"
+  },
+  "brk60": {
+   "window": 61,
+   "rule": "brk{k}"
+  },
+  "bull_align": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "c_ma10": {
+   "window": 10,
+   "rule": "c_ma{k}"
+  },
+  "c_ma120": {
+   "window": 120,
+   "rule": "c_ma{k}"
+  },
+  "c_ma20": {
+   "window": 20,
+   "rule": "c_ma{k}"
+  },
+  "c_ma5": {
+   "window": 5,
+   "rule": "c_ma{k}"
+  },
+  "c_ma60": {
+   "window": 60,
+   "rule": "c_ma{k}"
+  },
+  "close_pos": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "day_range": {
+   "window": 2,
+   "rule": "exact"
+  },
+  "days_since_lu": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "dist_hi120": {
+   "window": 120,
+   "rule": "dist_hi{k}"
+  },
+  "dist_hi20": {
+   "window": 20,
+   "rule": "dist_hi{k}"
+  },
+  "dist_hi240": {
+   "window": 240,
+   "rule": "exact"
+  },
+  "dist_hi60": {
+   "window": 60,
+   "rule": "dist_hi{k}"
+  },
+  "dt_ratio": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "dt_ratio20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "fgn_1": {
+   "window": 20,
+   "rule": "fgn_{k}"
+  },
+  "fgn_20": {
+   "window": 20,
+   "rule": "fgn_{k}"
+  },
+  "fgn_5": {
+   "window": 20,
+   "rule": "fgn_{k}"
+  },
+  "fgn_streak": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "gap": {
+   "window": 2,
+   "rule": "exact"
+  },
+  "inst_pct_v1": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "kd_d": {
+   "window": 30,
+   "rule": "kd_*"
+  },
+  "kd_gold3": {
+   "window": 30,
+   "rule": "kd_*"
+  },
+  "kd_k": {
+   "window": 30,
+   "rule": "kd_*"
+  },
+  "kd_kd": {
+   "window": 30,
+   "rule": "kd_*"
+  },
+  "lend_chg20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "lend_chg5": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "lend_to_v": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "log_tv20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "lower_shadow": {
+   "window": 2,
+   "rule": "exact"
+  },
+  "ma20_ma60": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "ma20_slope5": {
+   "window": 25,
+   "rule": "exact"
+  },
+  "ma5_ma20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "ma60_ma120": {
+   "window": 120,
+   "rule": "exact"
+  },
+  "ma60_slope10": {
+   "window": 70,
+   "rule": "exact"
+  },
+  "ma_tight": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "ma_tight4": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "macd_dif": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_dif_pos": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_gold10": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_gold3": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_hist": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_hist_d1": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_hist_d3": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "macd_hist_pos": {
+   "window": 60,
+   "rule": "macd_*"
+  },
+  "mkt_breadth_ma20": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_lu_cnt": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_lu_cnt5": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_near_hi": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_r1": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_r20": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_r5": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_vol_ratio": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "ml_chg20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "ml_chg5": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "ml_to_v": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "ms_chg5": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "ms_to_ml": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "ms_to_v": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "n_above_ma": {
+   "window": 120,
+   "rule": "exact"
+  },
+  "n_lu_20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "n_lu_250": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "n_lu_60": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "obv_slope20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "pos120": {
+   "window": 120,
+   "rule": "pos{k}"
+  },
+  "pos20": {
+   "window": 20,
+   "rule": "pos{k}"
+  },
+  "pos60": {
+   "window": 60,
+   "rule": "pos{k}"
+  },
+  "pv_up_surge": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "r1": {
+   "window": 2,
+   "rule": "r{k}"
+  },
+  "r10": {
+   "window": 11,
+   "rule": "r{k}"
+  },
+  "r120": {
+   "window": 121,
+   "rule": "r{k}"
+  },
+  "r20": {
+   "window": 21,
+   "rule": "r{k}"
+  },
+  "r3": {
+   "window": 4,
+   "rule": "r{k}"
+  },
+  "r5": {
+   "window": 6,
+   "rule": "r{k}"
+  },
+  "r60": {
+   "window": 61,
+   "rule": "r{k}"
+  },
+  "range20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "range60": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "rev_mom": {
+   "window": 0,
+   "rule": "exact"
+  },
+  "rev_yoy": {
+   "window": 0,
+   "rule": "exact"
+  },
+  "rev_yoy_acc": {
+   "window": 0,
+   "rule": "exact"
+  },
+  "rs20": {
+   "window": 21,
+   "rule": "DEV-001"
+  },
+  "rsi10": {
+   "window": 30,
+   "rule": "exact"
+  },
+  "rsi14": {
+   "window": 42,
+   "rule": "exact"
+  },
+  "rsi5": {
+   "window": 15,
+   "rule": "exact"
+  },
+  "trust_1": {
+   "window": 20,
+   "rule": "trust_{k}"
+  },
+  "trust_20": {
+   "window": 20,
+   "rule": "trust_{k}"
+  },
+  "trust_5": {
+   "window": 20,
+   "rule": "trust_{k}"
+  },
+  "trust_streak": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "up_days5": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "up_streak": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "updown_vol20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "upper_shadow": {
+   "window": 2,
+   "rule": "exact"
+  },
+  "v5_20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "v_dryup5": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "v_rank120": {
+   "window": 120,
+   "rule": "exact"
+  },
+  "vol10": {
+   "window": 11,
+   "rule": "exact"
+  },
+  "vol60": {
+   "window": 61,
+   "rule": "exact"
+  },
+  "vol_ratio_10_60": {
+   "window": 61,
+   "rule": "exact"
+  },
+  "vr20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "vr5": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "o_avglot": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_avglot_r": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_avglot_5_20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_trades_vr20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_vwap_dev": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_vwap_dev5": {
+   "window": 5,
+   "rule": "exact"
+  },
+  "o_log_mcap": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_turn": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_turn20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_turn_r": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_fhold": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_fhold_chg5": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "o_fhold_chg20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "o_froom": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_dself_1": {
+   "window": 20,
+   "rule": "o_dself_{k}"
+  },
+  "o_dself_5": {
+   "window": 20,
+   "rule": "o_dself_{k}"
+  },
+  "o_dself_20": {
+   "window": 20,
+   "rule": "o_dself_{k}"
+  },
+  "o_dhedge_1": {
+   "window": 20,
+   "rule": "o_dhedge_{k}"
+  },
+  "o_dhedge_5": {
+   "window": 20,
+   "rule": "o_dhedge_{k}"
+  },
+  "o_dhedge_20": {
+   "window": 20,
+   "rule": "o_dhedge_{k}"
+  },
+  "o_dt_ratio_all": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_dt_ratio20_all": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_lu_follow": {
+   "window": 251,
+   "rule": "exact"
+  },
+  "o_lu2_starts250": {
+   "window": 251,
+   "rule": "exact"
+  },
+  "o_overhead60": {
+   "window": 61,
+   "rule": "exact"
+  },
+  "o_overhead240": {
+   "window": 241,
+   "rule": "exact"
+  },
+  "o_rev_hi12": {
+   "window": 0,
+   "rule": "exact"
+  },
+  "o_rev_yoy_streak": {
+   "window": 0,
+   "rule": "exact"
+  },
+  "o_fin_eps_yoy_p": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_fin_ep_ttm": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_fin_gm": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_fin_gm_yoy": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_fin_om_yoy": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_fin_rev_q_yoy": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_fin_turnaround": {
+   "window": 0,
+   "rule": "o_fin_*"
+  },
+  "o_ind_lu_cnt": {
+   "window": 0,
+   "rule": "o_ind_*"
+  },
+  "o_ind_lu_share": {
+   "window": 0,
+   "rule": "o_ind_*"
+  },
+  "o_ind_lu_cnt5": {
+   "window": 0,
+   "rule": "o_ind_*"
+  },
+  "o_ind_r5": {
+   "window": 0,
+   "rule": "o_ind_*"
+  },
+  "o_ind_r5_rel": {
+   "window": 0,
+   "rule": "o_ind_*"
+  },
+  "o_ld_cnt20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_ld_cnt60": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "o_ld_days_since": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "o_touch_lu_s": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "o_touch_lu20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_oneword_cnt20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "o_lu_off_cnt20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "mkt_lu_off": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_ld_off": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "mkt_lu_ld_ratio": {
+   "window": 0,
+   "rule": "mkt_*"
+  },
+  "age_cap": {
+   "window": 0,
+   "rule": "exact"
+  },
+  "r_seg_len": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "r_days_since_seg_end": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "r_seg_gain": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "r_dd_high20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "r_n_seg_250": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "dk_s": {
+   "window": 1,
+   "rule": "exact"
+  },
+  "dp_cnt20": {
+   "window": 20,
+   "rule": "exact"
+  },
+  "dp_cnt60": {
+   "window": 60,
+   "rule": "exact"
+  },
+  "dp_since": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "dp_n250": {
+   "window": 250,
+   "rule": "exact"
+  },
+  "at_known5": {
+   "window": 6,
+   "rule": "exact"
+  },
+  "at_known20": {
+   "window": 21,
+   "rule": "exact"
+  },
+  "log10_vol20": {
+   "window": 20,
+   "rule": "DEV-001"
+  },
+  "log10_close": {
+   "window": 1,
+   "rule": "DEV-001"
+  },
+  "is_R": {
+   "window": 0,
+   "rule": "DEV-001"
+  },
+  "is_S": {
+   "window": 0,
+   "rule": "DEV-001"
+  }
+ }
+}
