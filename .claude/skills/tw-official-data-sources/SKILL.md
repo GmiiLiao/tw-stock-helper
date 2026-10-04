@@ -376,6 +376,23 @@ wiki 每筆事實都帶來源等級，由高到低是：官方 > 官方衍生 > 
 - 用途：逐件查漏網的原因，是缺少某類要素、來源資料錯誤或缺值（錯日、非官方、未回補），還是其他變數（大盤、題材、新聞）。
   查出的原因直接決定下一輪是補變數、修資料，還是不處理，據此迭代重訓。
 
+## 10. 第二大腦官方鏡像（second-brain/official）
+
+**依據**：使用者 2026-10-04「官網能下載的都下載補入第二大腦，交易日盤後自動更新」。盤點 `docs/OFFICIAL-DATA-INVENTORY-2026-10-04.md`（297 項）。
+
+- **存放**：`second-brain/official/{host}/{dataset}/{鍵}.json.gz`（`{meta, payload}`，payload＝官方原始回應不改欄位）或 `{鍵}.{html|csv|txt}.gz`（原始位元組）；
+  每個資料集一份 `_manifest.json`（鍵→狀態／檔名／回聲日／列數／sha256／是否定版）；全域 `manifest.json`、`_runs/`、`_alerts/LATEST.json`、`_verify.json`。
+- **鍵**：帶日期＝資料日；月表＝`YYYY-MM`；季財報＝`YYYYQn.sii|otc`；快照＝資料所屬交易日（**非交易日記為最後交易日**；同日內容變了存 `.r2`）。
+- **定版**：回聲相符才寫；已確認交易日的必有表（T86、資券、漲跌停價…）回空表不定版；當月表每晚覆蓋、月底過後才定版；月營收 t21sc03 次月 12 日起定版；季財報各業最晚期限翌日定版；
+  已有好資料時，之後的失敗／空表／不符**不覆蓋**（只記 lastTry）。
+- **交易日**：確認＝研究面板日 ∪ MI_INDEX 回聲 ok；候選＝之後的平日扣官方休市表（「開始／最後交易日」是交易日）。漏跑的交易日由 daily 的補漏、retry、backfill 補；P1 必有表仍缺或交易日未確認 ⇒ `_alerts`。
+- **指令**（主 checkout 執行）：`node scripts/official-mirror.mjs daily|retry|backfill|verify|migrate|status`。新端點先 `verify` 通過（`_verify.json`）才排進 daily／backfill。
+- **排程**（`scripts/official-mirror/launchd/`）：平日 22:15＋週六 10:00 `daily`；週二～六 06:45 `retry`；每晚 23:20＋週末 11:00 `backfill --max 2500`（每個台北日合計上限）。
+- **安全**：同一出口 IP 也是 daemon 的出口——證交所系（www／openapi／mops／mopsov）、櫃買系、期交所各一條佇列、逐請求 ≥3 秒；平日 07:30～15:30 不跑；
+  403／401／30x／429／封鎖安全頁 ⇒ 立即停整個機構；5xx 退避重試一次；連續 3 次失敗停；研究回補程序在跑、或 daemon 日誌近 30 分鐘有上游故障字樣 ⇒ 不開跑；
+  MIS 一律不打；回補時 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）。
+- **研究快取轉存**：`migrate`（0 請求）把 `.surge-cache/official/*` 與 MOPS t163sb04 搬進鏡像；`backfill` 開頭自動先跑一次。
+
 ## 修A錯B 影響面
 
 - `build.compute_features` 被 T1/T2、隔日漲停、a35 影子名單共用。改特徵來源（例如把 priceEvents 換成 TWT84U 係數）會同時改變三者的母體（斷點排除範圍）和標籤，要三者一起重跑兩窗＋OOT，並在 `docs/EXPERIMENTS.md` 記錄。
