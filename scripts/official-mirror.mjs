@@ -48,7 +48,7 @@ function snapshotAdapters() {
   return reg.map(e => ({ ...e, request: ctx => ({ url: e.url, method: e.method || 'GET', body: e.body ? C.render(e.body, ctx) : undefined }),
     spec: { mustContain: e.mustContain || [], mustMatch: e.mustMatch || [], emptyRe: e.emptyRe, minLen: 200 } }));
 }
-function activeDated(only) { const ver = readVerify(); return DATED.filter(ad => (!only || only.includes(ad.id)) && (ad.verified || ver[ad.id]?.ok)); }
+function activeDated(only) { const ver = readVerify(); return DATED.filter(ad => !ad.disabled && (!only || only.includes(ad.id)) && (ad.verified || ver[ad.id]?.ok)); }
 
 // ── 交易日：確認＝研究面板日 ∪ MI_INDEX ok；候選＝之後的平日扣官方休市日（開始／最後交易日是交易日）且未被確認休市 ──────
 function officialHolidays() {
@@ -276,7 +276,7 @@ async function cmdVerify(a) {
   const [y, mo] = today.split('-').map(Number); const [py, pm] = mo === 1 ? [y - 1, 12] : [y, mo - 1];
   const jobs = [];
   for (const ad of DATED) {
-    if (a.only ? !a.only.includes(ad.id) : (ad.verified || ver[ad.id]?.ok)) continue;
+    if (ad.disabled || (a.only ? !a.only.includes(ad.id) : (ad.verified || ver[ad.id]?.ok))) continue;
     jobs.push(...jobsFor(ad, ad.unit === 'month' ? { y: py, m: pm } : { day: last }).slice(0, 1));
   }
   if (a.snapshots) for (const ad of snapshotAdapters()) {
@@ -288,7 +288,9 @@ async function cmdVerify(a) {
   await runJobs(jobs, a);
   for (const j of jobs) {
     const r = C.loadManifest(ROOT, j.ad.host, j.ad.id).rows?.[j.key];
-    ver[j.ad.id] = { ok: /^(ok|empty|unchanged)$/.test(r?.status || ''), status: r?.status || '未抓', note: r?.note || null, rows: r?.rows ?? null, echo: r?.echo ?? null, at: new Date().toISOString() };
+    // 帶日期端點要抓到真資料（ok）才算驗證通過：空表無法證明參數正確（2026-10-04 taifex_large_trader「查無」頁被當成通過）；快照的空表合法
+    const pass = j.snapshot ? /^(ok|empty|unchanged)$/.test(r?.status || '') : r?.status === 'ok';
+    ver[j.ad.id] = { ok: pass, status: r?.status || '未抓', note: r?.note || null, rows: r?.rows ?? null, echo: r?.echo ?? null, at: new Date().toISOString() };
   }
   writeFileSync(verifyFile(), JSON.stringify(ver, null, 1));
   const bad = Object.entries(ver).filter(([, v]) => !v.ok);

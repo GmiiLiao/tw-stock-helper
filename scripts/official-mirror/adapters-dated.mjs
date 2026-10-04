@@ -77,7 +77,7 @@ export const DATED = [
   { id: 'taifex_fut_daily', host: TAIFEX, unit: 'day', kind: 'text', ext: 'csv', encoding: 'big5', priority: 2, from: 'rolling-3y', verified: false,
     request: post('https://www.taifex.com.tw/cht/3/futDataDown', 'down_type=1&queryStartDate={dateSlash}&queryEndDate={dateSlash}&commodity_id=all'),
     spec: { mustContain: ['{dateSlash}'], minLen: 200 } },
-  { id: 'taifex_large_trader', host: TAIFEX, unit: 'day', kind: 'text', ext: 'html', encoding: 'utf-8', priority: 2, from: 'rolling-3y', verified: false,
+  { id: 'taifex_large_trader', host: TAIFEX, unit: 'day', kind: 'text', ext: 'html', encoding: 'utf-8', priority: 2, from: 'rolling-3y', verified: false, disabled: true,
     // 2026-10-04 實測：GET queryDate 回查詢頁並含「查無」——參數不對，待查正確表單後再開（verified=false 且 _verify 記未過）
     request: get('https://www.taifex.com.tw/cht/3/largeTraderFutQry?queryDate={dateSlash}'), spec: { mustContain: ['{dateSlash}'], emptyRe: '查無資料', minLen: 1000 } },
 ];
