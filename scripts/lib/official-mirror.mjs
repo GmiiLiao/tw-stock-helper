@@ -167,52 +167,106 @@ export function isFinal(man, key) {
 export function hasGood(man, key) { const r = man.rows?.[key]; return !!r && (r.status === 'ok' || r.status === 'unchanged'); }
 
 /**
- * 依資料集規則判定定版：ad.stable（內容穩定規則）的資料集只認「由內容穩定判定的定版」（finalBy='stable'）；
- * 舊時鐘規則留下的 final=true 不算，會被每日／回補重抓一次來取得第二次觀測。其他資料集同 isFinal。
+ * 依資料集規則判定定版。ad.stable（內容穩定規則）的資料集：由內容穩定判定的定版（finalBy='stable'）算數；
+ * 舊時鐘規則留下的 final=true 只對期間早於 ad.stable.legacyTrustBefore 的鍵算數（2026-10-04 鏡像回補的歷史頁，
+ * 皆在申報期限後 ≥24 日抓取、已含晚申報者）——不重抓、不降級（2026-10-04 審查：MOPS 歷史頁依現行名冊重產，
+ * 舊月份內容永遠會小變，重新取得定版資格會卡在 final:false，研究端 revenue_official.py 會把它當缺頁）。
+ * 其他資料集同 isFinal。
  */
 export function isFinalFor(ad, man, key) {
   if (!isFinal(man, key)) return false;
-  return ad?.stable ? man.rows[key].finalBy === 'stable' : true;
+  if (!ad?.stable) return true;
+  const r = man.rows[key];
+  if (r.finalBy === 'stable' || r.finalBy === 'legacy') return true;      // legacy：已信任的舊定版列被重抓後保持定版
+  const cut = ad.stable.legacyTrustBefore;
+  return !!cut && !r.stableSha && String(key).slice(0, 7) < cut;
 }
 
 export function sha256(buf) { return createHash('sha256').update(buf).digest('hex'); }
 
 // ── 內容穩定定版（2026-10-04：月營收 t21sc03 兩表；取代「次月 11 日的隔天」時鐘規則）────────────
 // 官方頁面每次產生都帶「出表日期：115/10/04<!--20:00:18-->」⇒ 原始位元組的 sha256 每次都不同，
-// 要先去掉產生時戳（ad.stable.strip）再比。定版條件：次月 afterDay 日（含）起、相隔 ≥minGapDays 個日曆日的
-// 兩次成功抓取，內容雜湊相同。申報期內或內容還在變 ⇒ final=false，每日／回補會繼續抓。
+// 要先去掉產生時戳（ad.stable.strip）再比。定版條件（三者皆成立）：
+//   ① 次月 afterDay 日（含）起、相隔 ≥minGapDays 個日曆日的兩次觀測，內容雜湊相同；
+//      觀測時刻＝頁面自報的產生時刻（spec.genRe「出表日期」），不是抓取時鐘——MOPS 回快取頁（實測舊 3 天以上）。
+//   ② 名冊完整（spec.roster）：上一期同一鍵的頁面列出的代號，這一頁缺 ≤ spec.maxMissing 個（晚申報者上月有、本月還沒上表會被擋）；
+//      沒有上一期可比 ⇒ 無法證明完整、不定版。
+//   ③ 已定版的列不降級（isFinalFor 為真的列重抓也保持定版）。
+// 申報期內或內容還在變 ⇒ final=false，每日／回補會繼續抓（回補對「有好資料、等穩定」的列不設 3 次上限）。
 /** 去掉產生時戳後的內容雜湊。 */
 export function stableShaOf(text, spec) {
   const s = String(text ?? '');
   return sha256(spec?.strip ? s.replace(new RegExp(spec.strip, 'g'), '') : s);
+}
+/** 頁面自報的產生時刻（spec.genRe 依序擷取 民國年、月、日[、時、分、秒]）→ ISO（台北 +08:00 換成 UTC）；認不得回 null。 */
+export function genOf(text, spec) {
+  if (!spec?.genRe) return null;
+  const m = String(text ?? '').match(new RegExp(spec.genRe));
+  if (!m) return null;
+  const t = Date.parse(`${+m[1] + 1911}-${pad2(m[2])}-${pad2(m[3])}T${pad2(m[4] ?? 0)}:${pad2(m[5] ?? 0)}:${pad2(m[6] ?? 0)}+08:00`);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 /** 月表期間（ctx.year／ctx.month）的次月 afterDay 日（YYYY-MM-DD）。 */
 export function stableThreshold(ctx, afterDay) {
   const [ny, nm] = Number(ctx.month) === 12 ? [Number(ctx.year) + 1, 1] : [Number(ctx.year), Number(ctx.month) + 1];
   return `${ny}-${pad2(nm)}-${pad2(afterDay)}`;
 }
+/** 月表上一期的鍵（同 jobsFor：YYYY-MM[.market]）。 */
+export function prevPeriodKey(ctx) {
+  const [py, pm] = Number(ctx.month) === 1 ? [Number(ctx.year) - 1, 12] : [Number(ctx.year), Number(ctx.month) - 1];
+  return `${py}-${pad2(pm)}${ctx.market ? `.${ctx.market}` : ''}`;
+}
+const dayGap = (a, b) => Math.round((Date.parse(`${taipeiDate(new Date(b))}T00:00:00Z`) - Date.parse(`${taipeiDate(new Date(a))}T00:00:00Z`)) / 864e5);
 /**
- * prev：上一筆清單列（可能是舊規則留下的列：沒有 stableSha 時由呼叫端補算；沒有 stableFrom 時以它的 at 當起點）。
+ * prev：上一筆清單列（舊規則留下的列沒有 stableSha／gen 時由呼叫端從檔案補算；沒有 stableFrom 時以它的觀測時刻當起點）。
+ * gen：本次頁面產生時刻（ISO，可無 ⇒ 用抓取時刻 at）；missing：名冊比對缺的代號（null＝無參照）。
  * 回傳 { final, stableFrom }：stableFrom＝目前這份內容在門檻日（含）之後第一次被觀測到的時刻（ISO）。
  */
-export function stableDecision(prev, { stableSha, at, ctx, spec }) {
+export function stableDecision(prev, { stableSha, at, gen = null, ctx, spec, missing = null }) {
   const th = stableThreshold(ctx, spec.afterDay ?? 11);
-  const day = taipeiDate(new Date(at));
-  if (day < th) return { final: false, stableFrom: null };
+  const obs = gen || at;
+  if (taipeiDate(new Date(obs)) < th) return { final: false, stableFrom: null };
   const good = prev && (prev.status === 'ok' || prev.status === 'empty');
-  const from = good ? (prev.stableFrom ?? (prev.at && taipeiDate(new Date(prev.at)) >= th ? prev.at : null)) : null;
+  const prevObs = good ? (prev.gen || prev.at) : null;
+  const from = good ? (prev.stableFrom ?? (prevObs && taipeiDate(new Date(prevObs)) >= th ? prevObs : null)) : null;
   if (good && from && prev.stableSha === stableSha) {
-    const gap = Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${taipeiDate(new Date(from))}T00:00:00Z`)) / 864e5);
-    return { final: gap >= (spec.minGapDays ?? 3), stableFrom: from };
+    const complete = !spec.roster || (Array.isArray(missing) && missing.length <= (spec.maxMissing ?? 0));
+    return { final: complete && dayGap(from, obs) >= (spec.minGapDays ?? 3), stableFrom: from };
   }
-  return { final: false, stableFrom: at };
+  return { final: false, stableFrom: obs };
 }
-/** 舊列沒有 stableSha 時，從已存的檔案補算（只讀本機檔，0 請求）；讀不到回 null（當成沒有前一次觀測）。 */
-function prevStableSha(root, ad, prev) {
-  if (!prev) return null;
-  if (prev.stableSha) return prev.stableSha;
-  if (!prev.file || !(prev.status === 'ok' || prev.status === 'empty')) return null;
-  try { return stableShaOf(decodeBody(readEntry(root, ad.host, ad.id, prev.file), ad.encoding), ad.stable); } catch { return null; }
+/** 舊列沒有 stableSha／gen 時，從已存的檔案補算（只讀本機檔，0 請求）；讀不到回 {}（當成沒有前一次觀測）。 */
+function prevStable(root, ad, prev) {
+  if (!prev) return {};
+  if (prev.stableSha) return { stableSha: prev.stableSha, gen: prev.gen ?? null };
+  if (!prev.file || !(prev.status === 'ok' || prev.status === 'empty')) return {};
+  try {
+    const text = decodeBody(readEntry(root, ad.host, ad.id, prev.file), ad.encoding);
+    return { stableSha: stableShaOf(text, ad.stable), gen: genOf(text, ad.stable) };
+  } catch { return {}; }
+}
+/** 名冊比對：上一期同鍵頁面（本機檔）列出的代號，本頁沒有的 ⇒ 陣列；上一期沒有可讀的頁 ⇒ null（無法證明完整）。 */
+function rosterMissing(root, ad, man, ctx, text) {
+  if (!ad.stable?.roster) return null;
+  const pr = man.rows?.[prevPeriodKey(ctx)];
+  if (pr?.status === 'empty') return [];
+  if (!pr?.file || !(pr.status === 'ok' || pr.status === 'unchanged')) return null;
+  let ref;
+  try { ref = ad.stable.roster(decodeBody(readEntry(root, ad.host, ad.id, pr.file), ad.encoding)); } catch { return null; }
+  const have = new Set(ad.stable.roster(text));
+  return [...new Set(ref)].filter(c => !have.has(c)).sort();
+}
+
+/** 內容穩定資料集的一列：{ fin, stab }（stab 併進清單列：stableSha、gen、stableFrom、missingVsPrev、finalBy）。已定版的不降級。 */
+function stableRow(root, ad, man, key, ctx, text, at) {
+  const prev = man.rows[key];
+  const stableSha = stableShaOf(text, ad.stable);
+  const gen = genOf(text, ad.stable);
+  const missing = rosterMissing(root, ad, man, ctx, text);
+  const base = { stableSha, gen, missingVsPrev: Array.isArray(missing) ? { n: missing.length, codes: missing.slice(0, 20) } : null };
+  if (isFinalFor(ad, man, key)) return { fin: true, stab: { ...base, stableFrom: prev.stableFrom ?? null, finalBy: prev.finalBy ?? 'legacy' } };
+  const d = stableDecision(prev ? { ...prev, ...prevStable(root, ad, prev) } : null, { stableSha, at, gen, ctx, spec: ad.stable, missing });
+  return { fin: d.final, stab: { ...base, stableFrom: d.stableFrom, ...(d.final ? { finalBy: 'stable' } : {}) } };
 }
 
 function writeAtomic(p, buf) { const tmp = `${p}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, p); }
@@ -321,15 +375,9 @@ export async function fetchAndStore(ad, { root, key, ctx, man, fetchImpl, now = 
   if (v.status === 'ok' || v.status === 'empty') {
     if (snapshot && man.lastHash === hash) { man.rows[key] = { status: 'unchanged', same: man.lastFile, at, final }; return { row: man.rows[key] }; }
     if (v.status === 'empty' && hasGood(man, key)) return keep({ status: 'empty', at }, { neutral: true });   // 已有內容的不被空表蓋掉
-    // 內容穩定規則的資料集：定版由兩次觀測決定，呼叫端傳的 final 不採用（要在寫檔前先讀舊檔的雜湊）
+    // 內容穩定規則的資料集：定版由觀測決定，呼叫端傳的 final 不採用（要在寫檔前先讀舊檔的雜湊與上一期名冊）
     let fin = final; let stab = {};
-    if (ad.stable) {
-      const prev = man.rows[key];
-      const stableSha = stableShaOf(text, ad.stable);
-      const d = stableDecision(prev ? { ...prev, stableSha: prevStableSha(root, ad, prev) } : null, { stableSha, at, ctx, spec: ad.stable });
-      fin = d.final;
-      stab = { stableSha, stableFrom: d.stableFrom, ...(d.final ? { finalBy: 'stable' } : {}) };
-    }
+    if (ad.stable) ({ fin, stab } = stableRow(root, ad, man, key, ctx, text, at));
     const meta = { url: req.url, method: req.method || 'GET', fetchedAt: at, http: res.status, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, bytes: res.buf.length, source: 'official' };
     const file = writeEntry(root, ad.host, ad.id, key, ad.kind === 'json' ? { kind: 'json', payload, meta } : { kind: 'text', ext: ad.ext || 'txt', buffer: res.buf, meta });
     man.rows[key] = { status: v.status, file, echo: v.echo ?? null, rows: v.rows ?? null, sha256: hash, at, final: fin, attempts: man.rows[key]?.attempts, ...stab };

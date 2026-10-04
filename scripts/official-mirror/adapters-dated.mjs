@@ -2,15 +2,25 @@
 // 來源：docs/OFFICIAL-DATA-INVENTORY-2026-10-04.md（plan＝backfill+daily 的 46 筆）。unit：day＝每交易日一檔、month＝每月一檔。
 // verified：2026-10-04 前已實測過端點與回聲（研究回補或盤點探針）；false 的要先跑 `official-mirror verify` 通過才會排進每日與回補。
 // 請求樣板變數見 scripts/lib/official-mirror.mjs ctxOf()。
+import { t21Codes } from '../lib/mops-revenue.mjs';
+
 const TWSE = 'www.twse.com.tw', TPEX = 'www.tpex.org.tw', MOPS = 'mopsov.twse.com.tw', TAIFEX = 'www.taifex.com.tw';
 const get = url => ctx => ({ url: url.replace(/\{(\w+)\}/g, (_, k) => ctx[k]) });
 const post = (url, body) => ctx => ({ url, method: 'POST', body: body.replace(/\{(\w+)\}/g, (_, k) => ctx[k]) });
 const twse = (id, path, priority, extra = {}) => ({ id, host: TWSE, unit: 'day', kind: 'json', validator: 'twseDate', priority, from: '2022-07-18', verified: true, request: get(`https://www.twse.com.tw${path}`), ...extra });
 const tpex = (id, path, priority, extra = {}) => ({ id, host: TPEX, unit: 'day', kind: 'json', validator: 'tpexDate', priority, from: '2022-07-18', verified: true, request: get(`https://www.tpex.org.tw${path}`), ...extra });
 // 月營收 t21sc03 的定版：看資料不看時鐘（2026-10-04）。舊規則「次月 11 日的隔天起定版」會在晚申報者（金控／保險）上表前就定版。
-//   改為次月 11 日（含）起、相隔 ≥3 個日曆日的兩次成功抓取，去掉產生時戳後內容雜湊相同才定版（lib stableDecision）。
-//   頁面每次產生都帶「出表日期：115/10/04<!--20:00:18-->」，不去掉的話雜湊永遠不同、永遠不會定版。
-const T21_STABLE = Object.freeze({ afterDay: 11, minGapDays: 3, strip: '出表日期[：:][^<]*(?:<!--[^>]*-->)?' });
+//   改為（lib stableDecision）：次月 11 日（含）起、相隔 ≥3 個日曆日的兩次觀測，去掉產生時戳後內容雜湊相同；
+//   且名冊完整——上一期同鍵頁面列出的代號這一頁缺 ≤3 個（晚申報者上月有申報、本月還沒上表會被擋）。
+//   觀測時刻＝頁面「出表日期」（genRe：民國年/月/日<!--時:分:秒-->；MOPS 回快取頁，實測舊 3 天以上）。
+//   頁面每次產生都帶「出表日期：115/10/04<!--20:00:18-->」，雜湊前要去掉（strip），否則永遠不會定版。
+//   legacyTrustBefore：2026-10-04 用舊時鐘規則回補的 2022-06~2026-08 頁（皆在申報期限後 ≥24 日抓取、已含晚申報者）維持定版，
+//   不重抓、不降級——MOPS 歷史頁依現行名冊重產（新上市櫃帶上市前月份、下市者消失），重新取得定版資格可能永遠收斂不了。
+const T21_STABLE = Object.freeze({
+  afterDay: 11, minGapDays: 3, maxMissing: 3, legacyTrustBefore: '2026-09', roster: t21Codes,
+  strip: '出表日期[：:][^<]*(?:<!--[^>]*-->)?',
+  genRe: '出表日期[：:]\\s*(\\d{2,3})/(\\d{1,2})/(\\d{1,2})\\s*(?:<!--\\s*(\\d{1,2}):(\\d{2}):(\\d{2})\\s*-->)?',
+});
 
 export const DATED = [
   // ── 上市（www.twse.com.tw rwd）──

@@ -74,7 +74,8 @@ function dayInfo(until) {
 const months = (from, to) => { const out = []; let [y, m] = from.split('-').map(Number); const [ty, tm] = to.split('-').map(Number); while (y < ty || (y === ty && m <= tm)) { out.push([y, m]); if (++m > 12) { m = 1; y++; } } return out; };
 const ymKey = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
 /** 月表何時定版（時鐘規則）：月底過後（次月 finalAfterDay 日的隔天起，預設 2 日）。
- *  月營收 t21sc03／t21sc03_ky 不用這條：它們帶 ad.stable，改由內容穩定（兩次觀測相隔 ≥3 日內容相同）定版，見 lib fetchAndStore。 */
+ *  月營收 t21sc03／t21sc03_ky 不用這條：它們帶 ad.stable，改由資料定版（出表日期相隔 ≥3 日內容相同＋名冊較上月完整），
+ *  2026-09 之前的舊定版頁維持定版（legacyTrustBefore），見 lib isFinalFor／stableDecision。 */
 function monthFinal(ad, y, m, today) { const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1]; return today >= `${ny}-${String(nm).padStart(2, '0')}-${String((ad.finalAfterDay ?? 1) + 1).padStart(2, '0')}`; }
 /** 季財報何時定版：各業最晚法定期限翌日。 */
 function quarterFinal(y, q, today) { return today >= (q === 4 ? `${y + 1}-04-01` : `${y}-${['06-01', '09-01', '12-01'][q - 1]}`); }
@@ -262,7 +263,9 @@ async function cmdBackfill(a) {
     const cand = ad.unit === 'month'
       ? months(from.slice(0, 7), today.slice(0, 7)).slice(0, -1).flatMap(([y, m]) => jobsFor(ad, { y, m }, { final: monthFinal(ad, y, m, today) }))
       : (ad.id === MI.id ? info.candidates : [...info.confirmed].sort()).filter(d => d >= from && d < today).flatMap(d => jobsFor(ad, { day: d }, { must: !!ad.must && ad.id !== MI.id }));
-    for (const j of cand) if (!C.isFinalFor(ad, man, j.key) && (man.rows?.[j.key]?.attempts || 0) < 3) jobs.push(j);
+    // 3 次上限是給「抓不到」的鍵；內容穩定資料集「已有好資料、只是還在等穩定／名冊完整」的列不設上限（每輪回補 1 個請求），
+    // 否則上月表在每日累積的嘗試次數會讓它跨月後永遠停在 final:false（2026-10-04 審查）
+    for (const j of cand) if (!C.isFinalFor(ad, man, j.key) && ((man.rows?.[j.key]?.attempts || 0) < 3 || (ad.stable && C.hasGood(man, j.key)))) jobs.push(j);
   }
   log(`backfill：待抓 ${jobs.length} 個鍵；今日剩餘額度 ${left} 個請求`);
   const r = await runJobs(jobs, a, { budget: left });
