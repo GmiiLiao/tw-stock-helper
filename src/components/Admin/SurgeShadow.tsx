@@ -1,12 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { auth } from '@/lib/firebase';
+import type { PipelineDoc } from '../../../scripts/lib/surge-lab-report.mjs';
+import { useLabView, twTime } from './surgeLabFetch';
 
 // ── 🚀 起漲影子名單（超級管理員）────────────────────────────────────
 // 研究模型（GBDT，目標＝隔日收漲停）每個交易日盤後凍結名單（sha256 封印），隔一交易日收盤後對答案。
 // 資料：scripts/surge-lab/a35_shadow_publish.mjs → surgeShadow/* → /api/admin/surge-shadow。
 // 影子模式：不取代站上漲停預測；「歷史回推」是事後用同一套流程重算的名單，不是事前凍結的成績。
+// 子分頁（2026-10-04 使用者「我需要在後台看到資料」）：影子名單｜官方化重訓驗證｜鏡像健康——切到才載入（元件與資料都按需）。
 
 interface Cell { n: number; hit: number; buy: number }
 interface DaySum { id: string; scoringDay: string; targetDay: string; kind: string; sha12: string; scored: boolean; nLimitUp: number | null; top10: Cell | null; top30: Cell | null; site10: Cell | null; site30: Cell | null }
@@ -178,7 +182,7 @@ export function SurgeShadowView({ data, onPick, pendingId = null, err = '', onRe
   );
 }
 
-export default function SurgeShadow() {
+function ShadowList() {
   const [data, setData] = useState<Resp | null>(null);
   const [err, setErr] = useState('');
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -208,4 +212,66 @@ export default function SurgeShadow() {
     return <div style={{ padding: 16, color: 'var(--text-muted)' }}>載入中…</div>;
   }
   return <SurgeShadowView data={data} onPick={id => void load(id)} pendingId={pendingId} err={err} onRetry={retry} />;
+}
+
+// ── 每日影子管線狀態（a35_shadow_daily 協調器寫 out/a35_shadow_daily_status.json → surge_lab_publish.mjs → lab-pipeline）──
+// 狀態檔的欄位由協調器決定；這裡只挑常見欄位顯示一行，其餘原樣收在「原始狀態」裡（不猜、不補值）。
+interface PipelineResp { found: boolean; updatedAt?: string | null; pipeline?: PipelineDoc }
+const firstOf = (o: Record<string, unknown>, keys: string[]): unknown => keys.map(k => o[k]).find(v => v !== undefined && v !== null && v !== '');
+const txt = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? String(v) : v == null ? null : JSON.stringify(v));
+export function PipelineLine() {
+  const { data, err } = useLabView<PipelineResp>('pipeline');
+  const box = (children: React.ReactNode, color = 'var(--text-muted)') => <div style={{ marginBottom: 8, fontSize: 'calc(12.5px * var(--fz))', color }}>{children}</div>;
+  if (!data) return box(err ? `管線狀態載入失敗：${err}` : '管線狀態載入中…', err ? '#ef4444' : undefined);
+  if (!data.found || !data.pipeline) return box('🛠 每日影子管線：狀態尚未發佈（node scripts/surge-lab/surge_lab_publish.mjs --only pipeline）');
+  const p = data.pipeline;
+  if (!p.present || !p.status) return box(`🛠 每日影子管線：${p.note ?? '沒有狀態'}（發佈 ${twTime(p.generatedAt)}）`);
+  const s = p.status;
+  const ok = firstOf(s, ['ok', 'success']);
+  const step = txt(firstOf(s, ['lastStep', 'step', 'stage']));
+  const day = txt(firstOf(s, ['D', 'day', 'scoringDay']));
+  const at = txt(firstOf(s, ['finishedAt', 'at', 'updatedAt', 'generatedAt']));
+  const fail = txt(firstOf(s, ['error', 'err', 'reason']));
+  const deadline = txt(firstOf(s, ['deadline', 'cutoff']));
+  const mark = ok === true ? '✅ 成功' : ok === false ? '✖ 失敗' : '狀態不明';
+  return box(
+    <>
+      🛠 每日影子管線：<b style={{ color: ok === false ? '#ef4444' : ok === true ? 'var(--color-up)' : undefined }}>{mark}</b>
+      {step ? `｜最後步驟 ${step}` : ''}{day ? `｜打分日 ${day}` : ''}{deadline ? `｜凍結截止 ${deadline}` : ''}{at ? `｜${at.includes('T') ? twTime(at) : at}` : ''}
+      {fail ? <span style={{ color: '#ef4444' }}>｜{fail}</span> : null}
+      <span>｜狀態檔 {twTime(p.mtime)}、發佈 {twTime(p.generatedAt)}</span>
+      <details style={{ display: 'inline-block', marginLeft: 6 }}><summary style={{ cursor: 'pointer', color: '#7dd3fc' }}>原始狀態</summary>
+        <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto', background: 'var(--bg-secondary)', padding: 8, borderRadius: 8 }}>{JSON.stringify(s, null, 1)}</pre>
+      </details>
+    </>,
+    ok === false ? '#f59e0b' : undefined,
+  );
+}
+
+// ── 子分頁容器 ───────────────────────────────────────────────
+const loadingBox = () => <div style={{ padding: 16, color: 'var(--text-muted)' }}>載入中…</div>;
+const SurgeCvOfficial = dynamic(() => import('./SurgeCvOfficial'), { loading: loadingBox });
+const MirrorHealth = dynamic(() => import('./MirrorHealth'), { loading: loadingBox });
+type Sub = 'list' | 'cv' | 'mirror';
+const SUBS: ReadonlyArray<readonly [Sub, string]> = [['list', '影子名單'], ['cv', '官方化重訓驗證'], ['mirror', '鏡像健康']];
+
+export default function SurgeShadow() {
+  const [sub, setSub] = useState<Sub>('list');
+  const [seen, setSeen] = useState<ReadonlySet<Sub>>(() => new Set<Sub>(['list']));   // 看過的子分頁保留掛載（切回不重抓）
+  const pick = (k: Sub) => { setSub(k); setSeen(prev => (prev.has(k) ? prev : new Set([...prev, k]))); };
+  return (
+    <div>
+      <div role="tablist" aria-label="起漲影子子分頁" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {SUBS.map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={sub === k} onClick={() => pick(k)}
+            style={{ padding: '3px 12px', borderRadius: 8, border: `1px solid ${sub === k ? '#7dd3fc' : 'var(--border-primary)'}`, cursor: 'pointer', fontWeight: 700, fontSize: 'calc(12.5px * var(--fz))', background: sub === k ? 'rgba(125,211,252,0.12)' : 'transparent', color: sub === k ? '#7dd3fc' : 'var(--text-muted)' }}>{l}</button>
+        ))}
+      </div>
+      {SUBS.filter(([k]) => seen.has(k)).map(([k]) => (
+        <div key={k} role="tabpanel" hidden={sub !== k}>
+          {k === 'list' ? <><PipelineLine /><ShadowList /></> : k === 'cv' ? <SurgeCvOfficial /> : <MirrorHealth />}
+        </div>
+      ))}
+    </div>
+  );
 }
