@@ -1,0 +1,493 @@
+{
+ "schema": "surge-lab.t1-tracks.registration.v1",
+ "registration_id": "T1-TRACKS-PREREG-2026-10-04",
+ "version": 1,
+ "status": "SEALED",
+ "registered_on": "2026-10-04",
+ "repo_base_commit": "e8e68826aa02cab4e8cd62cf87265dc6d3fe7fca",
+ "branch": "claude/surge-tracks",
+ "title": "T1 連板起漲分軌研究（M／M′／R／S／W）事前登錄",
+ "disclaimer": "研究用影子設計。所有報酬比較一律未扣成本；成本只另列參考表，不當門檻。非投資建議。",
+ "seal": {
+  "hash_algorithm": "sha256",
+  "canonical_form": "hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()，obj＝本檔 json.load 後的物件",
+  "hash_recorded_in": "scripts/surge-lab/tracks/REGISTRATION_t1_tracks.md（本 JSON 不含自身雜湊）",
+  "consumer_rule": "任何讀取本檔的腳本（a36_*）開跑前必須重算雜湊，並與 REGISTRATION md 的記載值逐字比對；不符就拒跑。參數一律從本檔讀，不得在腳本內另寫一份。"
+ },
+ "pre_registration_state": {
+  "evaluations_computed_under_this_registration": 0,
+  "statement": "封存當下，本登錄定義的任何軌道、模型、代理、指標都還沒有計算過結果。登錄時只做了結構檢查：日期、代號、上市日欄位格式與涵蓋度、交易日數、檔案雜湊。這些檢查都沒有讀取標籤或報酬。",
+  "holdout_status": "2023-08-01～2024-12-31 在 smallcap／分軌這條研究線（quant.py、verify.py、審查 review_years.py）中從未計算過任何結果。但 lab 的其他工作用過這段期間，須揭露：(1) tune.py 用 2024Q4 折選定 GBDT 超參數（depth 2、約 250 棵樹），所以 HOLDOUT 的 2024Q4 折對超參數不乾淨；(2) a31_vfyENS 以 2023-01-11～2025-06-30 作為 lu1 任務的 DESIGN 期；(3) a32_profile_features 報過 lu1 任務特徵的 2023、2024 逐年 AUC。lu1 與 T1 是不同目標，但 T1 事件是隔日漲停事件的子集。",
+  "structural_facts_checked_at_registration": [
+   "面板 panel.npz：2022-07-18～2026-10-02，1,023 個交易日，2,020 檔（4 碼普通股 2,016 檔，加上 91xx TDR 4 檔），沒有非 4 碼代號。",
+   "TWSE t187ap03_L 快照（second-brain 檔名 2026-10-02.json.gz，回音日 2026-10-03，出表日期 1151003）：1,095 列，欄位「上市日期」是西元 YYYYMMDD。",
+   "TPEx t187ap03_O 快照（檔名 2026-10-02.json.gz，回音日 2026-10-04）：892 列，欄位 DateOfListing 是西元 YYYYMMDD。沒有代號同時出現在兩份快照。",
+   "面板代號對照：在 TWSE 快照 1,089 檔＝面板起點前上市 954＋面板內第一筆收盤日等於上市日 127＋面板第一筆收盤早於上市日 8（轉市場）；在 TPEx 快照 892 檔＝767＋124＋1；兩份快照都沒有的 39 檔＝第一筆收盤在面板起點 37＋在面板中途 2，這 39 檔的最後收盤都早於面板末日。面板內上市的 251 檔，第一筆收盤日全部等於官方上市日。",
+   "交易日數（已排除 2025-04-07～04-10 衝擊窗與面板最後 5 日）：SELECTION 239 日（2025-01-02～2025-12-31）；HALF-CONFIRM 176 日（2026-01-02～2026-09-23）；兩者合計 415 日，與既有測試期相符；HOLDOUT 347 日（2023-08-01～2024-12-31，六折依序 42／63／56／61／63／62 日）。",
+   "面板第 125 個交易日（索引 124）是 2023-01-11。"
+  ]
+ },
+ "inputs": {
+  "env": {
+   "SURGE_CACHE": "/Users/gmii/Documents/股票助手app/tw-stock-app/scripts/surge-lab/.surge-cache-T",
+   "SURGE_OFFICIAL_LIMIT": "/Users/gmii/Documents/股票助手app/tw-stock-app/scripts/surge-lab/.surge-cache-T/official_limits.npz",
+   "SURGE_REVENUE": "revenue_official.json",
+   "SURGE_PIT_STRICT": "1",
+   "python": "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
+  },
+  "files_sha256": {
+   "SURGE_CACHE/panel.npz": "100333af4a1352d0e202ea3ffa516cf72225af12ea13e1e685d3c8662641cbc6",
+   "SURGE_CACHE/official_limits.npz": "4d5077f8bba710b0cde61dc013957ca798936ef35f48520f3e16b88a53127f77",
+   "SURGE_CACHE/revenue_official.json": "cfd4b6bd07d970cddb335b8ecc5aa849105917d1317574be017ae60df70ad9ca",
+   "SURGE_CACHE/dataset_t1L_off.npz": "44bab9931d8ac154d63409ccd4e8776ffc499265c0a1b6dff4d6f8b2bc583780",
+   "SURGE_CACHE/disposal_twse.json": "98c211ebd3336bac2d3040872230282bb5667697e38559822a956becc0fed55f",
+   "SURGE_CACHE/disposal_tpex.json": "ae14ae389c005fd4be7e4c97c169577b4edf3a53c09e0a95a29ef2df1c940d20",
+   "SURGE_CACHE/attention_twse.json": "6c17c0494bd212c6fcf64a78daee3e3e6ae67603f3ce720e485f0120c52af552",
+   "SURGE_CACHE/attention_tpex.json": "1dd67e8ffcf389e8d3b4beeaa08238badb55d90df5c1df3617b000630335f9b3",
+   "SURGE_CACHE/code_market.json": "f47beef570bd6a2736be44ab5bba0dcf656327d222cdfee97e360b3494e10a50",
+   "SURGE_CACHE/a34_code_market_ext.json": "02e335d22ea1f39990cd00d76d6c263aa99cc95dfb27622481069fb5381956bb",
+   "SURGE_CACHE/names.json": "2aba2d2673901b10375953cf1d6402bab99de2a30f04b5bafd478c0685bad1de",
+   "SURGE_CACHE/priceEvents.json": "313e26bd6587e69a3430cf537ade349051763c8d0bf78ad4b247542f85b06e2c",
+   "SURGE_CACHE/exright_delta.json": "b53774c0d3dc8ca003cee5968c687c7e6ae3ce0e9a8ea84c8d4c501fb330fd6f",
+   "SURGE_CACHE/peerComps_industries.json": "30eb19826f343a56ed2e7ea250b93a77ea022dd770976d9a41e1810010f62862",
+   "repo:scripts/data/exright-history.json": "1a2b0f78491709962b3259a23a98361cb89dcbf817f6b1aac964d56017c08a8d",
+   "second-brain/official/openapi.twse.com.tw/twse_oa_opendata_t187ap03_L/2026-10-02.json.gz": "99b0533d398b953cf95d5458b8ced3d7c5d0c7f60e998e4ae0aa632600898df1",
+   "second-brain/official/www.tpex.org.tw/tpex_oa_mopsfin_t187ap03_O/2026-10-02.json.gz": "7ee88b4a8455ced1d60579a66a2b8c49d4dfcc4a97fcd763ab83907b0e83687e"
+  },
+  "files_note": "雜湊是檔案位元組的 sha256。SURGE_CACHE/official/ 目錄（官方日成交、法人、財報等原始檔）沒有逐檔雜湊，改由 Phase 0 的 G0.4 間接釘住：M 列重算出的特徵必須與 dataset_t1L_off.npz 逐列一致。",
+  "code_sha256": {
+   "repo:scripts/surge-lab/build.py": "7678087713aabd21caa2c8881a4a396fe3015c1ad0e133164af18ae778811a9b",
+   "repo:scripts/surge-lab/build_v2.py": "6c7e289c852aefb8b6ce31cd7abe8dfd0b4bd8a3a1b0665ad1a6a86ac333df14",
+   "repo:scripts/surge-lab/official_features.py": "7eef67f18206828ddd8ee9b56b31df59f59371799bf2020653f01d6159e4c67b",
+   "repo:scripts/surge-lab/disposal.py": "742d80be9d75174d002b2d659c33952fa5bcda1a3488495b09e32d9bf62a5fab",
+   "repo:scripts/surge-lab/attention.py": "2ec18d1de227c781c22cb7f7cd41a5a96be6e426dbaf534de93701b6ea0b17c5",
+   "repo:scripts/surge-lab/run_cv.py": "fb3b80c15a83b474d3cced96c5611355a1153a2a3c6530778b10becda9078bdf",
+   "repo:scripts/surge-lab/models.py": "d55e859b8dbfa490dbe7edb9aa689d20c1ed253d729d00f86c9ede5619c910e7",
+   "repo:scripts/surge-lab/cv_official.py": "2973e2f95ed76bcc41e486fd778ddfbcb6c1e8fba000484052d8e28cd9b81270",
+   "repo:scripts/surge-lab/fingerprint.py": "798b409fb7d2af4cd2aa28eb94302ab764cd730c7b9b97b3f97e307655575d85",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/quant.py": "bdf41fa8d5b19e45a2cc99bbcdfcc8bf7cacdb90132314f7a4b160213c1b2236",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/tradability.py": "dc682a7f5decbf92961e413fe935e62a20e93f8281b47be5d9b984694c91e318",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/tiers.py": "10d1b709275d8421bbf7395b8f966f1405da2a42ac5d9203ca3eb536368317b9",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/review_years.py": "587aba12a3a1ee985f1a32bbaa5930bb8448f792d0e0ee6fbabda94e8ca35e42",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/plan_disposal2.py": "7fc1f8a12a40ee20ce607a67cf8f7b3e072e0e46eee75ca2b5a70696809757b7",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/plan_tracks.py": "939b3c05014129d9e99768c4eeb1d6f8f6f9562e739a987f14f6a0aa609c07f5",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/verify.py": "48372c6ac715efa574d74c8b5e6996c5ae46854217b42c7d24b119fbf55e1877",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/review_years.json": "eb1f61c2dcb82537f293d4634656f81fca8042796bf6794da36fbbb9bf21bf81",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/tiers.json": "ee71d962436a14f65d2875210807587fa240221df498dee2ff177ea9877ac132",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/tradability.json": "5b2282d32300edc292af81401e4dd26433e3d564bd22c12914b090a412001e77",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/plan_disposal2.json": "3c52271e0e6bd497de4bdf707a3ade3854e22c4cd78053674420ce38d08b35f6",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/plan_tracks.json": "2c1608af2dc777d076d20975bc40ac4fc8f9a1fe8e84eb3ef811d40cfba7eb7e",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/summary.json": "8a280ec0c89921bbb01895ffa7a76c0ca563275b3c7f658c0db69cdf3158bbd7",
+   "main-readonly:scripts/surge-lab/out/smallcap_20261004/verify_out.json": "ee38c03536e6a41f69a861ad56390755ed13afc624674a239ec8da408372e4b8",
+   "main-readonly:scripts/surge-lab/out/smallcap_universe_plan_2026-10-04.md": "23517defcdfad4787aa239a89e4797a830d06d5b336a83e944cb59efd2980266"
+  }
+ },
+ "implementation_constraints": [
+  "只在 worktree /Users/gmii/Documents/股票助手app/.claude/worktrees/surge-tracks/tw-stock-app 開發與 commit；主 checkout 只能唯讀其 out/ 與 second-brain/official。",
+  "資料只讀 SURGE_CACHE＝.surge-cache-T；不得寫入 .surge-cache 或 .surge-cache-L。",
+  "新腳本一律命名 a36_*，import build.py／build_v2.py／official_features.py／disposal.py／attention.py 的函式；不得在沒有 SURGE_DATASET_SUFFIX 的情況下執行 build_v2.py 或 build_lu1.py。",
+  "不部署、不重啟 daemon、不寫 Firestore、不安裝 LaunchAgent、不發網路請求。",
+  "單一前景指令不超過約 9 分鐘；長工作分段，每段把中間結果寫到磁碟。",
+  "產出與中間檔寫在 worktree 的 scripts/surge-lab/out/tracks_t1/ 或 SURGE_CACHE 內以 a36_ 開頭的新檔；不得覆寫既有檔。"
+ ],
+ "definitions": {
+  "index_conventions": "s＝判定日（收盤後決策），t＝s+1＝進場日（開盤買）。所有特徵、軌道歸屬、Qmax 只用 s 日收盤時已可得的資料。標籤 y[s]＝start1[s+1]，start1[t]＝LU[t]∧LU[t+1]∧¬LU[t−1]（build_v2.segments）。LU 以官方漲停價判定（SURGE_OFFICIAL_LIMIT；9995 佔位一律判否）。",
+  "calendar": {
+   "panel": "panel.npz 的交易日序列，索引 0＝2022-07-18。",
+   "excluded_s_days": "2025-04-07～2025-04-10（build_v2.SHOCK_S），以及面板最後 5 個交易日（base_ok[T−5:]）。這些日子不屬於任何評估視窗，也不產生任何列。",
+   "non_trading_day_rule": "記錄日期一律是交易日；非交易日產生或修改的記錄，日期記為最後一個交易日。"
+  },
+  "row_domain": "D＝{(s, j)：s 在某個評估視窗的交易日中，j 是面板代號，且 first_trade_idx(j) ≤ s ≤ last_close_idx(j)}。last_close_idx 是面板中最後一個有收盤的交易日；它只決定停牌列算不算在 D 裡（停牌列一律不評估），不影響任何指標。",
+  "listing": {
+   "sources": {
+    "TWSE": "second-brain/official/openapi.twse.com.tw/twse_oa_opendata_t187ap03_L/2026-10-02.json.gz → payload[].公司代號、上市日期（YYYYMMDD）",
+    "TPEx": "second-brain/official/www.tpex.org.tw/tpex_oa_mopsfin_t187ap03_O/2026-10-02.json.gz → payload[].SecuritiesCompanyCode、DateOfListing（YYYYMMDD）"
+   },
+   "first_close_idx": "j 在面板中第一個有收盤（P['C'] 非 NaN）的交易日索引。",
+   "first_trade_idx_rule": [
+    "j 在快照中、上市日早於 2022-07-18 → first_trade_idx＝−∞（面板前上市），listing_src＝official_prepanel。",
+    "j 在快照中、上市日 ≥ 2022-07-18 → first_trade_idx＝min(第一個 ≥ 上市日的面板交易日索引, first_close_idx)。兩者相等時 listing_src＝official；first_close_idx 較早（轉市場，例如上櫃轉上市）時 listing_src＝transfer_min。",
+    "j 不在兩份快照（已下市）且 first_close_idx＝0 → first_trade_idx＝−∞，listing_src＝fallback_prepanel（旗標）。",
+    "j 不在兩份快照且 first_close_idx > 0 → first_trade_idx＝first_close_idx，listing_src＝fallback_first_close（旗標）。"
+   ],
+   "age_off": "age_off(s, j)＝s − first_trade_idx(j) + 1（面板交易日數，含上市日與 s）；面板前上市者為 +∞。",
+   "pit_note": "上市日是 s 之前已發生的歷史事實。轉市場時，快照記的是新市場的上市日（可能晚於 s），min 規則會改用 s 之前的第一筆收盤，所以不會用到未來資訊。一檔股票是否還在快照中，只決定走哪條規則，而且不論走哪條，結果都等於「上市日或面板第一筆收盤」中較早者。",
+   "panel_start_artifact": "s 的索引 < 125（即 s ≤ 2023-01-11）的列，一律不進任何新模型的訓練。原因：面板從 2022-07-18 起算，這段期間所有股票的長窗特徵都因資料不足被截短。"
+  },
+  "hist_len": "hist_len(s, j)＝s − max(first_trade_idx(j), 0) + 1，代表這檔股票在面板內可用的歷史長度（交易日數）。新模型把它當成一個原值特徵（不轉百分位）。",
+  "short_history_nan_rule": {
+   "rule": "對每個特徵 f 登錄窗長 w(f)（交易日）。只要 hist_len(s, j) < w(f)，f(s, j) 就設為 NaN。適用範圍：所有新模型（Mp1、R1、R2、S1、S2），以及所有代理的組成項（atr14、n_lu_250、r20、c_ma120）。不適用於 M0：M0 是凍結的既有模型，沿用 dataset_t1L_off 的特徵，不重算。",
+   "window_table": {
+    "r{k}": "k+1", "pos{k}": "k", "dist_hi{k}": "k", "dist_hi240": 240, "brk{k}": "k+1", "range20": 20, "range60": 60, "c_ma{k}": "k",
+    "ma20_slope5": 25, "ma60_slope10": 70, "ma5_ma20": 20, "ma20_ma60": 60, "ma60_ma120": 120, "ma_tight": 20, "ma_tight4": 60, "n_above_ma": 120, "bull_align": 60,
+    "atr14": 15, "bbw": 20, "bb_pctb": 20, "bbw_rank120": 139, "vol10": 11, "vol60": 61, "vol_ratio_10_60": 61,
+    "body": 2, "upper_shadow": 2, "lower_shadow": 2, "day_range": 2, "gap": 2, "close_pos": 1, "up_days5": 6, "up_streak": 20,
+    "n_lu_20": 20, "n_lu_60": 60, "n_lu_250": 250, "days_since_lu": 250,
+    "vr5": 6, "vr20": 21, "v5_20": 20, "v_dryup5": 20, "v_rank120": 120, "log_tv20": 20, "obv_slope20": 21, "updown_vol20": 21, "pv_up_surge": 6,
+    "macd_*": 60, "kd_*": 30, "rsi5": 15, "rsi10": 30, "rsi14": 42,
+    "fgn_{k}": "max(k,20)", "trust_{k}": "max(k,20)", "fgn_streak": 20, "trust_streak": 20, "inst_pct_v1": 1,
+    "ml_chg5": 6, "ml_chg20": 21, "ml_to_v": 20, "ms_chg5": 6, "ms_to_ml": 1, "ms_to_v": 20, "lend_to_v": 20, "lend_chg5": 20, "lend_chg20": 21, "dt_ratio": 1, "dt_ratio20": 20,
+    "rev_yoy": 0, "rev_mom": 0, "rev_yoy_acc": 0, "mkt_*": 0,
+    "o_avglot": 1, "o_avglot_r": 20, "o_avglot_5_20": 20, "o_trades_vr20": 20, "o_vwap_dev": 1, "o_vwap_dev5": 5, "o_log_mcap": 1, "o_turn": 1, "o_turn20": 20, "o_turn_r": 20,
+    "o_fhold": 1, "o_fhold_chg5": 6, "o_fhold_chg20": 21, "o_froom": 1, "o_dself_{k}": 20, "o_dhedge_{k}": 20, "o_dt_ratio_all": 1, "o_dt_ratio20_all": 20,
+    "o_lu_follow": 251, "o_lu2_starts250": 251, "o_overhead60": 61, "o_overhead240": 241, "o_rev_hi12": 0, "o_rev_yoy_streak": 0, "o_fin_*": 0, "o_ind_*": 0,
+    "o_ld_cnt20": 20, "o_ld_cnt60": 60, "o_ld_days_since": 250, "o_touch_lu_s": 1, "o_touch_lu20": 20, "o_oneword_cnt20": 20, "o_lu_off_cnt20": 20,
+    "dk_s": 1, "dp_cnt20": 20, "dp_cnt60": 60, "dp_since": 250, "dp_n250": 250, "at_known5": 6, "at_known20": 21,
+    "r_seg_len": 250, "r_days_since_seg_end": 250, "r_seg_gain": 250, "r_dd_high20": 20, "r_n_seg_250": 250, "hist_len": 0
+   },
+   "conventions": "w 取公式的最長回看（rolling 窗＋shift）。沒有固定窗的項目採登錄慣例：EWM 類 macd 60、kd 30、rsi n 取 3n；連續天數類 20；「距上次」類 250；營收、財報、市場層、產業層不依個股價量歷史，取 0。",
+   "removed_from_new_models": "rk_r5、rk_r20、rk_r60、rk_vr20、rk_log_tv20 在 M 以外的列恆為 NaN（只在 elig_base 內排名），會變成隱藏的軌道旗標，因此新模型不用。這些資訊已由錨定百分位後的 r5、r20、r60、vr20、log_tv20 涵蓋。",
+   "unknown_feature": "新模型用到的特徵若不在 window_table，建置直接失敗（assert），不得自行補值。實際使用的窗長表要在任何評估前寫成 out/tracks_t1/feature_windows_t1.json，並把其 sha256 記入摘要。"
+  },
+  "disposal_attention": {
+   "DK_s": "處置 KNOWN：disposal.build_matrices(dates, codes)['KNOWN'][s, j]。條件是某筆處置區間涵蓋 s，且公告日的交易日索引 ≤ s−1。2026-08-10 新制的迄日校正沿用 disposal.py。",
+   "at_known5": "注意股公告日（TWSE 日期欄＝觸發日 X，盤後公告；TPEx 用公告日期欄）落在 [s−5, s−1] 的公告則數（attention.build_matrices 的 ANY 矩陣）。",
+   "at_known20": "同上，區間改為 [s−20, s−1]。",
+   "rule": "回測與實盤用同一條確定性規則：只用公告日 ≤ s−1 的公告。s 當晚的公告只標在執行端欄位 m_disp_t_exec＝DISP[s+1, j]，供描述用，不得當特徵，也不得作為決策用的拆層變數。只有能證明歷史公告時刻早於凍結時刻時，才可另立修訂版納入 s 當日的公告。",
+   "forbidden": [
+    "注意股的「累計次數」與「累計」欄位（attention CUM 矩陣，含 attention.pit_features 裡的 cum_roll）。",
+    "處置公告的「累計」欄位（出處未驗證）。",
+    "任何 t 日（含）以後的處置或注意狀態。"
+   ],
+   "display_only": "處置措施文字（例如第一次或第二次處置、5 分鐘或 20 分鐘撮合、預收款券）只在呈現時標示，不進模型。"
+  },
+  "labels_returns": {
+   "y": "y[s]＝start1[s+1]（T1：t 起連續 ≥2 日收漲停，且 s 未漲停）。",
+   "locked_open": "build_v2.forward_meta 的定義：t 日開盤 ≥ t 日漲停價。官方漲停價優先；9995 佔位＝無漲跌幅限制＝不鎖；官方缺值時退回檔位推算。",
+   "buyable": "t 日有開盤價，而且沒有開盤鎖死。",
+   "c1": "close(t)/open(t)−1（還原價）", "c5": "close(t+4)/open(t)−1", "c10": "close(t+9)/open(t)−1",
+   "ex_post_columns": "c*、locked_open、t 日成交量、出場日成交量與跌停、m_disp_t_exec 一律放在 m_ 開頭的欄位，屬事後或執行端資訊。G0.7 要 assert 這些欄位都不在任何特徵矩陣中。"
+  },
+  "flags": {
+   "close_s": "原始收盤 P['C'][s, j]",
+   "vol20": "近 20 日均量（張），rolling(20, min_periods=15)（build_v2）",
+   "cnt130": "近 130 日中有收盤的日數（build_v2）",
+   "nan20": "近 20 日沒有收盤的日數（還原收盤）",
+   "brk_past": "近 125 日內有價格結構斷點，即還原後單日比值超出 [0.895, 1.105]（build_v2）",
+   "brk_future": "前視濾網（看 s+1～s+5）。只在記錄中描述，絕不用於歸屬或特徵。",
+   "cool1": "seg1 在 [s−10, s−1] 內，也就是前一段 ≥2 連板結束後 10 日內（build_v2.segments）",
+   "lu_s": "LU[s]",
+   "tdr": "代號為 4 碼且以 91 開頭",
+   "age_off": "見 listing.age_off"
+  },
+  "tracks": {
+   "NE": {
+    "name": "不評估（NOT-EVALUATED）",
+    "sub": {
+     "NE_TDR": "tdr",
+     "NE_SUSP": "close_s 為 NaN（s 日停牌）",
+     "NE_LU_S": "lu_s。依 T1 定義，這類列的 y 恆為 0，不可能有事件；這是沿用 quant／plan 的分母口徑。"
+    }
+   },
+   "M": {
+    "name": "主榜（現行母體，只拿掉 brk_future）",
+    "conditions": ["close_s >= 10", "vol20 >= 300", "cnt130 >= 125", "nan20 == 0", "!brk_past", "!cool1"],
+    "note": "等於 build_v2 的 e1 去掉 ~brk_future。只因 brk_future 被擋的列，用 M0 的折內模型推論補分，不重訓。"
+   },
+   "Mp": {
+    "name": "M′ 放寬層（M′＝M ∪ Mp）",
+    "Mprime_conditions": ["close_s >= 5", "vol20 >= 300", "age_off >= 60", "nan20 == 0", "!brk_past", "!cool1"],
+    "conditions": "符合 Mprime_conditions，且不屬於 M",
+    "note": "M′ 清單是 M 列加 Mp 列一起排名。分區上 Mp 軌只包含新增的列。結構上必然 M ⊆ M′，因為 cnt130 ≥ 125 蘊含 age_off ≥ 125。"
+   },
+   "R": {
+    "name": "再點火",
+    "conditions": ["close_s >= 5", "vol20 >= 300", "age_off >= 60", "nan20 == 0", "!brk_past", "cool1"],
+    "rule_for_multi_cases": "R 就是「相對 M′ 基準只卡冷卻期」的列。前一版有 9 件冷卻期又同時卡股價 <10 或有收盤 60～124 日的 MULTI 事件，規則固定為：股價 ≥5、age_off ≥60、vol20 ≥300、nan20＝0、沒有 brk_past 就歸 R；其餘歸 W。這條規則不隨 M′ 的判定結果改變。",
+    "sublayers": {"R_core": "另外也符合 close_s ≥ 10 且 cnt130 ≥ 125", "R_relax": "R 中不屬於 R_core 的列"},
+    "sublayer_use": "只做描述性拆分，不另外排名"
+   },
+   "S": {
+    "name": "小量",
+    "conditions": ["close_s >= 5", "vol20 >= 100", "vol20 < 300", "age_off >= 60", "nan20 == 0", "!brk_past", "!cool1"]
+   },
+   "S_FB": {
+    "name": "M′ 備援層（S 的子層，不是分區）",
+    "rows": "與 Mp 軌的列完全相同，只是換一種呈現與評估方式",
+    "active_when": "Mp 的判定為 MP-REJECT",
+    "list": "Mp 軌列內每日以 atr14 取前 5（不跟 S 的列混排）"
+   },
+   "W": {
+    "name": "觀察（只觀察，不可交易）",
+    "conditions": "D 中不屬於 NE、M、Mp、R、S 的所有列",
+    "examples": "股價 <5、vol20 <100 或為 NaN、age_off <60、近 20 日缺值、有 brk_past、vol20 <300 的冷卻期列"
+   }
+  },
+  "precedence": ["NE_TDR", "NE_SUSP", "NE_LU_S", "M", "Mp", "R", "S", "W"],
+  "partition_assertions": [
+   "D 中每一列恰好落在 {NE_TDR, NE_SUSP, NE_LU_S, M, Mp, R, S, W} 其中一類：不計優先序的各類指標相加必須等於 1（NE 依優先序先行，其他類本來就互斥）。",
+   "M ⊆ M′（Mprime_conditions）。",
+   "M 與 Mp 對 R：cool1 互斥；M 與 Mp 對 S：vol20 互斥；R 對 S：cool1 互斥。",
+   "NE_LU_S 列的事件數 ＝ 0。",
+   "每個視窗內，各軌事件數加總等於該視窗內 s 在日曆上的全部 T1 事件。"
+  ],
+  "failing_filters_multilabel": "每一列都記錄所有沒通過的條件（fP10、fP5、fV300、fV100、fVnan、fH125、fA60、fN20、fBP、fCD，加上描述用的 fBF），不只第一道。"
+ },
+ "proxies": {
+  "source": "TR.rank_pool（tradability.py）與 quant.proxies（quant.py）。公式逐字照抄，只差兩處：(1) 組成項要套 short_history_nan_rule；(2) 破同分改用與列順序無關的雜湊亂數。",
+  "atr14": "rolling(14, min_periods=12) 的 true range 平均 ÷ 收盤（還原價，同 build.compute_features）。",
+  "n_lu_250": "近 250 日 LU 次數（rolling(250, min_periods=1)），hist_len < 250 時設為 NaN。",
+  "r20": "C/C.shift(20)−1",
+  "c_ma120": "C/MA120(min_periods=108)−1，hist_len < 120 時設為 NaN。",
+  "combo": "在池內（該軌當日的列）分別對 atr14、n_lu_250、r20、c_ma120 做同日百分位（groupby(s).rank(pct=True, method='average')，NaN 不參與排名），再取四者的列平均（skipna）。四項都是 NaN 的列 combo＝0.0，與 quant 相同。",
+  "ranking": "依值由大到小排序。值為 NaN 的列視為 −∞，排在最後，只在當日有值的列不足 K 檔時才會被選入，與 quant 相同。同分時以 u(s, code) 破同分。",
+  "tie_noise": "u(s, code)＝int(sha256('{date}|{code}|t1tracks'), 16) / 2**256。模型分數同樣加上 u×1e-9。",
+  "assignment": {"R": "R0＝combo（R 軌內 atr14 的 lift 約等於 1，不可當 R 的基準）", "S": "S0＝atr14", "S_FB": "atr14", "W": "atr14（只供呈現）", "global_rank": "combo（池＝當日 M、Mp、R、S、W 全部的列；只放在記錄裡描述）"}
+ },
+ "anchored_percentile": {
+  "definition": "對特徵 f、日期 s：pct(x)＝(#{m∈M_s：f_m < x} + 0.5·#{m∈M_s：f_m = x}) / #{m∈M_s：f_m 有值}。M_s 是當日 M 軌的列，NaN 維持 NaN。所有列都用 M 的分布錨定，因此加入其他軌的列不會改變 M 列的百分位。",
+  "raw_features": "mkt_* 開頭的特徵、hist_len、S1 的 log10(vol20)、log10(close_s)、o_log_mcap 原值，以及 R 專用特徵中的 0／1 旗標與計數，一律不轉百分位。"
+ },
+ "candidates": {
+  "M": {"M0": "現行 official 模型，不改。特徵集＝cv_official 的 'official' 欄位（base − NON_OFFICIAL_BASE + GROUPS，不含 EXPERIMENTAL），轉換用 cv_official.ranks。模型為 HistGBDT(run_cv.GB)，種子 0、1、2 各跑一次取平均。訓練列＝dataset_t1L_off 中 s ≤ ts−11 且非 extra 的列，含 TDR 列，與 cv_official 完全相同。"},
+  "Mp": {"default": "M0（M 列前 10，也就是不放寬）", "Mp1": "以 M′ 的列（M ∪ Mp）訓練的 official 重訓。特徵＝official 欄位 − rk_* + hist_len，套 short_history_nan_rule，錨定百分位；不加任何層別旗標。"},
+  "R": {"default": "R0（combo）", "R1": "只用 R 列訓練。特徵＝official − rk_* + hist_len + R 專用特徵。", "R2": "用 M ∪ R 的列訓練。特徵同 R1，另加 is_R 旗標。"},
+  "S": {"default": "S0（atr14）", "S1": "只用 S 列訓練。特徵＝official − rk_* + hist_len + 原值 log10(vol20)、o_log_mcap、log10(close_s)。", "S2": "用 M ∪ S 的列訓練。特徵＝official − rk_* + hist_len + is_S 旗標。"},
+  "R_specific_features": {
+   "r_seg_len": "最近一段已結束的 seg1（≥2 連板）的天數，搜尋範圍 [s−250, s−1]。範圍內沒有：hist_len ≥ 250 時記 0，否則記 NaN。",
+   "r_days_since_seg_end": "s 減去該段的結束日，≥1。範圍內沒有：hist_len ≥ 250 時記 251（窗外截斷值，不是缺值），否則記 NaN。",
+   "r_seg_gain": "該段的漲幅 Ca[結束日]/Ca[起始日−1]−1。沒有該段就記 NaN。",
+   "r_dd_high20": "Ca[s]/max(Ha[s−19..s])−1",
+   "r_n_seg_250": "[s−250, s−1] 內開始的 seg1 段數。hist_len < 250 時記 NaN。",
+   "dk_s": "見 disposal_attention.DK_s",
+   "dp_cnt20": "disposal.features 的 dp_cnt20（KNOWN 口徑）", "dp_cnt60": "disposal.features 的 dp_cnt60", "dp_since": "disposal.features 的 dp_since", "dp_n250": "disposal.features 的 dp_n250",
+   "at_known5": "見 disposal_attention", "at_known20": "見 disposal_attention",
+   "pit": "s 收盤後 LU[s] 已知，所以 s−1 結束的段是否已結束可以判定（非 NE_LU_S 列的 LU[s] 必為否）。全部特徵都只用 ≤ s 的資料。"
+  },
+  "max_candidates_per_track": 3
+ },
+ "training_protocol": {
+  "folds": "依季分折、expanding window；測試＝該折內的列，訓練＝s ≤ ts − 11 的列（purge 11）。",
+  "negatives": "正例全部保留，負例抽 10%（rng＝np.random.default_rng(seed + ts)，同 run_cv）。",
+  "model": "HistGBDT(n_trees=250, depth=2, lr=0.05, min_child_h=3.0, l2=20.0, colsample=0.5, subsample=0.8)，seed 取 0、1、2，分數取三種子平均。",
+  "new_model_training_rows": "依候選模型各自的軌道列，排除 NE 列與 s 的索引 < 125（面板起點假象）的列。",
+  "brk_future_rows_scoring": "M 中只卡 brk_future 的列，由 M0 各折模型推論補分（重跑相同協定與種子）。這些列的百分位以「同日原資料集列」錨定（anchored_percentile 公式，錨定集＝dataset 列）；原資料集列的轉換完全不變。",
+  "selection_fold_training_note": "SELECTION 與 HALF-CONFIRM 各折的訓練資料會包含 HOLDOUT 那段日曆，但只當訓練資料，從不當測試；所以 HOLDOUT 只對評估結果是乾淨的，對訓練資料曝光不是。"
+ },
+ "windows": {
+  "SELECTION": {"folds": [["2025-01-01", "2025-04-01"], ["2025-04-01", "2025-07-01"], ["2025-07-01", "2025-10-01"], ["2025-10-01", "2026-01-01"]], "days": 239, "role": "挑模型（挑戰者必須以配對 CI 勝出）"},
+  "HALF_CONFIRM": {"folds": [["2026-01-01", "2026-04-01"], ["2026-04-01", "2026-07-01"], ["2026-07-01", "2026-12-31"]], "days": 176, "role": "宣告為已污染：所有門檻、切點與假說都是看過含這段的全期結果後才定的。只做方向檢查（見 selection_rule），不作統計主張。"},
+  "HOLDOUT": {"folds": [["2023-08-01", "2023-10-01"], ["2023-10-01", "2024-01-01"], ["2024-01-01", "2024-04-01"], ["2024-04-01", "2024-07-01"], ["2024-07-01", "2024-10-01"], ["2024-10-01", "2025-01-01"]], "days": 347, "sub_periods": {"HO-2023": ["2023-08-01", "2023-12-31"], "HO-2024": ["2024-01-01", "2024-12-31"]}, "role": "確認用。封存後只計算一次，結果即為最終結果。代理與選定模型都用 expanding window：每一折只用該折開始前的資料訓練（purge 11）。", "once_only": "a36 的 holdout 腳本開跑前要驗證本檔雜湊，並確認 SELECTION 的選模結果已 commit；跑完寫鎖檔 out/tracks_t1/tracks_t1_HO_LOCK.json（時間、git HEAD、本檔 sha256）。鎖檔存在時一律拒跑，唯一例外是 --verify-identical：這個模式只驗證能逐位重現，結果必須完全相同。", "sensitivity": "另報排除 2024Q4 折的結果（因為該折曾用來調超參數）。只作描述，不改變判定。"},
+  "FORWARD": {"G60": ">= 60 個前向交易日：只檢查流程與是否崩壞（寬鬆非劣性）", "G250": ">= 250 個前向交易日：決定去留", "start": "使用者核可影子接線後，第一個凍結的交易日起算"}
+ },
+ "metrics": {
+  "precision_at_K": "Σ命中 / Σ選股。選股＝每日前 K 名，含開盤鎖死的選股；當日列數少於 K 時全選。可買精確度另報，屬次要指標。",
+  "K": {"M": 10, "Mp": 10, "R": 5, "S": 5, "S_FB": 5, "W": 3},
+  "RAND_reference": "同軌同日的隨機 K 選股期望值：picks_s＝min(K, n_s)，E[hits_s]＝events_s × picks_s / n_s。n_s、events_s 是該軌當日的列數與事件數。不實際抽樣。",
+  "same_day_lift": "Σ命中 / ΣE[hits_RAND]，在同一批日子上計算，逐年報告（HO-2023、HO-2024、2025、2026）。",
+  "returns_daily_mean": "每日只取可買選股算 c5、c10 的等權平均（當日沒有可買選股記 NaN，不計入），再跨日平均。這是唯一的主口徑；逐筆平均只能當描述，而且必須標明「逐筆」。",
+  "paired_daily_delta": "Δ_d＝清單A當日平均 − 清單B當日平均，只取兩邊都有值的日子，再跨日平均。",
+  "delta_precision": "Σhits_A/Σpicks_A − Σhits_B/Σpicks_B，在同一組（重抽的）日子上計算。",
+  "Qmax": "Qmax（張）＝floor(q × vol20(s))。q＝M、Mp、R、S_FB 為 2%；S 為 1%；R 在 DK_s 時減半為 1%。W 不適用。報告每份清單 Qmax ≥ 2 張的選股占比。",
+  "descriptive_only": [
+   "t 日、出場日的成交量、10 張單占量比、出場跌停（事後）",
+   "可買精確度、逐筆報酬",
+   "相對同軌同日平均的超額",
+   "上市／上櫃、市值三分位（以當日 M 列的 o_log_mcap 定界）、2025／2026 拆分",
+   "等名額對照：M 前 10＋R 前 5＋S 前 5 對 M0 前 20",
+   "Mp 前 10 中 hist_len < 125 列的占比與精確度"
+  ]
+ },
+ "bootstrap": {
+  "type": "20 日循環區塊 bootstrap",
+  "B": 2000,
+  "seed": 11,
+  "index": "n＝視窗內的評估日數；nb＝ceil(n/20)；起點從 [0, n) 均勻抽；idx＝(起點 + 0..19) mod n，依序串接後截成 n 個（同 quant.boot_index）。每個視窗各自抽樣（SEL 239 日、HC 176 日、HO 347 日不跨視窗混抽）。",
+  "paired": "比較的兩邊用同一組重抽日子。",
+  "ci": "百分位法 2.5%／97.5%",
+  "p_value_one_sided": "p＝(1 + #{Δ*_b ≤ δ0}) / (B + 1)。優越性檢定 δ0＝0；非劣性檢定 δ0＝−margin。"
+ },
+ "selection_rule": {
+  "R_and_S": "每軌預設勝者是代理。挑戰者 c（R1、R2 或 S1、S2）在 SELECTION 上的配對 Δprecision@K(c − 代理) 95% CI 下界 > 0，才有資格；有多個合格時取下界最高者。接著做 HALF-CONFIRM 方向閘：同一個 Δ 的點估計 ≥ 0 才保留，否則改回代理。選定結果（W_R、W_S）要在 HOLDOUT 開跑前寫進 tracks_t1_summary.json 並 commit。",
+  "Mp": "Mp1 要在 SELECTION 與 HALF-CONFIRM 上，Δprecision@10 點估計 ≥ −0.30pp 且 Δc5 逐日點估計 ≥ −0.15pp，才帶進 HOLDOUT；否則直接判 MP-REJECT，且在 Holm 中 p_Mp 記為 1。"
+ },
+ "primary_tests": {
+  "family": ["H_Mp", "H_R", "H_S"],
+  "alpha_one_sided_familywise": 0.025,
+  "procedure": "Holm step-down，m 固定為 3（沒有執行的檢定 p 記為 1）。調整後 p_adj(i)＝max_{k≤i} min(1, (m−k+1)·p_(k))；p_adj ≤ 0.025 即拒絕。",
+  "window": "HOLDOUT",
+  "H_Mp": {"type": "非劣性（intersection-union，兩項都要過）", "components": {"dprec10": "Δprecision@10(M′ 清單[Mp1，池＝M∪Mp] − M0[池＝M])，margin 0.30pp", "dc5": "c5 逐日平均的配對 Δ(M′ − M0)，margin 0.15pp"}, "p": "p_Mp＝max(p_dprec10, p_dc5)", "label": "這是擴大覆蓋面的產品決策，不是統計增益。"},
+  "H_R": {"if_W_R_is_challenger": "Δprecision@5(W_R − R0) > 0，即模型減代理", "if_W_R_is_R0": "Δprecision@5(R0 − RAND_R) > 0", "note": "勝者是代理時，模型減代理恆為 0；此時登錄的主要檢定退化為「代理對同日隨機基準的配對差」，也就是同日標準化 lift 檢定。這條規則在看到任何結果之前就已寫定。"},
+  "H_S": {"if_W_S_is_challenger": "Δprecision@5(W_S − S0) > 0", "if_W_S_is_S0": "Δprecision@5(S0 − RAND_S) > 0"},
+  "secondary_unadjusted": "其餘決策條件（T1～T5、污染檢查、層占比、S_FB）都用未調整的 95% CI，報告時標明「未納入 Holm」。勝者是挑戰者時，也另報代理對 RAND 的檢定，標「次要」。"
+ },
+ "decision_tree": {
+  "G0": {
+   "outcomes": {"G0-PASS": "Phase 0 全部通過", "G0-STOP": "任一項不通過：停止，不報任何數字；修正後以修訂版重新登錄"},
+   "checks": {
+    "G0.1": "partition_assertions 全部成立",
+    "G0.2": "SEL+HC 各軌事件加總＝2,515；NE 事件＝29（NE_SUSP 24＋NE_TDR 5）；M 事件＝1,319；NE_LU_S 事件＝0",
+    "G0.3": "M 的列＝dataset_t1L_off 在 SEL+HC 的測試列（365,642，不含 TDR）∪ 只卡 brk_future 的列（輸出確切列數；審查估計 ≤14）；dataset 中 TDR 以外的每一列都在 M 中，TDR 列都在 NE_TDR",
+    "G0.4": "M 列重算出的 M0 特徵與 dataset_t1L_off 的 f_* 一致（allclose rtol=1e-4、atol=1e-6、equal_nan）",
+    "G0.5": "M0 重訓在 SEL+HC 上，以 cv_official 的破同分口徑得到前 10 名命中＝127（選股 4,150）；改用雜湊破同分的結果另報",
+    "G0.6": "截斷測試：用 np.random.default_rng(20261004) 從 HO∪SEL∪HC 抽 12 個測試日。把面板、官方漲跌停價、處置與注意股公告截斷到 ≤ s，重算軌道歸屬、age_off、hist_len、Qmax、R 專用特徵、DK_s、at_known*、錨定百分位與代理，差異必須為 0",
+    "G0.7": "所有 m_ 欄位都不在任何特徵矩陣中；brk_future 沒有用在任何歸屬或特徵",
+    "G0.8": "各代號的 listing_src 計數與登錄時一致：TWSE 954／127／8，TPEx 767／124／1，不在快照 37＋2"
+   }
+  },
+  "M": {"outcomes": {"M-UNCHANGED": "主榜維持 M0，不改。本研究只輸出 M0 在各視窗的參考數字。"}},
+  "Mp": {
+   "outcomes": {
+    "MP-ADOPT-SHADOW": "H_Mp 經 Holm 拒絕（兩項非劣性都過），而且 C1：只看 M 列時，Mp1 對 M0 的 Δprecision@10 95% CI 下界 > −0.30pp（HO，未調整），而且 C2：放寬層占 Mp1 前 10 的比例，HO 全期 ≤ 20%，且 HO 的每一個 20 日滾動窗都 ≤ 35%。結果：M′ 清單以影子方式與 M 並列，主榜不換。要換主榜，須前向 ≥250 日並經使用者核可。",
+    "MP-REJECT": "其他所有情況。M 維持不變，Mp 軌的列改以 S_FB 子層呈現。"
+   }
+  },
+  "R": {
+   "conditions": {
+    "T1": "HO：R 清單（W_R@5）全部可買選股，c5 逐日平均 95% CI 下界 > 0，或 c10 逐日平均 95% CI 下界 > 0（未扣成本）。記下是哪個期數通過；兩個都過時取 c5。",
+    "T2": "HO：同一期數下，與 M0 前 10 的配對逐日 Δ，95% CI 上界 ≥ 0（不顯著較差）。",
+    "T3": "HO：同一期數下，非 DK_s 選股的逐日平均點估計 > 0（確認報酬不只來自處置期漂移）。",
+    "T4": "HO：同一期數下，HO-2023 與 HO-2024 兩段的逐日平均點估計都 > 0。"
+   },
+   "final_list": "Holm 拒絕 H_R 時，最終清單＝W_R。沒有拒絕時，最終清單一律＝R0：若 W_R 原本是挑戰者，就退回代理。",
+   "outcomes": {
+    "R-REJECT": "Holm 下沒有拒絕 H_R，而且 HO 上 Δprecision@5(R0 − RAND_R) 點估計 ≤ 0。",
+    "R-WATCH-ONLY": "Holm 下沒有拒絕 H_R，而且 HO 上 Δprecision@5(R0 − RAND_R) 點估計 > 0。",
+    "R-KEEP-AS-SHADOW": "Holm 拒絕 H_R，但 T1～T4 沒有全部成立。以「觀察／研究榜」進影子。",
+    "R-TRADABLE-SHADOW": "Holm 拒絕 H_R，且 T1～T4 全部成立。標「可交易名單（影子，待前向確認）」。"
+   },
+   "exhaustive": "先依「Holm 是否拒絕 H_R」分兩支，再各自二分，四種結果互斥且窮盡。挑戰者在 HO 沒過時，最多只能判到 WATCH-ONLY：KEEP 必須有經 Holm 確認的主要檢定。"
+  },
+  "S": {
+   "conditions": {"T1": "同 R 的 T1（清單改為 W_S@5）", "T2": "同 R 的 T2", "T3": "同 R 的 T3", "T4": "同 R 的 T4", "T5": "HO：S 清單選股中 Qmax(1%) ≥ 2 張的占比 ≥ 50%（只用 s 日的 vol20）"},
+   "final_list": "Holm 拒絕 H_S 時，最終清單＝W_S；沒有拒絕時，最終清單一律＝S0。",
+   "outcomes": {
+    "S-REJECT": "Holm 下沒有拒絕 H_S，而且 HO 上 Δprecision@5(S0 − RAND_S) 點估計 ≤ 0。",
+    "S-WATCH-ONLY": "Holm 下沒有拒絕 H_S，而且 HO 上 Δprecision@5(S0 − RAND_S) 點估計 > 0。也就是併入 W 一起呈現。",
+    "S-KEEP-AS-SHADOW": "Holm 拒絕 H_S，但 T1～T5 沒有全部成立。",
+    "S-TRADABLE-SHADOW": "Holm 拒絕 H_S，且 T1～T5 全部成立。"
+   }
+  },
+  "S_FB": {
+   "outcomes": {
+    "SFB-NA": "Mp 判定為 MP-ADOPT-SHADOW（這些列已在 M′ 清單裡）",
+    "SFB-KEEP-AS-SHADOW": "MP-REJECT，且 HO 上 Δprecision@5(atr14_FB − RAND_FB) 95% CI 下界 > 0（探索性，未納入 Holm），且 HO-2023、HO-2024 兩段的點估計都 > 0。",
+    "SFB-WATCH-ONLY": "MP-REJECT，但 KEEP 的條件不成立。"
+   },
+   "note": "S_FB 的列 vol20 ≥ 300，用 q＝2% 時 Qmax ≥ 6 張必然成立，所以不設流動性條件。"
+  },
+  "W": {"outcomes": {"W-WATCH-ONLY": "一律只觀察：atr14 前 3 名灰底呈現，標「不可交易，僅觀察」，介面不顯示報酬（研究記錄仍照算）。"}},
+  "tradable_label_general_rule": "任何清單要標「可交易名單」，必須同時滿足：HO 上全部可買選股 c5 或 c10 逐日平均的區塊 CI 下界 > 0（未扣成本），以及與 M0 前 10 配對比較不顯著較差。否則只能叫「觀察／研究榜」。前向 G250 確認之前，一律加註「待前向確認」。",
+  "FORWARD": {
+   "G60": {
+    "outcomes": {
+     "CONTINUE": "流程檢查全過，而且沒有崩壞",
+     "HALT-FOR-REVIEW": "任一流程檢查失敗，或出現崩壞"
+    },
+    "process_checks": ["每日都在 t 日 09:00 前以 sha256 封印凍結名單（看資料到齊，不看時鐘；寫一次，不覆寫）", "parity 測試（實盤重算＝研究管線）差異 0", "每日都通過分區 assertion", "缺料日要寫進記錄，不補假值"],
+    "crash": "前向 60 日 Δprecision@K(清單 − RAND) 95% CI 上界 < 0，也就是顯著比同日隨機差。這是寬鬆非劣性，只用來抓崩壞。"
+   },
+   "G250": {
+    "applies_to": "HO 判定為 KEEP、TRADABLE 或 ADOPT 的軌道；判定為 WATCH-ONLY 的軌道也照算，可以升級",
+    "outcomes": {
+     "CONFIRM": "前向主要量的 95% CI 下界 > 0（Mp 為 > −margin），未調整。前向主要量：R、S 是 Δprecision@K(最終清單 − RAND)，最終清單若是挑戰者，還要求前向 Δ(挑戰者 − 代理) 點估計 > 0；Mp 是兩項非劣性。WATCH-ONLY 的軌道要達到 CONFIRM 才能升為 KEEP-AS-SHADOW。",
+     "EXTEND": "點估計 > 0（Mp 為 > −margin），但 CI 下界不夠。延長到 500 個前向交易日，屆時再評估一次並定案。",
+     "DROP": "點估計 ≤ 0（Mp 為 ≤ −margin）。R、S 降為 WATCH-ONLY；M′ 停止影子。"
+    },
+    "tradable_confirm": "標「可交易」的清單還要前向 c5（或 HO 通過的那個期數）逐日平均點估計 > 0，否則降為「觀察／研究榜」。"
+   },
+   "R_REJECT_tracks": "不做前向評估，但每日對帳記錄照樣保留。"
+  }
+ },
+ "disposal_drift_hypothesis": {
+  "framing": "處置期漂移視為全市場假說，不是 CD 或 R 專屬，並依 DK_s（s 收盤已知）拆層。依據是 plan_disposal2.json 的逐日數字：U 內 atr14@5 處置中 +4.09% [1.01, 7.37]、combo@5 +2.39% [0.12, 4.60]；以及 review_years.json 中 A 層 atr14@5 處置中 2025 +1.67%、2026 +5.49%，集中在 2026。",
+  "DD1_primary_of_this_family": "HO：全部已評估軌（M∪Mp∪R∪S）的可買列，每日取 DK_s=1 列的 c5 平均減去 DK_s=0 列的 c5 平均，只用至少有一列 DK_s=1 的日子，取逐日平均的 95% CI。",
+  "DD2_descriptive": "HO：M 軌 atr14@5、M 軌 combo@5、R 軌 R0@5 的選股，分 DK_s=1 與 0 兩層，報 c5、c10 逐日平均與 CI。",
+  "outcomes": {"DD-SUPPORTED": "DD1 CI 下界 > 0", "DD-CONTRADICTED": "DD1 CI 上界 < 0", "DD-INCONCLUSIVE": "其他"},
+  "scope": "這是獨立的次要家族，不在 Holm 主要家族內。不論結果如何，任何處置股交易規則都要另立登錄，並先模擬分盤撮合的第一筆成交價、預收款券，以及 2026-08-10 新制。",
+  "disclosure": "審查發現 R 軌去掉處置後的正報酬只出現在 2026：review_years.json 的 R combo@5 非處置選股 c5 逐日平均，2025 −0.30%、2026 +1.14%（tiers 定義：不設股價下限、cnt130 ≥ 60，與本登錄的 R 定義不同）。"
+ },
+ "liquidity": {
+  "rule": "Qmax 一律只用 s 日的 vol20 計算；t 日與出場日的量只作事後描述。",
+  "per_track": {"M": "floor(2%×vol20)", "Mp": "floor(2%×vol20)", "R": "floor(2%×vol20)，DK_s 時改為 floor(1%×vol20)（保守設定，未校準）", "S": "floor(1%×vol20)", "S_FB": "floor(2%×vol20)"},
+  "report": "每份清單 Qmax ≥ 2 張的占比、Qmax 中位數、Qmax=0 的占比",
+  "unavailable_flags": "全額交割、變更交易方法、停止信用交易：研究快取中沒有 PIT 來源。報表欄位一律標 unknown（來源未提供），不得當作「沒有」。列入資料缺口待辦。"
+ },
+ "outputs": {
+  "dir": "scripts/surge-lab/out/tracks_t1/",
+  "selection_and_half_confirm": [
+   "tracks_t1_M_hits.csv", "tracks_t1_M_misses.csv", "tracks_t1_M_picks.csv",
+   "tracks_t1_Mp_hits.csv", "tracks_t1_Mp_misses.csv", "tracks_t1_Mp_picks.csv",
+   "tracks_t1_R_hits.csv", "tracks_t1_R_misses.csv", "tracks_t1_R_picks.csv",
+   "tracks_t1_S_hits.csv", "tracks_t1_S_misses.csv", "tracks_t1_S_picks.csv",
+   "tracks_t1_W_hits.csv", "tracks_t1_W_misses.csv", "tracks_t1_W_picks.csv",
+   "tracks_t1_outside.csv", "tracks_t1_summary.json", "feature_windows_t1.json"
+  ],
+  "holdout_separate": [
+   "tracks_t1_HO_M_hits.csv", "tracks_t1_HO_M_misses.csv", "tracks_t1_HO_M_picks.csv",
+   "tracks_t1_HO_Mp_hits.csv", "tracks_t1_HO_Mp_misses.csv", "tracks_t1_HO_Mp_picks.csv",
+   "tracks_t1_HO_R_hits.csv", "tracks_t1_HO_R_misses.csv", "tracks_t1_HO_R_picks.csv",
+   "tracks_t1_HO_S_hits.csv", "tracks_t1_HO_S_misses.csv", "tracks_t1_HO_S_picks.csv",
+   "tracks_t1_HO_W_hits.csv", "tracks_t1_HO_W_misses.csv", "tracks_t1_HO_W_picks.csv",
+   "tracks_t1_HO_outside.csv", "tracks_t1_HO_summary.json", "tracks_t1_HO_LOCK.json"
+  ],
+  "outside_scope": "tracks_t1_outside.csv 只放 NE_SUSP 與 NE_TDR 的事件（NE_LU_S 依定義沒有事件）。",
+  "hits_misses_columns": ["window", "fold", "date_s", "event_day_t", "code", "name", "market", "track", "sublayer", "failing_filters", "list_id", "rank_in_list", "n_pool_day", "result", "global_rank_combo", "score", "pct_key_features", "source_has_value_flags", "hist_len", "age_off", "listing_src", "vol20_s", "Qmax_lots", "DK_s", "at_known5", "m_locked_open", "m_buyable", "m_c1", "m_c5", "m_c10", "m_vol_t", "m_disp_t_exec", "note"],
+  "hits_misses_rule": "每一軌的每個事件，對該軌每份登錄清單（含落選的挑戰者）各記一行：rank ≤ K 記「命中」，否則記「漏網」。Mp 軌的事件同時對 M′ 清單（Mp1@10）與 S_FB 清單（atr14@5）記錄。",
+  "picks_columns": ["window", "fold", "date_s", "trade_day_t", "code", "name", "market", "track", "list_id", "rank", "n_pool_day", "score", "y", "m_locked_open", "m_buyable", "m_c1", "m_c5", "m_c10", "vol20_s", "Qmax_lots", "Qmax_rule", "DK_s", "at_known5", "hist_len", "age_off", "listing_src", "mcap_tier", "m_vol_t", "m_disp_t_exec", "note"],
+  "note_column": "每列固定寫「未扣成本·事後欄位以 m_ 標示·非投資建議」",
+  "summary_contents": ["分區列數與事件對帳（每視窗）", "G0 各項結果", "選模結果 W_R、W_S、Mp1 閘", "各清單精確度、lift（逐年）、配對 Δ 與 CI、p 值（HO 另含 Holm 調整後 p）", "逐日報酬（c5、c10）與 CI", "DK_s 拆層", "Qmax 分布", "描述性拆分", "判定結果（只寫在 HO 摘要）", "成本參考表", "免責聲明"]
+ },
+ "power": {
+  "method": "解析近似，不讀資料。SE(precision) ≈ sqrt(p(1−p)/n × DE)，設計效應 DE＝1.5（區塊相關，屬假設）。檢定力＝Φ(Δ/SE − z_α)，單尾 α＝0.025（z 1.960）或 0.025/3（z 2.394）。假設值取自 review_years.json（tiers 定義，與本登錄的軌道定義不同），HO 的實際基準率未知。",
+  "R_H_R_proxy_vs_RAND_HO": {"days": 347, "picks": 1735, "scenario_2025_like": {"base_pct": 1.305, "proxy_prec_pct": 1.846, "E_hits": 32.0, "E_rand_hits": 22.6, "delta_pp": 0.54, "SE_pp": 0.40, "CI_halfwidth_pp": 0.78, "power_alpha_0.025": 0.28, "power_alpha_0.0083": 0.15, "MDE80_pp_alpha_0.0083": 1.28}, "scenario_2026_like": {"base_pct": 2.058, "proxy_prec_pct": 2.955, "E_hits": 51.3, "E_rand_hits": 35.7, "delta_pp": 0.90, "SE_pp": 0.50, "power_alpha_0.025": 0.44, "power_alpha_0.0083": 0.28}},
+  "S_H_S_proxy_vs_RAND_HO": {"days": 347, "picks": 1735, "scenario_2025_like": {"base_pct": 0.158, "proxy_prec_pct": 1.088, "E_hits": 18.9, "E_rand_hits": 2.7, "delta_pp": 0.93, "SE_pp": 0.31, "CI_halfwidth_pp": 0.60, "power_alpha_0.025": 0.86, "power_alpha_0.0083": 0.74}, "scenario_2026_like": {"base_pct": 0.298, "proxy_prec_pct": 1.818, "E_hits": 31.5, "delta_pp": 1.52, "SE_pp": 0.39, "power_alpha_0.0083": 0.93}},
+  "challenger_vs_proxy_MDE80": {"assumption": "挑戰者與代理的選股重疊比例 f；SE(Δ) ≈ sqrt(2(1−f)p(1−p)/n × DE)", "R_SEL_239d_f0.5_pp": 1.34, "S_SEL_239d_f0.5_pp": 1.03, "R_HO_f0.5_alpha_0.0083_pp": 1.28, "S_HO_f0.5_alpha_0.0083_pp": 0.99, "implication": "挑戰者要在 SELECTION 勝出，配對 Δ 大約要 ≥1pp；預期多數情況會維持代理。"},
+  "Mp_NI_HO": {"assumption": "M0 precision@10 約 3.06%（SEL+HC）；c5 單清單逐日平均的 SE 由 official 前 10 超額 CI [−0.91, +0.60] 反推約 0.42pp（HO 347 日）；SE(Δ) 依重疊比例 f 計算", "f0.7": {"SE_dprec_pp": 0.28, "power_prec_alpha_0.0083": 0.10, "SE_dc5_pp": 0.33, "power_c5_alpha_0.0083": 0.03}, "f0.9": {"SE_dprec_pp": 0.16, "power_prec_alpha_0.0083": 0.30, "SE_dc5_pp": 0.19, "power_c5_alpha_0.0083": 0.06}, "f0.95": {"SE_dprec_pp": 0.11, "power_prec_alpha_0.0083": 0.60, "SE_dc5_pp": 0.13, "power_c5_alpha_0.0083": 0.10}, "implication": "在登錄的邊界下（c5 −0.15pp、精確度 −0.30pp），除非 M′ 前 10 與 M0 幾乎重合，非劣性檢定力 ≤0.1～0.3。預設結果因此是 MP-REJECT。邊界依修正要求固定，不得事後放寬。"},
+  "forward": {"R_G60": {"picks": 300, "E_hits_2025_like": 5.5, "CI_halfwidth_pp": 1.87, "power": 0.08}, "R_G250": {"picks": 1250, "E_hits_2025_like": 23.1, "CI_halfwidth_pp": 0.91, "power_alpha_0.025": 0.21}, "S_G60": {"picks": 300, "E_hits_2025_like": 3.3, "CI_halfwidth_pp": 1.44}, "S_G250": {"picks": 1250, "E_hits_2025_like": 13.6, "CI_halfwidth_pp": 0.70, "power_alpha_0.025": 0.74}, "implication": "G60 的檢定力 <0.25，只能用來查流程與崩壞。R 即使累積 250 日，檢定力仍約 0.2，所以 R 很可能長期停在 WATCH-ONLY。"}
+ },
+ "verified_numbers_cited": {
+  "rule": "只引用已經由腳本 assert 或獨立重算確認過的數字（來源檔已記雜湊）。這些數字只用來說明背景與檢定力假設，不當門檻。",
+  "items": [
+   "SEL+HC 415 日中 T1 事件共 2,515 件＝母體內 1,317＋母體外 1,198；母體外有 s 日停牌 24 件、TDR 5 件（verify.py 獨立重建）。",
+   "dataset_t1L_off 全部 812,574 列與重建母體 XOR 為 0（verify.py）；測試列 365,642（quant.py assert）。",
+   "official 前 10：命中 127／選股 4,150（3.06%），quant.py assert 與 hits.csv 一致。",
+   "拿掉 brk_future 後，M 的事件為 1,319（plan_tracks.json）；只卡 brk_future 的事件 2 件（verify.py）。",
+   "tradability.json 的 atr14@10 命中：C0 現行 94、A2 量≥200 為 97、A4 不設量為 98。A1 combo@10 的 Δc5 −0.048pp [−0.098, −0.003]。",
+   "plan_disposal2.json（逐日口徑）：U official 前 10，處置 KNOWN −0.33%，非 KNOWN −0.07%（逐筆口徑分別為 −0.55%、−0.02%）。",
+   "summary.json：CD combo@5 的 c5 逐筆平均 +1.175%、逐日平均 +1.203%。",
+   "tiers.json：R combo@5 選股的 t 日量中位數 3,617 張，<100 張占 1.5%（事後，描述用）；B atr14@5 精確度 1.398%。",
+   "review_years.json（tiers 定義）：R combo@5 精確度 2025 1.846%（基準 1.305%）、2026 2.955%（基準 2.058%）；R atr14@5 2025 1.258%、2026 2.045%；B atr14@5 2025 1.088%（基準 0.158%）、2026 1.818%（基準 0.298%）；B atr14@5 的 Qmax(1%) 中位數 2 張、≤1 張占 48.9%；combo@5 中位數 1 張、≤1 張占 53.0%。"
+  ]
+ },
+ "corrections_applied": [
+  "量≥200 時 atr14 前 10 命中應為 94→97；98 是 A4（不設量）的結果（tradability.json）。",
+  "報酬只用逐日平均。CD／R 寫的「+1.22%，逐日 CI [−0.36, +2.70]」把逐筆平均和逐日 CI 混在一起，本登錄不再引用；同類數字以 summary.json 為準：逐筆 +1.175%、逐日 +1.203%。",
+  "CD 的「4,241 張／0%」與 P 的「779 張」是事件的 vol20 或事件 t 日量的占比，不是選股的。選股口徑見 tiers.json（R combo@5 t 日量中位數 3,617 張，<100 張占 1.5%），而且屬事後描述。",
+  "S 的「CI 下界 ≥0.7%（約 3 倍基準率）」只對全期基準 0.216% 成立，對 2026 基準 0.298% 只有 2.35 倍。本登錄全面取消絕對精確度門檻，改用同日配對差與同日標準化 lift。",
+  "「56 件價格結構斷點（vol20 中位數 641 張）」無法重現；審查重算為 brk_past 事件 83 件（中位數 537 張），其中 vol20≥100 者 56 件（中位數 661 張）。這組重算數字本登錄沒有獨立驗證，不引用為事實，由 Phase 0 輸出並註明口徑。",
+  "標題「卡住的是排名」改為「卡住的是命中轉報酬」：official 前 10 精確度 3.06%，但全部選股 c5 逐筆平均只有 −0.06%（quant）。",
+  "official 前 10 的處置拆層「−0.55%／−0.02%」是逐筆口徑，逐日應為 −0.33%／−0.07%。",
+  "M′「約 914 列／約 1,364 件」是 A1 口徑（不設股價下限、cnt130≥60），不是 M′（股價≥5、官方上市≥60 日）。本登錄不引用，M′ 的列數與件數由 Phase 0 計算。",
+  "處置溢酬不是 CD 專屬，而是全市場現象且集中在 2026，見 disposal_drift_hypothesis。",
+  "R 的「311～320 件」不定，改用固定規則（tracks.R.rule_for_multi_cases）；件數由 Phase 0 計算，不預先引用。",
+  "S 流動性門檻「選股 vol20 中位數 ≥150 張」形同虛設，改為 Qmax ≥ 2 張的占比（T5）。",
+  "M 的驗收「brk_future 的 26 列除外」改為「只卡 brk_future 的列除外」：26 列中還有 12 列會被其他濾網擋下（MULTI）。",
+  "R 與 S 的絕對門檻（2.8%、1.40%、0.7%）全部取消，因為它們取自含 2026 的全期數字，代理在 2026 不靠模型就能過關。",
+  "2026 三折降為 HALF-CONFIRM（已污染），確認改由 HOLDOUT 2023-08～2024-12 負責。",
+  "R 的決策規則改為互斥且窮盡的四種結果，並寫明使用的指標與視窗。",
+  "M′ 的非劣性改用事先登錄的邊界（c5 −0.15pp、精確度@10 −0.30pp），並標為覆蓋面的產品決策。",
+  "短歷史列的長窗特徵一律設為 NaN，並加入 hist_len 特徵。",
+  "注意股與處置一律只用公告日 ≤ s−1 的公告，回測與實盤同一條規則；不用累計次數。"
+ ],
+ "cost_reference": {
+  "note": "只供參考；一律不扣成本比較，也不當門檻。",
+  "fee_side_discounted_pct": 0.0399, "tax_pct": 0.3, "tax_daytrade_pct": 0.15,
+  "roundtrip_discounted_2.8_pct": 0.3798, "roundtrip_fullfee_pct": 0.585,
+  "per_holding_day_c5_pct": 0.076, "per_holding_day_c10_pct": 0.038,
+  "unmodelled": "小型股的價差與滑價（1 檔約占股價 0.1～0.2%）、開盤競價量、處置股分盤撮合與預收款券"
+ },
+ "out_of_scope": [
+  "不改主榜、computeLimitUpForecast、ai-daemon、站上預測。",
+  "不把 V 或 CD 併進主榜一起排名，也不放寬主榜的量門檻。",
+  "處置期漂移的交易規則另案登錄。",
+  "影子接線（surge-shadow-report.mjs、a35_shadow_publish.mjs、SurgeShadow.tsx）與部署，都要另外取得使用者核可。"
+ ],
+ "execution_order": [
+  "1. Phase 0（G0）：建置與各項檢查。不通過就停止。",
+  "2. 計算 SELECTION 與 HALF-CONFIRM 上的全部候選清單，套 selection_rule，把 W_R、W_S、Mp1 閘寫進 tracks_t1_summary.json 並 commit。",
+  "3. HOLDOUT 只算一次（有鎖檔），判定由腳本依本檔機械計算，然後 commit。",
+  "4. 交使用者 G1 審查。前向影子要經核可後才開始。"
+ ],
+ "amendment_policy": "封存後任何更動都要另立新版本（version+1），寫明差異、理由、更動當下已看過哪些結果，並重算雜湊。用舊版算出的結果要與新版並列報告。HOLDOUT 開跑後，判定規則不得再修訂。"
+}
