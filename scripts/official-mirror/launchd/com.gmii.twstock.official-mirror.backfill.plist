@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 第二大腦官方鏡像·歷史回補：每晚 23:20＋週末 11:00，每次上限 2,500 個請求；平日 07:30 禁跑窗自動停；回補完成後自然變成空跑 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.gmii.twstock.official-mirror.backfill</string>
+  <key>ProgramArguments</key>
+  <array><string>/opt/homebrew/bin/node</string><string>scripts/official-mirror.mjs</string><string>backfill</string><string>--max</string><string>2500</string></array>
+  <key>WorkingDirectory</key><string>/Users/gmii/Documents/股票助手app/tw-stock-app</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>20</integer></dict>
+    <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/gmii/Library/Logs/twstock-official-mirror/backfill.log</string>
+  <key>StandardErrorPath</key><string>/Users/gmii/Library/Logs/twstock-official-mirror/backfill.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+</dict>
+</plist>

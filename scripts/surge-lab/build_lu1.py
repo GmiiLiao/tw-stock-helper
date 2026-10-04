@@ -34,6 +34,8 @@ def main():
     Cff = pd.DataFrame(C).ffill().values
     prev = np.vstack([np.full((1, N), np.nan), Cff[:-1]])
     lim = B.limit_up_price(B.round_tick(prev * F_day))
+    U = B.official_limit_up(T, N)
+    if U is not None: lim = np.where(np.isfinite(U) & (U > 0) & (U < 9000), U, lim)   # 一字鎖／開盤即漲停也以官方漲停價判定
     oneword = LU & np.isfinite(O) & (O >= lim - 1e-9) & (L >= lim - 1e-9)          # 一字鎖：開低收都在漲停價
     open_lim = np.isfinite(O) & (O >= lim - 1e-9)                                   # 開盤即漲停（買不到）
 
@@ -81,7 +83,7 @@ def main():
                 locked1=open_lim[t1, ji].astype(np.int8), buy_lu=(LU[t1, ji] & ~open_lim[t1, ji]).astype(np.int8),
                 otc=mkt[ji], liquid=elig_base[si, ji].astype(np.int8),
                 oc1=(C[t1, ji] / O[t1, ji] - 1).astype(np.float32), cc1=(Ca[t1, ji] / Ca[si, ji] - 1).astype(np.float32))
-    np.savez_compressed(f'{B.SP}/dataset_lu1.npz', dates=d_arr, codes=np.array(codes), **{f'm_{k}': v for k, v in meta.items()}, **X)
+    np.savez_compressed(f'{B.SP}/dataset_lu1{os.environ.get("SURGE_DATASET_SUFFIX", "")}.npz', dates=d_arr, codes=np.array(codes), **{f'm_{k}': v for k, v in meta.items()}, **X)
     y, lu_s, buy = meta['y'], meta['lu_s'], meta['buy_lu']
     print(f'正例（隔日漲停）{int(y.sum()):,}（基準率 {y.mean() * 100:.2f}%）：其中前日已漲停（延續）{int((y & lu_s).sum()):,}、新起漲 {int((y & ~lu_s.astype(bool)).sum()):,}；'
           f'隔日開盤買得到的漲停 {int(buy.sum()):,}；前日已漲停者隔日續漲停率 {y[lu_s == 1].mean() * 100:.1f}%（開盤買得到 {buy[lu_s == 1].mean() * 100:.1f}%）')

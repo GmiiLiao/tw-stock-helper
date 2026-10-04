@@ -75,6 +75,9 @@ def forward_meta(si, ji, A, P, F_day, T):
     meta['f_maxup10'] = (hmax10[si, ji] / Ca[si, ji] - 1).astype(np.float32)
     meta['f_mindn5_vs_open'] = (lmin5[si, ji] / Oa[np.minimum(si + 1, T - 1), ji] - 1).astype(np.float32)
     Craw = P['C']; ref_t = B.round_tick(Craw[si, ji] * F_day[np.minimum(si + 1, T - 1), ji]); lim_t = B.limit_up_price(ref_t)
+    U = B.official_limit_up(*Craw.shape)
+    if U is not None:
+        u1 = U[np.minimum(si + 1, T - 1), ji]; lim_t = np.where(np.isfinite(u1) & (u1 > 0) & (u1 < 9000), u1, lim_t)
     opn = P['O'][np.minimum(si + 1, T - 1), ji]
     meta['locked_open'] = (np.isfinite(opn) & (opn >= lim_t - 1e-9)).astype(np.int8)
     meta['close_raw'] = Craw[si, ji].astype(np.float32)
@@ -151,7 +154,7 @@ def main():
         st_t, st_j = np.nonzero(st)
         inU = np.array([bool(mask[t - 1, j] and not (e_extra is not None and e_extra[t - 1, j])) if t >= 1 else False for t, j in zip(st_t, st_j)], dtype=np.int8)
         cat = {'t': st_t.astype(np.int32), 'j': st_j.astype(np.int32), 'in_universe': inU}
-        np.savez_compressed(f'{B.SP}/dataset_{task}.npz', dates=np.array(dates), codes=np.array(codes),
+        np.savez_compressed(f'{B.SP}/dataset_{task}{os.environ.get("SURGE_DATASET_SUFFIX", "")}.npz', dates=np.array(dates), codes=np.array(codes),
                             **{f'm_{k}': v for k, v in meta.items()}, **{f'f_{k}': v for k, v in feats.items()}, **{f'cat_{k}': v for k, v in cat.items()})
         prim = ~extra
         yr = np.array([dates[i][:4] for i in si])

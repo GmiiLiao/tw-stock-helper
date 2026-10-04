@@ -86,6 +86,16 @@ def adjust(dates, codes, P, events):
 
 
 # ───────────────────────── 事件／標籤 ─────────────────────────
+def official_limit_up(T, N):
+    """官方當日漲停價（T×N，上市 TWT84U、上櫃前一交易日 dailyQuotes「次日漲停價」）；環境變數 SURGE_OFFICIAL_LIMIT 指到
+    official_limits.py 產生的 npz 才啟用（2026-10-04：官方判定與檔位推算 99.991% 一致，不一致處以官方為準）。"""
+    path = os.environ.get('SURGE_OFFICIAL_LIMIT')
+    if not path: return None
+    U = np.load(path)['LIMUP']
+    if U.shape != (T, N): raise ValueError(f'官方漲停價矩陣形狀 {U.shape} ≠ panel {(T, N)}')
+    return U
+
+
 def build_events(P, A, F_day):
     C, Ca = P['C'], A['C']
     T, N = C.shape
@@ -93,6 +103,10 @@ def build_events(P, A, F_day):
     Cprev_raw = np.vstack([np.full((1, N), np.nan), Cff[:-1]])          # 最近有價的前收（含停牌後復牌）
     ref = round_tick(Cprev_raw * F_day)
     LU = (C >= limit_up_price(ref) - 1e-9) & np.isfinite(ref) & (ref > 0) & np.isfinite(C)
+    U = official_limit_up(T, N)
+    if U is not None:                                                    # 官方有漲停價的格子以官方為準（含首五日無漲跌幅的 9995 佔位）
+        has = np.isfinite(U) & (U > 0)
+        LU = np.where(has, np.isfinite(C) & (C >= U - 1e-6) & (U < 9000), LU)
     Caff = pd.DataFrame(Ca).ffill().values
     Caprev = np.vstack([np.full((1, N), np.nan), Caff[:-1]])
     with np.errstate(invalid='ignore', divide='ignore'):
