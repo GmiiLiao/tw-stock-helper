@@ -77,7 +77,11 @@ if __name__ == '__main__':
     dates, codes, P, skipped = build(rows)
     # 不在面板套用任何還原係數（見檔頭；還原只在 build.adjust 做一次）
     print('days', len(dates), dates[0], dates[-1], 'codes', len(codes), 'skipped', len(skipped), skipped[:10], '（原始價，未還原）')
-    np.savez_compressed(f'{SP}/panel.npz', dates=np.array(dates), codes=np.array(codes), **P)
+    # 原子寫入（2026-10-04）：研究腳本與起漲影子共用 panel.npz，先寫暫存檔再 os.replace，讀取中的程序不會讀到半套
+    tmp = f'{SP}/panel.npz.tmp{os.getpid()}'
+    with open(tmp, 'wb') as fh:
+        np.savez_compressed(fh, dates=np.array(dates), codes=np.array(codes), **P)
+    os.replace(tmp, f'{SP}/panel.npz')
     # 資料品質：每日檔數、相鄰日期間隔
     cnt = (~np.isnan(P['C'])).sum(1)
     print('stocks/day min/median/max', cnt.min(), int(np.median(cnt)), cnt.max())

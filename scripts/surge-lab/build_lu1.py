@@ -11,14 +11,33 @@ s+1 日結構斷點（還原後仍跳動 >±10.5%，多為停牌復牌／未還�
   · 尾盤五檔（bookDepthArchive，2026-07-20 起、47 日）：x_bd_has（有無資料）、x_bd_bidlim（委買在漲停價的張數）、
     x_bd_bid/x_bd_ask（五檔委買／委賣總張）、x_bd_imb（委買÷(委買+委賣)）、x_bd_q_v（漲停委買張÷當日成交張）。
 """
-import gzip, json, os
+import gzip, json, os, hashlib, datetime
 import numpy as np, pandas as pd
 import build as B, build_v2 as V
 
 SHOCK = ('2025-04-07', '2025-04-10')
 
 
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 24), b''): h.update(b)
+    return h.hexdigest()
+
+
+def write_build_sidecar(ds_path, rev_sha, dates):
+    """{dataset}.build.json：dataset 檔雜湊＋建置時讀的 revenue.json 雜湊（a32_walkforward_prep.py 核對 dataset 雜湊後轉記）。"""
+    side = dict(schema='dataset_lu1.build.v1', generatedAt=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(timespec='seconds'),
+                datasetSha256=file_sha256(ds_path), revenueSha256=rev_sha, panelFirst=str(dates[0]), panelLast=str(dates[-1]), panelDays=len(dates),
+                env={k: os.environ.get(k) for k in ('SURGE_OFFICIAL_LIMIT', 'SURGE_REVENUE', 'SURGE_PIT_STRICT', 'SURGE_DATASET_SUFFIX') if k in os.environ})
+    path = ds_path[:-4] + '.build.json'
+    tmp = f'{path}.tmp{os.getpid()}'
+    with open(tmp, 'w', encoding='utf-8') as f: json.dump(side, f, ensure_ascii=False, indent=1, sort_keys=True)
+    os.replace(tmp, path)
+
+
 def main():
+    rev_sha = file_sha256(f'{B.SP}/revenue.json')              # 建置時讀的營收版本（compute_features → revenue_matrices）
     dates, codes, P = B.load_panel(); T, N = P['C'].shape
     A, F_day, _ = B.adjust(dates, codes, P, B.load_factor_events(dates, codes))
     EV = B.build_events(P, A, F_day); LU = EV['LU']; brk = EV['brk']
@@ -87,7 +106,13 @@ def main():
                 locked1=open_lim[t1, ji].astype(np.int8), buy_lu=(LU[t1, ji] & ~open_lim[t1, ji]).astype(np.int8),
                 otc=mkt[ji], liquid=elig_base[si, ji].astype(np.int8),
                 oc1=(C[t1, ji] / O[t1, ji] - 1).astype(np.float32), cc1=(Ca[t1, ji] / Ca[si, ji] - 1).astype(np.float32))
-    np.savez_compressed(f'{B.SP}/dataset_lu1{os.environ.get("SURGE_DATASET_SUFFIX", "")}.npz', dates=d_arr, codes=np.array(codes), **{f'm_{k}': v for k, v in meta.items()}, **X)
+    # 原子寫入＋建置側檔（2026-10-04）：起漲影子每日流程據側檔判斷訓練矩陣所用的 revenue.json 是否就是上線特徵讀的那份
+    out = f'{B.SP}/dataset_lu1{os.environ.get("SURGE_DATASET_SUFFIX", "")}.npz'
+    tmp = f'{out}.tmp{os.getpid()}'
+    with open(tmp, 'wb') as fh:
+        np.savez_compressed(fh, dates=d_arr, codes=np.array(codes), **{f'm_{k}': v for k, v in meta.items()}, **X)
+    os.replace(tmp, out)
+    write_build_sidecar(out, rev_sha, dates)
     y, lu_s, buy = meta['y'], meta['lu_s'], meta['buy_lu']
     print(f'正例（隔日漲停）{int(y.sum()):,}（基準率 {y.mean() * 100:.2f}%）：其中前日已漲停（延續）{int((y & lu_s).sum()):,}、新起漲 {int((y & ~lu_s.astype(bool)).sum()):,}；'
           f'隔日開盤買得到的漲停 {int(buy.sum()):,}；前日已漲停者隔日續漲停率 {y[lu_s == 1].mean() * 100:.1f}%（開盤買得到 {buy[lu_s == 1].mean() * 100:.1f}%）')
