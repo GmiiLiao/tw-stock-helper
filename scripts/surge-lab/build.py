@@ -218,24 +218,51 @@ def load_revenue():
         return json.load(f)
 
 
+_TPE_MS = 8 * 3600 * 1000
+
+
+def revenue_row_floor(d_arr, r):
+    """列層級的最早可用索引：列帶 absentAt（revenue_official.py：當期快照當下沒有這列＝晚申報證據，epoch ms）時，
+    取「快照台北日期之後的第一個交易日」；沒有則 0（不限制）。revenue.json 沒有這個欄位 ⇒ 預設管線逐位不變。"""
+    a = r.get('absentAt')
+    if a is None: return 0
+    day = np.datetime_as_string(np.datetime64(int(a) + _TPE_MS, 'ms'), unit='D')
+    return int(np.searchsorted(d_arr, day, side='right'))
+
+
+def revenue_spans(rev, d_arr):
+    """月營收逐月逐列的可用區間——build.revenue_matrices 與 official_features.revenue_traits 共用。
+    回傳 [(月, 月可用索引 t0m, {代號: (t0, t1)})]：
+      t0＝max(月可用日 revenue_avail_index, 列層級 revenue_row_floor)；
+      t1＝同代號下個月那列的 t0（下個月沒有該代號＝下個月的月可用日），皆截到 T。
+    晚申報列在 [月可用日, t0) 之間沿用上個月的值（上個月那列的 t1 延到它的 t0）。無 absentAt 時與舊版（整月同一區間）逐位相同。"""
+    T = len(d_arr); months = sorted(rev.keys())
+    t0m = [revenue_avail_index(d_arr, m) for m in months]
+    row_t0 = [{r['c']: max(t0m[i], revenue_row_floor(d_arr, r)) for r in rev[m]['rows']} for i, m in enumerate(months)]
+    out = []
+    for i, m in enumerate(months):
+        nxt_m = min(t0m[i + 1], T) if i + 1 < len(months) else T
+        nxt = row_t0[i + 1] if i + 1 < len(months) else {}
+        out.append((m, t0m[i], {c: (min(t0, T), min(nxt.get(c, nxt_m), T) if i + 1 < len(months) else T) for c, t0 in row_t0[i].items()}))
+    return out
+
+
 def revenue_matrices(dates, codes):
     rev = load_revenue()
     T, N = len(dates), len(codes)
     ci = {c: i for i, c in enumerate(codes)}
     yoy = np.full((T, N), np.nan); mom = np.full((T, N), np.nan); yoyp = np.full((T, N), np.nan); age = np.full((T, N), np.nan)
     d_arr = np.array(dates)
-    months = sorted(rev.keys())
     prev_yoy = {}
-    for mi, m in enumerate(months):
-        # 月營收法定公布期限＝次月 10 日；可用日見 revenue_avail_index（預設次月 11 日起、SURGE_PIT_STRICT=1 期限順延後再隔一交易日）
-        t0 = revenue_avail_index(d_arr, m)
-        if t0 >= T: continue
-        # 到下一個月營收可用日為止
-        t1 = min(revenue_avail_index(d_arr, months[mi + 1]), T) if mi + 1 < len(months) else T
+    for m, t0m, spans in revenue_spans(rev, d_arr):
+        # 月營收法定公布期限＝次月 10 日；可用日見 revenue_avail_index（預設次月 11 日起、SURGE_PIT_STRICT=1 期限順延後再隔一交易日），
+        # 列層級晚申報證據見 revenue_row_floor；每列到「同代號下個月營收可用」為止（revenue_spans）
+        if t0m >= T: continue
         rows = rev[m]['rows']
         for r in rows:
             j = ci.get(r['c'])
             if j is None: continue
+            t0, t1 = spans[r['c']]
             yoy[t0:t1, j] = r.get('yoy') if r.get('yoy') is not None else np.nan
             mom[t0:t1, j] = r.get('mom') if r.get('mom') is not None else np.nan
             if r['c'] in prev_yoy: yoyp[t0:t1, j] = prev_yoy[r['c']]

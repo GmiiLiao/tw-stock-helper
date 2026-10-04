@@ -15,8 +15,9 @@
 台股 wiki（second-brain/wiki/_graph/stocks.json）的官方產業別（MOPS t05st03）衍生同產業共振，取代覆蓋 67% 的 peerComps 產業；
 集團（wiki 由官方董監／法人持股推導的單一最大法人股東樹）是 2026-10 的靜態快照，回測有前視 ⇒ 只做實驗組、不併入 all。
 
-PIT：全部只用 ≤ s 的資料；月營收的來源檔與可用日與 build.revenue_matrices 共用（B.load_revenue／B.revenue_avail_index：
-     SURGE_REVENUE 換來源檔、SURGE_PIT_STRICT=1 改「次月 10 日期限遇休市順延後的下一交易日」）；
+PIT：全部只用 ≤ s 的資料；月營收的來源檔與可用區間與 build.revenue_matrices 共用（B.load_revenue／B.revenue_spans：
+     SURGE_REVENUE 換來源檔、SURGE_PIT_STRICT=1 改「次月 10 日期限遇休市順延後的下一交易日」、
+     revenue_official.json 列帶 absentAt（當期快照沒有＝晚申報證據）者再延到快照日之後的第一個交易日）；
      季財報逐檔依報表類型（FIN_SIG 表頭簽章 → FIN_DEADLINE）在法定期限（遇休市順延）之後的第一個交易日起可用。
 輸出：把新特徵（f_o_*）與 m_tdr（91xx 台灣存託憑證，評估時排除）附加到既有資料集的同一批列 → dataset_{t1,t2,lu1}_off.npz。
 用法：SURGE_CACHE=<快取目錄> python3 official_features.py [--only t1,t2,lu1]
@@ -141,20 +142,19 @@ def overhead(Ca, V, win):
 
 
 def revenue_traits(dates, codes):
-    """月營收創 12 月新高、連續年增月數。來源檔與可用日與 build.revenue_matrices 共用同一個函式
-    （B.load_revenue／B.revenue_avail_index：SURGE_REVENUE、SURGE_PIT_STRICT 兩處同時生效）。"""
+    """月營收創 12 月新高、連續年增月數。來源檔與可用區間與 build.revenue_matrices 共用同一組函式
+    （B.load_revenue／B.revenue_spans：SURGE_REVENUE、SURGE_PIT_STRICT、列層級晚申報證據 absentAt 兩處同時生效）。"""
     rev = B.load_revenue()
     T, N = len(dates), len(codes); ci = {c: i for i, c in enumerate(codes)}; d_arr = np.array(dates)
     hi12 = np.full((T, N), np.nan); ystreak = np.full((T, N), np.nan)
-    months = sorted(rev.keys()); hist = {}; streak = {}
-    for mi, m in enumerate(months):
-        t0 = B.revenue_avail_index(d_arr, m)
-        t1 = min(B.revenue_avail_index(d_arr, months[mi + 1]), T) if mi + 1 < len(months) else T
+    hist = {}; streak = {}
+    for m, _t0m, spans in B.revenue_spans(rev, d_arr):
         for r in rev[m]['rows']:
             c = r['c']; h = hist.setdefault(c, [])
             v = r.get('rev'); y = r.get('yoy')
             streak[c] = (streak.get(c, 0) + 1) if (y is not None and y > 0) else 0
             j = ci.get(c)
+            t0, t1 = spans[c]
             if j is not None and t0 < T:
                 if v is not None and len(h) >= 11: hi12[t0:t1, j] = float(v >= max(h[-11:]))
                 if y is not None: ystreak[t0:t1, j] = streak[c]

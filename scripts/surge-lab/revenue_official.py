@@ -5,8 +5,13 @@
 
 來源（全部官方、零網路）
   · 本機鏡像 second-brain/official/mopsov.twse.com.tw/mops_t21sc03（_0 本國）與 mops_t21sc03_ky（_1 外國／-KY），
-    {YYYY-MM}.{sii|otc}.html.gz（原始 big5 位元組）。只收 manifest status=ok 且 final 不是 false 的頁；
-    頁面須回聲「{上市|上櫃}公司{民國年}年{月}月份」與「單位：千元」，否則中止。
+    {YYYY-MM}.{sii|otc}.html.gz（原始 big5 位元組）。只收 manifest status=ok 且 final 不是 false 的頁；解壓後位元組的 sha256
+    須等於 manifest 記錄的 sha256（不符＝鏡像檔壞或被換，中止）；頁面須回聲「{上市|上櫃}公司{民國年}年{月}月份」與「單位：千元」，否則中止。
+    定版規則逐頁記錄在報告（finalRule）：finalBy='stable'＝內容穩定定版（revenue-ky 軌道 c6dba68 起的 t21sc03 規則：
+    次月 11 日起相隔 ≥3 日兩次抓取內容相同）；final=true 而沒有 finalBy＝舊時鐘規則定版（clock）。
+    --require-stable：只收 stable 定版頁（clock 頁當作未定版而略過 ⇒ 缺頁中止，除非 --allow-missing）——
+    revenue-ky 合併且 stable 定版跑完後重建 revenue_official.json 要加這個旗標，「定版看資料不看時鐘」才完整。
+    revenue-ky 的回補會把舊 clock 頁重抓一次：兩次觀測相隔 <3 日或內容有變的頁會寫成 final=false ⇒ 本程式缺頁中止（不靜默掉資料）。
   · 補充檔 {SP}/revenue_supplement/mops_t21sc03_csv_{YYYY-MM}.{sii|otc}.csv：同站「另存CSV」官方檔
     （POST https://mopsov.twse.com.tw/server-java/FileDownLoad step=9&functionName=show_file2&filePath=/t21/{mk}/&fileName=t21sc03_{民國年}_{月}.csv，
     內容含本國＋外國公司）。只在鏡像缺頁時使用（2026-03 上市 _0／_1 在 MOPS 端是空頁）；鏡像有頁的月份若也有補充檔，
@@ -15,17 +20,25 @@
     數值不同只計數（conflicts）；revenue.json 沒有的代號（KY、晚申報、2022-06～2023-07 歷史）補鏡像值；
     只在 revenue.json 的代號（之後下市、鏡像以現行名單重產而消失者）保留。
 
+晚申報證據（absentAt，epoch ms）：revenue.json 該月是「當期快照」（擷取時刻早於下一個月營收的法定期限＝m+2 月 10 日）
+  而本國列（_0 表：sii／otc／sii_csv／otc_csv）不在快照裡 ⇒ 該列在快照當下自家即時管線拿不到。build.revenue_spans 讓這種列
+  從「快照日期之後的第一個交易日」才可用（與月可用日取晚者），之前沿用上個月的值。2026-08 實例：快照 2026-09-11 15:14
+  （正是嚴格可用日）缺 2880～2892、5880、2816、2832、2850、2851 等 18 檔本國公司 ⇒ 改從 09-14 起可用。
+  歷史月份的 revenue.json 是 2026-08-10 的回補（非當期快照），缺列不構成證據、不標；KY（_1 表）revenue.json 從沒抓過，也不標。
+  ⚠ 只抓得到「有當期快照證據」的晚申報；歷史月份的金融業若系統性晚於期限，這裡沒有證據可用（待逐日觀測上表時刻後補產業別延遲）。
 缺值：上月／去年同月營收為 0 或空白時 MOPS 的增減%是空白 ⇒ 存 None，不填 0。revenue.json 舊回補器把空白填成 0
      （backfill-mops-revenue.mjs num()），合併時還原為 None（上月或去年營收為 0／空白、或鏡像同格為空白者），計數 zeroFixed。
 
-輸出結構同 revenue.json：{月: {month, n, at, bySrc, rows:[{c,n,rev,prev,last,mom,yoy,cum,src}]}}，另加 pages／valSrc／conflicts／zeroFixed；
+輸出結構同 revenue.json：{月: {month, n, at, bySrc, rows:[{c,n,rev,prev,last,mom,yoy,cum,src[,absentAt]}]}}，另加 pages／valSrc／conflicts／zeroFixed／lateEvidence；
   bySrc＝最終列依「出現在哪一頁」分組：上市／上櫃／上市KY／上櫃KY／revenue.json補（只在 revenue.json）。
   src＝該列數值來源：revenue.json、sii、otc、sii_ky、otc_ky、sii_csv、sii_ky_csv…
   at＝該月所用來源的擷取時刻（epoch ms；鏡像頁 manifest at、補充檔 fetchedAt、revenue.json 的 at 取最大），不是執行時刻。
-  稽核明細另寫 {輸出}.report.json（缺頁、衝突逐筆、補充檔對照、只在單一來源的代號數）。
+  稽核明細另寫 {輸出}.report.json（缺頁、衝突逐筆、補充檔對照、只在單一來源的代號數、晚申報證據），以及可追溯的輸入版本 inputs：
+  revenue.json 的 sha256、每個鏡像頁的 sha256／擷取時刻／定版規則、每個補充檔的 sha256／擷取時刻；output＝本次輸出檔的 sha256
+  （cv_official 分數檔記的月營收 sha256 與它相同 ⇒ 結果可一路追到鏡像頁版本）。
 已知殘餘偏差：鏡像歷史頁是 MOPS 以現行名單重產（下市股消失、新上市股帶上市前月份）；2022-06～2023-07 沒有 revenue.json 可補下市股。
 
-用法：SURGE_CACHE=<快取> python3 revenue_official.py [--allow-missing] [--out <路徑>] [--mirror <official 根目錄>] [--supplement <目錄>]
+用法：SURGE_CACHE=<快取> python3 revenue_official.py [--allow-missing] [--require-stable] [--out <路徑>] [--mirror <official 根目錄>] [--supplement <目錄>]
       鏡像根目錄預設 <repo>/second-brain/official（環境變數 OFFICIAL_ROOT 可覆蓋）；缺頁時中止，除非 --allow-missing。
 """
 import csv
@@ -36,7 +49,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,6 +68,8 @@ CSV_HEADER = ['出表日期', '資料年月', '公司代號', '公司名稱', '�
               '營業收入-上月比較增減(%)', '營業收入-去年同月增減(%)', '累計營業收入-當月累計營收', '累計營業收入-去年累計營收',
               '累計營業收入-前期比較增減(%)', '備註']
 BLANK = ('', '-', '--', 'N/A')
+TPE = timezone(timedelta(hours=8))
+DOMESTIC_SRC = ('sii', 'otc', 'sii_csv', 'otc_csv')               # _0 表（本國）：revenue.json 當期快照涵蓋的範圍
 
 
 def _int(s):
@@ -132,9 +147,15 @@ def _iso_ms(s):
     return int(datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp() * 1000)
 
 
-def load_mirror(root):
-    """{(月, 市場, 標記): (列, 擷取時刻ms)}、略過頁清單。"""
-    pages, skipped = {}, []
+def final_rule(r):
+    """manifest 列的定版依據：stable（內容穩定）／clock（舊時鐘規則，final=true 但沒有 finalBy）／None（未定版）。"""
+    if r.get('final') is not True: return None
+    return 'stable' if r.get('finalBy') == 'stable' else ('clock' if r.get('finalBy') is None else str(r.get('finalBy')))
+
+
+def load_mirror(root, require_stable=False):
+    """{(月, 市場, 標記): (列, 擷取時刻ms)}、略過頁清單、所用頁的出處（sha256／擷取時刻／定版規則）。"""
+    pages, skipped, prov = {}, [], []
     for ds, tag in SETS:
         d = os.path.join(root, HOST, ds)
         man_path = os.path.join(d, '_manifest.json')
@@ -142,12 +163,20 @@ def load_mirror(root):
         with open(man_path) as f: man = json.load(f)['rows']
         for key, r in sorted(man.items()):
             month, mk = key.split('.')
-            if r.get('status') == 'empty': pages[(month, mk, tag)] = ([], _iso_ms(r['at'])); continue
-            if r.get('status') != 'ok' or r.get('final') is False:
-                skipped.append(dict(set=ds, key=key, status=r.get('status'), final=r.get('final'), note=r.get('note'))); continue
+            rule = final_rule(r)
+            info = dict(set=ds, key=key, status=r.get('status'), file=r.get('file'), sha256=r.get('sha256'), at=r.get('at'),
+                        final=r.get('final'), finalBy=r.get('finalBy'), stableFrom=r.get('stableFrom'), finalRule=rule)
+            if r.get('status') == 'empty':
+                pages[(month, mk, tag)] = ([], _iso_ms(r['at'])); prov.append(info); continue
+            if r.get('status') != 'ok' or rule is None or (require_stable and rule != 'stable'):
+                why = '未定版' if rule is None else f'定版規則 {rule}（--require-stable 只收 stable）'
+                skipped.append(dict(info, note=r.get('note') or why)); continue
             with gzip.open(os.path.join(d, r['file'])) as f: raw = f.read()
+            if hashlib.sha256(raw).hexdigest() != r.get('sha256'):
+                raise SystemExit(f'鏡像頁 {ds}/{r["file"]} 解壓後 sha256 與 manifest 記錄不符（檔案壞或被換）——先修鏡像再跑')
             pages[(month, mk, tag)] = (parse_html(raw, month, mk, f'{mk}{"_ky" if tag else ""}'), _iso_ms(r['at']))
-    return pages, skipped
+            prov.append(info)
+    return pages, skipped, prov
 
 
 def load_supplements(sdir):
@@ -164,7 +193,8 @@ def load_supplements(sdir):
         with open(os.path.join(sdir, fn), 'rb') as f: raw = f.read()
         if hashlib.sha256(raw).hexdigest() != prov[fn]['sha256']: raise SystemExit(f'補充檔 {fn} 的 sha256 與 provenance 不符')
         dom, fgn = parse_csv(raw, month, mk)
-        out[(month, mk)] = dict(dom=dom, fgn=fgn, at=_iso_ms(prov[fn]['fetchedAt']), file=fn)
+        out[(month, mk)] = dict(dom=dom, fgn=fgn, at=_iso_ms(prov[fn]['fetchedAt']), file=fn, sha256=prov[fn]['sha256'],
+                                fetchedAt=prov[fn]['fetchedAt'], finalRule='single-observation')
     return out
 
 
@@ -192,6 +222,21 @@ def fix_zero(r, mirror_row):
     return out, n
 
 
+def next_deadline(month):
+    """月營收 month 的下一個月營收法定期限（m+2 月 10 日）。"""
+    y, mo = int(month[:4]), int(month[5:7]) + 2
+    if mo > 12: y, mo = y + 1, mo - 12
+    return f'{y:04d}-{mo:02d}-10'
+
+
+def snapshot_at(month, legacy_month):
+    """revenue.json 該月若是「當期快照」（擷取時刻的台北日期早於 next_deadline），回擷取時刻 ms；回補（事後多月才抓）回 None。"""
+    at = (legacy_month or {}).get('at')
+    if not at: return None
+    day = datetime.fromtimestamp(int(at) / 1000, TPE).strftime('%Y-%m-%d')
+    return int(at) if day < next_deadline(month) else None
+
+
 def merge_month(month, page_rows, page_src, legacy_month):
     """page_rows：{標籤(上市…): 列}；legacy_month：revenue.json 該月（可 None）。回傳 (月文件, 稽核明細)。"""
     mirror, group, dup = {}, {}, 0
@@ -208,8 +253,14 @@ def merge_month(month, page_rows, page_src, legacy_month):
             conflicts.append(dict(c=c, legacy={k: r.get(k) for k in VALUE_KEYS}, official={k: m[k] for k in VALUE_KEYS}))
         out[c] = _row(c, r.get('n', m['n'] if m else ''), row.get('rev'), row.get('prev'), row.get('last'), row.get('mom'), row.get('yoy'),
                       row.get('cum'), 'revenue.json')
+    snap = snapshot_at(month, legacy_month)
+    late = []
     for c, m in mirror.items():
-        if c not in out: out[c] = dict(m)
+        if c in out: continue
+        row = dict(m)
+        if snap is not None and m['src'] in DOMESTIC_SRC:                  # 當期快照沒有這列本國公司 ⇒ 當時拿不到（晚申報證據）
+            row['absentAt'] = snap; late.append(c)
+        out[c] = row
     by = {lab: 0 for lab in ('上市', '上櫃', '上市KY', '上櫃KY')}
     by['revenue.json補'] = 0
     for c in out: by[group.get(c, 'revenue.json補')] += 1
@@ -218,17 +269,22 @@ def merge_month(month, page_rows, page_src, legacy_month):
         k = 'revenue.json' if r['src'] == 'revenue.json' else ('csv' if r['src'].endswith('_csv') else 'mirror')
         val[k] = val.get(k, 0) + 1
     doc = dict(month=month, n=len(out), bySrc=by, valSrc=val, pages=page_src, conflicts=len(conflicts), zeroFixed=zero_fixed,
-               rows=sorted(out.values(), key=lambda r: r['c']))
+               lateEvidence=len(late), rows=sorted(out.values(), key=lambda r: r['c']))
     audit = dict(dup=dup, conflicts=conflicts, zeroFixed=zero_fixed, mirrorOnly=sum(1 for c in mirror if c not in legacy),
-                 legacyOnly=sorted(c for c in legacy if c not in mirror))
+                 legacyOnly=sorted(c for c in legacy if c not in mirror),
+                 snapshotAt=(datetime.fromtimestamp(snap / 1000, TPE).isoformat() if snap else None), lateEvidence=sorted(late))
     return doc, audit
 
 
-def build(root, sdir, legacy, allow_missing):
-    pages, skipped = load_mirror(root)
+def build(root, sdir, legacy, allow_missing, require_stable=False):
+    pages, skipped, page_prov = load_mirror(root, require_stable)
     sup = load_supplements(sdir)
     parity = supplement_parity(sup, pages)
-    months = sorted({m for (m, _, _) in pages} | set(legacy))
+    # 應有月份＝收到的頁∪revenue.json∪「被略過的頁」中不晚於最後一個有資料月份者——歷史月份的頁全被略過（未定版、--require-stable）
+    # 也要算缺頁而中止，不可整月悄悄消失；晚於最後有資料月份的（申報期內的當月）才放掉。
+    used = {m for (m, _, _) in pages} | set(legacy)
+    last_used = max(used) if used else ''
+    months = sorted(used | {x['key'].split('.')[0] for x in skipped if x['key'].split('.')[0] <= last_used})
     out, audit, missing_all, used_sup = {}, {}, [], []
     for m in months:
         page_rows, page_src, ats, miss = {}, {}, [], []
@@ -243,15 +299,23 @@ def build(root, sdir, legacy, allow_missing):
                 else:
                     page_src[label] = 'missing'; miss.append(f'{mk}{"_ky" if tag else ""}')
         if miss: missing_all.append(f'{m}:{",".join(miss)}')
-        if miss and not allow_missing: raise SystemExit(f'{m} 缺頁 {miss}（鏡像回補未完成且無官方補充檔；確定要放行才加 --allow-missing）')
+        if miss and not allow_missing:
+            sk = [f"{x['set']}/{x['key']}:{x['note']}" for x in skipped if x['key'].startswith(m + '.')]
+            raise SystemExit(f'{m} 缺頁 {miss}；該月略過的頁 {sk or "無"}（鏡像回補未完成或頁未定版——revenue-ky 的內容穩定定版需相隔 ≥3 日兩次相同觀測；'
+                             f'等定版完成再跑，或確定要放行才加 --allow-missing）')
         lm = legacy.get(m)
         if lm and lm.get('at'): ats.append(int(lm['at']))
         doc, au = merge_month(m, page_rows, page_src, lm)
         out[m] = dict(month=doc['month'], n=doc['n'], at=max(ats) if ats else None, **{k: v for k, v in doc.items() if k not in ('month', 'n')})
         audit[m] = dict(missingPages=miss, **au)
+    rules = {}
+    for x in page_prov: rules[x['finalRule'] or x['status']] = rules.get(x['finalRule'] or x['status'], 0) + 1
+    sup_prov = [dict(file=s['file'], sha256=s['sha256'], fetchedAt=s['fetchedAt'], finalRule=s['finalRule']) for s in sup.values()]
     report = dict(months=len(out), first=min(out), last=max(out), skippedPages=skipped, missingPages=missing_all, supplementUsed=used_sup,
                   supplementParity=parity, conflictsTotal=sum(len(a['conflicts']) for a in audit.values()),
-                  zeroFixedTotal=sum(a['zeroFixed'] for a in audit.values()), perMonth=audit)
+                  zeroFixedTotal=sum(a['zeroFixed'] for a in audit.values()),
+                  lateEvidenceTotal=sum(len(a['lateEvidence']) for a in audit.values()), requireStable=bool(require_stable),
+                  finalRuleCounts=rules, inputs=dict(pages=page_prov, supplements=sup_prov), perMonth=audit)
     return out, report
 
 
@@ -269,15 +333,26 @@ def main():
     root = opt('--mirror', os.environ.get('OFFICIAL_ROOT', os.path.join(REPO, 'second-brain', 'official')))
     sdir = opt('--supplement', os.path.join(SP, 'revenue_supplement'))
     out_path = opt('--out', os.path.join(SP, 'revenue_official.json'))
-    with open(os.path.join(SP, 'revenue.json')) as f: legacy = json.load(f)
-    out, rep = build(root, sdir, legacy, '--allow-missing' in argv)
+    legacy_path = os.path.join(SP, 'revenue.json')
+    with open(legacy_path, 'rb') as f: legacy_raw = f.read()
+    legacy = json.loads(legacy_raw)
+    out, rep = build(root, sdir, legacy, '--allow-missing' in argv, '--require-stable' in argv)
     write_json_atomic(out_path, out, compact=True)
+    with open(out_path, 'rb') as f: out_sha = hashlib.sha256(f.read()).hexdigest()
+    rep['inputs']['revenueJson'] = dict(file=legacy_path, sha256=hashlib.sha256(legacy_raw).hexdigest(), months=len(legacy))
+    rep['inputs']['mirrorRoot'] = root
+    rep['output'] = dict(file=out_path, sha256=out_sha)
     rep_path = os.path.splitext(out_path)[0] + '.report.json'
     write_json_atomic(rep_path, rep, compact=False)
     print(f'月份 {rep["months"]}（{rep["first"]}～{rep["last"]}）→ {out_path}')
     print(f'  略過頁（未定版／壞頁）{[(s["set"], s["key"], s["status"]) for s in rep["skippedPages"]]}')
     print(f'  官方補充檔使用 {rep["supplementUsed"]}；補充檔對照 {rep["supplementParity"]}')
     print(f'  缺頁 {rep["missingPages"] or "無"}；數值衝突（以 revenue.json 為準）{rep["conflictsTotal"]} 筆；捏造 0 還原 None {rep["zeroFixedTotal"]} 格')
+    print(f'  鏡像頁定版規則 {rep["finalRuleCounts"]}（clock＝舊時鐘規則；--require-stable {"開" if rep["requireStable"] else "關"}）')
+    late = {m: a['lateEvidence'] for m, a in rep['perMonth'].items() if a['lateEvidence']}
+    print(f'  晚申報證據（當期快照沒有的本國列，標 absentAt）共 {rep["lateEvidenceTotal"]} 列：' +
+          '；'.join(f'{m}@{rep["perMonth"][m]["snapshotAt"][:16]} {len(v)} 檔' for m, v in late.items()))
+    print(f'  輸出 sha256 {out_sha[:16]}；revenue.json sha256 {rep["inputs"]["revenueJson"]["sha256"][:16]}')
     for m in sorted(out):
         d = out[m]
         if m in (rep['first'], '2023-07', '2023-08', '2026-03', rep['last']) or d['conflicts'] or 'missing' in d['pages'].values():
