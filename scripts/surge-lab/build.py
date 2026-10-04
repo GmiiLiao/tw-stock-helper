@@ -62,7 +62,16 @@ def load_factor_events(dates, codes):
         if (f or 0) > 0: seen[(c, d)] = ('exright', f)
     for e in pe:
         if (e.get('factor') or 0) > 0 and (e['code'], e['date']) not in seen: seen[(e['code'], e['date'])] = ('priceEvents', e['factor'])
-    return [(c, d, s, f) for (c, d), (s, f) in seen.items()]
+    out = [(c, d, s, f) for (c, d), (s, f) in seen.items()]
+    # exright-history 之後逐日補抓的官方除權息（上市＋上櫃；a35_shadow_fetch.mjs → a35_shadow_exright_{日}.json）。
+    # 2026-10-04：起漲影子上線特徵（a35_shadow_lib.build_ctx）早已併入這批，訓練資料集卻沒有 ⇒ 每日自動化重建矩陣後
+    # 新日子的除權息股訓練標籤／特徵與上線不一致。同檔同日已存在者不重複，附加在最後（與 build_ctx 的合併順序相同，逐位一致）。
+    import glob
+    have = set(seen)
+    for p in sorted(glob.glob(f'{SP}/a35_shadow_exright_*.json')):
+        for d, c, f in (json.load(open(p)).get('items') or []):
+            if (f or 0) > 0 and (c, d) not in have: out.append((c, d, 'a35_extra', f)); have.add((c, d))
+    return out
 
 def adjust(dates, codes, P, events):
     """回傳還原價矩陣（事件日之前 × factor）與每日事件係數 F_day[t, j]（用於漲停價參考價）。"""
