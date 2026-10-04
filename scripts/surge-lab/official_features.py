@@ -17,6 +17,7 @@
 
 PIT：全部只用 ≤ s 的資料；月營收的來源檔與可用日與 build.revenue_matrices 共用（B.load_revenue／B.revenue_avail_index：
      SURGE_REVENUE 換來源檔、SURGE_PIT_STRICT=1 改「次月 10 日期限遇休市順延後的下一交易日」）；
+     季財報逐檔依報表類型（FIN_SIG 表頭簽章 → FIN_DEADLINE）在法定期限（遇休市順延）之後的第一個交易日起可用。
 輸出：把新特徵（f_o_*）與 m_tdr（91xx 台灣存託憑證，評估時排除）附加到既有資料集的同一批列 → dataset_{t1,t2,lu1}_off.npz。
 用法：SURGE_CACHE=<快取目錄> python3 official_features.py [--only t1,t2,lu1]
 """
@@ -161,7 +162,40 @@ def revenue_traits(dates, codes):
     return hi12, ystreak
 
 
-FIN_DUE = {1: '06-01', 2: '09-01', 3: '12-01'}            # 各業最晚法定期限翌日（金融業 Q1/Q2/Q3 期限較晚，一律取最晚）；Q4＝次年 04-01
+# 季財報類型：t163sb04 的 HTML 沒有表名，只能用「表頭欄數＋第 3～5 欄名」簽章判斷（2026-10-04 全 44 檔實測 7 種、無未知、各代號跨季穩定）
+FIN_SIG = {
+    (30, ('營業收入', '營業成本', '原始認列生物資產及農產品之利益（損失）')): 'gen',      # 一般業
+    (23, ('營業收入', '營業成本', '營業費用')): 'ins',                                    # 保險（舊制表頭）
+    (23, ('保險服務結果', '財務結果', '其他營業結果')): 'ins',                            # 保險（2026Q1 起 IFRS17 表頭）
+    (22, ('利息淨收益', '利息以外淨收益', '淨收益')): 'fhc',                              # 金控
+    (22, ('利息淨收益', '利息以外淨損益', '呆帳費用、承諾及保證責任準備提存')): 'bank',   # 銀行／票券
+    (22, ('收益', '支出及費用', '營業利益')): 'sec',                                      # 證券／期貨
+    (18, ('收入', '支出', '繼續營業單位稅前淨利（淨損）')): 'other',                      # 異業
+}
+# 法定公告期限（月-日；Q4＝次年）。可用日＝期限（遇休市順延）之後第一個交易日（B.avail_index）。
+FIN_DEADLINE = {
+    'gen':     ('05-15', '08-14', '11-14', '03-31'),
+    'other':   ('05-15', '08-14', '11-14', '03-31'),
+    'fhc':     ('05-30', '08-31', '11-29', '03-31'),
+    'bank':    ('05-15', '08-31', '11-14', '03-31'),
+    'ins':     ('05-15', '08-31', '11-14', '03-31'),
+    'sec':     ('05-15', '08-31', '11-14', '03-31'),
+    'ky':      ('05-15', '08-31', '11-14', '03-31'),   # 外國發行人（一般業表內名稱含 KY）：Q2 期限未查證前保守取 08-31
+    'unknown': ('05-30', '08-31', '11-29', '03-31'),   # 認不出表頭：取各業最晚
+}
+
+
+def fin_type_of(ths):
+    return FIN_SIG.get((len(ths), tuple(ths[2:5])), 'unknown')
+
+
+def fin_deadline(ty, y, q):
+    return f'{y + (q == 4):04d}-{FIN_DEADLINE.get(ty, FIN_DEADLINE["unknown"])[q - 1]}'
+
+
+def fin_avail_index(d_arr, ty, y, q):
+    """(類型, 西元年, 季) → 面板中第一個可用索引（≥ len(d_arr) 代表面板內不可用）。"""
+    return B.avail_index(d_arr, fin_deadline(ty, y, q))
 
 
 def _fin_pick(hdr, row):
@@ -180,20 +214,24 @@ def _fin_pick(hdr, row):
 
 
 def load_fin():
-    """{(code, 西元年, 季): 累計值 dict}——t163sb04 原始 HTML 解析（bs4）。"""
+    """t163sb04 原始 HTML 解析（bs4）→ ({(code, 西元年, 季): 累計值 dict}, {(code, 西元年, 季): 報表類型}, 認不出表頭的列數)。
+    類型由表頭簽章（FIN_SIG）判定；一般業表內名稱含 KY 者另標 'ky'（外國發行人，期限另計）。"""
     from bs4 import BeautifulSoup
-    out = {}
+    out, ftype, n_unknown = {}, {}, 0
     for f in sorted(glob.glob(os.path.join(OFF, 'mops_t163sb04', '*.html.gz'))):
         typek, roc, ss = os.path.basename(f)[:-8].split('_'); y, q = int(roc) + 1911, int(ss)
         soup = BeautifulSoup(gzip.open(f).read().decode('utf-8', 'replace'), 'html.parser')
         for tb in soup.find_all('table'):
-            hdr = None
+            hdr = typ = None
             for tr in tb.find_all('tr'):
                 ths = [th.get_text(strip=True) for th in tr.find_all('th')]
-                if ths and any('公司' in h and '代號' in h for h in ths): hdr = ths; continue
+                if ths and any('公司' in h and '代號' in h for h in ths): hdr = ths; typ = fin_type_of(ths); continue
                 tds = [td.get_text(strip=True) for td in tr.find_all('td')]
-                if hdr and tds and len(tds) == len(hdr) and re.fullmatch(r'\d{4}', tds[0]): out[(tds[0], y, q)] = _fin_pick(hdr, tds)
-    return out
+                if hdr and tds and len(tds) == len(hdr) and re.fullmatch(r'\d{4}', tds[0]):
+                    out[(tds[0], y, q)] = _fin_pick(hdr, tds)
+                    ftype[(tds[0], y, q)] = 'ky' if typ == 'gen' and 'KY' in tds[1] else typ
+                    n_unknown += typ == 'unknown'
+    return out, ftype, n_unknown
 
 
 def fin_singles(cum):
@@ -207,23 +245,30 @@ def fin_singles(cum):
 
 
 def fin_features(dates, codes, Craw):
-    """每個 s 日用「已過法定期限」的最新一季：EPS 年增（÷股價）、TTM 本益比倒數、毛利率／營益率年變、季營收年增、轉虧為盈。"""
-    cum = load_fin(); sg = fin_singles(cum)
+    """每個 s 日用「已過法定期限」的最新一季：EPS 年增（÷股價）、TTM 本益比倒數、毛利率／營益率年變、季營收年增、轉虧為盈。
+    可用日逐檔依報表類型（FIN_DEADLINE）：期限遇休市順延後的下一個交易日起可用，到下一季可用日為止。"""
+    cum, ftype, n_unknown = load_fin(); sg = fin_singles(cum)
     T, N = len(dates), len(codes); ci = {c: i for i, c in enumerate(codes)}; d_arr = np.array(dates)
     keys = ['eps_yoy_p', 'ep_ttm', 'gm', 'gm_yoy', 'om_yoy', 'rev_q_yoy', 'turnaround']
     F = {k: np.full((T, N), np.nan) for k in keys}
     qs = sorted({(y, q) for (_, y, q) in sg})
-    def avail(y, q): return f'{y + 1}-04-01' if q == 4 else f'{y}-{FIN_DUE[q]}'
+    avail_cache = {}
+    def avail(ty, y, q):
+        k = (ty, y, q)
+        if k not in avail_cache: avail_cache[k] = fin_avail_index(d_arr, ty, y, q)
+        return avail_cache[k]
     def prevq(y, q, k):
         for _ in range(k): y, q = (y, q - 1) if q > 1 else (y - 1, 4)
         return y, q
     for i, (y, q) in enumerate(qs):
-        t0 = int(np.searchsorted(d_arr, avail(y, q)))
-        t1 = int(np.searchsorted(d_arr, avail(*qs[i + 1]))) if i + 1 < len(qs) else T
-        if t0 >= T or t1 <= t0: continue
+        nxt = qs[i + 1] if i + 1 < len(qs) else None
         for c, j in ci.items():
             cur = sg.get((c, y, q))
             if cur is None: continue
+            ty = ftype.get((c, y, q), 'unknown')
+            t0 = avail(ty, y, q)
+            t1 = min(avail(ftype.get((c, *nxt), ty), *nxt), T) if nxt else T
+            if t0 >= T or t1 <= t0: continue
             ly = sg.get((c, *prevq(y, q, 4))); pq = sg.get((c, *prevq(y, q, 1)))
             ttm = [sg.get((c, *prevq(y, q, k))) for k in range(4)]
             sl = slice(t0, t1); px = Craw[sl, j]
@@ -236,7 +281,10 @@ def fin_features(dates, codes, Craw):
                     F['om_yoy'][sl, j] = cur['op'] / cur['rev'] - ly['op'] / ly['rev'] if cur['rev'] and cur['rev'] > 0 else np.nan
                     F['rev_q_yoy'][sl, j] = cur['rev'] / ly['rev'] - 1
                 if pq and np.isfinite(cur['ni']) and np.isfinite(pq['ni']): F['turnaround'][sl, j] = float(cur['ni'] > 0 and pq['ni'] <= 0)
-    return {f'o_fin_{k}': v for k, v in F.items()}, len(cum)
+    types = {}
+    for (c, _, _), ty in ftype.items(): types.setdefault(ty, set()).add(c)
+    stats = dict(rows=len(cum), n_unknown=n_unknown, codes_by_type={ty: len(v) for ty, v in sorted(types.items())})
+    return {f'o_fin_{k}': v for k, v in F.items()}, stats
 
 
 def wiki_map(field):
@@ -335,7 +383,8 @@ def compute(dates, codes, P, A, EV):
     hi12, ystreak = revenue_traits(dates, codes)
     F['o_rev_hi12'] = hi12; F['o_rev_yoy_streak'] = ystreak
     lim, chk = limit_features(P, M, EV['LU']); F.update(lim); cov['limit_check'] = chk
-    fin, n_fin = fin_features(dates, codes, Craw); F.update(fin); cov['fin_rows'] = n_fin
+    fin, fin_stats = fin_features(dates, codes, Craw); F.update(fin)
+    cov['fin_rows'] = fin_stats['rows']; cov['fin_n_unknown'] = fin_stats['n_unknown']; cov['fin_codes_by_type'] = fin_stats['codes_by_type']
     cov['revenue_source'] = os.path.basename(B.revenue_path()); cov['pit_strict'] = os.environ.get('SURGE_PIT_STRICT') == '1'
     el = np.isfinite(Craw) & (Craw >= B.MIN_PRICE)
     r5 = (df(Ca) / df(Ca).shift(5) - 1).values
