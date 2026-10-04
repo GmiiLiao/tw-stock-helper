@@ -11855,7 +11855,14 @@ async function archiveChipDaily() {
     try { const m = cur.lendingJson ? JSON.parse(cur.lendingJson) : null;
       return m ? ['6274', '8069', '5483'].some(c => m[c] !== undefined) : false; } catch { return false; }
   })();
-  if (!cur.lendingJson || !hasOtcLend) {
+  // ⚠ 反方向同型（2026-10-04 起漲影子模型輸入閘門實測）：上市那半失敗、上櫃先寫入（>100 檔）時，
+  //   只看上櫃樣本會把「只有上櫃」定案 ⇒ 上市借券永遠不補（08-12、09-17 都只剩上櫃 812 檔）。
+  //   兩市各用樣本股判斷，缺任一半就重抓（既有的一半保留、只補不丟）。
+  const hasTwseLend = (() => {
+    try { const m = cur.lendingJson ? JSON.parse(cur.lendingJson) : null;
+      return m ? ['2330', '2317', '2454'].some(c => m[c] !== undefined) : false; } catch { return false; }
+  })();
+  if (!cur.lendingJson || !hasOtcLend || !hasTwseLend) {
     const dSlash = `${tw.getFullYear()}/${String(tw.getMonth() + 1).padStart(2, '0')}/${String(tw.getDate()).padStart(2, '0')}`;
     const lend = (() => { try { return cur.lendingJson ? JSON.parse(cur.lendingJson) : {}; } catch { return {}; } })();
     const twL = await J(`https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date=${ymd}&response=json`);
