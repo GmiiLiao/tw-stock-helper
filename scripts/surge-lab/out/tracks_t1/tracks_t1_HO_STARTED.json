@@ -1,0 +1,24 @@
+{
+ "time": "2026-10-05T01:16:38+0800",
+ "head": "2df3c676b6b482d4b6fc6164e3b37f4e94585fe5",
+ "registration_sha256": "065a92c6b063ccfb0bcb5a8facc99734e4f7d769f7af66198953cd7f5592c3e3",
+ "code_sha256": {
+  "a36_tracks_cv.py": "8d7fdcd4b7a237635e9d6fb3f661a3e27cf59e3943138e6e94988dd71d25fdb8",
+  "a36_tracks_eval.py": "7ea10156c1cadfba8437b3f1869e510386562dd4877cd432c78c8b301d968a54",
+  "a36_tracks_decide.py": "31538c186533ab4815a4a6243696324a3f2f4ca8f1e3e2138f8d0f82fd52d068",
+  "a36_tracks_ho.py": "f653979edfc4bc5f78370d137eed070876c426186e5b533078d874d6a18e423a",
+  "a36_tracks_fit.py": "1716bb9559cb54cf91e797885e93b06891ae9c3c15e845a2fcaceb09dca8eea9",
+  "a36_tracks_proxy.py": "0e69e1d7a3dfca407c0609e11f9d9773adbb7874850afe3b7147301342b52247",
+  "a36_tracks_gate.py": "4ba0407b2080850aa1c42f2a097140472f949161d36cb2c8965a62deab4a551d",
+  "a36_tracks_lib.py": "e1ec6280d58dd3219a180a84438b8b80685141378725d1d4a67a4558f97a5ce0",
+  "a36_tracks_build.py": "fb393a36f07f4b375e9afb3f3993234e18709fcb42cf5af5bfdb37ab04f48810",
+  "a36_tracks_stages.py": "815d75dd1478f18602d9dc99734314b1689e67c61209945598c3312d1a3540ca"
+ },
+ "dryrun_sha256": "2bd25c7b8801db229e9bc1b2b374f582e00fbf78da3868eba7f39bf8831633a4",
+ "selection": {
+  "W_R": "R1@5",
+  "W_S": "S0_atr14@5",
+  "Mp1_carry_to_holdout": true
+ },
+ "note": "此檔 commit 之前沒有讀取任何 HOLDOUT 標籤或報酬（登錄 §8.2 第 3 點）"
+}
