@@ -67,11 +67,11 @@ async function cvRows(params: URLSearchParams): Promise<Response> {
   const cv = got.doc;
   if (!cv) return gzipJsonAuto({ found: false }, NO_STORE);
   const ref = resolveRowsDoc(cv, p.query);
-  if (!ref) return gzipJsonAuto({ found: false, note: '這個組合沒有發佈逐列資料（版本不存在、與修正前相同，或筆數對不上而未發佈）' }, NO_STORE);
+  if (!ref) return gzipJsonAuto({ found: false, note: '這個組合沒有發佈逐列資料（版本不存在、與修正前相同，或內容與本版 CV 摘要不符而未發佈）' }, NO_STORE);
   const table = await rowsLoader(ref.id, ref.sha256)();
   if (!table) return fail('讀取逐列資料失敗（文件不存在或與摘要版本不一致——剛重新發佈請 1 分鐘後再試，否則重新執行 surge_lab_publish.mjs）', 502);
   const page = queryRows(table, p.query);
-  return gzipJsonAuto({ found: true, doc: { id: ref.id, totalRows: ref.totalRows, keptRows: ref.keptRows, filterNote: ref.filterNote, model: ref.model }, dataDate: cv.dataDate, ...page }, NO_STORE);
+  return gzipJsonAuto({ found: true, doc: { id: ref.id, totalRows: ref.totalRows, keptRows: ref.keptRows, filterNote: ref.filterNote, model: ref.model, verified: ref.verified, verifyNote: ref.verifyNote }, dataDate: cv.dataDate, ...page }, NO_STORE);
 }
 
 async function labView(db: Db, view: Exclude<View, 'cvrows'>): Promise<Response> {

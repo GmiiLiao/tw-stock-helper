@@ -7,7 +7,7 @@ import type { CvVersion, CvTaskId, RowsCell } from '../../../scripts/lib/surge-l
 import { labGet } from './surgeLabFetch';
 import { MONO } from './AiLabParts';
 
-interface Page { found: boolean; note?: string; doc?: { id: string; totalRows: number; keptRows: number; filterNote: string | null; model: string }; cols: string[]; rows: RowsCell[][]; total: number; page: number; pages: number; pageSize: number; rankIgnored: boolean }
+interface Page { found: boolean; note?: string; doc?: { id: string; totalRows: number; keptRows: number; filterNote: string | null; model: string; verified?: boolean; verifyNote?: string | null }; cols: string[]; rows: RowsCell[][]; total: number; page: number; pages: number; pageSize: number; rankIgnored: boolean }
 type Kind = 'hits' | 'misses' | 'outside';
 const KIND_LABEL: Record<Kind, string> = { hits: '命中（前 10 內）', misses: '漏網（真事件、名次 >10）', outside: '母體外（被濾網擋掉的事件）' };
 const COL_LABEL: Record<string, string> = { date: '打分日', event_day: '事件日', code: '代號', name: '名稱', market: '市場', score: '分數', rank: '同日名次', n_day: '當日母體', result: '結果', reason: '擋掉原因' };
@@ -64,6 +64,8 @@ export default function SurgeCvRows({ task, v }: { task: CvTaskId; v: CvVersion 
   const sel = (on: boolean): React.CSSProperties => ({ ...inputStyle, cursor: 'pointer', fontWeight: on ? 700 : 400 });
   const rowsSlot = v.rows?.[model] as Record<string, { filterNote?: string | null; skipped?: string }> | { skipped: string } | undefined;
   const skipped = rowsSlot && 'skipped' in rowsSlot && typeof rowsSlot.skipped === 'string' ? rowsSlot.skipped : null;
+  const outSlot = v.rows?.outside?.[model] as { skipped?: string } | undefined;
+  const outSkipped = typeof outSlot?.skipped === 'string' ? outSlot.skipped : null;
 
   return (
     <div style={{ display: 'grid', gap: 8, fontSize: 'calc(12.5px * var(--fz))' }}>
@@ -88,6 +90,8 @@ export default function SurgeCvRows({ task, v }: { task: CvTaskId; v: CvVersion 
         <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}><input type="checkbox" checked={showSrc} onChange={e => setShowSrc(e.target.checked)} />來源有值</label>
       </div>
       {skipped && kind !== 'outside' && <div style={{ color: '#f59e0b' }}>⚠ 這個模型的逐列未發佈：{skipped}</div>}
+      {outSkipped && kind === 'outside' && <div style={{ color: '#f59e0b' }}>⚠ 這個模型的母體外未發佈：{outSkipped}</div>}
+      {data?.found && data.doc?.verified === false && <div style={{ color: '#f59e0b' }}>⚠ {data.doc.verifyNote || '未驗證：這份逐列沒有可對照的摘要筆數'}</div>}
       {err && <div style={{ color: '#ef4444' }}>載入失敗：{err}</div>}
       {data && !data.found && <div style={{ color: 'var(--text-muted)' }}>{data.note || '沒有資料'}</div>}
       {data?.found && (

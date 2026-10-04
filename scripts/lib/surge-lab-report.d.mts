@@ -17,33 +17,46 @@ export interface CvRobust {
   base: Record<string, number | null | Record<string, number | null>>; official: Record<string, number | null | Record<string, number | null>>;
   universe?: Record<string, number | null>;
 }
-export interface CvRowsRef { docId: string; totalRows: number; keptRows: number; filterNote: string | null }
+/** verified：命中／漏網＝內容已與本版 CV 摘要核對（恆 true）；母體外＝CV 有 n_outside 且筆數相符才 true，否則 false＋verifyNote */
+export interface CvRowsRef { docId: string; totalRows: number; keptRows: number; filterNote: string | null; verified: boolean; verifyNote: string | null }
 export type CvRowsSlot = CvRowsRef | { skipped: string };
 export interface CvVersion {
   id: CvVersionId; label: string; versionLabel: string; sameAs: CvVersionId | null; note?: string;
-  dir?: string; sha12?: string | null; mtime?: string | null; meta?: CvMeta | null; base?: CvModelStat | null; official?: CvModelStat | null;
+  dir?: string; sha12?: string | null; mtime?: string | null; scoredFirst?: string | null; scoredLast?: string | null; meta?: CvMeta | null; base?: CvModelStat | null; official?: CvModelStat | null;
   ablation?: CvAblationRow[]; hitmiss?: { base: CvHitmiss | null; official: CvHitmiss | null };
   robust?: CvRobust | null; robustNote?: string | null;
   analysis?: { file: string; sha12: string | null; markdown: string; truncated: boolean; chars: number } | null;
-  rows?: { base?: Record<string, CvRowsSlot> | { skipped: string }; official?: Record<string, CvRowsSlot> | { skipped: string }; outside?: Record<string, CvRowsRef> };
+  rows?: { base?: Record<string, CvRowsSlot> | { skipped: string }; official?: Record<string, CvRowsSlot> | { skipped: string }; outside?: Record<string, CvRowsSlot> };
   warnings?: string[];
 }
-export interface CvRowsDocMeta { id: string; task: CvTaskId; version: CvVersionId; model: CvModel | 'all'; kind: CvKind; totalRows: number; keptRows: number; filterNote: string | null; gzBytes: number; sha256: string }
+export interface CvRowsDocMeta { id: string; task: CvTaskId; version: CvVersionId; model: CvModel | 'all'; kind: CvKind; totalRows: number; keptRows: number; filterNote: string | null; verified: boolean; verifyNote: string | null; gzBytes: number; sha256: string }
 export interface CvDoc { schema: string; dataDate: string; generatedAt: string; tasks: Array<{ id: CvTaskId; label: string; versions: CvVersion[]; note: string | null }>; rowsDocs: CvRowsDocMeta[] }
 
-export interface MirrorDataset { key: string; host: string | null; id: string; first: string | null; last: string | null; unit: 'day' | 'month' | 'quarter' | 'other'; counts: Record<string, number>; stale: boolean | null; verified: boolean | null }
+export interface MirrorDataset {
+  key: string; host: string | null; id: string; first: string | null; last: string | null; unit: 'day' | 'month' | 'quarter' | 'other'; counts: Record<string, number | null>; stale: boolean | null; verified: boolean | null;
+  /** must＝official-mirror 必有表；ltdStatus＝最後交易日那一列的狀態；mustNotOk＝必有表在最後交易日不是 ok；absent＝必有表鏡像尚無 */
+  must: boolean; ltdStatus: string | null; ltdError: string | null; mustNotOk: boolean | null; absent: boolean;
+}
 export interface MirrorDoc {
   schema: string; dataDate: string; generatedAt: string; lastTradingDay: string | null; present: boolean; manifestUpdated: string | null; manifestAlerts: { at?: string; missing?: number } | null;
-  summary: { datasets: number; daily: number; stale: number; withBad: number; verifyTotal: number; verifyOk: number; alertsMissing: number | null };
+  summary: { datasets: number; daily: number; stale: number; withBad: number; verifyTotal: number; verifyOk: number; alertsMissing: number | null; mustTotal: number; mustNotOk: number; mustAbsent: number };
+  readErrors: Array<{ file: string | null; error: string | null }>;
   verifyFailures: Array<{ id: string; status: string | null; note: string | null; rows: number | null; echo: string | null; at: string | null }>;
   alerts: { rule: string | null; at: string | null; missingTotal: number; missing: Array<{ id: string | null; key: string | null; status: string | null }>; truncated: boolean } | null;
   alertsNote: string | null;
   lock: { cmd: string | null; pid: number | null; at: string | null; alive: boolean | null } | null;
   budget: { day: string | null; requests: number | null } | null;
-  runs: Array<{ name: string | null; requests: number | null; stats: Record<string, number> | null; alerts: number | null; at: string | null }>;
+  runs: Array<{ name: string | null; requests: number | null; stats: Record<string, number> | null; alerts: number | null; at: string | null; error: string | null }>;
   datasets: MirrorDataset[];
 }
-export interface PipelineDoc { schema: string; dataDate: string; generatedAt: string; present: boolean; status: Record<string, unknown> | null; mtime: string | null; note: string | null }
+/** pipelineSummary()：每日影子協調器狀態檔（a35.shadowDaily.v1）的一行摘要 */
+export interface PipelineSummary {
+  schema: string | null; schemaKnown: boolean; ok: boolean | null; stepsTotal: number; stepsFailed: number; lastStep: string | null;
+  failed: Array<{ name: string | null; err: string | null }>; lastRun: string | null; day: string | null; nextTD: string | null; deadline: string | null; dryRun: boolean;
+  produced: string[]; scored: string[]; missedTotal: number | null; newlyMissed: number | null; missedRecent: Array<{ scoringDay: string | null; reason: string | null }>;
+  waiting: number | null; publishOk: boolean | null; publishFinished: string | null;
+}
+export interface PipelineDoc { schema: string; dataDate: string; generatedAt: string; present: boolean; status: Record<string, unknown> | null; mtime: string | null; summary?: PipelineSummary | null; note: string | null }
 
 export type RowsCell = string | number | null;
 export interface RowsTable { cols: string[]; rows: RowsCell[][] }

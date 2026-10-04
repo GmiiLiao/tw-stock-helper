@@ -124,6 +124,10 @@ function VersionView({ task, v }: { task: CvTaskId; v: CvVersion }) {
   const m = v.meta;
   return (
     <div>
+      <div style={{ fontSize: 'calc(12.5px * var(--fz))' }}>
+        外樣本打分日 <b>{v.scoredFirst && v.scoredLast ? `${v.scoredFirst}～${v.scoredLast}` : '不明（沒有核對過的逐列檔）'}</b>
+        <span style={{ color: 'var(--text-muted)' }}>（由已與本版 CV 核對過的命中／漏網列推得，不是發佈日）</span>
+      </div>
       <Muted>
         {v.versionLabel}｜測試 {m?.days ?? '—'} 日、{m?.test_rows?.toLocaleString() ?? '—'} 列、正例 {m?.positives?.toLocaleString() ?? '—'}（基準率 {frac(m?.base_rate ?? null, 3)}）｜{m?.protocol ?? '—'}
       </Muted>
@@ -168,7 +172,7 @@ export default function SurgeCvOfficial() {
   return (
     <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.7 }}>
       <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)', marginBottom: 10 }}>
-        <b>🧪 官方化重訓驗證</b>：同一批列、同一套滾動外樣本協定，只換特徵集（base＝原特徵；official＝官方來源特徵）。資料日 <b>{cv.dataDate}</b>｜發佈 {twTime(cv.generatedAt)}{data.updatedAt ? `｜寫入 ${twTime(data.updatedAt)}` : ''}
+        <b>🧪 官方化重訓驗證</b>：同一批列、同一套滾動外樣本協定，只換特徵集（base＝原特徵；official＝官方來源特徵）。各版本的資料範圍見下方「外樣本打分日」｜發佈時最後交易日 {cv.dataDate}｜發佈 {twTime(cv.generatedAt)}{data.updatedAt ? `｜寫入 ${twTime(data.updatedAt)}` : ''}
         {loading && <span style={{ color: 'var(--text-muted)' }}>　更新中…</span>}{err && <span style={{ color: '#ef4444' }}>　重新載入失敗：{err}</span>}
         <div style={{ color: 'var(--text-muted)' }}>{LAB_FOOT}研究模型的外樣本回測，不是站上預測、不構成推薦。</div>
       </div>

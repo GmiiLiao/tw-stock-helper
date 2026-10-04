@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { auth } from '@/lib/firebase';
-import type { PipelineDoc } from '../../../scripts/lib/surge-lab-report.mjs';
+import type { PipelineDoc, PipelineSummary } from '../../../scripts/lib/surge-lab-report.mjs';
 import { useLabView, twTime } from './surgeLabFetch';
 
 // ── 🚀 起漲影子名單（超級管理員）────────────────────────────────────
@@ -215,36 +215,41 @@ function ShadowList() {
 }
 
 // ── 每日影子管線狀態（a35_shadow_daily 協調器寫 out/a35_shadow_daily_status.json → surge_lab_publish.mjs → lab-pipeline）──
-// 狀態檔的欄位由協調器決定；這裡只挑常見欄位顯示一行，其餘原樣收在「原始狀態」裡（不猜、不補值）。
+// 摘要由發佈程式依協調器的實際格式（a35.shadowDaily.v1：steps[{name,ok,err}]、lastRunAt、D、nextTD…）算好（pipelineSummary），
+// 這裡只顯示；格式不認得就明說並請看原始狀態（不猜欄位、不補值）。
 interface PipelineResp { found: boolean; updatedAt?: string | null; pipeline?: PipelineDoc }
-const firstOf = (o: Record<string, unknown>, keys: string[]): unknown => keys.map(k => o[k]).find(v => v !== undefined && v !== null && v !== '');
-const txt = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? String(v) : v == null ? null : JSON.stringify(v));
+const RED = '#ef4444'; const AMBER = '#f59e0b';
+function pipelineMark(s: PipelineSummary): [string, string | undefined] {
+  if (!s.schemaKnown) return [`狀態檔格式不明（${s.schema ?? '無 schema'}）`, AMBER];
+  if (s.ok === true) return ['✅ 成功', 'var(--color-up)'];
+  if (s.ok === false) return [`✖ ${s.stepsFailed}/${s.stepsTotal} 步失敗`, RED];
+  return ['本輪沒有要做的步驟', undefined];
+}
 export function PipelineLine() {
   const { data, err } = useLabView<PipelineResp>('pipeline');
   const box = (children: React.ReactNode, color = 'var(--text-muted)') => <div style={{ marginBottom: 8, fontSize: 'calc(12.5px * var(--fz))', color }}>{children}</div>;
-  if (!data) return box(err ? `管線狀態載入失敗：${err}` : '管線狀態載入中…', err ? '#ef4444' : undefined);
+  if (!data) return box(err ? `管線狀態載入失敗：${err}` : '管線狀態載入中…', err ? RED : undefined);
   if (!data.found || !data.pipeline) return box('🛠 每日影子管線：狀態尚未發佈（node scripts/surge-lab/surge_lab_publish.mjs --only pipeline）');
   const p = data.pipeline;
   if (!p.present || !p.status) return box(`🛠 每日影子管線：${p.note ?? '沒有狀態'}（發佈 ${twTime(p.generatedAt)}）`);
-  const s = p.status;
-  const ok = firstOf(s, ['ok', 'success']);
-  const step = txt(firstOf(s, ['lastStep', 'step', 'stage']));
-  const day = txt(firstOf(s, ['D', 'day', 'scoringDay']));
-  const at = txt(firstOf(s, ['finishedAt', 'at', 'updatedAt', 'generatedAt']));
-  const fail = txt(firstOf(s, ['error', 'err', 'reason']));
-  const deadline = txt(firstOf(s, ['deadline', 'cutoff']));
-  const mark = ok === true ? '✅ 成功' : ok === false ? '✖ 失敗' : '狀態不明';
+  const s = p.summary;
+  const [mark, color] = s ? pipelineMark(s) : ['沒有摘要（舊版發佈，請重新執行 surge_lab_publish.mjs --only pipeline）', AMBER];
+  const fail = s?.failed[0];
+  const missed = s && s.missedTotal ? `｜累計錯過 ${s.missedTotal} 日${s.newlyMissed ? `（本輪新增 ${s.newlyMissed}）` : ''}：${s.missedRecent.map(m => `${m.scoringDay ?? '—'} ${m.reason ?? ''}`).join('；')}` : '';
   return box(
     <>
-      🛠 每日影子管線：<b style={{ color: ok === false ? '#ef4444' : ok === true ? 'var(--color-up)' : undefined }}>{mark}</b>
-      {step ? `｜最後步驟 ${step}` : ''}{day ? `｜打分日 ${day}` : ''}{deadline ? `｜凍結截止 ${deadline}` : ''}{at ? `｜${at.includes('T') ? twTime(at) : at}` : ''}
-      {fail ? <span style={{ color: '#ef4444' }}>｜{fail}</span> : null}
+      🛠 每日影子管線{s?.dryRun ? '（乾跑）' : ''}：<b style={{ color }}>{mark}</b>
+      {s?.lastRun ? `｜執行 ${twTime(s.lastRun)}` : ''}{s?.day ? `｜最近交易日 ${s.day}→${s.nextTD ?? '—'}` : ''}{s?.deadline ? `｜凍結期限 ${s.deadline}` : ''}
+      {s ? `｜產生 ${s.produced.join('、') || '無'}｜對答案 ${s.scored.join('、') || '無'}` : ''}
+      {fail ? <span style={{ color: RED }}>｜{fail.name ?? '?'}：{fail.err ?? '（沒有錯誤訊息）'}</span> : s?.lastStep ? `｜最後步驟 ${s.lastStep}` : ''}
+      {missed ? <span style={{ color: AMBER }}>{missed}</span> : null}
+      {s?.publishOk === false ? <span style={{ color: AMBER }}>｜上次名單發佈失敗</span> : null}
       <span>｜狀態檔 {twTime(p.mtime)}、發佈 {twTime(p.generatedAt)}</span>
       <details style={{ display: 'inline-block', marginLeft: 6 }}><summary style={{ cursor: 'pointer', color: '#7dd3fc' }}>原始狀態</summary>
-        <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto', background: 'var(--bg-secondary)', padding: 8, borderRadius: 8 }}>{JSON.stringify(s, null, 1)}</pre>
+        <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto', background: 'var(--bg-secondary)', padding: 8, borderRadius: 8 }}>{JSON.stringify(p.status, null, 1)}</pre>
       </details>
     </>,
-    ok === false ? '#f59e0b' : undefined,
+    s?.ok === false ? AMBER : undefined,
   );
 }
 

@@ -3,9 +3,12 @@
 // API（src/app/api/admin/surge-shadow?view=cvrows）也用這裡的查詢函式做伺服器端篩選與分頁。
 //   · lastTradingDay：資料日一律由資料決定（研究面板日期＋鏡像 MI_INDEX 已確認日），不看日曆——非交易日發佈也記最後交易日。
 //   · planCvTask：一個任務（t1L／t2L／lu1L）× 版本（修正前快照／目前 out/）→ 摘要＋逐列資料；修正前後的數字絕不混用：
-//       目前版與修正前逐位相同 ⇒ 標 sameAs（不重複發佈）；穩健度檔與本版 CV 對不上 ⇒ 不採用；逐列 CSV 筆數對不上 ⇒ 不發佈該模型逐列。
-//   · buildMirrorDoc：鏡像 manifest／驗證／警示／鎖／請求額度 → 健康摘要（日資料落後最後交易日者標記）。
-//   · buildPipelineDoc：每日影子協調器的狀態檔原樣帶上（沒有就 null＋說明，不捏造）。
+//       目前版與修正前逐位相同 ⇒ 標 sameAs（不重複發佈）；穩健度檔與本版 CV 對不上 ⇒ 不採用；
+//       逐列 CSV 由內容重算 hitmiss 摘要與本版 CV 比對（hitmissMismatch），不符 ⇒ 不發佈該模型逐列；母體外無筆數可比 ⇒ 標「未驗證」。
+//       每版的「外樣本打分日」範圍由已核對的列推得（scoredFirst／scoredLast），不拿發佈日充當。
+//   · cvGateProblems／staleRowsToDelete：輸入殘缺（缺修正前快照、這次沒有逐列）時不寫、不刪——不讓空結果蓋掉 Firestore 上的好資料。
+//   · buildMirrorDoc：鏡像 manifest／驗證／警示／鎖／請求額度 → 健康摘要（日資料落後最後交易日、必有表在最後交易日不是 ok 者標記）。
+//   · buildPipelineDoc：每日影子協調器的狀態檔原樣帶上＋pipelineSummary 摘要（沒有就 null＋說明，不捏造）。
 // 研究數字未扣成本、非投資建議。欄位命名避開未登記的 xxxAt／xxxDate（scripts/check-field-conventions.mjs）。
 
 export const CV_SCHEMA = 'surgeShadow.cv.v1';
@@ -101,9 +104,13 @@ export function typedTable({ cols, rows }) {
   return { cols: [...cols], rows: out };
 }
 
-/** 後台逐列文件內容：lu1L 漏網只留名次 ≤100（全量留本機）。 */
+/** 後台逐列文件內容：lu1L 漏網只留名次 ≤100（全量留本機）。table 為 parseCsv 的字串表。 */
 export function rowsPayload(task, kind, table) {
-  const typed = typedTable(table);
+  return rowsPayloadTyped(task, kind, typedTable(table));
+}
+
+/** 同 rowsPayload，但輸入已是 typedTable 的結果（不可再轉一次：null 會被 Number() 變成 0）。 */
+function rowsPayloadTyped(task, kind, typed) {
   const totalRows = typed.rows.length;
   if (task === 'lu1L' && kind === 'misses') {
     const ri = typed.cols.indexOf('rank');
@@ -191,12 +198,75 @@ export function extractAnalysis(md, sections = ANALYSIS_SECTIONS, maxChars = ANA
   return { markdown, truncated: true, chars: full.length };
 }
 
-function rowsConsistent(cvModel, counts) {
-  const hm = cvModel?.hitmiss;
-  if (!isObj(hm)) return 'CV 檔沒有 hitmiss 摘要';
-  if (counts.hits !== null && counts.hits !== hm.n_hit) return `命中 CSV ${counts.hits} 列 ≠ 摘要 ${hm.n_hit}`;
-  if (counts.misses !== null && counts.misses !== hm.n_miss) return `漏網 CSV ${counts.misses} 列 ≠ 摘要 ${hm.n_miss}`;
+// ── 逐列 CSV 與 CV 摘要的內容比對（2026-10-04 審查：只比筆數擋不住「第 N 次的 JSON 配第 N+1 次的 CSV」）────────
+// cv_official.py write_records 在訓練途中就寫 CSV、最後才寫 JSON；它的 hitmiss 摘要＝「CSV 欄位（已四捨五入到 3 位）平均」
+// 再四捨五入到 3 位 ⇒ 由 CSV 重算的平均與摘要至多差 0.0005（＋浮點雜訊）。修正前 6 組 任務×模型 實測最大差 0.0005。
+export const HITMISS_MEAN_TOL = 0.0006;
+const SIDES = [{ kind: 'hits', side: 0, label: '命中', nKey: 'n_hit' }, { kind: 'misses', side: 1, label: '漏網', nKey: 'n_miss' }];
+const MEAN_GROUPS = [['pct_', 'feature_pct_mean'], ['有值:', 'source_has_value_rate']];
+const BIN_RE = /^\((\d+),\s*(\d+)\]$/;   // pandas Interval 字串，例 "(10, 30]"
+
+function meanOf(rows, i) {
+  let s = 0; let n = 0;
+  for (const r of rows) { const v = r[i]; if (typeof v === 'number' && Number.isFinite(v)) { s += v; n++; } }   // 同 pandas mean：缺值不計
+  return n ? s / n : null;
+}
+
+function sideMismatch(hm, t, { kind, side, label, nKey }) {
+  if (t.rows.length !== hm[nKey]) return `${label} CSV ${t.rows.length} 列 ≠ 摘要 ${hm[nKey] ?? '—'}`;
+  const col = c => t.cols.indexOf(c);
+  for (const [prefix, key] of MEAN_GROUPS) {
+    const want = isObj(hm[key]) ? hm[key] : {};
+    const csvKeys = t.cols.filter(c => c.startsWith(prefix)).map(c => c.slice(prefix.length)).sort();
+    const sumKeys = Object.keys(want).sort();
+    if (csvKeys.join('\u0001') !== sumKeys.join('\u0001')) return `${label} CSV 的「${prefix}」欄位與摘要 ${key} 不同（${csvKeys.length} vs ${sumKeys.length} 欄）`;
+    for (const k of csvKeys) {
+      const w = Array.isArray(want[k]) ? fin(want[k][side]) : null; const got = meanOf(t.rows, col(prefix + k));
+      if (w === null && got === null) continue;
+      if (w === null || got === null || Math.abs(got - w) > HITMISS_MEAN_TOL) return `${label}「${k}」平均 ${got === null ? '—' : got.toFixed(4)} ≠ 摘要 ${w ?? '—'}`;
+    }
+  }
+  const mi = col('market');
+  for (const [m, pair] of Object.entries(isObj(hm.by_market) ? hm.by_market : {})) {
+    const got = mi < 0 ? null : t.rows.filter(r => r[mi] === m).length;
+    if (!Array.isArray(pair) || got !== pair[side]) return `${label} ${m} ${got ?? '—'} 檔 ≠ 摘要 ${Array.isArray(pair) ? pair[side] : '—'}`;
+  }
+  const ri = col('rank'); const K = fin(hm.K);
+  if (ri < 0) return `${label} CSV 缺 rank 欄`;
+  if (K !== null && t.rows.some(r => !(typeof r[ri] === 'number' && (side === 0 ? r[ri] <= K : r[ri] > K)))) return `${label} CSV 有名次不在 ${side === 0 ? '≤' : '>'}${K} 的列`;
+  if (kind === 'misses') {
+    for (const [bin, n] of Object.entries(isObj(hm.miss_rank_bins) ? hm.miss_rank_bins : {})) {
+      const b = BIN_RE.exec(bin);
+      if (!b) return `摘要的漏網名次分箱「${bin}」格式不明`;
+      const got = t.rows.filter(r => typeof r[ri] === 'number' && r[ri] > Number(b[1]) && r[ri] <= Number(b[2])).length;
+      if (got !== n) return `漏網名次 ${bin} ${got} 列 ≠ 摘要 ${n}`;
+    }
+  }
   return null;
+}
+
+/**
+ * 由逐列 CSV（typedTable 後）重算 cv_official 的命中／漏網摘要，與 CV 檔的 hitmiss 比對；tables.hits／misses 為 null 的那一邊不比。
+ * 比：筆數、各特徵百分位與來源有值率的平均（容差 HITMISS_MEAN_TOL）、市場［命中, 漏網］、名次與 K 的關係、漏網名次分箱。回傳 null＝一致。
+ */
+export function hitmissMismatch(hm, tables) {
+  if (!isObj(hm)) return 'CV 檔沒有 hitmiss 摘要';
+  for (const s of SIDES) {
+    if (!tables?.[s.kind]) continue;
+    const bad = sideMismatch(hm, tables[s.kind], s);
+    if (bad) return bad;
+  }
+  return null;
+}
+
+const OUTSIDE_UNVERIFIED = '未驗證：CV 檔沒有母體外筆數（hitmiss.n_outside）可對照；僅依寫檔順序（命中→漏網→母體外→最後才寫 CV）推定與本版同一次執行';
+
+/** 打分日範圍（由已核對的命中／漏網列推得，不看發佈日）。 */
+function scoredRange(tables) {
+  const days = [];
+  for (const t of tables) { const i = t.cols.indexOf('date'); if (i >= 0) for (const r of t.rows) if (typeof r[i] === 'string' && DAY_RE.test(r[i])) days.push(r[i]); }
+  if (!days.length) return { scoredFirst: null, scoredLast: null };
+  return { scoredFirst: days.reduce((m, d) => (d < m ? d : m)), scoredLast: days.reduce((m, d) => (d > m ? d : m)) };
 }
 
 /**
@@ -224,33 +294,46 @@ export function planCvTask(taskId, inputs) {
     const robustAll = inp.robustText ? JSON.parse(inp.robustText) : null;
     const rb = robustAll ? robustFor(robustAll, taskId, cv) : { robust: null, note: `${def.dir}/ 沒有 official_cv_robust.json（需重跑 save_scores＋robust）` };
     const own = inp.analysis && !(def.id !== 'pre_fix' && pre?.analysis && inp.analysis.text === pre.analysis.text) ? inp.analysis : null;
-    const rows = {};
+    const rows = {}; const checked = []; const outsideOk = {};
+    const add = (model, kind, p, verified, verifyNote) => {
+      const id = cvRowsDocId(taskId, def.id, model, kind);
+      payloads.push({ id, task: taskId, version: def.id, model, kind, ...p, verified, verifyNote });
+      return { docId: id, totalRows: p.totalRows, keptRows: p.keptRows, filterNote: p.filterNote, verified, verifyNote };
+    };
     for (const model of CV_MODELS) {
       const c = inp.csv?.[model] || {};
-      const tables = Object.fromEntries(['hits', 'misses'].map(k => [k, c[k] ? parseCsv(c[k]) : null]));
-      const bad = rowsConsistent(cv[model], { hits: tables.hits?.rows.length ?? null, misses: tables.misses?.rows.length ?? null });
-      if (bad) { warnings.push(`${model} 逐列未發佈：${bad}`); rows[model] = { skipped: bad }; continue; }
+      const tables = Object.fromEntries(['hits', 'misses'].map(k => [k, c[k] ? typedTable(parseCsv(c[k])) : null]));
+      if (!tables.hits && !tables.misses) { rows[model] = { hits: { skipped: '檔案不存在' }, misses: { skipped: '檔案不存在' } }; continue; }
+      const bad = hitmissMismatch(cv[model].hitmiss, tables);
+      if (bad) { const why = `內容與本版 CV 摘要不符（不是同一次執行的輸出）：${bad}`; warnings.push(`${model} 逐列未發佈：${why}`); rows[model] = { skipped: why }; continue; }
+      outsideOk[model] = true;   // 命中／漏網與本版 CV 同一次執行 ⇒ 依寫檔順序，之後才寫的母體外也是（見 OUTSIDE_UNVERIFIED）
       rows[model] = {};
       for (const kind of ['hits', 'misses']) {
         if (!tables[kind]) { rows[model][kind] = { skipped: '檔案不存在' }; continue; }
-        const p = rowsPayload(taskId, kind, tables[kind]);
-        const id = cvRowsDocId(taskId, def.id, model, kind);
-        payloads.push({ id, task: taskId, version: def.id, model, kind, ...p });
-        rows[model][kind] = { docId: id, totalRows: p.totalRows, keptRows: p.keptRows, filterNote: p.filterNote };
+        checked.push(tables[kind]);
+        rows[model][kind] = add(model, kind, rowsPayloadTyped(taskId, kind, tables[kind]), true, null);
       }
     }
-    // 母體外：兩個模型的事件集合相同（與模型無關）⇒ 只存一份 model=all；不同就各存一份
-    const ob = inp.csv?.base?.outside; const oo = inp.csv?.official?.outside;
-    const outs = ob && oo && ob === oo ? [['all', ob]] : [['base', ob], ['official', oo]].filter(([, t]) => t);
+    // 母體外：只收命中／漏網已核對過的模型；CV 有 n_outside 就比筆數（不符不發佈），沒有就標「未驗證」。兩模型內容相同 ⇒ 只存一份 model=all
     rows.outside = {};
-    for (const [model, text] of outs) {
-      const p = rowsPayload(taskId, 'outside', parseCsv(text));
-      const id = cvRowsDocId(taskId, def.id, model, 'outside');
-      payloads.push({ id, task: taskId, version: def.id, model, kind: 'outside', ...p });
-      rows.outside[model] = { docId: id, totalRows: p.totalRows, keptRows: p.keptRows, filterNote: p.filterNote };
+    const outCands = CV_MODELS.map(model => {
+      const text = inp.csv?.[model]?.outside;
+      if (!text) return null;
+      if (!outsideOk[model]) { rows.outside[model] = { skipped: '同模型的命中／漏網沒有通過核對，母體外來源無法推定' }; return null; }
+      const table = typedTable(parseCsv(text)); const nOut = fin(cv[model].hitmiss?.n_outside);
+      if (nOut !== null && nOut !== table.rows.length) {
+        const why = `母體外 CSV ${table.rows.length} 列 ≠ CV 摘要 n_outside ${nOut}`;
+        warnings.push(`${model} 母體外未發佈：${why}`); rows.outside[model] = { skipped: why }; return null;
+      }
+      return { model, text, table, verified: nOut !== null };
+    }).filter(Boolean);
+    const same = outCands.length === 2 && outCands[0].text === outCands[1].text;
+    for (const o of same ? [{ ...outCands[0], model: 'all', verified: outCands.every(x => x.verified) }] : outCands) {
+      rows.outside[o.model] = add(o.model, 'outside', rowsPayloadTyped(taskId, 'outside', o.table), o.verified, o.verified ? null : OUTSIDE_UNVERIFIED);
     }
     versions.push({
       id: def.id, label: def.label, versionLabel: label, sameAs: null, dir: def.dir, sha12: String(inp.sha || '').slice(0, 12) || null, mtime: str(inp.mtime),
+      ...scoredRange(checked),
       meta: slimMeta(cv._meta), base: slimModel(cv.base), official: slimModel(cv.official), ablation: ablationRows(cv),
       hitmiss: { base: slimHitmiss(cv.base.hitmiss), official: slimHitmiss(cv.official.hitmiss) },
       robust: rb.robust, robustNote: rb.note,
@@ -259,6 +342,28 @@ export function planCvTask(taskId, inputs) {
     });
   }
   return { entry: { id: task.id, label: task.label, versions, note: versions.length ? null : '沒有任何版本的 CV 輸出' }, payloads };
+}
+
+/**
+ * 發佈前閘門：每個任務都必須有修正前快照（out/pre_fix_*）的 CV。缺任何一個 ⇒ 回傳問題清單，呼叫端整個 cv／cvrows 不寫
+ * ——不可拿「找不到輸入」的空結果蓋掉 Firestore 上的好資料（CLAUDE.md：殘缺資料不可覆蓋好的快取；--dir 給錯、從 worktree 執行都會這樣）。
+ */
+export function cvGateProblems(tasks) {
+  const pre = CV_VERSIONS.find(v => v.id === 'pre_fix');
+  return CV_TASKS.filter(def => !(tasks || []).find(t => t.id === def.id)?.versions?.some(v => v.id === 'pre_fix' && !v.sameAs))
+    .map(def => `${def.id}：缺修正前快照 ${pre.dir}/official_cv_${def.id}.json`);
+}
+
+/**
+ * 要刪的舊逐列文件（Firestore 上有、這次清單沒有）。這次清單是空的、或任何任務一份逐列都沒有 ⇒ 不刪（回 skipped 原因）：
+ * 輸入殘缺時「清單外」＝全部，會把好的逐列整批刪光。
+ */
+export function staleRowsToDelete(existingIds, keepIds) {
+  const keep = new Set(keepIds || []);
+  if (!keep.size) return { ids: [], skipped: '這次沒有任何逐列文件，不刪舊的' };
+  const empty = CV_TASKS.filter(t => ![...keep].some(id => id.startsWith(`lab-cvrows-${t.id}-`))).map(t => t.id);
+  if (empty.length) return { ids: [], skipped: `任務 ${empty.join('、')} 這次沒有任何逐列文件，不刪舊的` };
+  return { ids: (existingIds || []).filter(id => id.startsWith('lab-cvrows-') && !keep.has(id)), skipped: null };
 }
 
 /** lab-cv 文件。rowsDocs：逐列文件清單（id＋內容 sha256），API 只服務清單內、且 sha 對得上的文件。 */
@@ -281,19 +386,32 @@ export function datasetUnit(key) {
 
 /**
  * 鏡像健康摘要。日資料（鍵為 YYYY-MM-DD）的 last 早於最後交易日 ⇒ stale；月／季資料的定版規則不同，這裡不判（stale=null，不假裝驗過）。
- * 警示檔不存在（retry 尚未首跑）⇒ alerts=null＋說明。
+ * manifest 的 last 是 ok／empty／unchanged 的最後一鍵 ⇒「最後交易日只抓到空表」不會落後——所以另看各資料集 _manifest.json 在最後交易日那一列
+ * 的狀態（ltdRows[key].status）：必有表（mustKeys＝official-mirror 的 must，交易日不可能為空）不是 ok ⇒ mustNotOk（紅）；
+ * 必有表根本不在 manifest（回補還沒建）也列出來（absent）。警示檔不存在（retry 尚未首跑）⇒ alerts=null＋說明。
+ * readErrors：發佈程式讀檔失敗（半寫／損壞）的清單，原樣帶上（那些欄位是 null，不是「沒有」）。
  */
-export function buildMirrorDoc({ manifest, verify, alerts, lock, budget, runs = [], lastTradingDay: ltd, dataDate, generatedAt }) {
+export function buildMirrorDoc({ manifest, verify, alerts, lock, budget, runs = [], ltdRows = {}, mustKeys = [], readErrors = [], lastTradingDay: ltd, dataDate, generatedAt }) {
   if (!DAY_RE.test(dataDate || '')) throw new Error(`dataDate 格式錯誤：${dataDate}`);
   const vmap = isObj(verify) ? verify : {};
-  const datasets = Object.entries(isObj(manifest?.datasets) ? manifest.datasets : {}).map(([key, v]) => {
+  const must = new Set(mustKeys);
+  const lr = isObj(ltdRows) ? ltdRows : {};
+  const entry = (key, v, absent) => {
     const slash = key.indexOf('/'); const id = slash > 0 ? key.slice(slash + 1) : key;
-    const last = str(v?.last); const unit = datasetUnit(last ?? str(v?.first) ?? '');
-    const counts = Object.fromEntries(Object.entries(isObj(v?.counts) ? v.counts : {}).map(([k, n]) => [k, fin(n) ?? 0]));
-    const stale = unit === 'day' && ltd ? last === null || last < ltd : null;
+    const last = str(v?.last); const unit = absent ? 'day' : datasetUnit(last ?? str(v?.first) ?? '');
+    const counts = Object.fromEntries(Object.entries(isObj(v?.counts) ? v.counts : {}).map(([k, n]) => [k, fin(n)]));   // 非數字＝null，不補 0
+    const stale = unit === 'day' && ltd && !absent ? last === null || last < ltd : null;   // 鏡像尚無的必有表不算「落後」，另以 absent／mustNotOk 標
     const verified = isObj(vmap[id]) ? vmap[id].ok === true : null;   // 端點驗證結果（null＝沒驗過）
-    return { key, host: slash > 0 ? key.slice(0, slash) : null, id, first: str(v?.first), last, unit, counts, stale, verified };
-  }).sort((a, b) => Number(!!b.stale) - Number(!!a.stale) || (a.key < b.key ? -1 : 1));
+    const ltdStatus = unit === 'day' && isObj(lr[key]) ? str(lr[key].status) : null;
+    const ltdError = isObj(lr[key]) ? str(lr[key].error) : null;
+    const isMust = must.has(key);
+    const mustNotOk = isMust && unit === 'day' && ltd ? ltdStatus !== 'ok' : null;
+    return { key, host: slash > 0 ? key.slice(0, slash) : null, id, first: str(v?.first), last, unit, counts, stale, verified, must: isMust, ltdStatus, ltdError, mustNotOk, absent };
+  };
+  const present = Object.entries(isObj(manifest?.datasets) ? manifest.datasets : {}).map(([key, v]) => entry(key, v, false));
+  const missingMust = [...must].filter(k => !present.some(d => d.key === k)).map(k => entry(k, null, true));
+  const hot = d => Number(!!d.stale || !!d.mustNotOk);
+  const datasets = [...present, ...missingMust].sort((a, b) => hot(b) - hot(a) || (a.key < b.key ? -1 : 1));
   const vEntries = Object.entries(vmap);
   const failures = vEntries.filter(([, x]) => x?.ok !== true).map(([id, x]) => ({ id, status: str(x?.status), note: str(x?.note), rows: fin(x?.rows), echo: str(x?.echo), at: str(x?.at) }));
   const missing = Array.isArray(alerts?.missing) ? alerts.missing : [];
@@ -303,25 +421,57 @@ export function buildMirrorDoc({ manifest, verify, alerts, lock, budget, runs = 
     schema: MIRROR_SCHEMA, dataDate, generatedAt, lastTradingDay: ltd ?? null,
     present: isObj(manifest), manifestUpdated: str(manifest?.updated), manifestAlerts: isObj(manifest?.alerts) ? manifest.alerts : null,
     summary: {
-      datasets: datasets.length, daily: datasets.filter(d => d.unit === 'day').length, stale: datasets.filter(d => d.stale).length,
+      datasets: present.length, daily: present.filter(d => d.unit === 'day').length, stale: datasets.filter(d => d.stale).length,
       withBad: datasets.filter(isBad).length, verifyTotal: vEntries.length, verifyOk: vEntries.length - failures.length, alertsMissing: alerts ? missing.length : null,
+      mustTotal: must.size, mustNotOk: datasets.filter(d => d.mustNotOk === true).length, mustAbsent: missingMust.length,
     },
+    readErrors: (Array.isArray(readErrors) ? readErrors : []).map(e => ({ file: str(e?.file), error: str(e?.error) })),
     verifyFailures: failures,
     alerts: isObj(alerts) ? { rule: str(alerts.rule), at: str(alerts.at), missingTotal: missing.length, missing: missing.slice(0, ALERTS_MAX).map(m => ({ id: str(m?.id), key: str(m?.key), status: str(m?.status) })), truncated: missing.length > ALERTS_MAX } : null,
     alertsNote: isObj(alerts) ? null : '尚無 _alerts/LATEST.json（鏡像 retry 首次執行後才會產生）',
     lock: isObj(lock) ? { cmd: str(lock.cmd), pid: fin(lock.pid), at: str(lock.at), alive: typeof lock.alive === 'boolean' ? lock.alive : null } : null,
     budget: isObj(budget) ? { day: str(budget.day), requests: fin(budget.requests) } : null,
-    runs: (Array.isArray(runs) ? runs : []).map(r => ({ name: str(r?.name), requests: fin(r?.requests), stats: isObj(r?.stats) ? r.stats : null, alerts: fin(r?.alerts), at: str(r?.at) })),
+    runs: (Array.isArray(runs) ? runs : []).map(r => ({ name: str(r?.name), requests: fin(r?.requests), stats: isObj(r?.stats) ? r.stats : null, alerts: fin(r?.alerts), at: str(r?.at), error: str(r?.error) })),
     datasets,
   };
 }
 
 // ── 影子管線狀態 ───────────────────────────────────────────────
+/** 每日影子協調器 scripts/surge-lab/a35_shadow_daily.mjs 寫的狀態檔格式（out/a35_shadow_daily_status.json）。 */
+export const PIPELINE_STATUS_SCHEMA = 'a35.shadowDaily.v1';
+const ERR_MAX = 300;
+const strList = v => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
+
+/**
+ * 狀態檔 → 一行摘要用的欄位（a35.shadowDaily.v1：steps[{name,ok,ms,err}]、lastRunAt、D、nextTD、deadline、plan、produced、scored、missed、lastPublish）。
+ * ok＝有步驟且全部成功（沒有步驟＝這輪沒事可做 ⇒ null，不假裝成功或失敗）；schema 不認得 ⇒ schemaKnown=false，畫面改提示看原始狀態。
+ */
+export function pipelineSummary(status) {
+  if (!isObj(status)) return null;
+  const steps = Array.isArray(status.steps) ? status.steps.filter(isObj) : [];
+  const failed = steps.filter(s => s.ok !== true);
+  const plan = isObj(status.plan) ? status.plan : null;
+  const pub = isObj(status.lastPublish) ? status.lastPublish : null;
+  const missed = Array.isArray(status.missed) ? status.missed.filter(isObj) : null;
+  return {
+    schema: str(status.schema), schemaKnown: status.schema === PIPELINE_STATUS_SCHEMA,
+    ok: steps.length ? failed.length === 0 : null, stepsTotal: steps.length, stepsFailed: failed.length, lastStep: str(steps.at(-1)?.name),
+    failed: failed.slice(0, 5).map(s => ({ name: str(s.name), err: typeof s.err === 'string' ? s.err.slice(0, ERR_MAX) : null })),
+    lastRun: str(status.lastRunAt), day: str(status.D), nextTD: str(status.nextTD), deadline: str(status.deadline), dryRun: status.dryRun === true,
+    produced: strList(status.produced), scored: strList(status.scored),
+    missedTotal: missed ? missed.length : null, newlyMissed: Array.isArray(plan?.newlyMissed) ? plan.newlyMissed.length : null,
+    missedRecent: (missed || []).slice(-3).map(m => ({ scoringDay: str(m.scoringDay), reason: str(m.reason) })),
+    waiting: Array.isArray(plan?.waiting) ? plan.waiting.length : null,
+    publishOk: typeof pub?.ok === 'boolean' ? pub.ok : null, publishFinished: str(pub?.finishedAt),
+  };
+}
+
 export function buildPipelineDoc({ status, mtime = null, dataDate, generatedAt }) {
   if (!DAY_RE.test(dataDate || '')) throw new Error(`dataDate 格式錯誤：${dataDate}`);
   if (status !== null && status !== undefined && !isObj(status)) throw new Error('管線狀態檔不是 JSON 物件');
   return {
     schema: PIPELINE_SCHEMA, dataDate, generatedAt, present: isObj(status), status: isObj(status) ? status : null, mtime: str(mtime),
+    summary: pipelineSummary(status),
     note: isObj(status) ? null : '尚無管線狀態檔（out/a35_shadow_daily_status.json 由每日影子協調器產生）',
   };
 }
