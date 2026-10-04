@@ -25,7 +25,8 @@ const WINDOW_MS = 60_000;
 const MAX_KEYS = 20_000;               // 有界 Map：防「大量偽造 IP 撐爆記憶體」
 const buckets = new Map<string, number[]>();
 
-function clientIp(request: Request): string {
+/** 限流與「每來源配額」共用的 client 鍵（live-requests-store 也用；改這裡前先驗 XFF 拓撲，見記憶 tw_stock_xff_topology）。 */
+export function clientIp(request: Request): string {
   // Firebase Hosting → Cloud Run：x-forwarded-for 第一跳是真實 client
   const xff = request.headers.get('x-forwarded-for') || '';
   return xff.split(',')[0].trim() || 'unknown';

@@ -10,6 +10,7 @@ import { auth } from '@/lib/firebase';
 import { Kpi, Section, upDn, twd, pct, tw } from '@/components/Admin/AiLabParts';
 import { DailyHistory, Positions, ClosedTrades, type Snapshot, type Summary } from '@/components/Admin/AiSwingLab';
 import CostReference from '@/components/shared/CostReference';
+import { startLiveLoop, isForeground } from '@/lib/market-clock';
 
 interface Flow { date: string; amount: number; at?: number }
 interface Settings { capital: number; growthTarget: number | null; goalDays: number | null; goalStartDate: string | null; flows: Flow[]; createdAt: number | null }
@@ -24,7 +25,7 @@ interface Decision { date: string; note: string | null; model: string | null; fr
 interface Resp {
   access?: { swing: boolean; daytrade: boolean }; settings?: Settings; withdrawable?: number; pendingFlow?: number; feeDiscount?: number;
   snapshot?: Snapshot | null; summary?: Summary | null; target?: Target | null;
-  decisions?: Decision[]; error?: string;
+  decisions?: Decision[]; error?: string; state?: 'active' | 'not_granted' | 'disabled';
 }
 
 async function authed(input: string, init: RequestInit = {}) {
@@ -39,6 +40,9 @@ const GOAL_DAY_OPTIONS: { v: number; label: string }[] = [
   { v: 60, label: '60 日（約 1 季）' }, { v: 120, label: '120 日（約半年）' }, { v: 240, label: '240 日（約 1 年）' },
 ];
 const DEFAULT_GOAL_DAYS = 20;
+/** G3-28：入金／提領後 daemon 約 1 分鐘內重算快照；期間自動重讀（只在前景、在途不疊打、上限次數） */
+const PENDING_REFRESH_MS = 30_000;
+const PENDING_REFRESH_MAX = 10;   // 30 秒 × 10＝最多 5 分鐘，之後靠使用者重新整理
 
 export default function MyAiLab() {
   const [data, setData] = useState<Resp | null>(null);
@@ -56,8 +60,29 @@ export default function MyAiLab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // G3-28（前端半·2026-10-04）：入金後頁面原本不會自己更新——總值一直顯示「含剛入金」直到手動重整。
+  // 有未入帳的資金異動、或已入金但帳戶快照還沒建好時，每 30 秒重讀一次；狀態解除即停，最多 10 次。
+  const pendingNow = data?.pendingFlow ?? 0;
+  const awaitingAccount = !!data?.settings && data.settings.flows.length > 0 && !data.summary;
+  const needsRefresh = pendingNow !== 0 || awaitingAccount;
+  useEffect(() => {
+    if (!needsRefresh) return;
+    let tries = 0;
+    let stop: (() => void) | null = null;
+    stop = startLiveLoop(() => {
+      if (!isForeground()) return;            // 背景分頁不打（回前景時標準件會立即補一次）
+      if (tries >= PENDING_REFRESH_MAX) { stop?.(); return; }
+      tries += 1;
+      return load();
+    }, () => PENDING_REFRESH_MS);
+    return () => { stop?.(); };
+  }, [needsRefresh, load]);
+
   if (!data) return <div style={{ padding: 20, color: loadErr ? '#ef4444' : MUTED }}>{loadErr || '載入中…'}</div>;
   if (!data.settings) {   // 未開通、非高級會員（403 只帶 error）都走這裡
+    if (data.state === 'disabled') {   // G4-24：已開通但會員資格失效 ⇒ 停止並隱藏（資料保留，恢復資格後自動恢復）
+      return <div style={{ padding: 20, color: MUTED, fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>🤖 AI 實驗已停用：高級會員資格已失效，你的 AI 交易員已停止操作（資料保留，恢復資格後自動恢復）。</div>;
+    }
     return <div style={{ padding: 20, color: MUTED, fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>🤖 AI 實驗尚未開通{data.error ? `（${data.error}）` : ''}。這是高級會員專屬功能，需由管理員開通；開通後會出現你的專屬 AI 交易員與模擬帳戶。</div>;
   }
   const st = data.settings, sm = data.summary, snap = data.snapshot;
@@ -120,16 +145,18 @@ export default function MyAiLab() {
 function SettingsCard({ settings, withdrawable, hasAccount, onSaved, msg, setMsg }: {
   settings: Settings; withdrawable: number; hasAccount: boolean; onSaved: () => void; msg: string; setMsg: (m: string) => void;
 }) {
-  const [cap, setCap] = useState(String(settings.capital || ''));
+  // G3-21（2026-10-04）：投入資金／獲利目標改非受控（defaultValue＋ref）——父層會被輪詢驅動重繪，
+  // 受控輸入在手機 IME 下游標會被打回開頭（CLAUDE.md 絕對不要做的事）。存檔後父層以設定值為 key 重建本卡＝重置。
+  const capRef = useRef<HTMLInputElement>(null);
+  const goalRef = useRef<HTMLInputElement>(null);
   const [days, setDays] = useState(String(settings.goalDays ?? DEFAULT_GOAL_DAYS));
-  const [goal, setGoal] = useState(settings.growthTarget == null ? '' : String(settings.growthTarget));
   const [busy, setBusy] = useState(false);
   // 容許千分位、% 與全形字（使用者實測輸入「100%」被判為格式錯誤·2026-10-01）
   const num = (v: string) => { const t = v.replace(/[,，\s%％]/g, '').replace(/[０-９．]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)); return t === '' ? null : Number(t); };
 
   const save = async () => {
     const body: Record<string, number | null> = {};
-    const c = num(cap), g = num(goal), gd = Number(days);
+    const c = num(capRef.current?.value ?? ''), g = num(goalRef.current?.value ?? ''), gd = Number(days);
     if (c != null && c !== settings.capital) {
       if (!Number.isInteger(c) || c < 0) { setMsg('✖ 投入資金請填整數元'); return; }
       const delta = c - settings.capital;
@@ -160,7 +187,7 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved, msg, setMsg
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <label style={field}>
           <span style={{ fontSize: 'calc(13.5px * var(--fz))' }}>① 投入資金（元）</span>
-          <input className="input" inputMode="numeric" value={cap} onChange={e => setCap(e.target.value)} placeholder="例：300000（最低 50,000）" aria-describedby="cap-hint" />
+          <input ref={capRef} className="input" inputMode="numeric" defaultValue={String(settings.capital || '')} placeholder="例：300000（最低 50,000）" aria-describedby="cap-hint" />
           <span id="cap-hint" style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED }}>目前淨投入 {money(settings.capital)}{hasAccount ? `·可提領 ${money(withdrawable)}·填 0＝提領全部可提領現金` : ''}</span>
         </label>
         <label style={field}>
@@ -172,7 +199,7 @@ function SettingsCard({ settings, withdrawable, hasAccount, onSaved, msg, setMsg
         </label>
         <label style={field}>
           <span style={{ fontSize: 'calc(13.5px * var(--fz))' }}>③ 獲利成長目標（%）</span>
-          <input className="input" inputMode="decimal" value={goal} onChange={e => setGoal(e.target.value)} placeholder="例：10（空白＝不設）" aria-describedby="goal-hint" />
+          <input ref={goalRef} className="input" inputMode="decimal" defaultValue={settings.growthTarget == null ? '' : String(settings.growthTarget)} placeholder="例：10（空白＝不設）" aria-describedby="goal-hint" />
           <span id="goal-hint" style={{ fontSize: 'calc(13px * var(--fz))', color: MUTED }}>每個獲利期間要達成的帳戶成長；AI 交易員以此為目標，風險控制優先</span>
         </label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>

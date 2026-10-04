@@ -5,7 +5,12 @@
 // 唯一入口是 src/lib/safe-storage.ts。掃的是「有沒有直接呼叫」，不是「有沒有包 try」——
 // 屬性集合軸的閉世界：新寫的程式碼不必知道規則也會被擋下。
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// --root：改掃該目錄（pre-commit 以 staged 快照目錄呼叫，2026-10-04 G3-30）；預設＝本 repo（舊版用 cwd 的 src，hook 會先 cd 到 repo 根，結果相同）
+const _rootArg = process.argv.indexOf('--root');
+const ROOT = resolve(_rootArg > 0 ? process.argv[_rootArg + 1] : fileURLToPath(new URL('..', import.meta.url)));
 
 const ALLOW = new Set([
   'src/lib/safe-storage.ts',       // 唯一入口
@@ -23,9 +28,10 @@ function walk(dir, out = []) {
 }
 
 const hits = [];
-for (const f of walk('src')) {
+for (const abs of walk(join(ROOT, 'src'))) {
+  const f = relative(ROOT, abs);
   if (ALLOW.has(f)) continue;
-  readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+  readFileSync(abs, 'utf8').split('\n').forEach((line, i) => {
     if (line.trimStart().startsWith('//')) return;
     if (RE.test(line)) hits.push(`${f}:${i + 1}: ${line.trim().slice(0, 110)}`);
   });

@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getMarketIndexDataInternal, isAnyMarketActive } from '@/lib/twse-api-server';
 import { isTradingDay } from '@/lib/market-clock';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 專屬限流（G1-23）：快取未命中時打 Yahoo（美股 6 檔）＋daemon 指數；memoize 15 秒已讓上游次數為常數。
+  // 前端 Header／跑馬燈每 5 秒輪詢、同一 IP 多分頁或 NAT 下多人 ⇒ 額度刻意給到 600/分鐘，只擋濫用。
+  const limited = await rateLimit(request, 'market-index', 600);
+  if (limited) return limited;
   try {
     // 台股加權指數的「daemon 優先、比 tradeDate 取新」邏輯已移進
     // `getMarketIndexDataInternal`（見 twse-api-server.ts `readDaemonIndex`），

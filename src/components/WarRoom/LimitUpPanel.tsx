@@ -12,7 +12,7 @@ import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import OnlyCandidatesToggle from '@/components/Candidates/OnlyCandidatesToggle';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
-import { startLiveLoop, shouldPollThroughClose, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, shouldPollThroughClose, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import { getChangeColor } from '@/lib/twse-api';
 
 interface APick {
@@ -54,11 +54,6 @@ interface LuData {
 
 const TAG_COLOR: Record<BPick['tag'], string> = { 高: '#f03e3e', 中: '#f59e0b', 低: '#94a3b8' };
 
-function isTwTradingHours(): boolean {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-}
 
 // 數字欄樣式：固定寬、靠右、等寬字——每列的價格／漲跌／模型分／漲停價落在同一個 x 位置，掃讀不用對位
 const NUM_COL = (w: number, color: string, weight = 600): React.CSSProperties => ({ display: 'inline-block', minWidth: w, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', color, fontWeight: weight });

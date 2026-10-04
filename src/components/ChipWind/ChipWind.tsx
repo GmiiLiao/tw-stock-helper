@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { startLiveLoop, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark, dayTradeTintOf } from '@/components/shared/DayTradeBadge';
@@ -19,11 +19,6 @@ interface TF {
 }
 interface WindData { updatedAt: number; latestDate: string; daysAvailable: number; timeframes: Record<string, TF> }
 
-const isTwTradingHours = () => {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-};
 
 const EXPLAIN: Record<string, { title: string; text: string }> = {
   tf: { title: '為什麼分當日/5日/20日？', text: '當日＝最新籌碼動向（法人今天怎麼佈局）；5日＝短線主力進出方向；20日＝中期趨勢的籌碼沉澱。三個一起看，能分辨是短打還是長線卡位。' },

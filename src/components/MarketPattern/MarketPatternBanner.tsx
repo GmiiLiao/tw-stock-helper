@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { storageGet, storageSet } from '@/lib/safe-storage';
-import { startLiveLoop, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 
@@ -59,11 +59,6 @@ const MP_OPS: Record<string, { text: string; strong?: boolean }[]> = {
 };
 
 // 盤中(09:00–13:35)才需每分鐘更新；盤後盤型/撿尾盤為靜態，放慢到 10 分省讀取/下載
-function isTwTradingHours(): boolean {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-}
 // 共用 hook：抓 marketPattern
 function useMarketPattern(): MpData | null {
   const [mp, setMp] = useState<MpData | null>(null);

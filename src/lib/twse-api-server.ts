@@ -726,7 +726,9 @@ async function fetchYahooSymbolServer(symbol: string) {
 // Header 每 5 秒輪詢，1000 人同時在線約等於每秒 1,631 次對外請求 → Yahoo 必封 IP。
 // memoize 提供三件事：15 秒 TTL、in-flight 合流（N 個併發只打 1 次）、失敗負快取。
 const _marketIndexMemo = memoize<MarketIndexData>('market-index', 15_000,
-  () => getMarketIndexDataInternalUncached());
+  () => getMarketIndexDataInternalUncached(),
+  // 上游（Yahoo＋daemon）同時失效時，舊指數最多再供應 30 分鐘（審查 M2；預設 10 分鐘後會落到 weighted:0）
+  { maxStaleMs: 30 * 60_000 });
 
 // 台股指數的 3 秒新鮮層（2026-09-02「盤中為 3 秒更新」）：
 // 15 秒 memoize 是為了保護 6 個美股 Yahoo 請求，但它讓台股加權落後最多三拍。

@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
 import { fetchRiskStocks as fetchRiskStocksSource } from '@/lib/risk-stocks-source';
 import { gzipJsonAuto } from '@/lib/gzip-response';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -35,7 +35,12 @@ interface RiskStocksResponse {
 // 快取與合流由 @/lib/risk-stocks-source 的 memoize 負責（2026-09-28 WM-SCAN G2-10：移除手寫 let cached）。
 // 處置名單殘缺（任一處置來源抓取失敗且無上一份完整結果）時回 no-store 並標 dispositionComplete:false，
 // 不讓 CDN 把殘缺名單快取 5 分鐘、也讓前端／daemon 知道「不在清單上」不代表「不是處置股」（G2-05）。
-export async function GET() {
+export async function GET(request: Request) {
+  // 專屬限流（WM-SCAN G1-23，wm-security-model 2026-10-02）：快取未命中時會打 TWSE／TPEx 6 個端點。
+  // memoize 已把上游次數壓成常數，這條只是濫用天花板；前端每頁載入一次＋自選頁偶爾重抓，120/分鐘很寬。
+  // 限流器故障 fail-open（使用者 2026-09-28 裁定）。
+  const limited = await rateLimit(request, 'risk-stocks', 120);
+  if (limited) return limited;
   // ⚠ 抓取與解析已抽到 @/lib/risk-stocks-source（2026-08-11）：
   //   這段邏輯原本在此與 lib/scoring-server.ts 各有一份，兩份都接錯端點，
   //   而我只修了其中一份 —— 複本就是同一個 bug 會出現第二次的原因。
@@ -58,47 +63,4 @@ export async function GET() {
   };
 
   return gzipJsonAuto(result, { 'Cache-Control': result.dispositionComplete ? 'public, s-maxage=300, stale-while-revalidate=60' : 'no-store' });
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-
-async function fetchWithTimeout(url: string, headers: Record<string, string>, timeout: number): Promise<unknown> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const res = await fetch(url, {
-      headers,
-      signal: controller.signal,
-      cache: 'no-store',
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      console.warn(`[risk-stocks] ${url} returned ${res.status}`);
-      return null;
-    }
-    return await res.json();
-  } catch (e) {
-    clearTimeout(timeoutId);
-    console.warn(`[risk-stocks] Fetch failed: ${url}`, e);
-    return null;
-  }
-}
-
-function parseROCDate(dateStr: string): string {
-  if (!dateStr) return '';
-  try {
-    // ROC: 1140620 or 114/06/20
-    const cleaned = dateStr.replace(/\//g, '');
-    if (cleaned.length >= 7) {
-      const y = parseInt(cleaned.slice(0, 3)) + 1911;
-      const m = cleaned.slice(3, 5);
-      const d = cleaned.slice(5, 7);
-      return `${y}/${m}/${d}`;
-    }
-    return dateStr;
-  } catch {
-    return dateStr;
-  }
 }

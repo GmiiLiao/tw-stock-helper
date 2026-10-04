@@ -5,7 +5,7 @@ import { useAppStore } from '@/lib/store';
 import type { WatchlistGroup, WatchlistItem, AppNotification } from '@/lib/store';
 import styles from './WatchlistTracker.module.css';
 import StockTrendChart from './StockTrendChart';
-import { startLiveLoop, revealTick, shouldPollNow } from '@/lib/market-clock';
+import { startLiveLoop, revealTick, shouldPollNow, isForeground, getSession } from '@/lib/market-clock';
 import StockAIEval from './StockAIEval';
 import { getTargetPrice } from '@/lib/scoring';
 import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBanner';
@@ -2109,8 +2109,8 @@ export default function WatchlistTracker() {
       }).catch(() => {});
     };
     load(true);
-    const t = setInterval(() => load(), 60000);
-    return () => { live = false; clearInterval(t); };
+    const stop = startLiveLoop(() => load(), () => 60_000);   // gate 在 load 內每拍判斷；回前景立即補一次
+    return () => { live = false; stop(); };
   }, []);
   const [loading, setLoading] = useState(false);
   const [showAddGroup, setShowAddGroup] = useState(false);
@@ -2122,7 +2122,7 @@ export default function WatchlistTracker() {
   const [ratingsMap, setRatingsMap] = useState<Record<string, { score: number; signal: string }>>({});
   useEffect(() => {
     let alive = true;
-    const load = () => fetch('/api/rating')
+    const load = () => { if (!isForeground()) return; return fetch('/api/rating')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         if (!alive || !d?.ratings) return;
@@ -2131,10 +2131,11 @@ export default function WatchlistTracker() {
         for (const c in d.ratings) m[c] = { score: d.ratings[c].baseScore ?? d.ratings[c].score, signal: d.ratings[c].signal };
         setRatingsMap(m);
       })
-      .catch(() => {});
+      .catch(() => {}); };
     load();
-    const id = setInterval(load, 120000);
-    return () => { alive = false; clearInterval(id); };
+    // G3-07：原本無閘 setInterval 120s（背景分頁整夜打）。評分盤中才隨報價變，休市放慢到 10 分；間隔每拍重算
+    const stop = startLiveLoop(load, () => (getSession() === 'regular' ? 120_000 : 600_000));
+    return () => { alive = false; stop(); };
   }, []);
 
   const [aiStocks, setAiStocks] = useState<AiRecommendation[]>([]);
@@ -2303,15 +2304,16 @@ export default function WatchlistTracker() {
     // 報價鎖相（使用者 2026-09-02「盤中為 3 秒更新」）：原本 5 秒自由輪詢與
     // MIS 揭示邊界（5 秒一拍）相位隨機，平均多落後半拍。改鎖「揭示邊界+3s」
     // ——+1s 快線已抓、+3s 各層快取已回填，每拍都拿到最新揭示。
-    const stopQ = startLiveLoop(fetchQuotes);   // 鎖相＋回前景立即恢復（標準件）
-    // AI recommendations refresh every 5 min
-    const aiInterval = setInterval(() => {
-      fetchAiRecommendations();
-    }, 5 * 60_000);
+    const stopQ = startLiveLoop(() => fetchQuotes());   // 鎖相＋回前景立即恢復（標準件）；包一層免得 AbortSignal 被當成 stocks
+    // AI 推薦：G3-07 原本無閘 5 分 setInterval。背景分頁不打；休市放慢到 30 分；間隔每拍重算
+    const stopAi = startLiveLoop(
+      () => (isForeground() ? fetchAiRecommendations() : undefined),
+      () => (getSession() === 'closed' ? 30 * 60_000 : 5 * 60_000),
+    );
     return () => {
       live = false;
       stopQ();
-      clearInterval(aiInterval);
+      stopAi();
     };
   }, [fetchQuotes, fetchAiRecommendations]);
 
@@ -2337,11 +2339,12 @@ export default function WatchlistTracker() {
     }
   }, []);
 
-  // Fetch institutional data on mount and every 10 min
+  // 法人資料：掛載載一次；之後每 10 分鐘（G3-07：原本無閘，背景分頁也打）。
+  // 官方 15:00 後才公布，盤後仍會變 ⇒ 只擋背景分頁（isForeground），不擋休市。
   useEffect(() => {
     fetchInstitutionalData();
-    const interval = setInterval(fetchInstitutionalData, 10 * 60 * 1000);
-    return () => clearInterval(interval);
+    const stop = startLiveLoop(() => (isForeground() ? fetchInstitutionalData() : undefined), () => 10 * 60_000);
+    return stop;
   }, [fetchInstitutionalData]);
 
   // Fix: only sync to default if not on a reserved tab

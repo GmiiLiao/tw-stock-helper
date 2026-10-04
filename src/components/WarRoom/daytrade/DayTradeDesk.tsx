@@ -155,19 +155,21 @@ function DeskColumn({ side, rows, now, risk, broker, dtLoaded, evidence, market 
       <div style={{ height: 'max(520px, calc(100vh - 360px))', overflowY: 'auto', padding: '0 6px 6px' }}>
         {!dtLoaded ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>當沖資格／處置股名單載入中（或暫時無法取得）：確認可當沖且非處置股前不列任何個股。</div>
           : !rows.length ? <div style={{ padding: 16, color: 'var(--text-muted)' }}>目前沒有符合的個股。</div>
-          : GROUPS.map(g => {
+          // G3-26（2026-10-04）：分組標題與列攤平成同一層兄弟節點、列以代號為 key——
+          // 列換組（等待→成立→出場）時 React 只是搬位置，不再整列卸載重掛（展開狀態歸零、走勢圖重抓）。
+          // 原本每組包一層 <div key={g.k}>，換組＝換父節點＝必定重掛。
+          : GROUPS.flatMap(g => {
             const list = rows.filter(r => rowGroupOf(r.desk, now) === g.k);
-            if (!list.length) return null;
+            if (!list.length) return [];
             const folded = g.k === 'other' && !showOther;
-            return (
-              <div key={g.k} style={{ marginTop: 6 }}>
-                <div onClick={g.k === 'other' ? () => setShowOther(v => !v) : undefined} style={{ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: g.k === 'on' ? color : g.k === 'stop' ? '#f59e0b' : 'var(--text-muted)', padding: '2px 4px', cursor: g.k === 'other' ? 'pointer' : 'default' }}>
-                  {g.k === 'other' ? `${folded ? '▸' : '▾'} ` : ''}{g.t(L)} {list.length} 檔
-                </div>
-                {!folded && list.map(r => <DeskRow key={(r.base?.code ?? r.desk!.code)} base={r.base ?? { side, code: r.desk!.code, name: r.desk!.name, market: 'tse', rank: 0, price: null, chg: null, hiUp: null, give: null, vwapDev: null, label: '監控', labelColor: 'var(--text-muted)', reason: '5 秒監控中（不在名單前 30）' }}
-                  desk={r.desk} now={now} risk={risk} broker={broker} dtStatus={statusOf(dt, r.base?.code ?? r.desk!.code)} />)}
+            const header = (
+              <div key={`grp-${g.k}`} onClick={g.k === 'other' ? () => setShowOther(v => !v) : undefined} style={{ marginTop: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 800, color: g.k === 'on' ? color : g.k === 'stop' ? '#f59e0b' : 'var(--text-muted)', padding: '2px 4px', cursor: g.k === 'other' ? 'pointer' : 'default' }}>
+                {g.k === 'other' ? `${folded ? '▸' : '▾'} ` : ''}{g.t(L)} {list.length} 檔
               </div>
             );
+            if (folded) return [header];
+            return [header, ...list.map(r => <DeskRow key={`row-${r.base?.code ?? r.desk!.code}`} base={r.base ?? { side, code: r.desk!.code, name: r.desk!.name, market: 'tse', rank: 0, price: null, chg: null, hiUp: null, give: null, vwapDev: null, label: '監控', labelColor: 'var(--text-muted)', reason: '5 秒監控中（不在名單前 30）' }}
+              desk={r.desk} now={now} risk={risk} broker={broker} dtStatus={statusOf(dt, r.base?.code ?? r.desk!.code)} />)];
           })}
       </div>
     </section>

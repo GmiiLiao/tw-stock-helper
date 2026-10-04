@@ -16,21 +16,59 @@ import { applyMemberSettings, goalProgress, netInvestedOf, pendingFlowOf, withdr
 export const dynamic = 'force-dynamic';
 
 const HISTORY_MAX = 250, DECISIONS_MAX = 30;
+/** 已平倉明細上限（G3-28）：帳戶跑久了會無限長，回應只帶最近這幾筆；彙總（summary）仍以伺服器端完整快照計算 */
+const CLOSED_MAX = 200;
 
-type Gate = { ok: true; uid: string; db: NonNullable<ReturnType<typeof getAdminDb>>; access: { swing: boolean; daytrade: boolean } } | { ok: false; res: NextResponse };
+// ── 資格（G4-24，使用者 2026-10-04 裁定：體驗期到期或非付費會員的 AI 帳戶「停止並隱藏」）──────────
+//   使用資格＝開通資格＝付費等級（premium／admin／superadmin）或站主——與 api/admin/ai-lab-access 同一份 isPaidLevel。
+//   14 天體驗期**不算**（開通端本來就不收體驗期會員）。aiLabAccess.swing＝true 但資格已失效 ⇒ state:'disabled'：
+//   probe 回 swing:false（投資組合頁不顯示分頁），完整 GET／POST 回 403 並明說「已停用」，不再是靜默凍結的帳戶。
+//   daemon 端停止執行由另一組處理，須採同一定義。
+type AccessState = 'active' | 'not_granted' | 'disabled';
+type Access = { swing: boolean; daytrade: boolean };
+type Gate = { ok: true; uid: string; db: NonNullable<ReturnType<typeof getAdminDb>>; access: Access } | { ok: false; res: NextResponse };
 
-async function gate(request: Request, probe = false): Promise<Gate> {
-  const p = await requirePremium(request);
-  if (!p.ok) return { ok: false, res: probe && p.status === 403 ? NextResponse.json({ access: { swing: false, daytrade: false } }, { headers: { 'Cache-Control': 'private, no-store' } }) : NextResponse.json({ error: p.error }, { status: p.status }) };
+const NO_ACCESS: Access = { swing: false, daytrade: false };
+const PRIVATE = { 'Cache-Control': 'private, no-store' };
+const DISABLED_MSG = 'AI 實驗已停用：會員資格（付費等級）已失效，帳戶已停止運作。恢復高級會員後即可重新使用。';
+
+async function gate(request: Request, probe = false, write = false): Promise<Gate> {
+  // 寫入（入金／提領）帶 fresh：checkRevoked＋不用等級快取（G1-26）
+  const p = await requirePremium(request, { fresh: write });
+  const eligible = p.ok && !p.trial;
+  const uid = p.uid;   // 403（資格不符）時 requirePremium 仍附 uid
+  if (!p.ok && (p.status !== 403 || !uid)) {
+    return { ok: false, res: probe && p.status === 403 ? NextResponse.json({ access: NO_ACCESS, state: 'not_granted' as AccessState }, { headers: PRIVATE }) : NextResponse.json({ error: p.error }, { status: p.status, headers: PRIVATE }) };
+  }
   const db = getAdminDb();
-  if (!db) return { ok: false, res: NextResponse.json({ error: 'DB unavailable' }, { status: 503 }) };
-  const acc = (await db.collection('aiLabAccess').doc(p.uid).get()).data() || {};
-  const access = { swing: acc.swing === true, daytrade: false };   // 當沖尚未開放給會員
-  if (probe) return { ok: false, res: NextResponse.json({ access }, { headers: { 'Cache-Control': 'private, no-store' } }) };
-  if (!access.swing) return { ok: false, res: NextResponse.json({ error: '尚未開通 AI 實驗（請洽管理員）', access }, { status: 403 }) };
-  return { ok: true, uid: p.uid, db, access };
+  if (!db) return { ok: false, res: NextResponse.json({ error: 'DB unavailable' }, { status: 503, headers: PRIVATE }) };
+  let granted: boolean;
+  try {
+    granted = (await db.collection('aiLabAccess').doc(uid!).get()).data()?.swing === true;
+  } catch (e) {
+    console.error('[my-ai-lab] 讀取開通狀態失敗', (e as Error)?.message);
+    return { ok: false, res: NextResponse.json({ error: '暫時無法確認開通狀態，請稍後再試' }, { status: 503, headers: PRIVATE }) };
+  }
+  const state: AccessState = !granted ? 'not_granted' : eligible ? 'active' : 'disabled';
+  const access: Access = { swing: state === 'active', daytrade: false };   // 當沖尚未開放給會員
+  if (probe) return { ok: false, res: NextResponse.json({ access, state }, { headers: PRIVATE }) };
+  if (state === 'disabled') return { ok: false, res: NextResponse.json({ error: DISABLED_MSG, access, state }, { status: 403, headers: PRIVATE }) };
+  if (state === 'not_granted') {
+    // 非付費且未開通：沿用 requirePremium 的拒絕語意；付費但未開通：請洽管理員
+    if (!eligible) return { ok: false, res: NextResponse.json({ error: 'Premium required', access, state }, { status: 403, headers: PRIVATE }) };
+    return { ok: false, res: NextResponse.json({ error: '尚未開通 AI 實驗（請洽管理員）', access, state }, { status: 403, headers: PRIVATE }) };
+  }
+  return { ok: true, uid: uid!, db, access };
 }
 
+const closedOf = (snap: Record<string, unknown> | null): unknown[] => (Array.isArray(snap?.closed) ? snap.closed as unknown[] : []);
+/** 只留出場日最新的 CLOSED_MAX 筆，保持原本順序（前端依原順序顯示） */
+function recentClosed(all: unknown[]): unknown[] {
+  if (all.length <= CLOSED_MAX) return all;
+  const exitOf = (x: unknown) => String((x as { exitDate?: unknown })?.exitDate ?? '');
+  const keep = new Set(all.map((x, i) => [exitOf(x), i] as const).sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : b[1] - a[1])).slice(0, CLOSED_MAX).map(([, i]) => i));
+  return all.filter((_, i) => keep.has(i));
+}
 const taipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 
 // 快照之後的入金／提領、目前可提領、獲利期間進度：一律走 scripts/lib/ai-lab-member.mjs（有單元測試；審查 MEDIUM：原本寫在這裡沒有測試）
@@ -71,11 +109,13 @@ export async function GET(request: Request) {
     }));
     return gzipJsonAuto({
       access: g.access,
+      state: 'active' as AccessState,
       settings: { capital, growthTarget: goal, goalDays, goalStartDate, flows: flows.slice(-30), createdAt: settings.createdAt ?? null },
       withdrawable: withdrawableNow(snapshot, flows),
       pendingFlow,   // 快照之後的入金／提領（尚未反映在帳戶明細；畫面總值與總損益要補上）
       feeDiscount,   // 模擬手續費折讓（會員自己的券商設定；1＝全額 0.1425%）
-      snapshot: snapshot ? { at: snapshot.at ?? null, dataDate: snapshot.dataDate ?? null, provisional: !!snapshot.provisional, liveAt: snapshot.liveAt ?? null, holdings: snapshot.holdings || [], closed: snapshot.closed || [], history } : null,
+      snapshot: snapshot ? { at: snapshot.at ?? null, dataDate: snapshot.dataDate ?? null, provisional: !!snapshot.provisional, liveAt: snapshot.liveAt ?? null, holdings: snapshot.holdings || [],
+        closed: recentClosed(closedOf(snapshot)), closedTotal: closedOf(snapshot).length, history } : null,
       summary: snapshot ? (snapshot.summary ?? accountSummary(snapshot)) : null,
       target: goalProgress(fullHistory, { growthTarget: goal, goalDays, goalStartDate }),   // 獲利期間進度（滾動期間；沒設目標＝null）
       decisions,
@@ -89,7 +129,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const limited = await rateLimit(request, 'my-ai-lab-post', 20);
   if (limited) return limited;
-  const g = await gate(request);
+  const g = await gate(request, false, true);
   if (!g.ok) return g.res;
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: '格式錯誤' }, { status: 400 }); }

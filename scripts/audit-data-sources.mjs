@@ -89,7 +89,8 @@ const CONTRACTS = [
   { c: 'dailySeq',         kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate', minRecords: 1500, countField: 'byCodeJson' },   // 📊 每檔近 10 日漲跌×量＋三線（2026-09-17）
   // 📢 公開資訊觀測站重大訊息（2026-09-17 新聞計畫第一段）：07:00~23:30 每 30 分鐘一輪，非交易日也跑。
   //   latest 是「今日」索引，清晨 n=0 是正常（doc 自帶 note），故 allowEmpty；資料日＝今日日曆日。
-  { c: 'mopsNews',         kind: 'latest',  maxStale: 3 * HOUR,  session: 'always', allowEmpty: true, dateField: 'dataDate', countField: 'items' },
+  //   quietHours（2026-10-04·WM-SCAN G2-27）：23:30 最後一輪到 07:00 第一輪之間不跑 ⇒ 夜間上限＝3h＋距 23:30 的時間（07:30 後恢復嚴格）。
+  { c: 'mopsNews',         kind: 'latest',  maxStale: 3 * HOUR,  session: 'always', allowEmpty: true, dateField: 'dataDate', countField: 'items', quietHours: { from: 23.5, to: 7.5 } },
   // 🚨 資料缺漏事件（2026-09-17 使用者硬規定「交易日不得缺漏」）：16:45 班車掃最近 15 份歸檔；open 非空＝仍有未補足的日子 ⇒ ALERT。
   { c: 'dataGapEvents',    kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 17, dateField: 'dataDate', allowEmpty: true, alertField: 'open' },
   // 📐 價格結構事件表（減資／面額變更／分割／大額除權，2026-09-17）：每日 15:10 班車、只記錄不調整；
@@ -207,9 +208,30 @@ const CONTRACTS = [
   // 當沖工作台交易日誌：盤中每分鐘（有變動才）寫 {date}，開盤換日即建檔；收盤出場結算約 13:35 後定稿。
   //   沒有任何候選的日子 entriesJson='{}' 是合法結果 ⇒ allowEmpty。
   { c: 'daytradeJournal',  kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 14, countField: 'entriesJson', allowEmpty: true },
-  // 波段 AI 帳戶快照：daemon 啟動時與每小時刷新（不綁交易日）⇒ 3h＝容忍兩輪失敗。0 持股合法 ⇒ allowEmpty。
-  { c: 'aiLabAccounts',    kind: 'latest',  docId: 'swing', label: 'aiLabAccounts/swing', maxStale: 3 * HOUR, session: 'always', dateField: 'dataDate', countField: 'holdings', allowEmpty: true },
+  // 波段 AI 帳戶快照：daemon 獨立計時器 swingAccountTick（d915839）——交易日 13:30–18:00 每 10 分鐘、其餘每小時（不綁交易日）。0 持股合法 ⇒ allowEmpty。
+  //   2026-10-04（WM-SCAN G2-22）：maxStale 依排程兩段——窗內 30m（3× 10 分鐘節奏），進窗 30 分鐘內仍用 3h（第一輪可能還在跑）；
+  //   其餘時段 3h（3× 每小時，**不吃**週末 offHours 放寬：週末也每小時刷新）。
+  //   drift：session:'always' 原本讓資料日不經漂移閘；帳戶快照的 dataDate＝最後歸檔日（開盤即時成交日為暫定今日），
+  //   應跟得上最近交易日 ⇒ 套漂移閘，當日收盤歸檔（上櫃 16:25–16:55 併入）＋下一輪刷新後 17:30 起才期待今日。
+  { c: 'aiLabAccounts',    kind: 'latest',  docId: 'swing', label: 'aiLabAccounts/swing', maxStale: 3 * HOUR, session: 'always', dateField: 'dataDate', countField: 'holdings', allowEmpty: true,
+    staleWindows: [{ tradingDay: true, from: 13.5, to: 18, maxStale: 30 * MIN, graceMin: 30 }], drift: { publishHour: 17.5 } },
   { c: 'marketReports',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 18.5 },   // daemon 18:05 打 /api/cron/daily-close   // 收盤盤勢分析（2026-08-01 事故後納管：曾停更2日無人察覺）
+  // ── 逐日累積的影子／檢討／名單（2026-10-04·WM-SCAN G2-21：漏一天＝永久缺一天，原本沒有契約，放棄時分不出「沒跑」與「跑失敗」）──
+  // 技術評分 v3 影子：交易日 18:45 起 execScript scoring-v3-shadow（失敗當日最多 3 次）；latest 帶 date（資料日）＋at。
+  { c: 'scoringV3',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 19.5, dateField: 'date' },
+  // 標靶公式影子：22:40 起、每 20 分鐘最多 4 次 ⇒ 最晚約 23:40。
+  { c: 'swingFormula',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 23.75, dateField: 'date' },
+  // 推薦成績·當日名單：資料到齊班車（16:45 起，上櫃偶爾晚到 21:37）以 writeCanonical 寫 {date}（定版戳 canonicalAt；到期評估只 merge eval 欄）。
+  { c: 'picksHistory',     kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 22, dateField: 'date', tsField: 'canonicalAt' },
+  // 軋空逐日檢討：21:45 資券班車後 computeSqueezeReview 寫 {t}（t＝推薦日、targetDate＝對答案的隔日＝最近交易日）⇒ 以 targetDate 比對資料日。
+  { c: 'squeezeReview',    kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', publishHour: 22.5, dateField: 'targetDate' },
+  // 會員 AI 波段（aiSwingMembers/{uid}/days、state/account）：彙總心跳——讀所有會員最新一份，以「最新的那位」判新鮮度與資料日，
+  //   落後的會員只列在 notes（未入金會員本來就不決策，不算故障）。days 節奏同 aiSwingLab；account 同 aiLabAccounts。
+  { c: 'aiSwingMembers',   kind: 'members', sub: 'days', label: 'aiSwingMembers/*/days', maxStale: 40 * HOUR, session: 'daily', publishHour: 23, allowEmpty: true },
+  { c: 'aiSwingMembers',   kind: 'members', sub: 'account', label: 'aiSwingMembers/*/state/account', maxStale: 3 * HOUR, session: 'always', allowEmpty: true,
+    staleWindows: [{ tradingDay: true, from: 13.5, to: 18, maxStale: 30 * MIN, graceMin: 30 }], drift: { publishHour: 17.5 } },
+  // 起漲影子後台：a35_shadow_publish 由人依 RUNBOOK 手動發佈（無排程）⇒ index.generatedAt 超過 3 天（週末另加 offHours）＝沒人跑。
+  { c: 'surgeShadow',      kind: 'latest',  docId: 'index', label: 'surgeShadow/index', maxStale: 3 * DAY, session: 'always' },   // 文件只有 schema＋reportJson＋updatedAt（serverTimestamp），不計筆數
 
   // ── 低頻（週/月/季）──
   { c: 'revenue',          kind: 'latest',  maxStale: 40 * DAY,  session: 'always' },
@@ -422,7 +444,25 @@ const taipeiNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 
  * 這正是 wm-freshness 說的「狀態階梯」要分 session，否則監控自己會變成雜訊來源。
  * 收盤後改用「當日內」判定（30 小時），只要資料日對就算健康。
  */
-function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0, sincePubMs = null) {
+function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0, sincePubMs = null, ctx = {}) {
+  // ── 2026-10-04（WM-SCAN G2-22／G2-27）依排程分段的上限 ──
+  // staleWindows：[{ tradingDay, from, to, maxStale, graceMin }]——命中窗（且已進窗 graceMin 分鐘）用窗的上限；
+  //   沒命中任何窗＝spec.maxStale（**不**加 offHours：這類來源週末照常刷新）。
+  // quietHours：{ from, to }（台北時，可跨午夜）——生產者在這段時間本來就不跑 ⇒ 上限＋距 from 的時間。
+  const tpe = ctx.tpe || taipeiNow();
+  const hourNow = tpe.getHours() + tpe.getMinutes() / 60;
+  if (spec.staleWindows) {
+    for (const w of spec.staleWindows) {
+      if (w.tradingDay && !ctx.isTradingToday) continue;
+      if (hourNow >= w.from + (w.graceMin || 0) / 60 && hourNow < w.to) return w.maxStale;
+    }
+    return spec.maxStale;
+  }
+  if (spec.quietHours) {
+    const { from, to } = spec.quietHours;
+    const inQuiet = from > to ? (hourNow >= from || hourNow < to) : (hourNow >= from && hourNow < to);
+    if (inQuiet) return spec.maxStale + (hourNow >= from ? hourNow - from : hourNow + 24 - from) * HOUR + offHoursMs;
+  }
   // offHoursMs＝距上一個交易日收盤已經過了多久的「非交易時間」。
   // 為什麼要通用地把它加進上限（2026-08-29）：
   //   squeezeRecommend / limitUpRecommend / limitQueue / marketPulse 被標成
@@ -448,7 +488,9 @@ function effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs = 0, since
   //   shortTraining）在週一 16:15 被拿固定 30h 對週五的產物 ⇒ 每個週一都報 STALE、每個週一都是假的。
   //   sincePubMs 本來就是用 publishHourOf 算的——兩處必須共用同一份定義。
   if ((publishHourOf(spec) != null || spec.publishNextDayHour != null) && sincePubMs != null) return spec.maxStale + sincePubMs;
-  if (spec.preopen) return spec.maxStale;
+  // 2026-10-04（WM-SCAN G2-34）：盤前來源在**非交易日**（offHoursMs>0 只在日曆非交易日）加上非交易時間——
+  //   週末／連假本來就不產出，固定上限會整個週末長紅、淹沒真告警。交易日 offHoursMs=0，上方「今天早上就該更新」的偵測力不變。
+  if (spec.preopen) return spec.maxStale + offHoursMs;
   if (spec.session === 'intraday') return (marketOpen ? spec.maxStale : 30 * HOUR) + offHoursMs;
   // daily 類在非交易日（週末/假日）放寬到 78h——週五收盤產物到週日必然超過 30h。
   if (spec.session === 'daily' && !tradingToday) return Math.max(spec.maxStale, 78 * HOUR) + offHoursMs;
@@ -475,7 +517,9 @@ async function lastTradingDay() {
   return isoOf(taipeiNow());
 }
 
-function pickTimestamp(d) {
+function pickTimestamp(d, tsField = null) {
+  // tsField（2026-10-04）：契約指定的專屬時間戳（例 picksHistory 的 canonicalAt＝定版時刻）優先；沒有再走通用別名。
+  if (tsField) { const v = d?.[tsField]; if (typeof v === 'number' && v > 1e12) return v; if (v?.toMillis) return v.toMillis(); }
   // ⚠ 這份清單與 check-field-conventions.mjs 的 REQUIRED_AUDIT_ALIASES 互相鎖定：
   //   寫入端可用的「文件級新鮮度戳」名字都必須在這裡——少一個就是
   //   bookDepthArchive 事故重演（資料好好的、稽核紅一整天「缺 fetchedAt」）。
@@ -524,7 +568,7 @@ function pickDataDate(d, dateField) {
 }
 
 async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, maxDataDate = ltd) {
-  const out = { collection: spec.docId && spec.docId !== 'latest' ? `${spec.c}/${spec.docId}` : spec.c, status: 'OK', notes: [] };
+  const out = { collection: spec.label || (spec.docId && spec.docId !== 'latest' ? `${spec.c}/${spec.docId}` : spec.c), status: 'OK', notes: [] };
   try {
     let data = null, docId = null;
 
@@ -538,6 +582,25 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
       const s = await db.collection(spec.c).orderBy('date', 'desc').limit(3).get();
       const first = s.docs.find(x => x.id !== 'live');
       if (first) { data = first.data(); docId = first.id; }
+    } else if (spec.kind === 'members') {
+      // 會員彙總心跳（2026-10-04·G2-21）：{c}/{uid}/days（最新一份非 live）或 {c}/{uid}/state/account；以最新的那位為心跳
+      const refs = await db.collection(spec.c).listDocuments();
+      const per = [];
+      for (const r of refs) {
+        let d = null;
+        if (spec.sub === 'days') {
+          const s = await r.collection('days').orderBy('date', 'desc').limit(3).get();
+          d = s.docs.find(x => x.id !== 'live')?.data() || null;
+        } else d = (await r.collection('state').doc('account').get()).data() || null;
+        if (d) per.push({ uid: r.id.slice(0, 6), date: pickDataDate(d, spec.sub === 'days' ? 'date' : 'dataDate'), ts: pickTimestamp(d) });
+      }
+      if (!per.length) { out.records = 0; out.notes.push(`尚無任何會員資料（會員文件 ${refs.length} 份）`); if (!spec.allowEmpty) out.status = 'EMPTY'; return out; }
+      const maxDate = per.map(x => x.date).filter(Boolean).sort().pop() || null;
+      const maxTs = Math.max(...per.map(x => x.ts || 0)) || null;
+      const lag = per.filter(x => x.date && maxDate && x.date < maxDate);
+      if (lag.length) out.notes.push(`落後最新 ${maxDate} 的會員 ${lag.length}/${per.length}：${lag.slice(0, 4).map(x => `${x.uid}(${x.date})`).join('、')}（未入金會員不決策屬正常）`);
+      data = { at: maxTs, dataDate: maxDate, items: per };
+      docId = `${per.length} 位會員`;
     } else if (spec.kind === 'perCode') {
       const s = await db.collection(spec.c).get();
       const dates = {};
@@ -554,7 +617,7 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
 
     if (spec.kind !== 'perCode') {
       out.docId = docId;
-      const ts = pickTimestamp(data);
+      const ts = pickTimestamp(data, spec.tsField);
       out.ageMin = ts ? Math.round((Date.now() - ts) / MIN) : null;
       out.records = pickCount(data, spec.countField);
       out.dataDate = pickDataDate(data, spec.dateField);
@@ -580,7 +643,8 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
           sincePubMs = Math.max(0, Date.now()
             - new Date(`${base}T${String(Math.floor(_ph)).padStart(2, '0')}:00:00+08:00`).getTime());
         }
-        const limit = effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs, sincePubMs);
+        const limit = effectiveMaxStale(spec, marketOpen, tradingToday, offHoursMs, sincePubMs, { tpe: taipeiNow(), isTradingToday: offHoursMs === 0 });
+        out.limitMin = Math.round(limit / MIN);   // Softening Deadline：放寬後的實際上限寫進結果，dataHealth 讀者可核對
         if (Date.now() - ts > limit) {
           out.status = 'STALE';
           const fmt = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / MIN)}m`);
@@ -645,7 +709,8 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
     }
 
     // 第三道閘門：dataDate 漂移
-    if (out.dataDate && spec.session !== 'always') {
+    // spec.drift（2026-10-04·G2-22）：session:'always' 的來源也可明示要過漂移閘，publishHour 只用在這道閘（不影響新鮮度上限）
+    if (out.dataDate && (spec.session !== 'always' || spec.drift)) {
       // ⚠ 傍晚才公布的來源，在公布時刻前「落後一天」是正常的，不是故障
       //   （2026-08-27）：當沖統計約 20:00、資券 21:45 才上架，而稽核固定
       //   16:10 跑 ⇒ 這兩個來源**每天下午都紅**。常態紅燈的代價是分不出
@@ -660,7 +725,7 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
       // （2026-08-28 14:57 實測：14 個異常，全部是「資料日昨天 < 期待今天」），
       // 而假警報會訓練人忽略紅燈——dayTradeRatio 斷 8 天就是這樣被蓋住的。
       // 晚於 15:30 才發布的來源（當沖統計 21、資券 22）自己覆寫這個預設。
-      const pubHour = publishHourOf(spec);
+      const pubHour = spec.drift?.publishHour ?? publishHourOf(spec);
       const beforePub = pubHour != null && ltd === isoOf(tNow)
         && (tNow.getHours() + tNow.getMinutes() / 60) < pubHour;
       const expect = beforePub ? prevTradingDay(ltd) : ltd;
@@ -788,6 +853,68 @@ async function auditPeriodic(db) {
   return out;
 }
 
+// ── daemon 是否落後於程式碼（2026-10-04·WM-SCAN G4-03：結果寫進 dataHealth.daemonDrift；讀不到要留 log）────
+// 改了 ai-daemon.mjs 卻忘了重啟，daemon 會**靜默跑舊碼**：沒有錯誤、沒有告警，只是修正沒有生效（2026-08-30 實際發生過一次）。
+// ⚠ 用**內容雜湊**而非 mtime：git checkout / touch 這類不改內容的操作也會更新 mtime ⇒ 假警報。
+// ⚠ daemon 端用 lib/daemon-code-hash.mjs（本檔＋遞迴 import 的 scripts/lib＋execScript 子腳本，G4-02／G4-30）寫 codeHash，
+//   這裡**必須**用同一個函式算磁碟版——兩端各算各的，daemon 重啟後就會永遠報「落後」（修A錯B）。
+// 三態以上（Read Outcome）：match／drift／noRecord／unknown（讀不到＝無法判定，不是一致）。單次讀取，結論只代表這一刻。
+async function checkDaemonDrift() {
+  const checkedAt = Date.now();
+  try {
+    const { fileURLToPath } = await import('node:url');
+    const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
+    const disk = daemonCodeHash(fileURLToPath(new URL('./ai-daemon.mjs', import.meta.url)));
+    const b = (await db.collection('system').doc('daemonBuild').get()).data();
+    const base = { disk: disk.hash, files: disk.files.length, children: disk.children.length, derivation: disk.derivation, checkedAt, single: true };
+    if (!b?.codeHash) {
+      console.log('\n⚠ 無 daemon 版本紀錄（system/daemonBuild）——無法確認跑的是不是最新碼');
+      return { status: 'noRecord', running: null, ...base };
+    }
+    if (b.codeHash !== disk.hash) {
+      console.log(`\n⚠ **daemon 落後於程式碼**：執行中 ${b.codeHash}／磁碟上 ${disk.hash}（雜湊 ${disk.files.length} 檔，含子腳本 ${disk.children.length} 支）`);
+      console.log('   ⇒ 修正尚未生效。先跑 scripts/can-restart-daemon.mjs，再 launchctl kickstart -k gui/501/com.gmii.twstock.ai-daemon');
+      return { status: 'drift', running: b.codeHash, startedAt: b.startedAt ?? null, ...base };
+    }
+    return { status: 'match', running: b.codeHash, startedAt: b.startedAt ?? null, ...base };
+  } catch (e) {
+    const msg = (e?.message || String(e)).slice(0, 120);
+    console.log(`\n⚠ 無法判定 daemon 版本（漂移檢查失敗：${msg}）——不代表一致`);
+    return { status: 'unknown', error: msg, checkedAt };
+  }
+}
+
+// ── 官方資料鏡像（第二大腦 second-brain/official，獨立 launchd 程序）的本機健康列（2026-10-04·WM-SCAN G2-37）──
+// 鏡像的 _alerts 只寫檔、沒人推播；daemon 16:10 會讀 dataHealth.results 印出異常 ⇒ 把鏡像的「仍缺／太久沒跑」併成一列，
+// 經 dataHealth 被 daemon 與 /api/system/data-health 看見（推播需 daemon 端另接，見 docs/WM-SCAN 回報）。
+const OFFICIAL_MIRROR_STALE_MS = 36 * HOUR;   // daily 平日 22:40＋backfill 每晚 23:20／週末 11:00 都會重寫 manifest.json ⇒ 正常間隔 ≤ 24h
+const OFFICIAL_ALERT_STALE_MS = 4 * DAY;      // retry 週二～週六 06:45 重寫 _alerts/LATEST.json ⇒ 連假最長約 4 天
+async function auditOfficialMirror() {
+  const out = { collection: 'officialMirror(本機)', status: 'OK', notes: [] };
+  try {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const root = process.env.OFFICIAL_ROOT || fileURLToPath(new URL('../second-brain/official', import.meta.url));
+    const read = f => { try { return JSON.parse(readFileSync(`${root}/${f}`, 'utf8')); } catch { return null; } };
+    if (!existsSync(root)) { out.status = 'MISSING'; out.notes.push(`找不到 ${root}（鏡像未安裝或路徑不同）`); return out; }
+    const man = read('manifest.json');
+    const upd = man?.updated ? Date.parse(man.updated) : NaN;
+    if (!Number.isFinite(upd)) { out.status = 'MISSING'; out.notes.push('manifest.json 不存在或無 updated'); return out; }
+    out.ageMin = Math.round((Date.now() - upd) / MIN);
+    out.records = Object.keys(man.datasets || {}).length;
+    if (Date.now() - upd > OFFICIAL_MIRROR_STALE_MS) { out.status = 'STALE'; out.notes.push(`manifest.json ${Math.round((Date.now() - upd) / HOUR)}h 未更新（鏡像排程可能沒跑）`); }
+    const al = read('_alerts/LATEST.json');
+    if (!al) out.notes.push('尚無 _alerts/LATEST.json（retry 未跑過）');
+    else {
+      const at = Date.parse(al.at);
+      if (Number.isFinite(at) && Date.now() - at > OFFICIAL_ALERT_STALE_MS) { out.status = out.status === 'OK' ? 'STALE' : out.status; out.notes.push(`_alerts/LATEST.json ${Math.round((Date.now() - at) / DAY)} 天未更新（retry 排程可能沒跑）`); }
+      const miss = Array.isArray(al.missing) ? al.missing : [];
+      if (miss.length) { out.status = 'ALERT'; out.notes.push(`交易日官方資料仍缺 ${miss.length} 筆：${miss.slice(0, 3).map(x => `${x.id} ${x.key}`).join('、')}（_alerts/LATEST.json）`); }
+    }
+  } catch (e) { out.status = 'ERROR'; out.notes.push((e.message || '').slice(0, 60)); }
+  return out;
+}
+
 async function main() {
   const ltd = await lastTradingDay();
   const t = taipeiNow();
@@ -832,6 +959,7 @@ async function main() {
     return Math.max(0, Date.now() - closeUtc);
   })();
   for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday, offHoursMs, maxDataDate));
+  if (!ONLY || ONLY === 'officialMirror') results.push(await auditOfficialMirror());
 
   const external = NO_EXT ? [] : await probeExternal(ltd);
   const fresh = NO_EXT ? [] : await probeFresh(ltd);
@@ -843,10 +971,12 @@ async function main() {
   //   dataHealth 帶 auditIncomplete，daemon 告警段據此吼出來（見 ai-daemon 16:10 段）。
   // 2026-09-04 現況 72 設 60；2026-09-28 契約 88 條（WM-SCAN G2-13：60 的餘裕大到契約表悄悄縮掉 20 多條也不會吼）
   // ⇒ 改「現況減 4」。新增契約時順手上調；刪契約要同時下調並寫明理由。低於此值＝範圍異常。
-  const MIN_SOURCES = 84;
+  // 2026-10-04：契約 96 條（+G2-21 的 scoringV3／swingFormula／picksHistory／squeezeReview／aiSwingMembers×2／surgeShadow）＋officialMirror 本機列 ⇒ 92。
+  const MIN_SOURCES = 92;
   const auditIncomplete = results.length < MIN_SOURCES;
   if (auditIncomplete) console.log(`\n❌ 稽核範圍異常：只檢查了 ${results.length} 個資料源（下限 ${MIN_SOURCES}）——契約表或 probe 流程有問題，本次「全綠」不可信`);
 
+  const daemonDrift = await checkDaemonDrift();
   if (WRITE) {
     const badN = results.filter(r => r.status !== 'OK').length;
     const extBad = external.filter(r => r.status !== 'OK').length;
@@ -855,32 +985,14 @@ async function main() {
       auditIncomplete, sourceCount: results.length, minSources: MIN_SOURCES,
       total: results.length, healthy: results.length - badN, unhealthy: badN,
       externalTotal: external.length, externalUnhealthy: extBad,
-      results, external, fresh,
+      results, external, fresh, daemonDrift,
     });
     console.log(`[audit] ✓ 已寫入 system/dataHealth（內部異常 ${badN}、外部異常 ${extBad}）`);
   }
 
-  // ── daemon 是否落後於程式碼 ──────────────────────────────
-  // 改了 ai-daemon.mjs 卻忘了重啟，daemon 會**靜默跑舊碼**：
-  // 沒有錯誤、沒有告警，只是修正沒有生效（2026-08-30 實際發生過一次）。
-  // ⚠ 用**內容雜湊**而非 mtime：git checkout / touch 這類不改內容的操作
-  //   也會更新 mtime ⇒ 假警報。我第一版就是 mtime，寫完當場誤報。
-  // ⚠ 2026-09-28（G4-02）：daemon 端改用 lib/daemon-code-hash.mjs（本檔＋遞迴 import 的 scripts/lib）寫 codeHash，
-  //   這裡**必須**用同一個函式算磁碟版——兩端各算各的，daemon 重啟後就會永遠報「落後」（修A錯B）。
-  try {
-    const { fileURLToPath } = await import('node:url');
-    const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
-    const cur = daemonCodeHash(fileURLToPath(new URL('./ai-daemon.mjs', import.meta.url))).hash;
-    const b =(await db.collection('system').doc('daemonBuild').get()).data();
-    if (!b?.codeHash) {
-      console.log('\n⚠ 無 daemon 版本紀錄（system/daemonBuild）——無法確認跑的是不是最新碼');
-    } else if (b.codeHash !== cur) {
-      console.log(`\n⚠ **daemon 落後於程式碼**：執行中 ${b.codeHash}／磁碟上 ${cur}`);
-      console.log('   ⇒ 修正尚未生效。先跑 scripts/can-restart-daemon.mjs，再 launchctl kickstart -k gui/501/com.gmii.twstock.ai-daemon');
-    }
-  } catch { /* 取不到不擋稽核 */ }
+  // daemon 版本漂移：已在寫入 dataHealth 前由 checkDaemonDrift() 判定並印出（G4-03）
 
-  if (AS_JSON) { console.log(JSON.stringify({ lastTradingDay: ltd, results, external }, null, 2)); process.exit(0); }
+  if (AS_JSON) { console.log(JSON.stringify({ lastTradingDay: ltd, results, external, daemonDrift }, null, 2)); process.exit(0); }
 
   const RANK = { ERROR: 0, MISSING: 1, EMPTY: 2, DATE_DRIFT: 3, STALE: 4, THIN: 5, OK: 9 };
   results.sort((a, b) => (RANK[a.status] ?? 8) - (RANK[b.status] ?? 8) || a.collection.localeCompare(b.collection));

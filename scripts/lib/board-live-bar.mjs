@@ -25,3 +25,30 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 export function needsLiveBar({ tradingDay, minutes, today, lastArchiveDay }) {
   return !!tradingDay && minutes >= SESSION_OPEN_MIN && ISO_DAY.test(lastArchiveDay ?? '') && lastArchiveDay < today;
 }
+
+/**
+ * 這檔「現價」那根 K 在歸檔收盤序列（舊→新，末索引 lastIdx）裡的索引（WM-SCAN G2-35·2026-10-04）。
+ *   現價取自快照即時報價（live）且今日盤尚未歸檔（liveDay＝needsLiveBar）⇒ 虛擬的 lastIdx+1；
+ *   其餘（非盤中用歸檔收盤當現價、週末／開盤前、或今日已歸檔）⇒ lastIdx。
+ * 舊寫法 `歸檔末日 === 日曆今天 ? L : L+1` 在週末與平日 00:00–09:00 會把 L 當成「昨天」，
+ *   於是 5 日漲幅只算 4 日、昨日漲幅恆為 0（現價與前日價都取自歸檔 L／L-1 時）。
+ * @param {{ liveDay: boolean, live: boolean, lastIdx: number }} p
+ */
+export function priceBarIndex({ liveDay, live, lastIdx }) {
+  return live && liveDay ? lastIdx + 1 : lastIdx;
+}
+
+/**
+ * 以現價那根 K 的索引 idx 算「5 日漲幅」與「昨日漲幅」。
+ *   ret5＝現價 ÷ idx-5 收盤（滿 5 個交易日）；prevChg＝前日收盤 prev ÷ idx-2 收盤。
+ * @param {{ closeMaps: Array<Record<string, number[]>>, code: string, idx: number, price: number, prev: number }} p
+ * @returns {{ ret5: number|null, prevChg: number|null }}
+ */
+export function lookbackChanges({ closeMaps, code, idx, price, prev }) {
+  const closeAt = (k) => closeMaps[k]?.[code]?.[0];
+  const b5 = closeAt(idx - 5), pp = closeAt(idx - 2);
+  return {
+    ret5: b5 > 0 && price > 0 ? +((price / b5 - 1) * 100).toFixed(1) : null,
+    prevChg: pp > 0 && prev > 0 ? +((prev / pp - 1) * 100).toFixed(2) : null,
+  };
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { startLiveLoop, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
@@ -15,11 +15,6 @@ interface Leader { code: string; name: string; cp: number; netInst: number }
 interface SectorW { industry: string; windScore: number; delta: number | null; avgChg: number; up: number; down: number; n: number; netInst: number; leaders: Leader[] }
 interface WindData { updatedAt: number; date: string; marketOpen: boolean; sectors: SectorW[] }
 
-const isTwTradingHours = () => {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-};
 
 export default function SectorWind({ compact = false }: { compact?: boolean }) {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前

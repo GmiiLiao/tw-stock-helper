@@ -66,6 +66,8 @@ if (Object.keys(ind).length < MIN.industry) fail(`產業分群只有 ${Object.ke
 let ex;
 try { ex = await fetchExright(D.dates[0], date); } catch (e) { fail(`除權息來源失敗：${(e.message || '').slice(0, 80)}`); }
 const pe = (await db.collection('priceEvents').doc('latest').get()).data()?.items;
+// G2-26：事件表不存在／無 items＝讀取失敗（不可當「沒有減資事件」以未還原價寫影子記錄）
+if (!Array.isArray(pe)) fail('priceEvents/latest 不存在或沒有 items');
 const adj = adjust(D, mergeFactorItems(ex.items, pe));
 
 // 處置股排除（名單取不到或殘缺 ⇒ 不寫）

@@ -26,7 +26,8 @@ function taipei(now: Date) {
   const tpe = new Date(now.getTime() + now.getTimezoneOffset() * 60_000 + 8 * 3_600_000);
   return {
     minutes: tpe.getHours() * 60 + tpe.getMinutes(),
-    ymd: `${tpe.getFullYear()}${String(tpe.getMonth() + 1).padStart(2, '0')}${String(tpe.getDate()).padStart(2, '0')}`,
+    // YYYY-MM-DD：須與休市日曆（system/tradingCalendar → setHolidays）同格式。2026-10-04 前為 YYYYMMDD ⇒ isTradingDay 永遠比不中，國定假日被當交易日。
+    ymd: `${tpe.getFullYear()}-${String(tpe.getMonth() + 1).padStart(2, '0')}-${String(tpe.getDate()).padStart(2, '0')}`,
     dow: tpe.getDay(),
   };
 }
@@ -176,28 +177,78 @@ export function liveQuoteInterval(): number {
  *  Header 在 2026-08-11 就修過這個（加 onVis 立即重排），但 useLiveQuotes 系
  *  一直沒有；2026-09-02 又把自選/戰情接上同一節奏，等於把缺陷面擴大——
  *  回前景恢復必須內建在標準件裡，不能靠每個呼叫端自己記得。
- *  fn 以 fire-and-forget 執行（不 await）：fetch 失敗不得斷輪詢鏈，fn 自行 catch。 */
-export function startLiveLoop(fn: () => void, intervalFn: () => number = liveQuoteInterval): () => void {
-  let t: ReturnType<typeof setTimeout>;
+ *
+ *  G3-20（2026-10-04）三個防呆，對既有呼叫端相容（fn 回 void 時行為與舊版相同）：
+ *  1. 在途旗標：fn 回 Promise 時，上一輪未結束不再疊打（慢網路下 3 秒拍不會疊成 N 條並行請求）；
+ *     在途超過 INFLIGHT_STALE_MS 視為卡死，放行下一輪（避免一個 hang 住的請求永久停掉輪詢）。
+ *  2. 失敗退避：fn 的 Promise reject ⇒ 下一拍間隔加倍（上限 BACKOFF_CAP_MS，且不短於原間隔）；成功一次即歸零。
+ *     fn 自行 catch 的呼叫端不受影響（照舊固定節奏）。
+ *  3. 卸載 abort：fn 收到 AbortSignal，stop() 時 abort——可直接傳給 fetch，卸載後不再寫 state。
+ *  fn 仍以 fire-and-forget 執行：fetch 失敗不得斷輪詢鏈。 */
+const INFLIGHT_STALE_MS = 30_000;
+const BACKOFF_CAP_MS = 120_000;
+
+export function startLiveLoop(
+  fn: (signal: AbortSignal) => unknown,
+  intervalFn: () => number = liveQuoteInterval,
+): () => void {
+  let t: ReturnType<typeof setTimeout> | undefined;
   let alive = true;
+  let inflightSince = 0;          // 0＝無在途
+  let failures = 0;
+  const ac = new AbortController();
+
+  const nextDelay = () => {
+    const base = intervalFn();
+    if (failures === 0) return base;
+    return Math.max(base, Math.min(base * 2 ** failures, BACKOFF_CAP_MS));
+  };
+  const run = () => {
+    if (!alive) return;
+    if (inflightSince && Date.now() - inflightSince < INFLIGHT_STALE_MS) return;   // 上一輪還在跑 → 跳過這拍
+    let r: unknown;
+    try { r = fn(ac.signal); } catch { failures += 1; return; }
+    if (r && typeof (r as Promise<unknown>).then === 'function') {
+      const started = Date.now();
+      inflightSince = started;
+      (r as Promise<unknown>).then(
+        () => { failures = 0; },
+        () => { if (alive) failures += 1; },
+      ).finally(() => { if (inflightSince === started) inflightSince = 0; });
+    }
+  };
+  const schedule = () => {
+    if (!alive) return;
+    clearTimeout(t);
+    t = setTimeout(tick, nextDelay());
+  };
   const tick = () => {
     if (!alive) return;
-    fn();
-    t = setTimeout(tick, intervalFn());
+    run();
+    schedule();
   };
-  t = setTimeout(tick, intervalFn());
+  schedule();
   const onVis = () => {
     if (typeof document === 'undefined' || document.hidden || !alive) return;
-    clearTimeout(t);
-    fn();                                   // 先補一次，不讓使用者等
-    t = setTimeout(tick, intervalFn());
+    run();                                  // 先補一次，不讓使用者等（在途中則跳過）
+    schedule();
   };
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
   return () => {
     alive = false;
     clearTimeout(t);
+    ac.abort();
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
   };
+}
+
+/** 台股「盤中（含收盤後緩衝）」時窗，給輪詢間隔函式用（G3-18·2026-10-04 收斂 12 份手寫版）。
+ *  與手寫版差異：看休市日曆（isTradingDay），國定假日不再當盤中用快節奏。
+ *  endMinutes 預設 13:35（原手寫版口徑）；ShortPanel 用 13:45。台北時間，不受 client 時區影響。 */
+export function isTwTradingHours(endMinutes: number = M(13, 35), now: Date = new Date()): boolean {
+  if (!isTradingDay(now)) return false;
+  const { minutes } = taipei(now);
+  return minutes >= M(9, 0) && minutes < endMinutes;
 }
 
 /** 目前的 MIS 揭示拍號（整 5 秒牆鐘）。放進報價請求的 query，讓 CDN 快取鍵

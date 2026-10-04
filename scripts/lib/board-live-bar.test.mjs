@@ -51,3 +51,43 @@ test('歸檔末日缺（空歸檔／讀取失敗）或異常地晚於今天 ⇒ 
   }
   assert.equal(needsLiveBar({ tradingDay: true, minutes: hm(10), today: '2026-10-01', lastArchiveDay: '2026-10-02' }), false);
 });
+
+// ── G2-35 軋空候選的 5 日漲幅／昨日漲幅（2026-10-04）──
+import { priceBarIndex, lookbackChanges } from './board-live-bar.mjs';
+const cm = [100, 101, 102, 103, 104, 105, 110].map(c => ({ X: [c, 1000] }));   // 舊→新，L=6
+
+test('非盤中（現價＝歸檔 L 收盤）：ret5 滿 5 日、prevChg 非 0——舊寫法週末 4 日／恆 0', () => {
+  const L = cm.length - 1;
+  const idx = priceBarIndex({ liveDay: false, live: false, lastIdx: L });
+  assert.equal(idx, L);
+  const r = lookbackChanges({ closeMaps: cm, code: 'X', idx, price: 110, prev: 105 });
+  assert.equal(r.ret5, +((110 / 101 - 1) * 100).toFixed(1));
+  assert.equal(r.prevChg, +((105 / 104 - 1) * 100).toFixed(2));
+  // 舊寫法（idx=L+1）對照：4 日、0
+  const old = lookbackChanges({ closeMaps: cm, code: 'X', idx: L + 1, price: 110, prev: 105 });
+  assert.equal(old.ret5, +((110 / 102 - 1) * 100).toFixed(1));
+  assert.equal(old.prevChg, 0);
+});
+
+test('週末快照仍標 live（現價＝上週五收盤＝歸檔 L）→ idx=L', () => {
+  assert.equal(priceBarIndex({ liveDay: false, live: true, lastIdx: 6 }), 6);
+});
+
+test('盤中即時（今日未歸檔）→ 虛擬 L+1：ret5 以 L-4 為基、prevChg＝L 對 L-1', () => {
+  const L = cm.length - 1;
+  const idx = priceBarIndex({ liveDay: true, live: true, lastIdx: L });
+  assert.equal(idx, L + 1);
+  const r = lookbackChanges({ closeMaps: cm, code: 'X', idx, price: 121, prev: 110 });
+  assert.equal(r.ret5, +((121 / 102 - 1) * 100).toFixed(1));
+  assert.equal(r.prevChg, +((110 / 105 - 1) * 100).toFixed(2));
+});
+
+test('盤中但該檔無即時報價（現價退回歸檔 L）→ idx=L', () => {
+  assert.equal(priceBarIndex({ liveDay: true, live: false, lastIdx: 6 }), 6);
+});
+
+test('序列太短或缺價 → null', () => {
+  const r = lookbackChanges({ closeMaps: cm.slice(0, 3), code: 'X', idx: 2, price: 102, prev: 101 });
+  assert.equal(r.ret5, null);
+  assert.equal(lookbackChanges({ closeMaps: cm, code: 'Y', idx: 6, price: 1, prev: 1 }).prevChg, null);
+});

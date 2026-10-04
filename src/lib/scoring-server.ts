@@ -31,12 +31,16 @@ export interface RiskStocksData {
   attentionCodes: Set<string>;
   dispositionCodes: Set<string>;
   getInfo: (code: string) => RiskStockInfo | undefined;
+  /** 上市＋上櫃處置名單本輪都完整取得（來源 risk-stocks-source 的 dispositionComplete）。
+   *  false＝名單可能缺漏：「不在名單上」≠「不是處置股」，scoreStock 會把買進訊號壓成 WATCH（WM-SCAN G2-10）。 */
+  dispositionComplete: boolean;
 }
 
 export const EMPTY_RISK_DATA: RiskStocksData = {
   attention: [], disposition: [], allCodes: [],
   attentionCodes: new Set(), dispositionCodes: new Set(),
   getInfo: () => undefined,
+  dispositionComplete: false,
 };
 
 // ─── Stock data types ────────────────────────────────────────────
@@ -135,6 +139,8 @@ export interface ScoredStock {
 
   isAttention: boolean;
   isDisposition: boolean;
+  /** 處置名單殘缺（來源故障）時為 true：isDisposition=false 不代表確認不是處置股，買進訊號已壓成 WATCH。 */
+  riskListIncomplete?: boolean;
   riskLevel: 'high' | 'medium' | 'low';
   riskWarnings: Array<{
     type: 'attention' | 'disposition';
@@ -729,14 +735,20 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   const grade = gradeFromScore(score);
 
   let signal: Signal = 'NEUTRAL';
+  // 處置名單殘缺（G2-10）：無法確認是否處置股 ⇒ 不給買進訊號（最多 WATCH），與注意股同級保守。
+  const riskListIncomplete = !riskData.dispositionComplete;
+  const capBuy = isAttention || riskListIncomplete;
   if (isDisposition) {
     signal = 'NEUTRAL';
   } else if (score >= 80 && chg > 0) {
-    signal = isAttention ? 'WATCH' : 'STRONG_BUY';
+    signal = capBuy ? 'WATCH' : 'STRONG_BUY';
   } else if (score >= 65 && chg > 0) {
-    signal = isAttention ? 'WATCH' : 'BUY';
+    signal = capBuy ? 'WATCH' : 'BUY';
   } else if (score >= 55) {
     signal = 'WATCH';
+  }
+  if (riskListIncomplete && !isDisposition) {
+    risks.push('⚠️ 處置股名單暫時無法完整取得，無法確認此檔是否處置中——買進訊號已暫停，交易前請自行查核');
   }
   // 同一組門檻、改用 baseScore 且不因處置／注意壓低（見 ScoredStock.baseSignal）
   const baseSignal: Signal = baseScore >= 80 && chg > 0 ? 'STRONG_BUY'
@@ -747,7 +759,7 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   const fa = [momentumScore > 12, volumeScore > 12, trendScore > 12, stabilityScore > 12].filter(Boolean).length;
   let confidence = parseFloat(Math.min(50 + fa * 12 + (score - 50) * 0.5, 95).toFixed(1));
   if (isDisposition) confidence = Math.min(confidence * 0.5, 30);
-  else if (isAttention) confidence = Math.min(confidence * 0.75, 60);
+  else if (isAttention || riskListIncomplete) confidence = Math.min(confidence * 0.75, 60);
 
   // ─── Buy/Sell Predictions ──────────────────────────────
   const patterns    = detectPatterns(s);
@@ -773,6 +785,7 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
     tradeSetup,
     isAttention,
     isDisposition,
+    ...(riskListIncomplete ? { riskListIncomplete: true } : {}),
     riskLevel,
     riskWarnings,
   };
@@ -795,59 +808,26 @@ export function rateStock(s: ParsedStock, riskData: RiskStocksData): StockRating
 
 // ─── Risk Stocks Fetcher (server-only, cached) ────────────────
 
-let cachedRiskData: RiskStocksData | null = null;
-let riskCachedAt = 0;
-const RISK_CACHE_TTL = 5 * 60 * 1000;
-
+// 2026-10-04 WM-SCAN G2-10：原本這裡是手寫 5 分鐘快取（let cachedRiskData; let riskCachedAt），
+//   不讀 dispositionComplete ⇒ cold instance 遇處置來源故障時，把「空處置名單」當有效名單快取 5 分鐘，
+//   ai-recommend／intraday-picks／cron/daily-close／rating 的處置 −40 與排除全部消失。
+//   現在快取只在來源層（risk-stocks-source 的 memoize：殘缺不入快取、降級回 ≤6h 的完整舊名單），
+//   這裡每次照來源結果重建衍生結構（百餘筆的 Set，成本可忽略），並把 dispositionComplete 原樣往下傳。
 export async function fetchRiskStocks(): Promise<RiskStocksData> {
-  if (cachedRiskData && Date.now() - riskCachedAt < RISK_CACHE_TTL) {
-    return cachedRiskData;
-  }
-
   try {
-    // ⚠ 抓取與解析已抽到 @/lib/risk-stocks-source（2026-08-11）。
-    //   原本這裡有一份與 api/twse/risk-stocks 幾乎相同的複本，而且**兩處都接錯端點**：
-    //   · TWT48U_ALL 當注意股 → 那是除權息預告表，每檔即將除權息的股票被扣 20 分
-    //   · t187ap10_L 當處置股 → 那是「月營收連續不足達X個月」名單（出表日期停在 2021），
-    //     且為寬表非逐檔清單 ⇒ 解析恆為空，**真正的上市處置股完全沒被偵測、該扣的 40 分沒扣**
-    //   我先修好了 route 那一份，這一份仍然錯——複本正是它會錯第二次的原因，故合併。
-    const { attention, disposition } = await fetchRiskStocksSource();
-
+    const { attention, disposition, dispositionComplete } = await fetchRiskStocksSource();
     const attentionCodes = new Set(attention.map(a => a.code));
     const dispositionCodes = new Set(disposition.map(d => d.code));
     const allCodes = [...new Set([...attentionCodes, ...dispositionCodes])];
-
-    const result: RiskStocksData = {
+    return {
       attention, disposition, allCodes, attentionCodes, dispositionCodes,
       getInfo: (code: string) => disposition.find(d => d.code === code) || attention.find(a => a.code === code),
+      dispositionComplete: dispositionComplete === true,
     };
-
-    cachedRiskData = result;
-    riskCachedAt = Date.now();
-    return result;
-
   } catch (e) {
+    // 來源層本身不丟例外（memoize 吞錯回 null → 殘缺結果）；這裡只防未預期錯誤，且不快取。
     console.error('[scoring-server] Risk stocks fetch error:', e);
-    // 負快取 (2026-07-30)：原本失敗時不寫快取，導致上游異常時
-    // 每一個 request 都重打 4 個 openapi/tpex 端點，5 分鐘 TTL 完全失效。
-    // 記錄 30 秒的冷卻；有舊資料就繼續供應舊的，沒有才回空。
-    const fallback = cachedRiskData ?? EMPTY_RISK_DATA;
-    cachedRiskData = fallback;
-    riskCachedAt = Date.now() - (RISK_CACHE_TTL - 30 * 1000);
-    return fallback;
-  }
-}
-
-async function fetchJSON(url: string, headers: Record<string, string>): Promise<unknown> {
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 6000);
-  try {
-    const res = await fetch(url, { headers, signal: controller.signal, cache: 'no-store' });
-    clearTimeout(tid);
-    return res.ok ? await res.json() : null;
-  } catch {
-    clearTimeout(tid);
-    return null;
+    return EMPTY_RISK_DATA;
   }
 }
 

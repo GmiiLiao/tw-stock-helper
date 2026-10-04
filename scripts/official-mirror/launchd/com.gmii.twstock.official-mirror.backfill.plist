@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- 第二大腦官方鏡像·歷史回補：每晚 23:20＋週末 11:00，每次上限 2,500 個請求；平日 07:30 禁跑窗自動停；回補完成後自然變成空跑 -->
+<!-- 第二大腦官方鏡像·歷史回補：每晚 23:20＋週末 11:00，每次上限 2,500 個請求；平日 07:30 禁跑窗與每日 16:25–16:55 daemon 窗自動停；回補完成後自然變成空跑。安裝：bash scripts/install-official-mirror-schedule.sh -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.gmii.twstock.official-mirror.backfill</string>

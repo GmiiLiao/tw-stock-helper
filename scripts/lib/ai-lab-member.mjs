@@ -121,3 +121,44 @@ export function goalProgress(history, { growthTarget, goalDays, goalStartDate } 
     lastPeriod: lastRet == null ? null : { n: cur, retPct: lastRet, achieved: lastRet >= growthTarget },
   };
 }
+
+// ── 會員資格（2026-10-04 使用者裁定；WM-SCAN G4-24／G4-21）───────────────────────
+/** 與開通 API（src/app/api/admin/ai-lab-access/route.ts）同一份付費等級——不含註冊 14 天體驗期 */
+export const AI_LAB_PAID_LEVELS = Object.freeze(['premium', 'admin', 'superadmin']);
+
+/**
+ * daemon 端會員 AI 帳戶的資格（與開通 API 一致：只收付費等級）。
+ *   grants＝aiLabAccess 中 swing＝true 的 [{ uid }]；userOf(uid)＝users/{uid} 的資料（不存在＝null）。
+ *   active：執行結算／成交／快照／決策；suspended：已開通但目前不是付費等級（體驗期到期或降級）或帳號不存在 ⇒
+ *   停止一切執行（資料保留不刪），寫「已停用」狀態供 API／前端隱藏。
+ * @returns {{ active: string[], suspended: { uid: string, reason: string, level: string|null }[] }}
+ */
+export function classifyLabMembers(grants, userOf) {
+  const active = [], suspended = [];
+  for (const g of grants || []) {
+    const uid = g?.uid; if (!uid) continue;
+    const u = userOf(uid);
+    if (!u) { suspended.push({ uid, reason: '帳號不存在', level: null }); continue; }
+    const level = String(u.level ?? 'registered');
+    if (AI_LAB_PAID_LEVELS.includes(level)) active.push(uid);
+    else suspended.push({ uid, reason: `非付費等級（${level}；體驗期已結束或已降級）`, level });
+  }
+  return { active, suspended };
+}
+
+/**
+ * 經驗庫訓練可使用哪些會員的樣本（2026-10-04 使用者：「保留會員身分到會員自主取消或帳號刪除」）：
+ *   仍開通（aiLabAccess.swing＝true）且帳號存在 ⇒ 納入（體驗期到期＝停用但未取消，樣本保留）；
+ *   取消開通（swing≠true／無開通紀錄）或帳號已刪除 ⇒ 每次訓練時剔除（樣本是每次由會員決策檔重算，剔除即移除）。
+ *   access(uid)＝aiLabAccess/{uid} 資料或 null；userExists(uid)＝boolean。
+ * @returns {{ include: string[], exclude: { uid: string, reason: string }[] }}
+ */
+export function learnMemberEligibility(uids, access, userExists) {
+  const include = [], exclude = [];
+  for (const uid of uids || []) {
+    if (access(uid)?.swing !== true) exclude.push({ uid, reason: '已取消開通' });
+    else if (!userExists(uid)) exclude.push({ uid, reason: '帳號已刪除' });
+    else include.push(uid);
+  }
+  return { include, exclude };
+}

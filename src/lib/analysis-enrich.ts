@@ -154,8 +154,9 @@ export function enrichScoredStock(
     // Re-derive signal with the same rules as the base scorer.
     const chgUp = stock.changePercent > 0;
     if (stock.isDisposition) stock.signal = 'NEUTRAL';
-    else if (newScore >= 80 && chgUp) stock.signal = stock.isAttention ? 'WATCH' : 'STRONG_BUY';
-    else if (newScore >= 65 && chgUp) stock.signal = stock.isAttention ? 'WATCH' : 'BUY';
+    // riskListIncomplete（G2-10）：處置名單殘缺時與注意股同級，最多 WATCH——與 scoreStock 同規則
+    else if (newScore >= 80 && chgUp) stock.signal = stock.isAttention || stock.riskListIncomplete ? 'WATCH' : 'STRONG_BUY';
+    else if (newScore >= 65 && chgUp) stock.signal = stock.isAttention || stock.riskListIncomplete ? 'WATCH' : 'BUY';
     else if (newScore >= 55) stock.signal = 'WATCH';
     else stock.signal = 'NEUTRAL';
     // 未含風險扣分的評分／訊號同步加上基本面分（否則 baseScore − score 就不再等於處置／注意扣分）

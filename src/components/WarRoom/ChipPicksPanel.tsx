@@ -5,7 +5,7 @@
 // 資料：/api/ai/chip-picks（daemon chipPicks；法人 t-1、名稱價格即時）。非投資建議。
 
 import { useEffect, useState } from 'react';
-import { startLiveLoop, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import { usePickControls, applyPick, PickBar, PickMore } from '@/components/shared/PickControls';
 import { useAppStore } from '@/lib/store';
@@ -90,11 +90,6 @@ function compositeOf(p: Pick, live?: { high?: number; low?: number }): { score: 
   });
 }
 
-function isTwTradingHours(): boolean {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-}
 
 // ── 完整總表：籌碼性格分類 × 三法人分別持有狀態 ──
 interface StoreStock { code: string; name?: string; price?: number; changePercent?: number; market?: string }

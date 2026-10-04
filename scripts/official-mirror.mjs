@@ -9,6 +9,9 @@
 //   status                                    印出各資料集進度、寫 manifest.json（含最新警示）
 // 開跑前檢查（會發請求的指令）：單一程序鎖（原子建立）、研究回補程序仍在跑就不開、daemon 日誌近 30 分鐘有上游故障字樣就不開。
 // 節奏：證交所系／櫃買系／期交所各一條佇列、逐請求 ≥3 秒、平日 07:30～15:30 不跑、封鎖訊號立即停；MIS 一律不打（額度歸 daemon）。
+//       每日 16:25–16:55、21:40–22:35 也不跑（daemon 重任務窗，lib DAEMON_BUSY_WINDOWS；排程改 22:40，2026-10-04·WM-SCAN G4-32）。
+// 定版（2026-10-04·G2-37）：非 must 帶日期表的空表要隔 ≥6 小時再看一次仍空才定版（MI_INDEX 未確認的空＝不當休市）；
+//       每日快照以官方回聲日為鍵（keyByEcho）；_alerts 經 audit-data-sources 的 officialMirror(本機) 列進 dataHealth。
 import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, mkdirSync, openSync, closeSync, unlinkSync, readSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +65,8 @@ function officialHolidays() {
 function dayInfo(until) {
   const confirmed = new Set(); const closed = new Set();
   try { for (const d of JSON.parse(readFileSync(join(SURGE, 'panel_dates.json'), 'utf8'))) confirmed.add(d); } catch { /* 沒有研究快取就只靠鏡像 */ }
-  for (const [k, r] of Object.entries(C.loadManifest(ROOT, MI.host, MI.id).rows || {})) { if (r.status === 'ok') confirmed.add(k); else if (r.status === 'empty') closed.add(k); }
+  // 空表只有「已確認」（final 不是 false：隔 ≥6h 再看仍空，或舊版已定版的列）才算休市；未確認的空留在候選日，補漏會再抓（G2-37）
+  for (const [k, r] of Object.entries(C.loadManifest(ROOT, MI.host, MI.id).rows || {})) { if (r.status === 'ok') confirmed.add(k); else if (r.status === 'empty' && r.final !== false) closed.add(k); }
   const hol = officialHolidays(); const last = [...confirmed].sort().at(-1) || '2026-10-02';
   const candidates = new Set(confirmed);
   for (let t = Date.parse(`${last}T12:00:00Z`) + 864e5; t <= Date.parse(`${until}T12:00:00Z`); t += 864e5) {
@@ -127,7 +131,7 @@ function acquireLock(cmd) {
 }
 
 // ── 工作執行：每個機構一條共用佇列 ─────────────────────────────
-const queueOpts = a => ({ quiet: a.forceHours ? () => false : C.inQuietWindow, log });
+const queueOpts = a => ({ quiet: a.forceHours ? () => false : C.blockedReason, log });   // --force-hours 連 daemon 重任務窗也放行（手動除錯用）
 const budgetFile = () => join(ROOT, '_budget', `${C.taipeiDate()}.json`);
 function readBudget() { try { return JSON.parse(readFileSync(budgetFile(), 'utf8')).requests || 0; } catch { return 0; } }
 function addBudget(n) { mkdirSync(join(ROOT, '_budget'), { recursive: true }); writeFileSync(budgetFile(), JSON.stringify({ requests: readBudget() + n })); }
@@ -142,22 +146,23 @@ async function runJobs(jobs, a, { budget = Infinity } = {}) {
       const q = C.queueFor(j.ad.host, queueOpts(a)); if (q.stopped) { bump('skipped'); continue; }
       const mk = `${j.ad.host}/${j.ad.id}`; if (!mans.has(mk)) mans.set(mk, C.loadManifest(ROOT, j.ad.host, j.ad.id));
       const man = mans.get(mk); const prevAttempts = man.rows?.[j.key]?.attempts || 0; const before = q.count;
-      const out = await q.run(() => C.fetchAndStore(j.ad, { root: ROOT, key: j.key, ctx: j.ctx, man, snapshot: !!j.snapshot, final: j.final ?? true, mustHaveRows: !!j.must }));
+      const out = await q.run(() => C.fetchAndStore(j.ad, { root: ROOT, key: j.key, ctx: j.ctx, man, snapshot: !!j.snapshot, final: j.final ?? true, mustHaveRows: !!j.must, keyByEcho: !!j.keyByEcho }));
       requests += q.count - before;
       if (out?.skipped) { bump('skipped'); continue; }
-      const row = man.rows[j.key];
-      if (row && !C.isFinalFor(j.ad, man, j.key)) man.rows[j.key] = { ...row, attempts: prevAttempts + 1 };
-      const st = row?.lastTry ? `${row.status}(保留·本次${row.lastTry.status})` : (row?.status || 'fail');
+      const k = out?.key || j.key;   // keyByEcho 時實際寫入的是官方回聲日的鍵
+      const row = man.rows[k];
+      if (row && !C.isFinalFor(j.ad, man, k)) man.rows[k] = { ...row, attempts: (k === j.key ? prevAttempts : (row.attempts || 0)) + 1 };
+      const st = row?.lastTry ? `${row.status}(保留·本次${row.lastTry.status})` : (row?.status === 'empty' && row.final === false ? 'empty(待確認)' : (row?.status || 'fail'));
       bump(st); C.saveManifest(ROOT, man);
-      if (!/^(ok|unchanged|empty)$/.test(st)) log(`  ${j.ad.id} ${j.key}：${st}${row?.note ? `（${row.note}）` : ''}`);
+      if (!/^(ok|unchanged|empty)$/.test(st)) log(`  ${j.ad.id} ${k}${k !== j.key ? `（執行鍵 ${j.key}）` : ''}：${st}${row?.note ? `（${row.note}）` : ''}`);
     }
   }));
   return { requests, stats };
 }
 const mergeStats = (...ss) => ss.reduce((acc, s) => { for (const [k, v] of Object.entries(s || {})) acc[k] = (acc[k] || 0) + v; return acc; }, {});
 
-/** 近 N 個交易日的補漏：MI_INDEX 對候選日、其他帶日期表對已確認日；未定版且嘗試未滿 6 次。 */
-function catchUpJobs(n, only, today) {
+/** 近 N 個交易日的補漏：MI_INDEX 對候選日、其他帶日期表對已確認日；未定版且嘗試未滿 6 次。skip＝本輪已抓過的「id|key」（同一輪重抓不算空表確認，白費請求）。 */
+function catchUpJobs(n, only, today, skip = new Set()) {
   const info = dayInfo(today); const lateEnough = C.taipeiNow().getUTCHours() >= 22;
   const recent = info.candidates.filter(d => d < today || (d === today && lateEnough)).slice(-n); const jobs = [];
   for (const ad of activeDated(only)) {
@@ -165,7 +170,7 @@ function catchUpJobs(n, only, today) {
     const man = C.loadManifest(ROOT, ad.host, ad.id);
     for (const d of recent) {
       if (ad.id !== MI.id && !info.confirmed.has(d)) continue;
-      for (const j of jobsFor(ad, { day: d }, { must: !!ad.must && ad.id !== MI.id })) if (!C.isFinal(man, j.key) && (man.rows?.[j.key]?.attempts || 0) < 6) jobs.push(j);
+      for (const j of jobsFor(ad, { day: d }, { must: !!ad.must && ad.id !== MI.id })) if (!skip.has(`${ad.id}|${j.key}`) && !C.isFinal(man, j.key) && (man.rows?.[j.key]?.attempts || 0) < 6) jobs.push(j);
     }
   }
   return { jobs, recent };
@@ -193,7 +198,8 @@ async function cmdDaily(a) {
   if (a.slot !== 'main') jobs.push(...snapshotJobs(D, state, a, today));
   const todo = jobs.filter(j => j.force || j.snapshot || !C.isFinalFor(j.ad, C.loadManifest(ROOT, j.ad.host, j.ad.id), j.key));
   const r1 = await runJobs(todo, a);
-  const cu = catchUpJobs(5, a.only, today); const r2 = cu.jobs.length ? await runJobs(cu.jobs, a) : { requests: 0, stats: {} };
+  const done = new Set([`${MI.id}|${D}`, ...todo.map(j => `${j.ad.id}|${j.key}`)]);
+  const cu = catchUpJobs(5, a.only, today, done); const r2 = cu.jobs.length ? await runJobs(cu.jobs, a) : { requests: 0, stats: {} };
   const requests = r0.requests + r1.requests + r2.requests; const stats = mergeStats(r0.stats, r1.stats, r2.stats);
   writeRunLog(`daily-${D}-${a.slot}`, { date: D, state, requests, catchUpKeys: cu.jobs.length, stats });
   cmdStatus({ quiet: true });
@@ -224,7 +230,8 @@ function snapshotJobs(D, state, a, today) {
           : !good.some(k => k.startsWith(ym));
     if (!due) continue;
     let key = asOf; let n = 2; while (C.isFinal(man, key) && man.rows[key].status !== 'unchanged') key = `${asOf}.r${n++}`;
-    out.push({ ad, key, ctx: C.ctxOf({ day: asOf }), snapshot: true });
+    // 每日快照以官方回聲日為鍵（G2-37）：週／月／季的「本期抓過了沒」靠執行鍵判斷，維持舊鍵避免回聲日落在上期而天天重抓
+    out.push({ ad, key, ctx: C.ctxOf({ day: asOf }), snapshot: true, keyByEcho: ad.freq === 'daily' });
   }
   return out;
 }

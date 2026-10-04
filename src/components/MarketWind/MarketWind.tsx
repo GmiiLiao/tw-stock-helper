@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { startLiveLoop, isForeground } from '@/lib/market-clock';
+import { startLiveLoop, isForeground, isTwTradingHours } from '@/lib/market-clock';
 import { useAppStore } from '@/lib/store';
 import SectorWind from '@/components/SectorWind/SectorWind';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
@@ -23,11 +23,6 @@ interface WindData {
   narrative: { text: string; at: number; drivers: Record<string, { type: string; text: string }>; newsUsed: string[] } | null;
 }
 
-const isTwTradingHours = () => {
-  const tw = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const d = tw.getDay(); const v = tw.getHours() * 60 + tw.getMinutes();
-  return d >= 1 && d <= 5 && v >= 9 * 60 && v < 13 * 60 + 35;
-};
 
 const DRIVER_META: Record<string, { icon: string; color: string }> = {
   '產業面': { icon: '🏭', color: '#7dd3fc' },

@@ -110,8 +110,10 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   const evByCode = {};
   try {
     const pe = (await db.collection('priceEvents').doc('latest').get()).data();
+    // G2-26：不存在／無 items 時不靜默當成「無事件」——訓練照跑但留警告（排除數 0 不代表沒有事件）
+    if (!Array.isArray(pe?.items)) console.warn('⚠ priceEvents/latest 不存在或沒有 items：本次未排除減資／面額事件');
     for (const e of (pe?.items || [])) if (e?.code && e?.date) (evByCode[e.code] ||= []).push(Date.parse(e.date));
-  } catch { /* 沒有事件表就不排除，報表會顯示 0 */ }
+  } catch (e) { console.warn(`⚠ priceEvents 讀取失敗：本次未排除減資／面額事件（${(e?.message || e).toString().slice(0, 80)}）`); }
   const EV_WIN = 30 * 86400000;
   const nearEvent = (code, dateIso) => { const arr = evByCode[code]; if (!arr) return false; const t0 = Date.parse(dateIso); return arr.some(ev => Math.abs(t0 - ev) <= EV_WIN); };
   let excludedEvents = 0;

@@ -7,6 +7,12 @@
 //        ＋ 記分板 scoringV3/scoreboard：v3 Top20 vs 同日 v2 Top20（picksHistory.top20），同一標籤口徑的超額。
 //   不動 v2、不動任何榜單；上游只有每日 2 次官方除權息區間查詢（與人數無關）＋自家處置名單 API。
 //   失敗一律不寫（寧缺勿錯）：法人未齊、除權息來源失敗、處置名單殘缺 ⇒ exit 1。
+//   2026-10-04（WM-SCAN G2-23／G2-26／G2-28）：
+//     · 資料日必須＝預期的最新交易日（交易日 13:30 後＝今天，否則前一交易日；休市日曆 system/tradingCalendar）且兩市收盤＋法人到齊
+//       （canonical-gate.archiveDayStatus）——舊版取「最近一個 ≥1500 檔的歸檔日」，上櫃未併入時會改寫昨天的影子記錄並回報成功。
+//     · priceEvents/latest 不存在／沒有 items＝讀取失敗 ⇒ 不寫。
+//     · 歸檔以交易日序列對齊：殘缺日保留一格（缺值），不整天濾掉讓 60 日窗位移。
+//     · 同一資料日重跑：新版宇宙比既有記錄少 2% 以上 ⇒ 不覆蓋（neverThinner）；latest 只往前，不被較舊的資料日蓋掉。
 //   用法：node scripts/scoring-v3-shadow.mjs [--dry]
 // ─────────────────────────────────────────────────────────────────────────────
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -18,6 +24,8 @@ import { V3_FACTORS, crossSection, compositePct, labelsFor, topN, shadowBoard } 
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { fetchExright, mergeFactorItems } from './lib/exright-source.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
+import { alignArchiveDays, latestTradingDayAsOf, shadowDayCheck, twClock } from './lib/ai-lab-guard.mjs';
+import { neverThinner } from './lib/canonical-gate.mjs';
 
 const DRY = process.argv.includes('--dry');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,19 +50,30 @@ const live = Object.entries(W.scores || {}).filter(([, s]) => s.passed);
 if (!live.length) { console.log('· v3 影子：沒有通過驗證的分數，不執行'); process.exit(0); }
 
 const db = initDb();
-const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(LOOKBACK).select('date', 'closeJson', 'instJson').get();
-const raw = snap.docs.map(d => d.data()).filter(a => a?.closeJson)
-  .map(a => ({ date: a.date, m: JSON.parse(a.closeJson), inst: a.instJson ? JSON.parse(a.instJson) : null }))
-  .filter(d => Object.keys(d.m).length >= 1500).reverse();
+const snap = await db.collection('chipArchive').orderBy('date', 'desc').limit(LOOKBACK).select('date', 'closeJson', 'instJson', 'otcPending', 'gapFixSource').get();
+// 休市日曆（讀不到＝無法判定預期資料日與交易日序列 ⇒ 不寫）
+let holidays;
+try { const cal = (await db.collection('system').doc('tradingCalendar').get()).data(); if (!Array.isArray(cal?.holidays) || !cal.holidays.length) throw new Error('holidays 為空'); holidays = new Set(cal.holidays); }
+catch (e) { fail(`休市日曆讀不到（${(e.message || '').slice(0, 60)}），無法判定預期資料日`); }
+const isTd = iso => { const g = new Date(`${iso}T12:00:00Z`).getUTCDay(); return g !== 0 && g !== 6 && !holidays.has(iso); };
+const aligned = alignArchiveDays(snap.docs.map(d => d.data()), { isTradingDayIso: isTd });   // 颱風假等非交易日的空殼丟掉、交易日的殘缺保留為缺值
+const raw = aligned.days.map(d => { let inst = null; try { inst = d.raw.instJson ? JSON.parse(d.raw.instJson) : null; } catch { inst = null; } return { date: d.date, m: d.m, inst }; });
 if (raw.length < 62) fail(`歸檔只有 ${raw.length} 日`);
 const t = raw.length - 1, date = raw[t].date;
+const expected = latestTradingDayAsOf(twClock(Date.now()), isTd, 13 * 60 + 30);
+const dayOk = shadowDayCheck({ lastDate: date, expected, archiveDoc: aligned.days[t].raw });
+if (!dayOk.ok) fail(dayOk.why);
+const partialInWin = aligned.partialDates.filter(d => d >= raw[Math.max(0, t - 61)].date);
+if (partialInWin.length) console.log(`⚠ v3 影子：60 日窗內有 ${partialInWin.length} 個殘缺交易日（保留為缺值、不位移；窗跨過它的個股本日不進宇宙）：${partialInWin.join('、')}`);
 const instN = Object.keys(raw[t].inst || {}).length;
 if (instN < INST_MIN) fail(`${date} 法人僅 ${instN} 檔（<${INST_MIN}，未齊）`);
 
 // 還原係數：窗內官方除權息（失敗就不算——未還原的除息跳空會污染 r60/dd60/標籤）＋ priceEvents 減資／面額變更
 let ex;
 try { ex = await fetchExright(raw[0].date, date); } catch (e) { fail(`除權息來源失敗：${(e.message || '').slice(0, 80)}`); }
-const pe = (await db.collection('priceEvents').doc('latest').get()).data()?.items;
+const peDoc = (await db.collection('priceEvents').doc('latest').get()).data();
+if (!peDoc || !Array.isArray(peDoc.items)) fail(`價格結構事件讀取失敗（priceEvents/latest ${peDoc ? '沒有 items' : '不存在'}）`);
+const pe = peDoc.items;
 const days = applyPriceFactors(raw, factorsFromItems(mergeFactorItems(ex.items, pe)));
 
 // 處置股排除（名單取不到或殘缺 ⇒ 不寫；空集合會讓處置股安靜混入）
@@ -113,8 +132,12 @@ const boardDoc = { updatedAt: Date.now(), dataDate: date, version: W.version, bo
 
 for (const [k, s] of Object.entries(scores)) console.log(`📐 v3 ${k} ${date}：宇宙 ${cs.codes.length}（排除處置 ${disp.size}）、Top ${s.top.slice(0, 5).map(x => x.code).join(' ')}…｜記分板 ${board[k].n} 日 v3 ${board[k].v3 ?? '—'} vs v2 ${board[k].v2 ?? '—'}${board[k].switchReady ? '｜⚑ 達提請切換條件' : ''}`);
 if (DRY) process.exit(0);
+// 同一資料日重跑：不以較薄的結果覆蓋（某來源這次失敗而宇宙變小）；latest 只往前
+const prevDay = (await db.collection('scoringV3').doc(date).get()).data();
+if (prevDay && !neverThinner(prevDay.universe ?? null, cs.codes.length)) fail(`${date} 既有記錄宇宙 ${prevDay.universe} 檔 > 本次 ${cs.codes.length} 檔（少 2% 以上），不覆蓋`);
 await db.collection('scoringV3').doc(date).set(dropUndefined(doc));
-await db.collection('scoringV3').doc('latest').set(dropUndefined(doc));
+const prevLatest = (await db.collection('scoringV3').doc('latest').get()).data();
+if (!(prevLatest?.date > date)) await db.collection('scoringV3').doc('latest').set(dropUndefined(doc));
 await db.collection('scoringV3').doc('scoreboard').set(dropUndefined(boardDoc));
 console.log(`✓ v3 影子 ${date}：${Object.keys(scores).join('、')} 已寫入（除權息 ${ex.items.length} 件、法人 ${instN} 檔）`);
 process.exit(0);

@@ -2,12 +2,14 @@
 // 已知壞 idiom 的雙向 Ratchet 普查（wm-ci-guardrails Ratchet Inventory·WM-SCAN F15·2026-09-04）
 // 目前一條：前端含 setInterval( 但沒接任何輪詢 gate/標準件的檔案數（CLAUDE.md「前端輪詢：加 gate」的量測面）。
 // 雙向：多於基線＝新漂移（紅）；少於基線＝基線過期，必須把 scripts/route-policy.json 的 pollNoGateBaseline 降下來（也紅）。
-// 用法：node scripts/audit-ratchets.mjs [--list]
+// 用法：node scripts/audit-ratchets.mjs [--list] [--root <dir>]
+//   --root：改掃該目錄（pre-commit 以 staged 快照目錄呼叫，2026-10-04 G3-30；預設＝本 repo 工作樹）
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const _rootArg = process.argv.indexOf('--root');
+const ROOT = resolve(_rootArg > 0 ? process.argv[_rootArg + 1] : fileURLToPath(new URL('..', import.meta.url)));
 const SRC = join(ROOT, 'src');
 const POLICY_PATH = join(ROOT, 'scripts/route-policy.json');
 const LIST = process.argv.includes('--list');

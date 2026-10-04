@@ -6,6 +6,7 @@ import { getInstWeights } from '@/lib/inst-weight-server';
 import { getFinWeights } from '@/lib/fin-server';
 import { getRecommendAdj } from '@/lib/recommend-adj-server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs'; // firebase-admin（法人加權）需 Node runtime
 
@@ -16,6 +17,9 @@ export const runtime = 'nodejs'; // firebase-admin（法人加權）需 Node run
 // ============================================================
 
 export async function GET(request: NextRequest) {
+  // 專屬限流（G1-23）：全市場評分（CPU 重）＋快取未命中時打處置／收盤上游；前端每頁載入一次 ⇒ 60/分鐘很寬。
+  const limited = await rateLimit(request, 'ai-recommend', 60);
+  if (limited) return limited;
   const searchParams = request.nextUrl.searchParams;
   const mode = searchParams.get('mode') || 'daily';
 
@@ -161,8 +165,15 @@ export async function GET(request: NextRequest) {
         attentionCount: riskData.attention.length,
         dispositionCount: riskData.disposition.length,
         totalRiskStocks: riskData.allCodes.length,
+        // G2-10：false＝處置名單殘缺，榜上「非處置」未經確認、買進訊號已壓成 WATCH
+        dispositionComplete: riskData.dispositionComplete,
       },
-    }, { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30' });
+    }, {
+      // 殘缺結果只讓 CDN 留 15 秒（來源層 30 秒負快取後就會重試），不要把一次故障釘 60 秒
+      'Cache-Control': riskData.dispositionComplete
+        ? 'public, s-maxage=60, stale-while-revalidate=30'
+        : 'public, s-maxage=15',
+    });
 
   } catch (error) {
     console.error('AI recommendation error:', error);
