@@ -1,0 +1,287 @@
+{
+ "registration": "065a92c6b063ccfb0bcb5a8facc99734e4f7d769f7af66198953cd7f5592c3e3",
+ "G0_5": {
+  "bit_equal_official": true,
+  "nan_positions_equal": true,
+  "cv_official_tiebreak": {
+   "hits": 122,
+   "picks": 4150,
+   "test_rows": 365623,
+   "events": 1318
+  },
+  "hash_tiebreak": {
+   "hits": 122,
+   "picks": 4150
+  },
+  "brk_future_only_rows_scored_selhc": [
+   {
+    "date": "2025-12-15",
+    "code": "4991",
+    "score": -2.9287656014970036
+   },
+   {
+    "date": "2025-12-16",
+    "code": "4991",
+    "score": -2.832474720565608
+   },
+   {
+    "date": "2025-12-17",
+    "code": "4991",
+    "score": -3.1653094798914077
+   },
+   {
+    "date": "2025-12-18",
+    "code": "4991",
+    "score": -4.060429652542464
+   },
+   {
+    "date": "2025-12-19",
+    "code": "4991",
+    "score": -2.9980455903477234
+   },
+   {
+    "date": "2026-07-06",
+    "code": "7610",
+    "score": -2.026943645837752
+   },
+   {
+    "date": "2026-07-07",
+    "code": "7610",
+    "score": -2.010157301823606
+   },
+   {
+    "date": "2026-07-08",
+    "code": "7610",
+    "score": -1.3651784907769677
+   },
+   {
+    "date": "2026-07-09",
+    "code": "7610",
+    "score": -1.5903833590178287
+   },
+   {
+    "date": "2026-08-26",
+    "code": "2464",
+    "score": -1.8865979960916723
+   },
+   {
+    "date": "2026-08-28",
+    "code": "2464",
+    "score": -1.6859145378982394
+   },
+   {
+    "date": "2026-08-31",
+    "code": "2464",
+    "score": -2.0054167653671855
+   },
+   {
+    "date": "2026-09-01",
+    "code": "2464",
+    "score": -1.929397306508828
+   },
+   {
+    "date": "2026-09-23",
+    "code": "6834",
+    "score": -1.0217823596315017
+   }
+  ],
+  "pass": true
+ },
+ "G0_9": {
+  "review_years_sha256": "eb1f61c2dcb82537f293d4634656f81fca8042796bf6794da36fbbb9bf21bf81",
+  "aadab48f": {
+   "n_keys": 26,
+   "n_fields": 200,
+   "n_diff": 0,
+   "diffs": [],
+   "pass_": true,
+   "frame_rows": 774628,
+   "tier_rows": {
+    "A": 379160,
+    "W": 232885,
+    "B": 144930,
+    "R": 17653
+   },
+   "runtime_s": 1.2
+  },
+  "base": {
+   "n_keys": 26,
+   "n_fields": 200,
+   "n_diff": 26,
+   "diffs": [
+    {
+     "key": "B|combo@10|2026",
+     "field": "c5_daily",
+     "review_years": -0.62,
+     "a36": -0.61
+    },
+    {
+     "key": "B|combo@10|2026",
+     "field": "c5_nodisp_s_daily",
+     "review_years": -0.58,
+     "a36": -0.57
+    },
+    {
+     "key": "B|combo@3|2026",
+     "field": "c5_nodisp_s_daily",
+     "review_years": -1.16,
+     "a36": -1.17
+    },
+    {
+     "key": "B|combo@5|2026",
+     "field": "c5_daily",
+     "review_years": -1.16,
+     "a36": -1.17
+    },
+    {
+     "key": "B|combo@5|Qmax1pct",
+     "field": "share_le1",
+     "review_years": 53.0,
+     "a36": 52.8
+    },
+    {
+     "key": "B|combo@5|Qmax1pct",
+     "field": "med_vol20",
+     "review_years": 193.05,
+     "a36": 193.35
+    },
+    {
+     "key": "R|atr14@10|2026",
+     "field": "base",
+     "review_years": 2.058,
+     "a36": 2.057
+    },
+    {
+     "key": "R|atr14@3|2026",
+     "field": "base",
+     "review_years": 2.058,
+     "a36": 2.057
+    },
+    {
+     "key": "R|atr14@5|2026",
+     "field": "base",
+     "review_years": 2.058,
+     "a36": 2.057
+    },
+    {
+     "key": "R|combo@10|2026",
+     "field": "hits",
+     "review_years": 51,
+     "a36": 50
+    },
+    {
+     "key": "R|combo@10|2026",
+     "field": "prec",
+     "review_years": 2.898,
+     "a36": 2.841
+    },
+    {
+     "key": "R|combo@10|2026",
+     "field": "base",
+     "review_years": 2.058,
+     "a36": 2.057
+    },
+    {
+     "key": "R|combo@10|2026",
+     "field": "c5_daily",
+     "review_years": 2.07,
+     "a36": 2.08
+    },
+    {
+     "key": "R|combo@10|2026",
+     "field": "c5_nodisp_s_daily",
+     "review_years": 1.29,
+     "a36": 1.28
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "hits",
+     "review_years": 18,
+     "a36": 17
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "prec",
+     "review_years": 3.409,
+     "a36": 3.22
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "base",
+     "review_years": 2.058,
+     "a36": 2.057
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "c5_daily",
+     "review_years": 2.8,
+     "a36": 2.85
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "c5_disp_s_daily",
+     "review_years": 3.84,
+     "a36": 3.83
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "c5_nodisp_s_daily",
+     "review_years": 1.11,
+     "a36": 1.27
+    },
+    {
+     "key": "R|combo@3|2026",
+     "field": "disp_s_share",
+     "review_years": 47.9,
+     "a36": 48.1
+    },
+    {
+     "key": "R|combo@5|2026",
+     "field": "base",
+     "review_years": 2.058,
+     "a36": 2.057
+    },
+    {
+     "key": "R|combo@5|2026",
+     "field": "c5_daily",
+     "review_years": 2.29,
+     "a36": 2.28
+    },
+    {
+     "key": "R|combo@5|2026",
+     "field": "c5_disp_s_daily",
+     "review_years": 2.65,
+     "a36": 2.7
+    },
+    {
+     "key": "R|combo@5|2026",
+     "field": "c5_nodisp_s_daily",
+     "review_years": 1.14,
+     "a36": 1.16
+    },
+    {
+     "key": "R|combo@5|2026",
+     "field": "disp_s_share",
+     "review_years": 46.7,
+     "a36": 46.6
+    }
+   ],
+   "pass_": false,
+   "frame_rows": 774616,
+   "tier_rows": {
+    "A": 379141,
+    "W": 232886,
+    "B": 144929,
+    "R": 17660
+   },
+   "runtime_s": 1.1
+  },
+  "aadab48f_build_py_sha256": "97b3195c4aab5be856f02014c65ea083b217c761f180db247b7301f35e4f96a3",
+  "reproduced_by": [
+   "aadab48f"
+  ],
+  "pass": true
+ },
+ "runtime_s": 6.1,
+ "note": "未扣成本·事後欄位以 m_ 標示·非投資建議"
+}
