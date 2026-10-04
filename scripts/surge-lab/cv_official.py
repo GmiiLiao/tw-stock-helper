@@ -11,9 +11,10 @@ base 與 official 各跑 3 個種子（負例抽樣＋GBDT 隨機性），其餘
 命中／漏網兩份逐件記錄（使用者 2026-10-04 規定，記憶 feedback-backtest-hits-and-misses）：base 與 official 各寫
   out/official_cv_{task}_{模型}_hits.csv、_misses.csv（日期、代號、名稱、市場、分數、同日名次、關鍵特徵同日百分位、各來源當天有無值），
   T1／T2 另寫 _outside.csv（事件發生但不在母體：被哪道濾網擋掉），以及 _hitmiss_summary.json（命中 vs 漏網的特徵百分位與缺值率差異）。
+逐列分數：base 與 official 的 3 種子平均外樣本分數存 {SP}/official_cv_scores_{task}.npz（含列指紋與環境變數），供 cv_official_robust.py。
 用法：SURGE_CACHE=<快取> python3 cv_official.py t1|t2|lu1 [--quick]
 """
-import os, sys, json, time
+import os, sys, json, time, hashlib
 import numpy as np, pandas as pd
 import build as B, run_cv
 from models import HistGBDT
@@ -131,6 +132,24 @@ def day_stats(score, s, y, K):
                          'psum': g.apply(lambda x: float(x.loc[x.y == 1, 'pct'].sum())), 'npos': g['y'].sum(), 'rows': g.size()})
 
 
+def rows_sig(D):
+    """資料集列的指紋（m_s／m_j／m_y）：分數檔與資料集對不上（重建過）時，穩健度分析拒跑。"""
+    h = hashlib.sha256()
+    for k in ('s', 'j', 'y'): h.update(np.ascontiguousarray(D[k]).tobytes())
+    return h.hexdigest()[:16]
+
+
+def save_scores(task, D, saved, quick):
+    """base／official 的逐列外樣本分數（3 種子平均；NaN＝不在任何測試折）→ {SP}/official_cv_scores_{task}.npz，
+    供 cv_official_robust.py 做分半年／可買進／報酬分析（原本只在 scratchpad 的 save_scores.py 重跑一次才有）。"""
+    env = {k: os.environ.get(k, '') for k in ('SURGE_OFFICIAL_LIMIT', 'SURGE_REVENUE', 'SURGE_PIT_STRICT')}
+    path = f'{B.SP}/official_cv_scores_{task}.npz'; tmp = f'{path}.tmp{os.getpid()}.npz'
+    np.savez_compressed(tmp, **saved, rows_sig=np.array(rows_sig(D)), n_rows=np.array(len(D['s'])), seeds=np.array(SEEDS),
+                        quick=np.array(bool(quick)), env=np.array(json.dumps(env, ensure_ascii=False)))
+    os.replace(tmp, path)
+    print(f'[{task}] 逐列分數 → {path}（rows_sig {rows_sig(D)}）', flush=True)
+
+
 def summarize(st, base_rate):
     prec = st.hit.sum() / max(st.n.sum(), 1)
     return dict(auc=float(st.psum.sum() / max(st.npos.sum(), 1)), prec=float(prec), lift=float(prec / base_rate), hits=int(st.hit.sum()), picks=int(st.n.sum()))
@@ -164,7 +183,7 @@ def main():
         configs += [(f'+{g}', base_cols + c, (0,)) for g, c in grp_cols.items()]
         configs += [(f'-{g}', [i for i in all_cols if i not in set(c)], (0,)) for g, c in grp_cols.items()]
         configs += [('official+grp', all_cols + [ix[n] for gl in EXPERIMENTAL.values() for n in gl if n in ix], (0,))]
-    t0 = time.time(); res = {}; stats = {}
+    t0 = time.time(); res = {}; stats = {}; saved = {}
     for name, cols, seeds in configs:
         sc_sum = None
         for sd in seeds:
@@ -175,7 +194,10 @@ def main():
         test = np.isfinite(sc) & ~D['extra'] & ~D['tdr']
         st = day_stats(sc[test], D['s'][test], D['y'][test], K); base_rate = D['y'][test].mean()
         stats[name] = st; res[name] = {**summarize(st, base_rate), 'nfeat': len(cols), 'seeds': len(seeds)}
-        if name in ('base', 'official'): res[name]['hitmiss'] = write_records(task, name, sc, D, R, test, K)
+        if name in ('base', 'official'):
+            res[name]['hitmiss'] = write_records(task, name, sc, D, R, test, K)
+            saved[name] = sc.astype(np.float32)
+            if len(saved) == 2: save_scores(task, D, saved, quick)
         if task.startswith('lu1'):
             st30 = day_stats(sc[test], D['s'][test], D['y'][test], 30); res[name]['prec30'] = float(st30.hit.sum() / max(st30.n.sum(), 1))
         print(f'[{task}] {name:<12} 特徵 {len(cols):>3}  同日AUC {res[name]["auc"]:.4f}  前{K}精確度 {res[name]["prec"] * 100:5.2f}%  lift {res[name]["lift"]:.2f}  （{round(time.time() - t0)}s）', flush=True)

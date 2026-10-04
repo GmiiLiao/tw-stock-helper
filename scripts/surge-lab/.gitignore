@@ -1,4 +1,6 @@
 .surge-cache/
+# 研究 L 管線的隔離快取（.surge-cache 的 APFS 複本；retrain_official.sh 用，2026-10-04）
+.surge-cache-L/
 __pycache__/
 # 研究輸出：log／stdout 與可由腳本重生的大檔不進版控（事件目錄、摘要、凍結名單才留）
 out/*.log
