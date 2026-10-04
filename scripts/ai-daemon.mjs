@@ -3972,7 +3972,9 @@ async function computeRevenue() {
     const all = await db.collection('revenueArchive').select('n').get();
     const ids = all.docs.map(d => d.id).filter(x => /^\d{4}-\d{2}$/.test(x)).sort();
     const archId = ids[ids.length - 1] || '';
-    if (archId && (!apiId || archId > apiId)) {
+    // 同月也以歸檔為準（2026-10-04 改 > 為 >=）：openapi t187ap05_L＋_P 沒有上櫃、又混入 _P 的 273 家未上市公開發行公司
+    //   （實例：7859 翰可能源上了 Top20）；MOPS 歸檔＝上市＋上櫃、本國（_0）＋外國 KY（_1）。
+    if (archId && (!apiId || archId >= apiId)) {
       const a = (await db.collection('revenueArchive').doc(archId).get()).data() || {};
       const ar = a.rowsJson ? JSON.parse(a.rowsJson) : null;
       const list = Array.isArray(ar) ? ar : Object.values(ar || {});
@@ -3989,7 +3991,7 @@ async function computeRevenue() {
         topMoM = built.filter(momOk).sort((a2, b2) => b2.mom - a2.mom).slice(0, 20);
         outMonth = `${archId.slice(0, 4) - 1911}${archId.slice(5, 7)}`;   // 回填成民國格式，維持既有介面
         src = `archive:${archId}`;
-        log(`  ℹ 月營收改用歸檔 ${archId}（${built.length} 檔）——openapi 仍停在 ${apiId || '?'}`);
+        log(`  ℹ 月營收改用歸檔 ${archId}（${built.length} 檔）——${archId > apiId ? `openapi 仍停在 ${apiId || '?'}` : '同月以 MOPS 歸檔為準（含上櫃與 KY、不含未上市 _P）'}`);
       }
     }
   } catch (e) { log('  ⚠ 月營收取新失敗，沿用 openapi:', e.message); }
@@ -4437,8 +4439,9 @@ async function computeMultiTimeframe() {
 // ── 24) 籌碼集中度週變化（千張大戶占比 週 vs 週）────────────
 // ── 月營收歸檔「加厚」（2026-08-10）──────────────────────────────────
 // computeRevenue 走 openapi t187ap05，實測只涵蓋 ~1,350 檔且落後一個月。
-// MOPS 彙總表（靜態 HTML）同月有 ~1,847 檔，所以每天回頭把最近 2 個月補厚。
-// 兩邊都有防退化閘門（只准加厚不准變薄），重複跑是冪等的。
+// MOPS 彙總表（靜態 HTML）_0 本國＋_1 外國（KY）同月約 1,970 檔，所以每天回頭把最近 2 個月補厚。
+// 合併依代號聯集、只准加厚不准變薄；月份定版看資料（次月 11 日起相隔 ≥3 日兩次抓取筆數沒增加），
+// 定版後就不再打 MOPS（4 頁×2 月、間隔 ≥3 秒）。重複跑是冪等的。
 async function thickenRevenueArchive() {
   try { await backfillMopsRevenue(2, (m) => log(`  ${m}`)); }
   catch (e) { log(`⚠ 月營收加厚失敗：${e.message}`); }
@@ -8187,7 +8190,10 @@ if (!ONESHOT) sectorLoop();
 // 數字全 deterministic、零 LLM（docs/financial-services-整合架構說明書.md）
 // ════════════════════════════════════════════════════════════
 
-// 月營收完整來源：t187ap05_L(一般業 1082 檔，含半導體) + t187ap05_P(金融證券等) 合併。
+// 月營收 openapi 來源：t187ap05_L(上市一般業 1082 檔，含半導體) + t187ap05_P 合併。
+// ⚠ 2026-10-04 實測更正：_P 是**公開發行（未上市）**公司（273 家，1111 欣欣水泥、1237 台糖…，與上市櫃代號零重疊），
+//   不是「金融證券等」；這兩支都沒有上櫃、也落後約一個月。排行已改以 MOPS 歸檔為準（computeRevenue 同月 >=）；
+//   同業比較／論點支柱仍走這裡（另案）。
 async function fetchMonthlyRevenueAll() {
   const out = []; const seen = new Set();
   for (const ep of ['t187ap05_L', 't187ap05_P']) {
@@ -15983,6 +15989,7 @@ if (ONESHOT) {
     shortTraining: () => recordShortTraining(),      // 手動補做空訓練樣本
     shortReview: () => computeShortReview(),         // 做空榜對答案
     revenue: () => computeRevenue(),              // 月營收排行（改口徑後手動重算）
+    revenueThicken: () => thickenRevenueArchive(),   // 月營收歸檔加厚（MOPS 4 頁×最近 2 個月；未定版才抓）
     swingCurves: () => computeSwingCurves(),      // 第2套預選：PID 斜率曲線分型
     curveScore: () => scoreSwingCurves(),         // 第2套預選：60日實記對答案
     globalMarkets: () => computeGlobalMarkets(),
