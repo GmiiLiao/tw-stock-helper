@@ -27,8 +27,8 @@ export interface TracksDayDoc {
   closesAtS: Record<string, number> | null; limitCoverage: TracksLimitCoverage; fixedLabels: string[]; costRef: Array<{ item: string; value: string }>; referenceNote: string; footer: string;
 }
 export interface TracksDayRow {
-  id: string | null; day: string; t: string | null; status: 'frozen' | 'gap'; sealShort: string | null; matured: TracksDayDoc['matured'] | null;
-  lists: Record<string, { picks: number | null; hits: number | null; nPool: number | null }>; nEvents: number | null; parity: string | null; gapReason: string | null; unmet?: string[];
+  id: string | null; day: string; t: string | null; status: 'frozen' | 'gap' | 'problem'; sealShort: string | null; matured: TracksDayDoc['matured'] | null;
+  lists: Record<string, { picks: number | null; hits: number | null; nPool: number | null }>; nEvents: number | null; parity: string | null; gapReason: string | null; unmet?: string[]; problem?: string | null;
 }
 export interface TracksCum { days: number | null; windowDays: number | null; picks: number | null; hits: number | null; expectedRand: number | null; precisionPct: number | null; randPrecisionPct: number | null; deltaPp: number | null; deltaCiPp: Ci; lift: number | null; liftCi: Ci }
 export interface TracksIndexDoc {
@@ -44,6 +44,7 @@ export interface TracksIndexDoc {
   process: Record<string, { ok: boolean | null; nTradingDays?: number | null; silentDays?: string[]; gapRatio?: number | null; why?: string | null; fail?: string[]; dataCorrection?: string[]; c7Gaps?: string[] }> | null;
   pipeline: { finished: string | null; exit: number | null; errors: number | null; skipped: string | null; prewireOk: boolean | null; prewireWhy: string | null; dispAttOverlap: string | null; pinsOk: boolean | null } | null;
   alerts: Array<{ level: string | null; code: string | null; msg: string | null }>; alertsTime: string | null;
+  publishProblems: Array<{ day: string | null; why: string | null }>;
   rawArchive: { ok: boolean; nLocal: number | null; nVerified: number | null; time: string | null; missing: string[] } | null;
   listMeta: Record<string, { title: string; grey: boolean; exploratory: boolean; watchLabel: string | null }>; referenceNote: string; footer: string;
 }
@@ -73,6 +74,7 @@ export const RAW_SHARD_BYTES: number;
 export const TRACKS_RAW_ID_RE: RegExp;
 export const LIST_ORDER: TracksListId[];
 export const LIST_META: Record<TracksListId, { section: string; title: string; grey: boolean; exploratory: boolean; K: number; label: string; verdict: string; watchLabel: string | null }>;
+export const LIST_META_BY_VERSION: Readonly<Record<string, Record<TracksListId, { section: string; title: string; grey: boolean; exploratory: boolean; K: number; label: string; verdict: string; watchLabel: string | null }>>>;
 export const LIST_WARNINGS: Record<TracksListId, string[]>;
 export const REFERENCE: Record<TracksListId, { sel: TracksRefStat; ho: TracksRefStat }>;
 export const REFERENCE_NOTE: string;
@@ -87,9 +89,14 @@ export function clean<T>(v: T): T;
 export function buildTracksDayDoc(input: { core: unknown; y?: unknown; c5?: unknown; c10?: unknown; parity?: unknown }): TracksDayDoc;
 export function tracksDaySummary(doc: TracksDayDoc): TracksDayRow;
 export function gapSummary(gap: unknown): TracksDayRow;
-export function buildTracksIndexDoc(input: { days?: TracksDayRow[]; summary?: unknown; status?: unknown; generatedAt: string; alerts?: unknown; rawArchive?: unknown }): TracksIndexDoc;
+export interface TracksDayProblem { day: string | null; t: string | null; sealShort: string | null; why: string }
+export function buildTracksDayDocs(days: Array<{ core: unknown; y?: unknown; c5?: unknown; c10?: unknown; parity?: unknown }>): { docs: TracksDayDoc[]; problems: TracksDayProblem[] };
+export function problemSummary(p: TracksDayProblem): TracksDayRow;
+export function coreRegistrationVersion(core: unknown): string;
+export function listMetaFor(version: string): Record<TracksListId, { section: string; title: string; grey: boolean; exploratory: boolean; K: number; label: string; verdict: string; watchLabel: string | null }> | null;
+export function buildTracksIndexDoc(input: { days?: TracksDayRow[]; summary?: unknown; status?: unknown; generatedAt: string; alerts?: unknown; rawArchive?: unknown; publishProblems?: Array<{ day: string | null; why: string | null }> }): TracksIndexDoc;
 export function assertTracksDocSizes(writes: Array<[string, { reportJson?: string }]>): Array<[string, number]>;
-export function forwardReplaceProblems(published: Array<{ id: string; seal: string }>, next: Array<{ id: string; seal: string }>): { clash: string[]; missing: string[] };
+export function forwardReplaceProblems(published: Array<{ id: string; seal: string }>, next: Array<{ id: string; seal: string }>, withheld?: string[]): { clash: string[]; missing: string[] };
 export function rawDocId(rel: string): string | null;
 export function rawDocWrites(input: { id: string; file: string; seal: string | null; sha256: string; bytes: number; gz: Uint8Array }): Array<[string, Record<string, unknown>]>;
 export function rawAssemble(head: unknown, shards?: unknown[]): Uint8Array;

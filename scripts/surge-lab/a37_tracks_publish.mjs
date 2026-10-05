@@ -8,6 +8,7 @@
 // 防呆：①封印——同一份文字交給 python3（與 a37_tracks_fwd_io.seal_of 同參數）重算，任一不符整批中止；
 //       ②演練檔（rehearsal:true）一律不發佈；③後台文件不得含任何報酬欄位（surge-tracks-report.assertNoReturns）；
 //       ④已發佈的前向日文件／逐位副本內容不同或這次不見了 ⇒ 中止（前向成績不可事後改寫），除非 --allow-replace；⑤任一文件 ≥ 900,000 位元組 ⇒ 不寫。
+//       ⑦某一天的日文件建不出來（凍結檔清單判定與該版本後台標籤不一致等）⇒ 只擋那一天（索引列 status:'problem'＋publishProblems、exit 1），其餘照常。
 //       ⑥kind 用 't1-tracks-forward'／'t1-tracks-index'／'t1-tracks-raw'（不可用 'frozen-forward'：a35 發佈以那個值查詢）。
 // 逐位副本（登錄 freeze.seal、G60 P2「Firestore 副本與本機逐位相同」）：每份封印記錄的原檔位元組 gzip 後存成 tracks-raw-*（Bytes；
 //   > 800 KB 分片），寫入後讀回、解壓、比 sha256，相符才記進本機 .published_raw_verify.json；索引帶 rawArchive（全部相符才 ok）。
@@ -24,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import {
-  buildTracksDayDoc, buildTracksIndexDoc, tracksDaySummary, gapSummary, assertTracksDocSizes, forwardReplaceProblems, dayDocId,
+  buildTracksDayDocs, problemSummary, buildTracksIndexDoc, tracksDaySummary, gapSummary, assertTracksDocSizes, forwardReplaceProblems, dayDocId,
   rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, TRACKS_INDEX_ID, TRACKS_KIND_DAY, TRACKS_KIND_RAW, TRACKS_KIND_RAW_SHARD,
 } from '../lib/surge-tracks-report.mjs';
 import { TRACKS_CORE_RE, TRACKS_GAP_RE } from '../lib/surge-tracks-daily.mjs';
@@ -166,8 +167,11 @@ async function main() {
   const bad = badSeals(c.sealed);
   if (bad.length) throw new Error(`封印不符，整批中止：\n${bad.join('\n')}`);
   if (c.summary?.rehearsal) throw new Error('摘要是演練版（rehearsal:true），不發佈');
-  const dayDocs = c.days.map(d => buildTracksDayDoc(d));
-  const rows = [...dayDocs.map(tracksDaySummary), ...c.gapRows.map(gapSummary)];
+  // 逐日建日文件：某一天建不出來（凍結檔清單判定與該版本後台標籤不一致等）只擋那一天，其餘日文件與索引照常（審查 MEDIUM）
+  const { docs: dayDocs, problems } = buildTracksDayDocs(c.days);
+  for (const p of problems) console.error(`  ✖ ${p.day}：${p.why}（這一天不發佈、Firestore 舊版原樣保留；其餘照常）`);
+  const withheld = problems.map(p => p.day).filter(Boolean).map(dayDocId);
+  const rows = [...dayDocs.map(tracksDaySummary), ...problems.map(problemSummary), ...c.gapRows.map(gapSummary)];
   const dayWrites = dayDocs.map(d => [dayDocId(d.day), { schema: d.schema, kind: TRACKS_KIND_DAY, day: d.day, seal: d.seal, reportJson: JSON.stringify(d) }]);
   const raws = rawWrites(c.raw);
   const rawSizes = raws.map(([id, w]) => [id, w.gz.length + 2_000]);
@@ -176,7 +180,8 @@ async function main() {
   const verifyPath = join(a.dir, '.published_raw_verify.json');
   const verified = readObj(verifyPath)?.obj?.verified || {};
   const localRaw = c.raw.map(r => ({ id: r.id, sha256: r.sha256 }));
-  const indexOf = rawStatus => buildTracksIndexDoc({ days: rows, summary: c.summary, status: c.status, alerts: c.alerts, rawArchive: rawStatus, generatedAt: new Date().toISOString() });
+  const indexOf = rawStatus => buildTracksIndexDoc({ days: rows, summary: c.summary, status: c.status, alerts: c.alerts, rawArchive: rawStatus, generatedAt: new Date().toISOString(),
+    publishProblems: problems.map(p => ({ day: p.day, why: p.why })) });
   const preIndex = indexOf(rawVerifyStatus(localRaw, verified, null));
   const sizes = assertTracksDocSizes([...dayWrites, [TRACKS_INDEX_ID, { reportJson: JSON.stringify(preIndex) }]]);
   console.log(`凍結 ${dayDocs.length} 日、缺口 ${c.gapRows.length} 日｜日文件 ${dayWrites.length} 份（最大 ${Math.max(0, ...sizes.map(([, n]) => n))} 位元組）｜逐位副本 ${c.raw.length} 份 ${raws.length} 片`);
@@ -184,13 +189,13 @@ async function main() {
     const back = await readBackShas(async id => raws.find(([x]) => x === id)?.[1] ?? null, c.raw.map(r => r.id));   // 本機往返：gzip→分片→組回→解壓
     const bad2 = c.raw.filter(r => back[r.id] !== r.sha256).map(r => r.id);
     console.log(`--dry-run：不寫 Firestore｜逐位副本本機往返 ${bad2.length ? `不符 ${bad2.join(', ')}` : '全部逐位相同'}`);
-    if (bad2.length) process.exitCode = 1;
+    if (bad2.length || problems.length) process.exitCode = 1;
     return;
   }
   const { db, FieldValue } = await initDb();
   if (!a.allowReplace) {
     const published = (await db.collection(COLLECTION).where('kind', '==', TRACKS_KIND_DAY).select('seal').get()).docs.map(d => ({ id: d.id, seal: d.get('seal') }));
-    const p = forwardReplaceProblems(published, dayWrites.map(([id, w]) => ({ id, seal: w.seal })));
+    const p = forwardReplaceProblems(published, dayWrites.map(([id, w]) => ({ id, seal: w.seal })), withheld);
     if (p.clash.length) throw new Error(`已發佈的前向日文件封印不同，拒絕覆蓋：${p.clash.join(', ')}（確定要取代請加 --allow-replace）`);
     if (p.missing.length) throw new Error(`已發佈的前向日文件不在這次的本機紀錄裡：${p.missing.join(', ')}（前向紀錄不可刪減；本機遺失請先 --restore）`);
     const pubRaw = (await db.collection(COLLECTION).where('kind', '==', TRACKS_KIND_RAW).select('sha256').get()).docs.map(d => ({ id: d.id, sha256: d.get('sha256') }));
@@ -226,7 +231,8 @@ async function main() {
   const next = Object.fromEntries([...dayWrites, ...raws].map(([id, w]) => [id, sha(w)]));
   writeAtomic(pubPath, next);
   console.log(`✓ 已寫入 ${COLLECTION}/（${todo.length} 份＋索引；內容沒變而略過 ${dayWrites.length + raws.length - todo.length} 份）｜逐位副本讀回 ${toVerify.length} 份、相符 ${toVerify.length - failed.length}${failed.length ? `｜✖ 不符：${failed.join(', ')}` : ''}`);
-  if (failed.length) process.exitCode = 1;
+  if (problems.length) console.error(`✖ ${problems.length} 天不發佈：${problems.map(p => p.day).join('、')}（索引 publishProblems 與後台列出原因）`);
+  if (failed.length || problems.length) process.exitCode = 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

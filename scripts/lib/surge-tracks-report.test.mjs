@@ -5,7 +5,7 @@ import {
   buildTracksDayDoc, buildTracksIndexDoc, tracksDaySummary, gapSummary, assertNoReturns, assertTracksDocSizes, forwardReplaceProblems,
   dayDocId, isTracksDayId, LIST_ORDER, LIST_META, TRACKS_KIND_DAY, TRACKS_KIND_INDEX, MAX_DOC_BYTES, clean,
   rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, RAW_SHARD_BYTES, TRACKS_KIND_RAW,
-  REGISTRATION_VERSION, WATCH_LABEL, HO_BURNED_NOTE,
+  REGISTRATION_VERSION, WATCH_LABEL, HO_BURNED_NOTE, LIST_META_BY_VERSION, listMetaFor, buildTracksDayDocs, problemSummary,
 } from './surge-tracks-report.mjs';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -62,7 +62,7 @@ test('日文件：清單固定順序 M0→S0→S_FB→R0→W、M0 未接線、�
   assert.deepEqual(d.lists.map(l => l.id), LIST_ORDER);
   assert.equal(d.lists[0].status, 'not-wired');
   assert.deepEqual(d.lists[0].picks, []);
-  assert.deepEqual(d.lists.map(l => l.grey), [false, true, true, true, true]);          // v1.1（HO-BURNED）：四份代理清單全部灰底
+  assert.deepEqual(d.lists.map(l => l.grey), [false, false, false, true, true]);        // 沒有修訂指標的凍結檔＝v1 記錄，照它當時的標籤顯示（依版本查表）
   for (const b of d.lists.slice(1)) assert.ok(b.picks.every(p => p.track === { 'S0_atr14@5': 'S', 'SFB_atr14@5': 'Mp', 'R0_combo@5': 'R', 'W_atr14@3': 'W' }[b.id]));
   assert.equal(d.matured.y, null);
   assert.equal(d.events, null);
@@ -244,4 +244,48 @@ test('套過登錄修訂的凍結檔：清單判定必須等於後台標籤，�
   const ix = buildTracksIndexDoc({ days: [], generatedAt: 'x' });
   assert.equal(ix.registrationVersion, '1.1'); assert.equal(ix.hoBurnedNote, HO_BURNED_NOTE);
   assert.equal(ix.listMeta['SFB_atr14@5'].watchLabel, WATCH_LABEL); assert.equal(ix.listMeta['SFB_atr14@5'].grey, true);
+});
+
+test('清單標籤依凍結檔的登錄版本查表：v1 表＝v1 JSON 原文、v1.1 表＝現行；沒有對應版本的凍結檔只擋那一天', () => {
+  assert.equal(listMetaFor('1.1'), LIST_META);
+  assert.equal(listMetaFor('9.9'), null);
+  assert.equal(listMetaFor('__proto__'), null);
+  for (const id of LIST_ORDER) {                                                     // v1 表逐字＝v1 登錄的 list_verdict 與灰底
+    const m = LIST_META_BY_VERSION['1'][id];
+    assert.equal(`${m.verdict}：${m.label}`, V1.lists[id].list_verdict, id);
+    assert.equal(m.grey, V1.lists[id].grey_watch_only, id);
+  }
+  const v1core = core({ date_s: '2026-10-06' });                                      // v1 凍結檔：不核對（v1 沒有修訂指標，照舊）、照 v1 標籤顯示
+  assert.equal(buildTracksDayDoc({ core: v1core }).lists.find(l => l.id === 'S0_atr14@5').listVerdict.split('：')[0], 'S-KEEP-AS-SHADOW');
+  const future = core({ registration_amendment: { version: '1.2' } });
+  assert.throws(() => buildTracksDayDoc({ core: future }), /v1\.2 在後台沒有對應的清單標籤/);
+});
+
+test('發佈：某一天清單判定與該版本標籤不一致時，只擋那一天——其他天的日文件與索引照常，被擋的日子列在索引', () => {
+  const amended = (day, over = {}) => {
+    const c = core({ date_s: day, t: null, seal: `${day.replaceAll('-', '')}`.padEnd(64, 'a'), registration_amendment: { registration_id: 'T1-TRACKS-FWD-2026-10-05', version: '1.1' } });
+    for (const id of Object.keys(c.lists)) c.lists[id] = { ...c.lists[id], list_verdict: `${LIST_META[id].verdict}：${LIST_META[id].label}` };
+    Object.assign(c.lists, over);
+    return c;
+  };
+  const bad = amended('2026-10-07');
+  bad.lists['S0_atr14@5'] = { ...bad.lists['S0_atr14@5'], list_verdict: 'S-KEEP-AS-SHADOW：觀察／研究榜' };
+  const days = [{ core: amended('2026-10-06') }, { core: bad }, { core: amended('2026-10-08') }];
+  const { docs, problems } = buildTracksDayDocs(days);
+  assert.deepEqual(docs.map(d => d.day), ['2026-10-06', '2026-10-08']);
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].day, '2026-10-07');
+  assert.match(problems[0].why, /S0_atr14@5 的清單判定與後台標籤不一致（v1\.1）/);
+  const rows = [...docs.map(tracksDaySummary), ...problems.map(problemSummary)];
+  const ix = buildTracksIndexDoc({ days: rows, generatedAt: 'x', publishProblems: problems });
+  assert.deepEqual(ix.days.map(r => [r.day, r.status]), [['2026-10-08', 'frozen'], ['2026-10-07', 'problem'], ['2026-10-06', 'frozen']]);
+  assert.equal(ix.nCore, 2);
+  assert.equal(ix.days[1].id, null);
+  assert.match(ix.days[1].problem, /不一致/);
+  assert.deepEqual(ix.publishProblems.map(x => x.day), ['2026-10-07']);
+  const published = ['2026-10-06', '2026-10-07'].map(d => ({ id: dayDocId(d), seal: days.find(x => x.core.date_s === d).core.seal }));
+  const next = docs.map(d => ({ id: dayDocId(d.day), seal: d.seal }));
+  assert.deepEqual(forwardReplaceProblems(published, next, [dayDocId('2026-10-07')]), { clash: [], missing: [] });   // 被擋的那天不算「消失」
+  assert.deepEqual(forwardReplaceProblems(published, next).missing, [dayDocId('2026-10-07')]);                     // 沒列為 withheld 就照舊擋
+  assert.deepEqual(buildTracksDayDocs([]), { docs: [], problems: [] });
 });

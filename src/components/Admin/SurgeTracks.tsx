@@ -173,6 +173,11 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
           ⚠ 分軌前向告警（{twTime(ix.alertsTime)}）：{errs.map(x => `[${x.code}] ${x.msg}`).join('；')}
         </div>
       )}
+      {(ix.publishProblems?.length ?? 0) > 0 && (
+        <div role="alert" style={{ padding: '8px 12px', borderRadius: 10, border: `1px solid ${RED}`, color: RED, marginBottom: 10, whiteSpace: 'normal' }}>
+          ⚠ 這次發佈擋下 {ix.publishProblems.length} 天（其餘照常）：{ix.publishProblems.map(x => `${x.day ?? '—'}：${x.why ?? ''}`).join('；')}
+        </div>
+      )}
       {warns.length > 0 && <div style={{ color: AMBER, marginBottom: 8, whiteSpace: 'normal' }}>注意：{warns.map(x => x.msg).join('；')}</div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Kpi label="已評分交易日" value={g.nScored} sub={`G60 ${Math.min(g.nScored, g.g60.target)}／${g.g60.target}｜G250 ${Math.min(g.nScored, g.g250.target)}／${g.g250.target}`} hint={g.note} />
@@ -192,8 +197,8 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
         <select value={pending ?? d?.day ?? ''} onChange={e => onPick(e.target.value)}
           style={{ maxWidth: '100%', padding: '4px 8px', borderRadius: 8, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', ...MONO }}>
           {ix.days.map(r => (
-            <option key={r.day} value={r.day} disabled={r.status === 'gap'}>
-              {r.day}→{r.t ?? '—'}｜{r.status === 'gap' ? `缺口：${r.gapReason ?? ''}` : r.matured?.y === 'ok' ? `已對帳（T1 事件 ${r.nEvents ?? '—'}）` : r.matured?.y === 'label_unavailable' ? '標籤無法取得' : '待到期'}
+            <option key={r.day} value={r.day} disabled={r.status !== 'frozen'}>
+              {r.day}→{r.t ?? '—'}｜{r.status === 'gap' ? `缺口：${r.gapReason ?? ''}` : r.status === 'problem' ? `未發佈：${r.problem ?? ''}` : r.matured?.y === 'ok' ? `已對帳（T1 事件 ${r.nEvents ?? '—'}）` : r.matured?.y === 'label_unavailable' ? '標籤無法取得' : '待到期'}
             </option>
           ))}
         </select>

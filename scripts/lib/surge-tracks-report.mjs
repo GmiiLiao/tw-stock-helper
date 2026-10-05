@@ -51,6 +51,22 @@ export const LIST_META = {
   'W_atr14@3': { section: 'W_GREY', title: '灰底・W 觀察 atr14 前 3（不可交易，僅觀察）', grey: true, exploratory: false, K: 3,
     label: '不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）', verdict: 'W-WATCH-ONLY', watchLabel: null },
 };
+/** v1（HO-BURNED 前）的清單標籤：只用來顯示／核對以 v1 凍結的記錄（S0、S_FB 與 v1 JSON 的 list_verdict 逐字一致，測試核對）。 */
+const LIST_META_V1 = {
+  ...LIST_META,
+  'S0_atr14@5': { section: 'S0', title: 'S 小量軌・觀察／研究榜（S0 atr14 前 5）', grey: false, exploratory: false, K: 5,
+    label: '觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認', verdict: 'S-KEEP-AS-SHADOW', watchLabel: null },
+  'SFB_atr14@5': { section: 'S_FB', title: 'S_FB・觀察／研究榜（探索性；Mp 列 atr14 前 5）', grey: false, exploratory: true, K: 5,
+    label: '探索性·觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認', verdict: 'SFB-KEEP-AS-SHADOW', watchLabel: null },
+};
+/**
+ * 依凍結檔的登錄版本查清單標籤（core.registration_amendment.version；沒有修訂指標＝'1'）。日後 v1.2 等修訂要在這裡加一份，
+ * 已封印的舊版凍結檔才會繼續對照它當時的標籤（全域只有一份 LIST_META 時，改一次版本就會讓所有舊凍結檔不一致、發佈永久停擺——審查 MEDIUM）。
+ */
+export const LIST_META_BY_VERSION = Object.freeze({ '1': LIST_META_V1, [REGISTRATION_VERSION]: LIST_META });
+export function listMetaFor(version) {
+  return Object.prototype.hasOwnProperty.call(LIST_META_BY_VERSION, version) ? LIST_META_BY_VERSION[version] : null;
+}
 /** 清單固定警示（登錄 lists／presentation；S 的容量提醒是使用者 G1 指定文字） */
 export const LIST_WARNINGS = {
   'M0@10': ['M0 前向參照需重現凍結模型指紋（80ec0f8e…）後才凍結；尚未接線前本區不顯示名單'],
@@ -138,15 +154,23 @@ function pickRow(p, outcome) {
   };
 }
 
+/** 凍結檔的登錄版本（套過修訂＝修訂版號；否則 v1） */
+export function coreRegistrationVersion(core) {
+  return core?.registration_amendment ? String(core.registration_amendment.version ?? '') : '1';
+}
+
 function listBlock(id, core, y) {
-  const meta = LIST_META[id];
+  const ver = coreRegistrationVersion(core);
+  const metas = listMetaFor(ver);
+  if (!metas) throw new Error(`凍結檔的登錄版本 v${ver} 在後台沒有對應的清單標籤（LIST_META_BY_VERSION）`);
+  const meta = metas[id];
   const fl = core?.lists?.[id] || null;
   const yl = y?.lists?.[id] || null;
   const base = { id, section: meta.section, title: meta.title, label: meta.label, listVerdict: `${meta.verdict}：${meta.label}`, grey: meta.grey,
     watchLabel: meta.watchLabel, exploratory: meta.exploratory, K: meta.K, warnings: LIST_WARNINGS[id], reference: REFERENCE[id] || null };
   if (!fl) return { ...base, status: id === 'M0@10' ? 'not-wired' : 'missing', nPool: null, ranking: null, picks: [], rand: null, outcome: null };
-  // 套過登錄修訂的凍結檔：封印記錄裡的清單判定必須等於後台標籤（不一致＝程式與登錄脫鉤，整份不發佈）
-  if (core?.registration_amendment && fl.list_verdict !== base.listVerdict) throw new Error(`凍結檔 ${id} 的清單判定與後台標籤不一致：${fl.list_verdict}`);
+  // 套過登錄修訂的凍結檔：封印記錄裡的清單判定必須等於「該版本」的後台標籤（不一致＝程式與登錄脫鉤；只有這一天不發佈，見 buildTracksDayDocs）
+  if (core?.registration_amendment && fl.list_verdict !== base.listVerdict) throw new Error(`凍結檔 ${id} 的清單判定與後台標籤不一致（v${ver}）：${fl.list_verdict}`);
   const byRank = new Map((yl?.picks_outcome || []).map(o => [o.rank, o]));
   const outcome = yl ? {
     events: fin(yl.events), picks: fin(yl.picks), hits: fin(yl.hits), expectedRand: round(yl.E_rand, 4),
@@ -192,7 +216,7 @@ export function buildTracksDayDoc({ core, y = null, c5 = null, c10 = null, parit
   const [yy, c55, c1010, pp] = [mine(y), mine(c5), mine(c10), mine(parity)];
   const yOk = yy && yy.status === 'ok' ? yy : null;
   const doc = {
-    schema: TRACKS_DAY_SCHEMA, kind: TRACKS_KIND_DAY, registrationId: REGISTRATION_ID, registrationVersion: str(core.registration_amendment?.version) ?? '1',
+    schema: TRACKS_DAY_SCHEMA, kind: TRACKS_KIND_DAY, registrationId: REGISTRATION_ID, registrationVersion: coreRegistrationVersion(core),
     day: core.date_s, t: str(core.t), seal: core.seal,
     sealShort: core.seal.slice(0, 12), frozenAt: str(core.frozen_time), deadline: str(core.deadline),
     trackCounts: isObj(core.track_counts) ? core.track_counts : {},
@@ -225,6 +249,31 @@ export function gapSummary(gap) {
   return { id: null, day: str(gap?.date_s), t: str(gap?.t), status: 'gap', sealShort: typeof gap?.seal === 'string' ? gap.seal.slice(0, 12) : null,
     matured: null, lists: {}, nEvents: null, parity: null, gapReason: str(gap?.reason),
     unmet: isObj(gap?.unmet_conditions) ? Object.keys(gap.unmet_conditions) : [] };
+}
+
+/**
+ * 逐日建日文件：任一天建不出來（例如凍結檔清單判定與該版本後台標籤不一致）只擋那一天——記進 problems（day、t、封印前 12 碼、原因），
+ * 其餘日文件照常（審查 MEDIUM：原本一天不一致就整批發佈中止，連索引都不寫）。
+ */
+export function buildTracksDayDocs(days) {
+  const docs = [];
+  const problems = [];
+  for (const d of days || []) {
+    try {
+      docs.push(buildTracksDayDoc(d));
+    } catch (e) {
+      const c = d?.core;
+      problems.push({ day: str(c?.date_s) ?? str(d?.day), t: str(c?.t), sealShort: typeof c?.seal === 'string' ? c.seal.slice(0, 12) : null,
+        why: String(e?.message || e).slice(0, 300) });
+    }
+  }
+  return { docs, problems };
+}
+
+/** 被擋下的日子在索引的那一列（不連到日文件；後台顯示原因） */
+export function problemSummary(p) {
+  return { id: null, day: str(p?.day), t: str(p?.t), status: 'problem', sealShort: str(p?.sealShort), matured: null, lists: {}, nEvents: null,
+    parity: null, gapReason: null, problem: str(p?.why) };
 }
 
 function statBlock(st) {
@@ -272,7 +321,7 @@ function processBlock(proc) {
  * summary＝a37_tracks_fwd.py 的 tracks_fwd_summary.json（stats 只取精確度類，報酬類欄位一律不帶）。
  * alerts＝協調器寫的 out/tracks_fwd/_alerts/LATEST.json；rawArchive＝發佈端讀回 tracks-raw-* 的逐位比對結果。
  */
-export function buildTracksIndexDoc({ days = [], summary = null, status = null, generatedAt, alerts = null, rawArchive = null }) {
+export function buildTracksIndexDoc({ days = [], summary = null, status = null, generatedAt, alerts = null, rawArchive = null, publishProblems = [] }) {
   const rows = [...days].filter(d => d && DAY_RE.test(d.day || '')).sort((a, b) => b.day.localeCompare(a.day));
   const st = isObj(summary?.stats) ? summary.stats : {};
   const doc = {
@@ -287,6 +336,8 @@ export function buildTracksIndexDoc({ days = [], summary = null, status = null, 
       dispAttOverlap: str(status.disp_att_overlap?.status), pinsOk: typeof status.pins_ok === 'boolean' ? status.pins_ok : null } : null,
     alerts: Array.isArray(alerts?.alerts) ? alerts.alerts.filter(isObj).map(x => ({ level: str(x.level), code: str(x.code), msg: str(x.msg) })) : [],
     alertsTime: str(alerts?.time),
+    // 這次發佈被擋下的日子（凍結檔與該版本後台標籤不一致等；其餘日文件與索引照常發佈——審查 MEDIUM）
+    publishProblems: Array.isArray(publishProblems) ? publishProblems.filter(isObj).slice(0, 50).map(x => ({ day: str(x.day), why: str(x.why) })) : [],
     rawArchive: isObj(rawArchive) ? { ok: rawArchive.ok === true, nLocal: fin(rawArchive.n_local), nVerified: fin(rawArchive.n_verified), time: str(rawArchive.time),
       missing: Array.isArray(rawArchive.missing) ? rawArchive.missing.slice(0, 20).map(String) : [] } : null,
     listMeta: Object.fromEntries(LIST_ORDER.map(id => [id, { title: LIST_META[id].title, grey: LIST_META[id].grey, exploratory: LIST_META[id].exploratory, watchLabel: LIST_META[id].watchLabel }])),
@@ -305,11 +356,15 @@ export function assertTracksDocSizes(writes) {
   return sizes;
 }
 
-/** 已發佈的前向凍結日文件不可被不同封印覆蓋、也不可消失（前向成績不可事後改寫）。published＝[{ id, seal }]。 */
-export function forwardReplaceProblems(published, next) {
+/**
+ * 已發佈的前向凍結日文件不可被不同封印覆蓋、也不可消失（前向成績不可事後改寫）。published＝[{ id, seal }]。
+ * withheld＝這次因日文件建不出來而暫不寫的 id（本機紀錄還在，只是這次不重寫）：不算「消失」，Firestore 上的舊版原樣保留。
+ */
+export function forwardReplaceProblems(published, next, withheld = []) {
   const want = new Map(next.map(w => [w.id, w.seal]));
+  const hold = new Set(withheld);
   const clash = published.filter(p => want.has(p.id) && want.get(p.id) !== p.seal).map(p => p.id);
-  const missing = published.filter(p => !want.has(p.id)).map(p => p.id);
+  const missing = published.filter(p => !want.has(p.id) && !hold.has(p.id)).map(p => p.id);
   return { clash, missing };
 }
 
