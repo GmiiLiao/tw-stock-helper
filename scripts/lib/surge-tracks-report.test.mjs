@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildTracksDayDoc, buildTracksIndexDoc, tracksDaySummary, gapSummary, assertNoReturns, assertTracksDocSizes, forwardReplaceProblems,
   dayDocId, isTracksDayId, LIST_ORDER, LIST_META, TRACKS_KIND_DAY, TRACKS_KIND_INDEX, MAX_DOC_BYTES, clean,
-  rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, RAW_SHARD_BYTES, TRACKS_KIND_RAW,
+  rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, RAW_SHARD_BYTES, TRACKS_KIND_RAW, TRACKS_RAW_ID_RE,
 } from './surge-tracks-report.mjs';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -181,6 +181,10 @@ test('逐位副本：檔名→id、gzip 分片→組回逐位相同、已發佈�
   assert.equal(rawDocId('tracks_fwd_parity_2026-10-06.json'), 'tracks-raw-parity-2026-10-06');
   assert.equal(rawDocId('prewire/tracks_fwd_prewire_20261007T221500.json'), 'tracks-raw-prewire-20261007T221500');
   assert.equal(rawDocId('prewire/tracks_fwd_dispatt_overlap_pass.json'), 'tracks-raw-overlap-pass');
+  const ck = 'ab'.repeat(32);                                                         // FDEV-007：以比對程式 sha256 為鍵的決定檔
+  assert.equal(rawDocId(`prewire/tracks_fwd_dispatt_overlap_${ck}_fail.json`), `tracks-raw-overlap-${ck}-fail`);
+  assert.ok(TRACKS_RAW_ID_RE.test(`tracks-raw-overlap-${ck}-pass`));
+  assert.equal(rawDocId(`prewire/tracks_fwd_dispatt_overlap_${ck.slice(2)}_pass.json`), null);
   for (const f of ['tracks_fwd_summary.json', 'tracks_fwd_status.json', 'plan.json', '../x.json', 'tracks_fwd_dispatt_overlap.json']) assert.equal(rawDocId(f), null, f);
   const bytes = Buffer.from(JSON.stringify({ a: '中'.repeat(10), seal: 'x' }));
   const sha = createHash('sha256').update(bytes).digest('hex');
