@@ -1,0 +1,74 @@
+/* D1 快看抽屜 內容樣式（外框 .drawer／.sheet／.closeBtn 在 WarRoomV2.module.css）。顏色只用 .wr 根上的 token。 */
+
+.head {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px 10px;
+  padding-right: 88px;   /* 讓出右上角關閉鈕 */
+  border-bottom: 1px solid var(--wr-ln);
+}
+.titleRow { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.code { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--wr-link); font-size: var(--wr-fs-lg); }
+.name { margin: 0; font-weight: 800; font-size: var(--wr-fs-lg); }
+.pxRow { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.bigPx { font-size: var(--wr-fs-xl); font-weight: 800; }
+.pxLabel { font-family: inherit; font-size: var(--wr-fs-xs); color: var(--wr-t3); }
+.newsLine { display: flex; align-items: center; gap: 6px; font-size: var(--wr-fs-sm); color: var(--wr-t2); min-width: 0; }
+.newsLine span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 10px 16px 16px;
+}
+.block { display: grid; gap: 4px; }
+.caption { font-size: var(--wr-fs-xs); color: var(--wr-t3); }
+.note { font-size: var(--wr-fs-xs); color: var(--wr-amber); }
+.muted { color: var(--wr-t3); }
+/* 停損區塊：逼近或觸及停損（琥珀，同 A1） */
+.stopAmber { color: var(--wr-amber); font-weight: 800; }
+.line { font-size: var(--wr-fs-sm); color: var(--wr-t2); }
+.line b { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+/* 1 分走勢 */
+.chart { display: block; }
+.chartEmpty { height: 110px; display: grid; place-items: center; color: var(--wr-t3); font-size: var(--wr-fs-sm); border: 1px dashed var(--wr-ln2); border-radius: 8px; }
+.prevLine { stroke: var(--color-flat); stroke-width: 1; }
+.axisText { fill: var(--wr-t3); font-size: 12.5px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* 內外盤比例條（外盤紅、內盤綠：主動買／主動賣，同 preview） */
+.ratio { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--wr-ln2); }
+.ratio i { display: block; height: 100%; }
+.ratioOut { background: var(--color-up); }
+.ratioIn { background: var(--color-down); }
+
+/* 動作列 */
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.action {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--wr-ln2);
+  background: transparent;
+  color: var(--wr-t2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.actionOn { background: var(--wr-blue-soft); border-color: rgba(61, 142, 248, 0.6); color: #cfe1ff; }
+.action:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 2px; }
+.foot { font-size: var(--wr-fs-xs); color: var(--wr-t3); }
+
+@media (max-width: 767px) {
+  .head { padding: 14px 14px 10px; padding-right: 84px; }
+  .body { padding: 10px 14px 20px; }
+  .action, .closeBig { min-height: 44px; }   /* 手機點擊目標 ≥44px */
+}

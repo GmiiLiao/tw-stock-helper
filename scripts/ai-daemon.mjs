@@ -50,6 +50,7 @@ import { recordDayOf } from './lib/record-day.mjs';
 import { createAlertDedup } from './lib/alert-dedup.mjs';
 import { withRetry, failSince, sameLockDay, nonRetryable } from './lib/fetch-retry.mjs';
 import { encodeIntraday, decodeIntraday } from './lib/intraday-codec.mjs';
+import { mergeWatchCodes } from './lib/watch-codes.mjs';   // 會員持股＋自選聯集：持股優先（2026-10-05·H4）
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 
 // ── env (fallback .env.local loader) ──
@@ -1418,8 +1419,10 @@ const DEFAULT_WATCH = [
 ];
 
 // Resolve which stocks to fetch news for: Firestore → local watchlist.json → default.
+// ⚠ 持股優先（2026-10-05·H4）：舊版逐一會員「先自選、後持股」插入再取前 40，自選一多最先被擠出快線的是持股。
+//   現在先放全體會員的持股、再放自選（mergeWatchCodes，有單元測試）；上限 40、會員順序、後備路徑皆不變。
 async function resolveWatchCodes() {
-  const wanted = new Map();
+  const perUser = [];
   try {
     const usersSnap = await db.collection('users').get();
     const trial = await trialUids();
@@ -1429,13 +1432,18 @@ async function resolveWatchCodes() {
         db.collection('users').doc(u.id).collection('data').doc('watchlist').get(),
         db.collection('users').doc(u.id).collection('data').doc('holdings').get(),
       ]);
-      for (const w of (wl.exists ? (wl.data().watchlist || []) : [])) if (w?.code) wanted.set(w.code, w.name || '');
-      for (const h of (hd.exists ? (hd.data().holdings || []) : [])) if (h?.code) wanted.set(h.code, h.name || '');
+      perUser.push({
+        watchlist: wl.exists ? (wl.data().watchlist || []) : [],
+        holdings: hd.exists ? (hd.data().holdings || []) : [],
+      });
     }
   } catch (e) {
     log('  ⚠ Firestore unavailable, falling back to local list:', (e.message || '').slice(0, 60));
   }
-  if (wanted.size > 0) return [...wanted.entries()].slice(0, 40);
+  const merged = mergeWatchCodes(perUser);
+  if (merged.length > 0) return merged;
+
+  const wanted = new Map();
 
   // Local override: second-brain/watchlist.json — ["2330", ...] or [{code,name}]
   try {
@@ -7657,12 +7665,13 @@ async function computeLimitQueue(quotes) {
 //   量能（vs 20日均全日值）：<0.8x 39~50 檔、1.0~1.2x 48.2、≥1.2x 54.8
 //   最危險組合：跌<-0.5% × 量能<0.9x → 漲停 29.6 / **跌停 30.7**
 //
-// ⚠ 誠實限制：**盤中量能沒有「同時刻」歷史基準**（本站的盤中指數曲線今日才
-//   開始逐日歸檔）。台股量能是 U 型分佈，用全日均量除以已過時間去比會系統性
-//   誤判為縮量。所以現階段：
+// ⚠ 誠實限制：**盤中量能沒有「同時刻」歷史基準**。盤中指數序列 marketIndexIntraday
+//   只有 latest 一份、每個交易日覆寫（writeMarketIndex），**沒有逐日歸檔**——
+//   2026-10-05 更正：原註解與 volNote 寫「同時刻曲線自 2026-08-26 起累積中」與事實不符。
+//   台股量能是 U 型分佈，用全日均量除以已過時間去比會系統性誤判為縮量。所以現階段：
 //     · 漲跌幅與漲停/跌停家數 → 即時可判，無需基準，直接用
-//     · 成交值 → 只呈現絕對值與「對昨日全日」的比例，**明確標示非同時刻**，
-//       並從今日起累積同時刻曲線，等樣本夠了再啟用量能評級
+//     · 成交值 → 只呈現絕對值與「對昨日全日」的比例，**明確標示非同時刻**；
+//       要有同時刻基準須另做逐日歸檔或回補（屬第二階段，待使用者裁定）
 const PULSE_LEVELS = [
   { key: 'strong', min: 1.5, label: '極佳', luExp: 67, ldExp: 4, note: '漲停家數期望最高（實測均 67 檔），軋空環境最有利' },
   { key: 'good', min: 0.5, label: '偏多', luExp: 44, ldExp: 3, note: '漲停家數略高於平均' },
@@ -7729,7 +7738,7 @@ async function computeMarketPulse() {
       luActualVsExp: lvl.luExp ? +(lu / lvl.luExp).toFixed(2) : null },
     warns,
     evidence: { days: 246, avgLimitUp: 45.4, table: PULSE_LEVELS.map(l => ({ label: l.label, min: l.min, luExp: l.luExp, ldExp: l.ldExp })) },
-    volNote: '盤中成交值僅與「昨日全日」對照，**非同時刻基準**——台股量能為 U 型分佈，用全日均量除以已過時間會系統性誤判為縮量。同時刻曲線自 2026-08-26 起累積中。',
+    volNote: '盤中成交值僅與「昨日全日」對照，非同時刻基準——台股量能為 U 型分佈，用全日均量除以已過時間會系統性誤判為縮量。目前沒有同時刻歷史基準：盤中指數序列只保留當日一份、每日覆寫，未逐日歸檔。',
   };
   await db.collection('marketPulse').doc('latest').set(doc);
 

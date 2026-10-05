@@ -1,0 +1,85 @@
+/* B2 即時異動流（preview.html .ev）。共用 token 定義在 WarRoomV2.module.css 的 .wr；這裡只放本區塊的版面。 */
+
+.list { display: flex; flex-direction: column; min-width: 0; }
+
+.ev {
+  display: grid;
+  grid-template-columns: 6.2em 6.6em minmax(0, 1fr) 1.8em;
+  gap: 8px;
+  align-items: center;
+  height: 31px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+  min-width: 0;
+}
+.click { cursor: pointer; }
+.click:hover { background: rgba(255, 255, 255, 0.035); }
+.click:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: -2px; }
+.mine { background: rgba(245, 158, 11, 0.07); background: color-mix(in srgb, var(--wr-amber) 8%, transparent); }
+
+.tm {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--wr-t3);
+  font-size: var(--wr-fs-sm);
+}
+.ty {
+  font-size: var(--wr-fs-xs);
+  font-weight: 800;
+  border: 1px solid var(--wr-ln2);
+  border-radius: 4px;
+  text-align: center;
+  color: var(--wr-t2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 3px;
+  white-space: nowrap;
+}
+.tyMine { border-color: var(--wr-amber); color: var(--wr-amber); }
+.tyO { border-color: var(--wr-link); border-color: color-mix(in srgb, var(--wr-link) 70%, transparent); color: var(--wr-link); }
+.tx { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.src {
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+  text-align: center;
+  border: 1px solid var(--wr-ln2);
+  border-radius: 3px;
+  line-height: 1.3;
+}
+.codeBtn {
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--wr-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-right: 5px;
+  cursor: pointer;
+}
+.codeBtn:hover { text-decoration: underline; }
+.codeBtn:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 1px; }
+.nm { font-weight: 700; margin-right: 6px; }
+.cnt { color: var(--wr-t3); margin-left: 3px; }
+.newWrap { margin-right: 5px; }
+.newWrap > span { margin-left: 0; }
+.plusN {
+  font-size: var(--wr-fs-xs);
+  font-weight: 800;
+  color: var(--wr-link);
+  margin-left: 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.footNote { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+
+/* 手機卡片（52px 兩行；共用 .card/.cardA/.cardB） */
+.cardMine { background: rgba(245, 158, 11, 0.07); background: color-mix(in srgb, var(--wr-amber) 8%, transparent); }
+.cardStatic { cursor: default; }
+.cardText { overflow: hidden; text-overflow: ellipsis; color: var(--wr-t2); min-width: 0; }
+.chipsRow { display: flex; gap: 6px; flex-wrap: wrap; }
+.chipsRow button { min-height: 44px; padding: 0 14px; }
+
+/* 放大層全部紀錄 */
+.zoomBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.zoomList { border: 1px solid var(--wr-ln); border-radius: 10px; overflow: hidden; }
+.zoomNote { margin-top: 10px; font-size: var(--wr-fs-xs); color: var(--wr-t3); line-height: 1.6; }

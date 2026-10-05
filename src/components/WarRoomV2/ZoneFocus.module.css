@@ -1,0 +1,181 @@
+/* A2 時段焦點專屬樣式（共用 class 在 WarRoomV2.module.css；顏色只用 .wr 根上的 token）。 */
+
+/* 內容區：切換選單要定位在這裡（.zx 會裁切，所以選單不放標題列） */
+.body { position: relative; height: 100%; min-height: 0; }
+.bodyM { position: relative; }
+
+/* ── 標題列：標題（窄欄省略前綴／短標）、釘選鈕文字、手動切換提示列 ─────────── */
+.tShort { display: none; }
+@media (max-width: 1799px) {
+  .tPre, .tFull { display: none; }
+  .tShort { display: inline; }
+}
+@media (max-width: 1099px) {
+  .pinTxt { display: none; }
+}
+.mTitle { white-space: nowrap; }
+.mCtl { min-height: 44px; min-width: 44px; }
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* 換內容前 60 秒提示：標題列正下方一條（標題列已滿，放不下） */
+.switchBar {
+  padding: 3px 12px;
+  font-size: var(--wr-fs-xs);
+  font-weight: 700;
+  color: var(--wr-amber);
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 切換選單 ─────────────────────────────────────────────────────────── */
+.menu {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 2px;
+  max-width: calc(100% - 16px);
+  padding: 4px;
+  background: var(--wr-b3);
+  border: 1px solid var(--wr-ln2);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.menuItem {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  text-align: left;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wr-t2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.menuItem:hover { background: rgba(255, 255, 255, 0.05); }
+.menuItem:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: -2px; }
+.menuItem[aria-checked='true'] { background: var(--wr-blue-soft); color: var(--wr-link); font-weight: 800; }
+.menuItemM { min-height: 44px; }
+.menuSep { height: 1px; background: var(--wr-ln); margin: 2px 4px; grid-column: 1 / -1; }
+.menuAuto { grid-column: 1 / -1; }
+.bodyMOpen { min-height: 300px; }
+
+/* ── 開盤劇本：「標籤｜內容」緊湊列 ──────────────────────────────────────── */
+.line {
+  display: grid;
+  grid-template-columns: 5.6em minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--wr-ln);
+}
+.lineLab { font-weight: 800; color: var(--wr-t2); white-space: nowrap; }
+.lineBody {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.5;
+}
+.lineBodyM { min-width: 0; line-height: 1.5; }
+.item { display: inline-flex; align-items: baseline; gap: 4px; margin-right: 14px; white-space: nowrap; }
+.codeBtn {
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--wr-link);
+  cursor: pointer;
+}
+.codeBtn:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 1px; }
+.codeTxt { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--wr-link); }
+
+/* ── 單行通知（試撮中、收盤競價、提供時窗外）────────────────────────────── */
+.notice {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  color: var(--wr-t2);
+  font-weight: 700;
+}
+.center {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  height: 100%;
+  min-height: 96px;
+  padding: 16px;
+  text-align: center;
+  color: var(--wr-t3);
+}
+.centerBig { font-size: var(--wr-fs-lg); font-weight: 800; color: var(--wr-t2); }
+
+/* ── 今日結果：摘要列＋連結鈕 ────────────────────────────────────────────── */
+.actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.actBtn {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  min-height: 36px;
+  padding: 4px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--wr-blue);
+  background: var(--wr-blue-soft);
+  color: var(--wr-link);
+  font-weight: 800;
+  cursor: pointer;
+}
+.actBtn:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 2px; }
+.actBtnM { min-height: 44px; flex: 1 1 0; }
+
+/* ── 區塊內表格（table-layout: fixed：欄寬由表頭決定）──────────────────────────
+   基底 .table td 是 (0,1,1) 特異度，這裡用重複 class 提到 (0,2,x) 才蓋得過；A2 只有 334–603px 寬，格內留白縮成 5px。 */
+.tbl.tbl th, .tbl.tbl td { padding-left: 5px; padding-right: 5px; }
+.txtL.txtL { text-align: left; font-family: inherit; }
+.txtR.txtR { text-align: right; font-family: inherit; }
+/* 當沖觀察：<1800px 省略「型態」欄（滑過「淨 R」或點列看完整工作台） */
+.wDir { width: 8%; }
+.wTime { width: 15%; }
+.wStock { width: 34%; }
+.wType { width: 15%; }
+.wPlan { width: 29%; }
+.wR { width: 14%; }
+.colType.colType { display: none; }
+@media (min-width: 1800px) {
+  .wDir { width: 6%; }
+  .wTime { width: 11%; }
+  .wStock { width: 27%; }
+  .wPlan { width: 28%; }
+  .wR { width: 13%; }
+  .colType.colType { display: table-cell; }
+}
+/* 開盤三關 */
+.gStock { width: 31%; }
+.gCol { width: 19%; }
+.gRs { width: 27%; }
+.gVw { width: 23%; }
+/* 尾盤 */
+.tStock { width: 32%; }
+.tPx { width: 15%; }
+.tChg { width: 16%; }
+.tPos { width: 12%; }
+.tNote { width: 25%; }
+.srcTag { margin-left: 4px; }
+/* 頁尾文字：可縮、超出加省略號（「全部 →」不縮） */
+.footTxt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

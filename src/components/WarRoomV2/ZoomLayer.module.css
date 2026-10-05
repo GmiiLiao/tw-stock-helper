@@ -1,0 +1,35 @@
+/* D2 放大檢視層：外框沿用 WarRoomV2.module.css 的 .overlay／.overlayBox／.closeBtn，這裡只放標題列與內容區。 */
+
+.box { overscroll-behavior: contain; }
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-right: 88px;   /* 讓出右上角關閉鈕 */
+  margin-bottom: 10px;
+}
+.title { margin: 0; font-size: var(--wr-fs-lg); font-weight: 900; }
+.hint { font-size: var(--wr-fs-xs); color: var(--wr-t3); }
+.body { min-height: 240px; }
+.loading { display: grid; place-items: center; min-height: 240px; color: var(--wr-t3); }
+.foot { margin-top: 12px; font-size: var(--wr-fs-xs); color: var(--wr-t3); }
+
+/* 資料健康表 */
+.health { width: 100%; border-collapse: collapse; }
+.health th, .health td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+}
+.health th { font-size: var(--wr-fs-xs); color: var(--wr-t3); font-weight: 700; }
+.health td { font-size: var(--wr-fs-sm); }
+.healthWrap { overflow-x: auto; }
+.ok { color: var(--wr-live); }
+.warn { color: var(--wr-amber); }
+.bad { color: var(--wr-danger); }
+
+@media (max-width: 767px) {
+  .head { padding-right: 76px; }
+}

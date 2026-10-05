@@ -6,13 +6,18 @@ import { useAppStore } from '@/lib/store';
 import styles from './Navbar.module.css';
 import AiNewsTicker, { NavbarIndexWidget } from '@/components/AiNewsTicker/AiNewsTicker';
 import { useIsPremium } from '@/lib/view-as';
+import { useWarV2Allowed } from '@/components/WarRoomV2/parts/useWarAccess';
 
 const NAV_ITEMS = [
   // 2026-08-05：「指數·新聞」不再是獨立入口——指數與新聞已成為市場總覽的分頁
   //   （指數＝大盤背景，人看大盤時本來就在這一頁）；話題選股搬到「選股」。
   { id: 'dashboard', label: '市場總覽', icon: '📊' },
   { id: 'picker',    label: '選股',     icon: '🎯', badge: 'AI' },
-  { id: 'war',       label: '盤中戰情',   icon: '⚡', badge: 'LIVE', premium: true }, // 高級會員限定，非會員完全隱藏（決策工作台為其分頁）
+  { id: 'war',       label: '盤中戰情',   icon: '⚡', badge: 'LIVE', premium: true }, // 高級會員限定，非會員完全隱藏（舊版：決策工作台為其分頁）
+  // 盤前備課（2026-10-05 使用者裁定第 5 題）：盤中戰情 v2 移出的非盤中清單（籌碼推選、凍結版漲停預測、跳空漲停、
+  //   隔日沖決策工作台、軋空／空方完整版）。隨 v2 只開放超管（2026-10-05「v2版只有超管可以用，暫不開放其它人使用」）：
+  //   v2Only ⇒ 只有 useWarV2Allowed() 為 true 才顯示；其他人沿用舊版戰情裡的同名分頁。
+  { id: 'prep',      label: '盤前備課',   icon: '📋', premium: true, v2Only: true },
   { id: 'tracker',   label: '即時追蹤',   icon: '📡' },
   { id: 'portfolio', label: '投資組合',   icon: '💼' },
   { id: 'backtest',  label: '策略回測',   icon: '🧪' },
@@ -34,7 +39,12 @@ const getLevelLabel = (level?: string) => {
   }
 };
 
-export default function Navbar() {
+/**
+ * rail：盤中戰情 v2 專注模式（page.tsx 傳入）——桌機側欄收成 64px 圖示欄，
+ * 側欄指數卡（NavbarIndexWidget）與 AI 跑馬燈（AiNewsTicker）**不掛載**（它們各自每 5／15 秒輪詢，CSS 隱藏不會停）。
+ * 手機（≤768px）本來就是底部圖示列，rail 不改變手機版面，只卸載上面兩個元件（手機上它們本來就隱藏）。
+ */
+export default function Navbar({ rail = false }: { rail?: boolean } = {}) {
   const {
     currentPage,
     pageHistory,
@@ -70,7 +80,11 @@ export default function Navbar() {
     if (!ct) return false;
     return (Date.now() - new Date(ct).getTime()) / 86400000 < TRIAL_DAYS;
   })();
-  const visibleNavItems = NAV_ITEMS.filter(item => !('premium' in item && item.premium) || isPremiumUser || trialActive);
+  // v2 限定項目（盤前備課）：只限超管，走同一支 useWarV2Allowed（有效等級，受身分模擬影響）
+  const warV2Allowed = useWarV2Allowed();
+  const visibleNavItems = NAV_ITEMS.filter(item =>
+    (!('premium' in item && item.premium) || isPremiumUser || trialActive)
+    && (!('v2Only' in item && item.v2Only) || warV2Allowed));
 
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -153,9 +167,9 @@ export default function Navbar() {
   };
 
   return (
-    <nav className={styles.navbar}>
+    <nav className={rail ? `${styles.navbar} ${styles.rail}` : styles.navbar} aria-label="主選單">
       {/* ── Brand ── */}
-      <div className={styles.brand}>
+      <div className={styles.brand} title={rail ? '台股助手' : undefined}>
         <div className={styles.brandIcon}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <path d="M3 17l5-5 4 4 5-6 4 3" stroke="#3d8ef8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -178,8 +192,8 @@ export default function Navbar() {
            搬走之後，在選股頁以外就看不到目前模式了——若之後發現有人在個股頁誤用口徑，
            優先考慮的是「在各頁加一個唯讀的模式標示」，而不是把切換器搬回來。 */}
 
-      {/* ── 台股指數 Widget ── */}
-      <NavbarIndexWidget />
+      {/* ── 台股指數 Widget（專注模式卸載：戰情 Z1／S1 已有加權與櫃買）── */}
+      {!rail && <NavbarIndexWidget />}
 
       {/* ── Back Button ── */}
       {canGoBack && (
@@ -205,6 +219,7 @@ export default function Navbar() {
             id={`nav-${item.id}`}
             className={`${styles.navItem} ${currentPage === item.id ? styles.active : ''}`}
             onClick={() => navigateTo(item.id as typeof currentPage)}
+            title={rail ? item.label : undefined}
           >
             <span className={styles.navIcon}>{item.icon}</span>
             <span className={styles.navLabel}>{item.label}</span>
@@ -220,6 +235,7 @@ export default function Navbar() {
             id="nav-stock-detail"
             className={`${styles.navItem} ${currentPage === 'stock' ? styles.active : ''}`}
             onClick={() => navigateTo('stock')}
+            title={rail ? '個股分析' : undefined}
           >
             <span className={styles.navIcon}>📈</span>
             <span className={styles.navLabel}>個股分析</span>
@@ -268,8 +284,8 @@ export default function Navbar() {
 
       </div>
 
-      {/* ── AI News Agent Ticker ── */}
-      <AiNewsTicker />
+      {/* ── AI News Agent Ticker（專注模式卸載：每 15 秒輪詢 ai-analysis）── */}
+      {!rail && <AiNewsTicker />}
 
       {/* ── Auth / User Panel ── */}
       <div className={styles.authPanel} id="navbar-auth-panel">

@@ -1,0 +1,502 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   盤中戰情 v2（2026-10-05 使用者定案「內容可以，照這個完成」；視覺唯一參考＝規畫資料夾 preview.html）
+   ⚠ 本檔由「基礎」維護：各區塊專屬樣式請放在各自的 Zone*.module.css，不要改這裡（避免多人同改一檔）。
+   顏色只用站上 token；戰情專用色定義在 .wr 根 class（不動 globals.css）：
+     --wr-danger 危險紫（大盤危險、⚠）· --wr-amber 琥珀（逼近停損等一級但非危險）· --wr-risk 風險紫（處置／注意外框小標）
+   紅綠只代表漲跌（var(--color-up/down/flat)）。字級一律 calc(Npx * var(--fz))，小字有 12.5px 下限（--wr-fs-xs／sm）。
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.wr {
+  --wr-danger: #c026d3;
+  --wr-danger-soft: rgba(192, 38, 211, 0.16);
+  --color-danger: var(--wr-danger);
+  --wr-amber: #f59e0b;
+  --wr-warn: #eab308;
+  --wr-risk: #a78bfa;
+  --wr-gold: #e3b341;
+  --wr-blue: var(--accent-blue);
+  --wr-blue-soft: rgba(61, 142, 248, 0.18);
+  --wr-link: #8db8ff;
+  --wr-live: #4ade80;
+  --wr-ln: rgba(255, 255, 255, 0.07);
+  --wr-ln2: rgba(255, 255, 255, 0.13);
+  --wr-b0: var(--bg-primary);
+  --wr-b1: var(--bg-secondary);
+  --wr-b2: var(--bg-card);
+  --wr-b3: var(--bg-elevated);
+  --wr-t1: var(--text-primary);
+  --wr-t2: var(--text-secondary);
+  --wr-t3: var(--text-muted);
+  --wr-lu: var(--color-limit-up);
+  --wr-ld: var(--color-limit-down);
+
+  --wr-fs-xs: max(12.5px, calc(10.5px * var(--fz)));
+  --wr-fs-sm: max(12.5px, calc(11.5px * var(--fz)));
+  --wr-fs-base: calc(12.5px * var(--fz));
+  --wr-fs-md: calc(13.5px * var(--fz));
+  --wr-fs-lg: calc(15px * var(--fz));
+  --wr-fs-xl: calc(19px * var(--fz));
+
+  --wr-gap: 8px;
+  --wr-col-gap: 12px;
+  --wr-row-h: 34px;
+  --wr-card-h: 52px;
+  --wr-mobile-bars-h: 96px;
+  --wr-z-sticky: 20;
+  --wr-z-drawer: 60;
+  --wr-z-overlay: 70;
+
+  color: var(--wr-t1);
+  font-size: var(--wr-fs-base);
+  line-height: 1.45;
+  background: var(--wr-b0);
+  padding: 8px 12px 16px;
+}
+
+/* ── 桌機格線（≥768；手機 <768 走 .mobile 單欄，不用格線）────────────────────
+   768–1279：兩欄。1280–1799：Z0–Z2 全寬＋A1 5 欄／B1 7 欄，往下 A2＋B2、C1／C2。
+   ≥1800：preview 的 12 欄座標（A1 1–4、B1 5–9、C1 10–12 上、C2 10–12 下跨兩列、A2 1–4 下、B2 5–9 下）。
+   區塊高度固定、內部不捲動；超出的列用「全部 →」開放大層。 */
+.grid {
+  --wr-h-z0: minmax(44px, auto);
+  --wr-h-z1: minmax(96px, auto);
+  --wr-h-z2: minmax(36px, auto);
+  display: grid;
+  gap: var(--wr-gap) var(--wr-col-gap);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: var(--wr-h-z0) var(--wr-h-z1) var(--wr-h-z2) 528px 328px 392px;
+  grid-template-areas:
+    "z0 z0"
+    "z1 z1"
+    "z2 z2"
+    "a1 b1"
+    "a2 b2"
+    "c1 c2";
+}
+@media (min-width: 1280px) {
+  .grid {
+    --wr-h-z0: 44px;
+    --wr-h-z1: 96px;
+    --wr-h-z2: 36px;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: var(--wr-h-z0) var(--wr-h-z1) var(--wr-h-z2) 528px 328px 392px;
+    grid-template-areas:
+      "z0 z0 z0 z0 z0 z0 z0 z0 z0 z0 z0 z0"
+      "z1 z1 z1 z1 z1 z1 z1 z1 z1 z1 z1 z1"
+      "z2 z2 z2 z2 z2 z2 z2 z2 z2 z2 z2 z2"
+      "a1 a1 a1 a1 a1 b1 b1 b1 b1 b1 b1 b1"
+      "a2 a2 a2 a2 a2 b2 b2 b2 b2 b2 b2 b2"
+      "c1 c1 c1 c1 c1 c1 c2 c2 c2 c2 c2 c2";
+  }
+}
+@media (min-width: 1800px) {
+  .grid {
+    grid-template-rows: var(--wr-h-z0) var(--wr-h-z1) var(--wr-h-z2) 392px 128px 328px;
+    grid-template-areas:
+      "z0 z0 z0 z0 z0 z0 z0 z0 z0 z0 z0 z0"
+      "z1 z1 z1 z1 z1 z1 z1 z1 z1 z1 z1 z1"
+      "z2 z2 z2 z2 z2 z2 z2 z2 z2 z2 z2 z2"
+      "a1 a1 a1 a1 b1 b1 b1 b1 b1 c1 c1 c1"
+      "a1 a1 a1 a1 b1 b1 b1 b1 b1 c2 c2 c2"
+      "a2 a2 a2 a2 b2 b2 b2 b2 b2 c2 c2 c2";
+  }
+}
+.areaZ0 { grid-area: z0; position: sticky; top: var(--viewas-offset, 0px); z-index: var(--wr-z-sticky); }
+.areaZ1 { grid-area: z1; }
+.areaZ2 { grid-area: z2; }
+.areaA1 { grid-area: a1; }
+.areaB1 { grid-area: b1; }
+.areaC1 { grid-area: c1; }
+.areaC2 { grid-area: c2; }
+.areaA2 { grid-area: a2; }
+.areaB2 { grid-area: b2; }
+
+/* ── 區塊外框（ZoneFrame）────────────────────────────────────────────────── */
+.zone {
+  min-width: 0;
+  min-height: 0;
+  background: var(--wr-b2);
+  border: 1px solid var(--wr-ln);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.2s, border-color 0.2s;
+}
+.zoneEmphasis { border-color: rgba(61, 142, 248, 0.55); }
+.bar { min-width: 0; min-height: 0; }
+.zh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.zt { font-weight: 900; font-size: var(--wr-fs-md); white-space: nowrap; }
+.zx { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.sp { flex: 1 1 auto; min-width: 0; }
+.ztop {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  font-size: var(--wr-fs-sm);
+  color: var(--wr-t2);
+}
+.zb { flex: 1 1 auto; min-height: 0; overflow: hidden; position: relative; }
+.foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--wr-ln);
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 80px;
+  padding: 16px;
+  color: var(--wr-t3);
+  text-align: center;
+}
+
+/* ── 資料章（Stamp）──────────────────────────────────────────────────────── */
+.stamp { font-size: var(--wr-fs-xs); color: var(--wr-t3); white-space: nowrap; }
+.stampGlyph { font-style: normal; margin-right: 4px; }
+.stamp[data-state='live'] .stampGlyph { color: var(--wr-live); }
+.stamp[data-state='delayed'] .stampGlyph { color: var(--wr-amber); }
+.stamp[data-state='stale'] { color: var(--wr-amber); }
+
+/* ── 漲跌色與數字 ────────────────────────────────────────────────────────── */
+.up { color: var(--color-up); }
+.dn { color: var(--color-down); }
+.flat { color: var(--color-flat); }
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; text-align: right; }
+.muted { color: var(--wr-t3); }
+.ital { font-style: italic; }
+.ind {
+  font-size: var(--wr-fs-xs);
+  font-weight: 800;
+  font-style: normal;
+  color: var(--wr-amber);
+  border: 1px solid var(--wr-amber);
+  border-radius: 4px;
+  padding: 0 3px;
+  margin-left: 3px;
+}
+
+/* ── 徽章、燈、價齡 ─────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  font-size: var(--wr-fs-xs);
+  line-height: 1.35;
+  font-weight: 800;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--wr-ln2);
+  color: var(--wr-t2);
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.bRisk { border-color: var(--wr-risk); color: var(--wr-risk); }
+.bDt { border-color: rgba(61, 142, 248, 0.6); color: var(--wr-link); }
+.bT1 { border-color: rgba(227, 179, 65, 0.6); color: var(--wr-gold); }
+.bAmber { border-color: var(--wr-amber); color: var(--wr-amber); }
+.bDanger { border-color: var(--wr-danger); color: #f0abfc; }
+.bWatch { border-color: var(--wr-ln2); color: var(--wr-t2); }
+.lamp { display: inline-block; width: 0.62em; height: 0.62em; border-radius: 50%; vertical-align: 0.06em; }
+.lampUp { background: var(--color-up); }
+.lampDn { background: var(--color-down); }
+.lampFlat { background: var(--color-flat); }
+.lampNone { border: 2px solid var(--color-flat); }
+.ageDot {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  border: 1.5px solid var(--wr-t3);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: 0.1em;
+}
+.oldTag, .noTradeTag {
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+  border: 1px solid var(--wr-ln2);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 4px;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.newTag {
+  font-size: var(--wr-fs-xs);
+  font-weight: 900;
+  color: #0a0e1a;
+  background: var(--wr-link);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 4px;
+}
+.limitCell { background: var(--wr-lu); color: #fff; border-radius: 4px; padding: 1px 6px; }
+.limitDnCell { background: var(--wr-ld); color: #fff; border-radius: 4px; padding: 1px 6px; }
+
+/* ── 標題列控制 ─────────────────────────────────────────────────────────── */
+.chip {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--wr-ln2);
+  color: var(--wr-t2);
+  background: transparent;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chipOn { background: var(--wr-blue-soft); border-color: rgba(61, 142, 248, 0.6); color: #cfe1ff; }
+.chip:focus-visible, .more:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 2px; }
+.more {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  color: var(--wr-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ── 表格（區塊內清單）：數字 tabular-nums 右對齊，第一欄左對齊 ─────────── */
+.table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.table th {
+  font-size: var(--wr-fs-xs);
+  font-weight: 700;
+  color: var(--wr-t3);
+  text-align: right;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+}
+.table td {
+  height: var(--wr-row-h);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--wr-ln);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.table th:first-child, .table td:first-child { text-align: left; }
+.table .left { text-align: left; font-family: inherit; }
+.row { cursor: pointer; }
+.row:hover td { background: rgba(255, 255, 255, 0.035); }
+.stripe { box-shadow: inset 5px 0 0 var(--wr-sc, transparent); }
+.subRow td {
+  height: 24px;
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+  font-family: inherit;
+  text-align: left;
+  padding-left: 28px;
+}
+.groupRow td {
+  height: 26px;
+  font-family: inherit;
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+  text-align: left;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.025);
+}
+.code { color: var(--wr-link); margin-right: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.name { font-weight: 700; font-family: inherit; }
+.mkt { font-size: var(--wr-fs-xs); color: var(--wr-t3); margin-left: 4px; font-family: inherit; }
+
+/* ── 警示高亮（一級：外框閃 2 下；二級：底色閃 3 秒）─────────────────────── */
+@keyframes wrFlashOutline { 0%, 50%, 100% { outline-color: transparent; } 25%, 75% { outline-color: var(--wr-amber); } }
+@keyframes wrFlashBg { 0% { background: rgba(61, 142, 248, 0.22); } 100% { background: transparent; } }
+.flashOutline { animation: wrFlashOutline 1.2s ease-in-out 1; }
+.flashBg { animation: wrFlashBg 3s ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .flashOutline, .flashBg { animation: none; }
+  .zone { transition: none; }
+}
+
+/* ── 快看抽屜（D1）與放大層（D2）的底座；內容樣式由各自元件負責 ─────────── */
+.drawer {
+  position: fixed;
+  top: var(--viewas-offset, 0px);
+  right: 0;
+  bottom: 0;
+  width: min(520px, 100vw);
+  background: var(--wr-b1);
+  border-left: 1px solid var(--wr-ln2);
+  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.5);
+  z-index: var(--wr-z-drawer);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 70vh;
+  background: var(--wr-b1);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.55);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 15, 0.72);
+  z-index: var(--wr-z-overlay);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.overlayBox {
+  position: relative;
+  width: min(1240px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: var(--wr-b2);
+  border: 1px solid var(--wr-ln2);
+  border-radius: 14px;
+  padding: 18px 22px;
+}
+.closeBtn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  background: none;
+  border: 1px solid var(--wr-ln2);
+  border-radius: 6px;
+  color: var(--wr-t2);
+  cursor: pointer;
+  padding: 2px 8px;
+  min-height: 32px;
+}
+@media (max-width: 767px) {
+  .overlay { z-index: 130; padding: 0; }
+  .overlayBox { width: 100%; max-height: 100%; height: 100%; border-radius: 0; }
+}
+
+/* ── 手機（<768）：S1 摘要列＋S2 跳轉列（sticky）＋單欄段落、52px 兩行卡 ──── */
+.wrMobile { padding: 0 0 12px; }
+.mBars {
+  position: sticky;
+  top: var(--viewas-offset, 0px);
+  z-index: var(--wr-z-sticky);
+  background: var(--wr-b1);
+  border-bottom: 1px solid var(--wr-ln);
+}
+.mS1 { min-height: 56px; padding: 6px 12px; display: grid; gap: 4px; border-bottom: 1px solid var(--wr-ln); }
+.mS2 {
+  height: 40px;
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent);
+  mask-image: linear-gradient(to right, #000 88%, transparent);
+}
+.mS2::-webkit-scrollbar { display: none; }
+.mS2Item {
+  flex: 1 0 auto;
+  min-width: 56px;
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  color: var(--wr-t2);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mS2On { background: var(--wr-blue-soft); color: #cfe1ff; font-weight: 800; }
+.mS2Count { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: var(--wr-fs-xs); color: var(--wr-t3); margin-left: 3px; }
+.mScroll { display: flex; flex-direction: column; gap: 10px; padding: 8px 10px 0; }
+.mSec {
+  background: var(--wr-b2);
+  border: 1px solid var(--wr-ln);
+  border-radius: 10px;
+  overflow: hidden;
+  scroll-margin-top: calc(var(--wr-mobile-bars-h) + 8px);
+}
+.mSecHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  font-size: var(--wr-fs-md);
+  font-weight: 800;
+}
+.mSecHead > :last-child { display: flex; align-items: center; gap: 6px; font-weight: 400; min-width: 0; }
+.card {
+  min-height: var(--wr-card-h);
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  cursor: pointer;
+}
+.cardA { display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
+.cardA .name { overflow: hidden; text-overflow: ellipsis; }
+.cardPx { margin-left: auto; font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.cardB {
+  display: flex;
+  gap: 8px;
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 頁尾、會員鎖 ───────────────────────────────────────────────────────── */
+.disclaimer {
+  margin-top: 10px;
+  text-align: center;
+  font-size: var(--wr-fs-xs);
+  color: var(--wr-t3);
+}
+.lock {
+  max-width: 560px;
+  margin: 40px auto;
+  padding: 36px 20px;
+  text-align: center;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: calc(13.5px * var(--fz));
+  line-height: 1.6;
+}
+.lock b { display: block; font-size: calc(1.05rem * var(--fz)); color: var(--text-primary); margin-bottom: 6px; }

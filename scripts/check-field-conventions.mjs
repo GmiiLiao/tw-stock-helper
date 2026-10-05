@@ -96,6 +96,9 @@ AT_ALLOWLIST.add('writtenAt');
 // lastRunAt：起漲影子每日流程協調器的本機狀態檔 scripts/surge-lab/out/a35_shadow_daily_status.json（gitignored）的「這一輪開始時刻」（2026-10-04）。
 //   讀取端是 surge_lab_publish.mjs 的 pipeline 發佈（另一條工作線）；不是 Firestore 文件新鮮度戳，稽核契約不看它。
 AT_ALLOWLIST.add('lastRunAt');
+// lastOkAt：盤中戰情 v2 前端輪詢匯流排（src/components/WarRoomV2/useWarRoomBus.ts）各層「上次抓取成功」的瀏覽器時刻（2026-10-05）。
+//   純前端記憶體狀態，不寫 Firestore、不進稽核契約；資料章看的是資料本身的 asOf／revealAt，它只用來判「抓取是否一直失敗」。
+AT_ALLOWLIST.add('lastOkAt');
 AT_ALLOWLIST.add('revealAt');   // MIS 揭示時戳 tlong（資料本身的時間；與 liveAt 抓取時刻分開，R7 口徑）   // /api/system/version：build 時注入的建置時刻（部署身分，非資料日）
 
 // 資料日／日期欄位全名冊。⚠ 這不是「只准用 date」——buyDate、pubDate 這類

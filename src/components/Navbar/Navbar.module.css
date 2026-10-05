@@ -620,3 +620,39 @@
     z-index: 120;
   }
 }
+
+/* ── 盤中戰情 v2 專注模式：64px 圖示欄（2026-10-05 使用者裁定第 6 題）──────────────
+   只限桌機（手機本來就是底部圖示列，不受影響）。寬度由 page.module.css 的 .focusMode
+   把 --sidebar-width 設成 64px 帶進來；這裡只把內容收成「只剩圖示」。
+   文字標籤用 sr-only 手法視覺隱藏（螢幕閱讀器仍讀得到），滑鼠停留有 title 提示。 */
+@media (min-width: 769px) {
+  .rail { overflow: visible; }   /* 帳號選單要能伸出 64px 欄外（欄內只有圖示，不會超高） */
+  .rail .brand { justify-content: center; padding: 14px 0; }
+  .rail .brand > div:not(.brandIcon) { display: none; }
+  .rail .backBtn { justify-content: center; margin: 6px 8px 0; padding: 8px 0; width: calc(100% - 16px); }
+  .rail .navItems { padding: 8px 6px; }
+  .rail .navItem { justify-content: center; gap: 0; padding: 10px 0; }
+  .rail .navLabel,
+  .rail .backLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .rail .navIcon { width: auto; }
+  .rail .navBadge { display: none; }
+  .rail .authPanel { padding: 10px 6px; }
+  .rail .userProfile { justify-content: center; padding: 4px 0; }
+  .rail .userInfo,
+  .rail .menuChevron { display: none; }
+  .rail .userDropdown { left: 0; right: auto; width: 240px; }
+  .rail .guestLabel { display: none; }
+  .rail .loginBtn { font-size: 0; padding: 8px 0; }
+  .rail .loginBtn::before { content: '👤'; font-size: calc(1.1rem * var(--fz)); }
+  .rail .navFooter { display: none; }
+}

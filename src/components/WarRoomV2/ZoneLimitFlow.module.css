@@ -1,0 +1,54 @@
+/* C2 漲停順序流（preview.html .lf / .formed）：時間｜代號名稱｜族群｜板數 */
+
+.lf {
+  display: grid;
+  grid-template-columns: 3.6em minmax(0, 1fr) minmax(4em, 6.4em) 4.2em;
+  gap: 8px;
+  align-items: center;
+  height: 33px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+  min-width: 0;
+  cursor: pointer;
+}
+.lf:hover { background: rgba(255, 255, 255, 0.035); }
+.lf:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: -2px; }
+.grp { box-shadow: inset 3px 0 0 var(--color-up); }
+.tm {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--wr-t3);
+}
+.who { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.codeBtn {
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--wr-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-right: 5px;
+  cursor: pointer;
+}
+.codeBtn:hover { text-decoration: underline; }
+.codeBtn:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 1px; }
+.nm { font-weight: 700; }
+.cl { font-size: var(--wr-fs-xs); color: var(--wr-t2); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.clInd { color: var(--wr-t3); }
+.boards { font-size: var(--wr-fs-xs); color: var(--color-up); color: color-mix(in srgb, var(--color-up) 75%, var(--wr-t1)); text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.formed {
+  font-size: var(--wr-fs-xs);
+  color: var(--color-up);
+  color: color-mix(in srgb, var(--color-up) 70%, var(--wr-t1));
+  padding: 2px 12px 3px 24px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.footNote { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+
+/* 放大層 */
+.zoomList { border: 1px solid var(--wr-ln); border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+.zoomHead { font-weight: 800; margin: 6px 0 8px; }

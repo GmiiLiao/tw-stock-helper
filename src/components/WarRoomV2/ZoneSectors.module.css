@@ -1,0 +1,72 @@
+/* C1 族群資金（preview.html .sec）：名稱｜雙向橫條｜漲跌%｜觸及漲停家數 */
+
+.summary {
+  flex: 1 1 100%;
+  min-width: 0;
+  line-height: 1.4;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.summaryLabel { color: var(--wr-t3); margin-right: 4px; }
+
+.sec {
+  display: grid;
+  grid-template-columns: minmax(5.5em, 7.6em) minmax(0, 1fr) 4.8em 2.2em;
+  align-items: center;
+  gap: 8px;
+  height: 33px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+  min-width: 0;
+}
+.mine { background: var(--wr-blue-soft); }
+.name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.star { color: var(--wr-gold); margin-right: 3px; }
+.bars { position: relative; height: 12px; min-width: 0; }
+.bars::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--wr-ln2);
+}
+.bar { position: absolute; top: 0; height: 12px; border-radius: 3px; }
+.barUp { left: 50%; background: var(--color-up); }
+.barDn { right: 50%; background: var(--color-down); }
+.pct {
+  text-align: right;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.lu {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--wr-fs-xs);
+  font-weight: 800;
+  color: #fff;
+  background: var(--wr-lu);
+  border-radius: 4px;
+  text-align: center;
+  line-height: 1.5;
+}
+.luZero { background: transparent; color: var(--wr-t3); font-weight: 400; }
+
+/* 手機：單行 40px（不可點，不需 44px 點擊高度） */
+.mRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.2em 2.2em;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--wr-ln);
+  white-space: nowrap;
+}
+.prevNote { margin-top: 6px; }
+.footNote { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }

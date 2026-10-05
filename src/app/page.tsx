@@ -13,6 +13,7 @@ import AuthModal from '@/components/Auth/AuthModal';
 import CandidateDock from '@/components/Candidates/CandidateDock';
 import { PrivacyPage, ConsentBanner } from '@/components/Help/PrivacyNotice';
 import LimitQueueAlert from '@/components/shared/LimitQueueAlert';
+import { useWarV2Allowed, useWarV2Layout } from '@/components/WarRoomV2/parts/useWarAccess';
 import styles from './page.module.css';
 
 // ── Code splitting ────────────────────────────────────────────
@@ -29,6 +30,10 @@ const Portfolio         = dynamic(() => import('@/components/Portfolio/Portfolio
 const Backtest          = dynamic(() => import('@/components/Backtest/Backtest'));
 const WatchlistTracker  = dynamic(() => import('@/components/WatchlistTracker/WatchlistTracker'));
 const WarRoom           = dynamic(() => import('@/components/WarRoom/WarRoom'));
+// 盤中戰情 v2（2026-10-05 使用者定案）與盤前備課：只在瀏覽器渲染——它們讀 localStorage／matchMedia，且只會在
+// 掛載後的頁面切換時出現（currentPage 不持久化、首屏一定是 dashboard），不需要 SSR。
+const WarRoomV2         = dynamic(() => import('@/components/WarRoomV2/WarRoomV2'), { ssr: false });
+const PrepRoom          = dynamic(() => import('@/components/PrepRoom/PrepRoom'), { ssr: false });
 // AdminPanel 只有管理員用得到，卻是所有使用者都在下載的 31KB。
 const AdminPanel        = dynamic(() => import('@/components/Admin/AdminPanel'));
 // 模擬中橫幅：必須在所有頁面之上且永遠可見（忘了自己在模擬比功能壞掉更危險）
@@ -38,6 +43,18 @@ const HelpManual        = dynamic(() => import('@/components/Help/HelpManual'));
 
 export default function App() {
   const currentPage = useAppStore((s) => s.currentPage);
+  // 盤中戰情 v2＋專注模式（使用者裁定第 6、14 題）——只限超管（2026-10-05 使用者：「v2版只有超管可以用，暫不開放其它人使用」）：
+  //   超管：warLayout 非 'classic' 一律視為 v2（persist 的舊／壞值兜底）；
+  //     專注模式＝v2 戰情頁且 warFocus：Header、側欄指數卡、AI 跑馬燈、LimitQueueAlert、CandidateDock **卸載**
+  //     （CSS 隱藏不會停輪詢，卸載才省流量——critique C1），側欄收成 64px 圖示欄。AlertEngine 照舊全域掛載。
+  //   非超管（含未登入、一般、高級會員、admin，以及身分模擬中的超管）：戰情頁永遠是舊版 WarRoom，
+  //     完全不看 warLayout／warFocus（專注模式不生效、上述元件照常掛載），也不顯示新舊版切換列。
+  const v2Allowed = useWarV2Allowed();
+  const v2Layout = useWarV2Layout();
+  const warFocus = useAppStore((s) => s.warFocus);
+  const setWarLayout = useAppStore((s) => s.setWarLayout);
+  const isWarV2 = currentPage === 'war' && v2Layout;
+  const focusMode = isWarV2 && warFocus;
 
   // Run the Firebase Auth and Data synchronization hook
   useFirebaseSync();
@@ -108,8 +125,10 @@ export default function App() {
   // mobile anti-pattern that fought portrait users and was blocked by most
   // browsers anyway. The layout is now fully responsive in both orientations.
 
+  const layoutClass = [styles.appLayout, isWarV2 ? styles.warV2 : '', focusMode ? styles.focusMode : ''].filter(Boolean).join(' ');
+
   return (
-    <div className={styles.appLayout}>
+    <div className={layoutClass}>
 
       {/* Global alert engine — mounts invisibly, handles notifications + toasts */}
       <AlertEngine />
@@ -118,9 +137,10 @@ export default function App() {
       <AuthModal />
 
       <ViewAsBanner />
-      <Navbar />
+      <Navbar rail={focusMode} />
       <div className={styles.mainArea}>
-        <Header />
+        {/* 專注模式：網站頂列由戰情指揮列（Z0）／手機摘要列（S1）取代——卸載，不是隱藏 */}
+        {!focusMode && <Header />}
         <main className={styles.content} id="main-content">
           {(currentPage === 'dashboard' || currentPage === 'indexnews') && <Dashboard />}
           {currentPage === 'stock'     && <StockDetail />}
@@ -128,18 +148,33 @@ export default function App() {
           {currentPage === 'portfolio' && <Portfolio />}
           {currentPage === 'backtest'  && <Backtest />}
           {currentPage === 'tracker'   && <WatchlistTracker />}
-          {currentPage === 'war'       && <WarRoom />}
+          {isWarV2 && <WarRoomV2 />}
+          {currentPage === 'war' && !isWarV2 && (
+            <>
+              {/* 舊版保留 2 週（第 14 題）：一鍵回新版——只給超管（其他人沒有新版，看到的就是原本的戰情頁）。
+                  放在這裡而不是改 WarRoom.tsx，舊版元件原樣不動 */}
+              {v2Allowed && (
+                <div className={styles.layoutSwitch}>
+                  <span>目前是舊版盤中戰情（保留至 10/19）</span>
+                  <button type="button" onClick={() => setWarLayout('v2')}>切換新版 →</button>
+                </div>
+              )}
+              <WarRoom />
+            </>
+          )}
+          {/* 盤前備課：入口守門在 PrepRoom 內（非超管只顯示未開放說明、不掛任何面板） */}
+          {currentPage === 'prep'      && <PrepRoom />}
           {currentPage === 'admin'     && <AdminPanel />}
           {currentPage === 'help'      && <HelpManual />}
           {currentPage === 'privacy'   && <PrivacyPage />}
         </main>
       </div>
 
-      {/* 🚨 搶漲停排隊警示（09:15 前·全頁浮動反底色閃爍） */}
-      <LimitQueueAlert />
+      {/* 🚨 搶漲停排隊警示（09:15 前·全頁浮動反底色閃爍）——戰情專注模式不掛載（排隊改由戰情頁內呈現） */}
+      {!focusMode && <LimitQueueAlert />}
 
-      {/* 候選便條（跨頁選股工作流）：全頁浮動，帶著候選走 */}
-      <CandidateDock />
+      {/* 候選便條（跨頁選股工作流）：全頁浮動，帶著候選走——戰情專注模式不掛載（不蓋住版面、不多一條 5 秒輪詢） */}
+      {!focusMode && <CandidateDock />}
 
       {/* 隱私首次告知（登入後一次性） */}
       <ConsentBanner />

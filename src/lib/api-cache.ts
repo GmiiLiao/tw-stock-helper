@@ -3,6 +3,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJson, gzipJsonAuto } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
 import { getSession, setHolidays, isTradingDay } from '@/lib/market-clock';
+import { LATEST_DOC_TTL_MS } from '../../scripts/lib/latest-doc-ttl.mjs';
 
 /**
  * API 回應快取層級表 + daemon latest-doc 共用 helper
@@ -40,6 +41,10 @@ const TIERS: Record<Tier, string> = {
   static:   'public, max-age=600,  s-maxage=14400, stale-while-revalidate=3600, stale-if-error=86400',
   private:  'private, max-age=5,   stale-while-revalidate=30',
 };
+
+// latestDoc 記憶體 TTL 表（唯一實作在 scripts/lib/latest-doc-ttl.mjs，有測試）。
+// 型別標成 Record<Tier, number>：Tier 加了新成員而表沒補 ⇒ 編譯失敗，不會默默落到 undefined。
+const LATEST_DOC_TTL_BY_TIER: Readonly<Record<Tier, number>> = LATEST_DOC_TTL_MS;
 
 /** 收盤後即時類資料不會再變 —— TTL 拉到隔天開盤，回源率歸零 */
 const CLOSED_OVERRIDE =
@@ -121,8 +126,9 @@ export async function latestDoc(
   await primeHolidays().catch(() => null);   // fail-open：載不到就維持只擋週末
   const docId = opts.docId ?? 'latest';
 
-  // 記憶體 TTL 取 CDN s-maxage 的一半，讓兩層錯開、避免同時到期造成回源尖峰
-  const ttlMs = tier === 'daily' || tier === 'static' ? 300_000 : 60_000;
+  // 記憶體 TTL 依層級（critique H6·2026-10-05）：不長於該層 CDN s-maxage，盤中層約取一半讓兩層錯開。
+  // 舊版 tick／quote 一律 60 秒，market-pulse、limit-queue 最壞晚約 150 秒；表與測試在 scripts/lib/latest-doc-ttl.*。
+  const ttlMs = LATEST_DOC_TTL_BY_TIER[tier];
 
   // 包一層 { ok, data } 是刻意的：memoize 內部會吞掉錯誤並回 null，
   // 直接用 null 當回傳值的話，「Firestore 掛掉」和「doc 還沒被 daemon 寫入」

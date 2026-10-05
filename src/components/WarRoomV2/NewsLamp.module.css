@@ -1,0 +1,21 @@
+/* 新聞燈的強弱與標記（燈本體 .lamp／.lampUp… 在 WarRoomV2.module.css）。顏色只用 .wr 根上的 token：利多紅 --color-up、利空綠 --color-down。
+   選擇器加 .wrap 前綴提高權重，確保蓋過 .lamp 的尺寸（兩個 CSS module 的載入順序不保證）。 */
+
+.wrap { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+
+/* 強（w≥0.6）：外圈 */
+.wrap .strong { outline-style: solid; outline-width: 2px; outline-offset: 1.5px; }
+.wrap .ringUp { outline-color: var(--color-up); }
+.wrap .ringDn { outline-color: var(--color-down); }
+
+/* 弱（w<0.3）：小點 */
+.wrap .weak { width: 0.45em; height: 0.45em; vertical-align: 0.14em; }
+
+/* 達持股重大利空一級：紫色 ⚠（危險紫，與大盤危險同一個 token） */
+.major { color: var(--wr-danger); font-size: var(--wr-fs-xs); line-height: 1; }
+
+/* 承接／前一交易日的判別 */
+.old { color: var(--wr-t3); font-size: var(--wr-fs-xs); line-height: 1; }
+
+/* 不做個股新聞識讀（ETF 等） */
+.na { color: var(--wr-t3); }

@@ -2,7 +2,7 @@
 
 // ── 候選便條（全頁浮動）───────────────────────────────────────────
 // 跨頁選股工作流的核心：帶著候選走。任何頁「＋候選」加入，這裡隨時看/移除，
-// 一鍵進盤中戰情的「決策工作台」分頁比對出策略與勝率。收合為小膠囊，常駐。
+// 一鍵進「決策工作台」比對出策略與勝率（超管：盤前備課頁；其他人：盤中戰情的同名分頁——v2 暫只開放超管）。收合為小膠囊，常駐。
 
 import { useState } from 'react';
 import { useAppStore } from '@/lib/store';
@@ -10,6 +10,8 @@ import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { useDayTradeCodes } from '@/lib/useDayTradeCodes';
 import { dayTradeTintOf } from '@/components/shared/DayTradeBadge';
 import { getChangeColor } from '@/lib/twse-api';
+import { openPrepTab, usePrepTab } from '@/components/PrepRoom/prepTabs';
+import { useWarV2Allowed, useWarV2Layout } from '@/components/WarRoomV2/parts/useWarAccess';
 
 export default function CandidateDock() {
   const codes = useAppStore(s => s.compareCodes);
@@ -20,9 +22,17 @@ export default function CandidateDock() {
   const setWarTab = useAppStore(s => s.setWarTab);
   const currentPage = useAppStore(s => s.currentPage);
   const warTab = useAppStore(s => s.warTab);
+  const v2Allowed = useWarV2Allowed();   // v2／盤前備課只限超管（受身分模擬影響）
+  const warV2 = useWarV2Layout();        // 戰情頁目前是不是 v2（非超管恆 false）
+  const prepTab = usePrepTab();
   const [open, setOpen] = useState(false);
 
-  const openDesk = () => { setWarTab('desk'); navigateTo('war'); };
+  // 決策工作台去向：超管＝盤前備課（使用者裁定第 5 題；v2 戰情沒有這個分頁）；
+  //   其他人＝原本的舊版戰情「決策工作台」分頁（v2 暫不開放，行為與 2026-10-05 前相同）
+  const openDesk = () => {
+    if (v2Allowed) { openPrepTab('desk'); return; }
+    setWarTab('desk'); navigateTo('war');
+  };
 
   // ── 即時報價（2026-08-26 使用者回報「候選便條沒有即時更新」）──────────
   // 原本只讀 store 的 allStocks——那是 Header 每 2 分鐘（盤中）／15 分鐘（休市）
@@ -36,7 +46,8 @@ export default function CandidateDock() {
   //   規則被擋過一次（2026-08-26 useLiveQuotes），ESLint 這次又當場攔下。
   const dt = useDayTradeCodes();
 
-  const hideInDesk = currentPage === 'war' && warTab === 'desk'; // 工作台分頁內不重複顯示
+  const hideInDesk = (currentPage === 'war' && !warV2 && warTab === 'desk')
+    || (v2Allowed && currentPage === 'prep' && prepTab === 'desk'); // 工作台分頁內不重複顯示
   if (hideInDesk) return null;
 
   const rows = codes.map(code => {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getMarketIndexDataInternal, isAnyMarketActive } from '@/lib/twse-api-server';
 import { isTradingDay } from '@/lib/market-clock';
 import { rateLimit } from '@/lib/rate-limit';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 
 export const runtime = 'nodejs';
 
@@ -34,11 +35,9 @@ export async function GET(request: Request) {
         ? 'public, max-age=15, s-maxage=30, stale-while-revalidate=30, stale-if-error=600'
         : 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600, stale-if-error=86400';
 
-    return NextResponse.json(data, {
-      headers: {
-        'Cache-Control': cacheHeader,
-      },
-    });
+    // 2026-10-05（critique C1）：改 gzipJsonAuto（Cloud Run 前無自動壓縮；Header／跑馬燈／戰情快層每 5 秒一份）。
+    // 回應形狀與 Cache-Control 不變；錯誤分支（下方 weighted:0）維持原樣。
+    return gzipJsonAuto(data, { 'Cache-Control': cacheHeader });
   } catch (error) {
     console.error('Market index proxy error:', error);
     return NextResponse.json({ weighted: 0, weightedChange: 0, weightedChangePercent: 0 });

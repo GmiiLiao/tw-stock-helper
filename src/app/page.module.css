@@ -24,6 +24,45 @@
   margin-inline: auto;
 }
 
+/* ── 盤中戰情 v2（2026-10-05）──────────────────────────────────────
+   warV2：戰情 v2 頁面——內容不設寬度上限（12 欄格線吃滿），且 main 不當捲動容器
+          （overflow:auto 會讓手機 S1／S2 的 sticky 黏在 main 上而失效；v2 版面本身不橫向溢出）。
+   focusMode：專注模式——側欄收成 64px 圖示欄（Navbar rail），mainArea 跟著讓位。
+   兩者都只改 CSS 變數與本頁 class，不動 globals.css 的 token。 */
+.warV2 .content {
+  overflow: visible;
+  max-width: none;
+}
+.focusMode {
+  --sidebar-width: 64px;
+}
+
+/* 舊版戰情頁首的「切換新版」列（第 14 題：舊版保留 2 週） */
+.layoutSwitch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-blue-glow);
+  color: var(--text-secondary);
+  font-size: calc(12.5px * var(--fz));
+}
+.layoutSwitch button {
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent-blue);
+  background: transparent;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+  cursor: pointer;
+  min-height: 32px;
+}
+
 /* ── Mobile: sidebar → bottom nav, no portrait block ── */
 @media (max-width: 768px) {
   .mainArea {

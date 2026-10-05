@@ -1,0 +1,41 @@
+/* A1 我的部位 專屬樣式（共用 class 在 WarRoomV2.module.css）。顏色只用 .wr 根上的 token。 */
+
+/* 內容區填滿 .zb（高度固定、內部不捲動；量高度決定放幾列） */
+.fill { position: absolute; inset: 0; overflow: hidden; }
+
+/* KPI 列 */
+.kpi b { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-weight: 800; }
+.kpiItem { white-space: nowrap; }
+.amber { color: var(--wr-amber); }
+.riskTxt { color: var(--wr-risk); }
+
+/* 第一欄：代號（點了開個股頁）＋名稱＋市場別；色條畫在第一格（tr 的 box-shadow 部分瀏覽器不畫） */
+.first { box-shadow: inset 4px 0 0 var(--wr-sc, transparent); }
+.codeBtn {
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--wr-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-right: 6px;
+  cursor: pointer;
+}
+.codeBtn:hover { text-decoration: underline; }
+.codeBtn:focus-visible, .rowFocus:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: -2px; }
+
+/* 距停損 */
+.distAmber { color: var(--wr-amber); font-weight: 800; }
+.distOk { color: var(--wr-t2); }
+
+/* 風險欄（處置／注意小標＋新聞燈，兩個圖示一格） */
+.riskCell { display: inline-flex; align-items: center; gap: 6px; }
+
+/* 第二行原因：停損類琥珀、其餘灰 */
+.subAmber { color: var(--wr-amber) !important; }
+
+/* 手機卡 */
+.cardAmber { box-shadow: inset 4px 0 0 var(--wr-amber); }
+.cardChg { width: 5.4em; text-align: right; font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.mobileMore { display: flex; justify-content: flex-end; padding: 8px 12px; min-height: 44px; align-items: center; }
+.mHeadPct { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: var(--wr-fs-sm); }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/require-admin';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { PRICE_ALERTS_DOC, resolvePriceAlerts, withPriceAlerts } from '../../../../../scripts/lib/alerts-split.mjs';
 
 // ── 🎭 身分模擬（superadmin 專用·唯讀）─────────────────────────────
 //
@@ -72,9 +73,14 @@ export async function GET(request: Request) {
   const u = userSnap.data() ?? {};
 
   const ref = (n: string) => db.collection('users').doc(target).collection('data').doc(n);
-  const [wl, hd, td, al, nt] = await Promise.all(
-    ['watchlist', 'holdings', 'trades', 'alerts', 'notifications'].map(n => ref(n).get())
+  const [wl, hd, td, al, nt, pa] = await Promise.all(
+    ['watchlist', 'holdings', 'trades', 'alerts', 'notifications', PRICE_ALERTS_DOC].map(n => ref(n).get())
   );
+  // 價位警示 2026-10-05 起拆到 priceAlerts（critique H3）；尚未遷移的帳號仍在舊 alerts 文件——與登入時 loadPriceAlerts 同一套解析
+  const legacyAlertsDoc = al.exists ? (al.data() ?? null) : null;
+  const priceAlertList = resolvePriceAlerts({
+    priceDoc: pa.exists ? (pa.data() ?? null) : null, legacyDoc: legacyAlertsDoc, localAlerts: [],
+  }).list;
 
   // 各 daemon 文件的欄位健檢——缺欄位正是前端崩潰的來源
   const diagnostics: Array<{ doc: string; exists: boolean; missing: string[]; keys: number }> = [];
@@ -105,7 +111,7 @@ export async function GET(request: Request) {
       watchlistGroups: wl.exists ? (wl.data()?.watchlistGroups ?? []) : [],
       holdings: hd.exists ? (hd.data()?.holdings ?? []) : [],
       tradeRecords: td.exists ? (td.data()?.tradeRecords ?? []) : [],
-      alerts: al.exists ? (al.data()?.alerts ?? []) : [],
+      alerts: withPriceAlerts(legacyAlertsDoc?.alerts ?? [], priceAlertList),
       notifications: nt.exists ? (nt.data()?.notifications ?? []) : [],
     },
     diagnostics,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMisQuoteDataInternal, isMarketOpen } from '@/lib/twse-api-server';
 import { recordLiveRequests } from '@/lib/live-requests-store';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { gzipJsonAuto } from '@/lib/gzip-response';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,9 @@ export async function GET(request: NextRequest) {
       const known = result.quotes.filter(q => q.price > 0).map(q => q.code);
       if (known.length) recordLiveRequests(known, clientIp(request));
     }
-    return NextResponse.json(
+    // 2026-10-05（critique C1）：改 gzipJsonAuto——Cloud Run 前面沒有任何一層會壓縮，40 檔報價每拍原始約 10KB，
+    // 戰情頁快層每 5 秒一份。回應形狀、Cache-Control、X-Data-Source 不變；瀏覽器 fetch 自動解壓，消費端零改動。
+    return gzipJsonAuto(
       {
         quotes: result.quotes,
         isRealtime: result.isRealtime,
@@ -48,16 +51,14 @@ export async function GET(request: NextRequest) {
         snapshotAt: result.snapshotAt ?? null,
       },
       {
-        headers: {
-          // 盤中 no-store 會讓每個 5 秒輪詢都打穿 CDN（CLAUDE.md 最貴教訓）。
-          // 2026-09-02 改拍號快取鍵（前端帶 &t=revealTick）：同拍恆 hit、換拍
-          // URL 變＝必回源 ⇒ s-maxage 拉滿一拍也不會殘影。SWR 縮成 origin
-          // 慢時的容錯，不再是常態路徑（先前 swr=10 讓鎖相請求常吃一兩拍前殘影，
-          // 實測平均資料齡 7.9s、僅 1/8 拍 ≤5s）。
-          'Cache-Control': marketOpen ? 'public, s-maxage=5, stale-while-revalidate=5' : 'public, max-age=60',
-          'X-Data-Source': result.source,
-        },
-      }
+        // 盤中 no-store 會讓每個 5 秒輪詢都打穿 CDN（CLAUDE.md 最貴教訓）。
+        // 2026-09-02 改拍號快取鍵（前端帶 &t=revealTick）：同拍恆 hit、換拍
+        // URL 變＝必回源 ⇒ s-maxage 拉滿一拍也不會殘影。SWR 縮成 origin
+        // 慢時的容錯，不再是常態路徑（先前 swr=10 讓鎖相請求常吃一兩拍前殘影，
+        // 實測平均資料齡 7.9s、僅 1/8 拍 ≤5s）。
+        'Cache-Control': marketOpen ? 'public, s-maxage=5, stale-while-revalidate=5' : 'public, max-age=60',
+        'X-Data-Source': result.source,
+      },
     );
   } catch (e) {
     console.error('[mis-quote] API error:', e);

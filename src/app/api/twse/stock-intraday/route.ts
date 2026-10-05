@@ -4,6 +4,8 @@ import { rateLimit } from '@/lib/rate-limit';
 import { getDaemonIntraday } from '@/lib/daemon-intraday';
 import { isMarketOpen } from '@/lib/twse-api-server';
 import { cacheHeader } from '@/lib/api-cache';
+import { memoize } from '@/lib/singleflight';
+import { INTRADAY_CODE_RE, createYahooTrunkReader, type IntradayTick } from '../../../../../scripts/lib/intraday-yahoo.mjs';
 
 export const runtime = 'nodejs';
 
@@ -77,6 +79,12 @@ async function fetchIntraday(symbol: string) {
   }
 }
 
+// Yahoo 後備以代號為鍵 memoize（critique M2·2026-10-05）：TTL 30 秒、in-flight 合流、負快取 30 秒、降級上限 60 秒。
+// 舊版一般路徑每次回源都直打兩次 Yahoo；現在同一實例同一檔每 30 秒最多一組（.TW＋.TWO），與看盤人數無關。
+// 來源與網域不變（仍是上面這支 fetchIntraday）；盤中最新尾段照舊由 daemon 分時接上，主幹晚 30 秒不影響圖。
+// 純邏輯與測試在 scripts/lib/intraday-yahoo.*。
+const readYahooTrunk = createYahooTrunkReader({ memoize, fetchChart: fetchIntraday });
+
 export async function GET(request: NextRequest) {
   // 限流防濫用。2026-08-01 放寬：個股頁 K 線鏈每檔 3~12 連發、會員頁多檔輪詢，
   // 原值連續瀏覽數檔就會 429 圖表空白——限流目標是每分鐘數百次的濫用，不是正常瀏覽
@@ -86,6 +94,11 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
   if (!code) {
     return NextResponse.json({ error: 'code required' }, { status: 400 });
+  }
+  // 代號白名單（2026-10-05）：同時是 Yahoo memoize 的鍵，使用者可控的鍵不能讓快取表無限長大；
+  // 也擋掉帶路徑字元的值被拼進上游網址。不合法的代號舊版也取不到資料（404），前端同樣顯示載入失敗。
+  if (!INTRADAY_CODE_RE.test(code)) {
+    return NextResponse.json({ error: 'invalid code' }, { status: 400 });
   }
 
   try {
@@ -112,33 +125,11 @@ export async function GET(request: NextRequest) {
     }
 
     // 一般路徑：以 Yahoo 全日為主幹，盤中再把 daemon 更即時的尾段接上，兼顧完整與即時。
-    const [resTw, resTwo] = await Promise.all([
-      fetchIntraday(`${code}.TW`),
-      fetchIntraday(`${code}.TWO`),
-    ]);
-
-    const toTimeStr = (ts: number) => {
-      const tw = new Date(new Date(ts * 1000).toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-      return `${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`;
-    };
-
-    const result = resTw || resTwo;
-    let ticks: { time: number; timeStr: string; close: number; volume: number }[] = [];
-    let prevClose = 0;
-
-    if (result) {
-      const timestamps: number[] = result.timestamp ?? [];
-      const quote = result.indicators?.quote?.[0] ?? {};
-      const closes: (number | null)[] = quote.close ?? [];
-      const volumes: (number | null)[] = quote.volume ?? [];
-      ticks = timestamps.map((ts, idx) => {
-        const close = closes[idx];
-        if (close === null || close === undefined) return null;
-        return { time: ts, timeStr: toTimeStr(ts), close, volume: volumes[idx] ?? 0 };
-      }).filter((t): t is { time: number; timeStr: string; close: number; volume: number } => t !== null);
-      const meta = result.meta ?? {};
-      prevClose = meta.chartPreviousClose ?? meta.previousClose ?? (ticks[0]?.close ?? 0);
-    }
+    // 主幹走代號 memoize（.TW／.TWO 並行、上市優先；解析規則與舊版內嵌寫法相同，見 intraday-yahoo.mjs parseYahooChart）。
+    // 快取的主幹是凍結的共用物件：下面只能產生新陣列，不能就地修改。
+    const yahoo = await readYahooTrunk(code);
+    let ticks: readonly IntradayTick[] = yahoo ? yahoo.ticks : [];
+    let prevClose = yahoo ? yahoo.prevClose : 0;
 
     // 盤中：把 daemon 更即時、比 Yahoo 尾端更新的點接上(消除 20 分延遲)
     if (daemon?.ticks?.length) {
@@ -153,7 +144,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No data found' }, { status: 404 });
     }
 
-    return gzipJsonAuto({ code, prevClose, ticks, source: result ? 'yahoo+mis' : 'mis' }, cacheHeader('hot'));
+    return gzipJsonAuto({ code, prevClose, ticks, source: yahoo ? 'yahoo+mis' : 'mis' }, cacheHeader('hot'));
   } catch (error) {
     console.error(`Stock intraday proxy error for ${code}:`, error);
     return NextResponse.json({ error: 'Failed to fetch stock intraday data' }, { status: 500 });

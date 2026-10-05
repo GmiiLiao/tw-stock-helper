@@ -6,7 +6,8 @@
 import AddCandidateButton from '@/components/Candidates/AddCandidateButton';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
-import { isMarketOpen } from '@/lib/market-clock';
+import { isMarketOpen, startLiveLoop, isForeground, isTwTradingHours, shouldPollThroughClose } from '@/lib/market-clock';
+import { prepFetchJson, fetchErrorText } from '@/components/PrepRoom/prepFetch';
 import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
@@ -71,6 +72,33 @@ const fmtSigned = (v?: number | null) =>
 const instColor = (v?: number | null) => (v == null ? 'var(--text-muted)' : v >= 0 ? 'var(--color-up)' : 'var(--color-down)');
 const instSigned = (v?: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toLocaleString()}`);
 
+// 軋空環境燈與大盤警示配色（2026-10-05 使用者裁定第 2 題）：紅綠只代表漲跌方向——偏多紅、偏空綠、持平灰；
+// 「危險」用與方向無關的紫色＋⚠（原本危險用紅、極佳用綠，等於把台股紅漲綠跌反過來用）。
+const DANGER = 'var(--color-danger, #c026d3)';
+const DANGER_SOFT = 'rgba(192, 38, 211, 0.12)';
+const AMBER = '#f59e0b';
+const LEVEL_TONE: Record<string, { fg: string; bg: string }> = {
+  strong: { fg: 'var(--color-up)', bg: 'var(--color-up-bg)' },
+  good: { fg: 'var(--color-up)', bg: 'var(--color-up-bg)' },
+  weak: { fg: 'var(--color-down)', bg: 'var(--color-down-bg)' },
+  bad: { fg: DANGER, bg: DANGER_SOFT },
+};
+const LEVEL_FLAT = { fg: 'var(--text-muted)', bg: 'rgba(148, 163, 184, 0.12)' };
+const warnColor = (level: string) => (level === 'danger' ? DANGER : level === 'good' ? 'var(--color-up)' : AMBER);
+
+// 輪詢節奏（2026-10-05 修正：原本兩個 setInterval 沒有閘門，背景分頁、休市整夜照打，且間隔固定）。
+//   名單類（squeeze-picks／ledger／recommend／news-verdict-review）＝daemon 產出，盤外也會更新（21:45 資券後換次日名單）
+//     ⇒ 只擋背景分頁（isForeground）；盤中 180 秒、其餘 600 秒，間隔每拍重算。
+//   大盤脈動（market-pulse）＝盤中才變 ⇒ shouldPollThroughClose（含 13:30–13:45 收盤定價窗）；非盤中只空轉判閘、不發請求。
+//   掛載時各抓一次不設閘（盤後／休市打開也看得到最後一份）；失敗保留上一份資料。
+const LIST_MS_OPEN = 180_000;
+const LIST_MS_IDLE = 600_000;
+const PULSE_MS = 30_000;          // daemon 也是 30 秒節流，對齊即可
+const PULSE_IDLE_MS = 60_000;     // 非盤中每 60 秒判一次閘（不打 API），開盤後 1 分鐘內恢復
+const LIST_FAST_END_MIN = 13 * 60 + 45;
+const NO_DOC = '尚無資料';
+const isDoc = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
 export default function SqueezePanel() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [d, setD] = useState<Data | null>(null);
@@ -91,29 +119,46 @@ export default function SqueezePanel() {
   const [rec, setRec] = useState<Rec | null>(null);
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');   // 名單讀取失敗／尚無資料（有舊資料時照樣顯示舊資料，只加註）
   const navigateTo = useAppStore(s => s.navigateTo);
 
   useEffect(() => {
     let live = true;
-    const load = () => {
-      fetch('/api/ai/squeeze-picks').then(r => (r.ok ? r.json() : null))
-        .then(x => { if (live && x && !x.error) setD(x); }).catch(() => {})
-        .finally(() => { if (live) setLoading(false); });
-      fetch('/api/ai/squeeze-ledger').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x && x.entries) setLedger(x); }).catch(() => {});
-      fetch('/api/ai/news-verdict-review').then(r => (r.ok ? r.json() : null)).then(x => { if (live && x && x.bull) setReview(x); }).catch(() => {});
-      fetch('/api/ai/squeeze-recommend').then(r => (r.ok ? r.json() : null))
-        .then(x => { if (live && x && !x.error && x.items) setRec(x); }).catch(() => {});
-      fetch('/api/twse/market-pulse').then(r => (r.ok ? r.json() : null))
-        .then(x => { if (live && x && !x.error && x.level) setPulse(x); }).catch(() => {});
+    // 名單類：四支各自成敗；全部失敗才回 reject（讓 startLiveLoop 退避）
+    const loadLists = async (signal?: AbortSignal): Promise<void> => {
+      const picks = prepFetchJson('/api/ai/squeeze-picks', signal).then(
+        x => {
+          if (!live) return;
+          if (isDoc(x) && !x.error && Array.isArray(x.items)) { setD(x as unknown as Data); setErr(''); }
+          else if (x == null) setErr(NO_DOC);
+        },
+        e => { if (live && !signal?.aborted) setErr(fetchErrorText(e)); throw e; },
+      ).finally(() => { if (live) setLoading(false); });
+      const ledgerP = prepFetchJson('/api/ai/squeeze-ledger', signal)
+        .then(x => { if (live && isDoc(x) && x.entries) setLedger(x as unknown as Ledger); });
+      const reviewP = prepFetchJson('/api/ai/news-verdict-review', signal)
+        .then(x => { if (live && isDoc(x) && x.bull) setReview(x as unknown as Review); });
+      const recP = prepFetchJson('/api/ai/squeeze-recommend', signal)
+        .then(x => { if (live && isDoc(x) && !x.error && Array.isArray(x.items)) setRec(x as unknown as Rec); });
+      const rs = await Promise.allSettled([picks, ledgerP, reviewP, recP]);
+      if (rs.every(r => r.status === 'rejected')) throw new Error('軋空候選讀取失敗');
     };
-    load();
-    const id = setInterval(load, 180_000);
-    // 大盤脈動 30 秒一次（daemon 也是 30 秒節流，對齊即可）
-    const idPulse = setInterval(() => {
-      fetch('/api/twse/market-pulse').then(r => (r.ok ? r.json() : null))
-        .then(x => { if (live && x && !x.error && x.level) setPulse(x); }).catch(() => {});
-    }, 30_000);
-    return () => { live = false; clearInterval(id); clearInterval(idPulse); };
+    const loadPulse = async (signal?: AbortSignal): Promise<void> => {
+      const x = await prepFetchJson('/api/twse/market-pulse', signal);
+      if (live && isDoc(x) && !x.error && x.level) setPulse(x as unknown as Pulse);
+    };
+    const ac = new AbortController();
+    loadLists(ac.signal).catch(() => { /* 已記 err、保留上一份 */ });
+    loadPulse(ac.signal).catch(() => { /* 保留上一份大盤脈動 */ });
+    const stopLists = startLiveLoop(
+      signal => (isForeground() ? loadLists(signal) : undefined),
+      () => (isTwTradingHours(LIST_FAST_END_MIN) ? LIST_MS_OPEN : LIST_MS_IDLE),
+    );
+    const stopPulse = startLiveLoop(
+      signal => (shouldPollThroughClose() ? loadPulse(signal) : undefined),
+      () => (shouldPollThroughClose() ? PULSE_MS : PULSE_IDLE_MS),
+    );
+    return () => { live = false; ac.abort(); stopLists(); stopPulse(); };
   }, []);
 
   const ev = d?.evidence;
@@ -127,6 +172,7 @@ export default function SqueezePanel() {
             {d.mode === 'nextday'
               ? <> · <b style={{ color: '#22c55e' }}>適用交易日 {d.targetDate}</b>（TWSE 盤後全資料到齊）{d.instDate ? <> · 法人資料日 {d.instDate}（T86 收盤後才出，非即時）</> : null}</>
               : <> · <b style={{ color: '#f59e0b' }}>盤中即時版（券資比為 {d.marginDate}，t-1）</b>——今晚 21:45 資券公布後才會更新為次交易日清單</>}
+            {err && err !== NO_DOC && <span style={{ color: AMBER }}> · ⚠ 更新失敗（{err}），顯示上次資料</span>}
           </span>
         )}
       </div>
@@ -134,14 +180,13 @@ export default function SqueezePanel() {
       {/* 大盤脈動：環境決定要不要出手，所以放最上面 */}
       {pulse && (() => {
         const p = pulse;
-        const c = p.level.key === 'bad' ? '#ef4444' : p.level.key === 'weak' ? '#f59e0b'
-          : p.level.key === 'strong' ? '#22c55e' : p.level.key === 'good' ? '#4ade80' : 'var(--text-muted)';
+        const tone = LEVEL_TONE[p.level.key] ?? LEVEL_FLAT;
         const danger = p.warns.some(w => w.level === 'danger');
         return (
           <div style={{
             padding: '8px 12px', borderRadius: 8, marginBottom: 8,
-            background: danger ? 'rgba(239,68,68,0.09)' : 'var(--bg-elevated)',
-            border: `1px solid ${danger ? 'rgba(239,68,68,0.5)' : 'var(--border-primary)'}`,
+            background: danger ? DANGER_SOFT : 'var(--bg-elevated)',
+            border: `1px solid ${danger ? DANGER : 'var(--border-primary)'}`,
             fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6,
           }}>
             {/* 2026-10-01 使用者：判讀區改標準字級（同指數「自動判讀」框），標題 14px 保持層級 */}
@@ -160,8 +205,8 @@ export default function SqueezePanel() {
                   {p.countsBasis === 'live' ? '即時' : '已收盤'}
                 </span>
               </span>
-              <span style={{ padding: '1px 9px', borderRadius: 999, background: `${c}22`, color: c, fontWeight: 700 }}>
-                軋空環境：{p.level.label}
+              <span style={{ padding: '1px 9px', borderRadius: 999, background: tone.bg, color: tone.fg, fontWeight: 700 }}>
+                {p.level.key === 'bad' ? '⚠ ' : ''}軋空環境：{p.level.label}
               </span>
             </div>
             <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
@@ -170,8 +215,8 @@ export default function SqueezePanel() {
               {p.level.luActualVsExp != null && <>　實際/期望 <b style={{ color: p.level.luActualVsExp >= 1 ? 'var(--color-up)' : '#f59e0b' }}>{p.level.luActualVsExp}x</b></>}
             </div>
             {p.warns.map((w, i) => (
-              <div key={i} style={{ marginTop: 2, fontWeight: 600, color: w.level === 'danger' ? '#ef4444' : w.level === 'good' ? '#22c55e' : '#f59e0b' }}>
-                {w.level === 'danger' ? '🚨' : w.level === 'good' ? '🚀' : '⚠️'} {w.text}
+              <div key={i} style={{ marginTop: 2, fontWeight: 600, color: warnColor(w.level) }}>
+                {w.level === 'danger' ? '⚠' : w.level === 'good' ? '🚀' : '⚠️'} {w.text}
               </div>
             ))}
             {p.volNote && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))', marginTop: 2 }}>{p.volNote}</div>}
@@ -198,7 +243,7 @@ export default function SqueezePanel() {
             </b> · 勝率 <b>{d.recent.winRate}%</b>
           </div>
           {d.recent.avgNextDay < 0 && (
-            <div style={{ color: '#ef4444', fontWeight: 600 }}>
+            <div style={{ color: AMBER, fontWeight: 600 }}>
               ⚠ 訊號目前處於回檔期：近期隔日報酬為負，與長期期望值（+1.62%／勝率55%）背離。單日離散度很大（實測區間 −8.4% ~ +7.6%），請勿因為看到榜單就加大部位。
             </div>
           )}
@@ -231,6 +276,11 @@ export default function SqueezePanel() {
       )}
 
       {loading && !d && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>載入中…</div>}
+      {!loading && !d && err && (
+        <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>
+          {err === NO_DOC ? '軋空候選尚無資料（常駐服務下一週期產生）。' : `軋空候選讀取失敗（${err}），稍後自動重試。`}
+        </div>
+      )}
       {d && d.items.length === 0 && (
         <div style={{ padding: '18px 4px', color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>
           今日無符合條件的個股。條件嚴格是刻意的——放寬到「券資比越高越好」實測反而更差。

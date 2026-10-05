@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { isLimitUp, getChangeColor } from '@/lib/twse-api';
-import { getSession, isForeground } from '@/lib/market-clock';
+import { getSession, isForeground, isTwTradingHours, startLiveLoop } from '@/lib/market-clock';
+import { prepFetchJson, fetchErrorText } from '@/components/PrepRoom/prepFetch';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import CostReference from '@/components/shared/CostReference';
 
@@ -28,26 +29,40 @@ interface Doc {
   rule: string; stats: string; reviewHistory?: ReviewDay[]; reviewSummary?: { n: number; win20: number; avg20: number; hit30: number } | null;
 }
 
+// 輪詢節奏（2026-10-05 修正：原本間隔在掛載時用三元算死——盤中打開的分頁收盤後仍每 2 分鐘打、盤前打開的整天 10 分鐘）。
+// 名單一天只變幾次（13:36 定榜、收盤歸檔後重算）⇒ 只擋背景分頁；09:00–13:45 每 2 分鐘（接住 13:36 定榜）、其餘 10 分鐘，間隔每拍重算。
+const GAP_MS_OPEN = 120_000;
+const GAP_MS_IDLE = 600_000;
+const GAP_FAST_END_MIN = 13 * 60 + 45;
+const NO_DOC = '尚無資料';
+
 export default function GapLimitUpPanel() {
   const [data, setData] = useState<Doc | null>(null);
   const [err, setErr] = useState('');
   const [openCode, setOpenCode] = useState<string | null>(null);   // 點名稱就地展開/收合即時走勢（同漲停預測頁）
   const navigateTo = useAppStore(s => s.navigateTo);
-  const live = useLiveQuotes(data?.items?.map(x => x.code) ?? []);
+  // register:false＝整張榜單只讀價、不把整榜登記成「瀏覽中」搶 daemon 快線名額（mis-quote nv=1）
+  const live = useLiveQuotes(data?.items?.map(x => x.code) ?? [], 60, { register: false });
 
   useEffect(() => {
     let alive = true;
-    const load = () => fetch('/api/ai/gap-limit-up')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(j => { if (alive && j) { setData(j); setErr(''); } })
-      .catch(e => { if (alive) setErr(String(e.message || e)); });   // 保留舊資料，只標記
-    load();
-    // 榜單一天只變兩次（13:36／15:10），背景分頁不打（CLAUDE.md 前端輪詢 gate）
-    const t = setInterval(() => { if (isForeground()) load(); }, getSession() === 'regular' ? 120_000 : 600_000);
-    return () => { alive = false; clearInterval(t); };
+    const load = (signal?: AbortSignal): Promise<void> => prepFetchJson('/api/ai/gap-limit-up', signal)
+      .then(j => {
+        if (!alive) return;
+        if (j && typeof j === 'object' && Array.isArray((j as Partial<Doc>).items)) { setData(j as Doc); setErr(''); }
+        else if (j == null) setErr(NO_DOC);   // 文件尚未產生
+      })
+      .catch(e => { if (alive && !signal?.aborted) setErr(fetchErrorText(e)); throw e; });   // 保留舊資料只標記；丟回去讓 startLiveLoop 退避
+    const ac = new AbortController();
+    load(ac.signal).catch(() => { /* 已標記 err */ });   // 首次載入不設閘（盤後／休市打開也看得到）
+    const stop = startLiveLoop(
+      signal => (isForeground() ? load(signal) : undefined),
+      () => (isTwTradingHours(GAP_FAST_END_MIN) ? GAP_MS_OPEN : GAP_MS_IDLE),
+    );
+    return () => { alive = false; ac.abort(); stop(); };
   }, []);
 
-  if (!data) return <div style={{ padding: 20, color: 'var(--text-muted)' }}>{err ? `載入失敗：${err}` : '載入中…'}</div>;
+  if (!data) return <div style={{ padding: 20, color: 'var(--text-muted)' }}>{err === NO_DOC ? '跳空漲停尚無資料（常駐服務下一週期產生）。' : err ? `載入失敗：${err}，稍後自動重試。` : '載入中…'}</div>;
   const inMarket = getSession() === 'regular';
   const isEventToday = data.date === new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })).toISOString().slice(0, 10);
 
@@ -60,7 +75,7 @@ export default function GapLimitUpPanel() {
         <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
           今日漲停 {data.luTotal} 檔 · 符合順序＋形狀 {data.items.length} · 形似但順序不完整 {data.near?.length ?? 0}
           {data.marketEvent && <b style={{ color: '#f87171' }}>　⚠ 全市場事件日（漲停 &gt;60 檔）——此訊號在這種日子失效，不推播</b>}
-          {err && <span style={{ color: '#fbbf24' }}>　⚠ 更新失敗（{err}），顯示上次資料</span>}
+          {err && err !== NO_DOC && <span style={{ color: '#fbbf24' }}>　⚠ 更新失敗（{err}），顯示上次資料</span>}
         </span>
       </div>
       <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.6 }}>

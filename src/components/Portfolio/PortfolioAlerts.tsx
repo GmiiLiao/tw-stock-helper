@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useDataUid, canWriteUserData } from '@/lib/view-as';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 import DayTradeBadge from '@/components/shared/DayTradeBadge';
+import { LEGACY_ALERTS_DOC, ackAlertIn } from '../../../scripts/lib/alerts-split.mjs';
 
 // ── 自動停損/停利提醒：訂閱 users/{uid}/data/alerts(常駐 daemon 觸價寫入) ──
 
@@ -61,21 +62,29 @@ export default function PortfolioAlerts() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [acking, setAcking] = useState<string | null>(null);
 
-  // 點擊「✅ 收到」：回寫 ack 時間戳（整份 alerts 重寫＝與 daemon 同一寫法）
+  // 點擊「✅ 收到」：交易內讀最新文件、只改這一則的 ack（2026-10-05·critique H3）。
+  //   舊版以畫面上的陣列整份 setDoc——daemon 在快照送達後到寫入前新增的警示會被抹掉。
   const ackAlert = async (id: string) => {
     if (!canWriteUserData()) return;   // 🎭模擬中禁止寫入（會替對方按下已確認）
     if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
     setAcking(id);
     try {
-      const next = alerts.map(a => a.id === id ? { ...a, ack: Date.now(), ackVia: 'web' } : a);
-      await setDoc(doc(db, 'users', dataUid, 'data', 'alerts'), { updatedAt: Date.now(), alerts: next });
-    } catch { /* onSnapshot 會回捲畫面，失敗不需額外處理 */ }
+      const ref = doc(db, 'users', dataUid, 'data', LEGACY_ALERTS_DOC);
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const { list, changed } = ackAlertIn<Alert>((snap.data() as { alerts?: Alert[] }).alerts ?? [], id, Date.now(), 'web');
+        if (changed) tx.update(ref, { updatedAt: Date.now(), alerts: list });
+      });
+    } catch (e) {
+      console.error('[PortfolioAlerts] 確認收到寫入失敗:', e);   // 畫面以 onSnapshot 為準，失敗時按鈕維持可按
+    }
     setAcking(null);
   };
 
   useEffect(() => {
     if (!dataUid || !db || typeof (db as { type?: unknown }).type === 'undefined') return;
-    const ref = doc(db, 'users', dataUid, 'data', 'alerts');
+    const ref = doc(db, 'users', dataUid, 'data', LEGACY_ALERTS_DOC);
     const unsub = onSnapshot(ref, snap => {
       const data = snap.exists() ? (snap.data() as { alerts?: Alert[] }) : null;
       setAlerts(data?.alerts ?? []);

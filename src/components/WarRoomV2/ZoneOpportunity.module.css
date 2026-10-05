@@ -1,0 +1,106 @@
+/* B1 盤中機會榜專屬樣式（共用 class 在 WarRoomV2.module.css；視覺照規畫資料夾 preview.html renderB1）。
+   顏色只用 token：漲 var(--color-up)、跌 var(--color-down)、金框 var(--wr-gold)、連結 var(--wr-link)。 */
+
+/* ── 標題列控制 ───────────────────────────────────────────────────────────── */
+.ctl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sel {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  padding: 1px 6px;
+  max-width: 12em;
+  border-radius: 999px;
+  border: 1px solid var(--wr-ln2);
+  color: var(--wr-t2);
+  background: var(--wr-b2);
+  cursor: pointer;
+}
+.sel:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 2px; }
+.fixedTag { font-size: var(--wr-fs-sm); color: var(--wr-t3); white-space: nowrap; }
+
+/* ── 表格 ─────────────────────────────────────────────────────────────────── */
+.fill { position: absolute; inset: 0; overflow: hidden; }
+.row:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: -2px; }
+.codeBtn {
+  font: inherit;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--wr-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-right: 6px;
+  cursor: pointer;
+}
+.codeBtn:hover { text-decoration: underline dotted; }
+.codeBtn:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 2px; }
+.star { color: var(--wr-gold); margin-right: 4px; font-family: inherit; }
+.watch { color: var(--wr-link); margin-left: 4px; font-family: inherit; }
+.obs { margin-left: 6px; }
+.gold td { background: rgba(227, 179, 65, 0.06); }
+.gold td:first-child { box-shadow: inset 3px 0 0 var(--wr-gold); }
+.badges { display: inline-flex; gap: 3px; align-items: center; }
+
+/* 日內位置條（0＝今日最低、1＝今日最高） */
+.posbar {
+  display: inline-block;
+  position: relative;
+  width: min(74px, 100%);
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  vertical-align: middle;
+}
+.posbar i {
+  position: absolute;
+  top: -3px;
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--wr-t1);
+}
+
+/* 策略／型態單字圖示 */
+.st {
+  display: inline-block;
+  min-width: 1.35em;
+  margin-left: 2px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: var(--wr-fs-xs);
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+  background: var(--wr-blue-soft);
+  color: var(--wr-link);
+}
+.stShort { background: rgba(255, 255, 255, 0.06); color: var(--color-down); }
+.tier {
+  display: inline-block;
+  min-width: 1.35em;
+  margin-left: 2px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: var(--wr-fs-xs);
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--color-down);
+  border: 1px solid var(--color-down);
+}
+.tierB { border-style: dashed; font-weight: 700; }
+
+/* 盤前／等待 */
+.preTitle { font-size: var(--wr-fs-md); font-weight: 800; color: var(--wr-t2); }
+.preSub { margin-top: 6px; font-size: var(--wr-fs-sm); line-height: 1.6; }
+
+/* 頁尾：說明文字可省略、「全部 →」永遠看得到 */
+.footText { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── 手機：點擊目標 ≥44px ─────────────────────────────────────────────────── */
+.mCtl { display: inline-flex; gap: 4px; }
+.mCtl button { min-height: 44px; min-width: 52px; }
+.mTop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mTop .sel { min-height: 44px; max-width: none; }
+.mTop button { min-height: 44px; }
+.mEmpty { min-height: 80px; }
+.card:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: -2px; }
+.cardTxt { overflow: hidden; text-overflow: ellipsis; }

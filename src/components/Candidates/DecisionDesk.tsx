@@ -4,7 +4,7 @@
 // 帶著候選便條來這裡：逐檔彙整 籌碼判讀＋勝率＋性格分類＋今日量價＋預算試算，
 // 給出隔日沖策略傾向，協助決策下單。資料不足者誠實標註。非投資建議。
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import StrategyPanels from '@/components/shared/StrategyPanels';
 import type { HoldingStrategyResult } from '../../../scripts/lib/holding-strategy';
 import { useAppStore } from '@/lib/store';
@@ -24,6 +24,9 @@ import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { startLiveLoop, shouldPollThroughClose, isForeground, getSession, isTwTradingHours } from '@/lib/market-clock';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { calcFee } from '@/lib/tw-fee';
+import { requestWarZoom } from '@/components/WarRoomV2/pendingZoom';
+import { openPrepTab } from '@/components/PrepRoom/prepTabs';
+import { useWarV2Layout } from '@/components/WarRoomV2/parts/useWarAccess';
 
 interface CharRow { label?: string; spec?: number; corr?: number; f20?: number; t20?: number; d20?: number; fStreak?: number; tStreak?: number; dStreak?: number }
 
@@ -38,6 +41,18 @@ function overnightStance(v?: Verdict | null): { t: string; c: string; note: stri
   return { t: '⚪ 中性觀望', c: '#eab308', note: `訊號中性（${v.a}）——等籌碼或技術更明確再進，勿盲追。` };
 }
 
+// 非受控數字輸入框的兩個小工具（見 DecisionDesk 試算列）
+/** 輸入值 → store；空字串＝0（與原受控寫法 `+e.target.value` 同口徑），非數字不寫 */
+function onNumInput(raw: string, set: (n: number) => void) {
+  const n = Number(raw);
+  if (Number.isFinite(n)) set(n);
+}
+/** store 值 → 輸入框顯示值；只在沒有焦點且數值不同時才寫（不打斷正在輸入的人） */
+function syncNumInput(el: HTMLInputElement | null, value: number) {
+  if (!el || (typeof document !== 'undefined' && document.activeElement === el)) return;
+  if (Number(el.value) !== value) el.value = String(value);
+}
+
 export default function DecisionDesk() {
   const dt = useDayTradeCodes();   // 當沖資格：必須在任何 early return 之前
   const [broker] = useBrokerSettings();   // 試算手續費依使用者自己的券商折讓（2026-10-01 使用者「手續費為使用者的折扣」）
@@ -46,7 +61,16 @@ export default function DecisionDesk() {
   const clear = useAppStore(s => s.clearCandidates);
   const navigateTo = useAppStore(s => s.navigateTo);
   const setWarTab = useAppStore(s => s.setWarTab);
-  const goPick = () => { setWarTab('risefall'); navigateTo('war'); };
+  // 撿股入口（2026-10-05）：v2（只限超管）沒有分頁，漲跌分布在 v2 的放大層、籌碼推選在本頁（盤前備課）的籌碼分頁；
+  // 非超管（v2 暫不開放）與超管切回舊版（warLayout='classic'）時，維持原本的分頁導向與文案。
+  const isWarV2 = useWarV2Layout();
+  const goPick = () => {
+    // 已在戰情頁（例：v2 雷達放大層裡的舊版 WarRoom 切到工作台分頁）⇒ 就地切舊版分頁；從其他頁進 v2 ⇒ 進場後開漲跌分布放大層
+    if (isWarV2 && useAppStore.getState().currentPage !== 'war') requestWarZoom('risefall');
+    else setWarTab('risefall');
+    navigateTo('war');
+  };
+  const goChip = () => openPrepTab('chip');   // 只在 v2 文案出現（舊版文案沿用原本的單一連結）
   // 預算試算參數（沿用 Screener 的 compare 設定）
   const budget = useAppStore(s => s.compareBudget);
   const setBudget = useAppStore(s => s.setCompareBudget);
@@ -54,6 +78,12 @@ export default function DecisionDesk() {
   const setProfitTarget = useAppStore(s => s.setCompareProfitTarget);
   const tradeDuration = useAppStore(s => s.compareTradeDuration);
   const setTradeDuration = useAppStore(s => s.setCompareTradeDuration);
+  // 試算輸入框為非受控（2026-10-05）：store 只餵試算；store 值若由別處改變（例：持久化設定晚一步讀回），
+  // 在輸入框沒有焦點時把顯示值同步過去——使用者正在打字時絕不回寫 value。
+  const budgetRef = useRef<HTMLInputElement>(null);
+  const profitRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { syncNumInput(budgetRef.current, budget); }, [budget]);
+  useEffect(() => { syncNumInput(profitRef.current, profitTarget); }, [profitTarget]);
 
   // 使用分析：進入工作台事件（每次掛載一次）
   useEffect(() => { logActivity('open_desk', { candidates: codes.length }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -298,11 +328,15 @@ export default function DecisionDesk() {
         <div style={{ marginTop: 24, padding: '28px 20px', borderRadius: 14, textAlign: 'center', background: 'var(--bg-elevated)', border: '1px dashed var(--border-primary)', lineHeight: 1.6 }}>
           <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, marginBottom: 6 }}>候選便條是空的</div>
           <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-secondary)' }}>
-            隔日沖選股流程：① 到 <b onClick={goPick} style={{ color: '#7dd3fc', cursor: 'pointer' }}>即時漲跌／法人籌碼</b> 分頁看資料<br />
+            {isWarV2 ? (
+              <>隔日沖選股流程：① 到 <b onClick={goPick} style={{ color: '#7dd3fc', cursor: 'pointer' }}>盤中戰情·漲跌分布</b> 或本頁 <b onClick={goChip} style={{ color: '#7dd3fc', cursor: 'pointer' }}>籌碼推選</b> 看資料<br /></>
+            ) : (
+              <>隔日沖選股流程：① 到 <b onClick={goPick} style={{ color: '#7dd3fc', cursor: 'pointer' }}>即時漲跌／法人籌碼</b> 分頁看資料<br /></>
+            )}
             ② 看到有興趣的個股按「＋候選」撿進便條<br />
             ③ 回到這裡逐檔比對籌碼判讀與勝率，決策下單
           </div>
-          <button onClick={goPick} style={{ marginTop: 14, padding: '9px 20px', borderRadius: 10, fontSize: 'calc(13px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: 'none', background: 'linear-gradient(135deg,#3d8ef8,#7dd3fc)', color: '#fff' }}>→ 去即時漲跌撿股</button>
+          <button onClick={goPick} style={{ marginTop: 14, padding: '9px 20px', borderRadius: 10, fontSize: 'calc(13px * var(--fz))', fontWeight: 800, cursor: 'pointer', border: 'none', background: 'linear-gradient(135deg,#3d8ef8,#7dd3fc)', color: '#fff' }}>{isWarV2 ? '→ 去盤中戰情·漲跌分布撿股' : '→ 去即時漲跌撿股'}</button>
         </div>
       ) : (
         <>
@@ -325,12 +359,13 @@ export default function DecisionDesk() {
 
           {/* 試算參數列 */}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0 14px', padding: '10px 12px', borderRadius: 10, background: 'rgba(148,163,184,0.06)', fontSize: 'calc(12.5px * var(--fz))' }}>
+            {/* 非受控（defaultValue＋ref）：本元件樹每 30 秒被即時報價輪詢重繪，受控寫法在手機 IME 下會把游標打回開頭（CLAUDE.md 已發生兩次） */}
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>預算
-              <input type="number" value={budget} onChange={e => setBudget(+e.target.value)} step={10000}
+              <input ref={budgetRef} type="number" inputMode="numeric" defaultValue={budget} onChange={e => onNumInput(e.currentTarget.value, setBudget)} step={10000}
                 style={{ width: 100, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} /> 元
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>獲利目標
-              <input type="number" value={profitTarget} onChange={e => setProfitTarget(+e.target.value)} step={0.5}
+              <input ref={profitRef} type="number" inputMode="decimal" defaultValue={profitTarget} onChange={e => onNumInput(e.currentTarget.value, setProfitTarget)} step={0.5}
                 style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} /> %
             </label>
             <span style={{ display: 'inline-flex', gap: 4 }}>

@@ -1,0 +1,351 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   盤中戰情 v2：Z0 指揮列、Z1 大盤脈動、Z2 一級警示帶、手機 S1 摘要列／展開面板（視覺參考 preview.html 的 .z0／.z1／.z2／.s1）
+   共用 token 與 class 在 WarRoomV2.module.css（.wr 根上的 --wr-*）；顏色只用 token：紅漲 --color-up、綠跌 --color-down、
+   平 --color-flat、危險紫 --wr-danger、琥珀 --wr-amber。字級用 --wr-fs-*（有 12.5px 下限，不縮字；放不下就藏次要項目）。
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Z0 指揮列 ─────────────────────────────────────────────────────────────── */
+.z0 {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--wr-b2);
+  border: 1px solid var(--wr-ln);
+  border-radius: 10px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.ttl { font-weight: 900; font-size: var(--wr-fs-lg); flex: 0 0 auto; }
+.phases { display: flex; gap: 4px; flex: 0 0 auto; }
+.phase {
+  font-size: var(--wr-fs-xs);
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--wr-ln2);
+  color: var(--wr-t3);
+}
+.phasePast { opacity: 0.45; }
+.phaseNow { background: var(--wr-blue); border-color: var(--wr-blue); color: #fff; font-weight: 800; }
+.countdown { color: var(--wr-t3); font-size: var(--wr-fs-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.clock { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-weight: 800; font-size: calc(14px * var(--fz)); flex: 0 0 auto; }
+.spacer { flex: 1 1 0; min-width: 0; }
+.nq { color: var(--wr-t3); font-size: var(--wr-fs-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.nia { font-size: var(--wr-fs-xs); color: var(--wr-t3); flex: 0 0 auto; }
+.ctl { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
+
+/* 資料健康燈＋彈窗 */
+.healthWrap { position: relative; flex: 0 0 auto; }
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  color: var(--wr-t2);
+  background: none;
+  border: 1px solid var(--wr-ln2);
+  border-radius: 999px;
+  padding: 1px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.health:focus-visible, .ackBtn:focus-visible, .s1:focus-visible, .ctlBtn:focus-visible { outline: 2px solid var(--wr-blue); outline-offset: 2px; }
+.dot { display: inline-block; width: 0.65em; height: 0.65em; border-radius: 50%; flex: 0 0 auto; }
+.dotOk { background: var(--wr-live); }
+.dotWarn { background: var(--wr-amber); }
+.dotBad { background: transparent; border: 2px solid var(--wr-amber); }
+.pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  min-width: 460px;
+  max-width: min(640px, calc(100vw - 32px));
+  background: var(--wr-b1);
+  border: 1px solid var(--wr-ln2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  white-space: normal;
+}
+.popTitle { font-weight: 800; font-size: var(--wr-fs-sm); margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px; }
+
+/* 健康明細表（彈窗與手機面板共用） */
+.hTable { width: 100%; border-collapse: collapse; font-size: var(--wr-fs-sm); }
+.hTable td { padding: 3px 8px 3px 0; vertical-align: top; }
+.hTable td:first-child { color: var(--wr-t2); white-space: nowrap; }
+.hTable td:nth-child(2) { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hTable td:last-child { color: var(--wr-t3); }
+.hGlyphLive { color: var(--wr-live); }
+.hGlyphWarn { color: var(--wr-amber); }
+.hNote { margin-top: 8px; font-size: var(--wr-fs-xs); color: var(--wr-t3); line-height: 1.5; }
+
+/* 代號搜尋（非受控輸入框） */
+.search { position: relative; flex: 0 0 auto; }
+.searchInput {
+  width: 180px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--wr-ln2);
+  background: var(--wr-b1);
+  color: var(--wr-t1);
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  padding: 0 10px;
+}
+.searchInput::placeholder { color: var(--wr-t3); }
+.searchInput:focus { outline: 2px solid var(--wr-blue); outline-offset: 0; }
+.searchDrop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 6;
+  width: max(100%, 280px);
+  max-height: 360px;
+  overflow: auto;
+  background: var(--wr-b1);
+  border: 1px solid var(--wr-ln2);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.searchItem {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  color: var(--wr-t1);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--wr-ln);
+  text-align: left;
+  cursor: pointer;
+}
+.searchItem:hover, .searchItem:focus-visible { background: var(--wr-blue-soft); outline: none; }
+.searchCode { color: var(--wr-link); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.searchName { overflow: hidden; text-overflow: ellipsis; }
+.searchEmpty { padding: 10px 12px; color: var(--wr-t3); font-size: var(--wr-fs-sm); }
+
+/* 舊版切換是動作不是開關：沿用 chip 外觀 */
+.ctlBtn {
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--wr-ln2);
+  color: var(--wr-t2);
+  background: transparent;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+@media (max-width: 1699px) {
+  .phase:not(.phaseNow) { display: none; }
+}
+@media (max-width: 1439px) {
+  .nia { display: none; }            /* 全頁頁尾已有「非投資建議」 */
+  .searchInput { width: 140px; }
+}
+@media (max-width: 1279px) {
+  .z0 { flex-wrap: wrap; padding: 6px 12px; row-gap: 6px; }
+  .spacer { display: none; }
+  .nia { display: inline; }
+}
+
+/* ── Z1 大盤脈動（4 塊獨立 tile） ─────────────────────────────────────────── */
+.z1 {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  gap: var(--wr-gap);
+  min-width: 0;
+}
+.tile {
+  min-width: 0;
+  background: var(--wr-b2);
+  border: 1px solid var(--wr-ln);
+  border-radius: 10px;
+  padding: 6px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.25;
+  overflow: hidden;
+}
+.tilePulse { flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; }
+.tileBody { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lab { font-size: var(--wr-fs-xs); color: var(--wr-t3); display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; min-width: 0; }
+.lab > :first-child { overflow: hidden; text-overflow: ellipsis; }
+.big { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--wr-fs-xl); line-height: 1.15; white-space: nowrap; }
+.bigMuted { font-family: inherit; color: var(--wr-t3); }
+.row2 { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: var(--wr-fs-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row2 b { font-weight: 800; }
+.idxLab { font-family: inherit; color: var(--wr-t2); margin-right: 4px; }
+.fact { font-size: var(--wr-fs-base); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sub { font-size: var(--wr-fs-xs); color: var(--wr-t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ratio { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: 3px 0 1px; background: var(--wr-ln2); }
+.ratio i { display: block; height: 100%; }
+.rUp { background: var(--color-up); }
+.rFlat { background: var(--color-flat); }
+.rDn { background: var(--color-down); }
+
+.bigLamp {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-weight: 900;
+  font-size: var(--wr-fs-sm);
+  line-height: 1.1;
+  color: #fff;
+  text-align: center;
+}
+.lampUp { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--color-up) 55%, #fff), var(--color-up) 60%, color-mix(in srgb, var(--color-up) 65%, #000)); }
+.lampDn { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--color-down) 55%, #fff), var(--color-down) 60%, color-mix(in srgb, var(--color-down) 65%, #000)); }
+.lampFlat { background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--color-flat) 60%, #fff), color-mix(in srgb, var(--color-flat) 70%, #000) 70%); }
+.lampDanger {
+  background: repeating-linear-gradient(45deg, var(--wr-danger) 0 8px, color-mix(in srgb, var(--wr-danger) 55%, #000) 8px 16px);
+  box-shadow: 0 0 0 3px var(--wr-danger-soft);
+}
+
+@media (max-width: 1279px) {
+  .z1 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(88px, auto); }
+}
+
+/* ── Z2 一級警示帶 ─────────────────────────────────────────────────────────── */
+.z2 {
+  height: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--wr-b2);
+  border: 1.5px solid var(--wr-amber);
+  border-radius: 10px;
+  min-width: 0;
+  white-space: nowrap;
+  outline: 3px solid transparent;
+  outline-offset: 1px;
+}
+.z2Calm { border-color: var(--wr-ln); }
+.z2Danger { background: var(--wr-danger); border-color: var(--wr-danger); color: #fff; }
+.cnt { flex: 0 0 auto; font-weight: 900; background: var(--wr-amber); color: #111; border-radius: 6px; padding: 0 7px; font-size: var(--wr-fs-sm); }
+.cntCalm { background: var(--wr-ln2); color: var(--wr-t3); }
+.z2Danger .cnt { background: #fff; color: var(--wr-danger); }
+.msg { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.msgTime { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--wr-t3); margin-right: 12px; }
+.z2Danger .msgTime { color: inherit; opacity: 0.85; }
+.ackBtn {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: var(--wr-fs-sm);
+  border-radius: 6px;
+  padding: 0 10px;
+  min-height: 26px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+@media (max-width: 1279px) {
+  .z2 { white-space: normal; padding: 6px 12px; }
+}
+
+/* ── 手機 S1 摘要列（取代網站頂列）與展開面板 ─────────────────────────────── */
+.s1Wrap { position: relative; }
+.s1 {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 12px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--wr-ln);
+  cursor: pointer;
+}
+.s1Row { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.s1Row > * { flex: 0 0 auto; }
+.s1Grow { flex: 1 1 auto !important; min-width: 0; }
+.s1Small { font-size: var(--wr-fs-xs); color: var(--wr-t3); }
+.miniLamp {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--wr-fs-xs);
+  font-weight: 900;
+  color: #fff;
+}
+.s1Ratio { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--wr-ln2); }
+.s1Ratio i { display: block; height: 100%; }
+.alertDot {
+  min-width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  font-size: var(--wr-fs-xs);
+  font-weight: 900;
+  background: var(--wr-amber);
+  color: #111;
+}
+.alertDotNone { background: var(--wr-ln2); color: var(--wr-t3); }
+.alertDotDanger { background: var(--wr-danger); color: #fff; }
+
+.panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: calc(100dvh - var(--wr-mobile-bars-h) - 72px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--wr-b1);
+  border-bottom: 1px solid var(--wr-ln2);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+  padding: 8px 12px 14px;
+  display: grid;
+  gap: 12px;
+}
+.panelSec { display: grid; gap: 6px; }
+.panelTitle { font-weight: 800; font-size: var(--wr-fs-md); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.alertCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 52px;
+  padding: 6px 10px;
+  border: 1.5px solid var(--wr-amber);
+  border-radius: 8px;
+  background: var(--wr-b2);
+}
+.alertCardDanger { background: var(--wr-danger); border-color: var(--wr-danger); color: #fff; }
+.alertCard .ackBtn { min-height: 44px; min-width: 64px; }
+.calm { color: var(--wr-t3); font-size: var(--wr-fs-sm); }
+.ctlRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ctlRow .ctlBtn, .ctlRow button { min-height: 44px; padding: 0 14px; }
+.panelSearch .search { width: 100%; }
+.panelSearch .searchInput { width: 100%; height: 44px; }
+.panelSearch .searchDrop { left: 0; right: 0; width: auto; }
+.mobileTiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mobileTiles .tile { min-height: 84px; }
+.mobileTiles .tilePulse { grid-column: 1 / -1; }
+.mobileTiles .bigLamp { width: 52px; height: 52px; }

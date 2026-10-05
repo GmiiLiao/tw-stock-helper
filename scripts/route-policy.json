@@ -9,8 +9,8 @@
   },
   "upstreamNoRateLimitKnown": {},
   "getNoCacheBaseline": 1,
-  "pollNoGateBaseline": 12,
-  "_pollNoGateNote": "2026-09-22 LimitUpPanel 改遞迴 setTimeout → 22；2026-09-18 QuoteGrid 接 gate → 23；2026-09-04 量測 24 檔（docs/OPTIMIZATION-TODO.md 的 F5 清單）；每接一檔 gate 就把這個數字降 1，雙向 Ratchet 會逼你更新",
+  "pollNoGateBaseline": 11,
+  "_pollNoGateNote": "2026-10-05 SqueezePanel 改 startLiveLoop＋閘門（戰情 v2）→ 11；2026-09-22 LimitUpPanel 改遞迴 setTimeout → 22；2026-09-18 QuoteGrid 接 gate → 23；2026-09-04 量測 24 檔（docs/OPTIMIZATION-TODO.md 的 F5 清單）；每接一檔 gate 就把這個數字降 1，雙向 Ratchet 會逼你更新",
   "_getNoCacheKnown": [
     "/cron/daily-close（CRON_SECRET 保護的觸發端點，GET 只給手動觸發，不進 CDN）"
   ]

@@ -2,9 +2,13 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_MODE, isModeKey, type ModeKey } from './trading-mode';
 import type { StockInfo } from '@/lib/twse-api';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, runTransaction, setDoc, type Transaction } from 'firebase/firestore';
 import { db } from './firebase';
 import { logActivity } from './activity-logger';
+import {
+  PRICE_ALERTS_DOC, LEGACY_ALERTS_DOC, applyPriceAlertOp, resolvePriceAlerts, stripUserPriceAlerts, withPriceAlerts,
+  type PriceAlertOp,
+} from '../../scripts/lib/alerts-split.mjs';
 
 export interface WatchlistItem {
   code: string;
@@ -115,13 +119,50 @@ const syncTrades = async (uid: string, tradeRecords: any[]) => {
   }
 };
 
-const syncAlerts = async (uid: string, alerts: any[]) => {
-  if (_syncReadOnly) return;
+// ── 使用者價位警示：獨立文件 users/{uid}/data/priceAlerts（2026-10-05·critique H3）────────────
+// 舊版把價位警示和 daemon 警示（停損、反轉…）存在同一個 alerts 陣列，並以「登入時讀到的整份陣列」setDoc 回寫：
+//   價位警示一觸發就抹掉登入後 daemon 寫入的停損警示與「收到」紀錄；daemon 的 slice(0,40) 也會擠掉價位警示。
+// 現在：價位警示只存 priceAlerts；每次寫入都是「交易內讀最新文件 → 只改這一個 id」，不再用記憶體裡的整份陣列覆寫。
+// 舊 alerts 文件（daemon 與 PortfolioAlerts 用）前端只在同一個交易內移除其中的價位警示，daemon 警示與 ack 原封不動。
+// 遷移／清理規則唯一實作：scripts/lib/alerts-split.mjs（有單元測試）。
+const firestoreReady = () => typeof window !== 'undefined' && typeof (db as { type?: unknown }).type !== 'undefined';
+
+/**
+ * 價位警示的唯一雲端寫入口（單一交易）：
+ *   ① priceAlerts 不存在 ⇒ 一次性遷移（舊 alerts 文件的價位警示；舊文件也沒有 ⇒ 本機 store.alerts）
+ *   ② 套用 op（add／remove／trigger；null＝只載入）
+ *   ③ 舊 alerts 文件若還有價位警示副本 ⇒ 移除（只動這些項目；daemon 同時寫入時交易會重試，不會蓋掉 daemon 警示）
+ * 回傳雲端（交易後）的價位警示清單。
+ */
+const syncPriceAlerts = (uid: string, op: PriceAlertOp<AlertItem> | null): Promise<AlertItem[]> =>
+  runTransaction(db, async (tx: Transaction) => {
+    const priceRef = doc(db, 'users', uid, 'data', PRICE_ALERTS_DOC);
+    const legacyRef = doc(db, 'users', uid, 'data', LEGACY_ALERTS_DOC);
+    const cur = await tx.get(priceRef);
+    const legacy = await tx.get(legacyRef);
+    const legacyDoc = legacy.exists() ? legacy.data() : null;
+    const resolved = resolvePriceAlerts<AlertItem>({
+      priceDoc: cur.exists() ? cur.data() : null,
+      legacyDoc,
+      localAlerts: useAppStore.getState().alerts,
+    });
+    const next = op ? applyPriceAlertOp<AlertItem>(resolved.list, op) : { list: resolved.list, changed: false };
+    if (resolved.migrate || next.changed) {
+      const payload = { alerts: next.list, updatedAt: Date.now(), ...(resolved.migrate ? { migratedFrom: resolved.source } : {}) };
+      tx.set(priceRef, JSON.parse(JSON.stringify(payload)));
+    }
+    const legacyKept = stripUserPriceAlerts(legacyDoc);
+    if (legacyKept) tx.update(legacyRef, { alerts: legacyKept, updatedAt: Date.now() });
+    return next.list;
+  });
+
+/** store 動作用：對雲端 priceAlerts 套用單一操作。身分模擬中（唯讀）不寫；失敗只記錄，本機狀態保留。 */
+const writePriceAlertOp = async (uid: string, op: PriceAlertOp<AlertItem>) => {
+  if (_syncReadOnly || !firestoreReady()) return;
   try {
-    const data = JSON.parse(JSON.stringify({ alerts }));
-    await setDoc(doc(db, 'users', uid, 'data', 'alerts'), data);
+    await syncPriceAlerts(uid, op);
   } catch (e) {
-    console.error('Error syncing alerts:', e);
+    console.error('Error syncing price alerts:', e);
   }
 };
 
@@ -137,7 +178,8 @@ const syncNotifications = async (uid: string, notifications: any[]) => {
 
 interface AppState {
   // View
-  currentPage: 'dashboard' | 'stock' | 'picker' | 'portfolio' | 'backtest' | 'tracker' | 'war' | 'admin' | 'help' | 'privacy' | 'indexnews';
+  // 'prep'＝盤前備課（2026-10-05 使用者裁定：盤中戰情 v2 移出的籌碼推選／凍結版漲停預測／跳空漲停／隔日沖決策工作台／軋空與空方完整版）
+  currentPage: 'dashboard' | 'stock' | 'picker' | 'portfolio' | 'backtest' | 'tracker' | 'war' | 'prep' | 'admin' | 'help' | 'privacy' | 'indexnews';
   // ⚠ 歷史要連**捲動位置**一起記（2026-08-11 使用者要求「返回能回到上一個狀態位置」）：
   //   先前只記 {page, stock}，所以從清單捲到第 30 檔點進個股，返回時被丟回最頂端，
   //   使用者得重新捲一次才找得到剛剛看的那一檔——清單越長越難用。
@@ -155,7 +197,12 @@ interface AppState {
   dashTab: string;        // 市場總覽主分頁(market/index/news)
   /** 使用說明書要開在哪個章節（隱私聲明由選單深連結進來用） */
   helpSection: string | null;
-  warTab: string;         // 盤中戰情主分頁(radar/risefall/chip/limitup/volsurge/desk)
+  warTab: string;         // 盤中戰情主分頁(radar/risefall/chip/limitup/volsurge/desk)——只有舊版（warLayout='classic'）用
+  // 盤中戰情版面（2026-10-05 使用者裁定第 14 題）：v2＝一頁 9 區塊新版（預設）；classic＝舊版分頁式，保留 2 週後移除。persist。
+  warLayout: 'v2' | 'classic';
+  // 戰情 v2 專注模式（第 6 題：預設開）：側欄收成 64px 圖示欄、網站頂列 Header 與側欄指數卡／AI 跑馬燈「卸載」（不是 CSS 隱藏——
+  // 卸載才省流量）、LimitQueueAlert 與 CandidateDock 不掛載。只在 currentPage==='war' 且 warLayout==='v2' 時生效。persist。
+  warFocus: boolean;
   recommendTab: string;   // AI 推薦選股的策略子分頁(all/intraday/momentum…)
   trackerGroupId: string; // 即時追蹤的群組分頁
 
@@ -205,6 +252,8 @@ interface AppState {
   setDashTab: (tab: string) => void;
   setHelpSection: (v: string | null) => void;
   setWarTab: (tab: string) => void;
+  setWarLayout: (layout: AppState['warLayout']) => void;
+  setWarFocus: (on: boolean) => void;
   setRecommendTab: (tab: string) => void;
   setTrackerGroupId: (id: string) => void;
   setAllStocks: (stocks: StockInfo[]) => void;
@@ -318,6 +367,8 @@ export const useAppStore = create<AppState>()(
       helpSection: null,
       dashTab: 'market',
       warTab: 'risefall',
+      warLayout: 'v2',
+      warFocus: true,
       recommendTab: 'all',
       trackerGroupId: 'tail',
       user: null,
@@ -404,6 +455,9 @@ export const useAppStore = create<AppState>()(
       setDashTab: (tab) => set({ dashTab: tab }),
       setHelpSection: (v) => set({ helpSection: v }),
       setWarTab: (tab) => set({ warTab: tab }),
+      // 只收合法值：persist 的舊／壞值不可讓版面落到未定義狀態（page.tsx 另以「非 classic 即 v2」兜底）
+      setWarLayout: (layout) => set({ warLayout: layout === 'classic' ? 'classic' : 'v2' }),
+      setWarFocus: (on) => set({ warFocus: on === true }),
       setRecommendTab: (tab) => set({ recommendTab: tab }),
       setTrackerGroupId: (id) => set({ trackerGroupId: id }),
       setAllStocks: (stocks) => set({ allStocks: stocks }),
@@ -769,30 +823,24 @@ export const useAppStore = create<AppState>()(
         return { tradeRecords: updatedTrades, holdings: updatedHoldings };
       }),
 
+      // 價位警示：本機先改、雲端以單一 id 操作寫入 priceAlerts（不再整份覆寫；見上方 writePriceAlertOp）
       addAlert: (alert) => set((state) => {
         logActivity('add_alert', { code: alert.code, type: alert.type, value: alert.value });
-        const updated = [...state.alerts, {
-          ...alert,
-          id: `a-${Date.now()}`,
-          triggered: false,
-          createdAt: Date.now()
-        }];
-        if (state.user) syncAlerts(state.user.uid, updated);
-        return { alerts: updated };
+        const item: AlertItem = { ...alert, id: `a-${Date.now()}`, triggered: false, createdAt: Date.now() };
+        if (state.user) void writePriceAlertOp(state.user.uid, { kind: 'add', item });
+        return { alerts: [...state.alerts, item] };
       }),
 
       removeAlert: (id) => set((state) => {
         const alert = state.alerts.find(a => a.id === id);
         logActivity('remove_alert', { code: alert?.code, type: alert?.type, id });
-        const updated = state.alerts.filter(a => a.id !== id);
-        if (state.user) syncAlerts(state.user.uid, updated);
-        return { alerts: updated };
+        if (state.user) void writePriceAlertOp(state.user.uid, { kind: 'remove', id });
+        return { alerts: state.alerts.filter(a => a.id !== id) };
       }),
 
       triggerAlert: (id) => set((state) => {
-        const updated = state.alerts.map(a => a.id === id ? { ...a, triggered: true } : a);
-        if (state.user) syncAlerts(state.user.uid, updated);
-        return { alerts: updated };
+        if (state.user) void writePriceAlertOp(state.user.uid, { kind: 'trigger', id });
+        return { alerts: state.alerts.map(a => a.id === id ? { ...a, triggered: true } : a) };
       }),
 
       addNotification: (n) => set((state) => {
@@ -844,8 +892,11 @@ export const useAppStore = create<AppState>()(
       skipHydration: true,
       // ⚠模擬期間**不得持久化任何屬於他人的資料**：否則重新整理後 viewAs 已清空、
       //   localStorage 卻留著會員的持倉，會被當成管理員自己的並同步回其帳號。
-      partialize: (state) => (state.viewAs ? { tradingMode: state.tradingMode } : {
+      // warLayout／warFocus 是本機版面偏好（不是任何人的資料），模擬期間也照常保存。
+      partialize: (state) => (state.viewAs ? { tradingMode: state.tradingMode, warLayout: state.warLayout, warFocus: state.warFocus } : {
         tradingMode: state.tradingMode,
+        warLayout: state.warLayout,
+        warFocus: state.warFocus,
         dataOwnerUid: state.dataOwnerUid,
         watchlist: state.watchlist,
         watchlistGroups: state.watchlistGroups,
@@ -866,3 +917,35 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
+
+// ── 登入後換上 priceAlerts（2026-10-05·critique H3）──────────────────────────────────────
+// firebase-sync 每次登入（含重新整理）先把舊 alerts 文件的整份陣列放進 store.alerts，最後才呼叫 setUser
+// （setUser 只有 firebase-sync 會呼叫，每次都是新物件）。所以 user 物件一換，就以 priceAlerts 取代 store.alerts 中的價位警示：
+// 不存在就一次性遷移，舊文件殘留的價位警示副本同交易移除。空窗內 store.alerts 仍是舊陣列也無妨——
+// 雲端寫入一律是單一 id 的交易操作，不會拿它整份覆寫。身分模擬中（唯讀）不讀不寫，維持模擬資料。
+let _priceAlertsLoadSeq = 0;
+async function loadPriceAlerts(uid: string): Promise<void> {
+  if (_syncReadOnly || !firestoreReady()) return;
+  const seq = ++_priceAlertsLoadSeq;
+  try {
+    const list = await syncPriceAlerts(uid, null);
+    const st = useAppStore.getState();
+    // 載入期間換了帳號、登出或進入身分模擬 ⇒ 丟棄這次結果
+    if (seq !== _priceAlertsLoadSeq || st.user?.uid !== uid || st.viewAs || _syncReadOnly) return;
+    // 只換掉價位警示；firebase-sync 載入的 daemon 警示項目保留（即時追蹤頁 🔔 沿用舊行為），它們不會被寫回雲端
+    const next = withPriceAlerts<AlertItem>(st.alerts, list);
+    // 內容沒變就不換參照：AlertEngine 的輪詢 effect 依賴 alerts 陣列參照，換了會立刻多抓一次 stock-day-all（每次登入／重新整理）
+    if (JSON.stringify(next) === JSON.stringify(st.alerts)) return;
+    useAppStore.setState({ alerts: next });
+  } catch (e) {
+    console.error('[priceAlerts] 載入／遷移失敗（本次維持登入時的清單；寫入仍只走單一 id 交易）:', e);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  useAppStore.subscribe((state, prev) => {
+    if (state.user === prev.user) return;
+    if (state.user?.uid) void loadPriceAlerts(state.user.uid);
+    else _priceAlertsLoadSeq++;   // 登出：作廢進行中的載入
+  });
+}

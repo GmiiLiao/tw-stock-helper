@@ -1097,6 +1097,36 @@ export async function getMarketNewsDataInternal(): Promise<NewsData> {
   };
 }
 
+/** 收盤資料（STOCK_DAY_ALL）→ 指定代號的 MisQuote（逐檔 source='stock_day_all'；查不到的代號不回） */
+async function stockDayAllQuotes(codes: readonly string[]): Promise<MisQuote[]> {
+  if (!codes.length) return [];
+  const allStocks = await getStockDayAllDataInternal();
+  const codeSet = new Set(codes);
+  return allStocks
+    .filter(s => codeSet.has(s.Code))
+    .map(s => {
+      const price  = parseFloat(s.ClosingPrice  ?? '0');
+      const open   = parseFloat(s.OpeningPrice  ?? '0');
+      const high   = parseFloat(s.HighestPrice  ?? '0');
+      const low    = parseFloat(s.LowestPrice   ?? '0');
+      const change = parseFloat(s.Change        ?? '0');
+      const prev   = price > 0 && change !== 0 ? price - change : price;
+      const pct    = prev > 0 ? parseFloat((change / prev * 100).toFixed(2)) : 0;
+      return {
+        code:          s.Code,
+        name:          s.Name,
+        price, open, high, low,
+        prevClose:     prev,
+        change,
+        changePercent: pct,
+        volume:        parseInt(s.TradeVolume?.replace(/,/g, '') ?? '0', 10),
+        tradeTime:     '',
+        dataDate:      s.Date,
+        source:        'stock_day_all' as const,
+      };
+    });
+}
+
 /**
  * 4. Fetch MIS real-time quotes or fallback to STOCK_DAY_ALL
  */
@@ -1138,13 +1168,23 @@ export async function getMisQuoteDataInternal(codes: string[]): Promise<MisQuote
           source: live ? 'mis_realtime' : 'stock_day_all',
         });
       }
-      // Use the snapshot only if it covers every requested code — otherwise fall
-      // through so single off-priority codes can still try direct MIS / close.
+      // snapshotAt＝daemon 最近一次寫快照（快線或主迴圈）——前端據此判「伺服器停更」（F13：警告不隱藏）
+      const snapshotAt = Math.max(snap!.sweepAt || 0, snap!.hotAt || 0) || null;
       if (hit.length === codes.length) {
         const anyLive = hit.some(q => q.source === 'mis_realtime');
-        // snapshotAt＝daemon 最近一次寫快照（快線或主迴圈）——前端據此判「伺服器停更」（F13：警告不隱藏）
-        const snapshotAt = Math.max(snap!.sweepAt || 0, snap!.hotAt || 0) || null;
         return { quotes: hit, isRealtime: anyLive, marketOpen, source: anyLive ? 'mis_realtime' : 'stock_day_all', snapshotAt };
+      }
+      // 部分命中（2026-10-05·戰情 v2 快層一次帶持股＋釘選＋自選等多檔）：直連 MIS 關閉時，往下走只會整批退回收盤資料——
+      //   一檔不在快照宇宙（興櫃、權證、已下市代號）就讓其餘「本來有即時價」的代號全部降級成非即時。
+      //   改為：快照有的照回（逐檔標 source），缺的那幾檔才用收盤資料補（逐檔 source='stock_day_all'，不冒充即時）。
+      //   直連 MIS 開著（本機除錯）時維持原行為：整批往下走，讓缺的代號有機會直打 MIS。
+      if (hit.length > 0 && !ALLOW_DIRECT_MIS) {
+        const have = new Set(hit.map(q => q.code));
+        let filled: MisQuote[] = [];
+        try { filled = await stockDayAllQuotes(codes.filter(c => !have.has(c))); } catch { /* 收盤資料也讀不到：只回快照有的 */ }
+        const quotes = [...hit, ...filled];
+        const anyLive = quotes.some(q => q.source === 'mis_realtime');
+        return { quotes, isRealtime: anyLive, marketOpen, source: anyLive ? 'mis_realtime' : 'stock_day_all', snapshotAt };
       }
     }
   } catch { /* snapshot unavailable — fall through to direct MIS / close */ }
@@ -1229,31 +1269,7 @@ export async function getMisQuoteDataInternal(codes: string[]): Promise<MisQuote
 
   // Fallback: Fetch stock day all and filter by requested codes
   try {
-    const allStocks = await getStockDayAllDataInternal();
-    const codeSet = new Set(codes);
-    const quotes: MisQuote[] = allStocks
-      .filter(s => codeSet.has(s.Code))
-      .map(s => {
-        const price  = parseFloat(s.ClosingPrice  ?? '0');
-        const open   = parseFloat(s.OpeningPrice  ?? '0');
-        const high   = parseFloat(s.HighestPrice  ?? '0');
-        const low    = parseFloat(s.LowestPrice   ?? '0');
-        const change = parseFloat(s.Change        ?? '0');
-        const prev   = price > 0 && change !== 0 ? price - change : price;
-        const pct    = prev > 0 ? parseFloat((change / prev * 100).toFixed(2)) : 0;
-        return {
-          code:          s.Code,
-          name:          s.Name,
-          price, open, high, low,
-          prevClose:     prev,
-          change,
-          changePercent: pct,
-          volume:        parseInt(s.TradeVolume?.replace(/,/g, '') ?? '0', 10),
-          tradeTime:     '',
-          dataDate:      s.Date,
-          source:        'stock_day_all' as const,
-        };
-      });
+    const quotes = await stockDayAllQuotes(codes);
 
     return {
       quotes,

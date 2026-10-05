@@ -1,10 +1,121 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { useAppStore } from '@/lib/store';
-import type { AppNotification } from '@/lib/store';
-import { shouldPollNow } from '@/lib/market-clock';
+import type { AppNotification, AlertItem, WatchlistGroup } from '@/lib/store';
+import { shouldPollNow, revealTick } from '@/lib/market-clock';
+import { publishWarEvent, type WarEventInput } from '@/components/WarRoomV2/events';
+import {
+  isWarBusActive, subscribeWarBus, getWarBusState, registerWarFastCodes, clearWarFastCodes,
+} from '@/components/WarRoomV2/useWarRoomBus';
 import styles from './AlertEngine.module.css';
+
+type NotificationInput = Omit<AppNotification, 'id' | 'timestamp' | 'read'>;
+
+// ── 盤中戰情 v2（2026-10-05·critique C1 第 4 點）：戰情 v2 頁改吃匯流排快層報價，不再每 30 秒抓全市場 stock-day-all（約 650KB）──
+// 匯流排運作中（WarRoomProvider 掛載＝在戰情 v2 頁且有資格）時，把要評估的代號（未觸發的價位警示＋自選群組）以 owner 'alerts'
+// 登記到快層（上限 WAR_ALERT_FAST_MAX；快層 40 檔名額中 'alerts' 優先序最低，不會擠掉持股 'mine' 與快看抽屜 'drawer'）。
+// 每輪評估時：匯流排已有的代號直接用；缺的（超過上限、名額被排在後面、尚未抓到）只補抓那幾檔
+//   （/api/twse/mis-quote?nv=1，每批 ≤50 檔、最多 WAR_ALERT_FILL_MAX 檔）；缺太多或有英數代號（mis-quote 不收）才照舊抓 stock-day-all。
+// 其他頁行為完全不變。
+const WAR_ALERT_OWNER = 'alerts';
+const WAR_ALERT_FAST_MAX = 20;
+const MIS_QUOTE_BATCH = 50;          // /api/twse/mis-quote 每次最多 50 檔（路由端截斷）
+const WAR_ALERT_FILL_MAX = 150;      // 補抓上限（3 批）；更多就退回整份 stock-day-all（一次請求比多批小請求划算）
+const MIS_CODE_RE = /^\d{4,6}$/;    // 與 mis-quote 路由的白名單同口徑
+const FETCH_TIMEOUT_MS = 8_000;
+const PRICE_ALERT_TYPES: ReadonlySet<string> = new Set(['PRICE_ABOVE', 'PRICE_BELOW', 'CHANGE_ABOVE', 'CHANGE_BELOW']);
+
+type StockTick = { code: string; name: string; price: number; change: number; changePercent: number; volume: number };
+
+/**
+ * 這一輪要評估的代號（未觸發的價位警示＋自選群組；去重、排序——當作 effect 依賴的穩定鍵）。
+ * 在 render 階段跑、資料來自 Firestore（firebase-sync 只做 `|| []`，不逐項正規化）⇒ 形狀不對的群組／個股／警示一律略過，
+ * 不讓一筆髒資料把全站常駐的 AlertEngine 弄掛（不信任外部資料）。
+ */
+function alertWatchCodes(alerts: readonly AlertItem[], groups: readonly WatchlistGroup[]): string[] {
+  const set = new Set<string>();
+  for (const a of Array.isArray(alerts) ? alerts : []) {
+    if (a && !a.triggered && PRICE_ALERT_TYPES.has(a.type) && typeof a.code === 'string' && a.code) set.add(a.code);
+  }
+  for (const g of Array.isArray(groups) ? groups : []) {
+    const stocks = Array.isArray(g?.stocks) ? g.stocks : [];
+    for (const s of stocks) if (s && typeof s.code === 'string' && s.code) set.add(s.code);
+  }
+  return [...set].sort();
+}
+
+/** 戰情 v2：匯流排已有的報價＋缺的代號；匯流排沒在跑回 null（呼叫端照舊抓 stock-day-all） */
+function warBusCoverage(codes: readonly string[]): { map: Record<string, StockTick>; missing: string[] } | null {
+  if (!isWarBusActive()) return null;
+  const quotes = getWarBusState().quotes;
+  const map: Record<string, StockTick> = {};
+  const missing: string[] = [];
+  for (const c of codes) {
+    const q = quotes[c];
+    if (!q || !(q.price > 0)) { missing.push(c); continue; }
+    map[c] = { code: c, name: q.name, price: q.price, change: q.change, changePercent: q.changePercent, volume: q.volume };
+  }
+  return { map, missing };
+}
+
+/** 只補抓匯流排缺的幾檔（nv=1：不登記瀏覽中、不佔 daemon 快線名額）。不適合補抓（太多、有英數代號）或失敗回 null */
+async function fetchMissingQuotes(codes: readonly string[]): Promise<Record<string, StockTick> | null> {
+  if (codes.length > WAR_ALERT_FILL_MAX || codes.some(c => !MIS_CODE_RE.test(c))) return null;
+  const sorted = [...codes].sort();
+  const batches: string[][] = [];
+  for (let i = 0; i < sorted.length; i += MIS_QUOTE_BATCH) batches.push(sorted.slice(i, i + MIS_QUOTE_BATCH));
+  const tick = revealTick();
+  try {
+    const results = await Promise.all(batches.map(async (b) => {
+      const r = await fetch(`/api/twse/mis-quote?codes=${b.join(',')}&nv=1&t=${tick}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!r.ok) throw new Error(`mis-quote ${r.status}`);
+      return r.json() as Promise<{ quotes?: unknown }>;
+    }));
+    const map: Record<string, StockTick> = {};
+    for (const j of results) {
+      if (!Array.isArray(j?.quotes)) return null;
+      for (const raw of j.quotes as Array<Record<string, unknown>>) {
+        const code = typeof raw?.code === 'string' ? raw.code : '';
+        const price = Number(raw?.price);
+        if (!code || !(price > 0)) continue;
+        map[code] = {
+          code, name: typeof raw.name === 'string' ? raw.name : code, price,
+          change: Number(raw.change) || 0, changePercent: Number(raw.changePercent) || 0, volume: Number(raw.volume) || 0,
+        };
+      }
+    }
+    return map;
+  } catch {
+    return null;   // 補抓失敗：這一輪退回 stock-day-all，不漏評估
+  }
+}
+
+// ── 盤中戰情 v2（2026-10-05）：戰情 v2 頁不疊 toast（plan「不做全頁閃爍，也不疊 toast」），改送戰情事件匯流排 ──
+// 只在「目前在戰情頁、版面是 v2、而且 v2 已掛載（匯流排運作中＝有資格、不是會員鎖畫面）」時改道；其他頁行為完全不變。
+// 等級（使用者裁定第 8 題）：自選觸價＝二級；自選漲跌幅 ≥9.9%（這裡是 stock-day-all 的近似口徑，不是 marketPulse 的檔位口徑，
+// 所以標「我的」而不叫「首觸漲停」）、量能異常＝二級；開盤前提醒＝三級。文案只寫代號與事件，不寫自設價。
+const stripEmoji = (s: string) => s.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+
+function toWarEvent(n: NotificationInput): WarEventInput {
+  const who = `${n.stockCode} ${n.stockName}`.trim();
+  const at = Date.now();
+  const code = n.stockCode || undefined;
+  switch (n.type) {
+    case 'price_alert':
+      return { at, kind: 'watchPrice', level: 2, code, mine: true, text: `${who} ${stripEmoji(n.message)}（自設）` };
+    case 'limit_up':
+      return { at, kind: 'mine', level: 2, code, mine: true, text: `${who} 自選漲幅達 9.9% 以上` };
+    case 'limit_down':
+      return { at, kind: 'mine', level: 2, code, mine: true, text: `${who} 自選跌幅達 9.9% 以上` };
+    case 'volume_alert':
+      return { at, kind: 'mine', level: 2, code, mine: true, text: `${who} 自選成交量為近期均量 3 倍以上` };
+    case 'premarket_reminder':
+      return { at, kind: 'info', level: 3, text: '台股 09:00 開盤' };
+    default:
+      return { at, kind: 'mine', level: 2, code, mine: true, text: `${who} ${stripEmoji(n.message)}`.trim() };
+  }
+}
 
 interface ToastItem {
   id: string;
@@ -85,6 +196,24 @@ export default function AlertEngine() {
   const watchlistGroups = useAppStore(s => s.watchlistGroups);
   const addNotification = useAppStore(s => s.addNotification);
   const triggerAlert = useAppStore(s => s.triggerAlert);
+  const currentPage = useAppStore(s => s.currentPage);
+  const warLayout = useAppStore(s => s.warLayout);
+  // 用 ref 傳給 fireNotification：不讓換頁改變 fireNotification 的參照（否則輪詢 effect 會重掛並立刻多抓一次 stock-day-all）
+  const onWarV2Ref = useRef(false);
+  useEffect(() => { onWarV2Ref.current = currentPage === 'war' && warLayout !== 'classic'; }, [currentPage, warLayout]);
+
+  // 戰情 v2：要評估的代號登記到匯流排快層（只在匯流排運作中；離開戰情頁＝Provider 卸載＝active 轉 false ⇒ 撤銷登記）
+  const warBusActive = useSyncExternalStore(subscribeWarBus, isWarBusActive, () => false);
+  const watchKey = useMemo(() => alertWatchCodes(alerts, watchlistGroups).join(','), [alerts, watchlistGroups]);
+  useEffect(() => {
+    const codes = watchKey ? watchKey.split(',') : [];
+    if (!warBusActive || codes.length > WAR_ALERT_FAST_MAX) {
+      clearWarFastCodes(WAR_ALERT_OWNER);   // 超過上限不登記：每輪只補抓缺的代號（太多才退回 stock-day-all），不漏評估
+      return undefined;
+    }
+    registerWarFastCodes(WAR_ALERT_OWNER, codes);
+    return () => clearWarFastCodes(WAR_ALERT_OWNER);
+  }, [warBusActive, watchKey]);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastsRef = useRef(toasts);
@@ -120,8 +249,12 @@ export default function AlertEngine() {
     }, 400);
   }, []);
 
-  const fireNotification = useCallback((notif: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => {
+  const fireNotification = useCallback((notif: NotificationInput) => {
     addNotification(notif);
+    if (onWarV2Ref.current && isWarBusActive()) {
+      publishWarEvent(toWarEvent(notif));   // 戰情 v2：進 B2 異動流紀錄，不跳 toast
+      return;
+    }
     // Build a full notification to pass to toast (id/timestamp will be set by store, we fake it here for display)
     const fakeNotif: AppNotification = {
       ...notif,
@@ -167,34 +300,39 @@ export default function AlertEngine() {
       // 其中約 81% 落在資料完全不會變的時段。
       if (!shouldPollNow()) return;
       try {
-        const res = await fetch('/api/twse/stock-day-all');
-        if (!res.ok) return;
-        const data = await res.json();
+        // 戰情 v2：匯流排已有的直接用、缺的只補抓那幾檔 ⇒ 不抓 stock-day-all（補不了才退回）
+        let fromBus: Record<string, StockTick> | null = null;
+        const cov = warBusCoverage(alertWatchCodes(alerts, watchlistGroups));
+        if (cov) {
+          if (!cov.missing.length) fromBus = cov.map;
+          else {
+            const filled = await fetchMissingQuotes(cov.missing);
+            if (filled) fromBus = { ...cov.map, ...filled };
+          }
+        }
+        const stockMap: Record<string, StockTick> = fromBus ?? {};
 
-        // data is expected to be an array of stock objects
-        // Each item typically has: code, name, closingPrice, change, changePercent, volume, etc.
-        const stockMap: Record<string, {
-          code: string;
-          name: string;
-          price: number;
-          change: number;
-          changePercent: number;
-          volume: number;
-        }> = {};
+        if (!fromBus) {
+          const res = await fetch('/api/twse/stock-day-all', { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+          if (!res.ok) return;
+          const data = await res.json();
 
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            const code = item.Code || item.code || item['證券代號'];
-            const name = item.Name || item.name || item['證券名稱'];
-            const price = parseFloat(item.ClosingPrice || item.closingPrice || item['收盤價'] || '0');
-            const change = parseFloat(item.Change || item.change || item['漲跌價差'] || '0');
-            const volume = parseFloat(item.TradeVolume || item.tradeVolume || item['成交股數'] || '0');
-            const changePercent = price > 0 && change !== 0
-              ? (change / (price - change)) * 100
-              : 0;
+          // data is expected to be an array of stock objects
+          // Each item typically has: code, name, closingPrice, change, changePercent, volume, etc.
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              const code = item.Code || item.code || item['證券代號'];
+              const name = item.Name || item.name || item['證券名稱'];
+              const price = parseFloat(item.ClosingPrice || item.closingPrice || item['收盤價'] || '0');
+              const change = parseFloat(item.Change || item.change || item['漲跌價差'] || '0');
+              const volume = parseFloat(item.TradeVolume || item.tradeVolume || item['成交股數'] || '0');
+              const changePercent = price > 0 && change !== 0
+                ? (change / (price - change)) * 100
+                : 0;
 
-            if (code && !isNaN(price)) {
-              stockMap[code] = { code, name, price, change, changePercent, volume };
+              if (code && !isNaN(price)) {
+                stockMap[code] = { code, name, price, change, changePercent, volume };
+              }
             }
           }
         }
