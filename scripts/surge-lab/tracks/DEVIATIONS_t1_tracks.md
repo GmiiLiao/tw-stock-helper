@@ -156,3 +156,21 @@
 - **當下已看過的結果**：全部（判定已鎖）。**對判定的可能影響**：無（逐項如上）。
 
 *未扣成本·非投資建議。*
+
+---
+
+## DEV-009　落選挑戰者 R2、S1、S2 的 HOLDOUT 鎖後描述記錄（DEV-006 的後續；使用者 G1 第 5 項核可）
+
+- **日期／階段**：2026-10-05，鎖後（HOLDOUT 鎖檔 5fda1c7 之後、G1 審查）。使用者在 G1 第 5 項選「補算落選」。
+- **偏差內容**：DEV-006 採「HO 只算選定模型」，落選挑戰者 R2、S1、S2 的 HO 記錄從缺（與 `outputs.hits_misses_rule` 衝突）。本次依使用者決定補算，**只作鎖後描述，不參與判定，不得用於重新選模**；這是 HOLDOUT 的額外讀取（三個模型在 HO 六折重擬），不是修正重跑——沒有修正任何實作錯誤、沒有重產任何鎖定產出。依 §8.2 第 8 點不計入「修正重跑兩次上限」；是否計入由使用者裁定（若計入，與 DEV-008 第 1 點合計是第 2 次）。
+- **做法**（`scripts/surge-lab/a36_tracks_ho_losers.py`；不在 `a36_tracks_cv.CODE_FILES` 內，HO 摘要內嵌的程式雜湊不變）：
+  1. **擬合**：釘住快取 `.surge-cache-T` 以 `cp -c -R` 複製成 `.surge-cache-T3`（APFS 複本），擬合只寫 T3；以 `a36_tracks_fit.stage_run → run_new` 同一條路徑（＝HO 擬合選定挑戰者 R1 時的路徑）擬合 R2、S1、S2 的 HO 六折×種子 0／1／2，共 54 份檢查點：expanding window、purge 11、正例全留＋負例 10%（rng＝default_rng(seed＋ts)）、run_cv.GB、新模型訓練列 s ≥ 125、特徵照登錄（R2＝official − rk_* + age_cap + R 專用特徵 + is_R，以 M ∪ R 訓練；S1＝… + 原值 log10(vol20)、o_log_mcap、log10(收盤)，只用 S 列；S2＝… + is_S，以 M ∪ S 訓練）。
+  2. **核對**（任一不過就拒跑）：T 與 T3 的擬合輸入（a36_tracks_M.npz、a36_mx_{M,R,S}）sha256 相同；每個模型重擬 SEL1 種子 0（讀 T）與 T 的 SELECTION 檢查點逐位相同、重擬 HO4 種子 0（讀 T）與 T3 的 HO 檢查點逐位相同（6 項全同）；釘住快取 T 在 HO 擬合前後沒有本檔的檢查點。
+  3. **評估**：以登錄 env（SURGE_CACHE＝.surge-cache-T，`BLD.load_inputs` 逐項驗輸入雜湊）跑同一個 `a36_tracks_cv.evaluate('HO', 鎖定清單＋R2@5、S1@5、S2@5)`；只有這三個模型的檢查點路徑改讀 T3（`loser_ckpts_from`，其餘模型一律讀 T）。加入落選清單後，鎖定部分逐位不變：16 份 HO 記錄的 sha256＝鎖檔、12 份鎖定清單在全部 HO 日集合的指標＝HO 摘要、配對、等名額、DD1、C2、分區、判定細節（`a36_tracks_ho.decide` 重算）與七軌判定＝鎖檔。釘住快取 T 前後的檔案清單（13,838 檔的大小＋mtime）完全不變。同一指令連跑兩次，6 份記錄逐位相同、摘要只差時間欄。
+  4. **輸出**：`out/tracks_t1/addendum/ho_losers/`——`tracks_t1_HO_losers_{R,S}_{hits,misses}.csv`、`tracks_t1_HO_losers_{R,S}_picks.csv.gz`（> 500,000 bytes 依 DEV-005 規則 gzip，mtime＝0）、`tracks_t1_HO_losers_summary.json`（各檔 sha256、檢查點清單、核對結果、各日集合指標、對代理／對 R1／對 M0@10 的配對、出場日無收盤揭露與出場價敏感度、SEL／HC 落選依據）。每列加 `ho_model_window`（第 1～3 折標「面板起點限制，不作判定」）與 `addendum_note`「鎖後描述，不參與判定…」；選股另加 `list_verdict`＝「落選挑戰者（SELECTION CI 下界 ≤ 0），不使用」等 DEV-008 的逐列註記。
+  5. `tracks_t1_HO_ATTEMPTS.jsonl` 只增不改：fit 六段的 start／done 與 eval 兩次的 start／done 都記 `post-lock:ho-losers:*`。
+- **數字（HO-model 186 日，挑戰者評估窗；描述）**：R2@5 33／930（3.55%，lift 2.40），對 R0 +0.215pp [−0.755, 1.290]（p 0.379），對 HO 前選定的 R1 +0.860pp [0.108, 1.720]；S1@5、S2@5 各 11／930（1.18%，lift 6.94），對 S0 都是 0.000pp（S1 [−0.430, 0.430]、S2 [−0.753, 0.753]）。三份清單 DK_s＝0 的 c5 逐日平均 CI 都跨 0。
+- **不改判定的理由**：選模只看 SELECTION（R2 對 R0 [−0.252, 1.258]、S1 對 S0 [−0.084, 1.255]、S2 對 S0 [−0.251, 1.339]，下界都 ≤ 0，落選依據不變），HOLDOUT 結果依登錄不得用來重新選模；R2 勝過 R1 只說明「SEL 選中的挑戰者在 HO 不是最好的」，不改變 R-WATCH-ONLY（判定樹在 W_R 未經確認時退回代理 R0）。
+- **當下已看過的結果**：全部（判定已鎖）。**對判定的可能影響**：無（七軌判定重算與鎖檔逐字相同）。
+
+*未扣成本·非投資建議。*
