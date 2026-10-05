@@ -29,3 +29,10 @@ out/tracks_t1/tracks_t1_S_picks.csv
 out/tracks_t1/tracks_t1_HO_M_picks.csv
 out/tracks_t1/tracks_t1_HO_Mp_picks.csv
 out/tracks_t1/tracks_t1_events_SELHC.csv
+
+# T1 分軌前向影子（a37_tracks_*，2026-10-05）：前向專用快取（只增不改）與本機紀錄。凍結檔、評分、parity、缺口的存證在
+# Firestore surgeShadow/tracks-*（封印 seal 同值）；本機紀錄不進版控。接線前證明 tracks_fwd_prewire.json 與 prewire/ 進版控。
+.surge-cache-F/
+out/tracks_fwd/*
+!out/tracks_fwd/tracks_fwd_prewire.json
+!out/tracks_fwd/prewire/

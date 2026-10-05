@@ -193,6 +193,7 @@ export const FOREIGN_PATTERNS = [
   /retrain_official/,
   /\b(build_lu1|a32_walkforward_prep|panel|a35_shadow_list|a35_shadow_score|a35_shadow_history)\.py\b/,
   /\bfetch_cache\.mjs\b/,
+  /\ba37_tracks_\w+\.py\b/,          // T1 分軌前向（手動執行時協調器略過；協調器自己的子行程不算，見 foreignResearchProcs）
 ];
 const NON_RUNNER = /^(\S*\/)?(ps|pgrep|grep|rg|less|more|tail|head|cat|vim?|nvim|nano|emacs)$/;
 
