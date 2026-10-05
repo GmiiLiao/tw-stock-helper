@@ -6,7 +6,7 @@ description: 產生、驗證、顯示或推播「持股停損價」的程式與 
 
 > **狀態**：`stop-v1.1` 定稿（2026-10-05）。以 v1 修訂版為底，落實使用者 2026-10-05 兩輪裁定：第一輪 16 項（原話「停損 3不停止觸發 7要留 8要 9好 14要 15不要 16算 其它ok」）＋新聞「識讀權重 5 標明研究期，只顯示計分但不實際使用」；第二輪 7 項（原話「a3 3／a4 做skills判定與加權重／a5 不算／a6 保留／其它都ok go」）。逐項對照見 §13 與文末「修訂紀錄」。
 > **與 v1 的差別（一句話）**：ATR 帶（舊稱「AI 停損」）**繼續觸發**，改用官方還原日 K、收盤資料到齊後算一次、隔一個交易日生效、買進當天不套，與成本線、保本線、追蹤線一起取高並只升不降；新聞技能方向標「規則」的利空類別一律由**程式規則判定**，依**類別權重**（新聞技能 §4.1 baseWeight，先驗·未回測）決定收不收緊、收多緊；獲利回落線由保本／追蹤線取代；推播文字改成事實句，但停損紀律的「請面對決策」與指數急落的「隔日沖偏多策略暫停追價」保留；5～6 碼 ETF 與興櫃另建官方日 K 歸檔，驗證前沿用現行算法。
-> **上線狀態**：**v1.1 尚未對使用者生效**。2026-10-05 本機已接（未 commit、未部署、daemon 未重啟；daemon 是 disk 即部署，下次 KeepAlive 拉起就載入）：共用函式 v1.1（§3.8）；daemon S2b 推播文字（九處，只換字串、判斷不動）；S3 影子試算（`scripts/lib/stop-shadow-runner.mjs`，只寫 `stopBooks`／`stopEventShadow`／`stopSpecAudit`，不推播）；LLM 停損文字 S3 量測（**提示詞不變**，§10.1）；新聞管線規則判定（A4，§10A.2）；戰情 v2 A1 改 v1.1 前端暫算（§3.6 最後一列）。daemon 推播與紀律仍用兩套舊算法（推播 `scripts/ai-daemon.mjs:3251`、紀律 `:9864`）。上線方式：影子試算至少 20 個交易日，再請使用者核可切換（§14）。**會改變使用者看到內容的只有兩處**：推播文字改為只描述事實（第 9 項；S2b）；規則類事實確認「是」時新聞判別的 label 由程式覆寫為利空（A4「做skills判定」，§10A.2-3；C16a 自 2026-08-29 起已是如此，現擴到 §10A.2 全部類別），讀 `newsVerdict.label` 的新聞頁、推薦等會跟著變。
+> **上線狀態**：**v1.1 尚未對使用者生效**。2026-10-05 本機已接並於 `715cd1d` commit（未部署、daemon 未重啟；daemon 是 disk 即部署，下次 KeepAlive 拉起就載入；2026-10-06 R1–R9 的落實本機已改、未 commit，§13.3）：共用函式 v1.1（§3.8）；daemon S2b 推播文字（九處，只換字串、判斷不動）；S3 影子試算（`scripts/lib/stop-shadow-runner.mjs`，只寫 `stopBooks`／`stopEventShadow`／`stopSpecAudit`，不推播）；LLM 停損文字 S3 量測（**提示詞不變**，§10.1）；新聞管線規則判定（A4，§10A.2）；戰情 v2 A1 改 v1.1 前端暫算（§3.6 最後一列）。daemon 推播與紀律仍用兩套舊算法（推播 `scripts/ai-daemon.mjs:3251`、紀律 `:9864`）。上線方式：影子試算至少 20 個交易日，再請使用者核可切換（§14）。**會改變使用者看到內容的只有兩處**：推播文字改為只描述事實（第 9 項；S2b；另 2026-10-06 R4 ⑧ 法人×大戶「疑似出貨警示」結尾）；規則類事實確認「是」時，**只有法律類 C16a** 由程式把新聞判別的 label 覆寫為利空（2026-08-29 起已是如此；A4 起 AI 原判已利空也補規則欄位），其他類別只記規則欄位、label 維持 AI 原判（使用者 2026-10-06 R1，§10A.2-3）——所以推薦排序、個股評分、做空候選、squeeze-train 等讀 `newsVerdict.label` 的地方不受其他類別影響；停損收緊與戰情 v2 讀規則欄位。
 > **讀者**：任何會寫出、算出、顯示或推播「停損」數字的程式與 AI。
 > **口徑**：報酬一律是**未扣成本的毛報酬**，成本另列在 `references/evidence.md` §6。處置／注意的扣分不代表走勢弱。
 > **行號**：`ai-daemon.mjs` 行號以 HEAD `2fd8ce6` 為準（16,205 行；等於 v1.1 草案時的「工作樹」欄）。daemon 隨時可能被其他流程修改，實作時一律用錨點字串定位（實作計畫 §0.1、`references/evidence.md` §8）。
@@ -38,6 +38,7 @@ description: 產生、驗證、顯示或推播「持股停損價」的程式與 
 4. **獲利後上移停損**（第 8 項裁定）：持有期最高**收盤**曾達還原成本 +10% → 保本線；曾達 +20% → 追蹤線＝持有期最高收盤 −3×ATR14。**取代**現行獲利回落線（`type:'trailing'`），全站只剩一種獲利後口徑（§5；B2、B3 照解讀確認）。
 5. **規則類重大利空依類別權重收緊停損**（第 14 項＋第二輪 A4「做skills判定與加權重」；§10A）。
    - 新聞技能 §4.1 方向標「規則」的利空類別一律做成**程式規則判定**：AI 只認定事實（主體是不是本檔、事件是不是屬實），方向與類別由程式規則決定；AI 自己判利空時也要補規則標記（修正 `ai-daemon.mjs:6415` `verdict.label !== '利空'` 的漏網）。
+   - **只有法律類 C16a** 由程式把 `newsVerdict` 的 label 覆寫為利空；其他類別只記規則欄位（`ruleClass`、`ruleOverride`、`ruleSub`、`ruleHits`、`aiOriginal`、`ruleFacts`），label／信心／理由維持 AI 原判（使用者 2026-10-06 R1：label 連動推薦排序、個股評分、做空候選、squeeze-train）。停損收緊與戰情以 `ruleClassOf` 讀規則欄位辨識，不看 label（§10A.1-C）。
    - 每個類別一個**類別權重**＝新聞技能 §4.1 的 baseWeight（**先驗·未回測**）：權重 ≥0.7（C16a 法律 0.90、C22 財務危機 0.85、C13b 公開收購破局 0.80、C17 工安停工 0.70）⇒ 收到前收 −max(1×ATR14, 3%)；0.3～0.7（C16b 裁罰訴訟 0.35、C15a 內部人轉讓 0.30）⇒ 前收 −max(2×ATR14, 5%)；<0.3（C11a、C15c、C20b、C15a 贈與信託 0.05）不收緊、只記影子；C23 交易限制依新聞技能「不當成訊號」不收緊。
    - 只認 AI 讀過內文、當日（非承接）、挑戰過的判別；5 個交易日到期、期限內同代號同類別不延長、到期後冷卻 5 個交易日。命中與漏網兩份影子紀錄供日後校正。
    - ⚠ **類別權重是規則先驗，不是 AI 新聞識讀的結果權重 `w`**；`w` 研究期只顯示、不進任何判斷（第 6 點）。
@@ -99,16 +100,16 @@ description: 產生、驗證、顯示或推播「持股停損價」的程式與 
 | 項目 | 規定 |
 |---|---|
 | 網域 | 只用已登錄核准的 `www.twse.com.tw`、`www.tpex.org.tw`（`scripts/source-registry.json`，2026-09-28 核准）；不新增網域。新增資料集時在 registry 的資料集清單登記（端點、用途、回聲欄位） |
-| 上市 ETF | **實作（2026-10-05）**：讀第二大腦官方鏡像的 `twse_mi_index`（`MI_INDEX?date=…&type=ALLBUT0999` 每日收盤行情表；可指定日期的 www 端點、每份有回聲日期），`scripts/lib/official-bars.mjs` 解析成 chipArchive 同格式日 K（0 請求）。不走 daemon 收盤歸檔的 `STOCK_DAY_ALL`（原規劃；不吃日期、無法回補）。鏡像 daily 平日 22:40 抓、retry 隔日 06:45 補 ⇒ 收盤當晚 16:45 班車時通常還沒有當日資料，整合端以**隔日 08:46 盤前刷新**讀取（ATR 帶本來就是隔一個交易日才生效，A1） |
+| 上市 ETF | **實作（2026-10-05）**：讀第二大腦官方鏡像的 `twse_mi_index`（`MI_INDEX?date=…&type=ALLBUT0999` 每日收盤行情表；可指定日期的 www 端點、每份有回聲日期），`scripts/lib/official-bars.mjs` 解析成 chipArchive 同格式日 K（0 請求）。不走 daemon 收盤歸檔的 `STOCK_DAY_ALL`（原規劃；不吃日期、無法回補）。鏡像 daily 平日 22:40 抓、retry 隔日 06:45 補 ⇒ 收盤當晚 16:45 班車時通常還沒有當日資料，整合端以**隔日 08:46 盤前刷新**讀取（ATR 帶本來就是隔一個交易日才生效，A1）。**已接（2026-10-06 R8）**：daemon 盤前直接讀本機鏡像（見「程式」列） |
 | 上櫃 ETF | 讀鏡像 `tpex_dailyquotes`（`afterTrading/dailyQuotes?date=…`）。**已實測**（2026-10-05）：`type=EW` 與不帶 `type` 同為 11,928 列、ETF 118 檔——`type=EW` 含 ETF。時點同上市 ETF |
-| 興櫃 | 沒有 MIS 即時報價、沒有漲跌幅限制、官方日資料沒有開盤價（收盤以「最後成交價」）。**已實測**（2026-10-05）：官方**沒有**可指定日期的興櫃全表（`emerging/historical` 必須帶個股代號，而且只有最高／最低／均價、沒有最後成交價）⇒ 只能每日快照累積：PRIMARY `www.tpex.org.tw/www/zh-tw/emerging/latest`（鏡像 `tpex_emerging_latest`）、FALLBACK openapi `tpex_esb_latest_statistics`，都以官方回聲日為鍵。鏡像 daily 22:40 抓；retry 隔日 06:45 在兩個來源都缺時補抓最後一個已確認交易日、更早的缺日寫進 `_alerts`（只能揭露，無法回補） |
-| 回補 | 上市、上櫃 ETF：本地官方鏡像 `second-brain/official/www.twse.com.tw/twse_mi_index`、`www.tpex.org.tw/tpex_dailyquotes`（2022-07-18 起，每份有回聲日期）**離線回補，不打上游**。興櫃：無法回補，從鏡像開始抓的那天起累積（ATR14 要 15 根、MA20 要 20 根，約 4 週；`node scripts/official-bars.mjs status` 看連續天數） |
-| 儲存 | Firestore `etfDailyArchive/{YYYY-MM-DD}`、`emergingDailyArchive/{YYYY-MM-DD}`（`BAR_ARCHIVES`），`closeJson` 與 chipArchive 同格式［收, 量張, 開, 高, 低］（興櫃開盤記 0）。**不併入 chipArchive**：現有消費端假設 4 碼，稽核的市場組成閘門也以 chipArchive 為準。`date` 一律填來源自報的資料日 |
-| 驗證閘門（全部過才把該歸檔列入 `verifiedArchives`） | ① 每份回聲日期＝文件日；② 連續 ≥20 個交易日（MA20、ATR14 都有值）；③ 市場組成：上市 ETF、上櫃 ETF 各有貢獻（興櫃單獨一個閘門）；④ 抽樣比對：會員持有的這類代號，歸檔收盤與 daemon 快照當日收盤一致；⑤ 補進 `audit-data-sources.mjs` 的 `CONTRACTS`（maxStale／minRecords／資料日漂移／市場組成）連續 5 個交易日綠；⑥ 影子期照 v1.1 算這類代號並分開統計；⑦ **結構斷點都有官方係數**（2026-10-05 審查新增）：`official-bars.structuralBreaks` 找到的停止買賣後斷點（分割／反分割候選；2024-12～2026-07 ETF 有 9 件，例 00631L 2026-03-31、00685L 2026-07-07，都不在 `exright-history.json`）每一件都要有官方分割係數進 §7 係數表。`lineInputsOf` 另以同一組門檻（`STRUCT_BREAK`）逐檔查：ETF 視窗內有沒有係數的斷點 ⇒ 斷點之前的根數記進 `exGapBars`（fail-closed，當日不採用日 K 算出的值，§3.4），所以缺係數不會把偏高的帶值鎖進棘輪。驗證完成後由使用者核可，與 S5 同一批或之後單獨切換 |
-| 驗證前 | `lineInputsOf` 回 `noOfficialBars`；停損簿該檔只有成本線；S5 後該檔走舊分支（`legacyBranchActive(book, code)` 為真）；畫面標「ETF／興櫃官方日 K 歸檔驗證前·沿用現行推播口徑」（`stopFactText('noOfficialBars')`） |
+| 興櫃 | 沒有 MIS 即時報價、沒有漲跌幅限制、官方日資料沒有開盤價（收盤以「最後成交價」）。持股紀錄沒有市場別 ⇒ 身分以官方表為準：chipArchive 沒有它的日 K（停損簿上一版 `noOfficialBars`）**而且**官方興櫃表在視窗內有它，才當興櫃（不以代號猜；R8）。**已實測**（2026-10-05）：官方**沒有**可指定日期的興櫃全表（`emerging/historical` 必須帶個股代號，而且只有最高／最低／均價、沒有最後成交價）⇒ 只能每日快照累積：PRIMARY `www.tpex.org.tw/www/zh-tw/emerging/latest`（鏡像 `tpex_emerging_latest`）、FALLBACK openapi `tpex_esb_latest_statistics`，都以官方回聲日為鍵。鏡像 daily 22:40 抓；retry 隔日 06:45 在兩個來源都缺時補抓最後一個已確認交易日、更早的缺日寫進 `_alerts`（只能揭露，無法回補） |
+| 回補 | 上市、上櫃 ETF：本地官方鏡像 `second-brain/official/www.twse.com.tw/twse_mi_index`、`www.tpex.org.tw/tpex_dailyquotes`（2022-07-18 起，每份有回聲日期）**離線回補，不打上游**。興櫃：無法回補，從鏡像開始抓的那天起累積（ATR14 要 15 根、MA20 要 20 根，約 4 週；`node scripts/official-bars.mjs status` 看連續天數）。**R6（2026-10-06 裁定維持）**：興櫃日 K 從 10/02 起自行累積、不回補；閘門 ② 要連續 20 個交易日，約 10 月底前興櫃一律 fail-closed |
+| 儲存 | **R8（使用者 2026-10-06「ok 如建議」）：不建 Firestore 歸檔**——daemon 盤前直接讀本機官方鏡像 `second-brain/official`（0 次 Firestore 讀寫、0 上游請求），原規劃的 `etfDailyArchive`／`emergingDailyArchive`（`BAR_ARCHIVES`、`archiveDocsOf`）保留名稱與格式但不寫。**不併入 chipArchive**：現有消費端假設 4 碼，稽核的市場組成閘門也以 chipArchive 為準。日 K 的 `date` 一律是官方回聲日 |
+| 驗證閘門（全部過、經使用者核可，才把該歸檔列入 `verifiedArchives`＝daemon `STOP_VERIFIED_ARCHIVES`，目前空） | ① 每份回聲日期＝文件日；② 連續 ≥20 個交易日（MA20、ATR14 都有值）；③ 市場組成：上市 ETF、上櫃 ETF 各有貢獻（興櫃單獨一個閘門）；④ 抽樣比對：會員持有的這類代號，歸檔收盤與 daemon 快照當日收盤一致；⑤ 補進 `audit-data-sources.mjs` 的 `CONTRACTS`（maxStale／minRecords／資料日漂移／市場組成）連續 5 個交易日綠；⑥ 影子期照 v1.1 算這類代號並分開統計；⑦ **結構斷點都有官方係數**（2026-10-05 審查新增）：`official-bars.structuralBreaks` 找到的停止買賣後斷點（分割／反分割候選；2024-12～2026-07 ETF 有 9 件，例 00631L 2026-03-31、00685L 2026-07-07，都不在 `exright-history.json`）每一件都要有官方分割係數進 §7 係數表。`lineInputsOf` 另以同一組門檻（`STRUCT_BREAK`）逐檔查：ETF 視窗內有沒有係數的斷點 ⇒ 斷點之前的根數記進 `exGapBars`（fail-closed，當日不採用日 K 算出的值，§3.4），所以缺係數不會把偏高的帶值鎖進棘輪；英文字尾 ETF 的 `isEtfCode` 為 false（§15-1），影子以 `checkBreaks:true` 照查（實測 00685L 2026-07-07 斷點在 80 根視窗內 ⇒ `exGapBars` 14）。驗證完成後由使用者核可，與 S5 同一批或之後單獨切換 |
+| 驗證前 | **影子期（R8 起）**：本機鏡像可用（`officialBarsVerdict`：閘門 ①②③ 過、最後一天＝前一交易日且抓齊）⇒ 照 v1.1 算這類持股（組成線標 `lineInputs.archive`；閘門 ⑥），公開計數分開統計（`bookAuditCounts.officialArchive`、`stopSpecAudit.shadow.officialBars`）。鏡像不可用 ⇒ **fail-closed**：從未供給過的持股 `noOfficialBars`（只有成本線）；停損簿已有上一份鏡像組成線的不覆蓋（`linesStale`、沿用棘輪值，同 chipArchive 資料延遲 §3.6），並記 log。**S5 後**：`legacyBranchActive(book, code, { verifiedArchives })` 為真（`noOfficialBars` 或歸檔種類不在 `verifiedArchives`）⇒ 舊分支照跑；v1.1 照算、照寫停損簿，但 `plan*` 不發任何推播或二級文件（`unverifiedArchiveOf`）。畫面標「ETF／興櫃官方日 K 歸檔驗證前·沿用現行推播口徑」（`stopFactText('noOfficialBars')`）。**前端同口徑**（2026-10-06 審查）：戰情 `warroom-stopbook.bookStopOf` 與 daemon 共用 `legacyCodeActive(bp, { verifiedArchives })`，`verifiedArchives` 讀停損簿文件裡 daemon 每次寫入的同一份（`stopBooks/{uid}.verifiedArchives`＝`STOP_VERIFIED_ARCHIVES`；缺＝空＝fail-closed），不會出現畫面一個停損、推播另一個的情況 |
 | 驗證後 | 與 4 碼股票同一套 v1.1。興櫃另有兩點：盤中不判定（沒有 MIS 報價），只有 16:45 收盤後補判（官方日低，`noLimit`）；沒有開盤價 ⇒ 不判跳空 |
-| 程式 | `barArchiveOf(code, market)`（4 碼→`chip`、5～6 碼與英文字尾 ETF→`etf`、呼叫端告知 `market:'emerging'`→`emerging`；興櫃也有 4 碼代號，不能用代號猜）、`hasOfficialBars(code, { market, verifiedArchives })`、`uncoveredBreakBars`（閘門 ⑦）。鏡像讀取與閘門 ①②③：`scripts/lib/official-bars.mjs`、CLI `node scripts/official-bars.mjs status|factors`（0 請求）。**尚未接上**：寫 `etfDailyArchive`／`emergingDailyArchive`、daemon 讀取、閘門 ④⑤⑥（實作計畫 §2.11）；在那之前 `verifiedArchives` 為空，這類持股一律 `noOfficialBars` |
-| 唯一不變式 | 上市、上櫃 ETF 讀鏡像既有檔案，請求數不變；興櫃每日 2 個快照請求（全市場一份、retry 只在兩個來源都缺時補），與人數無關 |
+| 程式 | `barArchiveOf(code, market)`（4 碼→`chip`、5～6 碼與英文字尾 ETF→`etf`、呼叫端告知 `market:'emerging'`→`emerging`；興櫃也有 4 碼代號，不能用代號猜）、`hasOfficialBars(code, { market, verifiedArchives })`、`uncoveredBreakBars`（閘門 ⑦）。鏡像讀取與閘門 ①②③：`scripts/lib/official-bars.mjs`、CLI `node scripts/official-bars.mjs status|factors`（0 請求）。**已接（2026-10-06 R8）**：daemon `stopShadowLoop` 以動態 import 載入 `readOfficialBarsAsync`（只讀本機檔；分段讀、段間讓出事件迴圈，ETF 80 個交易日約 0.8 秒、單段最長約 0.12 秒）注入 `stop-shadow-runner`（`loadOfficialBars`、`mirrorInputsOf`）；**盤前刷新**每個資料日每種讀一次（全域，與會員數無關），盤中與非交易日只用已讀快取、不讀檔；**收盤結算排除這類持股**（鏡像 22:40 才有當日資料；`planCloseSettle` 的 `codes`），不以 chipArchive／`noBarsStub` 覆蓋，改在**下一交易日盤前讀到鏡像（資料日＝前一交易日）時補跑同一支 `planCloseSettle`**（`mirrorSettle`：補判 `evaluateLateTouch`〔興櫃 `noLimit`、沒有開盤價不判跳空〕、`settleEpisode`、組成線換版、延後的事件收緊；版本日＝前一交易日，同 chipArchive 口徑；2026-10-06 審查——原本這類持股的觸及事件永遠不結算、收盤後不補判）。只補前一交易日已由同種鏡像組成線判定過的持股；鏡像缺該日 ⇒ 該日不補（fail-closed）。補記寫進前一交易日的 `shadowDays`（`wouldPush` sub `late`、重算 `compare`、合併 `missedLive`）；`stopSpecAudit/{前一交易日}` 的公開計數收盤時已寫、不含這些補記，S4 以 `shadowDays` 重算。紀律彙總的前一交易日收盤對這類持股用盤前已讀的鏡像收盤（chipArchive 沒有）。**興櫃轉上市櫃**：收盤結算時 chipArchive 當日已有這檔 ⇒ 改走 chipArchive（新組成線不標 `archive`，之後盤前也不再當興櫃；原本會永遠沿用興櫃舊日 K）。讀取模組載入失敗只停用供給（fail-closed）、影子其他部分照跑。**尚未做**：閘門 ④（抽樣比對 daemon 快照收盤）、⑤（`audit-data-sources` CONTRACTS）；`STOP_VERIFIED_ARCHIVES` 維持空，等閘門全過並經使用者核可 |
+| 唯一不變式 | 上市、上櫃 ETF 讀鏡像既有檔案，請求數不變；興櫃每日 2 個快照請求（全市場一份、retry 只在兩個來源都缺時補），與人數無關。daemon 端（R8）0 個上游請求、0 次 Firestore 讀寫 |
 
 ---
 
@@ -202,7 +203,7 @@ description: 產生、驗證、顯示或推播「持股停損價」的程式與 
 | 今天是除權息日（依預告），但係數未知（`exPending`） | **當日暫停判定該檔**，顯示「除權息日·停損待調整」（§7） |
 | 沒有預告來源，而且今日官方結果還沒取得（`exUnconfirmed`） | 觸及只發二級「除權息狀態未確認」；確認無事件後補發一級（§7、第 12 項裁定） |
 | 歸檔少於 15 根（上市未滿、資料斷） | `bandLine`、`trailLine`、`atr14` 都是 null；成本線照算；保本線在有 `holdHigh`（買進日起有官方收盤）時照算；逼近改用 ≤2% |
-| 沒有可用的官方日 K（5～6 碼與英文字尾 ETF、興櫃在 §2A 歸檔驗證前；或歸檔沒有這檔） | `lineInputsOf` 回 `noOfficialBars`：`bandLine`、`beLine`、`trailLine`、`atr14`、`holdHigh` 都是 null，不做補判與事件收緊。**不是** `linesStale`（不會隨時間補齊）。影子期只算成本線並分開統計；切換後該檔留在第一階段口徑（`legacyBranchActive(book, code)`，§2A） |
+| 沒有可用的官方日 K（5～6 碼與英文字尾 ETF、興櫃在 §2A 歸檔驗證前；或歸檔沒有這檔） | `lineInputsOf` 回 `noOfficialBars`：`bandLine`、`beLine`、`trailLine`、`atr14`、`holdHigh` 都是 null，不做補判與事件收緊。**不是** `linesStale`（不會隨時間補齊）。影子期只算成本線並分開統計；切換後該檔留在第一階段口徑（`legacyBranchActive(book, code)`，§2A）。R8 起 ETF／興櫃由本機鏡像供給時不再是 `noOfficialBars`（見 §2A「驗證前」列） |
 | 係數表涵蓋不到日 K 視窗（`exGapBars > 0`） | 依 §3.4「係數涵蓋」列：當日不採用由日 K 算出的值，沿用上一版；S3 前回補 `exright-history.json` 並每日累加（硬閘門，§15-5） |
 | 資料到齊班車到隔日 08:46 仍未完成（`linesStale`） | 組成線沿用上一版，畫面標「組成線資料日 MM/DD」，不做 `lineRaise` |
 | 今日沒有真成交（未開盤、分盤處置股尚未撮合、停牌） | 不判定觸及；距停損以最後交易日收盤計算，標「◆ 前交易日」 |
@@ -252,11 +253,12 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 | `ai-stoploss-event.mjs` | `eventTierOf`、`eventLineOf`、`ruleBearEvents`、`stepEventOverlay`、`activeOverlays`、`eventShadowRows`、`missShadowRows` | 規則類利空、類別權重分級、收緊線、疊加層狀態機、命中與漏網影子紀錄（§10A） |
 | `ai-stoploss-text.mjs` | `DISCIPLINE_TAIL`、`PLUNGE_TAIL_KEPT`、`OVERNIGHT_EXIT_PHRASE`、`FORBIDDEN_WORDS`、`scanForbidden`、`disciplineTailCount`、`disciplineDigest`、`stopTouchPushText`、`stopPushTextS2b`、`trailPushTextS2b`、`disciplinePushTextS2b`、`defenseListText`、`defensePushText`、`plungePushText`、`watchDropPushText`、`watchDropSummaryText`、`overnightOpenPushText` | 禁用詞掃描（兩個豁免）、紀律彙總、一級推播文字、九處推播文字（§8.6） |
 | `ai-stoploss-llm.mjs` | `STOP_PROMPT_RULE`、`STOP_REF_FORMAT`、`stopPromptLines`、`hypotheticalStop`、`hypotheticalStopLine`、`parseStopRef`、`stripStopRef`、`extractStopPrices`、`validateLlmStopText` | LLM 停損文字（§10、`llm-contract.md`） |
-| `ai-stoploss-plan.mjs` | `legacyBranchActive`、`mergeAlertsKeepUnacked`、`prevStateOf`、`planBookRefresh`、`planUserStopTick`、`planCloseSettle`、`planDisciplineDigest` | daemon 整合（只產生要寫什麼；phase 'shadow' 時呼叫端只寫 `stopBooks`） |
-| `news-rule-classes.mjs`（集線器另轉出常用的幾個） | `RULE_BEAR_CLASSES`、`RULE_CLASS_BY_CODE`、`RULE_CLASS_BY_KEY`、`RULE_CLASS_CODES`、`RULE_LEGAL_PREFIX`、`CLASS_WEIGHT_NOTE`、`ruleClassOf`、`ruleSubOf`、`ruleClassesHit`、`classWeightOf`、`ruleReasonPrefix`、`ruleFactQuestion`、`parseRuleFactAnswer` | 規則類利空類別與類別權重的唯一來源（新聞管線與停損共用；§10A.2） |
+| `ai-stoploss-plan.mjs` | `legacyBranchActive`、`unverifiedArchiveOf`、`mergeAlertsKeepUnacked`、`prevStateOf`、`planBookRefresh`、`planUserStopTick`、`planCloseSettle`、`planDisciplineDigest` | daemon 整合（只產生要寫什麼；phase 'shadow' 時呼叫端只寫 `stopBooks`）；`plan*` 收 `verifiedArchives`：live 時組成線來自未驗證官方鏡像歸檔的代號不發 v1.1 警示（R8） |
+| `news-rule-classes.mjs`（集線器另轉出常用的幾個） | `RULE_BEAR_CLASSES`、`RULE_CLASS_BY_CODE`、`RULE_CLASS_BY_KEY`、`RULE_CLASS_CODES`、`RULE_LEGAL_PREFIX`、`LABEL_OVERRIDE_CLASS`、`CLASS_WEIGHT_NOTE`、`ruleClassOf`、`ruleSubOf`、`ruleClassesHit`、`classWeightOf`、`ruleReasonPrefix`、`ruleFactQuestion`、`parseRuleFactAnswer` | 規則類利空類別與類別權重的唯一來源（新聞管線與停損共用；§10A.2） |
 | 刪除／不實作 | ~~`trailLine`~~（獲利回落線退役，§5.2）；~~`buildAiCandidates`、`aiProposalPrompt`、`parseStopChoice`、`validateStopChoice`~~（第二階段，§3.5） | — |
 
 - 測試：`ai-stoploss.test.mjs`（v1 起的 A–E、I）、`ai-stoploss-core.test.mjs`、`-lines`、`-event`、`-text`、`-plan`、`news-rule-classes.test.mjs`（實作計畫 §5）。
+- 影子流程（不在集線器）：`stop-shadow-core.mjs`（`officialBarsVerdict`、`bookAuditCounts.officialArchive`…）、`stop-shadow-runner.mjs`（`loadOfficialBars`、`verifiedArchives` 注入）、`official-bars.mjs`（`readOfficialBarsAsync`）；測試 `stop-shadow-*.test.mjs`、`official-bars.test.mjs`、`stop-daemon-pin.test.mjs`。
 - 戰情前端（2026-10-05 本機）已改 v1.1 暫算：`resolveStop` 帶 `frontLinesOf` 的組成線、`bandRatchet:false`、空係數表（§3.6 最後一列）。v1 呼叫方式（不帶 `lines`／`events`）結果仍與 v1 相同（回歸測試）。
 
 ---
@@ -575,7 +577,7 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 |---|---|---|
 | 持股分析（`buildPrompt`，HEAD `:726-756`；停損字樣 `:734`，輸出格式 `:746`） | `停損（系統規範 stop-v1.1·{來源標籤}·只升不降）：{stop}`；做過事件收緊時加一行「（因 {MM/DD} {類別名} 暫時收緊，至 {MM/DD}）」（`stopPromptLines`） | 不給「停損 {st.stopLoss}」；**不另外給 ATR 帶的當日值**（它可能低於生效停損，LLM 會拿去當停損）；不給含處置扣分的 score；不給新聞影響權重 `w`，也不給類別權重 |
 | 個股波段分析（`swingForCode`，`:959`、`:966`） | `若以標準買點 B 進場，系統停損＝Y（成本 −8% 與 ATR 帶取高）` | 不再要求 LLM「給出停損」，只能引用 Y |
-| 問AI（`buildQAContext`，`:4293`） | 提問者持有該檔時，給他的生效停損與來源；沒有持有時同個股波段分析 | 不給其他使用者的資料 |
+| 問AI（`buildQAContext`，`:4293`） | 提問者持有該檔時，給他的生效停損與來源；沒有持有時同個股波段分析。**R5（使用者 2026-10-06「ok 如建議」已裁定）**：這一列在正式切換（S5）時才做，影子期 `buildQAContext` 一行不改 | 不給其他使用者的資料 |
 | AI 提議 | **第二階段**（§3.5） | — |
 
 固定規則句（每個會提到停損的提示詞都要附）：
@@ -599,7 +601,7 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 
 - 新聞的規則類重大利空**會暫時收緊停損數字**（第 14 項裁定；第二輪 A4 依類別權重分級）：規則在 §10A。這取代 v1「新聞不改停損數字」的寫法。
 - 新聞影響權重 `w` 不參與（§10B）；LLM 也不得以新聞為由自行調整停損數字，它只能引用收緊後的生效停損。
-- 規則類利空的方向一律由程式規則決定（新聞技能 §1.5、§1.7）：AI 只認定事實（主體是不是本檔、事件是不是屬實），程式把方向覆寫為利空並記下類別（`ruleClass`）。法律事件（C16a）沿用既有的 `ruleOverride:'legal-event'` 與「【規則】」前綴；其他類別用「【規則·{類別名}】」前綴（`ruleReasonPrefix`），戰情的 `isRuleLegal` 不會把它們誤認成法律。
+- 規則類利空的方向一律由程式規則決定（新聞技能 §1.5、§1.7）：AI 只認定事實（主體是不是本檔、事件是不是屬實），程式記下類別（`ruleClass`、`ruleFacts` 等規則欄位）。**只有法律事件（C16a）**由程式把 `newsVerdict` 的 label 覆寫為利空，沿用既有的 `ruleOverride:'legal-event'` 與「【規則】」前綴；其他類別**不改** label／信心／理由（使用者 2026-10-06 R1），停損收緊與戰情以規則欄位辨識（`ruleClassOf` 不看 label）。`ruleReasonPrefix` 的「【規則·{類別名}】」只留給顯示，戰情的 `isRuleLegal` 不會把它們誤認成法律。
 
 ## 10A. 裁定落實：第 14 項「重大利空收緊停損」＋第二輪 A4「做skills判定與加權重」
 
@@ -613,9 +615,9 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 |---|---|---|
 | A | 代號在這位使用者的持股中，而且 `firstDate < 收緊生效交易日`（**嚴格小於**）。生效交易日當天才建立的部位一律不套用：盤前（08:46）生效的事件，當天的買進必然在生效之後；盤中生效的事件，持股紀錄沒有可靠的建立時刻，無法分辨買進在判別之前或之後，一律不套用（記 `boughtSameDay`）。部位已有更早的批次時，以代號為單位照套 | 收緊是針對事件發生時已持有的部位；用日期比較才可重現 |
 | B | 判別屬於今日適用交易日（`newsVerdict/latest.targetDate ＝ 今日適用交易日`），沒有 `carriedFrom`，`at ≥ 上一交易日 13:30` | 當日、非承接（第 14 項裁定） |
-| C | `label === '利空'` 且 **AI 讀過內文**（同戰情 `isAiRead`：`basis==='content'`、不是 D 拒答、不是「AI 判別未回應」）；E 引用強制未過時，規則類別比照法律規則放行（AI 只認定事實、方向由規則定） | 使用者規則：新聞調分須經 AI 讀內文 |
+| C | 規則類利空（`ruleClassOf`，**不看 label**——非法律類別 daemon 不覆寫 label，使用者 2026-10-06 R1）且 **AI 讀過內文**（同戰情 `isAiRead`：`basis==='content'`、不是 D 拒答、不是「AI 判別未回應」）；E 引用強制未過時，規則類別比照法律規則放行（AI 只認定事實、方向由規則定） | 使用者規則：新聞調分須經 AI 讀內文 |
 | D | `challenged === true`（四角色挑戰只在非舊聞時才跑，當作「非 14 日舊聞回退」的代理） | news-weight §3.6 |
-| E | 判別帶有**程式規則覆寫**留下的類別（`ruleClassOf`：`ruleClass` ＞ `ruleOverride` ＞「【規則】」前綴＝C16a），而且該類別的收緊級別不是 none（§10A.3）。**不看 `w`、強度、信心**；AI 自己的 `eventType`（'法律'、'處分'…）不算類別 | 第 14 項限制＋研究期裁定＋第二輪 A4 |
+| E | 判別帶有**程式規則判定**留下的類別（`ruleClassOf`：`ruleClass` 而且該類事實題答「是」〔`ruleFacts[ruleClass]==='yes'`〕；舊資料 C16a 認 `ruleOverride:'legal-event'` 或「【規則】」前綴〔當時一定同時覆寫 label，所以這條仍要 label 利空〕），而且該類別的收緊級別不是 none（§10A.3）。**不看 `w`、強度、信心**；AI 自己的 `eventType`（'法律'、'處分'…）不算類別 | 第 14 項限制＋研究期裁定＋第二輪 A4＋R1 |
 
 - B–D 沿用戰情同一套（`scripts/lib/warroom-news.mjs` 的 `newsBoardFromDoc`、`newsCtxOf`、`isCurrentEntry`、`isAiRead`），不另寫第二份；C16a 的結果與戰情 `majorBearOf(...).basis==='rule-legal'` 逐檔一致（測試 N3）。
 - `ruleBearEvents` 每檔最多回一件，帶 `cls`、`key=${code}:${cls}`、`tier`、`weight`（類別權重）、`research`（`w`、強度、信心、`eventType`，只記錄）。
@@ -643,12 +645,12 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 
 1. **觸發**（只觸發提問、不動方向；新聞技能 §1.2）：與本檔同時出現、而且判別實際讀到的報導內文（`judgeOneStock` 的 `_picked`，標題＋內文前 1,200 字＝主判別看得到的範圍；`ruleTriggerScan`）命中某類別的觸發字（`ruleClassesHit`）。觸發字避開常見的非事件語意（2026-10-05 審查）：C16a 不用裸「調查」（市調、研調）、改認檢調／調查局／地檢署／檢察官／偵辦與「主管機關…調查」；C22 的「重整」只認法院公司重整、「保留意見」排除「無保留意見」；C17 的停工／停產／停機要帶事故語境、「爆炸」要帶廠區或事故語境（「爆炸性成長」、歲修、產品停產不算）；C20b 只認信用評等機構，券商或外資的投資評等、目標價（C20a，方向 0）以 veto 排除。每類的事實題也寫明不算的情形。
 2. **提問**：主判別（含引用強制、中性歸零）定案之後，每個命中的類別**另問一次** `ruleFactQuestion(類別, 個股, 該類別命中的報導〔最多 3 篇、內文前 1,200 字〕)`：只回「是／否」再一句說明主體與事件是否已發生（C15a 另答是否贈與或信託）；讀不出來回「不確定」。本機模型、priority 1（同舊 C16a 聚焦提問）、溫度沿用 `NEWS_TEMP`。**主判別提示詞逐字不變**（事實題不嵌進主判別，避免主判別的 label 漂移；2026-10-05 審查）。
-3. **判定**（`parseRuleFactAnswer`、`applyRuleFacts`）：開頭「是」（後接標點、空白或結尾；「是否…」「是不是…」不算）⇒ 程式把 `label` 覆寫為利空（`bullish:false`、信心「低」升「中」，同 2026-08-29 版），寫 `ruleClass`（類別代號）、`ruleOverride`（類別 key）、`ruleSub`（子類別）、`aiOriginal`（AI 原判 label＋理由前 24 字），理由以 `ruleReasonPrefix(類別)` 開頭（C16a「【規則】」、其他「【規則·{類別名}】」）。「否」、空白、逾時 ⇒ 維持 AI 原判，**不猜**。
+3. **判定**（`parseRuleFactAnswer`、`applyRuleFacts`）：開頭「是」（後接標點、空白或結尾；「是否…」「是不是…」不算）⇒ 寫規則欄位 `ruleClass`（類別代號）、`ruleOverride`（類別 key）、`ruleSub`（子類別）、`ruleHits`、`aiOriginal`（AI 原判 label＋理由前 24 字）、`ruleFacts`（每類 yes／no／none）。**只有 `ruleClass＝C16a`**（法律；類別權重 0.90 是表內最高，C16a 答「是」必為主類別）時，程式把 `label` 覆寫為利空（`bullish:false`、信心「低」升「中」、理由「【規則】涉檢調搜索，法律判定前視為利空（AI 原判…）」，與 2026-08-29 版逐字相同；`LABEL_OVERRIDE_CLASS`）。**其他類別**（C23、C22、C13b、C17、C16b、C15a、C11a、C15c、C20b）label／bullish／信心／理由一律維持 AI 原判（**使用者 2026-10-06 R1「ok 如建議」**：label 會連動推薦排序、個股評分、做空候選、squeeze-train）；停損收緊（`ruleBearEvents`）與戰情 v2（燈、Z2、B2、A2；`verdictState`）以 `ruleClassOf` 讀規則欄位辨識為規則類利空。「否」、空白、逾時 ⇒ 維持 AI 原判，**不猜**。
 4. **AI 原判已是利空也要問**：修正 `ai-daemon.mjs:6415` `if (verdict && negHits.length && verdict.label !== '利空')` 的漏網——現在 AI 自己判對利空的檢調搜索永遠沒有規則標記。原判已是利空時理由文字不改，只補欄位。
 5. **多類命中**：逐類提問；回答「是」的類別中取類別權重最高者寫 `ruleClass`（同權重依表內順序），其他寫 `ruleHits`（只記錄）。
-6. **三個 `newsVerdict` 寫入端都要存** `ruleClass`、`ruleOverride`、`ruleSub`、`aiOriginal`、`ruleHits`（夜補、盤中、盤後／晨間；現在三處都沒存 `ruleOverride`，只能靠理由前綴）。
+6. **三個 `newsVerdict` 寫入端都要存** `ruleClass`、`ruleOverride`、`ruleSub`、`aiOriginal`、`ruleHits`、`ruleFacts`（夜補、盤中、盤後／晨間；`ruleFieldsOf` 共用一支，已實作）。非法律類別的辨識只靠這些欄位（label 不變），所以缺 `ruleFacts` 的 `ruleClass` 不算。
 7. **成本與不變式**：只在觸發字命中時多問（每個命中類別一次本機呼叫，主判別之外）；Ollama 呼叫增加量在影子期量測（daemon log「規則事實」逐檔記；關鍵字代理估計每交易日約 1～2 次，`evidence.md` §11，觸發字收窄前的估計，未實測）；上游請求 0、MIS 0（唯一不變式成立）。
-- **連動影響**（要知道，不屬本規範檔）：label 覆寫為利空後，所有讀 `newsVerdict.label` 的地方都會看到利空（例：新聞判別顯示、AI 推薦 `src/app/api/twse/ai-recommend/route.ts:70` 的新聞方向加減；`squeeze-train.mjs:185` 仍記 `newsLabel`，註明只保留相容、不當因子）；C16a 自 2026-08-29 起即如此，A4 擴到本表全部類別。戰情 `isRuleLegal` 認 `ruleOverride==='legal-event'`，補欄位後「AI 原判利空的法律事件」在戰情 Z2 會由二級（可能為法律事件）變成一級新聞警示——這是修正漏網的必然結果；其他類別在戰情燈號與 Z2 的處理屬戰情流程（`majorBearOf` 目前只認法律）。戰情 `verdictState` 的 §1.4／§1.6 豁免目前只給法律；其他規則類別若被判成價格描述或關注度，只影響戰情燈號，不影響 `ruleBearEvents`（它直接讀原始判別）。
+- **連動影響**（要知道，不屬本規範檔）：只有 C16a 的 label 被覆寫為利空，讀 `newsVerdict.label` 的地方（新聞判別顯示、AI 推薦 `src/app/api/twse/ai-recommend/route.ts:70` 的新聞方向加減、個股評分、做空候選、`squeeze-train.mjs:185` 的 `newsLabel`）只會因法律事件看到利空——C16a 自 2026-08-29 起即如此；**其他類別不影響這些地方**（使用者 2026-10-06 R1，取代 A4 原本「擴到全部類別」的做法）。盤後報告的 `rankMediaVerdicts` 同樣讀 AI 原判 label。戰情 `isRuleLegal` 認 `ruleOverride==='legal-event'`，補欄位後「AI 原判利空的法律事件」在戰情 Z2 會由二級（可能為法律事件）變成一級新聞警示——這是修正漏網的必然結果。戰情 v2 對其他規則類別：`verdictState` 不看 label、一律判利空（燈、Z2 依類別權重分級〔R2 已裁定維持〕、B2、A2 第 0 類），AI 原判顯示為「AI 原判…」（`ra`），而且不套 §1.4／§1.6 的價格描述、關注度改判。
 
 ### 10A.3 收到哪裡（`eventTierOf`、`eventLineOf`）
 
@@ -718,7 +720,7 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 **漏網紀錄**（`missShadowRows`；每日，範圍＝會員持股 ∪ 當日判別宇宙）：
 
 - 條件：官方收盤 ≤ 前收 −2×ATR14，或收在跌停；而且當日與前一交易日都**沒有**合格事件（`eventCodes`）。
-- 每列寫出哪一條沒過（互斥）：`noDoc`／`docMismatch`（判別表不是該日的）／`noVerdict`／`notBear`／`notRead`（閘門）／`carried`／`notChallenged`／`beforeMin`／`aiBearLegalNoRule`（AI 原判已是利空、有法律字樣但沒有規則標記——§10A.2-4 修正前的已知缺口）／`bearNotRule`（利空但不是規則類，附 `eventType`、`w`、強度、信心，只記錄）／`belowWeight`（規則類但不收緊）。另記官方重訊（mopsNews）當日有無公告。
+- 每列寫出哪一條沒過（互斥）：`noDoc`／`docMismatch`（判別表不是該日的）／`noVerdict`／`notBear`（label 不是利空、也不是規則類利空——`ruleClassOf` 不看 label，R1）／`notRead`（閘門）／`carried`／`notChallenged`／`beforeMin`／`aiBearLegalNoRule`（AI 原判已是利空、有法律字樣但沒有規則標記——§10A.2-4 修正前的已知缺口）／`bearNotRule`（利空但不是規則類，附 `eventType`、`w`、強度、信心，只記錄）／`belowWeight`（規則類但不收緊）。另記官方重訊（mopsNews）當日有無公告。
 - 「AI 原判已是利空」這一類在新聞管線補存規則欄位（§10A.2-6）之前只能用字樣代理（`isPossibleLegalBear`），不能宣稱量得出覆蓋率；補欄位前後的事件**分開統計**。
 - 目的：回答「類別權重的級別切點、AI 的 `eventType`、補上規則標記，各能多抓到幾件、會多誤抓幾件」。這些答案出來之前，`w` 仍然只顯示。
 
@@ -727,7 +729,7 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 
 ### 10A.8 測試（實作計畫 §5 的 N 組；`scripts/lib/ai-stoploss-event.test.mjs`、`news-rule-classes.test.mjs`）
 
-- 述詞：規則類＋挑戰過＋當日 ⇒ 成立；承接、前一日、`at` 早於上一交易日 13:30、沒挑戰、D 閘門、AI 未回應、label 非利空、`eventType='法律'` 但沒有規則標記、`w` 高但非規則類 ⇒ 不成立；E 引用未過的規則類 ⇒ 成立。
+- 述詞：規則類＋挑戰過＋當日 ⇒ 成立（**不論 label**：非法律類別 label 是 AI 原判中性／利多也成立，R1）；承接、前一日、`at` 早於上一交易日 13:30、沒挑戰、D 閘門、AI 未回應、label 非利空且非規則類、`ruleClass` 但事實沒答「是」、`eventType='法律'` 但沒有規則標記、`w` 高但非規則類 ⇒ 不成立；E 引用未過的規則類 ⇒ 成立。
 - **權重不變式**：同一組輸入只改 `w` 的成分（強度、信心、確定性、新穎、反映），所有輸出（事件、收緊線、期限、紀錄分類）完全相同。
 - 與戰情 `majorBearOf(...).basis==='rule-legal'` 的金樣本一致。
 - 類別權重逐列＝新聞技能 §4.1；級別：C16a、C22、C13b、C17 強，C16b、C15a 溫和，C11a、C15c、C20b、C15a 贈與信託 none，C23 notSignal。
@@ -737,9 +739,10 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 - 期限：第 5 個交易日仍有效、第 6 個交易日 08:46 到期（跨週末與注入的颱風假）；收盤班車不處理到期；`eventExpire` 下降不記 `loosen`、事件延續。
 - 事件身分：同一事件隔日重判、引文與理由都不同 ⇒ `sameEvent`；到期後第 1～5 個交易日 ⇒ `sameEvent`；第 6 個交易日起 ⇒ 新事件。
 - 期限內除權息 ⇒ 收緊線 ×f；兩個類別同時生效 ⇒ 取最高。
-- 影子紀錄：命中與漏網兩份欄位齊全、三類互斥、`w` 有記錄但不影響分類；漏網原因與 `ruleBearEvents` 同口徑（label 不是利空的 `ruleClass` 兩邊都不算、記 `notBear`；規則類利空沒挑戰記 `notChallenged`）。
+- 影子紀錄：命中與漏網兩份欄位齊全、三類互斥、`w` 有記錄但不影響分類；漏網原因與 `ruleBearEvents` 同口徑（事實沒答「是」的 `ruleClass` 兩邊都不算、記 `notBear`；事實答「是」而 label 維持 AI 原判中性的兩邊都算；規則類利空沒挑戰記 `notChallenged`）。
 - 觸發字反例（不觸發）：市調「調查」、組織重整、重整旗鼓、無保留意見、歲修停機、產品停產、爆炸性成長、券商調降評等／目標價、S&P 500；事實回答「是否…」「不確定」⇒ 未答。
-- 類別判定：只認 `ruleClass`／`ruleOverride`／「【規則】」前綴；其他類別的前綴不被戰情 `isRuleLegal` 誤認；觸發字只回類別、事實回答只看開頭「是／否」。
+- 類別判定：只認 `ruleClass`＋該類事實「是」，以及舊資料 C16a 的 `ruleOverride`／「【規則】」前綴（須 label 利空）；其他類別的前綴不被戰情 `isRuleLegal` 誤認；觸發字只回類別、事實回答只看開頭「是／否」。
+- R1（2026-10-06）：`applyRuleFacts` 只對 C16a 覆寫 label，其他類別 label／bullish／信心／理由逐一維持 AI 原判（`news-rule-classes.test.mjs`）；端到端「AI 判中性、C17 是 → label 維持中性 → 寫入端欄位 → `ruleBearEvents` 與戰情 `majorBearOf` 同一類別；C16a 照舊覆寫」（`news-rule-classes.test.mjs` 末例、`stop-shadow-runner.test.mjs` 盤前收緊例）。
 
 ### 10A.9 對推播數量的預估影響
 
@@ -868,17 +871,35 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 4. **B4** 戰情 Z2 的權重門檻類新聞警示：依研究期裁定，連二級也不發，只保留燈號與抽屜顯示（§10B；屬戰情流程，實作計畫 §3.4）。
 5. **B5** 事件收緊的身分與冷卻：同代號同類別期限內不延長、到期後冷卻 5 個交易日（§10A.4）。
 
+### 13.3 第三輪：R1–R9 裁定（2026-10-06）
+
+使用者原話：「ok 如建議」（對 R1–R9 的建議全部照建議）。
+
+| # | 題目 | 已裁定的內容 | 落實位置 |
+|---|---|---|---|
+| **R1** | 非法律規則類別事實「是」要不要改 `newsVerdict` 的 label | **不改**：C16b、C17、C22、C13b、C23、C11a、C15a、C15c、C20b 只記規則欄位（`ruleClass`、`ruleOverride`、`ruleSub`、`ruleHits`、`aiOriginal`、`ruleFacts`），label／bullish／信心／理由維持 AI 原判（label 連動推薦排序、個股評分、做空候選、squeeze-train）；**只有法律類 C16a 照舊覆寫為利空**（2026-08-29 起的既有行為與使用者規則「涉法律事件一律利空」）。停損收緊與戰情 v2 以規則欄位辨識（`ruleClassOf` 不看 label） | §0-5、§10.4、§10A.1-C／E、§10A.2-3／6、§10A.7、§10A.8；`news-rule-classes.mjs`（`applyRuleFacts`、`ruleClassOf`、`LABEL_OVERRIDE_CLASS`）、`warroom-news.mjs`（`verdictState`）、`ai-stoploss-event.mjs`（`missShadowRows`）、daemon 註解與 log。**部署先後**見 §14（web 先於或與 daemon 重啟同窗） |
+| **R2** | 戰情 Z2 是否依類別權重分級（§15A-1） | 維持現行實作：≥0.7 一級（含 C23）、0.3～0.7 二級、其餘不列 Z2 | `warroom-news.majorBearOf`（不改） |
+| **R3** | 除權息係數的取得（§15A-2） | 維持現行實作：每日收盤結算時抓官方區間（約 2 請求／日、固定數），取代歷史檔每日累加 | `stop-shadow-runner` `exUpTo`（不改）；§15-5 |
+| **R4** | ⑧ 法人×大戶「疑似出貨警示」結尾「持有者確認停損位，未持有者勿接刀」 | 改為只描述事實（`wording.md` 原則），其餘內容不動 | daemon（錨點 `label: '疑似出貨警示'`）；`wording.md` §3；`stop-daemon-pin.test.mjs` |
+| **R5** | 問AI（`buildQAContext`）的停損約束 | **正式切換（S5）時再做**，影子期不改 | §10.1 問AI 列；§14 待辦 |
+| **R6** | 興櫃日 K 要不要回補 | 維持：從 10/02 起自行累積、不回補 | §2A 回補列 |
+| **R7** | 9 檔 ETF 分割／反分割係數（§15-9） | **影子期內補官方係數**；本次不做 | §15-9（期限） |
+| **R8** | ETF／興櫃日 K 的供給方式 | daemon **盤前讀本機官方鏡像**（0 次 Firestore 讀寫、0 上游請求）；讀不到 fail-closed 並記錄 | §2A（儲存、驗證前、程式列）；`official-bars.readOfficialBarsAsync`、`stop-shadow-runner`（`loadOfficialBars`、`mirrorInputsOf`）、`stop-shadow-core.officialBarsVerdict`、`ai-stoploss-plan.unverifiedArchiveOf`；daemon `stopShadowLoop`（`STOP_VERIFIED_ARCHIVES` 目前空）。2026-10-06 審查補：鏡像代號的收盤結算移到下一交易日盤前（`mirrorSettle`）、興櫃轉上市櫃改走 chipArchive、前端 `bookStopOf` 與 daemon 共用 `legacyCodeActive`（停損簿文件帶 `verifiedArchives`） |
+| **R9** | `stopBooks` 的 Firestore 規則 | 本人只能讀自己的 `stopBooks/{uid}`（含 daemon 寫的 `shadowDays/{資料日}` 子集合），管理員可讀，任何前端都不可寫 | `firestore.rules`（未部署：要隨部署帶 `firestore:rules`）；§14 |
+
 ## 14. 過渡期與程式位置
 
 - **第一階段·daemon**：推播 `:3251`、紀律 `:9864`、崩盤防禦 `:11151`、論點 `:9333` 照舊算法（行號 HEAD `2fd8ce6`）。推播文字可在 S2b 先改（§8.6；文字由 `ai-stoploss-text.mjs` 的九支函式產生，只換字串、不動判斷）。
 - **第一階段·戰情 v2（超管）**（2026-10-05 本機，未部署）：A1 是 v1.1 前端暫算（`scripts/lib/warroom-mine.mjs` 的 `provisionalStop`＝成本線與持股分析 ATR 帶取高、帶不棘輪；§3.6 最後一列），ATR 帶標「ATR 帶（持股分析·觸發線之一）」；Z2 觸停損一級由前端判定（`TopAlertEngine` 的本機事件表，文字標「單一裝置·暫算」），A7 已裁定維持到切換正式。
 - **規範函式**：`scripts/lib/ai-stoploss.mjs`（集線器）＋`ai-stoploss-{base,lines,core,event,text,llm,plan}.mjs`＋`news-rule-classes.mjs`，型別 `ai-stoploss.d.mts`、`news-rule-classes.d.mts`，測試七個 `*.test.mjs`（§3.8）。每個子模組 <800 行。
-- **狀態文件** `stopBooks/{uid}`：daemon 用 Admin SDK 寫；`firestore.rules` 新增本人唯讀；`stopEventShadow/{date}` 只開放管理員讀。規則改動要隨部署帶 `firestore:rules`。新日期欄位 `sourceDate`、`floorSourceDate`、`bandSourceDate` 已登記 `check-field-conventions`。
+- **狀態文件** `stopBooks/{uid}`：daemon 用 Admin SDK 寫；`firestore.rules` **已加**（R9，2026-10-06，本機、未部署）：本人與管理員唯讀 `stopBooks/{uid}` 與 `stopBooks/{uid}/shadowDays/{資料日}`，任何前端不可寫。`stopEventShadow/{date}`、`stopSpecAudit/{date}` 規劃為只開放管理員讀，**尚未加**（現在預設拒絕；R9 只裁定 `stopBooks`）。規則改動要隨部署帶 `firestore:rules`。新日期欄位 `sourceDate`、`floorSourceDate`、`bandSourceDate` 已登記 `check-field-conventions`。
 - **上線順序**（實作計畫 §7）：S2（共用函式，**已完成**本機驗證）→ S2b（推播文字）→ S3（影子：daemon 每日寫 `stopBooks`、只記錄不推播）→ S4（影子期 ≥20 個交易日、I1–I8 0 違反）→ **使用者核可** → S5（切換）。新聞管線的規則判定（A4，實作計畫 §2.10）與 ETF／興櫃歸檔（A3，§2.11）可與 S3 並行，各自有影子觀察與驗證閘門。
 - **切換條件**：`exright-history.json` 已回補並每日累加、影子期 ≥20 個交易日、I1–I8 在全部會員持股與合成母體上 0 違反，再經使用者核可。ETF／興櫃另需 §2A 驗證閘門全過（可晚於 S5 單獨切換）。
 - **切換方式**：daemon 把 `stopBooks/{uid}.phase` 改成 `'live'`、`specVersion` 為 `'stop-v1.1'`（同時 `planBookRefresh({ resetEpisodes: true })` 清掉影子期事件，第一輪 live 以 seeded 彙總處理已在停損下的部位），前端看到這兩個值才改讀 `stopBooks`。
 - **回滾**：把 `phase` 改回 `'shadow'`，舊推播、舊紀律、舊 `trailing`、舊崩盤防禦立刻恢復（`legacyBranchActive`），不必重啟 daemon。前提：舊分支讀的 `portfolioAnalysis.analyses[code].stopLoss` **在舊分支移除前不改語意**（一直是 `/api/rating` 的 ATR 帶），所以回滾後的數字與切換前相同。已先行的推播文字（S2b）不隨 `phase` 回滾，要回滾就 `git revert`。事件收緊單獨關閉：`ruleBearEvents` 的 `classes` 傳空陣列。
 - 步驟、介面、測試清單與遷移風險，見 `warroom/stoploss/v1.1/impl-plan.md`。
+- **待辦（已裁定，2026-10-06）**：R5 問AI（`buildQAContext`）的停損約束——S5 切換時與其他提示詞一起換（§10.1），影子期不改；R7 9 檔 ETF 分割／反分割官方係數——影子期內補進 §7 係數表（§15-9 期限）；R8 閘門 ④⑤ 與 `STOP_VERIFIED_ARCHIVES` 核可（§2A）。
+- **部署先後（R1；2026-10-06 審查）**：戰情 v2 的燈、Z2、B2、A2 由 Next.js **伺服器端**算（`src/lib/warroom/build-news.ts` → `newsBoardFromDoc`），要 web 帶新版 `scripts/lib/warroom-news.mjs`、`news-rule-classes.mjs` 部署後才認得 R1 的資料形狀。目前線上 web 的 `ruleClassOf` 第一行要求 label＝利空；R1 起 daemon 對非法律規則類別（C17、C22、C23…）只記規則欄位、label 維持 AI 原判 ⇒ 舊 web 會把它們顯示成 AI 原判的中性／利多、**不進 Z2**。所以 **hosting 必須先部署，或與 daemon 重啟在同一個窗口完成；web 部署前不要重啟 daemon**。daemon 是 disk 即部署，若 KeepAlive 在 web 部署前已拉起磁碟版本，web 部署前「戰情暫時看不到非法律規則類利空」列為已知缺口（停損影子在 daemon 端執行，不受影響）。反過來先部署 web 是安全的：新版 `ruleClassOf` 第 ② 條仍認舊資料的 C16a（ruleOverride／「【規則】」前綴＋label 利空）。`firestore.rules`（R9）同一次部署帶上。
 - 改動前要先掃影響面：所有讀 `analyses.stopLoss`、`alerts`、`stopDiscipline`、`newsVerdict`、`_hwm` 的地方。daemon 是 disk 即部署（KeepAlive 隨時拉起磁碟版本）：改完必須 `node --check` 通過、相關測試通過；只在收盤後重啟，重啟前先跑 `node scripts/can-restart-daemon.mjs`。
 
 ## 15. 待核實（事實查證，不需使用者裁定）
@@ -891,9 +912,11 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 6. **ATR 帶兩個版本的差距**：官方還原日 K 版與 `/api/rating` 的 Yahoo 版（日 K 來源不同；兩者都以前一完整交易日官方收盤夾值），逐檔差幾檔（v1 時只有 71.2% 完全一致），S3 量化；同時以同一份報價量出觸及的遷移（§11-1）。
 7. **法律與其他規則類別的覆蓋率**：新聞管線補存規則欄位（§10A.2-6）前，AI 原判已是利空的規則事件只能用字樣代理（24 個適用日：法律有標記且合格 4 筆、代理 13 筆）；補欄位後重新量，前後分開統計。
 8. ~~**§2A 的三個端點**~~（2026-10-05 已核實，§2A 已改寫）：上市 ETF 改讀鏡像 `MI_INDEX ALLBUT0999`（不用 `STOCK_DAY_ALL`）；TPEx dailyQuotes `type=EW` 含 ETF（與不帶 `type` 同為 11,928 列、ETF 118 檔）；興櫃**沒有**可指定日期的全表端點，改為 www `emerging/latest` 每日快照（PRIMARY）＋openapi（FALLBACK），只能累積。
-9. **ETF 分割／反分割係數**：2024-12～2026-07 鏡像日 K 有 9 件停止買賣後的結構斷點不在 `exright-history.json`（§2A 閘門 ⑦）。官方分割係數的來源與回補待查；在那之前 `lineInputsOf` 對 ETF 斷點 fail-closed（`exGapBars`）。
+9. **ETF 分割／反分割係數**：2024-12～2026-07 鏡像日 K 有 9 件停止買賣後的結構斷點不在 `exright-history.json`（§2A 閘門 ⑦）。官方分割係數的來源與回補待查；在那之前 `lineInputsOf` 對 ETF 斷點 fail-closed（`exGapBars`；R8 起影子對英文字尾 ETF 也以 `checkBreaks` 照查）。**R7（使用者 2026-10-06「ok 如建議」已裁定）**：在影子期內補官方係數，本次不做；**期限＝影子期結束**（S4 報告、請使用者核可 S5 之前），補不到的 ETF 在 S5 時維持 fail-closed（`exGapBars`）並在 S4 報告列出。
 
-### 15A. 待使用者裁定（2026-10-05 實作審查）
+### 15A. 待使用者裁定（2026-10-05 實作審查）——**兩題都已裁定**（2026-10-06 R2、R3「ok 如建議」，§13.3）
+
+> 1 ⇒ (a) 維持現行：類別權重決定 Z2 級別（≥0.7 一級含 C23、0.3～0.7 二級、其餘不列）。2 ⇒ (a) 每日收盤結算時抓官方區間（約 2 請求／日、固定數）。下列原文保留作紀錄。
 
 1. **戰情 Z2 的級別是否依類別權重**：`warroom-news.majorBearOf` 現行以類別權重分級（≥0.7 一級、0.3～0.7 二級、<0.3 不列 Z2），但 §1「類別權重」列寫「不可（不當任何警示門檻）」，第二輪 A4 只明示「停損收緊依類別權重」。二擇一：(a) 認可類別權重決定 Z2 級別（改 §1 該列為「停損收緊級別＋戰情 Z2 級別」）；(b) Z2 不看類別權重（例如規則類一律二級、只有 C16a 一級，同 2026-08-29 以來的法律事件）。裁定前程式維持 (a) 的現行實作（戰情 v2 僅超管、未部署）。
 2. **係數表硬閘門（§15-5）與影子期起算**：S3 影子已先以「每資料日抓歷史檔之後到資料日的官方區間（不寫檔）」上線，`exright-history.json` 尚未回補與每日累加；除權息預告仍只有上市行事曆前 40 筆（`exPendingSource:'twse-calendar-top40'`），上櫃除權息日在影子中可能誤觸。二擇一：(a) 認可每日區間抓取取代歷史檔累加（改 §3A.3、§7、§15-5）；(b) 先執行回補並設定每日累加（需核可），影子期 20 個交易日從那天起算。在那之前 S4 報告把除權息日分開統計。
@@ -994,3 +1017,12 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 - **§2A 閘門 ⑦**：ETF 結構斷點要有官方分割係數；`lineInputsOf` 對 ETF 未涵蓋斷點 fail-closed（`uncoveredBreakBars`→`exGapBars`）。§2A 來源依實測改寫（上市 ETF 讀鏡像 MI_INDEX、`type=EW` 含 ETF、興櫃只能每日快照累積；retry 補抓缺的興櫃快照並寫 `_alerts`）。
 - **影子收盤結算重試**改為只重試失敗的會員、沿用同日歸檔視窗、退避 10／30／60／60 分鐘、最多 5 次，全域紀錄只寫一次（`stopSpecAudit.shadowRetry`）。
 - 新增 **§15A 待使用者裁定**兩題：戰情 Z2 是否依類別權重分級；係數表硬閘門與影子期起算。
+
+**2026-10-06（R1–R9 裁定落實）**：使用者對 R1–R9「ok 如建議」（§13.3）。
+
+- **R1**：非法律規則類別事實「是」不再改 `newsVerdict` 的 label／bullish／信心／理由，只記規則欄位；只有 C16a 照舊覆寫（`LABEL_OVERRIDE_CLASS`）。`ruleClassOf` 改為不看 label：`ruleClass`＋`ruleFacts[ruleClass]==='yes'`，舊資料 C16a 認 `ruleOverride`／前綴（須 label 利空）；戰情 `verdictState` 規則類利空先判（不看 label）；漏網 `notBear` 改為「非利空且非規則類」。§0-5、§10.4、§10A.1／10A.2／10A.7／10A.8 改寫；測試含端到端（新聞管線判定 → 寫入端 → 停損收緊與戰情）。
+- **R4**：⑧「疑似出貨警示」結尾改事實句（`wording.md` §3）。
+- **R8**：ETF／興櫃日 K 由 daemon 盤前讀本機官方鏡像供給（§2A 改寫：不建 Firestore 歸檔、影子照算並分開統計、fail-closed、live 時未驗證歸檔不發 v1.1 警示）；`lineInputsOf` 加 `checkBreaks`（英文字尾 ETF 照查結構斷點）。
+- **R9**：`firestore.rules` 加 `stopBooks/{uid}`（含 `shadowDays`）本人與管理員唯讀、前端不可寫（未部署）。
+- **R2、R3、R6**：維持現行實作（§15A 標已裁定、§2A 回補列）；**R5、R7**：已裁定、本次不做（§10.1、§14 待辦、§15-9 期限）。
+- **審查修正（2026-10-06）**：① R1 部署先後寫進 §14（web 先部署或與 daemon 重啟同窗；未部署前 daemon 被拉起＝戰情暫時看不到非法律規則類利空）；② 興櫃轉上市櫃：收盤結算見 chipArchive 當日有這檔就改走 chipArchive（原本永遠沿用興櫃舊日 K）；③ 鏡像代號的收盤補判與事件結算移到下一交易日盤前（`mirrorSettle`，原本觸及事件永遠不結算、不補判；紀律彙總補鏡像前收）；④ 戰情 `bookStopOf` 與 daemon 共用 `legacyCodeActive`，停損簿文件帶 `verifiedArchives`（§2A）。

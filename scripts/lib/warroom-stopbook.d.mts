@@ -9,6 +9,8 @@ export interface StopBookView {
   dataDate: string | null;
   updatedAt: number | null;
   positions: Readonly<Record<string, Partial<StopBookPosition> & Record<string, unknown>>>;
+  /** daemon 寫的已驗證官方鏡像歸檔種類（＝STOP_VERIFIED_ARCHIVES）；缺＝空＝都還沒驗證（bookStopOf 的 legacy 判斷用） */
+  verifiedArchives: ReadonlyArray<'etf' | 'emerging'>;
 }
 
 export function parseStopBookDoc(raw: unknown): StopBookView | null;
@@ -18,7 +20,7 @@ export function sameLots(a: unknown, b: unknown): boolean;
 /** 沒有資料日，或資料日早於前一交易日 */
 export function stopBookStale(book: StopBookView | null | undefined, prevYmd: string | null | undefined): boolean;
 
-/** book＝停損簿這一版；bookCalc＝帶停損簿原料暫算（待 daemon 確認）；legacy＝noOfficialBars 沿用現行推播口徑 */
+/** book＝停損簿這一版；bookCalc＝帶停損簿原料暫算（待 daemon 確認）；legacy＝legacyCodeActive（noOfficialBars 或歸檔未驗證）沿用現行推播口徑 */
 export type BookStopMode = 'book' | 'bookCalc' | 'legacy';
 export type BookCalcWhy = 'missing' | 'stale' | 'lots' | 'invalid';
 export function bookStopOf(position: Position, opts: {

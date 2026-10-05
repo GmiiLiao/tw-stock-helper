@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AI 停損規範 stop-v1.1 共用純函式·daemon 整合（S3 影子期起用；寫 stopBooks/{uid} 前的所有決定都在這裡，daemon 只做讀寫）：
-//   legacyBranchActive（舊分支互斥與回滾）、planBookRefresh（08:46 盤前／盤中持股變動／非交易日）、planUserStopTick（alertLoop 每輪）、
+//   legacyBranchActive／legacyCodeActive（舊分支互斥與回滾；前端 bookStopOf 共用後者）、planBookRefresh（08:46 盤前／盤中持股變動／非交易日）、planUserStopTick（alertLoop 每輪）、
 //   planCloseSettle（16:45 起資料到齊班車：補判→事件結算→新組成線版本→延後的事件收緊）、planDisciplineDigest（每人每日一則紀律彙總）、
 //   mergeAlertsKeepUnacked（alerts 文件 40 則上限時優先保留未收到的一級）。
 // 規範 SKILL §3–§10A、§11、§14；實作計畫 warroom/stoploss/v1.1/impl-plan.md §2。
@@ -29,14 +29,41 @@ function stableJson(v) {
 const sameDoc = (doc, bp) => isObj(bp) && Object.keys(doc).every(k => stableJson(doc[k]) === stableJson(bp[k]));
 
 /**
+ * 組成線原料由 daemon 盤前讀本機官方鏡像供給（ETF／興櫃；使用者 2026-10-06 R8）而且該歸檔種類**還沒**通過驗證（SKILL §2A 閘門＋使用者核可）
+ * ⇒ 回種類（'etf'｜'emerging'），否則 null。verifiedArchives：已驗證的種類（Set 或陣列；預設空＝都還沒驗證）。
+ */
+export function unverifiedArchiveOf(lineInputs, verifiedArchives = []) {
+  const a = isObj(lineInputs) ? lineInputs.archive : null;
+  if (a !== 'etf' && a !== 'emerging') return null;
+  const v = verifiedArchives instanceof Set ? verifiedArchives : new Set(Array.isArray(verifiedArchives) ? verifiedArchives : []);
+  return v.has(a) ? null : a;
+}
+
+/**
+ * live 時不發 v1.1 警示的代號：組成線來自尚未驗證的官方鏡像歸檔（unverifiedArchiveOf）——舊分支照跑（legacyBranchActive 為真），
+ * v1.1 照算、照寫停損簿（影子期閘門 ⑥「照 v1.1 算這類代號並分開統計」），但不產生任何推播或二級文件（避免同一檔兩套警示）。
+ */
+const mutedAtLive = (book, lineInputs, verifiedArchives) => isObj(book) && book.phase === 'live' && unverifiedArchiveOf(lineInputs, verifiedArchives) != null;
+
+/**
+ * 停損簿的一檔是否留在第一階段口徑（不論 phase）：noOfficialBars（ETF／興櫃官方日 K 歸檔驗證前，A3 裁定）、或組成線來自尚未驗證的
+ * 官方鏡像歸檔（verifiedArchives 不含它的種類；R8）⇒ true。daemon（legacyBranchActive）與戰情前端（warroom-stopbook.bookStopOf）
+ * 共用這一支，前端的 verifiedArchives 讀停損簿文件裡 daemon 寫的同一份（2026-10-06 審查：兩邊口徑不一會出現兩個停損數字）。
+ */
+export function legacyCodeActive(bp, { verifiedArchives = [] } = {}) {
+  if (!isObj(bp)) return false;
+  return bp.noOfficialBars === true || unverifiedArchiveOf(bp.lineInputs, verifiedArchives) != null;
+}
+
+/**
  * 舊分支（第一階段口徑：舊停損推播、舊紀律、舊 trailing、舊崩盤防禦）要不要照跑：
  * 停損簿不存在、phase 不是 'live'、specVersion 不是本版 ⇒ true（回滾：把 phase 改回 'shadow' 立即恢復）；
- * 有傳 code 且停損簿該檔 noOfficialBars（ETF／興櫃官方日 K 歸檔驗證前，A3 裁定）⇒ true。
+ * 有傳 code 且該檔 legacyCodeActive（noOfficialBars，或組成線來自尚未驗證的官方鏡像歸檔；R8）⇒ true。
  */
-export function legacyBranchActive(book, code) {
+export function legacyBranchActive(book, code, { verifiedArchives = [] } = {}) {
   if (!isObj(book) || book.phase !== 'live' || book.specVersion !== STOP_SPEC_VERSION) return true;
   if (code == null) return false;
-  return isObj(book.positions?.[code]) && book.positions[code].noOfficialBars === true;
+  return legacyCodeActive(book.positions?.[code], { verifiedArchives });
 }
 
 /** alerts 文件寫入：新的在前、同 id 只留一則；超過上限時優先保留尚未收到的一級（requireAck 且沒有 ack），其餘依新舊 */
@@ -142,10 +169,11 @@ function newExEvents(ex, prevApplied, nowApplied) {
 export function planBookRefresh(input) {
   const {
     holdings, book = null, exTables = {}, lastPrices = {}, lineInputs = {}, newsEvents = [], refCloses = {}, refYmds = {},
-    when, latestCanonicalYmd = null, nowMs, tradeDate, isTradingDay, exState = {}, names = {}, resetEpisodes = false,
+    when, latestCanonicalYmd = null, nowMs, tradeDate, isTradingDay, exState = {}, names = {}, resetEpisodes = false, verifiedArchives = [],
   } = input ?? {};
   const positions = aggregatePositions(holdings);
   const bookPatch = {}, docOnlyAlerts = [], eventRecords = [];
+  const muted = new Set();
   const held = new Set(positions.map(p => p.code));
   for (const code of Object.keys(book?.positions ?? {})) if (!held.has(code)) bookPatch[code] = null;
   for (const position of positions) {
@@ -154,6 +182,7 @@ export function planBookRefresh(input) {
     const bp = book?.positions?.[code] ?? null;
     const isEtf = isEtfCode(code);
     const li = has(lineInputs, code) ? lineInputs[code] : (bp?.lineInputs ?? null);
+    if (mutedAtLive(book, li, verifiedArchives)) muted.add(code);
     const ex = exTables[code] ?? bp?.ex ?? EMPTY_EX_TABLE;
     const prev = prevStateOf(bp);
     const common = { position, ex, prev, lines: li, latestCanonicalYmd, lastPrice: lastPrices[code] ?? null, nowMs, tradeDate, isEtf };
@@ -197,7 +226,7 @@ export function planBookRefresh(input) {
       docOnlyAlerts.push(stopInfo(code, name, 'exUnknown', tradeDate, stopFactText('exUnknown', { coverFrom: ex?.coverFrom }), nowMs));
     }
   }
-  return { bookPatch, docOnlyAlerts, eventRecords };
+  return { bookPatch, docOnlyAlerts: muted.size ? docOnlyAlerts.filter(a => !muted.has(a.code)) : docOnlyAlerts, eventRecords };
 }
 
 const M = (h, m) => h * 60 + m;
@@ -247,17 +276,20 @@ function resFromBook(bp) {
 /**
  * alertLoop 每一輪（盤中；SKILL §4、§8.1–§8.3、§10A.4 盤中趟）。持股與停損簿逐筆比對、套用盤中趟事件收緊、觸及判定、觸及事件推進。
  * 停損簿標 noOfficialBars 的代號（ETF／興櫃歸檔驗證前）不判定、不寫 episode——由舊分支照跑（SKILL §2、A3）。
+ * 組成線來自尚未驗證的官方鏡像歸檔（lineInputs.archive；R8）：影子期照常判定（閘門 ⑥）；live 時照算、寫停損簿，但不發任何 v1.1 警示
+ * （舊分支照跑；verifiedArchives 含該種類後才發）。
  * 回 { pushAlerts（一級 type:'stop'，帶 id、requireAck、touchBasis、stopSource、sourceDate、pnlPct）, docOnlyAlerts（二級 stopInfo）,
  *     bookPatch（有變動的代號）, dedupKeys, suppressOtherTypes（本輪觸及的代號 ⇒ 跳過 take／reentry）, nextEpisodeId, eventRecords }
  */
 export function planUserStopTick(input) {
   const {
     uid, holdings, book = null, quotes = {}, nowMs, openMs, todayYmd, tradingDay = true, dispositionCodes,
-    exState = {}, refPrices = {}, intradayEvents = [], dedupHas = () => false, isTradingDay, latestCanonicalYmd, names = {},
+    exState = {}, refPrices = {}, intradayEvents = [], dedupHas = () => false, isTradingDay, latestCanonicalYmd, names = {}, verifiedArchives = [],
   } = input ?? {};
   const disp = dispositionCodes instanceof Set ? dispositionCodes : new Set(Array.isArray(dispositionCodes) ? dispositionCodes : []);
   const positions = aggregatePositions(holdings);
   const pushAlerts = [], docOnlyAlerts = [], dedupKeys = [], eventRecords = [], seededCodes = [];
+  const muted = new Set();
   const bookPatch = {};
   const suppressOtherTypes = new Set();
   let nextId = Number.isInteger(book?.nextEpisodeId) && book.nextEpisodeId > 0 ? book.nextEpisodeId : 1;
@@ -270,6 +302,8 @@ export function planUserStopTick(input) {
     const q = quotes[code] ?? null;
     const ex = bp?.ex ?? EMPTY_EX_TABLE;
     const li = bp?.lineInputs ?? null;
+    const mute = mutedAtLive(book, li, verifiedArchives);
+    if (mute) muted.add(code);
     const disposition = disp.has(code);
     const before = Array.isArray(bp?.events) ? bp.events : [];
     let overlays = before;
@@ -304,9 +338,11 @@ export function planUserStopTick(input) {
     });
     if (adv.isNew) nextId += 1;
     episode = adv.episode;
-    if (adv.isNew && episode?.seeded) seededCodes.push(`${code} ${name}`.trim());
-    if (touch.status === 'touched') suppressOtherTypes.add(code);
-    if (adv.sendLevel1) {
+    if (adv.isNew && episode?.seeded && !mute) seededCodes.push(`${code} ${name}`.trim());
+    if (touch.status === 'touched' && !mute) suppressOtherTypes.add(code);
+    if (mute) {
+      // 尚未驗證的官方鏡像歸檔（R8）：live 時舊分支照跑，這裡只更新停損簿、不發 v1.1 警示
+    } else if (adv.sendLevel1) {
       const { alert, dedupKey } = level1Alert({ uid, code, name, res, touch, episode, quote: q, overlays, isEtf, nowMs });
       if (!dedupHas(dedupKey)) { pushAlerts.push(alert); dedupKeys.push(dedupKey); }
     } else if (adv.isNew && touch.status === 'touched' && touch.hold === 'exUnconfirmed') {
@@ -327,7 +363,10 @@ export function planUserStopTick(input) {
   if (seededCodes.length) {
     docOnlyAlerts.push({ ...stopInfo('', '', 'seeded', todayYmd, stopFactText('seededDigest', { codes: seededCodes }), nowMs), id: `stopInfo:seeded:${todayYmd}` });
   }
-  return { pushAlerts, docOnlyAlerts, bookPatch, dedupKeys, suppressOtherTypes, nextEpisodeId: nextId, eventRecords };
+  return {
+    pushAlerts, docOnlyAlerts: muted.size ? docOnlyAlerts.filter(a => !muted.has(a.code)) : docOnlyAlerts,
+    bookPatch, dedupKeys, suppressOtherTypes, nextEpisodeId: nextId, eventRecords,
+  };
 }
 
 /**
@@ -335,22 +374,30 @@ export function planUserStopTick(input) {
  *   ① 以「當天盤中適用的停損」跑收盤後補判 evaluateLateTouch（今日沒有觸及事件、不是 setToday 才補判；發一級 sub 'late'）與 settleEpisode；
  *   ② 以今日官方日 K 算出的 lineInputs 產生隔日起適用的版本（resolveStop；lineRaise／exAdjust…；版本日＝今日資料日）；
  *   ③ 延後的事件收緊以今日官方收盤重算，次一交易日生效。事件**到期不在這裡**處理（只在 planBookRefresh premarket）。
- * official：{ [code]: { open, high, low, close } }（今日定版官方日 K）。回 { pushAlerts, docOnlyAlerts, bookPatch, dedupKeys, missedLive, nextEpisodeId, eventRecords }
+ * official：{ [code]: { open, high, low, close, noLimit? } }（今日定版官方日 K；noLimit＝沒有漲跌幅限制，興櫃）。
+ * codes：只處理這些代號（其餘停損簿部位不動、不出現在 bookPatch）；null＝全部。daemon 收盤結算以此排除本機官方鏡像供給的 ETF／興櫃
+ *   （當日鏡像 22:40 才有），改在下一交易日盤前以鏡像的前一交易日日 K 對這些代號補跑同一支（stop-shadow-runner mirrorSettle；R8）。
+ * 回 { pushAlerts, docOnlyAlerts, bookPatch, dedupKeys, missedLive, nextEpisodeId, eventRecords }
  */
 export function planCloseSettle(input) {
   const {
     uid, holdings, book = null, official = {}, lineInputs = {}, dateYmd, openMs, isTradingDay, exState = {}, refPrices = {},
-    dedupHas = () => false, nowMs, names = {},
+    dedupHas = () => false, nowMs, names = {}, verifiedArchives = [], codes = null,
   } = input ?? {};
+  const only = codes == null ? null : new Set(codes instanceof Set ? codes : Array.isArray(codes) ? codes : []);
   const positions = aggregatePositions(holdings);
   const pushAlerts = [], docOnlyAlerts = [], dedupKeys = [], missedLive = [], eventRecords = [];
+  const muted = new Set();
   const bookPatch = {};
   let nextId = Number.isInteger(book?.nextEpisodeId) && book.nextEpisodeId > 0 ? book.nextEpisodeId : 1;
   for (const position of positions) {
     const code = position.code;
+    if (only && !only.has(code)) continue;
     const bp = book?.positions?.[code] ?? null;
     const li = has(lineInputs, code) ? lineInputs[code] : (bp?.lineInputs ?? null);
     if (bp?.noOfficialBars === true && li?.noOfficialBars !== false) continue;
+    const mute = mutedAtLive(book, li, verifiedArchives);
+    if (mute) muted.add(code);
     const name = position.name || names[code] || '';
     const isEtf = isEtfCode(code);
     const o = official[code] ?? null;
@@ -364,12 +411,12 @@ export function planCloseSettle(input) {
         stop: bp.stop, officialOpen: o.open, officialLow: o.low, dateYmd, hadEpisodeToday,
         setToday: isSetToday({ tradeDate: bp.tradeDate, startedAt: bp.startedAt }, dateYmd, openMs),
         exPending: !!exS.pending, exUnconfirmed: !!exS.unconfirmed, exUnknown: !!bp.exUnknown, suspect: !!bp.suspect,
-        isEtf, refPrice: refPrices[code] ?? null,
+        isEtf, refPrice: refPrices[code] ?? null, noLimit: o.noLimit === true,
       });
       const adv = advanceEpisode(episode, { touch: late, stopVersion: bp.stopVersion, versionReason: null, todayYmd: dateYmd, nowMs, nextId, stopSource: bp.stopSource });
       if (adv.isNew) { nextId += 1; if (late.status === 'touched') missedLive.push(code); }
       episode = adv.episode;
-      if (adv.sendLevel1) {
+      if (adv.sendLevel1 && !mute) {
         const { alert, dedupKey } = level1Alert({
           uid, code, name, res: resFromBook(bp), touch: late, episode, quote: null, overlays: bp.events ?? [], isEtf, nowMs, officialClose: o.close,
         });
@@ -399,22 +446,25 @@ export function planCloseSettle(input) {
       ex, lineInputs: li, overlays, seen, episode, ticked: bp?.ticked, legacy: bp?.legacy ?? null, exPending: exS.pending, exUnconfirmed: exS.unconfirmed,
     });
   }
-  return { pushAlerts, docOnlyAlerts, bookPatch, dedupKeys, missedLive, nextEpisodeId: nextId, eventRecords };
+  return {
+    pushAlerts, docOnlyAlerts: muted.size ? docOnlyAlerts.filter(a => !muted.has(a.code)) : docOnlyAlerts,
+    bookPatch, dedupKeys, missedLive, nextEpisodeId: nextId, eventRecords,
+  };
 }
 
 /**
  * 停損紀律彙總（第 7 項裁定：保留每日推播與「請面對決策」；SKILL §8.4）：每個交易日 09:00 後第一輪、前一交易日官方收盤已定版時跑一次。
  * 事件第 2 個交易日起、前一交易日官方收盤 ≤ 停損的代號組成**一則** type:'discipline'（照現行推播，不加 requireAck）。去重鍵 `${uid}:digest`。
- * prevCloses：前一交易日官方收盤。停損簿標 noOfficialBars 的代號留在舊紀律分支，不列入。
+ * prevCloses：前一交易日官方收盤。停損簿標 noOfficialBars 的代號、live 時組成線來自尚未驗證官方鏡像歸檔的代號（R8）留在舊紀律分支，不列入。
  */
 export function planDisciplineDigest(input) {
-  const { uid, book = null, holdings, prevCloses = {}, todayYmd, isTradingDay, dedupHas = () => false, nowMs = 0, names = {} } = input ?? {};
+  const { uid, book = null, holdings, prevCloses = {}, todayYmd, isTradingDay, dedupHas = () => false, nowMs = 0, names = {}, verifiedArchives = [] } = input ?? {};
   const dedupKey = `${uid}:digest`;
   if (dedupHas(dedupKey)) return { alert: null, dedupKey: null };
   const items = [];
   for (const p of aggregatePositions(holdings)) {
     const bp = book?.positions?.[p.code];
-    if (!isObj(bp) || bp.noOfficialBars === true || !bp.episode) continue;
+    if (!isObj(bp) || bp.noOfficialBars === true || !bp.episode || mutedAtLive(book, bp.lineInputs, verifiedArchives)) continue;
     const n = disciplineDay(bp.episode, todayYmd, prevCloses[p.code], bp.stop, isTradingDay);
     if (n == null) continue;
     items.push({

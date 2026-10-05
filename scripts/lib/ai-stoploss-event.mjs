@@ -67,8 +67,9 @@ function parseVerdicts(doc) {
 
 /**
  * newsVerdict/latest → 合格的規則類利空事件（每檔最多一件）。條件：
- *   B 判別屬於今日適用交易日、非承接、判讀時間 ≥ minAtMs（上一交易日 13:30）；C label＝利空且 AI 讀過內文；
- *   D 走過四角色挑戰；E 類別由程式規則覆寫決定（ruleClass／ruleOverride／「【規則】」前綴），而且在 ctx.classes 內（有傳時）。
+ *   B 判別屬於今日適用交易日、非承接、判讀時間 ≥ minAtMs（上一交易日 13:30）；C 規則類利空（ruleClassOf：ruleClass＋該類事實題答「是」，
+ *   舊資料 C16a 認 ruleOverride／「【規則】」前綴；**不看 label**——非法律類別 daemon 不覆寫 label，2026-10-06 R1）且 AI 讀過內文；
+ *   D 走過四角色挑戰；E 類別在 ctx.classes 內（有傳時）。
  * **不看** w、強度、信心（它們只寫進 research）。B–D 與戰情 majorBearOf 同一套（isCurrentEntry）。
  * 回傳依代號排序：{ code, cls, clsKey, label, sub, key:`${code}:${cls}`, pass, at, targetDate, weight, weightSource, tier, research }
  */
@@ -305,8 +306,9 @@ export function missShadowRows({ universe, barsByCode, newsDoc, dateYmd, applica
     if (!board || !raw) reason = 'noDoc';
     else if (nctx?.fresh !== 'today') reason = 'docMismatch';
     else if (!isObj(v)) reason = 'noVerdict';
-    // 規則判定「是」時 daemon 已把 label 覆寫為利空（§10A.2-3）；label 不是利空＝§10A.1-C 沒過（與 ruleClassOf／ruleBearEvents 同口徑）
-    else if (v.label !== '利空') reason = 'notBear';
+    // 不是利空、也不是規則類利空（ruleClassOf 不看 label：非法律類別 daemon 不覆寫 label，2026-10-06 R1）＝§10A.1-C 沒過
+    //   （與 ruleBearEvents 同口徑：規則欄位答「是」的判別不論 label 都往下判）
+    else if (v.label !== '利空' && !ruleClassOf(v)) reason = 'notBear';
     else if (!ruleRead(v)) reason = 'notRead';
     else if (entry?.cr) reason = 'carried';
     else if (entry?.ch !== true) reason = 'notChallenged';

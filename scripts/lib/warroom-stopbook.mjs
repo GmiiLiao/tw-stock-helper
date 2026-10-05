@@ -8,14 +8,15 @@
 //       'book'     逐筆快照與目前持股一致、資料日沒過期（≥ 前一交易日）⇒ 直接用停損簿這一版（與推播同一口徑）
 //       'bookCalc' 不一致、過期、停損簿沒有這檔或這檔資料不完整 ⇒ 同一支 resolveStop 帶停損簿的 prev／ex／lineInputs／
 //                  期限內事件收緊暫算（棘輪一樣生效），標「暫算·待 daemon 確認」（SKILL §3.6）
-//       'legacy'   該檔 noOfficialBars（5～6 碼與英文字尾 ETF、興櫃在官方日 K 歸檔驗證前，第二輪 A3）⇒ 第一階段口徑
-//                  legacyPushStop（有持股分析 ATR 帶就用，否則成本 −8%），標「沿用現行推播口徑」
+//       'legacy'   該檔留在第一階段口徑（legacyCodeActive：noOfficialBars，或組成線來自尚未驗證的官方鏡像歸檔——5～6 碼與英文字尾
+//                  ETF、興櫃在官方日 K 歸檔驗證前，第二輪 A3、R8；verifiedArchives 讀停損簿文件裡 daemon 寫的同一份，與 daemon
+//                  legacyBranchActive 同口徑）⇒ legacyPushStop（有持股分析 ATR 帶就用，否則成本 −8%），標「沿用現行推播口徑」
 // 停損簿由 daemon 以 Admin SDK 單一寫入、規則只開放本人與管理員讀；這裡的檢查是防資料形狀錯誤（缺就退回暫算，不捏造）。
 // 規則：純函式——不 import firebase、不讀時鐘（時間一律由參數傳入），回傳新物件、不改輸入。非投資建議。
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   STOP_SPEC_VERSION, STOP_PARAMS, EMPTY_EX_TABLE, isEtfCode, onTick, resolveStop, activeOverlays, prevStateOf,
-  legacyBranchActive, legacyPushStop, stopSourceLabel, mmddText,
+  legacyBranchActive, legacyCodeActive, legacyPushStop, stopSourceLabel, mmddText,
 } from './ai-stoploss.mjs';
 
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
@@ -27,9 +28,11 @@ const CODE_RE = /^\d{4,6}[A-Z]?$/;
 const SOURCES = new Set(['cost', 'atrBand', 'breakeven', 'trail', 'event']);
 const srcOr = v => (SOURCES.has(v) ? v : null);
 const ymdOr = v => (typeof v === 'string' && YMD_RE.test(v) ? v : null);
+const ARCHIVES = new Set(['etf', 'emerging']);
 
 /**
- * stopBooks/{uid} 讀回（不信任形狀）：phase 只收 'shadow'／'live'；positions 只留代號合法、值是物件的列。
+ * stopBooks/{uid} 讀回（不信任形狀）：phase 只收 'shadow'／'live'；positions 只留代號合法、值是物件的列；
+ * verifiedArchives 只收 'etf'／'emerging'（daemon 寫的已驗證官方鏡像歸檔種類；缺＝空＝都還沒驗證，fail-closed）。
  * 不合格回 null（＝沒有停損簿，前端暫算）。
  */
 export function parseStopBookDoc(raw) {
@@ -38,9 +41,10 @@ export function parseStopBookDoc(raw) {
   if (isObj(raw.positions)) {
     for (const [code, bp] of Object.entries(raw.positions)) if (CODE_RE.test(code) && isObj(bp)) positions[code] = bp;
   }
+  const verifiedArchives = [...new Set(Array.isArray(raw.verifiedArchives) ? raw.verifiedArchives.filter(a => ARCHIVES.has(a)) : [])].sort();
   return {
     phase: raw.phase, specVersion: raw.specVersion, dataDate: ymdOr(raw.dataDate),
-    updatedAt: isPos(raw.updatedAt) ? raw.updatedAt : null, positions,
+    updatedAt: isPos(raw.updatedAt) ? raw.updatedAt : null, positions, verifiedArchives,
   };
 }
 
@@ -94,7 +98,7 @@ function resFromBook(bp, lastPrice) {
   };
 }
 
-/** 第一階段口徑（noOfficialBars 的代號；A3 歸檔驗證前）：legacyPushStop＝有持股分析 ATR 帶就用，否則成本 −8% */
+/** 第一階段口徑（legacyCodeActive 的代號；A3、R8 歸檔驗證前）：legacyPushStop＝有持股分析 ATR 帶就用，否則成本 −8% */
 function legacyRes(position, ratingBand, lastPrice) {
   const avg = position?.avgCost;
   const lp = legacyPushStop(avg, ratingBand);
@@ -122,7 +126,8 @@ export function bookStopOf(position, opts = {}) {
   const code = position?.code;
   const bp = isObj(book?.positions) && isObj(book.positions[code]) ? book.positions[code] : null;
   const isEtf = isEtfCode(code);
-  if (bp && bp.noOfficialBars === true) return { mode: 'legacy', res: legacyRes(position, ratingBand, lastPrice), bp, why: null };
+  // 與 daemon legacyBranchActive 同一支判斷（R8 鏡像歸檔驗證前的代號也留在第一階段口徑；2026-10-06 審查）
+  if (bp && legacyCodeActive(bp, { verifiedArchives: book?.verifiedArchives })) return { mode: 'legacy', res: legacyRes(position, ratingBand, lastPrice), bp, why: null };
   const stale = stopBookStale(book, prevYmd);
   const match = !!bp && sameLots(bp.lots, position?.lots);
   const valid = !!bp && isPos(bp.stop) && onTick(bp.stop, isEtf) && Number.isInteger(bp.stopVersion);

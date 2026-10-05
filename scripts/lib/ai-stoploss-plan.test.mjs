@@ -62,6 +62,76 @@ test('J14 ETF／興櫃官方日 K 歸檔驗證前（noOfficialBars）：live 時
   assert.ok(!('00878' in t.bookPatch));
 });
 
+test('J14b（2026-10-06 R8）組成線由本機官方鏡像供給（lineInputs.archive）但歸檔未驗證：影子期照判定（閘門 ⑥）；live 時舊分支照跑、v1.1 照算但不發任何警示；verifiedArchives 含該種類後才發', () => {
+  const etf = H({ id: 'e', code: '00631L', name: '元大台灣50正2', buyPrice: 40 });
+  const li = { ...LI({ close: 41.5, atr14: 0.8, atrBand: { price: 39, dataDate: '2026-10-02' } }), archive: 'etf' };
+  const r = planBookRefresh({
+    holdings: [etf], book: null, exTables: { '00631L': EX }, lineInputs: { '00631L': li },
+    when: 'premarket', latestCanonicalYmd: '2026-10-02', nowMs: T(8, 46), tradeDate: TODAY, isTradingDay: isTD,
+  });
+  assert.equal(r.bookPatch['00631L'].noOfficialBars, false);
+  assert.equal(r.bookPatch['00631L'].lineInputs.archive, 'etf', 'archive 標記存進停損簿（重啟、S5 都讀得到）');
+  const q = { '00631L': Q({ price: 38.5, low: 38.2, open: 39.5, high: 39.8 }) };
+  // 影子期：照 v1.1 判定（若切換會送的一級記在 wouldPush，供閘門 ⑥ 分開統計）
+  const shadow = bookOf(r.bookPatch, null, { phase: 'shadow' });
+  const ts = tick(shadow, { holdings: [etf], quotes: q, refPrices: { '00631L': 41.5 } });
+  assert.equal(ts.pushAlerts.length, 1);
+  // live、未驗證：舊分支照跑；v1.1 照算、照寫停損簿，但不發推播、二級文件，也不壓舊制的 take／reentry
+  const live = bookOf(r.bookPatch);
+  assert.equal(legacyBranchActive(live, '00631L'), true);
+  assert.equal(legacyBranchActive(live, '00631L', { verifiedArchives: ['etf'] }), false);
+  assert.equal(legacyBranchActive(live, '00631L', { verifiedArchives: new Set(['emerging']) }), true);
+  const tl = tick(live, { holdings: [etf], quotes: q, refPrices: { '00631L': 41.5 } });
+  assert.deepEqual([tl.pushAlerts, tl.dedupKeys, tl.docOnlyAlerts], [[], [], []]);
+  assert.equal(tl.suppressOtherTypes.has('00631L'), false);
+  assert.ok(tl.bookPatch['00631L']?.episode, '停損簿照常更新（影子統計延續）');
+  const tv = tick(live, { holdings: [etf], quotes: q, refPrices: { '00631L': 41.5 }, verifiedArchives: ['etf'] });
+  assert.equal(tv.pushAlerts.length, 1, '驗證並核可後（verifiedArchives 含 etf）才發');
+  // 收盤補判與紀律彙總同口徑
+  const settled = planCloseSettle({
+    uid: 'u1', holdings: [etf], book: live, official: { '00631L': { open: 39.5, high: 39.8, low: 38.2, close: 38.6 } }, lineInputs: {},
+    dateYmd: TODAY, openMs: OPEN, isTradingDay: isTD, nowMs: T(16, 50),
+  });
+  assert.deepEqual([settled.pushAlerts, settled.dedupKeys], [[], []]);
+  const settledV = planCloseSettle({
+    uid: 'u1', holdings: [etf], book: live, official: { '00631L': { open: 39.5, high: 39.8, low: 38.2, close: 38.6 } }, lineInputs: {},
+    dateYmd: TODAY, openMs: OPEN, isTradingDay: isTD, nowMs: T(16, 50), verifiedArchives: ['etf'],
+  });
+  assert.equal(settledV.pushAlerts.length, 1, '同一份停損簿、驗證後收盤補判才發（上一行的空陣列不是空轉）');
+  const ep = { id: 1, firstDate: '2026-10-02', lastDate: '2026-10-02', stopVersion: 1, triggerPx: 38.2, seeded: false, closesBelow: 1 };
+  const withEp = bookOf({ '00631L': { ...live.positions['00631L'], episode: ep } });
+  const dg = planDisciplineDigest({ uid: 'u1', book: withEp, holdings: [etf], prevCloses: { '00631L': 38 }, todayYmd: TODAY, isTradingDay: isTD, nowMs: T(9, 1) });
+  assert.equal(dg.alert, null);
+  const dv = planDisciplineDigest({ uid: 'u1', book: withEp, holdings: [etf], prevCloses: { '00631L': 38 }, todayYmd: TODAY, isTradingDay: isTD, nowMs: T(9, 1), verifiedArchives: ['etf'] });
+  assert.deepEqual(dv.alert?.codes, ['00631L'], '同一份停損簿、驗證後才列入紀律彙總（上一行的 null 不是空轉）');
+});
+
+test('J12b（2026-10-06 審查）planCloseSettle：codes 只處理指定代號（其餘部位不在 bookPatch）；興櫃 noLimit 時跌幅超過 10% 照樣補判、沒有開盤價不判跳空', () => {
+  const emg = H({ id: 'g', code: '7777', name: '興櫃股', buyPrice: 40 });
+  const li = { ...LI({ close: 41.5, atr14: 0.8, atrBand: { price: 39, dataDate: '2026-10-02' } }), archive: 'emerging' };
+  const r0 = planBookRefresh({
+    holdings: [H(), emg], book: null, exTables: { 2330: EX, 7777: EX }, lineInputs: { 2330: LI(), 7777: li },
+    when: 'premarket', latestCanonicalYmd: '2026-10-02', nowMs: T(8, 46), tradeDate: TODAY, isTradingDay: isTD,
+  });
+  const book = bookOf(r0.bookPatch, null, { phase: 'shadow' });
+  assert.equal(book.positions['7777'].stop, 39);
+  // 前收 41.5、今日最低 33（跌約 20%：有漲跌幅限制時是超出跌停的壞值）
+  const settle = official => planCloseSettle({
+    uid: 'u1', holdings: [H(), emg], book, official: { 7777: official }, lineInputs: {}, dateYmd: TODAY, openMs: OPEN, isTradingDay: isTD,
+    refPrices: { 7777: 41.5 }, nowMs: T(16, 50), codes: ['7777'],
+  });
+  const r = settle({ open: null, high: 41, low: 33, close: 34, noLimit: true });
+  assert.deepEqual(Object.keys(r.bookPatch), ['7777'], '2330 不動（不在 codes）');
+  assert.equal(r.pushAlerts.length, 1);
+  assert.deepEqual([r.pushAlerts[0].sub, r.pushAlerts[0].skipPct, r.pushAlerts[0].price], ['late', null, 34], '沒有開盤價不判跳空；損益用官方收盤');
+  assert.equal(r.bookPatch['7777'].episode.closesBelow, 1);
+  const limited = settle({ open: null, high: 41, low: 33, close: 34 });
+  assert.equal(limited.pushAlerts.length, 0, '同一筆最低價在有漲跌幅限制時判為壞值、不補判（上一段不是空轉）');
+  assert.ok('2330' in planCloseSettle({
+    uid: 'u1', holdings: [H(), emg], book, official: {}, lineInputs: {}, dateYmd: TODAY, openMs: OPEN, isTradingDay: isTD, nowMs: T(16, 50),
+  }).bookPatch, '沒傳 codes＝全部（同改動前）');
+});
+
 test('J13／J4 盤前刷新：事件收緊在 08:46 生效（版本不是 setToday）、停損簿含 events 與 lines；盤中持股變動的版本是 setToday', () => {
   const r = refresh({ newsEvents: [EV(), EV({ code: '2317', key: '2317:C16a' })] });
   const p = r.bookPatch['2330'];

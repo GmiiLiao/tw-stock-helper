@@ -233,3 +233,26 @@ test('PRIMARY 有就用 PRIMARY；PRIMARY 缺才用 FALLBACK 並記 problems；�
     assert.deepEqual([g.tailRun, g.pendingTail, g.pass], [2, 1, true]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('R8 daemon 盤前讀本機鏡像（readOfficialBarsAsync）：分段讀、段間讓出事件迴圈；結果與一次讀完相同；to 之後的日子不讀；閘門一併回傳', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ob-'));
+  try {
+    DAYS.forEach((d, i) => {
+      const px = (10 + i * 0.1).toFixed(2);
+      seed(root, 'www.twse.com.tw', 'twse_mi_index', d, mi(d, [miRow('00631L', px, px, px, px, '1,500')]));
+      seed(root, 'www.tpex.org.tw', 'tpex_dailyquotes', d, dq(d, [dqRow('00679B', px, px, px, px, '2,000')]));
+    });
+    let pauses = 0;
+    const to = DAYS[20];
+    const r = await B.readOfficialBarsAsync({ root, kind: 'etf', to, lastN: 15, chunkDays: 4, pause: async () => { pauses += 1; } });
+    const sync = B.readOfficialBars({ root, kind: 'etf', to, lastN: 15 });
+    assert.deepEqual(r.barsByCode, sync.barsByCode);
+    assert.deepEqual(r.days, sync.days);
+    assert.equal(pauses, 3, '15 天、每段 4 天 ⇒ 4 段、段間讓出 3 次');
+    assert.equal(r.barsByCode['00631L'].at(-1).date, to, 'to 之後的日子不讀');
+    assert.deepEqual([r.gates.tailRun, r.gates.lastDate, r.gates.pass], [15, to, false], '連續 15 日 <20 ⇒ 閘門未過（呼叫端 fail-closed）');
+    const full = await B.readOfficialBarsAsync({ root, kind: 'etf', to: DAYS[21], lastN: 80 });
+    assert.deepEqual([full.gates.tailRun, full.gates.pass], [22, true]);
+    await assert.rejects(B.readOfficialBarsAsync({ root, kind: 'nope' }), /未知的歸檔種類/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

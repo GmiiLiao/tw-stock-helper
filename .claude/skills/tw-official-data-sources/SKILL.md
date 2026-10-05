@@ -400,6 +400,7 @@ wiki 每筆事實都帶來源等級，由高到低是：官方 > 官方衍生 > 
   MIS 一律不打；回補時 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）。
 - **研究快取轉存**：`migrate`（0 請求）把 `.surge-cache/official/*` 與 MOPS t163sb04 搬進鏡像；`backfill` 開頭自動先跑一次。
 - **ETF／興櫃官方日 K（AI 停損 A3，2026-10-05）**：`scripts/lib/official-bars.mjs` 只讀鏡像（0 請求）組 chipArchive 同格式日 K；`node scripts/official-bars.mjs status|factors` 看覆蓋、閘門與係數涵蓋。
+  2026-10-06 R8（使用者「ok 如建議」）：daemon 停損影子在**盤前刷新**直接讀本機鏡像（`readOfficialBarsAsync`，分段讀、0 次 Firestore 讀寫、0 上游請求），不建 Firestore 歸檔；讀不到或閘門 ①②③ 沒過 ⇒ fail-closed（停損規範 §2A）。
   興櫃每日快照主要在 `daily` 22:40 抓；`retry`（隔日 06:45）在最後一個已確認交易日兩個來源（www `tpex_emerging_latest`、openapi `tpex_oa_tpex_esb_latest_statistics`）都缺時補抓一次（≤2 個請求，回聲日定鍵），
   近 N 個已確認交易日兩個來源都沒有 ⇒ 寫進 `_alerts`（更早的日子已無法補抓，只能揭露；2026-10-05 審查）。`backfill` 不做快照。
   已安裝的 daily 若仍是 22:15（落在 daemon 21:40–22:35 窗，整批略過），平日的興櫃當日行情會缺——要重跑 `scripts/install-official-mirror-schedule.sh`（使用者本人執行）。

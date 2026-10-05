@@ -45,7 +45,15 @@ test('N1 規則類＋挑戰過＋當日 ⇒ 成立；承接、前一日、早於
   for (const d of none) assert.deepEqual(ruleBearEvents(d, CTX), [], JSON.stringify(d)?.slice(0, 120));
   // E 引用強制未過：規則類比照法律放行（AI 只認定事實）
   assert.equal(ruleBearEvents(docOf({ 3037: V({ gate: GATE_E }) }), CTX).length, 1);
-  assert.equal(ruleBearEvents(docOf({ 2317: V({ ruleClass: 'C17', reason: '【規則·工安停工】廠區火災', gate: GATE_E }) }), CTX).length, 1);
+  // 非法律類別（2026-10-06 R1）：事實答「是」只記規則欄位、label 維持 AI 原判（此例引用強制未過 ⇒ 中性）——不看 label 照樣成立
+  assert.equal(ruleBearEvents(docOf({ 2317: V({ label: '中性', ruleClass: 'C17', ruleFacts: { C17: 'yes' }, reason: '引用強制未過：無法從原文逐字引出支撐此判別的句子', gate: GATE_E }) }), CTX).length, 1);
+  for (const label of ['中性', '利多', '利空']) {
+    const evs = ruleBearEvents(docOf({ 2317: V({ label, ruleClass: 'C22', ruleFacts: { C22: 'yes' }, reason: 'AI 理由' }) }), CTX);
+    assert.deepEqual(evs.map(e => [e.code, e.cls, e.tier]), [['2317', 'C22', 'strong']], label);
+  }
+  // ruleClass 但事實沒答「是」⇒ 不成立
+  assert.deepEqual(ruleBearEvents(docOf({ 2317: V({ label: '中性', ruleClass: 'C22', ruleFacts: { C22: 'no' }, reason: 'AI 理由' }) }), CTX), []);
+  assert.deepEqual(ruleBearEvents(docOf({ 2317: V({ ruleClass: 'C22', reason: 'AI 理由' }) }), CTX), []);
   // classes 過濾（關閉收緊的回退路徑）
   assert.deepEqual(ruleBearEvents(docOf({ 3037: V() }), { ...CTX, classes: [] }), []);
 });
@@ -236,7 +244,7 @@ test('N10 漏網紀錄：收盤 ≤ 前收 −2 ATR 或收在跌停、當日沒�
   const doc = { date: day, targetDate: day, updatedAt: 1, verdictJson: JSON.stringify({
     1101: V({ reason: '公司遭搜索，負責人被約談', eventType: '法律' }),
     1102: V({ label: '中性', reason: '影響有限' }),
-    1103: V({ ruleClass: 'C20b', reason: '【規則·信評調降】中華信評調降展望' }),
+    1103: V({ label: '中性', ruleClass: 'C20b', ruleFacts: { C20b: 'yes' }, reason: '中華信評調降展望，影響有限' }),   // R1：label 維持 AI 原判
     1104: V({ reason: '一般利空', eventType: '訂單', keyQuote: '訂單減少' }),
   }) };
   const rows = missShadowRows({
@@ -255,27 +263,31 @@ test('N10 漏網紀錄：收盤 ≤ 前收 −2 ATR 或收在跌停、當日沒�
   for (const r of rows) assert.ok('research' in r && 'dropPct' in r && 'atr14' in r);
 });
 
-test('N10b 漏網原因與 ruleBearEvents 同一口徑（2026-10-05 審查）：規則類利空沒挑戰 ⇒ notChallenged；label 不是利空的 ruleClass（覆寫前的過渡資料）⇒ 兩邊都不算', () => {
+test('N10b 漏網原因與 ruleBearEvents 同一口徑（2026-10-05 審查；2026-10-06 R1 不看 label）：規則類利空沒挑戰 ⇒ notChallenged；事實沒答「是」的 ruleClass ⇒ 兩邊都不算', () => {
   const pre = Array.from({ length: 20 }, () => [100, 101, 99, 100]);
   const bars = barsFrom('2026-09-07', [...pre, [100, 100, 90, 90]]);
   const day = bars[20].date;
   const verdicts = {
-    2317: V({ ruleClass: 'C17', reason: '【規則·工安停工】本公司工安／停工事件，依規則視為利空（AI 原判中性：…）', challenged: false }),
+    // 非法律類別：事實答「是」、label 維持 AI 原判中性（R1）
+    2317: V({ label: '中性', ruleClass: 'C17', ruleFacts: { C17: 'yes' }, reason: '公司說明產線已恢復', challenged: false }),
     2330: V({ label: '中性', ruleClass: 'C17', reason: '公司說明產線已恢復', challenged: false }),
-    2454: V({ label: '中性', ruleClass: 'C17', reason: '公司說明產線已恢復' }),
+    2454: V({ label: '中性', ruleClass: 'C17', ruleFacts: { C17: 'no' }, reason: '公司說明產線已恢復' }),
+    2603: V({ label: '中性', ruleClass: 'C17', ruleFacts: { C17: 'yes' }, reason: '公司說明產線已恢復' }),
   };
   const doc = { date: day, targetDate: day, updatedAt: 1, verdictJson: JSON.stringify(verdicts) };
   const rows = missShadowRows({
-    universe: ['2317', '2330', '2454'], newsDoc: doc, dateYmd: day, applicableYmd: day,
-    barsByCode: { 2317: bars, 2330: bars, 2454: bars }, eventCodes: [],
+    universe: ['2317', '2330', '2454', '2603'], newsDoc: doc, dateYmd: day, applicableYmd: day,
+    barsByCode: { 2317: bars, 2330: bars, 2454: bars, 2603: bars }, eventCodes: [],
   });
   const by = Object.fromEntries(rows.map(r => [r.code, r]));
   assert.equal(by['2317'].reason, 'notChallenged');
   assert.equal(by['2317'].ruleClass, 'C17');
+  assert.equal(by['2317'].label, '中性');
   assert.equal(by['2330'].reason, 'notBear');
   assert.equal(by['2454'].reason, 'notBear');
-  // 同一份判別表：ruleBearEvents 也不收 2330／2454（§10A.1-C label＝利空），2317 因沒挑戰不收——兩份紀錄口徑一致
-  assert.deepEqual(ruleBearEvents(doc, { applicableYmd: day, minAtMs: null }).map(e => e.code), []);
+  assert.equal(by['2603'].reason, 'qualified');
+  // 同一份判別表：ruleBearEvents 收 2603（不看 label）、不收 2330／2454（事實沒答是），2317 因沒挑戰不收——兩份紀錄口徑一致
+  assert.deepEqual(ruleBearEvents(doc, { applicableYmd: day, minAtMs: null }).map(e => e.code), ['2603']);
   const okDoc = { ...doc, verdictJson: JSON.stringify({ ...verdicts, 2317: { ...verdicts['2317'], challenged: true } }) };
-  assert.deepEqual(ruleBearEvents(okDoc, { applicableYmd: day, minAtMs: null }).map(e => e.code), ['2317']);
+  assert.deepEqual(ruleBearEvents(okDoc, { applicableYmd: day, minAtMs: null }).map(e => e.code), ['2317', '2603']);
 });

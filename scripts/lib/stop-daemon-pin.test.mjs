@@ -21,6 +21,18 @@ test('S2b：九處推播文字改由 ai-stoploss-text.mjs 產生；舊指令句�
     '請開投組頁查看防禦清單', '隔日沖開盤賣出提醒', '已觸發第 ${days} 天未處理', '若觸發當日執行，可少虧約']) assert.ok(!code(daemon).includes(old), old);
 });
 
+test('R4（2026-10-06）：⑧ 法人×大戶「疑似出貨警示」公開訊息只描述事實——不含指令句與停損禁用詞，其餘內容不動', async () => {
+  const { scanForbidden } = await import('./ai-stoploss-text.mjs');
+  const i = daemon.indexOf("type: 'risk', label: '疑似出貨警示'");
+  assert.ok(i > 0, '找得到 ⑧ 疑似出貨警示');
+  const text = daemon.slice(daemon.indexOf('text: `', i), daemon.indexOf('summary: `', i));
+  assert.ok(!text.includes('勿接刀') && !text.includes('確認停損位') && !text.includes('持有者'), text);
+  assert.deepEqual(scanForbidden(text.replace(/\/\/.*$/gm, '')), [], text);
+  assert.ok(text.includes('⚠ 推斷跡象（昨日 EOD 籌碼 × 今日盤中價量；台股無盤中法人資料）。'));
+  assert.ok(text.includes('昨日外資+投信賣超') && text.includes('後自高點回落') && text.includes('內盤主導（主動賣壓）'), '其餘內容不動');
+  assert.ok(daemon.includes("summary: `📤 ${q.name || ''}(${code}) 昨賣超×衝高回落${pctFromHigh.toFixed(1)}%——疑似出貨`,"), 'summary 不動');
+});
+
 test('舊算法錨點原樣保留（S2b 只換字串；回滾與 legacyPushStop／legacyDisciplineStop 依賴它們）', () => {
   assert.ok(daemon.includes('const stop = a.stopLoss > 0 ? a.stopLoss : +(avg * 0.92).toFixed(2);'));
   assert.ok(daemon.includes("if (price <= stop) { type = 'stop';"));
@@ -42,6 +54,17 @@ test('影子路徑：不推播、不寫 alerts、不讀寫 _hwm；失敗不觸�
   assert.ok(daemon.indexOf('_stopShadow.tick(') > daemon.indexOf("pushAlerts(uid, newAlerts).catch(() => {});\n        for (const al of newAlerts) log(`  🔔 ${uid} ${al.message}`);"), '影子在現行推播寫入之後');
   assert.ok(/import\('\.\/lib\/stop-shadow-runner\.mjs'\)/.test(daemon), '影子以動態 import 載入（載入失敗不影響 daemon）');
   assert.ok(!/^import .*ai-stoploss\.mjs'/m.test(daemon), 'daemon 不靜態 import 集線器（會連帶載入另一流程的 after-market-news）');
+});
+
+test('R8（2026-10-06）ETF／興櫃官方日 K：daemon 以動態 import 讀本機官方鏡像（載入失敗只 fail-closed）；讀取端不碰網路與 Firestore；驗證前 verifiedArchives 為空', () => {
+  assert.ok(/import\('\.\/lib\/official-bars\.mjs'\)/.test(daemon), '動態 import（載入失敗不影響 daemon 與影子其他部分）');
+  assert.ok(!/^import .*official-bars\.mjs'/m.test(daemon), '不靜態 import（會連帶載入集線器與另一流程的 after-market-news）');
+  assert.ok(daemon.includes('loadOfficialBars, verifiedArchives: STOP_VERIFIED_ARCHIVES,'));
+  assert.ok(daemon.includes('const STOP_VERIFIED_ARCHIVES = Object.freeze([]);'), '歸檔驗證並經使用者核可前為空（SKILL §2A）');
+  const ob = readFileSync(join(HERE, 'official-bars.mjs'), 'utf8');
+  for (const bad of ['fetch(', 'firebase', 'https.request', 'http.request', 'writeFileSync', 'writeEntry(']) assert.ok(!code(ob).includes(bad), `official-bars 不得有 ${bad}`);
+  assert.ok(code(runner).includes('await loadOfficialBars({ kind, to: toYmd, lastN: BAR_WINDOW })'), '影子只透過注入的讀取函式拿日 K');
+  assert.ok(!code(store).includes('etfDailyArchive') && !code(store).includes('emergingDailyArchive'), '0 次 Firestore 讀寫（不建 etf／興櫃歸檔集合）');
 });
 
 test('排程段落成功才 markJobDone（盤前 stopShadowPre、收盤 stopShadowClose），開機讀回 readJobMarks', () => {

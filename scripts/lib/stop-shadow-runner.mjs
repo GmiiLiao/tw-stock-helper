@@ -9,11 +9,19 @@
 //   ④ 非交易日每小時：持股變動 → planBookRefresh(nontrading)（版本日＝最後交易日）。
 // 只寫 stopBooks/{uid}（＋shadowDays 紀錄）、stopEventShadow、stopSpecAudit；**不推播、不寫 alerts、不讀寫 _hwm**。
 // 上游請求：除權息區間（官方 TWT49U／exDailyQ，已登錄核准）每日約 1 次（2 個請求），與會員數無關；MIS 0；Ollama 0。
+// ETF／興櫃官方日 K（使用者 2026-10-06 R8「ok 如建議」）：盤前刷新時由 daemon 讀本機官方鏡像（second-brain/official；
+//   deps.loadOfficialBars＝official-bars.readOfficialBarsAsync）——只讀本機檔、0 次 Firestore 讀寫、0 上游請求，每個資料日每種讀一次
+//   （全域，與會員數無關）。讀不到或閘門 ①②③ 沒過 ⇒ fail-closed（不用、不捏造）並記 log；組成線標 lineInputs.archive，
+//   歸檔驗證並經使用者核可前（verifiedArchives 不含該種類）live 時舊分支照跑、v1.1 不發警示（ai-stoploss-plan unverifiedArchiveOf）。
+//   鏡像當日資料 22:40 才有 ⇒ 這類持股的收盤結算（補判、事件結算、組成線換版、延後的事件收緊）不在 16:45 跑，改在下一交易日盤前
+//   讀到鏡像（資料日＝前一交易日）時補跑（mirrorSettle）；興櫃轉上市櫃（chipArchive 當日有它）⇒ 收盤結算改走 chipArchive。
+//   每次寫停損簿一併寫 verifiedArchives（前端 bookStopOf 與 daemon 同一份）。
 // 規範 .claude/skills/tw-ai-stoploss/SKILL.md「生效範圍」、§11；實作計畫 warroom/stoploss/v1.1/impl-plan.md §2.1、§2.9。非投資建議。
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   STOP_SPEC_VERSION, STOP_PARAMS, EMPTY_EX_TABLE, aggregatePositions, exTableFor, hasOfficialBars, lineInputsOf, adjustBars, isEtfCode,
   planBookRefresh, planUserStopTick, planCloseSettle, planDisciplineDigest, ruleBearEvents, eventShadowRows, missShadowRows, prevTradingYmd,
+  barArchiveOf,
 } from './ai-stoploss.mjs';
 import { gzipSync } from 'node:zlib';
 import { newsBoardFromDoc } from './warroom-news.mjs';
@@ -23,9 +31,12 @@ import {
   SHADOW_PHASE, BAR_WINDOW, EVENT_LOOKBACK_DAYS, DEEP_MAX_DOCS,
   encodeBook, decodeBook, applyBookPatch, samePositions, stableJson, barsFromCloseDocs, concatBars, exFetchRange, exItemsMerge,
   legacyOf, compareShadowDay, bookAuditCounts, dayAuditCounts, closeTargetOf, premarketDue, taipeiMs, eventMinAtMs, noBarsStub, logKeyOf,
+  officialBarsVerdict,
 } from './stop-shadow-core.mjs';
 
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const isPos = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const arr = v => (Array.isArray(v) ? v : []);
 const msg = e => String(e?.message ?? e ?? '').slice(0, 80);
 const LOG_KINDS = ['wouldPush', 'wouldDocOnly', 'eventRecords', 'legacySent'];
 const LEGACY_TYPES = new Set(['stop', 'trailing', 'discipline']);
@@ -40,20 +51,31 @@ const CLOSE_BACKOFF_MS = Object.freeze([10, 30, 60, 60].map(m => m * 60000));
 const CLOSE_MAX_ATTEMPTS = 5;
 /** stopEventShadow/{date} 兩份壓縮紀錄的預算（Firestore 單文件 1,048,576 bytes，留給 events 與其他欄位） */
 const EVENT_DOC_BUDGET = 800_000;
+/** 本機官方鏡像供給的歸檔種類（R8）與 log 用的名稱 */
+const ARCHIVE_TEXT = Object.freeze({ etf: 'ETF', emerging: '興櫃' });
+const mirrorArchiveOf = li => (li && (li.archive === 'etf' || li.archive === 'emerging') ? li.archive : null);
+/** 某資料日是這檔的除權息日、而停損簿還沒依係數調整 ⇒ 收盤補判不判定（同 exPending） */
+const exPendingOn = (t, bp, ymd) => arr(t?.events).some(([d]) => d === ymd) && !arr(bp?.exApplied).includes(ymd);
 /** 民國 YYYMMDD（dividendCalendar 的日期格式） */
 const rocOf = ymd => `${Number(ymd.slice(0, 4)) - 1911}${ymd.slice(5, 7)}${ymd.slice(8, 10)}`;
 
 /**
  * deps：{ store（stop-shadow-store 介面）, log, getPremiumUsers, isTradingDayIso(ymd), trainDone(ymd)（資料到齊班車今日完成）,
- *   fetchExright(from,to), loadPriceFactors(), readExHistory(), fetchRiskSets(), readJobMarks(), markJobDone(key, ymd), now() }
+ *   fetchExright(from,to), loadPriceFactors(), readExHistory(), fetchRiskSets(), readJobMarks(), markJobDone(key, ymd), now(),
+ *   loadOfficialBars({ kind, to, lastN })（選用；本機官方鏡像的 ETF／興櫃日 K，回 { barsByCode, gates }；沒給＝不供給，同 R8 之前）,
+ *   verifiedArchives（選用；已驗證並經使用者核可的歸檔種類，預設空）}
  */
 export function createStopShadow(deps) {
   const {
     store, log = () => {}, getPremiumUsers, isTradingDayIso, trainDone = () => false, fetchExright, loadPriceFactors,
     readExHistory, fetchRiskSets = async () => null, readJobMarks = async () => ({}), markJobDone = async () => {}, now = () => Date.now(),
+    loadOfficialBars = null, verifiedArchives = [],
   } = deps;
   const isTD = ymd => { try { return isTradingDayIso(ymd) === true; } catch { return false; } };
   const shadowYmd = ms => { const t = taipeiYmd(ms); return isTD(t) ? t : (prevTradingYmd(t, isTD) ?? t); };
+  /** 寫進停損簿文件的已驗證歸檔種類（前端 bookStopOf 讀同一份；2026-10-06 審查） */
+  const verifiedList = Object.freeze([...new Set(verifiedArchives instanceof Set ? verifiedArchives : arr(verifiedArchives))]
+    .filter(a => a === 'etf' || a === 'emerging').sort());
 
   const books = new Map();          // uid → 停損簿（null＝確認不存在）
   const locks = new Map();          // uid → 排隊中的寫入（盤中、盤前、收盤三條路徑互斥）
@@ -67,6 +89,7 @@ export function createStopShadow(deps) {
   let prevCloses = { ymd: null, map: null, at: 0 };
   let marks = null;
   let closeNextAt = 0, preNextAt = 0, nontradingAt = 0;
+  const official = new Map();       // 歸檔種類 → { to, ok, reason, barsByCode, tailRun }（本機官方鏡像；每個資料日每種讀一次）
   /** 同一資料日的收盤結算狀態（重試沿用）：{ ymd, attempts, docs, deep, deepCodes, globalDone, pending:Set<uid>|null, settled } */
   let closeRun = null;
   const stats = { ticks: 0, writes: 0, errors: 0 };
@@ -118,7 +141,8 @@ export function createStopShadow(deps) {
     if (!n && !fields) return null;
     return { ymd, at, arrays: out, fields: fields ?? null, commit: () => { for (const kk of local) set.add(kk); } };
   }
-  async function saveBook(uid, next, dayLog) {
+  async function saveBook(uid, next0, dayLog) {
+    const next = { ...next0, verifiedArchives: [...verifiedList] };
     await store.saveBook(uid, encodeBook(next), dayLog);
     books.set(uid, next);
     dayLog?.commit();
@@ -198,6 +222,104 @@ export function createStopShadow(deps) {
   }
   const namesOf = positions => Object.fromEntries(positions.filter(p => p.name).map(p => [p.code, p.name]));
 
+  // ── ETF／興櫃官方日 K：盤前讀本機官方鏡像（R8；0 次 Firestore 讀寫、0 上游請求；每個資料日每種只讀一次，與會員數無關） ──
+  async function officialBarsFor(kind, toYmd, { load = true } = {}) {
+    if (typeof loadOfficialBars !== 'function' || !toYmd) return null;
+    const cur = official.get(kind);
+    if (cur?.to === toYmd) return cur;
+    if (!load) return null;
+    let next;
+    try { next = { to: toYmd, ...officialBarsVerdict(await loadOfficialBars({ kind, to: toYmd, lastN: BAR_WINDOW }), toYmd) }; }
+    catch (e) { next = { to: toYmd, ok: false, reason: `讀檔失敗：${msg(e)}`, barsByCode: {}, tailRun: 0 }; }
+    official.set(kind, next);
+    log(next.ok
+      ? `  · 停損影子：${ARCHIVE_TEXT[kind]}官方日 K（本機官方鏡像）至 ${toYmd}：${Object.keys(next.barsByCode).length} 檔、最近連續完整 ${next.tailRun} 個交易日`
+      : `  ⚠ 停損影子：${ARCHIVE_TEXT[kind]}官方日 K 本機鏡像不可用（${next.reason}）——這類持股不供給新資料（fail-closed）`);
+    return next;
+  }
+  /**
+   * 這檔的組成線原料要不要由本機官方鏡像供給（R8）：5～6 碼與英文字尾 ETF（barArchiveOf＝'etf'）；興櫃＝chipArchive 沒有它的日 K
+   * （停損簿上一版 noOfficialBars，或上一版就是興櫃鏡像）**而且**官方興櫃表在視窗內有它——身分以官方表為準，不以代號猜（SKILL §2A）。
+   * 回 null（不是這兩類 ⇒ 照原路徑）或 { kind, li, day }：li＝鏡像算出的組成線（標 archive）；鏡像不可用 ⇒ 停損簿已有上一份鏡像組成線就
+   * 不覆蓋（li undefined：resolveStop 判 linesStale、沿用棘輪值，同 chipArchive 資料延遲 §3.6），從未供給過 ⇒ noBarsStub（第一階段口徑）。
+   * day：這檔在資料日 toYmd 的官方日 K（planCloseSettle 的 official 形狀；興櫃 noLimit、沒有開盤價）與前一根收盤（漲跌停參考），
+   *   給盤前補做資料日的收盤補判與事件結算（mirrorSettle）；資料日沒有這檔的日 K（當日無成交、暫停交易）⇒ null。
+   * load false：只用已讀的快取（盤中、非交易日不讀檔）。
+   */
+  async function mirrorInputsOf(p, bp, exT, toYmd, { load = true } = {}) {
+    const a = barArchiveOf(p.code);
+    const kind = a === 'etf' ? 'etf'
+      : a === 'chip' && (mirrorArchiveOf(bp?.lineInputs) === 'emerging' || bp?.noOfficialBars === true) ? 'emerging' : null;
+    if (!kind) return null;
+    const o = await officialBarsFor(kind, toYmd, { load });
+    if (!o) return kind === 'etf' ? { kind, li: noBarsStub() } : null;
+    const bars = o.barsByCode[p.code];
+    if (kind === 'emerging' && !(Array.isArray(bars) && bars.length)) return null;
+    if (!o.ok || !(Array.isArray(bars) && bars.length)) return { kind, li: mirrorArchiveOf(bp?.lineInputs) === kind ? undefined : noBarsStub(toYmd) };
+    const li = lineInputsOf(bars, p.firstDate, bp?.holdHigh ?? null, exT ?? bp?.ex ?? EMPTY_EX_TABLE, {
+      isEtf: isEtfCode(p.code), checkBreaks: kind === 'etf', isTradingDay: isTD, dataDate: toYmd,
+    });
+    if (li.noOfficialBars) return { kind, li, day: null };
+    const last = bars[bars.length - 1];
+    const day = last?.date === toYmd && isPos(last.c) && isPos(last.l) ? {
+      official: { open: isPos(last.o) ? last.o : null, high: isPos(last.h) ? last.h : last.c, low: last.l, close: last.c, ...(kind === 'emerging' ? { noLimit: true } : {}) },
+      refPrice: bars.length >= 2 && isPos(bars[bars.length - 2].c) ? bars[bars.length - 2].c : null,
+    } : null;
+    return { kind, li: { ...li, archive: kind }, day };
+  }
+  /** 鏡像代號（R8）在資料日 ymd 的官方收盤（只用盤前已讀的快取；chipArchive 沒有這類代號）——紀律彙總的前一交易日收盤用 */
+  function mirrorClosesOf(positions, ymd) {
+    const out = {};
+    for (const o of official.values()) {
+      if (o.to !== ymd || !o.ok) continue;
+      for (const p of positions) {
+        const bs = o.barsByCode[p.code];
+        const b = Array.isArray(bs) ? bs[bs.length - 1] : null;
+        if (b?.date === ymd && isPos(b.c)) out[p.code] = b.c;
+      }
+    }
+    return out;
+  }
+  const officialAudit = () => Object.fromEntries([...official.entries()].map(([k, o]) => [k, { to: o.to, ok: o.ok, reason: o.reason, tailRun: o.tailRun }]));
+
+  /**
+   * 鏡像代號（R8）資料日 prevTd 的收盤結算：鏡像當日資料 22:40 才有 ⇒ 16:45 收盤結算排除這類持股，改在下一交易日盤前讀到鏡像時，
+   * 以鏡像的 prevTd 官方日 K 對這些代號補跑 planCloseSettle（補判 evaluateLateTouch、settleEpisode、組成線換版、延後的事件收緊；
+   * 版本日＝prevTd，同 chipArchive 收盤結算的口徑）。mirrorDay 只放 prevTd 當天已由同種鏡像組成線判定過的持股。
+   * 影子紀錄記進 prevTd 的 shadowDays（若切換會送的一級 sub 'late'），並重算該日對照；stopSpecAudit/{prevTd} 的公開計數在收盤時已寫，
+   * 不含這些補記（S4 以 shadowDays 重算）。每位會員每個交易日最多一次（盤前刷新以 premarketYmd 擋）；鏡像缺 prevTd ⇒ 該日不補（fail-closed）。
+   * 回 null（沒有要補的）或 { book（套用後）, log（prevTd 的影子紀錄；沒有就 null） }
+   */
+  async function mirrorSettle(uid, { holdings, book, mirrorDay, exTables, lineInputs, prevTd, nowMs, names }) {
+    const codes = Object.keys(mirrorDay);
+    if (!codes.length || !isObj(book)) return null;
+    const official = {}, refPrices = {}, exState = {};
+    const positions = { ...book.positions };
+    for (const code of codes) {
+      const bp = book.positions[code];
+      official[code] = mirrorDay[code].official;
+      if (isPos(mirrorDay[code].refPrice)) refPrices[code] = mirrorDay[code].refPrice;
+      if (exTables[code]) positions[code] = { ...bp, ex: exTables[code] };
+      if (exPendingOn(exTables[code] ?? bp?.ex, bp, prevTd)) exState[code] = { pending: true };
+    }
+    const withEx = { ...book, positions };
+    const r = planCloseSettle({
+      uid, holdings, book: withEx, official, lineInputs, dateYmd: prevTd, openMs: taipeiMs(prevTd, 9), isTradingDay: isTD, exState, refPrices,
+      dedupHas: () => false, nowMs, names, verifiedArchives, codes,
+    });
+    const next = applyBookPatch(withEx, r.bookPatch, { nextEpisodeId: r.nextEpisodeId });
+    let fields = null;
+    if (r.pushAlerts.length || r.missedLive.length) {
+      // shadowDays 的欄位是整個覆寫 ⇒ 先讀回 prevTd 的紀錄，對照與漏判清單合併後再寫
+      const d0 = await store.getDayLog(uid, prevTd).then(d => (isObj(d) ? d : {}), () => ({}));
+      fields = { compare: compareShadowDay({ ...d0, wouldPush: [...arr(d0.wouldPush), ...r.pushAlerts] }) };
+      if (r.missedLive.length) fields.missedLive = [...new Set([...arr(d0.missedLive), ...r.missedLive])];
+    }
+    const any = r.pushAlerts.length || r.docOnlyAlerts.length || r.eventRecords.length || fields;
+    const log = any ? await dayLogOf(uid, prevTd, { wouldPush: r.pushAlerts, wouldDocOnly: r.docOnlyAlerts, eventRecords: r.eventRecords }, fields, nowMs) : null;
+    return { book: next, log };
+  }
+
   // ── ① 盤前刷新 ──
   async function premarketUser(uid, todayYmd, prevTd, events, pend, nowMs, late) {
     const book = await loadBook(uid);
@@ -205,17 +327,28 @@ export function createStopShadow(deps) {
     const holdings = await store.getHoldings(uid);
     const positions = aggregatePositions(holdings);
     if (!positions.length && !book) return false;
-    const exTables = {}, lineInputs = {}, exState = {};
+    const exTables = {}, lineInputs = {}, exState = {}, mirrorDay = {};
     for (const p of positions) {
       const t = exTableOf(p.code); if (t) exTables[p.code] = t;
-      if (!hasOfficialBars(p.code)) lineInputs[p.code] = noBarsStub();
+      const bp = book?.positions?.[p.code] ?? null;
+      const m = await mirrorInputsOf(p, bp, t, prevTd);
+      if (m) {
+        if (m.li) lineInputs[p.code] = m.li;
+        // 前一交易日已由同種鏡像組成線判定過 ⇒ 補做該日收盤結算（第一次供給的持股前一交易日沒有 v1.1 判定，不補判）
+        if (m.day && isPos(bp?.stop) && mirrorArchiveOf(bp?.lineInputs) === m.kind) mirrorDay[p.code] = m.day;
+      } else if (!hasOfficialBars(p.code)) lineInputs[p.code] = noBarsStub();
       if (pend.has(p.code)) exState[p.code] = { pending: true };
     }
+    const names = namesOf(positions);
+    const ms = await mirrorSettle(uid, { holdings, book, mirrorDay, exTables, lineInputs, prevTd, nowMs, names });
+    const base = ms?.book ?? book;
     const r = planBookRefresh({
-      holdings, book, exTables, lineInputs, newsEvents: events, when: 'premarket', latestCanonicalYmd: prevTd, nowMs, tradeDate: todayYmd,
-      isTradingDay: isTD, exState, names: namesOf(positions),
+      holdings, book: base, exTables, lineInputs, newsEvents: events, when: 'premarket', latestCanonicalYmd: prevTd, nowMs, tradeDate: todayYmd,
+      isTradingDay: isTD, exState, names, verifiedArchives,
     });
-    const next = applyBookPatch(book, r.bookPatch, { premarketYmd: todayYmd, premarketLate: !!late, updatedAt: nowMs });
+    const next = applyBookPatch(base, r.bookPatch, { premarketYmd: todayYmd, premarketLate: !!late, updatedAt: nowMs });
+    // 前一交易日的補記先寫（停損簿寫入失敗 ⇒ 5 分鐘後由同一份停損簿重算，影子紀錄以鍵去重、不重記）
+    if (ms?.log) await appendLog(uid, ms.log);
     await saveBook(uid, next, await dayLogOf(uid, todayYmd, { wouldDocOnly: r.docOnlyAlerts, eventRecords: r.eventRecords }, null, nowMs));
     return true;
   }
@@ -254,10 +387,14 @@ export function createStopShadow(deps) {
       const exTables = {}, lineInputs = {};
       for (const p of positions.filter(x => !bookCodes.has(x.code))) {
         const t = exTableOf(p.code); if (t) exTables[p.code] = t;
-        if (!hasOfficialBars(p.code)) lineInputs[p.code] = noBarsStub();
+        // 盤中不讀檔：只用盤前已讀的本機鏡像快取（R8）；沒有快取同改動前
+        const m = await mirrorInputsOf(p, null, t, prevTd, { load: false });
+        if (m) { if (m.li) lineInputs[p.code] = m.li; }
+        else if (!hasOfficialBars(p.code)) lineInputs[p.code] = noBarsStub();
       }
       const r = planBookRefresh({
         holdings, book, exTables, lineInputs, when: 'intraday', latestCanonicalYmd: prevTd, nowMs, tradeDate: todayYmd, isTradingDay: isTD, exState, names,
+        verifiedArchives,
       });
       base = applyBookPatch(book, r.bookPatch, {});
       arrays.wouldDocOnly.push(...r.docOnlyAlerts);
@@ -269,7 +406,7 @@ export function createStopShadow(deps) {
       uid, holdings, book: base, quotes: quotes ?? {}, nowMs, openMs: taipeiMs(todayYmd, 9), todayYmd, tradingDay: true,
       dispositionCodes: disp.ymd === todayYmd ? disp.set : new Set(), exState, refPrices,
       intradayEvents: news.ymd === todayYmd ? news.events.filter(e => e.pass === 'intraday') : [],
-      dedupHas: () => false, isTradingDay: isTD, latestCanonicalYmd: prevTd, names,
+      dedupHas: () => false, isTradingDay: isTD, latestCanonicalYmd: prevTd, names, verifiedArchives,
     });
     let next = applyBookPatch(base, t.bookPatch, { nextEpisodeId: t.nextEpisodeId });
     // 影子對照值：舊推播停損、舊紀律停損、持股分析 ATR 帶（StopBookPosition.legacy；不新增其他欄位）
@@ -290,7 +427,9 @@ export function createStopShadow(deps) {
     if (!digestDone.has(dk) && prevTd) {
       const pc = await prevClosesOf(prevTd);
       if (pc) {
-        const d = planDisciplineDigest({ uid, book: next, holdings, prevCloses: pc, todayYmd, isTradingDay: isTD, nowMs, names });
+        // chipArchive 沒有的鏡像代號（ETF／興櫃；R8）補上盤前已讀的鏡像收盤（chipArchive 有的以 chipArchive 為準）
+        const prevCloses = { ...mirrorClosesOf(positions, prevTd), ...pc };
+        const d = planDisciplineDigest({ uid, book: next, holdings, prevCloses, todayYmd, isTradingDay: isTD, nowMs, names, verifiedArchives });
         fields = { wouldDigest: d.alert ?? { codes: [], at: nowMs } };
       }
     }
@@ -356,23 +495,33 @@ export function createStopShadow(deps) {
     const positions = aggregatePositions(holdings);
     if (!positions.length && !book) return false;
     const lineInputs = {}, official = {}, refPrices = {}, exTables = {}, exState = {};
+    const settleCodes = [];
+    let listedNow = 0;
     for (const p of positions) {
       const code = p.code;
       const bp = book?.positions?.[code] ?? null;
       const fresh = exTableOf(code);
       if (fresh) exTables[code] = fresh;   // 取不到新表就沿用停損簿裡的（不以空表覆蓋，否則還原成本會跳回未還原）
       const t = fresh ?? bp?.ex ?? EMPTY_EX_TABLE;
-      if (!hasOfficialBars(code)) { lineInputs[code] = noBarsStub(dateYmd); continue; }
-      lineInputs[code] = lineInputsOf(concatBars(deep[code], raw[code]), p.firstDate, bp?.holdHigh ?? null, t, { isEtf: isEtfCode(code), isTradingDay: isTD, dataDate: dateYmd });
       const rb = raw[code] ?? [];
       const last = rb[rb.length - 1];
+      // 本機官方鏡像供給的 ETF／興櫃（R8）：當日資料要等鏡像 22:40 才有 ⇒ 這類持股不在這裡結算（組成線、補判、事件結算、延後的事件收緊
+      //   都留給下一交易日盤前的 mirrorSettle；不以 chipArchive／noBarsStub 覆蓋）。
+      //   例外：興櫃轉上市／上櫃——chipArchive 當日已有這檔 ⇒ 改走 chipArchive（新組成線不標 archive，之後盤前也不再當興櫃；2026-10-06 審查）
+      const arc = mirrorArchiveOf(bp?.lineInputs);
+      if (arc && !(arc === 'emerging' && last?.date === dateYmd)) continue;
+      if (arc) listedNow += 1;
+      settleCodes.push(code);
+      if (!hasOfficialBars(code)) { lineInputs[code] = noBarsStub(dateYmd); continue; }
+      lineInputs[code] = lineInputsOf(concatBars(deep[code], raw[code]), p.firstDate, bp?.holdHigh ?? null, t, { isEtf: isEtfCode(code), isTradingDay: isTD, dataDate: dateYmd });
       if (last?.date === dateYmd) {
         official[code] = { open: last.o, high: last.h, low: last.l, close: last.c };
         if (rb.length >= 2) refPrices[code] = rb[rb.length - 2].c;
       }
       // 今日除權息、當天盤中停損還沒依係數調整 ⇒ 收盤補判不判定（同 exPending；調整由下面的換版處理）
-      if ((t.events ?? []).some(([d]) => d === dateYmd) && !(bp?.exApplied ?? []).includes(dateYmd)) exState[code] = { pending: true };
+      if (exPendingOn(t, bp, dateYmd)) exState[code] = { pending: true };
     }
+    if (listedNow) log(`  · 停損影子·收盤 ${String(uid).slice(0, 6)}：興櫃轉上市櫃 ${listedNow} 檔（chipArchive ${dateYmd} 已有日 K）——組成線改走 chipArchive`);
     // 停損簿的係數表換成涵蓋到資料日的版本：組成線的係數涵蓋檢查要涵蓋到今日（plan 內 resolveStop 讀停損簿的 ex）。
     //   停損簿還沒有的持股（今天才買、盤中沒輪到）放一個只有係數表的占位：沒有 stop ⇒ 不補判、以 init 建第一版
     const posEx = {};
@@ -381,7 +530,8 @@ export function createStopShadow(deps) {
     const withEx = book || Object.keys(posEx).length ? { ...(book ?? {}), positions: posEx } : null;
     const r = planCloseSettle({
       uid, holdings, book: withEx, official, lineInputs, dateYmd, openMs: taipeiMs(dateYmd, 9), isTradingDay: isTD, exState, refPrices,
-      dedupHas: () => false, nowMs, names: namesOf(positions),
+      dedupHas: () => false, nowMs, names: namesOf(positions), verifiedArchives,
+      codes: settleCodes.length === positions.length ? null : settleCodes,
     });
     const next = applyBookPatch(withEx, r.bookPatch, { nextEpisodeId: r.nextEpisodeId, dataDate: dateYmd, settledYmd: dateYmd, updatedAt: nowMs });
     await saveBook(uid, next, await dayLogOf(uid, dateYmd, { wouldPush: r.pushAlerts, wouldDocOnly: r.docOnlyAlerts, eventRecords: r.eventRecords },
@@ -485,6 +635,7 @@ export function createStopShadow(deps) {
           shadow: {
             books: bookAuditCounts(bookList, dateYmd), day: dayAuditCounts([...dayBy.values()]), eventShadow: ev,
             exCoverTo: ex?.cover?.to ?? null, dispositionKnown: disp.ymd === dateYmd, exPendingSource: 'twse-calendar-top40', settledUsers: done, failedUsers: failedUids.size,
+            officialBars: officialAudit(),
           },
         });
         auditOk = true;
@@ -527,9 +678,9 @@ export function createStopShadow(deps) {
           const exTables = {}, lineInputs = {};
           for (const p of positions.filter(x => !bookCodes.has(x.code))) {
             const t = exTableOf(p.code); if (t) exTables[p.code] = t;
-            if (!hasOfficialBars(p.code)) lineInputs[p.code] = noBarsStub();
+            if (!hasOfficialBars(p.code)) lineInputs[p.code] = noBarsStub();   // 非交易日不讀鏡像：下一個交易日盤前刷新再供給（R8）
           }
-          const r = planBookRefresh({ holdings, book, exTables, lineInputs, when: 'nontrading', latestCanonicalYmd: lastTd, nowMs, tradeDate: lastTd, isTradingDay: isTD, names: namesOf(positions) });
+          const r = planBookRefresh({ holdings, book, exTables, lineInputs, when: 'nontrading', latestCanonicalYmd: lastTd, nowMs, tradeDate: lastTd, isTradingDay: isTD, names: namesOf(positions), verifiedArchives });
           const next = applyBookPatch(book, r.bookPatch, {});
           if (samePositions(book, next)) return 0;
           await saveBook(u.id, { ...next, updatedAt: nowMs }, await dayLogOf(u.id, lastTd, { wouldDocOnly: r.docOnlyAlerts, eventRecords: r.eventRecords }, null, nowMs));
@@ -605,6 +756,9 @@ export function createStopShadow(deps) {
     step, beginRound, tick, noteLegacy, recordLlm, flushLlm, closeSettle, premarket,
     /** 記憶體中的 v1.1 影子停損（LLM 量測對照用；沒有就 null，不另讀） */
     peekStop: (uid, code) => books.get(uid)?.positions?.[code]?.stop ?? null,
-    status: () => ({ ...stats, books: books.size, exCoverTo: ex?.cover?.to ?? null, marks: marks ? { pre: marks.stopShadowPre ?? null, close: marks.stopShadowClose ?? null } : null }),
+    status: () => ({
+      ...stats, books: books.size, exCoverTo: ex?.cover?.to ?? null, officialBars: officialAudit(),
+      marks: marks ? { pre: marks.stopShadowPre ?? null, close: marks.stopShadowClose ?? null } : null,
+    }),
   };
 }

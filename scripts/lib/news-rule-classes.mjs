@@ -16,7 +16,10 @@
 //   「爆炸性成長」、券商「評等」——這些一律不觸發；必要時以 veto（命中處前後 VETO_SPAN 字內出現就不算）排除。
 // 新聞管線的接法（停損規範 SKILL §10A.2 第 1～7 步）：主判別（利多／利空／中性）定案之後，**每個命中的類別另問一次**
 //   ruleFactQuestion（本機模型；主判別提示詞逐字不變）；parseRuleFactAnswer 只看開頭的「是／否」；applyRuleFacts 判定：
-//   「是」⇒ label 由程式覆寫為利空（理由以 ruleReasonPrefix 開頭、記 aiOriginal），原判已是利空只補欄位。
+//   「是」⇒ 記規則欄位（ruleClass、ruleOverride、ruleSub、ruleHits、aiOriginal、ruleFacts）。
+//   **只有法律類 C16a** 由程式把 label 覆寫為利空（2026-08-29 起的既有行為＋使用者規則「涉法律事件一律利空」；理由以「【規則】」開頭），
+//   其他類別**不改** label／bullish／confidence／reason（使用者 2026-10-06 R1「ok 如建議」：label 連動推薦排序、個股評分、
+//   做空候選、squeeze-train）。停損收緊與戰情 v2 一律以規則欄位辨識規則類利空（ruleClassOf，不看 label）。
 //   寫入欄位在 ruleFieldsOf（三個寫入端共用）。
 // 本檔是純資料＋純函式：不 import 任何模組、不碰網路、不讀時鐘（daemon 靜態 import 本檔）。非投資建議。
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,6 +28,12 @@ const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** 法律規則覆寫既有的理由前綴（daemon「【規則】涉檢調搜索…」；warroom-news RULE_LEGAL_PREFIX 同字，改了兩邊一起改） */
 export const RULE_LEGAL_PREFIX = '【規則】';
+
+/**
+ * 規則判定「是」時會由程式把 newsVerdict 的 label 覆寫為利空的類別：只有法律事件 C16a（2026-08-29 起；使用者規則「涉法律事件一律利空」）。
+ * 其他規則類別只記規則欄位、不改 label（使用者 2026-10-06 R1「ok 如建議」）。
+ */
+export const LABEL_OVERRIDE_CLASS = 'C16a';
 
 /** 類別權重的出處字樣（畫面與紀錄一律附） */
 export const CLASS_WEIGHT_NOTE = '類別權重＝新聞技能 §4.1 baseWeight（先驗·未回測）';
@@ -135,15 +144,20 @@ export function ruleReasonPrefix(code) {
 }
 
 /**
- * 一筆 newsVerdict 判別 → 規則類別代號（C16a…）或 null。只認程式規則判定留下的欄位，而且 label 必須是「利空」
- * （停損規範 §10A.1-C；規則判定「是」時 daemon 會把 label 覆寫為利空，所以有效的規則判別一定是利空）：
- *   ruleClass（類別代號；daemon 2026-10-05 起寫）＞ ruleOverride（類別 key；C16a＝'legal-event'）＞ 理由前綴「【規則】」（C16a 舊資料）。
+ * 一筆 newsVerdict 判別 → 規則類別代號（C16a…）或 null。只認程式規則判定留下的欄位，**不看 label**
+ * （使用者 2026-10-06 R1：非法律類別的事實題答「是」時 daemon 不改 label，只記規則欄位；停損規範 §10A.1-C）：
+ *   ① ruleClass（類別代號；daemon 2026-10-05 起寫）而且該類事實題答「是」（ruleFacts[ruleClass]==='yes'）；
+ *   ② 舊資料的 C16a：ruleOverride==='legal-event' 或理由前綴「【規則】」——2026-08-29 版法律覆寫，當時一定同時把 label 覆寫為利空，
+ *      所以這條仍要求 label＝利空（前綴或 key 與 label 對不上的資料不認，不猜）。
+ * 非法律類別只有 ruleOverride、沒有 ruleClass＋事實「是」的資料不認（2026-10-05 前不存在這種資料）。
  * AI 自己的 eventType（'法律'／'處分'…）**不算**規則類別（範圍很廣，news-weight §1.3）。
  */
 export function ruleClassOf(v) {
-  if (!isObj(v) || v.label !== '利空') return null;
-  if (typeof v.ruleClass === 'string' && RULE_CLASS_BY_CODE[v.ruleClass]) return v.ruleClass;
-  if (typeof v.ruleOverride === 'string' && RULE_CLASS_BY_KEY[v.ruleOverride]) return RULE_CLASS_BY_KEY[v.ruleOverride].code;
+  if (!isObj(v)) return null;
+  if (typeof v.ruleClass === 'string' && RULE_CLASS_BY_CODE[v.ruleClass]
+    && isObj(v.ruleFacts) && v.ruleFacts[v.ruleClass] === 'yes') return v.ruleClass;
+  if (v.label !== '利空') return null;
+  if (v.ruleOverride === RULE_CLASS_BY_CODE.C16a.key) return 'C16a';
   if (typeof v.reason === 'string' && v.reason.startsWith(RULE_LEGAL_PREFIX)) return 'C16a';
   return null;
 }
@@ -235,7 +249,7 @@ const EPS = 1e-9;
 /**
  * 類別權重分級切點：≥high ⇒ 'high'、≥mid ⇒ 'mid'、其餘 'low'。與停損 STOP_PARAMS.eventTiers 的 minWeight（0.7／0.3）同值
  * （news-rule-classes.test.mjs 釘住兩邊同值）。停損收緊級別仍由 ai-stoploss-event.mjs eventTierOf 決定（另看 tightenEligible）；
- * 戰情 Z2「持股重大利空」的級別也讀這裡（warroom-news majorBearOf；是否沿用待使用者裁定，見停損規範 §15）。
+ * 戰情 Z2「持股重大利空」的級別也讀這裡（warroom-news majorBearOf；使用者 2026-10-06 R2「ok 如建議」裁定維持，停損規範 §15A-1）。
  */
 export const CLASS_WEIGHT_CUTS = Object.freeze({ high: 0.7, mid: 0.3 });
 
@@ -270,6 +284,7 @@ const firstClause = s => String(s ?? '').replace(/[。\n].*$/, '').slice(0, 24);
  * 規則覆寫時的理由（停損規範 §10A.2-3）：以 ruleReasonPrefix 開頭、附 AI 原判。
  * C16a 與 2026-08-29 版逐字相同：「【規則】涉檢調搜索，法律判定前視為利空（AI 原判中性：…）」；其他類別
  * 「【規則·財務危機】涉財務危機事件，依規則視為利空（AI 原判中性：…）」。長度控制：理由只取 AI 原判第一句前 24 字。
+ * ⚠ 2026-10-06 R1 起 applyRuleFacts 只對 C16a 改寫理由；其他類別的字樣只留給顯示／紀錄用（newsVerdict 的 reason 不改）。
  */
 export function ruleOverrideReason(code, verdict) {
   const c = RULE_CLASS_BY_CODE[code];
@@ -282,8 +297,11 @@ export function ruleOverrideReason(code, verdict) {
  * 規則類別判定（純函式；新聞技能 §1.5、§1.7，停損規範 SKILL §10A.2 第 3～5 步）：AI 只認定事實，方向與類別由這裡決定。
  * - facts：{ [code]: parseRuleFactAnswer 的結果 }（每個命中的類別另問一次；null＝沒答或呼叫失敗）。
  * - 「是」的類別中取類別權重最高者寫 ruleClass（同權重依表內順序），其餘寫 ruleHits（只記錄）；aiOriginal 記 AI 原判。
- * - AI 原判不是利空 ⇒ label 由程式覆寫為利空（bullish false、信心「低」升「中」、理由 ruleOverrideReason；C16a 與 2026-08-29 版逐字相同）。
- *   AI 原判已是利空 ⇒ 只補欄位，理由不改（§10A.2-4 漏網修正）。「否」、沒答 ⇒ 維持 AI 原判，不猜。
+ *   C16a 類別權重 0.90 是表內最高（與 C23 同權重時 C16a 在前），所以「C16a 答是」⇔ ruleClass＝'C16a'。
+ * - ruleClass＝C16a 且 AI 原判不是利空 ⇒ label 由程式覆寫為利空（bullish false、信心「低」升「中」、理由與 2026-08-29 版逐字相同）。
+ * - 其他類別（C23、C22、C13b、C17、C16b、C15a、C11a、C15c、C20b）**只記規則欄位**，label／bullish／confidence／reason 一律不動
+ *   （使用者 2026-10-06 R1：label 連動推薦排序、個股評分、做空候選、squeeze-train；停損收緊與戰情由 ruleClassOf 讀規則欄位）。
+ * - AI 原判已是利空 ⇒ 只補欄位，理由不改（§10A.2-4 漏網修正）。「否」、沒答 ⇒ 維持 AI 原判，不猜。
  * 回新物件（不改輸入）；沒有問任何類別 ⇒ 原物件。新增欄位只放有值的（Firestore 不收 undefined）。
  */
 export function applyRuleFacts(verdict, { facts = {} } = {}) {
@@ -307,7 +325,7 @@ export function applyRuleFacts(verdict, { facts = {} } = {}) {
   const hits = yes.filter(c => c !== primary);
   if (hits.length) out.ruleHits = hits;
   out.aiOriginal = { label: String(verdict.label ?? ''), reason: firstClause(verdict.reason) };
-  if (verdict.label !== '利空') {
+  if (primary === LABEL_OVERRIDE_CLASS && verdict.label !== '利空') {
     out.label = '利空';
     out.bullish = false;
     out.confidence = verdict.confidence === '低' ? '中' : verdict.confidence;

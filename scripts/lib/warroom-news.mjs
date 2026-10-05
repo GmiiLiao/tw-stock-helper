@@ -18,9 +18,10 @@
 //   §1.4 機器價格速報不是新聞：daemon 在標題層已剔除（NEWS_NOISE_RE／MACHINE_NEWS）；這裡再擋一次——AI 挑的關鍵句
 //        是價格描述、且事件類型不是本業事實 ⇒「剔除」，權重 0、不判方向。
 //   §1.5／§1.7 規則類利空（法律、財務危機、工安停工、交易限制…，新聞技能 §4.1 方向標「−（規則）」者）：只認 daemon 的程式規則判定
-//        （ruleClassOf：ruleClass ＞ ruleOverride ＞「【規則】」前綴＝C16a 舊資料）——AI 讀內文只認定事實（主體是不是本檔、事件是否屬實），
-//        方向由規則定為利空：事實回答「是」時 daemon 把 label 覆寫為利空、AI 原判記在 aiOriginal（停損規範 §10A.2-3）；
-//        ruleClassOf 只認 label＝利空的規則判別（§10A.1-C）。
+//        （ruleClassOf：ruleClass＋該類事實題答「是」〔ruleFacts〕；舊資料 C16a 認 ruleOverride／「【規則】」前綴）——AI 讀內文只認定事實
+//        （主體是不是本檔、事件是否屬實），方向由規則定為利空。daemon 只對法律類 C16a 把 label 覆寫為利空；其他類別 label 維持 AI 原判
+//        （使用者 2026-10-06 R1：label 連動推薦排序、個股評分、做空候選、squeeze-train），戰情一律以規則欄位判為利空（verdictState，
+//        不看 label），AI 原判顯示為「AI 原判…」（aiOriginal；停損規範 §10A.2-3）。
 //        AI 的 eventType='法律' 範圍很廣（和解金、聯貸、認證…），**不當規則類別**，燈照 AI 判的方向。
 //        2026-10-05 起 daemon 對 AI 自判利空的也問事實（ruleFacts）；沒有事實回答的舊判別，AI 判利空且事件類型為法律、或依據句有
 //        檢調／搜索／起訴等字樣的，仍標「可能為法律事件（未經規則確認）」（pl），只揭露、不升級，而且不套 §1.4／§1.6 的改判。
@@ -179,16 +180,17 @@ export function isAttentionOnly(v) {
 
 /**
  * 一筆判別 → 狀態：bull／bear／neutral（AI 讀內文的判別）｜insufficient（資訊不足：沒讀到內文）｜unjudged（AI 未回應、標籤不明）
- * ｜attention（§1.6 關注度）｜excluded（§1.4 價格描述）。規則類利空一律 bear（方向由規則定；daemon 已把 label 覆寫為利空），
+ * ｜attention（§1.6 關注度）｜excluded（§1.4 價格描述）。規則類利空（AI 讀過內文）一律 bear，**不看 label**：方向由規則定——
+ * C16a 的 label daemon 已覆寫為利空；其他類別 daemon 不改 label（2026-10-06 R1），AI 原判在 aiOriginal／label。
  * 也不受 §1.4／§1.6 影響（§1.5／§1.7 優先）。
  */
 export function verdictState(v) {
   if (!isObj(v)) return 'unjudged';
+  if (isRuleBear(v) && isAiRead(v)) return 'bear';
   if (v.label === '資訊不足') return 'insufficient';
   if (v.label !== '利多' && v.label !== '利空' && v.label !== '中性') return 'unjudged';
   if (v.label === '中性' && AI_NO_REPLY_RE.test(String(v.reason ?? ''))) return 'unjudged';
   if (!isAiRead(v)) return 'insufficient';
-  if (isRuleBear(v)) return 'bear';
   // §1.5 優先：可能為法律事件的 AI 利空不套 §1.4／§1.6（例：關鍵句同時寫到檢調搜索與股價重挫）
   if (v.label !== '中性' && !isPossibleLegalBear(v)) {
     if (isPriceBulletin(v)) return 'excluded';
@@ -216,7 +218,7 @@ function entryOf(v, w) {
   const directional = st === 'bull' || st === 'bear';
   const overridden = st === 'attention' || st === 'excluded';
   const rc = st === 'bear' ? ruleClassOf(v) : null;
-  // 規則定的方向與 AI 原判不同（AI 判中性／利多、規則覆寫為利空；aiOriginal 記原判）：w 屬於 AI 的方向，不顯示在利空燈上
+  // 規則定的方向與 AI 原判不同（AI 判中性／利多、規則定為利空；aiOriginal 記原判）：w 屬於 AI 的方向，不顯示在利空燈上
   const weight = directional && isNum(w) && !(rc && aiOriginalOf(v)) ? w : null;
   // 關鍵句只給利空與「強」的利多、修正說明只給利空（控制慢層 payload；其餘到個股頁看完整判讀）
   const quote = st === 'bear' || (weight != null && weight >= NEWS_TIER_CUTS.strong);

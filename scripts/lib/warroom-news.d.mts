@@ -46,7 +46,7 @@ export interface NewsEntry {
   ev: string | null;
   /** 法律事件（C16a）規則判定（§1.5）＝ rc === 'C16a' */
   lg: boolean;
-  /** 規則類利空的類別（news-rule-classes：daemon 程式規則判定，label 已覆寫為利空、AI 原判在 ra）；不是規則類利空為 null */
+  /** 規則類利空的類別（news-rule-classes：daemon 程式規則判定；只有 C16a 的 label 被覆寫為利空，其他類別 label 不改〔2026-10-06 R1〕、AI 原判在 ra）；不是規則類利空為 null */
   rc: RuleClassCode | null;
   /** 規則類別的子類別（例 C15a 'giftOrTrust'，類別權重另計） */
   rs: string | null;

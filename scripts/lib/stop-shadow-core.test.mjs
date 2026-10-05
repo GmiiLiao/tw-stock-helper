@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   encodePosition, decodePosition, encodeBook, decodeBook, applyBookPatch, samePositions, barsFromCloseDocs, concatBars,
   exFetchRange, exItemsMerge, legacyOf, compareShadowDay, bookAuditCounts, dayAuditCounts, closeTargetOf, premarketDue,
-  taipeiMs, eventMinAtMs, noBarsStub, logKeyOf, SHADOW_PHASE,
+  taipeiMs, eventMinAtMs, noBarsStub, logKeyOf, SHADOW_PHASE, officialBarsVerdict,
 } from './stop-shadow-core.mjs';
 import { STOP_SPEC_VERSION } from './ai-stoploss-base.mjs';
 
@@ -98,14 +98,18 @@ test('公開計數只有數字、不含代號', () => {
   const books = [{ positions: {
     2330: { stopSource: 'atrBand', stop: 100, tradeDate: '2026-10-05', versionReason: 'lineRaise', lines: { bandLine: 100 }, legacy: { push: 98, ratingBand: 100 }, episode: { seeded: true } },
     '00878': { noOfficialBars: true },
+    '00631L': { stopSource: 'atrBand', stop: 39, lineInputs: { archive: 'etf' }, linesStale: true, episode: { seeded: false } },
   } }];
   const b = bookAuditCounts(books, '2026-10-05');
-  assert.equal(b.users, 1); assert.equal(b.positions, 2); assert.equal(b.noOfficialBars, 1);
-  assert.equal(b.bySource.atrBand, 1); assert.equal(b.versionToday.lineRaise, 1); assert.equal(b.band.same, 1);
+  assert.equal(b.users, 1); assert.equal(b.positions, 3); assert.equal(b.noOfficialBars, 1);
+  assert.equal(b.bySource.atrBand, 1, '本機官方鏡像供給的 ETF 不混進主計數（R8 分開統計）');
+  assert.deepEqual(b.officialArchive, { etf: { positions: 1, bySource: { atrBand: 1 }, linesStale: 1, exGap: 0, episodes: 1 } });
+  assert.equal(b.linesStale, 0); assert.equal(b.versionToday.lineRaise, 1); assert.equal(b.band.same, 1);
   assert.equal(b.stopVsLegacyPush.higher, 1); assert.equal(b.episodes.seeded, 1);
   const d = dayAuditCounts([{ wouldPush: [{ type: 'stop', sub: 'touch', code: '2330', pnlPct: 3 }], legacySent: [{ type: 'stop', code: '2330' }] }]);
   assert.equal(d.wouldPush.touch, 1); assert.equal(d.wouldPushInProfit, 1); assert.equal(d.compare.stopBoth, 1);
   assert.ok(!JSON.stringify({ b, d }).includes('2330'));
+  assert.ok(!JSON.stringify(b).includes('00631L'));
 });
 
 test('排程判定：收盤結算交易日 13:30 後＝今天、開盤前或非交易日＝前一交易日（補跑）、盤中不回頭；盤前刷新 08:46 起、09:00 後標 late', () => {
@@ -128,4 +132,17 @@ test('noBarsStub 與影子紀錄去重鍵', () => {
   assert.equal(logKeyOf('wouldPush', { id: 'stop:2330:v2:e1' }), 'stop:2330:v2:e1');
   assert.equal(logKeyOf('legacySent', { type: 'stop', code: '2330' }), 'stop:2330');
   assert.equal(logKeyOf('eventRecords', { code: '2330', key: '2330:C16a', outcome: 'applied', when: 'premarket', dayYmd: '2026-10-05' }), '2330:2330:C16a:applied:premarket:2026-10-05');
+});
+
+test('R8 本機官方鏡像讀取結果 → 能不能用（fail-closed）：閘門 ①②③ 通過、最後一天＝資料日且抓齊才 ok；不 ok 時寫明原因', () => {
+  const bars = { '00631L': [{ date: '2026-10-05', c: 41.5 }] };
+  const G = over => ({ barsByCode: bars, gates: { tailRun: 80, pendingTail: 0, minRun: 20, pass: true, lastDate: '2026-10-05', ...over } });
+  assert.deepEqual(officialBarsVerdict(G({}), '2026-10-05'), { ok: true, reason: null, barsByCode: bars, tailRun: 80 });
+  assert.equal(officialBarsVerdict(G({ lastDate: '2026-10-02' }), '2026-10-05').reason, '鏡像最後交易日 2026-10-02≠資料日 2026-10-05');
+  assert.equal(officialBarsVerdict(G({ pendingTail: 1 }), '2026-10-05').reason, '資料日 2026-10-05 鏡像尚未抓齊');
+  const short = officialBarsVerdict(G({ tailRun: 2, pass: false }), '2026-10-05');
+  assert.deepEqual([short.ok, short.reason, short.tailRun], [false, '最近連續完整 2 個交易日（需 ≥20）', 2]);
+  assert.equal(short.barsByCode, bars, '不 ok 也留著（只給興櫃身分比對）');
+  assert.equal(officialBarsVerdict(null, '2026-10-05').ok, false);
+  assert.equal(officialBarsVerdict({ barsByCode: bars }, '2026-10-05').reason, '讀取結果沒有閘門資訊');
 });

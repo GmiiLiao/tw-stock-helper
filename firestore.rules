@@ -70,6 +70,19 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // AI 停損規範 stop-v1.1 停損簿（2026-10-06 R9）：daemon 以 Admin SDK 單一寫入（scripts/lib/stop-shadow-store.mjs：
+    //   stopBooks/{uid} 整份覆寫、stopBooks/{uid}/shadowDays/{資料日} 影子紀錄）。本人與管理員唯讀；任何前端都不可寫
+    //   （Admin SDK 不受規則限制）。其餘未列的集合（stopEventShadow、stopSpecAudit 等）維持預設拒絕。
+    match /stopBooks/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+
+      match /shadowDays/{day} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if false;
+      }
+    }
+
     // 營運數據彙總（daemon 每日寫入；僅超級管理員可讀，前台不可見）
     match /userPerf/{doc} { allow read: if isAdmin(); }
     match /platformStats/{doc} { allow read: if isAdmin(); }

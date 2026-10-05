@@ -224,6 +224,31 @@ export function readOfficialBars(opts = {}) {
   return { kind, barsByCode: barsByCodeOf(days, opts.codes || null), days: days.map(({ rows, ...d }) => d), problems };
 }
 
+const yieldLoop = () => new Promise(r => setImmediate(r));
+
+/**
+ * daemon 盤前供給用（使用者 2026-10-06 R8「ok 如建議」：ETF／興櫃日 K 由 daemon 盤前讀本機官方鏡像，0 次 Firestore 讀寫、0 上游請求）：
+ * 截至 to（含）的最後 lastN 個交易日，依交易日切成 chunkDays 天一段讀，段與段之間讓出事件迴圈——readOfficialDays 是同步讀檔＋解壓＋
+ * JSON 解析（ETF 80 個交易日一次讀完約 0.8 秒，會卡住 daemon 的報價迴圈）。驗證與 readOfficialBars 相同（逐份回聲、市場組成）。
+ * 回 { kind, barsByCode, days（不含 rows）, problems, gates（archiveGates：閘門 ①②③） }。呼叫端依 gates 決定用不用（fail-closed）。
+ */
+export async function readOfficialBarsAsync({
+  root = DEFAULT_OFFICIAL_ROOT, kind = 'etf', to = null, lastN = 80, codes = null, chunkDays = 10, readEntry = C.readEntry, pause = yieldLoop,
+} = {}) {
+  if (!BAR_SOURCES[kind]) throw new Error(`未知的歸檔種類：${kind}`);
+  let dates = tradingDaysOf(root).filter(d => !to || d <= to);
+  if (Number.isInteger(lastN) && lastN > 0) dates = dates.slice(-lastN);
+  const step = Number.isInteger(chunkDays) && chunkDays > 0 ? chunkDays : 10;
+  const days = []; const problems = [];
+  for (let i = 0; i < dates.length; i += step) {
+    const part = dates.slice(i, i + step);
+    const r = readOfficialDays({ root, kind, from: part[0], to: part[part.length - 1], readEntry });
+    days.push(...r.days); problems.push(...r.problems);
+    if (i + step < dates.length) await pause();
+  }
+  return { kind, barsByCode: barsByCodeOf(days, codes), days: days.map(({ rows: _rows, ...d }) => d), problems, gates: archiveGates(days) };
+}
+
 /**
  * 歸檔文件（Firestore etfDailyArchive／emergingDailyArchive 的 doc 內容，由整合端寫入；本模組不寫 Firestore）：
  * date＝官方回聲日；closeJson 字串同 chipArchive；counts 市場組成；sources 官方檔鍵與雜湊；只產 ok 的日子。

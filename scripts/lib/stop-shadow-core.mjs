@@ -216,12 +216,16 @@ function bandCompare(bp) {
   return off > rating ? 'officialHigher' : 'officialLower';
 }
 
-/** 一組停損簿 → 部位層計數（綁定來源、資料狀態、今日版本原因、事件收緊、觸及事件、ATR 帶兩版本、v1.1 停損對舊推播停損的高低） */
+/**
+ * 一組停損簿 → 部位層計數（綁定來源、資料狀態、今日版本原因、事件收緊、觸及事件、ATR 帶兩版本、v1.1 停損對舊推播停損的高低）。
+ * 組成線由本機官方鏡像供給的 ETF／興櫃（lineInputs.archive；2026-10-06 R8）**分開統計**在 officialArchive[種類]（SKILL §2A 閘門 ⑥），
+ * 不混進上面的計數。
+ */
 export function bookAuditCounts(books, dateYmd) {
   const out = {
     users: 0, positions: 0, bySource: {}, noOfficialBars: 0, linesStale: 0, exGap: 0, exUnknown: 0, suspect: 0,
     versionToday: {}, eventLayers: { active: 0, deferred: 0 }, episodes: { open: 0, seeded: 0 }, band: {},
-    stopVsLegacyPush: { higher: 0, lower: 0, same: 0 },
+    stopVsLegacyPush: { higher: 0, lower: 0, same: 0 }, officialArchive: {},
   };
   for (const b of Array.isArray(books) ? books : []) {
     const ps = Object.entries(isObj(b?.positions) ? b.positions : {});
@@ -230,6 +234,16 @@ export function bookAuditCounts(books, dateYmd) {
     for (const [code, p] of ps) {
       out.positions += 1;
       if (p.noOfficialBars) { out.noOfficialBars += 1; continue; }
+      const arc = p.lineInputs?.archive;
+      if (arc === 'etf' || arc === 'emerging') {
+        const a = (out.officialArchive[arc] ??= { positions: 0, bySource: {}, linesStale: 0, exGap: 0, episodes: 0 });
+        a.positions += 1;
+        inc(a.bySource, p.stopSource ?? 'none');
+        if (p.linesStale) a.linesStale += 1;
+        if ((p.exGapBars ?? 0) > 0) a.exGap += 1;
+        if (p.episode) a.episodes += 1;
+        continue;
+      }
       inc(out.bySource, p.stopSource ?? 'none');
       if (p.linesStale) out.linesStale += 1;
       if ((p.exGapBars ?? 0) > 0) out.exGap += 1;
@@ -306,6 +320,22 @@ export function eventMinAtMs(applicableYmd, isTradingDay) {
 /** 歸檔驗證前沒有可用官方日 K 的代號（ETF 5～6 碼、興櫃；A3）給 plan* 的組成線原料 */
 export function noBarsStub(dataDate = null) {
   return { dataDate, close: null, atr14: null, barsFrom: null, atrBand: null, holdHigh: null, exGapBars: 0, noOfficialBars: true };
+}
+
+/**
+ * 本機官方鏡像的 ETF／興櫃日 K 讀取結果（official-bars.readOfficialBarsAsync；使用者 2026-10-06 R8）→ 能不能拿來算組成線（fail-closed）：
+ * 閘門 ①②③（archiveGates.pass：逐份回聲＝鍵、最近連續 ≥20 個交易日、市場組成）通過，而且最後一個交易日＝資料日 toYmd 且已抓齊
+ * （pendingTail 0）才 ok。回 { ok, reason（不 ok 的原因；ok 時 null）, barsByCode（不 ok 也留著，只給興櫃身分比對用）, tailRun }。
+ */
+export function officialBarsVerdict(result, toYmd) {
+  const g = isObj(result) ? result.gates : null;
+  const barsByCode = isObj(result?.barsByCode) ? result.barsByCode : {};
+  let reason = null;
+  if (!isObj(g)) reason = '讀取結果沒有閘門資訊';
+  else if ((g.pendingTail ?? 0) > 0) reason = `資料日 ${toYmd} 鏡像尚未抓齊`;
+  else if (g.lastDate !== toYmd) reason = `鏡像最後交易日 ${g.lastDate ?? '—'}≠資料日 ${toYmd}`;
+  else if (g.pass !== true) reason = `最近連續完整 ${isNum(g.tailRun) ? g.tailRun : 0} 個交易日（需 ≥${isNum(g.minRun) ? g.minRun : 20}）`;
+  return { ok: reason == null, reason, barsByCode, tailRun: isNum(g?.tailRun) ? g.tailRun : 0 };
 }
 
 /** 影子紀錄項目的去重鍵（同一則只記一次；重啟後讀回當日紀錄再比對） */

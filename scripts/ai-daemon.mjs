@@ -3031,7 +3031,7 @@ async function agentTick(quotes, marketNow) {
         } else if (instNet < 0 && dayHighPct >= 4 && pctFromHigh <= -3 && volX >= 2) {
           await pushAgentMsg({
             type: 'risk', label: '疑似出貨警示', emoji: '📤', severity: 'danger',
-            text: `${q.name || ''}(${code}) 昨日外資+投信賣超 ${Math.round(-instNet).toLocaleString('zh-TW')} 張，今日衝高 +${dayHighPct.toFixed(1)}% 後自高點回落 ${pctFromHigh.toFixed(1)}%·量 ${volX.toFixed(1)} 倍${outR != null && outR <= 0.4 ? '·內盤主導（主動賣壓）' : ''}。⚠ 推斷跡象（昨日 EOD 籌碼 × 今日盤中價量）；持有者確認停損位，未持有者勿接刀。`,
+            text: `${q.name || ''}(${code}) 昨日外資+投信賣超 ${Math.round(-instNet).toLocaleString('zh-TW')} 張，今日衝高 +${dayHighPct.toFixed(1)}% 後自高點回落 ${pctFromHigh.toFixed(1)}%·量 ${volX.toFixed(1)} 倍${outR != null && outR <= 0.4 ? '·內盤主導（主動賣壓）' : ''}。⚠ 推斷跡象（昨日 EOD 籌碼 × 今日盤中價量；台股無盤中法人資料）。`,   // 2026-10-06 R4：只描述事實（wording.md 原則，不下指令）
             summary: `📤 ${q.name || ''}(${code}) 昨賣超×衝高回落${pctFromHigh.toFixed(1)}%——疑似出貨`,
             stocks: [code], dedupeKey: `dump:${code}`, cooldownMs: 60 * 60e3,
           });
@@ -6475,7 +6475,9 @@ ${body || '（近 2 日無實質新聞）'}
     //   做法照停損規範 SKILL §10A.2 第 1～5 步：
     //   · 主判別（含引用強制、中性歸零）定案之後，**每個命中的類別另問一次**（本機模型、priority 1 同舊 C16a 聚焦提問、溫度 NEWS_TEMP）；
     //     主判別提示詞逐字不變（不把事實題嵌進主判別，免得主判別的 label 漂移）。只給 AI 看「與本檔同時出現、命中該類別」的報導。
-    //   · 回答開頭「是」⇒ 程式把 label 覆寫為利空（applyRuleFacts；C16a 理由與 2026-08-29 版逐字相同，其他類別「【規則·類別名】」），
+    //   · 回答開頭「是」⇒ 記規則欄位（applyRuleFacts：ruleClass、ruleOverride、ruleSub、ruleHits、aiOriginal、ruleFacts）。
+    //     **只有法律類 C16a** 由程式把 label 覆寫為利空（理由與 2026-08-29 版逐字相同）；其他類別 label／bullish／信心／理由一律不動
+    //     （使用者 2026-10-06 R1「ok 如建議」：label 連動推薦排序、個股評分、做空候選、squeeze-train；停損收緊與戰情讀規則欄位）。
     //     原判已是利空只補欄位；「否」、不確定、逾時 ⇒ 維持 AI 原判，不猜。
     //   · Ollama 呼叫只在觸發字命中時增加（每類一次）；上游請求 0、MIS 0。
     if (verdict && ruleTrig.codes.length) {
@@ -6489,7 +6491,7 @@ ${body || '（近 2 日無實質新聞）'}
       }
       verdict = applyRuleFacts(verdict, { facts });
       const asked = Object.entries(verdict.ruleFacts || {}).map(([k, x]) => `${k}:${x}`).join(' ');
-      log(`  ↳ ${it.code} 規則事實 ${asked}${verdict.ruleClass ? ` ⇒ ${verdict.ruleClass}${verdict.ruleHits ? `（另 ${verdict.ruleHits.join('、')}）` : ''}${verdict.aiOriginal?.label && verdict.aiOriginal.label !== '利空' ? `（AI 原判${verdict.aiOriginal.label}→規則利空）` : ''}` : ''}`);
+      log(`  ↳ ${it.code} 規則事實 ${asked}${verdict.ruleClass ? ` ⇒ ${verdict.ruleClass}${verdict.ruleHits ? `（另 ${verdict.ruleHits.join('、')}）` : ''}${verdict.aiOriginal?.label && verdict.aiOriginal.label !== '利空' ? (verdict.ruleClass === 'C16a' ? `（AI 原判${verdict.aiOriginal.label}→規則利空）` : `（label 維持 AI 原判${verdict.aiOriginal.label}，只記規則欄位）`) : ''}` : ''}`);
     }
     } else {
       verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
@@ -15992,8 +15994,20 @@ if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔�
 //   交易日 08:46 起盤前刷新（markJobDone 'stopShadowPre'）；盤中隨 checkAlerts 每輪判定；資料到齊班車完成後收盤結算
 //   （定版看資料：_otcFixDate＝今日且歸檔兩市到齊；開盤前可補跑前一交易日；markJobDone 'stopShadowClose'）；非交易日每小時處理持股變動。
 //   動態 import：影子用的集線器會連帶載入另一流程的檔（warroom-news → after-market-news），載入失敗只停用影子、daemon 照常。
+//   ETF／興櫃官方日 K（使用者 2026-10-06 R8「ok 如建議」）：盤前刷新由這裡讀本機官方鏡像 second-brain/official（official-bars.mjs；
+//   只讀本機檔、0 次 Firestore 讀寫、0 上游請求、每個資料日每種一次）。讀取模組載入失敗或鏡像不可用 ⇒ fail-closed（這類持股照舊
+//   noOfficialBars，記 log），影子其他部分照跑。STOP_VERIFIED_ARCHIVES：已通過 SKILL §2A 驗證閘門並經使用者核可的歸檔種類——
+//   目前空（尚未核可）：影子期照算這類持股（閘門 ⑥），live 時舊分支照跑、v1.1 不發警示；runner 每次寫停損簿一併寫進
+//   stopBooks/{uid}.verifiedArchives（戰情 bookStopOf 讀同一份）。這類持股的收盤補判與事件結算在下一交易日盤前讀到鏡像時補跑
+//   （鏡像 22:40 才有當日資料；2026-10-06 審查）。⚠ R1 部署先後：web 要先部署（或與本程序重啟同窗），見 SKILL §14。
 const EXRIGHT_HISTORY_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'exright-history.json');
+const STOP_VERIFIED_ARCHIVES = Object.freeze([]);
 async function stopShadowLoop() {
+  let loadOfficialBars = null;
+  try {
+    const { readOfficialBarsAsync } = await import('./lib/official-bars.mjs');
+    loadOfficialBars = opts => readOfficialBarsAsync(opts);
+  } catch (e) { log('⚠ 停損影子：ETF／興櫃官方日 K 讀取模組載入失敗——這類持股 fail-closed（noOfficialBars），影子其他部分照跑:', (e.message || '').slice(0, 120)); }
   try {
     const [{ createStopShadow }, { createFirestoreStopStore }] = await Promise.all([
       import('./lib/stop-shadow-runner.mjs'), import('./lib/stop-shadow-store.mjs'),
@@ -16002,6 +16016,7 @@ async function stopShadowLoop() {
       store: createFirestoreStopStore({ db, FieldValue, FieldPath }), log, getPremiumUsers, isTradingDayIso: _isTradingDayIso,
       trainDone: ymd => _otcFixDate === ymd, fetchExright, loadPriceFactors,
       readExHistory: () => JSON.parse(readFileSync(EXRIGHT_HISTORY_FILE, 'utf8')), fetchRiskSets, readJobMarks, markJobDone,
+      loadOfficialBars, verifiedArchives: STOP_VERIFIED_ARCHIVES,
     });
     log('✓ 停損 v1.1 影子試算已載入（只記錄、不推播；stopBooks／stopEventShadow／stopSpecAudit）');
   } catch (e) { log('⚠ 停損 v1.1 影子試算載入失敗——影子停用，現行停損推播不受影響:', (e.message || '').slice(0, 120)); return; }

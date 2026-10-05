@@ -2,7 +2,7 @@
 // 規範 .claude/skills/tw-ai-stoploss/SKILL.md「生效範圍」、§3.6；實作計畫 §3.1。非投資建議。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregatePositions } from './ai-stoploss.mjs';
+import { aggregatePositions, legacyBranchActive } from './ai-stoploss.mjs';
 import {
   parseStopBookDoc, stopBookLive, sameLots, stopBookStale, bookStopOf, bookCalcWhyText, shadowStopOf,
 } from './warroom-stopbook.mjs';
@@ -58,6 +58,27 @@ test('bookStopOf：一致＝停損簿這一版（成本可疑以目前價重算�
   assert.equal(bad.mode, 'bookCalc');
   assert.equal(bad.why, 'invalid');
   assert.equal(bookCalcWhyText('invalid', null), '停損簿這一檔資料不完整');
+});
+
+test('bookStopOf（2026-10-06 審查）：組成線來自尚未驗證的官方鏡像歸檔 ⇒ legacy（與 daemon legacyBranchActive 同口徑）；停損簿文件 verifiedArchives 含該種類才讀停損簿', () => {
+  const etf = aggregatePositions([{ id: 'e', code: '00631L', name: '元大台灣50正2', buyPrice: 40, quantity: 1, buyDate: '2026-09-01' }])[0];
+  const ebp = {
+    ...BP, lots: [{ id: 'e', buyPrice: 40, qty: 1, buyDate: '2026-09-01' }], adjCost: 40, stop: 38.5, baseStop: 38.5, floorStop: 36.8,
+    bandHold: 38.5, costLine: 36.8, lines: { costLine: 36.8, bandLine: 38.5, beLine: null, trailLine: null, eventLine: null },
+    lineInputs: { dataDate: PREV, close: 41.5, atr14: 0.8, barsFrom: '2026-06-01', atrBand: { price: 38.5, dataDate: PREV }, holdHigh: null, exGapBars: 0, noOfficialBars: false, archive: 'etf' },
+  };
+  const b = parseStopBookDoc(doc({ positions: { '00631L': ebp } }));
+  assert.deepEqual(b.verifiedArchives, [], '缺＝空＝都還沒驗證（fail-closed）');
+  const r = bookStopOf(etf, { book: b, prevYmd: PREV, lastPrice: 41, ratingBand: 38 });
+  assert.equal(r.mode, 'legacy');
+  assert.equal(r.res.basisText, 'ATR 帶（持股分析）·沿用現行推播口徑');
+  assert.equal(legacyBranchActive(b, '00631L'), true, 'daemon 同一份停損簿也走舊分支');
+  const v = parseStopBookDoc(doc({ positions: { '00631L': ebp }, verifiedArchives: ['etf', 'bogus', 'etf'] }));
+  assert.deepEqual(v.verifiedArchives, ['etf'], '只收 etf／emerging、去重');
+  const rv = bookStopOf(etf, { book: v, prevYmd: PREV, lastPrice: 41, ratingBand: 38 });
+  assert.equal(rv.mode, 'book', '驗證並核可後才讀停損簿（上一段的 legacy 不是空轉）');
+  assert.equal(rv.res.stop, 38.5);
+  assert.equal(legacyBranchActive(v, '00631L', { verifiedArchives: v.verifiedArchives }), false);
 });
 
 test('影子值只在 phase shadow 時給抽屜對照；生效後不給', () => {

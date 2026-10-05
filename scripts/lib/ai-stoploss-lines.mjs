@@ -213,7 +213,8 @@ export function uncoveredBreakBars(bars, ex, isTradingDay) {
  * 官方日 K（原始，最後一根＝資料日）→ resolveStop 的 lines：還原、ATR14、ATR 帶、持有期最高收盤（prevHoldHigh 同一持有期起點時
  * 以 stepHoldHigh 增量，否則 holdHighClose 重算）、係數涵蓋缺口。沒有任何日 K ⇒ noOfficialBars（不是 linesStale，不會隨時間補齊）。
  * ETF：視窗裡有沒有係數涵蓋的結構斷點（uncoveredBreakBars）⇒ 斷點之前的根數記進 exGapBars（fail-closed：當日不採用日 K 算出的值）。
- * opts：{ isEtf, isTradingDay, archiveFrom, dataDate（沒有日 K 時記的資料日） }
+ * opts：{ isEtf, checkBreaks（預設＝isEtf；英文字尾 ETF 的 isEtfCode 為 false〔檔位待核實 §15-1〕，但一樣要查斷點，呼叫端傳 true）,
+ *   isTradingDay, archiveFrom, dataDate（沒有日 K 時記的資料日） }
  */
 export function lineInputsOf(bars, firstDate, prevHoldHigh, ex, opts = {}) {
   const raw = cleanBars(bars);
@@ -226,7 +227,7 @@ export function lineInputsOf(bars, firstDate, prevHoldHigh, ex, opts = {}) {
   const adj = adjustBars(raw, ex);
   const last = adj[adj.length - 1];
   const cov = exCoverageOf(ex, adj[0].date, last.date, adj.map(b => b.date));
-  const breakBars = opts.isEtf ? uncoveredBreakBars(raw, ex, opts.isTradingDay) : 0;
+  const breakBars = (opts.checkBreaks ?? opts.isEtf) ? uncoveredBreakBars(raw, ex, opts.isTradingDay) : 0;
   const band = atrBandOf(adj, !!opts.isEtf);
   let holdHigh = null;
   if (YMD_RE.test(String(firstDate))) {

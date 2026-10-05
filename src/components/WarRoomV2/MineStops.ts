@@ -5,8 +5,8 @@
 //      calculateAtrStop，以前一完整交易日官方收盤夾值、盤中不變）。舊稱「AI 停損」「結構參考價」——v1.1 前端暫算把它當 ATR 帶，
 //      與成本線取高、不棘輪（warroom-mine.provisionalStop：frontLinesOf＋resolveStop bandRatchet:false），畫面標
 //      「ATR 帶（持股分析·觸發線之一）」。
-//   ② daemon 停損簿：stopBooks/{uid}（daemon 以 Admin SDK 單一寫入；firestore.rules 規劃為本人與管理員唯讀——規則部署前讀取
-//      會被拒，狀態 'error'，一律退回前端暫算）。phase 'live' 且 specVersion 'stop-v1.1' 才生效；'shadow' 只供抽屜對照
+//   ② daemon 停損簿：stopBooks/{uid}（daemon 以 Admin SDK 單一寫入；firestore.rules 已加本人與管理員唯讀、前端不可寫〔2026-10-06 R9〕
+//      ——規則隨 `firestore:rules` 部署前讀取會被拒，狀態 'error'，一律退回前端暫算）。phase 'live' 且 specVersion 'stop-v1.1' 才生效；'shadow' 只供抽屜對照
 //      （scripts/lib/warroom-stopbook.mjs）。
 // 只讀 Firestore 文件（onSnapshot），不打任何上游、與線上人數無關；每份文件一個模組層級訂閱，A1、抽屜、Z2 引擎共用（引用計數，
 //   有人在用才訂閱，最後一個卸載就退訂）。身分模擬中讀被模擬者（useDataUid）。

@@ -11,13 +11,15 @@ export interface RuleClassDef {
   trigger: RegExp;
   /** 觸發字命中處前後 VETO_SPAN 字內出現就不算觸發（例 C20b 的券商評等、目標價） */
   veto?: RegExp;
-  /** 規則覆寫 label 時理由的事件描述（ruleOverrideReason） */
+  /** 規則覆寫時理由的事件描述（ruleOverrideReason；2026-10-06 R1 起只有 C16a 會覆寫 newsVerdict 的 label／理由） */
   ruleText: string;
   /** 要 AI 從內文回答的事實（{name} 代入公司名） */
   fact: string;
   subWeights?: Readonly<Record<string, number>>;
 }
 export const RULE_LEGAL_PREFIX: '【規則】';
+/** 規則判定「是」時程式會覆寫 newsVerdict label 為利空的類別：只有 C16a（其他類別只記規則欄位；2026-10-06 R1） */
+export const LABEL_OVERRIDE_CLASS: 'C16a';
 export const CLASS_WEIGHT_NOTE: string;
 export const VETO_SPAN: number;
 export const RULE_BEAR_CLASSES: readonly RuleClassDef[];
@@ -25,7 +27,7 @@ export const RULE_CLASS_BY_CODE: Readonly<Record<string, RuleClassDef>>;
 export const RULE_CLASS_BY_KEY: Readonly<Record<string, RuleClassDef>>;
 export const RULE_CLASS_CODES: readonly RuleClassCode[];
 export function ruleReasonPrefix(code: string): string;
-/** label 須為利空（停損規範 §10A.1-C）：ruleClass ＞ ruleOverride ＞「【規則】」前綴 */
+/** 不看 label（2026-10-06 R1）：ruleClass 且 ruleFacts[ruleClass]==='yes'；舊資料 C16a（label 利空＋ruleOverride 'legal-event' 或「【規則】」前綴） */
 export function ruleClassOf(verdict: unknown): RuleClassCode | null;
 export function ruleSubOf(verdict: unknown, code?: string | null): string | null;
 export function ruleClassesHit(text: string): RuleClassCode[];

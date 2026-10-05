@@ -9,7 +9,7 @@
 //   ai-stoploss-event.mjs  規則類利空事件（A4：類別權重分級）、收緊線、疊加層狀態機、命中與漏網影子紀錄
 //   ai-stoploss-text.mjs   禁用詞掃描、紀律彙總、九處推播文字（第 9 項）、一級推播文字
 //   ai-stoploss-llm.mjs    LLM 停損提示詞、STOP_REF 解析、文字一致性驗證 T1–T5
-//   ai-stoploss-plan.mjs   daemon 整合：legacyBranchActive、planBookRefresh、planUserStopTick、planCloseSettle、planDisciplineDigest、mergeAlertsKeepUnacked
+//   ai-stoploss-plan.mjs   daemon 整合：legacyBranchActive、legacyCodeActive、planBookRefresh、planUserStopTick、planCloseSettle、planDisciplineDigest、mergeAlertsKeepUnacked
 //   news-rule-classes.mjs  規則類利空事件類別與類別權重（新聞技能 §4.1；新聞管線與停損共用）
 //
 // 規則：純函式——不 import firebase、不碰網路與檔案、不讀時鐘（時間一律由參數傳入），回傳新物件、不改輸入。非投資建議。

@@ -150,10 +150,12 @@ export interface LineInputs {
   exGapBars?: number;
   /** 代號沒有可用的官方日 K（ETF／興櫃歸檔驗證前、或歸檔沒有這檔） */
   noOfficialBars?: boolean;
+  /** 日 K 由 daemon 盤前讀本機官方鏡像供給的歸檔種類（2026-10-06 R8）；chipArchive 的不帶。驗證前 legacyBranchActive 仍為真 */
+  archive?: 'etf' | 'emerging';
 }
 export function lineInputsOf(bars: ReadonlyArray<Partial<DayBar> & { date: string; c: number }>, firstDate: string | null,
   prevHoldHigh: HoldHigh | null, ex: ExTable,
-  opts?: { isEtf?: boolean; isTradingDay?: (ymd: string) => boolean; archiveFrom?: string; dataDate?: string }): LineInputs;
+  opts?: { isEtf?: boolean; checkBreaks?: boolean; isTradingDay?: (ymd: string) => boolean; archiveFrom?: string; dataDate?: string }): LineInputs;
 /** 前端暫算（停損簿上線前）的組成線：ATR 帶＝持股分析 stopLoss 向下取檔、資料日＝前一交易日；沒有帶回 null */
 export function frontLinesOf(input: { ratingBand: number | null | undefined; prevTradingYmd: string | null; isEtf?: boolean }): LineInputs | null;
 
@@ -163,7 +165,7 @@ export interface RuleClassDef {
   scope: string; trigger: RegExp; fact: string; subWeights?: Readonly<Record<string, number>>;
   /** 觸發字命中處附近出現就不算觸發（例 C20b 的券商評等、目標價） */
   veto?: RegExp;
-  /** 規則覆寫 label 時理由的事件描述 */
+  /** 規則覆寫時理由的事件描述（2026-10-06 R1 起只有 C16a 會覆寫 newsVerdict 的 label／理由） */
   ruleText: string;
 }
 export const RULE_BEAR_CLASSES: readonly RuleClassDef[];
@@ -422,11 +424,20 @@ export interface StopBookPosition {
 export interface StopBookDoc {
   specVersion: 'stop-v1.1'; phase: 'shadow' | 'live'; dataDate: string; updatedAt: number;
   positions: Record<string, StopBookPosition>; nextEpisodeId: number;
+  /** daemon 每次寫停損簿時一併寫入的已驗證官方鏡像歸檔種類（＝STOP_VERIFIED_ARCHIVES；前端 bookStopOf 用同一份，2026-10-06 審查） */
+  verifiedArchives?: BarArchive[];
 }
 export type AlertDoc = Record<string, unknown>;
 
 // ── daemon 整合純函式
-export function legacyBranchActive(book: StopBookDoc | null | undefined, code?: string | null): boolean;
+/** 組成線來自 daemon 盤前讀本機官方鏡像、而該歸檔種類尚未驗證（不在 verifiedArchives）⇒ 種類；否則 null（2026-10-06 R8） */
+export function unverifiedArchiveOf(lineInputs: LineInputs | null | undefined, verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[]): 'etf' | 'emerging' | null;
+/** 停損簿的一檔留在第一階段口徑（不論 phase）：noOfficialBars，或組成線來自尚未驗證的官方鏡像歸檔（daemon 與前端 bookStopOf 共用） */
+export function legacyCodeActive(bp: Partial<StopBookPosition> | Record<string, unknown> | null | undefined,
+  opts?: { verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[] | null }): boolean;
+/** 停損簿不存在／非 live／版本不符 ⇒ true；有 code 時，該檔 legacyCodeActive ⇒ true */
+export function legacyBranchActive(book: StopBookDoc | null | undefined, code?: string | null,
+  opts?: { verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[] }): boolean;
 export function mergeAlertsKeepUnacked(prev: readonly AlertDoc[], incoming: readonly AlertDoc[], max?: number): AlertDoc[];
 export function prevStateOf(bp: StopBookPosition | null | undefined): PrevStopState | null;
 export function planBookRefresh(input: {
@@ -441,6 +452,8 @@ export function planBookRefresh(input: {
   names?: Readonly<Record<string, string>>;
   /** S5 切換當天：清掉影子期的事件，第一輪 live 判定以 seeded 彙總處理已在停損下的部位 */
   resetEpisodes?: boolean;
+  /** 已驗證的官方鏡像歸檔種類（預設空）：live 時，組成線來自其他種類（尚未驗證）的代號不發 v1.1 警示（R8） */
+  verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[];
 }): { bookPatch: Record<string, StopBookPosition | null>; docOnlyAlerts: AlertDoc[]; eventRecords: AlertDoc[] };
 export function planUserStopTick(input: {
   uid: string; holdings: readonly HoldingLot[]; book: StopBookDoc | null;
@@ -453,18 +466,25 @@ export function planUserStopTick(input: {
   dedupHas?: (key: string) => boolean;
   isTradingDay?: (ymd: string) => boolean; latestCanonicalYmd?: string | null;
   names?: Readonly<Record<string, string>>;
+  /** 已驗證的官方鏡像歸檔種類（預設空）：live 時，組成線來自其他種類（尚未驗證）的代號不發 v1.1 警示（R8） */
+  verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[];
 }): {
   pushAlerts: AlertDoc[]; docOnlyAlerts: AlertDoc[]; bookPatch: Record<string, StopBookPosition>; dedupKeys: string[];
   suppressOtherTypes: ReadonlySet<string>; nextEpisodeId: number; eventRecords: AlertDoc[];
 };
 export function planCloseSettle(input: {
   uid: string; holdings: readonly HoldingLot[]; book: StopBookDoc | null;
-  official: Readonly<Record<string, { open: number; high?: number; low: number; close: number }>>;
+  /** noLimit：沒有漲跌幅限制（興櫃）；open 缺（興櫃官方日資料沒有開盤價）⇒ 不判跳空 */
+  official: Readonly<Record<string, { open: number | null; high?: number; low: number; close: number; noLimit?: boolean }>>;
   lineInputs: Readonly<Record<string, LineInputs | null>>;
   dateYmd: string; openMs: number; isTradingDay?: (ymd: string) => boolean;
   exState?: Readonly<Record<string, { pending?: boolean; unconfirmed?: boolean }>>;
   refPrices?: Readonly<Record<string, number | null>>; dedupHas?: (key: string) => boolean; nowMs: number;
   names?: Readonly<Record<string, string>>;
+  /** 已驗證的官方鏡像歸檔種類（預設空）：live 時，組成線來自其他種類（尚未驗證）的代號不發 v1.1 警示（R8） */
+  verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[];
+  /** 只處理這些代號（其餘部位不動）；省略＝全部。收盤結算排除鏡像代號、下一交易日盤前只補這些代號（R8） */
+  codes?: ReadonlySet<string> | readonly string[] | null;
 }): {
   pushAlerts: AlertDoc[]; docOnlyAlerts: AlertDoc[]; bookPatch: Record<string, StopBookPosition>; dedupKeys: string[];
   missedLive: string[]; nextEpisodeId: number; eventRecords: AlertDoc[];
@@ -473,4 +493,6 @@ export function planDisciplineDigest(input: {
   uid: string; book: StopBookDoc | null; holdings: readonly HoldingLot[];
   prevCloses: Readonly<Record<string, number | null>>; todayYmd: string; isTradingDay?: (ymd: string) => boolean;
   dedupHas?: (key: string) => boolean; nowMs?: number; names?: Readonly<Record<string, string>>;
+  /** 已驗證的官方鏡像歸檔種類（預設空）：live 時，組成線來自其他種類（尚未驗證）的代號不發 v1.1 警示（R8） */
+  verifiedArchives?: ReadonlySet<BarArchive> | readonly BarArchive[];
 }): { alert: AlertDoc | null; dedupKey: string | null };
