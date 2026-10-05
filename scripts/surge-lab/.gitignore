@@ -38,4 +38,6 @@ out/tracks_t1/tracks_t1_events_SELHC.csv
 # 接線前證明要在正式環境（主 checkout）重跑、綁定快取路徑與程式 sha256，所以也不進版控（重跑不會弄髒主 checkout）；
 # worktree 演練時的那一份留在 prewire/tracks_fwd_prewire_20261005T212506.json（已追蹤，只作歷史證據，閘門不認）。
 .surge-cache-F/
+# 前向快取的 APFS 演練複本（cp -c -R；FDEV-007 驗證處置／注意重疊比對時建立，2026-10-05）
+.surge-cache-F-rh/
 out/tracks_fwd/*

@@ -165,6 +165,9 @@ export function tracksAlerts(status, exit) {
   const c6 = (status.frozen || []).filter(f => (f.unmet || []).includes('C6'));
   if (c6.length) out.push({ level: 'error', code: 'C6', msg: `分區 assertion 失敗：${c6.map(f => f.day).join('、')}` });
   if (exit !== 0 || (status.errors || []).length) out.push({ level: 'error', code: 'EXIT', msg: `分軌程式 exit ${exit}：${(status.errors || []).map(e => `${e.step} ${e.error}`).join('｜').slice(0, 400)}` });
+  // 凍結時鏡像缺 s 當天的處置列（FDEV-007：DK_s 要 s 當天）：該市場 DK_s 整個記未知、寫一次就固定——鏡像落後告警只看到前一交易日，看不到這種
+  const sMiss = (status.disp_s_missing || []).filter(x => x && Array.isArray(x.markets) && x.markets.length);
+  if (sMiss.length) out.push({ level: 'error', code: 'DISP_S_MISSING', msg: `凍結時處置鏡像缺 s 當天：${sMiss.map(x => `${x.day}（${x.markets.join('、')}）`).join('、')}——該市場 DK_s 已記未知（DKNA，封印不改）；查 22:40 官方鏡像那輪` });
   if (status.disp_att_live?.any_lagging) {
     const lag = Object.entries(status.disp_att_live.datasets || {}).filter(([, v]) => v.lagging).map(([k, v]) => `${k}（最後 ${v.last ?? '無'}）`).join('、');
     out.push({ level: 'warn', code: 'DISP_ATT_LAG', msg: `處置／注意鏡像落後（應至少到 ${status.disp_att_live.expect_at_least}）：${lag}——DK_s／t 日起處置記未知` });
