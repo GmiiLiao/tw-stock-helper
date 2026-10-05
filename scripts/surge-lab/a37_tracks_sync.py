@@ -239,7 +239,7 @@ def parsed_day(OF, cache: str, ds: str, day: str):
     vals = {k: vals.get(k, np.zeros(0)) for k in LIMIT_COLS[ds]}
     os.makedirs(os.path.dirname(pc), exist_ok=True)
     tmp = f'{pc}.tmp{os.getpid()}.npz'
-    np.savez(tmp, tag=tag, codes=codes, **vals)
+    np.savez_compressed(tmp, tag=tag, codes=codes, **vals)         # 上櫃日行情含權證約 1.2 萬列：壓縮後約十分之一
     os.replace(tmp, pc)
     return codes, vals
 
