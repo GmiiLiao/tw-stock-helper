@@ -1,0 +1,16 @@
+{
+ "stage": "m0fwd",
+ "time": "2026-10-05T20:29:46+0800",
+ "ts": 1022,
+ "ts_date": "2026-10-02",
+ "last_train_s": 1011,
+ "last_train_date": "2026-09-15",
+ "n_train_seed0": 82715,
+ "n_pos": 2155,
+ "fingerprint_sha256": "80ec0f8e2c892d6ef61190525fa6c8a469404ba9bea368a993c9bc0dd09d5b2b",
+ "reproducible": true,
+ "n_rows_fingerprint": 812555,
+ "fingerprint_rule": "sha256(concat_seeds(decision_function(釘住資料集全部列的 M0 百分位輸入)).astype(<f8))",
+ "pickle_sha256_T2": "576398e693a93d3a2cc0a74f29de36c28e8b9f36e7b92d924bb530caa49c5ee8",
+ "dataset_fingerprint": "fac51da2a75183426e76a02f82c7039dfbbe9577287f4b9b4b81cc28bd067d2a"
+}
