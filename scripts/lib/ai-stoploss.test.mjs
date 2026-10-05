@@ -1,5 +1,7 @@
-// AI 停損規範 stop-v1 共用純函式 單元測試：node --test scripts/lib/ai-stoploss.test.mjs
-// 編號對應實作計畫 warroom/stoploss/impl-plan.md §5 測試清單（只涵蓋 ai-stoploss.mjs 已實作的函式）。
+// AI 停損規範共用純函式 單元測試（v1 起的 A–E、I 組；v1.1 相容回歸）：node --test scripts/lib/ai-stoploss.test.mjs
+// 編號對應實作計畫 warroom/stoploss/impl-plan.md §5（v1）。v1.1 新增的測試分在：ai-stoploss-core.test.mjs（C′、E、L4–L9、M3–M4）、
+// ai-stoploss-lines.test.mjs（L、M、K66′）、ai-stoploss-event.test.mjs（N）、ai-stoploss-text.test.mjs（I′、E8、O、H）、
+// ai-stoploss-plan.test.mjs（J）、news-rule-classes.test.mjs（A4 類別與類別權重）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

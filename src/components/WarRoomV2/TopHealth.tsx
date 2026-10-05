@@ -136,7 +136,7 @@ export default function TopHealthPanel() {
       </table>
       {view.failed.length > 0 && <div className={css.hNote}>這次讀取失敗：{view.failed.join('、')}（保留上一份）</div>}
       <div className={css.hNote}>
-        時間＝資料本身的揭示或產出時刻，不是抓取時間。觸停損依規範 stop-v1 由本頁暫算（單一裝置判定、未含除權息調整）；daemon 的停損推播是舊制算法，列在二級。其他個人警示讀 daemon 寫入的警示文件；自設價警示已分檔儲存，觸發時不會覆蓋 daemon 警示。
+        時間＝資料本身的揭示或產出時刻，不是抓取時間。觸停損依規範 stop-v1.1 由本頁判定（單一裝置·暫算：成本線與持股分析 ATR 帶取高、未含除權息調整），停損簿切換正式後改讀 daemon；切換前 daemon 的停損推播是舊制算法，列在二級。其他個人警示讀 daemon 寫入的警示文件；自設價警示已分檔儲存，觸發時不會覆蓋 daemon 警示。
       </div>
     </div>
   );

@@ -154,6 +154,40 @@ test('daemon 警示 → 事件：舊制停損推播（停損、紀律）一律�
   assert.equal(eventFromDaemonAlert({ ...stop, at: T(10, 0, 0, 4) }, '2026-10-05'), null);
 });
 
+test('逼近停損 stop-v1.1：帶同一份 ctx（持股分析 ATR 帶）與 A1 同一個停損；停損簿生效時逼近改用 ≤1 ATR', () => {
+  const h = [{ id: 'a', code: '2317', name: '鴻海', buyPrice: 100, quantity: 1, buyDate: '2026-09-01' }];
+  const ctx = { bands: { 2317: 94.37 }, bandStatus: 'ok', prevYmd: '2026-10-02', book: null };
+  // 成本線 92 時 96 不算逼近；帶 94.3 時距 1.8% ⇒ 逼近
+  assert.deepEqual(nearStopList(h, { 2317: 96 }), []);
+  assert.deepEqual(nearStopList(h, { 2317: 96 }, null, { ctx, todayYmd: '2026-10-05' }), [{ code: '2317', name: '鴻海', distPct: 1.8 }]);
+  const book = {
+    phase: 'live', specVersion: 'stop-v1.1', dataDate: '2026-10-02', updatedAt: 1,
+    positions: { 2317: { lots: [{ id: 'a', buyPrice: 100, qty: 1, buyDate: '2026-09-01' }], stop: 95.5, stopVersion: 3, stopSource: 'atrBand', atr14: 2.1, adjCost: 100 } },
+  };
+  // 距 2.15%（>2%）但 ≤1 ATR ⇒ 逼近
+  assert.deepEqual(nearStopList(h, { 2317: 97.6 }, null, { ctx: { ...ctx, book }, todayYmd: '2026-10-05' }), [{ code: '2317', name: '鴻海', distPct: 2.2 }]);
+});
+
+test('daemon 警示 → 事件（停損簿生效後 stopLive）：requireAck 的觸停損＝一級、id 用警示 id、文字寫來源不寫停損價；舊分支與紀律彙總二級', () => {
+  const live = {
+    id: 'stop:2317:v5:e3', requireAck: true, type: 'stop', sub: 'gap', code: '2317', name: '鴻海', stopSource: 'atrBand', sourceDate: '2026-10-02',
+    price: 94, threshold: 95.5, message: '2317 鴻海 開盤 94.0，已低於停損 95.5（ATR 帶，差 1.6%）', at: T(9, 1),
+  };
+  const e = eventFromDaemonAlert(live, '2026-10-05', { stopLive: true });
+  assert.deepEqual(e, { id: 'stop:2317:v5:e3', at: T(9, 1), kind: 'stopLoss', level: 1, code: '2317', mine: true, text: '2317 鴻海 觸停損（ATR 帶·開盤即低於停損）' });
+  assert.equal(/95|94/.test(e.text), false);
+  // 停損簿生效前（沒帶 stopLive）：同一則仍降二級舊制
+  assert.equal(eventFromDaemonAlert(live, '2026-10-05').level, 2);
+  // 生效後舊格式的觸停損（ETF／興櫃舊分支代號）
+  const legacy = eventFromDaemonAlert({ code: '00878', name: '國泰永續高股息', type: 'stop', message: 'x', at: T(10, 0) }, '2026-10-05', { stopLive: true });
+  assert.equal(legacy.level, 2);
+  assert.equal(legacy.text, '00878 國泰永續高股息 觸及停損·沿用現行推播口徑（ETF／興櫃官方日 K 歸檔驗證前）');
+  const digest = eventFromDaemonAlert({ id: 'discipline:2026-10-05', type: 'discipline', code: '2317', name: '鴻海 等 2 檔', message: 'x', at: T(9, 5) }, '2026-10-05', { stopLive: true });
+  assert.equal(digest.level, 2);
+  assert.equal(digest.text, '2317 鴻海 等 2 檔 停損紀律彙總');
+  assert.equal(eventFromDaemonAlert({ id: 'stopInfo:2317:eventTighten:x', type: 'stopInfo', code: '2317', name: '鴻海', message: 'x', at: T(9, 0) }, '2026-10-05', { stopLive: true }).text, '2317 鴻海 停損資訊');
+});
+
 test('一級排序依嚴重度再依時間（不是單純依時間）', () => {
   const list = sortLevel1([
     { kind: 'majorNegative', at: 5 }, { kind: 'stopLoss', at: 1 }, { kind: 'marketDanger', at: 0 }, { kind: 'stopLoss', at: 3 },

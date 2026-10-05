@@ -1,6 +1,6 @@
 // 指揮列／大盤脈動／警示帶／手機 S1 共用的小狀態（模組層級 pub/sub）。
 // 寫入端只有 TopAlertEngine（大盤危險狀態機、逼近停損清單、停損本機事件表）；讀取端：Z1 盤勢燈、Z2 橫幅、手機 S1 計數點、
-//   A1 與快看抽屜（stopBook：停損棘輪的上一版，A1／抽屜／Z2／逼近清單帶同一份，數字才一致）。
+//   A1 與快看抽屜（stopBook：前端暫算的成本線棘輪上一版，A1／抽屜／Z2／逼近清單帶同一份，數字才一致）。
 // 放模組層級而不是 React context：ZoneAlerts（桌機）與 MobileBars（手機）兩處擇一掛 engine，讀取端不必管是誰在寫。
 import { useSyncExternalStore } from 'react';
 import type { NearStop } from '../../../scripts/lib/warroom-top.mjs';
@@ -17,13 +17,13 @@ export interface TopDanger {
 
 export interface TopState {
   danger: TopDanger;
-  /** 逼近停損（規範 stop-v1 暫算；距停損 ≤2%，含在停損價或以下），近到遠 */
+  /** 逼近停損（規範 stop-v1.1，與 A1 同一個值；≤1 ATR，沒有 ATR14 時距停損 ≤2%，含在停損價或以下），近到遠 */
   nearStop: readonly NearStop[];
-  /** false＝逼近停損無法計算。規範 stop-v1 只用持股與報價，引擎寫入時恆為 true（初始值 false＝引擎尚未跑） */
+  /** false＝逼近停損無法計算（引擎尚未跑，或持股分析 ATR 帶／停損簿還在讀取，最多 15 秒） */
   nearStopKnown: boolean;
   /** 監控中的持股檔數（不同代號） */
   holdingCount: number;
-  /** 停損本機事件表（代號 → 這一版：停損、版本、逐筆快照；localStorage wr-stop-ep:<uid>）。未登入或尚未載入＝空表 */
+  /** 停損本機事件表（代號 → 這一版：停損、成本線棘輪、版本、逐筆快照；localStorage wr-stop-ep:<uid>）。未登入或尚未載入＝空表 */
   stopBook: StopBook;
 }
 

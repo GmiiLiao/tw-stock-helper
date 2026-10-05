@@ -185,6 +185,18 @@ export function isFinal(man, key) {
 export function hasGood(man, key) { const r = man.rows?.[key]; return !!r && (r.status === 'ok' || r.status === 'unchanged'); }
 
 /**
+ * 興櫃當日行情的兩個每日快照（官方沒有可指定日期的興櫃全表，只能每日累積；AI 停損 A3 的興櫃日 K 來源）：
+ * PRIMARY www emerging/latest、FALLBACK openapi esb_latest_statistics，都以官方回聲日為鍵（keyByEcho）。
+ */
+export const EMERGING_SNAPSHOT_IDS = Object.freeze(['tpex_emerging_latest', 'tpex_oa_tpex_esb_latest_statistics']);
+
+/** 這些交易日裡「每個來源都沒有好資料」的日子（mans：各來源的清單；兩個都缺才算缺——任一來源有就能組出當日日 K） */
+export function snapshotGapDays(mans, days) {
+  const list = Array.isArray(mans) ? mans : [];
+  return [...new Set(Array.isArray(days) ? days : [])].sort().filter(d => !list.some(m => hasGood(m, d)));
+}
+
+/**
  * 依資料集規則判定定版。ad.stable（內容穩定規則）的資料集：由內容穩定判定的定版（finalBy='stable'）算數；
  * 舊時鐘規則留下的 final=true 只對期間早於 ad.stable.legacyTrustBefore 的鍵算數（2026-10-04 鏡像回補的歷史頁，
  * 皆在申報期限後 ≥24 日抓取、已含晚申報者）——不重抓、不降級（2026-10-04 審查：MOPS 歷史頁依現行名冊重產，

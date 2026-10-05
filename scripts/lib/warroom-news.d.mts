@@ -1,5 +1,7 @@
 // 型別橋接：讓 src/（TS）能 import 這份共用 mjs（唯一實作，勿另寫 TS 版）
+import type { RuleClassCode, ClassWeightBand } from './news-rule-classes.mjs';
 
+/** 影響權重旁一律附的說明（「研究期·只顯示」） */
 export const NEWS_WEIGHT_NOTE: string;
 export const NEWS_TIER_CUTS: Readonly<{ strong: number; mid: number }>;
 export const NEWS_TIER_LABEL: Readonly<Record<NewsTier, string>>;
@@ -8,7 +10,7 @@ export const PASS_LABEL: Readonly<Record<NewsPass, string>>;
 export const PREMARKET_PASSES: readonly NewsPass[];
 export const GATE_D: string;
 export const GATE_E: string;
-export const RULE_LEGAL_PREFIX: string;
+export const RULE_LEGAL_PREFIX: '【規則】';
 export const HARD_FACT_TYPES: readonly string[];
 export const PRICE_BULLETIN_RE: RegExp;
 export const ATTENTION_RE: RegExp;
@@ -21,9 +23,6 @@ export const UNCHALLENGED_TAG: string;
 export const UNCHALLENGED_NOTE: string;
 /** 可能為法律事件（未經規則確認）的揭露句 */
 export const POSSIBLE_LEGAL_NOTE: string;
-export const MAJOR_BEAR_RULE: Readonly<{ strongW: number; legalTypeW: number; legalTypes: readonly string[] }>;
-/** 權重門檻類一級警示的實際級別（使用者裁定前＝2） */
-export const WEIGHT_GATE_LEVEL: 1 | 2;
 export const NEWS_REPEAT_KEEP_DAYS: number;
 
 /**
@@ -38,14 +37,21 @@ export type NewsFresh = 'today' | 'prev' | 'next' | 'unknown';
 /** 全市場精簡表的一列（newsVerdict/latest.verdictJson[code] 經規範 §1 程式強制後） */
 export interface NewsEntry {
   st: NewsSt;
-  /** 影響權重（after-market-news.rankMediaVerdicts 同一個數字，先驗 0–1）；只有利多／利空才有 */
+  /** 影響權重（after-market-news.rankMediaVerdicts 同一個數字，先驗 0–1；研究期·只顯示）；只有利多／利空才有，
+   *  規則類利空而 AI 原判不是利空時為 null（w 屬於 AI 的方向） */
   w: number | null;
   /** 強度、信心、確定性、新穎性、已被預期（AI 原標籤） */
   s: string | null; c: string | null; ct: string | null; nv: string | null; pr: string | null;
   /** 事件類型（AI 的 L1 抽取；'法律' 不等於規則覆寫） */
   ev: string | null;
-  /** daemon 法律規則覆寫（§1.5） */
+  /** 法律事件（C16a）規則判定（§1.5）＝ rc === 'C16a' */
   lg: boolean;
+  /** 規則類利空的類別（news-rule-classes：daemon 程式規則判定，label 已覆寫為利空、AI 原判在 ra）；不是規則類利空為 null */
+  rc: RuleClassCode | null;
+  /** 規則類別的子類別（例 C15a 'giftOrTrust'，類別權重另計） */
+  rs: string | null;
+  /** 規則判定時 AI 的原判（與利空不同時才有，例「中性」） */
+  ra: string | null;
   /** 可能為法律事件（AI 自判利空、未經規則確認：事件類型法律或依據句有檢調／搜索／起訴等字樣）；只揭露、不升級 */
   pl: boolean;
   /** 走過四角色挑戰 */
@@ -95,10 +101,15 @@ export interface NewsLampView {
   /** 非今日適用時的標記（承接 mm/dd、前交易日…） */
   old: string | null;
   legal: boolean;
+  /** 規則類利空的類別短字（例「工安停工」「法律事件（法律判定前視為利空）」）；不是規則類利空為 null */
+  rule: string | null;
   title: string;
 }
 
-export interface MajorBear { level: 1 | 2; basis: 'rule-legal' | 'weight' | 'legal-type'; scope: 'holding' | 'watch' }
+/** Z2 持股重大利空：只看規則類別的類別權重（high 一級、mid 二級；low 不列），不看影響權重 w */
+export interface MajorBear {
+  level: 1 | 2; basis: 'rule-legal' | 'rule-class'; scope: 'holding' | 'watch'; cls: RuleClassCode; band: Exclude<ClassWeightBand, 'low'>;
+}
 
 export interface MajorBearState {
   t: string | null;
@@ -124,6 +135,7 @@ export interface NewsHealth { state: 'ok' | 'bad'; glyph: '●' | '▲'; text: s
 export function tpeHhmm(ms: number | null | undefined): string;
 export function ymdShort(ymd: string | null | undefined): string;
 export function newsTimeTag(atMs: number, nowMs: number): string;
+export function isRuleBear(v: unknown): boolean;
 export function isRuleLegal(v: unknown): boolean;
 export function isAiRead(v: unknown): boolean;
 export function isPriceBulletin(v: unknown): boolean;
@@ -140,6 +152,8 @@ export function isNewsUniverse(code: string): boolean;
 export function newsLampView(entry: NewsEntry | null | undefined, ctx: NewsCtx | null | undefined, opts?: { universe?: boolean }): NewsLampView;
 export function newsShortText(entry: NewsEntry | null | undefined, ctx: NewsCtx | null | undefined, opts?: { universe?: boolean }): string;
 export function newsWeightText(entry: NewsEntry | null | undefined): string | null;
+/** 規則類利空的說明句（類別、類別權重〔先驗·未回測，不是 w〕、AI 原判）；不是規則類利空回 null */
+export function ruleClassNote(entry: NewsEntry | null | undefined): string | null;
 export function newsKpi(
   codes: readonly string[], map: Record<string, NewsEntry> | null | undefined, ctx: NewsCtx | null | undefined,
 ): { bear: number; missing: number; old: number; na: number };
@@ -147,6 +161,7 @@ export function majorBearOf(
   entry: NewsEntry | null | undefined,
   opts: { scope?: 'holding' | 'watch'; ctx: NewsCtx | null | undefined; minAtMs?: number | null },
 ): MajorBear | null;
+export function majorBearNote(mb: MajorBear | null | undefined): string | null;
 export function quoteHash(s: string | null | undefined): string;
 export function initialMajorBearState(): MajorBearState;
 export function parseMajorBearState(raw: unknown): MajorBearState;

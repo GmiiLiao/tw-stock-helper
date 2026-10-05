@@ -2,7 +2,8 @@
 // ── 第二大腦·官方資料鏡像 CLI（2026-10-04 使用者：官網能下載的都下載補入第二大腦，交易日盤後自動更新）─────────
 // 存放 second-brain/official/{host}/{dataset}/…；核心規則見 scripts/lib/official-mirror.mjs，盤點見 docs/OFFICIAL-DATA-INVENTORY-2026-10-04.md。
 //   daily   [--date D] [--slot main|snap|all]  盤後：上市 MI_INDEX 回聲確認 D 是交易日 → 帶日期資料（main）＋快照（snap）＋近 5 個交易日補漏
-//   retry   [--days 5]                        補抓近 N 個交易日未到／失敗的鍵；P1 必有表仍缺、或交易日未確認 ⇒ 寫 _alerts
+//   retry   [--days 5]                        補抓近 N 個交易日未到／失敗的鍵＋最後交易日缺的興櫃每日快照；P1 必有表仍缺、交易日未確認、
+//                                             或興櫃兩個快照來源都缺 ⇒ 寫 _alerts
 //   backfill [--max 2500] [--only a,b]        先轉存研究快取（0 請求），再回補帶日期資料的歷史（P1→P3）；每個台北日上限 --max 個請求
 //   verify  [--only a,b] [--snapshots]        未驗證端點各打 1 次，通過才排進 daily／backfill
 //   migrate                                   研究快取（.surge-cache/official、MOPS t163sb04）轉存進來，0 請求
@@ -239,12 +240,25 @@ function snapshotJobs(D, state, a, today) {
 // ── retry ───────────────────────────────────────────────
 async function cmdRetry(a) {
   const today = C.taipeiDate(); const { jobs, recent } = catchUpJobs(a.days, a.only, today);
-  const r = await runJobs(jobs, a);
+  const r0 = await runJobs(jobs, a);
+  // 興櫃每日快照只在 daily 跑：22:40 那輪失敗一次，當日興櫃行情就永久缺（只能每日累積、無法回補）⇒ retry 也補最後一個已確認交易日
+  //   （06:45 開盤前兩個端點回的都是前一交易日，keyByEcho 以回聲日定鍵）。只在兩個來源都缺時才抓（≤2 個請求）。
+  const emAds = snapshotAdapters().filter(ad => C.EMERGING_SNAPSHOT_IDS.includes(ad.id) && (!a.only || a.only.includes(ad.id)));
+  const emMans = () => emAds.map(ad => C.loadManifest(ROOT, ad.host, ad.id));
+  const lastTd = [...dayInfo(today).confirmed].filter(d => d < today).sort().at(-1);
+  const rEm = lastTd && emAds.length && C.snapshotGapDays(emMans(), [lastTd]).length
+    ? await runJobs(emAds.map(ad => ({ ad, key: lastTd, ctx: C.ctxOf({ day: lastTd }), snapshot: true, keyByEcho: true })), a)
+    : { requests: 0, stats: {} };
+  const r = { requests: r0.requests + rEm.requests, stats: mergeStats(r0.stats, rEm.stats) };
   const info = dayInfo(today); const alerts = [];
   for (const d of recent) if (!info.confirmed.has(d) && !info.closed.has(d)) alerts.push({ id: MI.id, key: d, status: '交易日未確認（MI_INDEX 未取得）' });
   for (const ad of activeDated(a.only).filter(x => x.priority === 1 && x.unit === 'day' && x.must)) {
     const man = C.loadManifest(ROOT, ad.host, ad.id);
     for (const d of recent) if (info.confirmed.has(d)) for (const j of jobsFor(ad, { day: d })) if (!C.isFinal(man, j.key)) alerts.push({ id: ad.id, key: j.key, status: man.rows?.[j.key]?.status || '未抓' });
+  }
+  // 交易日不得有資料缺漏：官方確認的交易日，興櫃兩個快照來源都沒有 ⇒ 警示（之前的日子已無法補抓，只能揭露）
+  if (emAds.length) for (const d of C.snapshotGapDays(emMans(), recent.filter(d => info.confirmed.has(d)))) {
+    alerts.push({ id: C.EMERGING_SNAPSHOT_IDS[0], key: d, status: '興櫃每日快照缺（www 與 openapi 兩個來源都沒有；只能每日累積、無法回補）' });
   }
   writeAlerts(alerts);
   writeRunLog(`retry-${today}`, { requests: r.requests, stats: r.stats, alerts: alerts.length });

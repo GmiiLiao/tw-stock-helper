@@ -263,3 +263,12 @@ test('文字頁（MOPS／期交所）：原始位元組存 .html.gz、清單有 
     assert.equal(bad.row.status, 'mismatch');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('興櫃每日快照缺日（retry 補抓與 _alerts）：兩個來源都沒有好資料才算缺；任一來源有就不算（2026-10-05 審查）', () => {
+  assert.deepEqual([...C.EMERGING_SNAPSHOT_IDS], ['tpex_emerging_latest', 'tpex_oa_tpex_esb_latest_statistics']);
+  const www = { rows: { '2026-10-02': { status: 'ok' }, '2026-10-05': { status: 'fail' } } };
+  const oa = { rows: { '2026-10-01': { status: 'unchanged' }, '2026-10-05': { status: 'empty' } } };
+  assert.deepEqual(C.snapshotGapDays([www, oa], ['2026-10-05', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05']), ['2026-09-30', '2026-10-05']);
+  assert.deepEqual(C.snapshotGapDays([], ['2026-10-05']), ['2026-10-05']);
+  assert.deepEqual(C.snapshotGapDays([www], null), []);
+});

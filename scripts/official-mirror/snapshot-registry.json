@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-04",
+ "generated": "2026-10-05",
  "note": "由 build-registry.mjs 產生，勿手改",
  "entries": [
   {
@@ -4461,6 +4461,17 @@
    "freq": "daily",
    "priority": 2,
    "inventoryId": "tpex_bulletin_warning"
+  },
+  {
+   "id": "tpex_emerging_latest",
+   "host": "www.tpex.org.tw",
+   "kind": "json",
+   "validator": "tpexSnap",
+   "url": "https://www.tpex.org.tw/www/zh-tw/emerging/latest?response=json",
+   "title": "興櫃股票當日行情表（www）",
+   "freq": "daily",
+   "priority": 1,
+   "inventoryId": "tpex_emerging_latest"
   },
   {
    "id": "mops_t163sb04",

@@ -95,6 +95,9 @@ description: 台股起漲或選股模型的訓練／研究資料只用官方來�
 |---|---|---|---|---|---|---|
 | 個股 OHLCV（上市） | `www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=YYYYMMDD&type=ALLBUT0999&response=json`（backfill-chip-3y.mjs:92-95）；當日可用 `exchangeReport/STOCK_DAY_ALL`（不吃日期） | chipArchive 2022-07-18 起；官方最早可查日未驗證 | 收盤後；daemon 15:10 歸檔 | 頂層 `date`＋表 title；STOCK_DAY_ALL 以首欄民國日期為資料日（ai-daemon.mjs:11767-11776），closeJson 5 元素在 11789-11790 | 可用 | in-use（MI_INDEX 原表另在研究快取回補中，2.0） |
 | 個股 OHLCV（上櫃） | `www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=YYYY/MM/DD&type=EW&id=&response=json`（backfill-chip-3y.mjs:126-140）；openapi `tpex_mainboard_daily_close_quotes` 只有當日 | 2022-07-18 起；2023-01-05 實測 | 16:07–16:49，偶爾晚到 21:37（CLAUDE.md） | `date`＝YYYYMMDD 且 `tables[0].date` 民國；openapi 比對 `Date`（ai-daemon.mjs:11378） | 可用，但名單要走兩市到齊閘門 `writeCanonical` | in-use（dailyQuotes 原表另在研究快取回補中，2.0） |
+| ETF 日 K（5～6 碼與英文字尾：槓桿 L、反向 R、期貨 U、債券 B、主動 A…；4 碼 ETF 在 chipArchive） | 上市＝同上 MI_INDEX `ALLBUT0999` 每日收盤行情表；上櫃＝同上 dailyQuotes（2026-10-05 實測 `type=EW` 與不帶 `type` 同為 11,928 列、ETF 118 檔，含 ETF）。讀取：`scripts/lib/official-bars.mjs`（AI 停損 A3） | 鏡像 2022-07-18 起 1,023 日全數回聲相符、兩市每日都有（上市 130～232 檔、上櫃 84～119 檔，372 個代號） | 同收盤；鏡像 daily 22:40、retry 隔日 06:45 | 頂層 `date`＋表 title／`tables[0].date` 民國日期，兩者一致且＝鍵 | 可用 | in-use（停損 ATR 帶；不進 chipArchive、不進起漲訓練） |
+| 興櫃當日行情（全表） | PRIMARY `www.tpex.org.tw/www/zh-tw/emerging/latest?response=json`（不吃日期；鏡像快照 `tpex_emerging_latest`）；FALLBACK openapi `tpex_esb_latest_statistics`（2026-10-05 22:38 實測已是當日、未落後）。欄：收盤＝「成交」（最後成交價）、日最高、日最低、成交量；**沒有開盤價** | 鏡像 2026-10-02（openapi）／10-05（www）起累積 | 盤中每分鐘更新；盤後定版 | www：`tables[0].date`「115年10月05日 16:33:03」；openapi：每列 `Date`（民國 7 碼）全表一致 | 當日可用、無歷史 | accumulate-only（官方沒有可指定日期的興櫃全表） |
+| 興櫃個股歷史（逐檔逐月） | `www.tpex.org.tw/www/zh-tw/emerging/historical?type=Monthly&date=YYYY/MM/01&code=XXXX&response=json`（頁面 `/zh-tw/esb/trading/info/stock-pricing.html`；不帶代號回「請輸入資料日期及股票代碼」） | 頁面標 2007-01 起（未逐年驗證） | 未驗證 | 頂層 `date`＝月初 YYYYMM01、`subtitle`「115年09月 1260 富味鄉」 | — | backfillable，但**只有成交股數／金額／最高／最低／均價／筆數，沒有最後成交價與開盤價**：與每日快照的收盤口徑不同，未接（停損 A3 待裁定） |
 | 成交筆數、金額、均價 | 同上兩表（上櫃有「均價／成交金額／成交筆數」欄；上市在 MI_INDEX 個股表） | 上櫃 ≥2023-01-05（實測），上市 ≥2023-03-15（舊稽核）；2022 下半年未逐日驗證 | 同收盤 | 同收盤 | 可用 | 研究快取回補中（目標 2022-07-18 起，進度見 2.0）；closeJson 仍只存 5 元素，這些欄在站上歸檔被丟棄（ai-daemon.mjs:11789-11790） |
 | 上市當沖成交股數 | `www.twse.com.tw/exchangeReport/TWTB4U?response=json&date=YYYYMMDD&selectType=All` | 2022-07-18 起 1,023 日 | 首見 20:17–20:43（audit-data-sources.mjs:701-704） | `date`＝請求日；兩張表都含「證券代號」，要以欄名雙重定位（ai-daemon.mjs:11876-11886） | 可用，但時間很緊 | in-use（只有上市） |
 | 上櫃逐檔當沖 | `www.tpex.org.tw/www/zh-tw/intraday/stat?date=YYYY/MM/DD&type=Daily&response=json` 的 `tables[1]`（欄位：證券代號／證券名稱／暫停現股賣出後現款買進當沖註記／當日沖銷交易成交股數／買進金額／賣出金額） | ≥2022-07-18（2026-10-04 實測 1 次 GET：710 列，含 ETF）；舊稽核 2023-01-03 亦可 | 未驗證 | 頂層 `date`＝YYYYMMDD 且 `tables[1].date`＝民國日期；`stat` 是小寫 `ok`；`tables[1]` 沒有 title，要以欄名定位 | 未驗證（推估趕得上） | 研究快取 `tpex_daytrade` 回補中（目標 1,023 日，進度見 2.0） |
@@ -315,6 +318,10 @@ description: 台股起漲或選股模型的訓練／研究資料只用官方來�
 - **exDailyQ 曾連不上**（2026-10-03 ECONNRESET）。任一市場失敗就 throw，不可當作「沒有除權息」。factor 只收 0.3～1.2（exright-source.mjs:7）。
 - **MIS `pz` 兩種語義**：連續交易時段是上一筆成交的回聲，集合競價時段是試撮指示價（可能永遠不成交）。收盤後殘留掛單不可當現價。
 - **本機 DNS 曾解析不到 www.tpex.org.tw**（2026-10-03）。回補遇到 DNS 失敗就停，不要退回別的來源。
+- **ETF 沒有成交的日子，TWT84U「本日開盤競價基準」跟淨值走**（實測 00625K 無成交仍每天變）：用參考價推除權息係數只能取「前一交易日有成交」的列（`official-bars.mjs` `twt84uFactors`）。
+- **ETF 分割／反分割不在 `exright-history.json`**（TWT49U／exDailyQ 只有除權息）：2024-12～2026-07 鏡像日 K 找到 9 件停止買賣後的結構斷點
+  （00632R、00676R、00663L、00673R、00706L、00715L、00631L 2026-03-31、00674R、00685L 2026-07-07；`node scripts/official-bars.mjs factors`）。
+  跨斷點的日 K 不可直接算還原價或 ATR，要先有官方分割係數。
 
 ## 7. 無法取得或只能累積的資料與因應
 
@@ -392,6 +399,10 @@ wiki 每筆事實都帶來源等級，由高到低是：官方 > 官方衍生 > 
   403／401／30x／429／封鎖安全頁 ⇒ 立即停整個機構；5xx 退避重試一次；連續 3 次失敗停；研究回補程序在跑、或 daemon 日誌近 30 分鐘有上游故障字樣 ⇒ 不開跑；
   MIS 一律不打；回補時 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）。
 - **研究快取轉存**：`migrate`（0 請求）把 `.surge-cache/official/*` 與 MOPS t163sb04 搬進鏡像；`backfill` 開頭自動先跑一次。
+- **ETF／興櫃官方日 K（AI 停損 A3，2026-10-05）**：`scripts/lib/official-bars.mjs` 只讀鏡像（0 請求）組 chipArchive 同格式日 K；`node scripts/official-bars.mjs status|factors` 看覆蓋、閘門與係數涵蓋。
+  興櫃每日快照主要在 `daily` 22:40 抓；`retry`（隔日 06:45）在最後一個已確認交易日兩個來源（www `tpex_emerging_latest`、openapi `tpex_oa_tpex_esb_latest_statistics`）都缺時補抓一次（≤2 個請求，回聲日定鍵），
+  近 N 個已確認交易日兩個來源都沒有 ⇒ 寫進 `_alerts`（更早的日子已無法補抓，只能揭露；2026-10-05 審查）。`backfill` 不做快照。
+  已安裝的 daily 若仍是 22:15（落在 daemon 21:40–22:35 窗，整批略過），平日的興櫃當日行情會缺——要重跑 `scripts/install-official-mirror-schedule.sh`（使用者本人執行）。
 
 ## 修A錯B 影響面
 

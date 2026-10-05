@@ -146,5 +146,5 @@ export function FeedList({ groups, isNew, flashing }: { groups: readonly FeedGro
 }
 
 /** 頁尾說明：資料來源標記＋本期沒有資料來源的事件類型（不捏造） */
-export const FEED_FOOT = 'O＝官方公告·M＝媒體新聞（AI 讀過內文才判別；權重為先驗·未校準，只表強弱）·同檔同類 10 分鐘合併·當沖事件只在時段焦點';
+export const FEED_FOOT = 'O＝官方公告·M＝媒體新聞（AI 讀過內文才判別；影響權重研究期·只顯示，只表強弱）·同檔同類 10 分鐘合併·當沖事件只在時段焦點';
 export const FEED_MISSING_NOTE = '首觸跌停與新增處置目前沒有 daemon 資料文件，本頁不列（不捏造）。重訊只列今日有動靜的個股與你的持股、釘選。';

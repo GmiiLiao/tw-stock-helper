@@ -2,7 +2,7 @@
 
 // Z2 一級警示帶（preview.html renderZ2）：只放一級警示（events.ts level 1），依嚴重度排序，要按「收到」。
 //   大盤危險 ⇒ 紫色全寬橫幅＋「你有 n 檔逼近停損」；其他一級 ⇒ 琥珀框「一級 n」＋最嚴重的一則；沒有 ⇒ 「目前沒有需要立即處理的事」。
-// 試撮窗（08:30–09:00、13:25–13:30）價格類一級警示暫停（觸停損依規範 stop-v1 在這兩段不判定）；畫面照實說明暫停中。
+// 試撮窗（08:30–09:00、13:25–13:30）價格類一級警示暫停（觸停損依規範 stop-v1.1 在這兩段不判定）；畫面照實說明暫停中。
 // 一級事件引擎（daemon 個人警示訂閱、大盤危險狀態機、持股重大利空）也掛在這裡（桌機）；手機由 MobileBars 掛。
 import type { WarSegment } from '@/lib/warroom/session';
 import ZoneFrame, { type ZoneProps } from './parts/ZoneFrame';
@@ -16,11 +16,11 @@ import css from './TopZones.module.css';
 
 const NEAR_LIST_MAX = 3;
 
-/** 「你有 n 檔逼近停損：2317 鴻海、3231 緯創」（停損依規範 stop-v1 暫算：成本線、未含除權息調整；在停損下或距停損 ≤2%；不寫停損價） */
+/** 「你有 n 檔逼近停損：2317 鴻海、3231 緯創」（停損依規範 stop-v1.1，與 A1 同一個值；在停損下或距停損 ≤1 ATR，沒有 ATR14 時 ≤2%；不寫停損價） */
 export function nearStopText(near: readonly NearStop[], holdingCount: number, known = true): string {
   if (!holdingCount) return '';
   if (!known) return '逼近停損：暫無法計算';
-  if (!near.length) return '持股沒有逼近停損（距停損 ≤2%）';
+  if (!near.length) return '持股沒有逼近停損（距停損 ≤1 ATR，沒有 ATR 時 ≤2%）';
   const names = near.slice(0, NEAR_LIST_MAX).map(n => `${n.code} ${n.name}`.trim()).join('、');
   return `你有 ${near.length} 檔逼近停損：${names}${near.length > NEAR_LIST_MAX ? '…' : ''}`;
 }

@@ -1,5 +1,6 @@
 // 型別橋接：讓 src/（TS）能 import 這份共用 mjs（唯一實作，勿另寫 TS 版）
-import type { Position, StopResolution, TouchResult, Episode, LotSnap, PrevStopState, VersionReason } from './ai-stoploss.mjs';
+import type { Position, StopResolution, TouchResult, Episode, LotSnap, PrevStopState, VersionReason, StopSource } from './ai-stoploss.mjs';
+import type { StopBookView, BookCalcWhy } from './warroom-stopbook.mjs';
 
 export const SHARES_PER_LOT: number;
 
@@ -27,12 +28,50 @@ export function judgeQuoteOf(q: WarQuoteLike | null | undefined): {
   price: number; open: number; high: number; low: number; volume: number; live: boolean; liveAt: number | null; revealAt: number | null;
 } | null;
 
-/** 本機事件表的一檔 → resolveStop 的 prev（停損簿未上線的退回：棘輪與持股變動分類的上一版）；不合法回 null */
+/** 本機事件表的一檔 → resolveStop 的 prev（停損簿生效前的退回：成本線棘輪與持股變動分類的上一版）；不合法回 null */
 export function stopPrevOf(entry: StopEpisodeEntry | null | undefined): PrevStopState | null;
-/** 停損簿未上線時的暫算停損（空係數表；prev＝本機事件表這一檔，沒有就從成本線起算） */
+/**
+ * 停損簿生效前的 v1.1 前端暫算（SKILL §3.6 最後一列）：max(成本線, 持股分析 ATR 帶〔向下取檔、資料日＝前一交易日〕)；
+ * 空係數表、ATR 帶不棘輪、prev＝本機事件表這一檔（成本線只升不降）。
+ */
 export function provisionalStop(
   position: Position, lastPrice: number | null | undefined, nowMs?: number, todayYmd?: string, entry?: StopEpisodeEntry | null,
+  opts?: { ratingBand?: number | null; prevYmd?: string | null },
 ): StopResolution;
+
+/** 持股分析／停損簿文件的讀取狀態（slow＝逾時仍在讀，Z2 引擎不再等它） */
+export type StopDocStatus = 'loading' | 'slow' | 'ok' | 'none' | 'error';
+/** 停損的共用輸入（A1、快看抽屜、Z2 引擎、逼近清單帶同一份） */
+export interface WarStopCtx {
+  /** 代號 → 持股分析 ATR 帶（portfolioAnalysis.analyses[code].stopLoss；只收 > 0） */
+  bands: Readonly<Record<string, number>>;
+  bandStatus: StopDocStatus;
+  /** 今日之前最後一個交易日（ATR 帶的資料日） */
+  prevYmd: string | null;
+  /** daemon 停損簿（stopBooks/{uid}）；沒有或讀不到 null */
+  book: StopBookView | null;
+  bookStatus?: StopDocStatus;
+}
+export function ratingBandOf(ctx: WarStopCtx | null | undefined, code: string): number | null;
+/** front＝前端暫算；book＝停損簿這一版；bookCalc＝帶停損簿原料暫算（待 daemon 確認）；legacy＝沿用現行推播口徑（noOfficialBars） */
+export type WarStopMode = 'front' | 'book' | 'bookCalc' | 'legacy';
+export interface WarStopRes {
+  mode: WarStopMode;
+  res: StopResolution;
+  bp: Readonly<Record<string, unknown>> | null;
+  why: BookCalcWhy | null;
+}
+/** 一檔持股的停損（停損簿生效 ⇒ 讀停損簿；否則 v1.1 前端暫算） */
+export function warStopResOf(position: Position, lastPrice: number | null | undefined, opts?: {
+  nowMs?: number; todayYmd?: string; entry?: StopEpisodeEntry | null; ctx?: WarStopCtx | null;
+}): WarStopRes;
+export const FRONT_BAND_NOTE: string;
+/** 口徑註記（暫算·成本線與 ATR 帶取高…／暫算·未含 ATR 帶（原因）…／停損簿 stop-v1.1…／暫算·待 daemon 確認…／沿用現行推播口徑） */
+export function stopModeNote(sr: WarStopRes | null | undefined, position: Position | null | undefined, ctx: WarStopCtx | null | undefined, todayYmd?: string): string;
+/** 生效停損是否已還原除權息（停損簿係數表有涵蓋起點才算） */
+export function stopExAdjusted(sr: WarStopRes | null | undefined): boolean;
+export const STOP_JUDGE_NOTE_FRONT: string;
+export const STOP_JUDGE_NOTE_LIVE: string;
 /** 英文字尾 ETF（00631L、00632R…；規範 §15-1 檔位待核實） */
 export function isSuffixEtfCode(code: string): boolean;
 
@@ -41,16 +80,27 @@ export interface WarStopView {
   res: StopResolution;
   stop: number | null;
   isEtf: boolean;
-  /** 今日盤中才生效的停損（今天有買進，或本裝置 09:00 後偵測到換版；前端沒有真成交旗標 ⇒ 今日不判定觸及） */
+  /** 今日盤中才生效的停損（今天有買進，或 09:00 後持股變動／成本更正換版；前端沒有真成交旗標 ⇒ 今日不判定觸及） */
   setToday: boolean;
   touch: TouchResult;
   /** 距停損%（1 位小數；≤0＝在停損價或以下） */
   distPct: number | null;
+  /** 距停損的 ATR 倍數（有 ATR14 才有） */
+  atrMultiple: number | null;
   level: WarStopLevel | null;
-  /** A1 第二行原因句（事實句；含停損價——只在使用者自己的畫面） */
+  /** A1 第二行原因句（事實句；含停損價與來源——只在使用者自己的畫面） */
   reason: string | null;
-  /** 距停損欄提示：停損 X（規範 stop-v1·依據·前端暫算） */
+  /** 距停損欄提示：停損 X（依據）｜ATR 帶今日 Y·規範 stop-v1.1·口徑註記 */
   title: string;
+  mode: WarStopMode;
+  why: BookCalcWhy | null;
+  bp: Readonly<Record<string, unknown>> | null;
+  /** 生效線的短標籤：成本線／ATR 帶／保本線／追蹤線／事件收緊·MM/DD 類別名（沒有停損為 ''） */
+  source: string;
+  /** 口徑註記（stopModeNote） */
+  modeNote: string;
+  /** 已還原除權息（停損簿係數表） */
+  exAdjusted: boolean;
 }
 export function warStopView(input: {
   position: Position;
@@ -61,8 +111,10 @@ export function warStopView(input: {
   todayYmd: string;
   tradingDay: boolean;
   disposition?: boolean;
-  /** 本機事件表這一檔（棘輪的上一版）；A1、抽屜、Z2 要帶同一份 */
+  /** 本機事件表這一檔（前端暫算的棘輪上一版）；A1、抽屜、Z2 要帶同一份 */
   entry?: StopEpisodeEntry | null;
+  /** 持股分析 ATR 帶、前一交易日、停損簿；A1、抽屜、Z2 要帶同一份（沒有＝只有成本線） */
+  ctx?: WarStopCtx | null;
 }): WarStopView;
 
 /** 今日判定狀態（快看抽屜用）：觸及／未觸及／不判定的原因；沒有停損回 '' */
@@ -73,8 +125,12 @@ export interface StopEpisodeEntry {
   stop: number; ver: number; settledYmd: string; ep: Episode | null;
   /** 這一版的逐筆快照（null＝沒有快照） */
   lots: LotSnap[] | null;
-  /** 本裝置偵測到這一版的時刻與版本日（第一次進表＝0／''） */
+  /** 本裝置偵測到這一版的時刻與版本日（第一次進表＝0／''；ATR 帶換值記為當日開盤前） */
   startedAt: number; tradeDate: string;
+  /** 這一版的成本線棘輪 floorStop（v1 舊表沒有＝null，視同 stop） */
+  floor?: number | null;
+  /** 交易日 ymd 收盤前本裝置最後看到的停損（該日盤中適用；隔日結算用，SKILL §8.2）；沒有＝null */
+  sess?: { ymd: string; stop: number } | null;
 }
 /** 代號 → 本機事件表一檔（TopStore.stopBook） */
 export type StopBook = Readonly<Record<string, StopEpisodeEntry>>;
@@ -84,6 +140,10 @@ export function serializeStopEpisodes(state: StopEpisodeState): { v: 1; nextId: 
 export interface StopEpisodeRow {
   code: string;
   stop: number | null;
+  /** 這一版的成本線棘輪（res.floorStop） */
+  floor?: number | null;
+  /** 綁定來源（res.stopSource；新事件記下給一級文字用） */
+  source?: StopSource | null;
   touch: TouchResult;
   /** 觸及當下報價的揭示時間（事件時間）；沒有用 nowMs */
   at?: number | null;
@@ -102,6 +162,8 @@ export function stepStopEpisodes(
   state: StopEpisodeState, rows: readonly StopEpisodeRow[], ctx: { todayYmd: string; nowMs: number; versionYmd?: string },
 ): { state: StopEpisodeState; changed: boolean; sendLevel1: string[]; seeded: string[]; late: string[] };
 export function stopEventId(code: string, ver: number, epId: number): string;
+/** Z2 一級文字的口徑註記（A7：單一裝置·暫算） */
+export const STOP_L1_BASIS: string;
 export interface StopWarEvent {
   id: string; at: number; kind: 'stopLoss' | 'mine'; level: 1 | 2; code?: string; mine: true; text: string;
 }

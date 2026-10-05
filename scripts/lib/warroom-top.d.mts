@@ -1,5 +1,5 @@
 // 型別橋接：讓 src/（TS）能 import 這份共用 mjs（唯一實作，勿另寫 TS 版）
-import type { StopBook } from './warroom-mine.mjs';
+import type { StopBook, WarStopCtx } from './warroom-mine.mjs';
 export interface TopCounts {
   limitUp: number;
   limitDown: number;
@@ -59,9 +59,9 @@ export interface HoldingLike { id?: string; code: string; name?: string; buyPric
 export interface DaemonAlertEvent {
   id: string;
   at: number;
-  /** daemon 警示一律二級「我的」（觸停損一級改由前端依規範 stop-v1 判定） */
-  kind: 'mine';
-  level: 2;
+  /** 停損簿生效前 daemon 警示一律二級「我的」（觸停損一級由前端依規範判定，A7）；生效後 requireAck 的觸停損＝一級 'stopLoss' */
+  kind: 'mine' | 'stopLoss';
+  level: 1 | 2;
   code?: string;
   mine: true;
   text: string;
@@ -76,6 +76,8 @@ export const DAEMON_ALERT_LABEL: Readonly<Record<string, string>>;
 /** daemon 停損類推播（舊算法）的 type：'stop'、'discipline' */
 export const LEGACY_STOP_TYPES: readonly string[];
 export const LEGACY_STOP_NOTE: string;
+/** 停損簿生效後仍走舊分支的代號（ETF／興櫃歸檔驗證前）的註記 */
+export const LEGACY_BRANCH_NOTE: string;
 export const LEVEL1_ORDER: readonly string[];
 
 export function normalizePulse(doc: unknown): TopPulse | null;
@@ -92,15 +94,18 @@ export function stepDanger(
 ): { state: DangerState; fired: boolean };
 export function parseDangerState(raw: unknown, ymd: string): DangerState;
 
-/** 逼近停損（規範 stop-v1 暫算：成本線、未含除權息調整；價格在停損下或距停損 ≤2%） */
+/** 逼近停損（規範 stop-v1.1，與 A1 同一支 warStopResOf；價格在停損下或距停損 ≤1 ATR，沒有 ATR14 時 ≤2%） */
 export function nearStopList(
   holdings: readonly HoldingLike[] | null | undefined,
   prices: Readonly<Record<string, number>> | null | undefined,
-  /** 本機事件表（棘輪的上一版；與 A1、Z2 同一份） */
+  /** 本機事件表（前端暫算的棘輪上一版；與 A1、Z2 同一份） */
   book?: StopBook | null,
+  /** 持股分析 ATR 帶、前一交易日、停損簿（與 A1 同一份）＋今天 */
+  opts?: { ctx?: WarStopCtx | null; todayYmd?: string; nowMs?: number } | null,
 ): NearStop[];
 
 export function isIndicativeMinute(minute: number): boolean;
-export function eventFromDaemonAlert(a: unknown, todayYmd: string): DaemonAlertEvent | null;
+/** opts.stopLive：停損簿已生效（phase 'live'）⇒ daemon 帶 requireAck＋id 的觸停損轉一級 */
+export function eventFromDaemonAlert(a: unknown, todayYmd: string, opts?: { stopLive?: boolean } | null): DaemonAlertEvent | null;
 export function severityRank(kind: string): number;
 export function sortLevel1<T extends { kind: string; at: number }>(list: readonly T[]): T[];

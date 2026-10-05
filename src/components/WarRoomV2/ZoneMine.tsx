@@ -3,10 +3,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // A1 我的部位（preview.html renderA1；第一階段）：持股＋當日釘選。
 //   KPI：持股數｜今日 %＋金額（毛額，可遮罩）｜逼近停損｜處置/注意｜利空新聞 n／未判別 m
-//   每列：代號名稱市場別｜現價（價齡點／舊／無成交）｜漲跌%｜損益%（扣費稅淨額，同投資組合頁）｜距停損（AI 停損規範 stop-v1·成本線·前端暫算）｜風險＋新聞燈＋重訊
+//   每列：代號名稱市場別｜現價（價齡點／舊／無成交）｜漲跌%｜損益%（扣費稅淨額，同投資組合頁）｜距停損（AI 停損規範 stop-v1.1：停損簿生效前＝
+//         前端暫算「成本線與持股分析 ATR 帶取高」；提示寫明生效線、口徑、是否還原除權息）｜風險＋新聞燈＋重訊
 //   新聞燈＝AI 新聞識讀（媒體 M）方向＋強弱（影響權重 rankMediaVerdicts，先驗·未校準，只表強弱、不進排序）；
 //   重訊＝官方公告（O）獨立徽章，不併入新聞權重（tw-news-impact-analyst §2）。
-//   左色條只由走勢與部位觸發（琥珀＝距停損 ≤2%、今日觸及或價格在停損下）；處置／注意只在風險欄；原因短句（事實句）放第二行。
+//   左色條只由走勢與部位觸發（琥珀＝逼近停損〔≤1 ATR，沒有 ATR14 時 ≤2%〕、今日觸及或價格在停損下）；處置／注意只在風險欄；
+//   原因短句（事實句，含生效線）放第二行。
 //   點代號＝個股頁；點整列＝快看抽屜。持股＋釘選登記快層（最多 40 檔，持股優先）。
 // 資料計算在 MineModel.ts；這裡只負責畫。
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,7 +21,7 @@ import { MoreButton } from './parts/Chip';
 import { fmtPct, fmtPrice, fmtSigned, hhmm, toneClass } from './parts/fmt';
 import { useWarData, useWarUi } from './WarRoomContext';
 import { FAST_CODES_MAX } from './useWarRoomBus';
-import { useMineModel, type MineKpi, type MineModel, type MineRow } from './MineModel';
+import { useMineModel, type MineKpi, type MineModel, type MineRow, type MineStopInfo } from './MineModel';
 import { NewsCellLamp } from './NewsLamp';
 import { useMopsIndex } from './NewsModel';
 import { NEWS_WEIGHT_NOTE } from '../../../scripts/lib/warroom-news.mjs';
@@ -36,9 +38,9 @@ const GROUP_H = 27;
 const UNMEASURED_ROWS = 10;
 const MASK = '••••';
 const PNL_TITLE = '損益＝現價全數賣出、扣買賣手續費（依你的券商折讓、含最低手續費）與證交稅後的淨額，與投資組合頁「持倉明細」同口徑；毛額見各列提示';
-const STOP_TITLE = '距停損＝(現價−停損)÷現價。停損依 AI 停損規範 stop-v1：成本線＝買進均價 −8% 向上取合法檔位（停損簿未上線：前端暫算、未含除權息調整）；'
-  + '觸停損只認今日成交更新的最低價，試撮與收盤競價窗不判定；舊「AI 停損」（ATR 浮動帶）改稱結構參考價、非停損。daemon 停損推播仍是舊算法。非投資建議';
-const STOP_BADGE_TITLE = '停損依 AI 停損規範 stop-v1：成本線（買進均價 −8%）。成本未還原除權息（停損簿未上線，前端暫算）；逼近＝距停損 ≤2%（沒有 ATR14）。非投資建議';
+const STOP_TITLE = '距停損＝(現價−停損)÷現價。停損依 AI 停損規範 stop-v1.1：停損簿生效前＝前端暫算，成本線（買進均價 −8% 向上取合法檔位）'
+  + '與持股分析 ATR 帶（觸發線之一）取高，成本線只升不降、ATR 帶未棘輪、未含除權息調整；停損簿生效後讀停損簿（與推播同一口徑）。'
+  + '各列提示寫明生效線（成本線／ATR 帶／保本線／追蹤線／事件收緊）。觸停損只認今日成交更新的最低價，試撮與收盤競價窗不判定。非投資建議';
 
 const isPre = (r: MineRow) => r.priceMode === 'yclose';
 /** 盤前（試撮）與 08:55–09:00 清空窗：價格欄顯示昨收 */
@@ -149,16 +151,24 @@ function distText(d: number): string {
   return `${d < 0 ? '−' : ''}${Math.abs(d).toFixed(1)}%`;
 }
 
+/** 距停損欄提示：停損與依據（生效線）｜ATR 帶今日·規範 stop-v1.1·口徑註記；前端暫算有帶值卻沒套用時另列帶值 */
 function stopTitle(r: MineRow): string {
   const parts = [r.stop?.title ?? ''];
-  if (r.structRef != null) parts.push(`結構參考價 ${fmtPrice(r.structRef, r.code)}（非停損）`);
+  if (r.stop?.mode === 'front' && r.ratingBand != null && r.stop.res.lines.bandLine == null) {
+    parts.push(`ATR 帶（持股分析·觸發線之一）${fmtPrice(r.ratingBand, r.code)} 今日未套用`);
+  }
   if (r.calcNote) parts.push(r.calcNote);
   return parts.filter(Boolean).join('·');
 }
 
-function StopText({ r }: { r: MineRow }) {
+/** 距停損；withSource（手機卡沒有滑鼠提示）＝在數字後寫出生效線（成本線／ATR 帶…） */
+function StopText({ r, withSource = false }: { r: MineRow; withSource?: boolean }) {
   if (r.dist == null || !r.stop) return <span className={styles.muted} title={r.stopNote ?? undefined}>—</span>;
-  return <span className={r.amber ? mine.distAmber : mine.distOk} title={stopTitle(r)}>{distText(r.dist)}</span>;
+  return (
+    <span className={r.amber ? mine.distAmber : mine.distOk} title={stopTitle(r)}>
+      {distText(r.dist)}{withSource && r.stop.source && <span className={styles.muted}>（{r.stop.source}）</span>}
+    </span>
+  );
 }
 
 function RiskCell({ r, lamp = true }: { r: MineRow; lamp?: boolean }) {
@@ -180,7 +190,7 @@ function newsKpiTitle(kpi: MineKpi): string {
     + `燈的強弱依影響權重（${NEWS_WEIGHT_NOTE}），不是分數。非投資建議`;
 }
 
-function KpiBar({ kpi, masked }: { kpi: MineKpi; masked: boolean }) {
+function KpiBar({ kpi, masked, stopInfo }: { kpi: MineKpi; masked: boolean; stopInfo: MineStopInfo }) {
   const d = kpi.day;
   const dayTitle = `${kpi.dayLabel}部位變動（毛額，不含費稅）＝(現價−昨收)×股數；今天買進的那筆以買價為基準${kpi.dayMissing ? `；${kpi.dayMissing} 檔尚無報價未計入` : ''}`;
   return (
@@ -196,7 +206,7 @@ function KpiBar({ kpi, masked }: { kpi: MineKpi; masked: boolean }) {
           </>
         ) : <b className={styles.muted}>—</b>}
       </span>
-      <span className={mine.kpiItem} title={`${kpi.hit ? `含今日觸及或價格在停損下 ${kpi.hit} 檔；` : ''}距停損 ≤2%（規範 stop-v1·成本線·未含除權息調整）`}>逼近停損 <b className={mine.amber}>{kpi.near}</b></span>
+      <span className={mine.kpiItem} title={`${kpi.hit ? `含今日觸及或價格在停損下 ${kpi.hit} 檔；` : ''}${stopInfo.nearRule}（規範 stop-v1.1）`}>逼近停損 <b className={mine.amber}>{kpi.near}</b></span>
       <span className={mine.kpiItem} title={kpi.riskIncomplete ? '處置／注意名單未載入或可能不完整' : '處置／注意（交易所公告）'}>
         處置/注意 <b className={mine.riskTxt}>{kpi.risk}</b>{kpi.riskIncomplete && <span className={styles.muted}>?</span>}
       </span>
@@ -204,7 +214,7 @@ function KpiBar({ kpi, masked }: { kpi: MineKpi; masked: boolean }) {
         利空新聞 <b className={kpi.newsBear ? styles.dn : undefined}>{kpi.newsBear ?? '—'}</b>
         <span className={styles.muted}>／未判別 </span><b>{kpi.newsMissing ?? '—'}</b>
       </span>
-      <span className={`${mine.kpiItem} ${styles.muted}`} title={STOP_BADGE_TITLE}>停損 v1·成本線·未還原除權息</span>
+      <span className={`${mine.kpiItem} ${styles.muted}`} title={stopInfo.badgeTitle}>{stopInfo.badge}</span>
     </>
   );
 }
@@ -310,7 +320,7 @@ function DeskMine({ model }: { model: MineModel }) {
       title="我的部位"
       extra={<MoreButton onClick={() => openZoom('mine')}>{fit.hidden > 0 ? `全部 ${total} →` : '全部 →'}</MoreButton>}
       stamp={<Stamp kind="quote" asOf={model.asOf} openOnly liveLabel="揭示" />}
-      top={<KpiBar kpi={model.kpi} masked={pnlMasked} />}
+      top={<KpiBar kpi={model.kpi} masked={pnlMasked} stopInfo={model.stopInfo} />}
     >
       <div ref={boxRef} className={mine.fill}>
         {total === 0 ? <EmptyMine /> : <MineTable rows={fit.rows} pins={fit.pins} masked={pnlMasked} pre={pre} />}
@@ -338,7 +348,7 @@ function MineCard({ r, masked, open }: { r: MineRow; masked: boolean; open: (c: 
         {r.isHolding ? (
           <>
             <span>損益 {pre ? <span className={styles.muted}>—</span> : <PnlText r={r} masked={masked} />}</span>
-            <span>距停損 <StopText r={r} /></span>
+            <span>距停損 <StopText r={r} withSource /></span>
             {r.reason && <span className={r.amber ? mine.amber : undefined}>{r.reason}</span>}
           </>
         ) : <span>釘選（當日）</span>}

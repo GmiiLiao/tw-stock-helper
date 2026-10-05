@@ -3,24 +3,27 @@
 // 快看抽屜的權重明細。伺服器（src/lib/warroom/build-news.ts、build-feeds.ts）與前端共用；單元測試 warroom-news.test.mjs。
 //
 // 規範：.claude/skills/tw-news-impact-analyst/SKILL.md（新聞識讀唯一規範）；設計：PLAN/stoploss/news-weight.md（衝突以規範為準）。
-// 使用者指示（2026-10-05）：「使用 ai 新聞識讀的結果權重來運用」——權重一律沿用 after-market-news.mjs 的
-//   rankMediaVerdicts（強度×信心×確定性×新穎×尚未反映，0–1；盤後報告同名同口徑），這裡只 import、不另算。
+// 影響權重 w 一律沿用 after-market-news.mjs 的 rankMediaVerdicts（強度×信心×確定性×新穎×尚未反映，0–1；盤後報告同名同口徑），
+//   這裡只 import、不另算。使用者裁定（2026-10-05，停損規範 §10B／§13.2 B4）：w **研究期·只顯示**——不當任何等級的警示門檻、
+//   不進排序與停損。Z2「持股重大利空」與停損收緊一律以**規則類別**判定（news-rule-classes.mjs；第二輪 A4「做skills判定與加權重」）。
 //
 // 來源只有 newsVerdict/latest（daemon 已寫好的 AI 讀內文判別；不擴大判別範圍、不呼叫 LLM、不打上游）。
 //   每檔只取一筆判別（AI 讀完最多 4 篇內文後的個股結論），不加總 ⇒ 來源再多也不放大（規範 §2、§6.2 不變式）。
 //   官方重訊（mopsNews，O 管線）只做獨立「重訊」徽章，不併入這裡的任何權重（§2：O 與 M 不可加總）。
 //
 // 規範硬規定在這裡的落實（程式強制，不看模型回答了什麼）：
-//   §0   權重全是先驗、未校準、研究期不計分 ⇒ 只用來顯示燈號強弱與警示門檻；不進任何評分、排序鍵或模型
-//        （清單排序一律用類別＋時間，不用權重）；畫面一律附「權重為先驗·未校準」。
-//   §1.1／1.3／1.8 沒讀內文＝資訊不足：basis≠content、D 拒答、E 引用未過（規則法律除外）⇒ 空心燈、權重 0、不發警示。
+//   §0   權重全是先驗、未校準、研究期不計分 ⇒ 只用來顯示燈號強弱；不當警示門檻、不進任何評分、排序鍵或模型
+//        （清單排序一律用類別＋時間，不用權重）；畫面一律附「研究期·只顯示」（NEWS_WEIGHT_NOTE）。
+//   §1.1／1.3／1.8 沒讀內文＝資訊不足：basis≠content、D 拒答、E 引用未過（規則類別除外）⇒ 空心燈、權重 0、不發警示。
 //   §1.4 機器價格速報不是新聞：daemon 在標題層已剔除（NEWS_NOISE_RE／MACHINE_NEWS）；這裡再擋一次——AI 挑的關鍵句
 //        是價格描述、且事件類型不是本業事實 ⇒「剔除」，權重 0、不判方向。
-//   §1.5 涉法律事件一律利空：只認 daemon 的規則覆寫（理由以「【規則】」開頭或 ruleOverride='legal-event'）；
-//        AI 的 eventType='法律' 範圍很廣（和解金、聯貸、認證…），**不當覆寫**，燈照 AI 判的方向。
-//        ⚠ daemon 只在 AI **沒有**判利空時才做法律規則確認（ai-daemon.mjs `verdict.label !== '利空'`）⇒ AI 自己判對利空的
-//        檢調搜索永遠沒有規則標記、到不了一級。第一階段只揭露：AI 判利空且事件類型為法律、或依據句有檢調／搜索／起訴等字樣的，
-//        標「可能為法律事件（未經規則確認）」（pl），而且不套 §1.4／§1.6 的改判；要不要升一級待使用者裁定（或第二階段 daemon 補問主體）。
+//   §1.5／§1.7 規則類利空（法律、財務危機、工安停工、交易限制…，新聞技能 §4.1 方向標「−（規則）」者）：只認 daemon 的程式規則判定
+//        （ruleClassOf：ruleClass ＞ ruleOverride ＞「【規則】」前綴＝C16a 舊資料）——AI 讀內文只認定事實（主體是不是本檔、事件是否屬實），
+//        方向由規則定為利空：事實回答「是」時 daemon 把 label 覆寫為利空、AI 原判記在 aiOriginal（停損規範 §10A.2-3）；
+//        ruleClassOf 只認 label＝利空的規則判別（§10A.1-C）。
+//        AI 的 eventType='法律' 範圍很廣（和解金、聯貸、認證…），**不當規則類別**，燈照 AI 判的方向。
+//        2026-10-05 起 daemon 對 AI 自判利空的也問事實（ruleFacts）；沒有事實回答的舊判別，AI 判利空且事件類型為法律、或依據句有
+//        檢調／搜索／起訴等字樣的，仍標「可能為法律事件（未經規則確認）」（pl），只揭露、不升級，而且不套 §1.4／§1.6 的改判。
 //   §1.6 關注度≠營運事實：關鍵句（缺時用理由）是目標價／評等／概念股／熱門股／ESG 等、且事件類型不是本業事實
 //        ⇒ 灰燈「關注度」，不判方向、權重 0、不發警示；保留 AI 原判供追溯（aiOriginal）。
 //        信評機構調降評等或展望（§4.1 C20b：−，規則）不是關注度 ⇒ 利空判別遇到信評字樣不套 §1.6。
@@ -30,18 +33,22 @@
 //        進 KPI 與警示。daemon 的 14 日舊聞回退（近兩日沒有內文就拿 14 天內的舊報導判）不跑挑戰，判別表沒有存 stale ⇒
 //        以 challenged 當代理：沒走挑戰的方向判別一律 ◆（可能是舊聞回退或挑戰失敗），不列強弱、不計入利空。
 //        承接、前一交易日或沒走挑戰的判別只顯示方向＋◆，不列強弱。
-//   §6.5 研究期分數「不影響任何排名或名單」⇒ 權重門檻類的一級警示（w≥0.6、法律/處分 w≥0.3）待使用者裁定前一律降二級
-//        （WEIGHT_GATE_LEVEL）；不看權重的規則法律（§1.5）維持一級。B2 全市場與「我的」新聞事件、A2 盤前清單的名單與排序
-//        都不用權重；Z2 同日再發只看警示等級上升（二級→一級），不看強弱。權重只用來顯示強弱文字。
+//   §6.5 研究期分數「不影響任何排名或名單」⇒ 權重門檻類（w≥0.6、法律/處分 w≥0.3）不發任何等級的警示（停損規範 §13.2 B4 已確認）。
+//        Z2 持股重大利空只看規則類別的**類別權重**（新聞技能 §4.1 baseWeight，先驗·未回測，不是 w）：≥0.7 一級、0.3–0.7 二級、
+//        <0.3 不列 Z2（B2「我的」照列二級）。B2 全市場與「我的」新聞事件、A2 盤前清單的名單與排序都不用 w；
+//        Z2 同日再發只看警示等級上升（二級→一級），不看強弱。w 只用來顯示強弱文字。
 // ─────────────────────────────────────────────────────────────────────────────
 import { rankMediaVerdicts } from './after-market-news.mjs';
+import {
+  RULE_LEGAL_PREFIX, ruleClassOf, ruleSubOf, classWeightOf, classWeightBand, ruleClassText, ruleFactAnswered,
+} from './news-rule-classes.mjs';
 import { toEpochMs } from './warroom-freshness.mjs';
 import { taipeiDayStart, taipeiMinuteOfDay, taipeiYmd } from './warroom-session.mjs';
 
 // ── 常數 ────────────────────────────────────────────────────────────────────
 
-/** 畫面上權重旁一律附的說明（規範 §0） */
-export const NEWS_WEIGHT_NOTE = '權重為先驗·未校準';
+/** 畫面上影響權重旁一律附的說明（規範 §0；停損規範 wording.md §4「影響權重（研究期·只顯示）」） */
+export const NEWS_WEIGHT_NOTE = '研究期·只顯示';
 /** 強弱分級切點（依 09-21 起 916 筆方向判別的分布定，未用報酬校準） */
 export const NEWS_TIER_CUTS = Object.freeze({ strong: 0.6, mid: 0.3 });
 export const NEWS_TIER_LABEL = Object.freeze({ strong: '強', mid: '中', weak: '弱' });
@@ -53,8 +60,8 @@ export const PREMARKET_PASSES = Object.freeze(['evening', 'night', 'morning']);
 /** daemon 閘門字樣（scripts/ai-daemon.mjs judgeOneStock） */
 export const GATE_D = 'D-拒答門檻';
 export const GATE_E = 'E-引用強制';
-/** daemon 法律規則覆寫的理由前綴（ai-daemon.mjs「【規則】涉檢調搜索…」；改文案會失效，有測試鎖住） */
-export const RULE_LEGAL_PREFIX = '【規則】';
+/** daemon 法律規則覆寫的理由前綴（唯一定義在 news-rule-classes.mjs；這裡轉出給既有呼叫端） */
+export { RULE_LEGAL_PREFIX };
 const AI_NO_REPLY_RE = /AI 判別未回應/;
 /** 本業事實類事件（daemon L1 事件類型清單裡屬營運事實的）：不套 §1.4／§1.6 的價格描述、關注度判定 */
 export const HARD_FACT_TYPES = Object.freeze(['訂單', '財測', '擴產', '法律', '處分', '減資', '併購', '營收財報', '新產品']);
@@ -66,13 +73,6 @@ export const ATTENTION_RE = /目標價|評等|評級|概念股|題材股|主旋�
 export const CREDIT_RATING_RE = /信評|信用評[等級]|惠譽|穆迪|標準普爾|Fitch|Moody/i;
 /** §1.5 法律事件字樣（同 daemon LEGAL，去掉過寬的「調查」）：只用來揭露「可能為法律事件」與豁免 §1.4／§1.6，不動方向與權重 */
 export const LEGAL_TEXT_RE = /檢調|搜索|搜查|約談|起訴|羈押|背信|掏空|調查局|地檢署|檢察官/;
-/** Z2 持股重大利空的 E 條件（先驗，依 newsVerdictReview 小樣本分組定，n=2–57） */
-export const MAJOR_BEAR_RULE = Object.freeze({ strongW: 0.6, legalTypeW: 0.3, legalTypes: Object.freeze(['法律', '處分']) });
-/**
- * 權重門檻類（E②／E③）的警示級別。規範 §6.5「研究期分數不影響任何排名或名單」、§8.6「接進任何計分需使用者核可」
- * ⇒ 使用者裁定「未校準權重可否當一級警示門檻」之前一律二級（最保守）。規則法律（E①）不看權重，維持一級。
- */
-export const WEIGHT_GATE_LEVEL = 2;
 /** 「同一關鍵句隔日再判利空＝持續」的記錄保留天數（日曆日，約 5 個交易日） */
 export const NEWS_REPEAT_KEEP_DAYS = 7;
 
@@ -126,19 +126,22 @@ export function newsTimeTag(atMs, nowMs) {
 
 // ── 單筆判別的分類（規範 §1 的程式強制） ───────────────────────────────────
 
-/** daemon 法律規則覆寫（§1.5）：AI 已確認對象是本公司，方向由規則定為利空。eventType='法律' 不算。 */
-export function isRuleLegal(v) {
-  if (!isObj(v) || v.label !== '利空') return false;
-  if (v.ruleOverride === 'legal-event') return true;
-  return typeof v.reason === 'string' && v.reason.startsWith(RULE_LEGAL_PREFIX);
+/** 規則類利空（§1.5／§1.7）：daemon 程式規則判定留下的類別（ruleClassOf），AI 只認定事實。eventType='法律' 不算。 */
+export function isRuleBear(v) {
+  return ruleClassOf(v) !== null;
 }
 
-/** AI 讀過內文（§1.1／1.3／1.8）：basis=content、不是 D 拒答、不是「AI 未回應」的保守中性、E 引用未過者除非規則法律 */
+/** 法律事件（C16a）規則判定：AI 已確認對象是本公司，方向由規則定為利空。eventType='法律' 不算。 */
+export function isRuleLegal(v) {
+  return ruleClassOf(v) === 'C16a';
+}
+
+/** AI 讀過內文（§1.1／1.3／1.8）：basis=content、不是 D 拒答、不是「AI 未回應」的保守中性、E 引用未過者除非規則類別 */
 export function isAiRead(v) {
   if (!isObj(v) || v.basis !== 'content') return false;
   if (v.gate === GATE_D) return false;
   if (v.label === '中性' && AI_NO_REPLY_RE.test(String(v.reason ?? ''))) return false;
-  if (v.gate === GATE_E && !isRuleLegal(v)) return false;
+  if (v.gate === GATE_E && !isRuleBear(v)) return false;
   return true;
 }
 
@@ -149,11 +152,12 @@ function evidenceOf(v) {
 const hardFact = (v) => HARD_FACT_TYPES.includes(v.eventType);
 
 /**
- * §1.5 可能為法律事件（未經規則確認）：AI 自己判利空、沒有規則覆寫，而事件類型是法律、或依據句／理由／已核對引文有檢調、
- * 搜索、起訴等字樣。daemon 只在 AI 沒判利空時才問主體 ⇒ 這類到不了規則法律；只揭露、不改方向與權重、不升級。
+ * §1.5 可能為法律事件（未經規則確認）：AI 自己判利空、不是法律規則判定、**也沒有法律事實的回答**（2026-10-05 前的舊判別，
+ * 或 C16a 沒觸發／事實題沒答），而事件類型是法律、或依據句／理由／已核對引文有檢調、搜索、起訴等字樣。只揭露、不改方向與權重、不升級。
+ * 法律事實答「否」（主體不是本公司）的不算。
  */
 export function isPossibleLegalBear(v) {
-  if (!isObj(v) || v.label !== '利空' || isRuleLegal(v)) return false;
+  if (!isObj(v) || v.label !== '利空' || isRuleLegal(v) || ruleFactAnswered(v, 'C16a')) return false;
   if (v.eventType === '法律') return true;
   const text = [quoteText(v.keyQuote), str(v.reason), ...(Array.isArray(v.quotes) ? v.quotes.map(quoteText) : [])].filter(Boolean).join(' ');
   return LEGAL_TEXT_RE.test(text);
@@ -175,7 +179,8 @@ export function isAttentionOnly(v) {
 
 /**
  * 一筆判別 → 狀態：bull／bear／neutral（AI 讀內文的判別）｜insufficient（資訊不足：沒讀到內文）｜unjudged（AI 未回應、標籤不明）
- * ｜attention（§1.6 關注度）｜excluded（§1.4 價格描述）。規則法律不受 §1.4／§1.6 影響（§1.5 優先）。
+ * ｜attention（§1.6 關注度）｜excluded（§1.4 價格描述）。規則類利空一律 bear（方向由規則定；daemon 已把 label 覆寫為利空），
+ * 也不受 §1.4／§1.6 影響（§1.5／§1.7 優先）。
  */
 export function verdictState(v) {
   if (!isObj(v)) return 'unjudged';
@@ -183,8 +188,9 @@ export function verdictState(v) {
   if (v.label !== '利多' && v.label !== '利空' && v.label !== '中性') return 'unjudged';
   if (v.label === '中性' && AI_NO_REPLY_RE.test(String(v.reason ?? ''))) return 'unjudged';
   if (!isAiRead(v)) return 'insufficient';
-  // §1.5 優先：規則法律、以及可能為法律事件的 AI 利空，都不套 §1.4／§1.6（例：關鍵句同時寫到檢調搜索與股價重挫）
-  if (v.label !== '中性' && !isRuleLegal(v) && !isPossibleLegalBear(v)) {
+  if (isRuleBear(v)) return 'bear';
+  // §1.5 優先：可能為法律事件的 AI 利空不套 §1.4／§1.6（例：關鍵句同時寫到檢調搜索與股價重挫）
+  if (v.label !== '中性' && !isPossibleLegalBear(v)) {
     if (isPriceBulletin(v)) return 'excluded';
     if (isAttentionOnly(v)) return 'attention';
   }
@@ -199,11 +205,19 @@ export function newsTier(w) {
   return 'weak';
 }
 
+/** 規則判定時 AI 的原判（aiOriginal.label；沒有就看現在的 label）；與利空相同（AI 自己也判利空）回 null */
+function aiOriginalOf(v) {
+  const orig = str(v.aiOriginal?.label) ?? str(v.label);
+  return orig && orig !== '利空' ? orig : null;
+}
+
 function entryOf(v, w) {
   const st = verdictState(v);
   const directional = st === 'bull' || st === 'bear';
   const overridden = st === 'attention' || st === 'excluded';
-  const weight = directional && isNum(w) ? w : null;
+  const rc = st === 'bear' ? ruleClassOf(v) : null;
+  // 規則定的方向與 AI 原判不同（AI 判中性／利多、規則覆寫為利空；aiOriginal 記原判）：w 屬於 AI 的方向，不顯示在利空燈上
+  const weight = directional && isNum(w) && !(rc && aiOriginalOf(v)) ? w : null;
   // 關鍵句只給利空與「強」的利多、修正說明只給利空（控制慢層 payload；其餘到個股頁看完整判讀）
   const quote = st === 'bear' || (weight != null && weight >= NEWS_TIER_CUTS.strong);
   return {
@@ -212,7 +226,10 @@ function entryOf(v, w) {
     w: weight,
     s: str(v.strength), c: str(v.confidence), ct: str(v.certainty), nv: str(v.novelty), pr: str(v.priced),
     ev: str(v.eventType),
-    lg: st === 'bear' && isRuleLegal(v),
+    lg: rc === 'C16a',
+    rc,
+    rs: rc ? ruleSubOf(v, rc) : null,
+    ra: rc ? aiOriginalOf(v) : null,
     pl: st === 'bear' && isPossibleLegalBear(v),
     ch: v.challenged === true,
     cr: ymdOf(v.carriedFrom),
@@ -302,7 +319,27 @@ function oldTagOf(entry, ctx) {
 export const UNCHALLENGED_TAG = '未走挑戰（可能舊聞）';
 export const UNCHALLENGED_NOTE = '未走四角色挑戰（可能是 14 日舊聞回退或挑戰失敗）：不列強弱、不計入利空、不發警示';
 /** 可能為法律事件的揭露句（燈 tooltip、抽屜、B2） */
-export const POSSIBLE_LEGAL_NOTE = '可能為法律事件（未經規則確認：daemon 只在 AI 未判利空時做法律規則確認；目前最高列二級，待裁定）';
+export const POSSIBLE_LEGAL_NOTE = '可能為法律事件（未經規則確認：這筆判別沒有法律事實的回答，多為 10/05 規則補問前的判別；只揭露，不發 Z2 警示）';
+
+/** 精簡表一列的規則類別（新表 rc；舊表只有 lg＝法律） */
+function entryRuleClass(entry) {
+  if (!isObj(entry)) return null;
+  if (typeof entry.rc === 'string' && entry.rc) return entry.rc;
+  return entry.lg ? 'C16a' : null;
+}
+
+/**
+ * 規則類利空的說明句（燈 tooltip、快看抽屜）：類別、AI 讀內文確認事實、方向由規則定、類別權重（先驗·未回測，**不是**影響權重 w）、
+ * AI 原判（與利空不同時）。不是規則類利空回 null。
+ */
+export function ruleClassNote(entry) {
+  const cls = entryRuleClass(entry);
+  const what = cls ? ruleClassText(cls) : null;
+  const cw = cls ? classWeightOf(cls, entry.rs ?? null) : null;
+  if (!what || !cw) return null;
+  return `規則類利空：${what}——AI 讀內文確認主體與事實，方向由規則定為利空${cls === 'C16a' ? '（公司否認或澄清不中和）' : ''}`
+    + `·類別權重 ${cw.weight.toFixed(2)}（新聞技能 §4.1 先驗·未回測；不是影響權重）${entry.ra ? `·AI 原判${entry.ra}` : ''}`;
+}
 
 const LABEL_OF = { bull: '利多', bear: '利空', neutral: '中性', insufficient: '資訊不足', unjudged: '未判別', attention: '關注度', excluded: '價格描述' };
 
@@ -316,10 +353,10 @@ function judgedText(entry) {
 
 /**
  * 新聞燈的顯示。tone：up 利多紅｜dn 利空綠｜flat 灰（中性、關注度）｜none 空心（未判別、資訊不足、價格描述）｜na「—」（不做個股新聞識讀）。
- * tier：只有今日適用、非承接的利多／利空才有（強／中／弱）；其餘 null。title＝tooltip 全文（含「權重為先驗·未校準」）。
+ * tier：只有今日適用、非承接的利多／利空才有（強／中／弱）；其餘 null。title＝tooltip 全文（影響權重附「研究期·只顯示」；規則類利空附類別與類別權重）。rule＝規則類利空的類別短字。
  */
 export function newsLampView(entry, ctx, { universe = true } = {}) {
-  const mk = (tone, label, title, extra = {}) => ({ tone, tier: null, tierLabel: null, label, current: false, old: null, legal: false, title, ...extra });
+  const mk = (tone, label, title, extra = {}) => ({ tone, tier: null, tierLabel: null, label, current: false, old: null, legal: false, rule: null, title, ...extra });
   if (!universe) return mk('na', '—', '不做個股新聞識讀（ETF、權證等）');
   if (!isObj(entry) || !STATES.has(entry.st)) return mk('none', '未判別', '未判別：AI 尚未讀到這檔可判別的內文（判別範圍未擴大）');
   const st = entry.st;
@@ -338,23 +375,26 @@ export function newsLampView(entry, ctx, { universe = true } = {}) {
   const tone = st === 'bull' ? 'up' : 'dn';
   const parts = [];
   let tier = null;
+  const cls = st === 'bear' ? entryRuleClass(entry) : null;
   if (current) {
     tier = newsTier(entry.w);
-    parts.push(`${label}·${tier ? NEWS_TIER_LABEL[tier] : '—'}`);
+    parts.push(`${label}·${tier ? NEWS_TIER_LABEL[tier] : cls ? '規則' : '—'}`);
     if (entry.w != null) parts.push(`影響權重 ${entry.w.toFixed(2)}（${NEWS_WEIGHT_NOTE}）`);
   } else {
     const unch = isUnchallengedEntry(entry, ctx);
     parts.push(`${label}·◆ ${old}`);
     parts.push(`${unch ? UNCHALLENGED_NOTE : '已過適用交易日（媒體時效 ≤1 交易日），不列強弱'}${entry.w != null ? `·原判權重 ${entry.w.toFixed(2)}` : ''}`);
   }
-  if (entry.lg) parts.push('法律事件：法律判定前視為利空（規則）');
+  const rn = cls ? ruleClassNote(entry) : null;
+  if (rn) parts.push(rn);
   if (entry.pl) parts.push(POSSIBLE_LEGAL_NOTE);
   parts.push(judgedText(entry));
   if (current && ctx?.targetDate) parts.push(`適用 ${ymdShort(ctx.targetDate)}`);
   if (!entry.ch && !isUnchallengedEntry(entry, ctx)) parts.push('未走四角色挑戰');
   if (entry.r) parts.push(entry.r);
   return {
-    tone, tier, tierLabel: tier ? NEWS_TIER_LABEL[tier] : null, label, current, old, legal: entry.lg === true,
+    tone, tier, tierLabel: tier ? NEWS_TIER_LABEL[tier] : null, label, current, old, legal: cls === 'C16a',
+    rule: cls ? ruleClassText(cls) : null,
     title: parts.join('·'),
   };
 }
@@ -366,6 +406,7 @@ export function newsShortText(entry, ctx, opts) {
   if (v.label === '中性') return v.current ? '中性' : `中性◆${v.old}`;
   if (!v.current) return `${v.label}◆${v.old}`;
   if (v.legal) return '利空·法律事件（法律判定前視為利空）';
+  if (v.rule) return `利空·${v.rule}（規則判定）`;
   return `${v.label}·${v.tierLabel ?? '—'}${entry.w != null ? `·權重 ${entry.w.toFixed(2)}` : ''}`;
 }
 
@@ -374,7 +415,7 @@ export function newsWeightText(entry) {
   if (!isObj(entry) || entry.w == null) return null;
   const f = (name, v) => `${name}（${v ?? '—，缺值取 0.4'}）`;
   return `影響權重＝${f('強度', entry.s)}×${f('信心', entry.c)}×${f('確定性', entry.ct)}×${f('新穎', entry.nv)}×${f('已被預期', entry.pr)}`
-    + `＝${entry.w.toFixed(3)}（${NEWS_WEIGHT_NOTE}；只用來顯示強弱與警示門檻，不是分數、不進排序）`;
+    + `＝${entry.w.toFixed(3)}（${NEWS_WEIGHT_NOTE}：先驗·未校準，只用來顯示強弱；不是分數，不進排序、警示與停損）`;
 }
 
 // ── A1 KPI ─────────────────────────────────────────────────────────────────
@@ -395,25 +436,33 @@ export function newsKpi(codes, map, ctx) {
   return out;
 }
 
-// ── Z2 持股重大利空（news-weight.md §3.6 條件 A–E） ──────────────────────
+// ── Z2 持股重大利空（news-weight.md §3.6 條件 A–D＋規則類別；停損規範 §10A.1 同一套述詞） ─────────────────
 
 /**
  * 條件：A 持股（自選＝scope 'watch' 只列二級）｜B 今日適用、非承接、判讀時間 ≥ minAtMs（上一交易日 13:30）｜
- * C AI 讀內文判利空｜D 走過四角色挑戰（非 14 日舊聞回退的代理）｜E ① 規則法律（不看權重）② w≥0.6 ③ 事件類型 法律／處分 且 w≥0.3。
- * 回 { level, basis, scope } 或 null。權重門檻（②③）的級別＝WEIGHT_GATE_LEVEL（待裁定前 2）。
+ * C AI 讀內文、狀態利空｜D 走過四角色挑戰（非 14 日舊聞回退的代理）｜E 規則類利空（程式規則判定；不看影響權重 w——B4）。
+ * 級別看**類別權重**（新聞技能 §4.1 baseWeight，先驗·未回測；classWeightBand）：high（≥0.7）一級、mid（0.3–0.7）二級、
+ * low（<0.3）不列 Z2（B2「我的」照列二級）。自選一律二級。
+ * 回 { level, basis:'rule-legal'(C16a)|'rule-class', scope, cls, band } 或 null。
  */
 export function majorBearOf(entry, { scope = 'holding', ctx, minAtMs = null } = {}) {
   if (!isObj(entry) || (scope !== 'holding' && scope !== 'watch')) return null;
   if (!isCurrentEntry(entry, ctx) || entry.at == null) return null;
   if (isNum(minAtMs) && entry.at < minAtMs) return null;
   if (entry.st !== 'bear' || entry.ch !== true) return null;
-  let basis = null;
-  if (entry.lg) basis = 'rule-legal';
-  else if (isNum(entry.w) && entry.w >= MAJOR_BEAR_RULE.strongW) basis = 'weight';
-  else if (isNum(entry.w) && entry.w >= MAJOR_BEAR_RULE.legalTypeW && MAJOR_BEAR_RULE.legalTypes.includes(entry.ev)) basis = 'legal-type';
-  if (!basis) return null;
-  const level = scope === 'watch' ? 2 : basis === 'rule-legal' ? 1 : WEIGHT_GATE_LEVEL;
-  return { level, basis, scope };
+  const cls = entryRuleClass(entry);
+  const band = cls ? classWeightBand(cls, entry.rs ?? null) : null;
+  if (band !== 'high' && band !== 'mid') return null;
+  const level = scope === 'watch' || band === 'mid' ? 2 : 1;
+  return { level, basis: cls === 'C16a' ? 'rule-legal' : 'rule-class', scope, cls, band };
+}
+
+/** Z2 條件的說明短句（快看抽屜） */
+export function majorBearNote(mb) {
+  if (!isObj(mb)) return null;
+  if (mb.level === 1) return '達持股重大利空一級條件（規則類別·類別權重 ≥0.7；Z2 警示）';
+  if (mb.scope === 'watch') return mb.band === 'high' ? '達重大利空一級條件（自選只列二級）' : '規則類利空（自選只列二級）';
+  return '規則類利空·類別權重 0.3–0.7（Z2 二級）';
 }
 
 /** 去重等級＝警示等級（一級 2、二級 1）：同日再發只看等級上升（例：新出現法律覆寫），不看強弱（§6.5 權重不當觸發門檻） */
@@ -494,32 +543,28 @@ export function stepMajorBear(prev, cands, { targetDate }) {
   return { state: s, items, changed };
 }
 
-/** Z2／B2 事件文案（只寫事實；不寫指令句、不寫個人成本） */
+/** Z2／B2 事件文案（只寫事實；不寫指令句、不寫個人成本；不寫影響權重 w——它不是 Z2 的條件） */
 export function majorBearText(code, name, item) {
   const who = `${code} ${name ?? ''}`.trim();
   const e = item.entry;
   const when = judgedText(e);
   const quotes = isNum(e.qv) && e.qv > 0 ? `·引文 ${e.qv} 條已核對` : '';
-  const w = e.w != null ? `影響權重 ${e.w.toFixed(2)}（${NEWS_WEIGHT_NOTE}）` : null;
+  const cls = item.mb?.cls ?? entryRuleClass(e);
+  const what = (cls && ruleClassText(cls)) || '規則類利空';
   if (item.cont) {
-    return `${who} 利空持續（同一關鍵句前一適用日已判利空）${e.lg ? '·法律事件（法律判定前視為利空）' : ''}·${when}`;
-  }
-  if (item.mb.basis === 'rule-legal') {
-    return `${who} AI 讀內文判定利空（法律事件：法律判定前視為利空）${w ? `·${w}` : ''}·${when}${quotes}`;
+    return `${who} 利空持續（同一關鍵句前一適用日已判利空）·${what}·${when}`;
   }
   const head = item.mb.scope === 'watch' ? '自選' : '持股';
-  const tier = NEWS_TIER_LABEL[newsTier(e.w)] ?? '—';
-  const why = item.mb.basis === 'weight'
-    ? `權重 ≥${MAJOR_BEAR_RULE.strongW}`
-    : `${e.ev}類·權重 ≥${MAJOR_BEAR_RULE.legalTypeW}`;
-  const lv = item.level === 1 ? '' : `·達一級條件（${why}），${item.mb.scope === 'watch' ? '自選只列二級' : '權重門檻未經校準，暫列二級'}`;
-  const pl = e.pl ? '·可能為法律事件（未經規則確認）' : '';
-  return `${who} ${head} AI 讀內文判定利空·${tier}${w ? `·${w}` : ''}${pl}${lv}·${when}${quotes}`;
+  const cw = cls ? classWeightOf(cls, e.rs ?? null) : null;
+  const cwText = cw ? `·類別權重 ${cw.weight.toFixed(2)}（先驗·未回測）` : '';
+  const ai = e.ra ? `·AI 原判${e.ra}` : '';
+  const lv = item.level === 1 ? '' : item.mb.scope === 'watch' ? '·自選只列二級' : '·類別權重未達一級切點，列二級';
+  return `${who} ${head} 規則判定利空·${what}·AI 讀內文確認主體與事實${cwText}${ai}${lv}·${when}${quotes}`;
 }
 
 /**
  * stepMajorBear 的 items → 戰情事件輸入（events.ts WarEventInput）。
- * 一級：kind 'majorNegative'、id `majorNegative:${適用日}:${代號}:${seq}`；二級（持續、權重門檻待裁定）：kind 'newsVerdict'。
+ * 一級：kind 'majorNegative'、id `majorNegative:${適用日}:${代號}:${seq}`；二級（持續、類別權重 0.3–0.7、自選）：kind 'newsVerdict'。
  */
 export function majorBearEvents(items, names, targetDate) {
   const out = [];
@@ -543,7 +588,8 @@ const evId = (code, at) => `s:newsVerdict:${code}:${at}`;
 
 function dirEventText(entry, ctx) {
   if (entry.st === 'neutral') return '判中性·AI 已讀內文';
-  if (entry.lg) return '利空·法律事件（法律判定前視為利空）·規則覆寫·AI 已讀內文';
+  const cls = entry.st === 'bear' ? entryRuleClass(entry) : null;
+  if (cls) return `利空·${ruleClassText(cls)}·規則判定·AI 已讀內文確認事實${entry.ra ? `（AI 原判${entry.ra}）` : ''}`;
   return `${newsShortText(entry, ctx)}${entry.pl ? '·可能為法律事件（未經規則確認）' : ''}·AI 已讀內文`;
 }
 
@@ -573,8 +619,8 @@ export function activeNewsCodes(board, todayYmd) {
 /**
  * B2「我的」（前端；只用使用者自己的持股／自選／釘選過濾同一份表，網址不帶個人參數）——全部二級：
  *   · 盤中趟的 AI 讀內文判別（含中性，灰色「判中性」）；
- *   · 持股、自選、釘選的盤前各趟利空——不看權重全列（§6.5：未校準權重不決定名單；權重只影響文字的強弱與「達一級條件」註記）。
- * 持股符合重大利空條件的（一級或待裁定的二級）由 Z2 引擎發（majorBearEvents），這裡略過避免重複。
+ *   · 持股、自選、釘選的盤前各趟利空——不看權重全列（§6.5：未校準權重不決定名單，也不影響註記）。
+ * 持股符合重大利空條件的（規則類別、類別權重 ≥0.3）由 Z2 引擎發（majorBearEvents），這裡略過避免重複。
  * 只列今日適用、非承接、走過挑戰的判別（isCurrentEntry；沒走挑戰的可能是 14 日舊聞回退）。
  */
 export function mineNewsEvents(board, { holdings, watch, pinned, ctx, minAtMs = null, nowMs }) {
@@ -595,7 +641,7 @@ export function mineNewsEvents(board, { holdings, watch, pinned, ctx, minAtMs = 
     // 「達一級條件」只是文字註記（自選只列二級）；不決定列不列
     const watchMb = isW && e.st === 'bear' ? majorBearOf(e, { scope: 'watch', ctx, minAtMs }) : null;
     let suffix = '';
-    if (watchMb) suffix = '（自選·達一級條件，自選只列二級）';
+    if (watchMb?.band === 'high') suffix = '（自選·達一級條件，自選只列二級）';
     else if (premarketBear) suffix = isH ? '（持股）' : isW ? '（自選）' : '（釘選）';
     out.push({
       id: evId(code, e.at), at: e.at, kind: 'newsVerdict', code, name: code,
@@ -610,8 +656,8 @@ export function mineNewsEvents(board, { holdings, watch, pinned, ctx, minAtMs = 
 
 /**
  * 盤前清單：持股＋自選中，盤後／夜補／晨間趟判出的判別（前一交易日盤中趟判出、被承接到今日表的也列，落在「非今日適用」）。
- * 排序（只用類別＋時間，不用權重——§0／§6.5 權重不當排序鍵，也不決定誰排進前幾檔）：規則法律 → 利空 → 利多 → 中性 → 關注度
- * → 非今日適用（承接、前一交易日、沒走挑戰）；同類新到舊。cat：0 規則法律、2 利空、3 利多、4 中性、5 關注度、7 非今日適用。
+ * 排序（只用類別＋時間，不用權重——§0／§6.5 權重不當排序鍵，也不決定誰排進前幾檔）：規則類利空 → 利空 → 利多 → 中性 → 關注度
+ * → 非今日適用（承接、前一交易日、沒走挑戰）；同類新到舊。cat：0 規則類利空、2 利空、3 利多、4 中性、5 關注度、7 非今日適用。
  * mb 只給燈號標一級用。missing＝未判別／資訊不足／價格描述；na＝不在個股新聞識讀範圍（ETF 等）。
  */
 export function premarketNewsRows(board, { holdings, watch, ctx, minAtMs = null }) {
@@ -632,7 +678,7 @@ export function premarketNewsRows(board, { holdings, watch, ctx, minAtMs = null 
     const mb = e.st === 'bear' ? majorBearOf(e, { scope: hold.has(code) ? 'holding' : 'watch', ctx, minAtMs }) : null;
     let cat;
     if (!current) cat = 7;
-    else if (e.st === 'bear' && e.lg) cat = 0;
+    else if (e.st === 'bear' && entryRuleClass(e)) cat = 0;
     else if (e.st === 'bear') cat = 2;
     else if (e.st === 'bull') cat = 3;
     else if (e.st === 'neutral') cat = 4;

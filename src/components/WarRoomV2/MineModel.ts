@@ -1,18 +1,19 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// A1 我的部位：把「持股＋當日釘選＋快層報價＋停損（規範 stop-v1）＋風險名單＋新聞判別」組成畫面列（ZoneMine 用；riskTagOf／newsOf／
+// A1 我的部位：把「持股＋當日釘選＋快層報價＋停損（規範 stop-v1.1）＋風險名單＋新聞判別」組成畫面列（ZoneMine 用；riskTagOf／newsOf／
 //   useDrawerStop 快看抽屜也用）。
 //
 // 口徑（同名必同口徑，CLAUDE.md）：
 //   損益%   ＝ 扣費稅淨額（netRealizedPnL：現價賣出、扣買賣手續費〔你的券商折讓、最低手續費〕與證交稅）
 //            —— 與投資組合頁「持倉明細」同一支函式、同一個折讓設定；毛額只放 tooltip 當附註
 //   今日     ＝ 今日部位變動（毛額，不含費稅）：(現價−昨收)×股數；今天買的那筆用買價當基準
-//   距停損%  ＝ AI 停損規範 stop-v1（使用者 2026-10-05 指示；scripts/lib/warroom-mine.mjs warStopView）：
-//            停損＝成本線（買進均價 −8% 向上取合法檔位）。停損簿 stopBooks 未上線 ⇒ 前端暫算、未含除權息調整；
-//            棘輪的上一版＝本機事件表（TopStore.stopBook，Z2 引擎寫入）——A1、快看抽屜、Z2、逼近清單帶同一份，數字一致；
-//            逼近＝距停損 ≤2%（沒有 ATR14）；觸停損只認今日成交更新的最低價（試撮與收盤競價窗不判定）。
-//            舊「AI 停損」（ATR 浮動帶）改稱結構參考價（非停損），只在提示與快看抽屜顯示、不觸發。
+//   距停損%  ＝ AI 停損規範 stop-v1.1（使用者 2026-10-05 兩輪裁定；scripts/lib/warroom-mine.mjs warStopView／warStopResOf）：
+//            停損簿 stopBooks/{uid} 生效（phase live）⇒ 讀停損簿；之前＝v1.1 前端暫算：成本線（買進均價 −8% 向上取檔）與
+//            持股分析 ATR 帶（analyses[code].stopLoss 向下取檔）取高、ATR 帶不棘輪、未含除權息調整、今天買進不套帶（§3.6 最後一列）。
+//            棘輪的上一版＝本機事件表（TopStore.stopBook，Z2 引擎寫入）；ATR 帶、前一交易日、停損簿＝useWarStopCtx——
+//            A1、快看抽屜、Z2、逼近清單帶同一份，數字一致；逼近＝≤1 ATR，沒有 ATR14 時距停損 ≤2%；
+//            觸停損只認今日成交更新的最低價（試撮與收盤競價窗不判定）；Z2 一級由本裝置判定（A7：單一裝置·暫算）。
 //   金額一律 ×1000（holdings.quantity 單位是張）
 // 時段：
 //   盤前／試撮清空（pre／preclear）＝價格欄顯示昨收、漲跌與損益「—」，距停損以昨收計（持股代號、成本、停損錨保留）
@@ -31,14 +32,16 @@ import type { NewsEntry } from '@/lib/warroom/build-news';
 import type { WarSegment, WarClock } from '@/lib/warroom/types';
 import { aggregatePositions, isEtfCode, stopPxText, type Position } from '../../../scripts/lib/ai-stoploss.mjs';
 import {
-  grossPnl, lastCloseOf, dayPnlOf, sumDayPnl, mergeTradedBefore, taipeiAt, warStopView,
-  type WarStopView, type WarStopLevel, type StopBook,
+  grossPnl, lastCloseOf, dayPnlOf, sumDayPnl, mergeTradedBefore, taipeiAt, warStopView, ratingBandOf,
+  STOP_JUDGE_NOTE_FRONT, STOP_JUDGE_NOTE_LIVE,
+  type WarStopView, type WarStopLevel, type StopBook, type WarStopCtx, type StopDocStatus,
 } from '../../../scripts/lib/warroom-mine.mjs';
+import { stopBookLive, shadowStopOf, type ShadowStop } from '../../../scripts/lib/warroom-stopbook.mjs';
 import { useTopState } from './TopStore';
 import { useWarData, useWarUi } from './WarRoomContext';
 import type { WarQuote } from './useWarRoomBus';
 import { rowAgeOf, type RowAge } from './parts/freshness';
-import { useStructRefs, type StructRefs } from './MineStops';
+import { useRatingBands, useStopBookDoc } from './MineStops';
 import {
   newsLampView, majorBearOf, isNewsUniverse, newsKpi, type NewsLampView, type MajorBear,
 } from '../../../scripts/lib/warroom-news.mjs';
@@ -77,21 +80,21 @@ export interface MineRow {
   netAmount: number | null;
   grossPct: number | null;
   grossAmount: number | null;
-  /** 停損（規範 stop-v1·前端暫算）；釘選列為 null */
+  /** 停損（規範 stop-v1.1；停損簿生效前＝前端暫算）；釘選列為 null */
   stop: WarStopView | null;
   dist: number | null;
   level: WarStopLevel | null;
   /** 距停損「—」的原因（無報價、成本資料缺） */
   stopNote: string | null;
-  /** 結構參考價（舊 AI 停損·ATR 浮動帶）：非停損，只顯示 */
-  structRef: number | null;
+  /** 持股分析 ATR 帶（analyses[code].stopLoss，未取檔）：v1.1 前端暫算的觸發線之一；沒有 null */
+  ratingBand: number | null;
   risk: RiskTag | null;
   news: NewsState;
   age: RowAge;
   limit: 'up' | 'down' | null;
   /** 第二行原因短句（只有走勢與部位：停損、觸及漲跌停）；盤前不顯示 */
   reason: string | null;
-  /** 琥珀左色條：距停損 ≤2%、今日觸及或價格在停損下 */
+  /** 琥珀左色條：逼近停損（≤1 ATR；沒有 ATR14 時 ≤2%）、今日觸及或價格在停損下 */
   amber: boolean;
   /** 排序用：持有成本（Σ 買價×股） */
   costBasis: number;
@@ -118,13 +121,26 @@ export interface MineKpi {
   riskIncomplete: boolean;
 }
 
+/** A1 停損口徑（KPI 小字與提示；只描述事實） */
+export interface MineStopInfo {
+  /** 停損簿已生效（phase live 且 stop-v1.1）：停損與推播同一口徑、Z2 觸停損一級讀 daemon */
+  live: boolean;
+  bandStatus: StopDocStatus;
+  /** KPI 小字 */
+  badge: string;
+  /** KPI 小字提示 */
+  badgeTitle: string;
+  /** 逼近的口徑（KPI 提示） */
+  nearRule: string;
+}
+
 export interface MineModel {
   rows: MineRow[];
   pins: MineRow[];
   kpi: MineKpi;
   /** 列中最新的揭示時間（資料章用） */
   asOf: number | null;
-  structRefs: StructRefs;
+  stopInfo: MineStopInfo;
 }
 
 export interface MineInput {
@@ -136,7 +152,8 @@ export interface MineInput {
   clock: WarClock;
   now: number;
   broker: BrokerSettings;
-  structRefs: StructRefs;
+  /** 停損共用輸入（持股分析 ATR 帶、前一交易日、停損簿；useWarStopCtx）——A1、抽屜、Z2 帶同一份 */
+  stopCtx: WarStopCtx;
   risk: RiskInfo;
   /** 新聞判別精簡表（board.news；useNewsBoard） */
   news: NewsBoardView;
@@ -151,7 +168,7 @@ const PRICE_LABEL: Readonly<Record<PriceMode, string>> = { live: '現價', close
 /** 停損原因句裡那個價的名稱：收盤競價窗有 13:25 前成交就用它，否則是指示價 */
 const priceLabelOf = (mode: PriceMode, frozen: boolean) => (mode === 'indicative' && frozen ? '13:25 前成交' : PRICE_LABEL[mode]);
 
-/** ymd 之前最近一個交易日（休市日曆＋週末；最多往回 15 天）。Z2 觸停損事件結算也用它 */
+/** ymd 之前最近一個交易日（休市日曆＋週末；最多往回 15 天）。Z2 觸停損事件結算、ATR 帶資料日也用它 */
 export function prevTradingYmd(ymd: string): string {
   let t = Date.parse(`${ymd}T00:00:00Z`);
   for (let i = 0; i < 15 && Number.isFinite(t); i++) {
@@ -160,6 +177,44 @@ export function prevTradingYmd(ymd: string): string {
     if (isTradingYmd(d)) return d;
   }
   return ymd;
+}
+
+/**
+ * 停損共用輸入（A1、快看抽屜、Z2 引擎、逼近清單帶同一份，數字才一致）：持股分析 ATR 帶、今日之前最後一個交易日（帶值的資料日，
+ * SKILL §3.6 最後一列 ③）、daemon 停損簿。只讀 Firestore 兩份使用者文件（MineStops 模組層級共用訂閱），不打上游。
+ */
+export function useWarStopCtx(ymd: string): WarStopCtx {
+  const bands = useRatingBands();
+  const bookDoc = useStopBookDoc();
+  return useMemo(() => ({
+    bands: bands.bands, bandStatus: bands.status, prevYmd: ymd ? prevTradingYmd(ymd) : null,
+    book: bookDoc.book, bookStatus: bookDoc.status,
+  }), [bands, bookDoc, ymd]);
+}
+
+const BAND_STATUS_NOTE: Readonly<Record<StopDocStatus, string>> = {
+  loading: '持股分析讀取中', slow: '持股分析讀取逾時', ok: '', none: '尚無持股分析', error: '持股分析讀不到',
+};
+
+/** A1 停損口徑的 KPI 小字與提示（停損簿生效與否；只描述事實） */
+export function mineStopInfoOf(ctx: WarStopCtx): MineStopInfo {
+  const live = stopBookLive(ctx.book);
+  const nearRule = '逼近＝距停損 ≤1 ATR，沒有 ATR14 時 ≤2%';
+  if (live) {
+    return {
+      live, bandStatus: ctx.bandStatus, nearRule, badge: '停損 v1.1·停損簿',
+      badgeTitle: `停損依 AI 停損規範 stop-v1.1，讀 daemon 停損簿（與推播同一口徑：成本線、ATR 帶、保本線、追蹤線取高且只升不降，`
+        + `規則類利空依類別權重暫時收緊；停損簿已還原除權息）。持股與停損簿不符或過期的檔以停損簿原料暫算、標「待 daemon 確認」；`
+        + `ETF／興櫃官方日 K 歸檔驗證前沿用現行推播口徑。${STOP_JUDGE_NOTE_LIVE}。${nearRule}。非投資建議`,
+    };
+  }
+  const bandNote = BAND_STATUS_NOTE[ctx.bandStatus] ? `（目前${BAND_STATUS_NOTE[ctx.bandStatus]}，只有成本線）` : '';
+  return {
+    live, bandStatus: ctx.bandStatus, nearRule, badge: '停損 v1.1 暫算·未還原除權息·單一裝置',
+    badgeTitle: `停損依 AI 停損規範 stop-v1.1 前端暫算（停損簿未生效）：成本線（買進均價 −8%）與持股分析 ATR 帶取高${bandNote}；`
+      + `成本線只升不降、ATR 帶未棘輪、今天買進不套 ATR 帶；成本未還原除權息。${STOP_JUDGE_NOTE_FRONT}，不同裝置可能不同。`
+      + `daemon 停損推播仍是舊算法（列二級）。${nearRule}。非投資建議`,
+  };
 }
 
 /** 處置／注意小標（RiskBadge 同口徑：已公告未生效的處置仍算注意；名單未載入回 null） */
@@ -265,19 +320,20 @@ function stopNoteOf(stop: WarStopView, hasPrice: boolean): string | null {
   return null;
 }
 
-/** 單一持股的停損（A1 列與快看抽屜共用；帶本機事件表這一檔當棘輪的上一版） */
-function stopViewOf(pos: Position, q: WarQuote | null, calc: number | null, priceLabel: string, input: Pick<MineInput, 'now' | 'clock' | 'segment' | 'risk' | 'stopBook'>): WarStopView {
+/** 單一持股的停損（A1 列與快看抽屜共用；帶本機事件表這一檔當棘輪的上一版、帶同一份停損共用輸入） */
+function stopViewOf(pos: Position, q: WarQuote | null, calc: number | null, priceLabel: string, input: Pick<MineInput, 'now' | 'clock' | 'segment' | 'risk' | 'stopBook' | 'stopCtx'>): WarStopView {
   return warStopView({
     position: pos, quote: q, calcPrice: calc, priceLabel, nowMs: input.now, todayYmd: input.clock.ymd,
     tradingDay: input.segment !== 'nontrading',
     disposition: input.risk.loaded && input.risk.disposition.has(pos.code) && !isDispositionPending(input.risk, pos.code),
     entry: Object.prototype.hasOwnProperty.call(input.stopBook, pos.code) ? input.stopBook[pos.code] : null,
+    ctx: input.stopCtx,
   });
 }
 
 /** 純組裝（不含 hook）：同一份輸入必得同一份輸出 */
 export function buildMineModel(input: MineInput): MineModel {
-  const { quotes, stocks, segment, clock, broker, structRefs, risk, news, preAuction } = input;
+  const { quotes, stocks, segment, clock, broker, stopCtx, risk, news, preAuction } = input;
   const dayYmd = clock.beforeOpen || segment === 'nontrading' ? prevTradingYmd(clock.ymd) : clock.ymd;
 
   const rows: MineRow[] = [];
@@ -307,7 +363,7 @@ export function buildMineModel(input: MineInput): MineModel {
       netPct: net?.pct ?? null, netAmount: net?.amount ?? null,
       grossPct: gross?.pct ?? null, grossAmount: gross?.amount ?? null,
       stop, dist, level, stopNote: stop.stop != null && dist != null ? null : stopNoteOf(stop, calc != null),
-      structRef: structRefs.refs[agg.code] ?? null,
+      ratingBand: ratingBandOf(stopCtx, agg.code),
       risk: riskTagOf(risk, agg.code), news: newsOf(news, agg.code, true),
       age: rowAgeOf(q, input.now, segment), limit,
       reason: reasonOf(mode, stop, limit),
@@ -329,7 +385,7 @@ export function buildMineModel(input: MineInput): MineModel {
       code, name, mkt: mktOf(code, name, stocks), isHolding: false, lots: 0, avgCost: 0, quote: q,
       price: pv.price, priceMode: mode, chgPct: pv.chgPct, calcPrice: null, calcNote: null,
       netPct: null, netAmount: null, grossPct: null, grossAmount: null,
-      stop: null, dist: null, level: null, stopNote: null, structRef: null,
+      stop: null, dist: null, level: null, stopNote: null, ratingBand: null,
       risk: riskTagOf(risk, code), news: newsOf(news, code, false),
       age: rowAgeOf(q, input.now, segment), limit: limitOf(mode, q), reason: null, amber: false, costBasis: 0,
     };
@@ -356,7 +412,7 @@ export function buildMineModel(input: MineInput): MineModel {
     newsOld: nk ? nk.old : 0,
     riskIncomplete: !risk.loaded || !risk.complete,
   };
-  return { rows, pins, kpi, asOf, structRefs };
+  return { rows, pins, kpi, asOf, stopInfo: mineStopInfoOf(stopCtx) };
 }
 
 type TradedMap = Readonly<Record<string, { price: number; revealAt: number }>>;
@@ -397,7 +453,7 @@ export function useMineModel(): MineModel {
   const holdings = useAppStore((s) => s.holdings);
   const allStocks = useAppStore((s) => s.allStocks);
   const [broker] = useBrokerSettings();
-  const structRefs = useStructRefs();
+  const stopCtx = useWarStopCtx(clock.ymd);
   const risk = useRiskCodes();
   const preAuction = usePreAuction(quotes, segment, clock.ymd);
   const news = useNewsBoard();
@@ -415,13 +471,23 @@ export function useMineModel(): MineModel {
   const closeAsOf = indexAsOf(index);
   return useMemo(() => {
     const m = buildMineModel({
-      holdings, pinned, quotes, stocks, segment, clock, now, broker, structRefs, risk, news, preAuction, stopBook,
+      holdings, pinned, quotes, stocks, segment, clock, now, broker, stopCtx, risk, news, preAuction, stopBook,
     });
     // 收盤後報價來自收盤資料（沒有揭示時戳）⇒ 資料章改用指數自報的收盤時間（■ 收盤），不要標「無資料」
     const closed = segment === 'closing' || segment === 'after' || segment === 'nontrading';
     const hasPrice = [...m.rows, ...m.pins].some((r) => (r.quote?.price ?? 0) > 0);
     return m.asOf == null && closed && hasPrice && closeAsOf != null ? { ...m, asOf: closeAsOf } : m;
-  }, [holdings, pinned, quotes, stocks, segment, clock, now, broker, structRefs, risk, news, preAuction, stopBook, closeAsOf]);
+  }, [holdings, pinned, quotes, stocks, segment, clock, now, broker, stopCtx, risk, news, preAuction, stopBook, closeAsOf]);
+}
+
+/** 停損簿生效時，期限內的事件收緊層（抽屜明細；類別權重＝新聞技能 §4.1 先驗·未回測，不是新聞影響權重 w） */
+export interface DrawerEventLayer {
+  key: string;
+  label: string | null;
+  line: number | null;
+  effectiveFrom: string | null;
+  expiresAfter: string | null;
+  weight: number | null;
 }
 
 export interface DrawerStop {
@@ -430,17 +496,42 @@ export interface DrawerStop {
   /** 距停損用的價與名稱（與 A1 同一支 stopCalcPriceOf：盤前＝昨收；收盤競價窗＝13:25 前最後成交，沒有才用指示價） */
   calcPrice: number | null;
   priceLabel: string;
-  structRef: number | null;
-  structStatus: StructRefs['status'];
-  /** 結構參考價的顯示文字（依檔位） */
-  structText: string | null;
+  /** 持股分析 ATR 帶原值（analyses[code].stopLoss；v1.1 前端暫算的觸發線之一）與顯示文字（依檔位） */
+  ratingBand: number | null;
+  ratingBandText: string | null;
+  bandStatus: StopDocStatus;
+  /** 停損簿已生效（phase live）：停損與推播同一口徑、Z2 觸停損一級讀 daemon */
+  live: boolean;
+  /** Z2 觸停損一級的判定口徑（A7） */
+  judgeNote: string;
+  /** 影子期 daemon 試算值（只供對照 I5，不參與判定）；沒有 null */
+  shadow: ShadowStop | null;
+  /** 停損簿生效時期限內的事件收緊層 */
+  events: readonly DrawerEventLayer[];
 }
 
-/** 快看抽屜的停損區塊（與 A1 同一支 warStopView、同一支 stopCalcPriceOf、同一份本機事件表）。須在 WarRoomProvider 內。 */
+const isPosNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+
+/** 停損簿這一檔期限內的事件收緊層（生效模式才有；形狀不對的層略過） */
+function eventLayersOf(view: WarStopView, ymd: string): DrawerEventLayer[] {
+  if (view.mode !== 'book' && view.mode !== 'bookCalc') return [];
+  const raw = view.bp?.events;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((o: unknown) => {
+    if (!o || typeof o !== 'object') return [];
+    const x = o as Record<string, unknown>;
+    const from = strOrNull(x.effectiveFrom), to = strOrNull(x.expiresAfter);
+    if (x.state !== 'active' || !isPosNum(x.line) || !from || !to || from > ymd || ymd > to) return [];
+    return [{ key: String(x.key ?? ''), label: strOrNull(x.label), line: x.line, effectiveFrom: from, expiresAfter: to, weight: isPosNum(x.weight) ? x.weight : null }];
+  });
+}
+
+/** 快看抽屜的停損區塊（與 A1 同一支 warStopView、同一支 stopCalcPriceOf、同一份本機事件表與停損共用輸入）。須在 WarRoomProvider 內。 */
 export function useDrawerStop(code: string): DrawerStop {
   const { quotes, segment, clock, now } = useWarData();
   const holdings = useAppStore((s) => s.holdings);
-  const structRefs = useStructRefs();
+  const stopCtx = useWarStopCtx(clock.ymd);
   const risk = useRiskCodes();
   const preAuction = usePreAuction(quotes, segment, clock.ymd);
   const { stopBook } = useTopState();
@@ -448,10 +539,15 @@ export function useDrawerStop(code: string): DrawerStop {
   const frozen = preAuction[code];
   return useMemo(() => {
     const pos = aggregatePositions(holdings.filter((h) => h.code === code))[0];
-    const ref = structRefs.refs[code] ?? null;
-    const base = { structRef: ref, structStatus: structRefs.status, structText: ref != null ? stopPxText(ref, isEtfCode(code)) : null };
-    if (!pos) return { view: null, calcPrice: null, priceLabel: PRICE_LABEL.live, ...base };
+    const band = ratingBandOf(stopCtx, code);
+    const live = stopBookLive(stopCtx.book);
+    const base = {
+      ratingBand: band, ratingBandText: band != null ? stopPxText(band, isEtfCode(code)) : null, bandStatus: stopCtx.bandStatus,
+      live, judgeNote: live ? STOP_JUDGE_NOTE_LIVE : STOP_JUDGE_NOTE_FRONT, shadow: shadowStopOf(stopCtx.book, code),
+    };
+    if (!pos) return { view: null, calcPrice: null, priceLabel: PRICE_LABEL.live, events: [], ...base };
     const { calcPrice: calc, label } = stopCalcPriceOf(segment, q, frozen);
-    return { view: stopViewOf(pos, q, calc, label, { now, clock, segment, risk, stopBook }), calcPrice: calc, priceLabel: label, ...base };
-  }, [holdings, code, q, frozen, segment, clock, now, risk, structRefs, stopBook]);
+    const view = stopViewOf(pos, q, calc, label, { now, clock, segment, risk, stopBook, stopCtx });
+    return { view, calcPrice: calc, priceLabel: label, events: eventLayersOf(view, clock.ymd), ...base };
+  }, [holdings, code, q, frozen, segment, clock, now, risk, stopCtx, stopBook]);
 }

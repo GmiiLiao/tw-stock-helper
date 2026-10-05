@@ -1,4 +1,5 @@
-// 盤中戰情 v2·A1 我的部位與持股停損（規範 v1）純函式 單元測試：node --test scripts/lib/warroom-mine.test.mjs
+// 盤中戰情 v2·A1 我的部位與持股停損（規範 stop-v1.1）純函式 單元測試：node --test scripts/lib/warroom-mine.test.mjs
+// （v1.1 前端暫算、停損簿模式與 ATR 帶換值的新增案例在 warroom-mine-v11.test.mjs）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { aggregatePositions } from './ai-stoploss.mjs';
@@ -85,26 +86,28 @@ test('暫算停損＝成本線（買進均價 −8% 向上取檔），依據標�
   assert.equal(provisionalStop(P([{ id: 'a', code: '00878', buyPrice: 56.9, quantity: 1 }]), 55).stop, 52.35);
 });
 
-test('A1：今日 low 觸及 ⇒ hit、原因句寫今日最低與停損（事實句）', () => {
+test('A1：今日 low 觸及 ⇒ hit、原因句寫今日最低、停損、來源與持有損益（事實句，SKILL §9）', () => {
   const v = view();
   assert.equal(v.stop, 92);
   assert.equal(v.level, 'hit');
   assert.equal(v.touch.kind, 'touch');
-  assert.equal(v.reason, '今日最低 91.5 觸及停損 92.0·現價 93.0');
+  assert.equal(v.reason, '今日最低 91.5 觸及停損 92.0（成本線·10:42 揭示）·現價 93.0·持有損益 −7.0%（未含費稅）');
   assert.equal(v.distPct, 1.1);
-  assert.match(v.title, /^停損 92\.0（規範 stop-v1·成本線·買進均價 100\.00 −8%·未含除權息調整·前端暫算/);
+  assert.equal(v.mode, 'front');
+  assert.equal(v.source, '成本線');
+  assert.match(v.title, /^停損 92\.0（成本線·買進均價 100\.00 −8%·未含除權息調整）·規範 stop-v1\.1·暫算·未含 ATR 帶（尚無持股分析）/);
 });
 
-test('A1：開盤即跳過停損 ⇒ 跳空事實句照實記開盤價與跳過幅度', () => {
+test('A1：開盤即跳過停損 ⇒ 跳空事實句照實記開盤價、來源、跳過幅度與以開盤價計的損益', () => {
   const v = view({ quote: quote({ open: 88, low: 87.5, price: 89 }), calcPrice: 89 });
   assert.equal(v.touch.kind, 'gap');
-  assert.equal(v.reason, '開盤 88.0，已低於停損 92.0（差 4.3%）');
+  assert.equal(v.reason, '開盤 88.0，已低於停損 92.0（成本線，差 4.3%）·持有損益 −12.0%（未含費稅）');
 });
 
 test('A1：逼近（≤2%，無 ATR）⇒ near；遠 ⇒ ok；沒有現價 ⇒ level null', () => {
   const n = view({ quote: quote({ low: 92.5, price: 93.5 }), calcPrice: 93.5 });
   assert.equal(n.level, 'near');
-  assert.equal(n.reason, '逼近停損·距 1.6%');
+  assert.equal(n.reason, '逼近停損（成本線）·距 1.6%');
   const ok = view({ quote: quote({ low: 99, price: 100 }), calcPrice: 100 });
   assert.equal(ok.level, 'ok'); assert.equal(ok.reason, null);
   assert.equal(view({ quote: null, calcPrice: null }).level, null);
@@ -114,7 +117,7 @@ test('A1：試撮與收盤競價窗不判定；價格在停損下只描述事實
   const pre = view({ nowMs: T(8, 45), quote: quote({ source: 'stock_day_all', fetchedAt: null, revealAt: null, price: 91 }), calcPrice: 91, priceLabel: '昨收' });
   assert.equal(pre.touch.notJudged, 'segment');
   assert.equal(pre.level, 'hit');
-  assert.equal(pre.reason, '昨收 91.0 在停損 92.0 下（開盤前·不判定）');
+  assert.equal(pre.reason, '昨收 91.0 在停損 92.0（成本線）下（開盤前·不判定）');
   const auc = view({ nowMs: T(13, 26), quote: quote({ low: 92.5, price: 91.5 }), calcPrice: 92.5 });
   assert.equal(auc.touch.notJudged, 'segment');
   assert.equal(auc.level, 'near');
@@ -124,7 +127,7 @@ test('A1：今天買進的部位＝今日新設停損，前端沒有真成交旗
   const v = view({ position: P([{ id: 'a', code: '2317', buyPrice: 100, quantity: 1, buyDate: TODAY }]), calcPrice: 91.5, quote: quote({ price: 91.5 }) });
   assert.equal(v.setToday, true);
   assert.equal(v.touch.notJudged, 'noTodayTrade');
-  assert.equal(v.reason, '現價 91.5 在停損 92.0 下（今日新設停損：前端沒有真成交旗標，今日不判定觸及）');
+  assert.equal(v.reason, '現價 91.5 在停損 92.0（成本線）下（今日新設停損：前端沒有真成交旗標，今日不判定觸及）');
 });
 
 test('快看抽屜今日判定列：觸及／未觸及／不判定原因', () => {
@@ -157,7 +160,7 @@ test('第一次觸及 ⇒ 一級一次；同日下一輪、重新整理後（讀
   assert.equal(ev.length, 1);
   assert.equal(ev[0].id, stopEventId('2317', 1, 1));
   assert.equal(ev[0].level, 1);
-  assert.equal(ev[0].text, '2317 鴻海 觸停損（今日最低觸及）·規範 v1 成本線·前端暫算（未含除權息調整）');
+  assert.equal(ev[0].text, '2317 鴻海 觸停損（今日最低觸及）·單一裝置·暫算');
   assert.equal(/92|91/.test(ev[0].text), false);   // 不寫個人停損價
   const b = stepStopEpisodes(a.state, [row()], { todayYmd: TODAY, nowMs: T(10, 50) });
   assert.deepEqual(b.sendLevel1, []); assert.equal(b.changed, false);
@@ -177,10 +180,42 @@ test('跨日：前一交易日收盤 ≤ 停損×1.02 ⇒ 事件延續不重發�
   assert.equal(ended.state.byCode['2317'].ep.firstDate, TODAY);
 });
 
+test('跨日結算用前一交易日盤中適用的停損（sess）：收盤後持股分析換成當日收盤版 ATR 帶，不提前結束事件、隔天不重發一級（2026-10-05 審查）', () => {
+  const d = '2026-10-02';   // 週五
+  // 盤中 10:42 觸及停損 92（ATR 帶）⇒ 一級；記下當日盤中適用的停損
+  const a = stepStopEpisodes(EMPTY, [row({ prevYmd: '2026-10-01' })], { todayYmd: d, nowMs: T(10, 43, 0, 2), versionYmd: d });
+  assert.deepEqual(a.sendLevel1, ['2317']);
+  assert.deepEqual(a.state.byCode['2317'].sess, { ymd: d, stop: 92 });
+  // 收盤後 14:30：持股分析重算，帶換成 10-02 收盤版 88（≤ 收盤 91×0.97）⇒ 換版（事件延續），但不算 10-02 盤中適用
+  const b = stepStopEpisodes(a.state, [row({ stop: 88, reason: 'bandDown', touch: notTouched(), prevYmd: '2026-10-01' })],
+    { todayYmd: d, nowMs: T(14, 30, 0, 2), versionYmd: d });
+  assert.equal(b.state.byCode['2317'].stop, 88);
+  assert.deepEqual(b.state.byCode['2317'].sess, { ymd: d, stop: 92 });
+  // 週六（非交易日）不更新 sess
+  const sat = stepStopEpisodes(b.state, [row({ stop: 88, reason: 'bandDown', touch: notTouched(), prevClose: 91, prevYmd: d })],
+    { todayYmd: '2026-10-03', nowMs: T(10, 0, 0, 3), versionYmd: d });
+  assert.deepEqual(sat.state.byCode['2317'].sess, { ymd: d, stop: 92 });
+  assert.equal(sat.state.byCode['2317'].ep.id, 1, '以 92 結算 10-02：收盤 91 ≤ 92×1.02 ⇒ 事件延續');
+  // 週一 09:05：今日再觸及 ⇒ 同一事件、不重發一級；sess 換成今日
+  const c = stepStopEpisodes(b.state, [row({ stop: 88, prevClose: 91, prevYmd: d })], { todayYmd: TODAY, nowMs: T(9, 5), versionYmd: TODAY });
+  assert.deepEqual(c.sendLevel1, []);
+  assert.equal(c.state.byCode['2317'].ep.id, 1);
+  assert.deepEqual(c.state.byCode['2317'].sess, { ymd: TODAY, stop: 88 });
+  // 對照：本裝置當日盤中沒看過（沒有 sess）⇒ 退回最後一版 88：91 > 88×1.02 ⇒ 事件結束、今日觸及是新事件
+  const noSess = { ...b.state, byCode: { 2317: { ...b.state.byCode['2317'], sess: null } } };
+  const c2 = stepStopEpisodes(noSess, [row({ stop: 88, prevClose: 91, prevYmd: d })], { todayYmd: TODAY, nowMs: T(9, 5), versionYmd: TODAY });
+  assert.deepEqual(c2.sendLevel1, ['2317']);
+  assert.equal(c2.state.byCode['2317'].ep.id, 2);
+  // 讀回本機表：sess 形狀不對就丟
+  assert.deepEqual(parseStopEpisodes(JSON.parse(JSON.stringify(serializeStopEpisodes(c.state)))), c.state);
+  const bad = parseStopEpisodes({ v: 1, nextId: 2, byCode: { 2317: { ...c.state.byCode['2317'], sess: { ymd: 'x', stop: 1 } } } });
+  assert.equal(bad.byCode['2317'].sess, null);
+});
+
 /** warStopView 的結果 → 本機事件表一列（與 TopAlertEngine.stopRowsOf 同欄位） */
 const rowFrom = (pos, v, over = {}) => ({
-  code: pos.code, stop: v.stop, touch: v.touch, at: T(10, 42), prevClose: 103, prevYmd: PREV, lots: pos.lots,
-  reason: v.res.versionReason, suspect: v.res.suspect, ...over,
+  code: pos.code, stop: v.stop, floor: v.res.floorStop, source: v.res.stopSource, touch: v.touch, at: T(10, 42),
+  prevClose: 103, prevYmd: PREV, lots: pos.lots, reason: v.res.versionReason, suspect: v.res.suspect, ...over,
 });
 
 test('盤中 FIFO 賣出上調停損 ⇒ 以本裝置偵測時刻推定今日新設，當日不拿累計最低價發一級；隔日起照常判定', () => {
@@ -277,7 +312,7 @@ test('本機有記錄、前一交易日收盤 ≤ 停損卻沒有事件（本裝
   assert.deepEqual(b.sendLevel1, ['2317']);
   assert.deepEqual(b.late, ['2317']);
   assert.equal(b.state.byCode['2317'].ep.kind, 'late');
-  assert.equal(stopLevel1Events(b.state, names, TODAY)[0].text, '2317 鴻海 觸停損（前一交易日收盤後補判·本裝置）·規範 v1 成本線·前端暫算（未含除權息調整）');
+  assert.equal(stopLevel1Events(b.state, names, TODAY)[0].text, '2317 鴻海 觸停損（前一交易日收盤後補判·本裝置）·單一裝置·暫算');
   assert.deepEqual(stepStopEpisodes(b.state, [row({ touch: notTouched(), prevClose: 91, prevYmd: PREV })], { todayYmd: TODAY, nowMs: T(9, 10) }).sendLevel1, []);
   // 這一版是前一交易日收盤後才換的（例：晚上改了持股）⇒ 前一交易日收盤不能拿來比
   const after = { ...a, byCode: { 2317: { ...a.byCode['2317'], startedAt: Date.parse('2026-10-02T20:00:00+08:00'), tradeDate: '2026-10-02' } } };
@@ -305,7 +340,7 @@ test('成本資料可疑：每檔每日一則二級（id 含日期），文字�
   assert.equal(evs[0].id, `stopSuspect:${TODAY}:2317`);
   assert.equal(evs[0].level, 2);
   assert.equal(evs[0].kind, 'mine');
-  assert.equal(evs[0].text, '2317 鴻海 成本資料可疑（現價與買進均價相差過大）·本檔停損警示暫停·規範 v1');
+  assert.equal(evs[0].text, '2317 鴻海 成本資料可疑（現價與買進均價相差過大）·本檔停損警示暫停·單一裝置·暫算');
   assert.equal(/\d+\.\d|倍/.test(evs[0].text), false);
 });
 
@@ -316,7 +351,7 @@ test('seeded：前一交易日收盤已 ≤ 停損、本機沒有事件 ⇒ 不�
   const s = stopSeededEvent(a.state, names, TODAY);
   assert.equal(s.level, 2);
   assert.equal(s.kind, 'mine');
-  assert.equal(s.text, '已在停損下（前一交易日收盤低於停損）：2317 鴻海、2330 台積電·本次不逐檔發一級·規範 v1');
+  assert.equal(s.text, '已在停損下（前一交易日收盤低於停損）：2317 鴻海、2330 台積電·本次不逐檔發一級·單一裝置·暫算');
   assert.deepEqual(stepStopEpisodes(a.state, [row({ prevClose: 91 })], { todayYmd: TODAY, nowMs: T(10, 0) }).sendLevel1, []);
 });
 

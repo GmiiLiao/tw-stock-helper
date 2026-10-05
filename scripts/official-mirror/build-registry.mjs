@@ -53,6 +53,10 @@ const EXTRA = [
   { id: 'twse_announcement', host: 'www.twse.com.tw', kind: 'json', validator: 'twseSnap', url: 'https://www.twse.com.tw/rwd/zh/announcement/announcement?response=json', title: '證交所最新公告', freq: 'daily', priority: 3, inventoryId: 'twse_announcement' },
   { id: 'twse_twt96u', host: 'www.twse.com.tw', kind: 'json', validator: 'twseSnap', url: 'https://www.twse.com.tw/rwd/zh/marginTrading/TWT96U?response=json', title: '當日可借券賣出股數（上市）', freq: 'daily', priority: 1, inventoryId: 'twse_twt96u' },
   { id: 'tpex_bulletin_warning', host: 'www.tpex.org.tw', kind: 'json', validator: 'tpexSnap', url: 'https://www.tpex.org.tw/www/zh-tw/bulletin/warning?response=json', title: '上櫃注意股（當日）', freq: 'daily', priority: 2, inventoryId: 'tpex_bulletin_warning' },
+  // 興櫃當日行情（www，AI 停損 A3 的 PRIMARY；openapi tpex_esb_latest_statistics 為 FALLBACK）：官方沒有可指定日期的興櫃全表
+  //   （2026-10-05 實測：emerging/historical 必須帶個股代號、且只有最高／最低／均價沒有最後成交價）⇒ 每日快照累積；
+  //   回聲＝tables[0].date「115年10月05日 16:33:03」（tpexSnap 取民國日期），快照鍵用官方回聲日（keyByEcho）。
+  { id: 'tpex_emerging_latest', host: 'www.tpex.org.tw', kind: 'json', validator: 'tpexSnap', url: 'https://www.tpex.org.tw/www/zh-tw/emerging/latest?response=json', title: '興櫃股票當日行情表（www）', freq: 'daily', priority: 1, inventoryId: 'tpex_emerging_latest' },
 ];
 // 季財報彙總（MOPS，sii／otc；Q2～Q4 為年初累計，解析端換算）——每季在法定期限窗內抓、期限翌日定版
 const QUARTERLY = ['t163sb04', 't163sb05', 't163sb06'].map((t, i) => ({

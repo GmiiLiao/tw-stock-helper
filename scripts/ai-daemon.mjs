@@ -22,7 +22,7 @@ import { readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
 import { loadWikiStocks, wikiPromptBlock } from './lib/wiki-facts.mjs';
@@ -51,7 +51,21 @@ import { createAlertDedup } from './lib/alert-dedup.mjs';
 import { withRetry, failSince, sameLockDay, nonRetryable } from './lib/fetch-retry.mjs';
 import { encodeIntraday, decodeIntraday } from './lib/intraday-codec.mjs';
 import { mergeWatchCodes } from './lib/watch-codes.mjs';   // 會員持股＋自選聯集：持股優先（2026-10-05·H4）
+// AI 停損規範 stop-v1.1（2026-10-05 使用者兩輪裁定；.claude/skills/tw-ai-stoploss）：
+//   九處停損相關推播文字改為只描述事實（第 9 項；算法不動）；LLM 停損文字（第 4 項）S3 影子期只量測現有輸出、提示詞不變（S5 才換）。
+//   ⚠ 這兩支只依賴 ai-stoploss-base／core／llm（→ warroom-session），刻意不經集線器 ai-stoploss.mjs：集線器會連帶載入
+//     warroom-news → after-market-news（另一流程的檔），daemon 是 disk 即部署，靜態 import 鏈上任何一檔壞掉 daemon 就起不來。
+//     影子試算（S3）要用集線器，改在 stopShadowLoop 以動態 import 載入（載入失敗只停用影子）。
+import {
+  stopPushTextS2b, trailPushTextS2b, disciplinePushTextS2b, defenseListText, defensePushText, plungePushText,
+  watchDropPushText, watchDropSummaryText, overnightOpenPushText,
+} from './lib/ai-stoploss-text.mjs';
+import { isEtfCode as stopIsEtfCode } from './lib/ai-stoploss-base.mjs';
+import { phase1HoldingStop, standardBuyPoint, phase1HypotheticalStop, measureLlmStop } from './lib/stop-phase1.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
+// 規則類利空事件類別（新聞技能 §1.5／§1.7／§4.1；2026-10-05 第二輪 A4「做skills判定與加權重」）：judgeOneStock 的事實確認與規則判定、
+//   三個 newsVerdict 寫入端的欄位。純資料＋純函式、不 import 任何模組（daemon 靜態 import 鏈不會因此多載入別的檔）。
+import { ruleTriggerScan, applyRuleFacts, ruleFactQuestion, parseRuleFactAnswer, ruleFieldsOf } from './lib/news-rule-classes.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -724,6 +738,8 @@ function parseTrigger(text) {
 
 // 評分寫給 LLM：/api/rating 的 score／grade／signal 已含處置 −40／注意 −20；直接寫「技術評分 17(C) 訊號 NEUTRAL」
 // 模型會讀成技術面很弱而建議出脫／換股 ⇒ 用 techScoreText／riskNoteText（lib/risk-score.mjs，2026-09-30 全站稽核）。
+// 停損（第 4 項裁定「LLM 只能照抄系統停損」）：提示詞改動排在 S5（停損規範 SKILL §10.1、llm-contract.md 時程：
+//   S3 影子期**不改任何提示詞**，只用 measure 量測現有輸出）。S5 起才換成 stopPromptLines＋STOP_REF；在那之前本函式維持 HEAD 原文。
 function buildPrompt({ code, name, pnlPct, avgCost, price, rating, news, isRisk, riskType, chip }) {
   const st = rating?.stock;
   const f = rating?.fundamentals;
@@ -912,6 +928,9 @@ async function analyzeUser(uid) {
     }
 
     const out = await askOllama(buildPrompt({ code, name: g.name, pnlPct, avgCost, price, rating, news, isRisk, riskType, chip }));
+    // S3 量測的比對值：與停損推播同口徑的停損（checkAlerts 的算式：AI 停損 >0 優先，否則均價×0.92；均價不先四捨五入）。
+    //   只拿來量測，不進提示詞（S3 不改提示詞；llm-contract §4）。
+    const stopP1 = phase1HoldingStop(g.qty ? g.costSum / g.qty : 0, st?.stopLoss);
     const targets = (st?.sellTargets || []).filter(t => t.type !== 'trailing').map(t => t.price).sort((a, b) => a - b);
     analyses[code] = {
       code, name: g.name || st?.name || '',
@@ -927,6 +946,17 @@ async function analyzeUser(uid) {
       // 持股策略（隔日沖對照/持有日 profile/相似波段）——零 LLM 實算，見 computeHoldingStrategy
       strategy: stratCtx ? computeHoldingStrategy(stratCtx, code, g.buyDate) : null,
     };
+    // LLM 停損文字量測（S3 measure：提示詞不變、只記錄、不改字；enforce 須 S5b 使用者核可）——比對推播口徑停損與 v1.1 影子停損，
+    //   計數進 stopSpecAudit。S3 的提示詞不要求 STOP_REF ⇒ expectRef:false（T1 從 S5 起才有資料，llm-contract §4 上線三段）。
+    if (out && stopP1) try {   // 量測失敗只記 log，不可擋下持股分析的存檔
+      const a = analyses[code];
+      const m = measureLlmStop({ TRIGGER: a.sellTrigger, 分析: a.rationale, ...(a.swingAdvice ? { 波段建議: a.swingAdvice } : {}) }, {
+        stop: stopP1.price, shadowStop: _stopShadow?.peekStop(uid, code) ?? null, refPrice: price, band: st?.stopLoss ?? null,
+        buyPoints: (st?.buyZones || []).map(z => z.price), lastPrice: price, expectRef: false, isEtf: stopIsEtfCode(code),
+      });
+      for (const v of m.push.slice(0, 3)) log(`  · stopLlmViolation holding ${uid.slice(0, 6)} ${code} ${v.rule}/${v.code}${v.found != null ? ` ${v.found}` : ''}（停損 ${stopP1.price}）${v.sentence ? `「${v.sentence.slice(0, 40)}」` : ''}`);
+      _stopShadow?.recordLlm('holding', m);
+    } catch (e) { log('  ⚠ 停損 LLM 量測（持股分析）:', (e.message || '').slice(0, 60)); }
     log(`  · ${uid} ${code} → ${analyses[code].action}`);
     await sleep(200);
   }
@@ -952,6 +982,10 @@ async function swingForCode(code, name) {
   const news = newsRes?.news || [];
   const isRisk = !!(st.isAttention || st.isDisposition);
   const sw = rating?.swingSignal;
+  // 停損（第 4 項裁定）：提示詞改動排在 S5（S3 影子期不改提示詞，SKILL §10.1）；這裡只算 S3 量測的比對值——
+  //   以標準買點 B 假設進場、與停損推播同口徑的停損（沒有 B 不量測）。不進提示詞。
+  const buyB = standardBuyPoint(st.buyZones);
+  const hypo = phase1HypotheticalStop(buyB, st.stopLoss);
   const lines = [
     `${code} ${name}：現價 ${st.price}、今日 ${st.changePercent?.toFixed?.(2)}%`,
     techScoreText(st),
@@ -968,6 +1002,14 @@ async function swingForCode(code, name) {
   const out = await askOllama(prompt);
   const badNums = out ? checkNumbers('分析', out, prompt) : [];
   if (!out) return false;
+  if (hypo) try {   // LLM 停損文字量測（S3 measure：提示詞不變、只記錄、不改字）；失敗只記 log，不可擋下存檔
+    const m = measureLlmStop({ swing: out }, {
+      stop: hypo.price, refPrice: st.price, band: st.stopLoss ?? null, buyPoints: (st.buyZones || []).map(z => z.price), lastPrice: st.price,
+      expectRef: false, isEtf: stopIsEtfCode(code),
+    });
+    for (const v of m.push.slice(0, 3)) log(`  · stopLlmViolation swing ${code} ${v.rule}/${v.code}${v.found != null ? ` ${v.found}` : ''}（停損 ${hypo.price}）${v.sentence ? `「${v.sentence.slice(0, 40)}」` : ''}`);
+    _stopShadow?.recordLlm('swing', m);
+  } catch (e) { log('  ⚠ 停損 LLM 量測（個股波段）:', (e.message || '').slice(0, 60)); }
   await db.collection('stockAI').doc(code).set({
     code, name: name || st.name || '',
     signal: st.signal, signalLabel: SIGNAL_LABEL[st.signal] || '中性',
@@ -2900,7 +2942,7 @@ async function agentTick(quotes, marketNow) {
       if (past && (idxDoc.w / past[1] - 1) * 100 <= -0.7) {
         await pushAgentMsg({
           type: 'risk', label: '急跌警示', emoji: '⚠️', severity: 'danger',
-          text: `加權指數 10 分鐘內回落 ${((idxDoc.w / past[1] - 1) * 100).toFixed(2)}%（${Math.round(past[1]).toLocaleString('zh-TW')} → ${Math.round(idxDoc.w).toLocaleString('zh-TW')}）。持股請確認停損價位；隔日沖偏多策略暫停追價。`,
+          text: plungePushText({ pct: (idxDoc.w / past[1] - 1) * 100, from: past[1], to: idxDoc.w }),   // 第 9 項 #6：只描述事實；後半句依 A6 保留原文
           summary: `急跌警示：指數 10 分鐘回落 ${((idxDoc.w / past[1] - 1) * 100).toFixed(2)}%`,
           dedupeKey: 'plunge', cooldownMs: 30 * 60e3,
         });
@@ -2945,8 +2987,8 @@ async function agentTick(quotes, marketNow) {
         } else if (mv <= -2) {
           await pushAgentMsg({
             type: 'risk', label: '追蹤股急跌', emoji: '🔻', severity: 'danger',
-            text: `${q.name || ''}(${code}) 5分鐘急跌 ${mv.toFixed(1)}%（現價 ${q.price}，今日 ${q.changePercent >= 0 ? '+' : ''}${q.changePercent}%）。自選/持股池標的——持有者請即刻確認停損價位與部位。`,
-            summary: `🔻 ${q.name || ''}(${code}) 5分鐘 ${mv.toFixed(1)}%（${q.price}）——確認停損`,
+            text: watchDropPushText({ name: q.name || '', code, mv, price: q.price, chg: q.changePercent }),   // 第 9 項 #7：只描述事實
+            summary: watchDropSummaryText({ name: q.name || '', code, mv, price: q.price }),                  // 第 9 項 #8
             stocks: [code], dedupeKey: `dn:${code}`, cooldownMs: 20 * 60e3,
           });
         }
@@ -3207,6 +3249,10 @@ const _chipHoldAlerted = alertDedup('chipHold', { autoFlush: false });   // 持�
 const _reentryWatch = {};
 // 移動停利高水位：記每檔持有期間最高價，獲利後自高點回落即鎖利。
 const _hwm = {};
+// AI 停損規範 stop-v1.1 影子試算（S3；scripts/lib/stop-shadow-runner.mjs，stopShadowLoop 動態載入，載入前／失敗時為 null）：
+//   線上推播仍是上面這套第一階段算法（含 _hwm 的獲利回落線），影子只寫 stopBooks／stopEventShadow／stopSpecAudit、
+//   不推播、不寫 alerts、不讀寫 _hwm（持有期最高收盤改由官方日 K 計）。切換（S5）另經使用者核可。
+let _stopShadow = null;
 // 持股 RSI 高檔警報的即時計算：marginSnap[12] 存的是 t-1 收盤的 Wilder 狀態，
 // 用今日即時價再推一步 → 盤中 RSI。（只用收盤 RSI 的話，盤中飆上 85 要等隔天。）
 function _liveRsi(st, price) {
@@ -3231,6 +3277,8 @@ async function checkAlerts() {
   } catch { /* 缺 marginSnap 就跳過 RSI 警報，其餘警報照常 */ }
   await _alerted.ensure(today);
   const premium = await getPremiumUsers();
+  // 停損影子：每輪全域一次（新聞判別只取 updatedAt、變了才讀整份；處置名單每日一次）——與會員數無關
+  if (_stopShadow) await _stopShadow.beginRound().catch(e => log('  ⚠ 停損影子·每輪準備:', (e.message || '').slice(0, 60)));
   for (const u of premium) {
     const uid = u.id;
     const _tok = _alerted.mark();   // 撤回點：本使用者的通知寫入失敗時取消其去重記錄
@@ -3256,9 +3304,9 @@ async function checkAlerts() {
         const trailActive = avg > 0 && (hw - avg) / avg >= 0.10;
         const trailStop = +(hw * 0.92).toFixed(2);
         let type = null, thr = null, msg = null;
-        if (price <= stop) { type = 'stop'; thr = stop; msg = `⛔ ${code} ${g.name} 觸及停損 ${stop}（現價 ${price}，${pnlPct.toFixed(1)}%）— 建議檢視風險`; }
+        if (price <= stop) { type = 'stop'; thr = stop; msg = stopPushTextS2b({ code, name: g.name, price, stop, legacySource: a.stopLoss > 0 ? 'ai' : 'cost', pnlPct }); }   // 第 9 項 #1：只描述事實（判斷不動）
         else if (price >= take && price > avg) { type = 'take'; thr = take; msg = `🎯 ${code} ${g.name} 觸及停利目標 ${take}（現價 ${price}，+${pnlPct.toFixed(1)}%）— 可考慮分批獲利`; _reentryWatch[wkey] = { takePrice: take, at: Date.now() }; }
-        else if (trailActive && price <= trailStop && price > avg) { type = 'trailing'; thr = trailStop; msg = `📈 ${code} ${g.name} 移動停利觸發 ${trailStop}（自高點 ${hw.toFixed(2)} 回落 8%，仍獲利 +${pnlPct.toFixed(1)}%）— 建議鎖利出場`; }
+        else if (trailActive && price <= trailStop && price > avg) { type = 'trailing'; thr = trailStop; msg = trailPushTextS2b({ code, name: g.name, price, line: trailStop, hwm: hw, pnlPct }); }   // #2
         else if (_reentryWatch[wkey] && price <= _reentryWatch[wkey].takePrice * 0.95) { type = 'reentry'; thr = +(_reentryWatch[wkey].takePrice * 0.95).toFixed(2); msg = `🔄 ${code} ${g.name} 停利後回檔至 ${price}（較停利價 -5%）— 可留意回測支撐再進場`; delete _reentryWatch[wkey]; }
         // ── 持股 RSI 高檔警報（2026-08-03 使用者要求）─────────────────
         // ⚠**語意已按實證校正，與使用者原始假設相反**（screen-rsi85-exit.mjs·出場口徑）：
@@ -3296,6 +3344,12 @@ async function checkAlerts() {
         await ref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...prev].slice(0, 40) });
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message}`);
+      }
+      // ── 停損 v1.1 影子試算（S3：只記錄、不推播、不寫 alerts）：同一份快照報價、已讀好的持股與持股分析（不另讀）。
+      //   錯誤各自吞掉並記 log——不可觸發上面現行推播的去重撤回（_alerted.rollback）。
+      if (_stopShadow) {
+        await _stopShadow.noteLegacy(uid, newAlerts).catch(e => log('  ⚠ 停損影子·舊制紀錄', uid.slice(0, 6), (e.message || '').slice(0, 60)));
+        await _stopShadow.tick({ uid, holdings, quotes: q, analyses }).catch(e => log('  ⚠ 停損影子·盤中', uid.slice(0, 6), (e.message || '').slice(0, 60)));
       }
     } catch (e) { _alerted.rollback(_tok); log('  ✖ alerts', uid, e.message); }
   }
@@ -6025,6 +6079,10 @@ async function judgeOneStock(it, ctx, opts = {}) {
       const m = t.match(HARD_NEGATIVE);
       return m ? [m[0]] : [];
     }))].slice(0, 4);
+    // 規則類利空的觸發（新聞技能 §1.2：觸發字只決定「要不要問事實」，不動方向）：範圍同 negHits——判別實際讀到、
+    //   而且與本檔同時出現的那幾篇；只看提示詞裡給得到的前 1,200 字（模型看不到的段落問了也答不出來）。
+    //   事實題在主判別定案之後另問（下面「規則類利空」段；停損規範 SKILL §10A.2-2），主判別提示詞逐字不變。
+    const ruleTrig = ruleTriggerScan(_picked, countMentions, 1200);
     const indName = indMap[it.code] || '';
     let wikiBlock = '';
     try { wikiBlock = wiki ? wikiPromptBlock(it.code, wiki) : ''; } catch { /* wiki 資料異常只是少一個錨，不擋判讀 */ }
@@ -6403,8 +6461,8 @@ ${body || '（近 2 日無實質新聞）'}
       verdict = { ...verdict, strength: '弱' };
     }
 
-    // ══ 法律事件的方向由規則決定，不交給模型（使用者 2026-08-29 明令）══
-    //   「公司被搜索就應為利空，在法律判定前均屬利空」。
+    // ══ 規則類利空：AI 只認定事實，方向與類別由程式規則決定 ══
+    // 法律事件（C16a）由規則定為利空（使用者 2026-08-29 明令）：「公司被搜索就應為利空，在法律判定前均屬利空」。
     // 為什麼要寫成程式：提示詞已寫過兩版「公司否認不能中和利空」，
     //   模型讀了仍判中性——3037 欣興遭檢調搜索被判「中性/高」，
     //   理由是「公司多次聲明營運正常」。**而該檔當日開→收 −7.50%**，
@@ -6412,32 +6470,26 @@ ${body || '（近 2 日無實質新聞）'}
     // ⚠ 分工要清楚：**AI 仍負責讀內文認定事實**（被搜索的是不是本檔自己），
     //   規則只決定**方向**。這沒有違反「禁止用標題關鍵字調分」——
     //   關鍵字只用來觸發提問，主體認定由 AI 讀內文回答。
-    if (verdict && negHits.length && verdict.label !== '利空') {
-      const LEGAL = /檢調|搜索|搜查|約談|起訴|羈押|背信|掏空|調查/;
-      if (negHits.some(h => LEGAL.test(h))) {
-        const subjQ = `以下是 ${it.code} ${it.name} 的相關報導。\n`
-          + _picked.map(x => `【${x.title}】${(x.content || '').slice(0, 400)}`).join('\n')
-          + `\n\n只回答一個問題：這些報導中的檢調搜索／調查／起訴，`
-          + `**對象是不是 ${it.name} 這家公司本身（含其子公司或負責人）**？`
-          + `若對象是同業、客戶、供應商或其他公司，就不是。\n`
-          + `只回：「是」或「否」，再用一句話說明對象是誰。`;
+    // 2026-10-05 第二輪 A4「做skills判定與加權重」：擴到新聞技能 §4.1 所有「−（規則）」類別（news-rule-classes.mjs），
+    //   並修正「AI 自己判利空時永遠不加規則標記」的漏網（舊條件 `verdict.label !== '利空'` 拿掉：原判已是利空也要問）。
+    //   做法照停損規範 SKILL §10A.2 第 1～5 步：
+    //   · 主判別（含引用強制、中性歸零）定案之後，**每個命中的類別另問一次**（本機模型、priority 1 同舊 C16a 聚焦提問、溫度 NEWS_TEMP）；
+    //     主判別提示詞逐字不變（不把事實題嵌進主判別，免得主判別的 label 漂移）。只給 AI 看「與本檔同時出現、命中該類別」的報導。
+    //   · 回答開頭「是」⇒ 程式把 label 覆寫為利空（applyRuleFacts；C16a 理由與 2026-08-29 版逐字相同，其他類別「【規則·類別名】」），
+    //     原判已是利空只補欄位；「否」、不確定、逾時 ⇒ 維持 AI 原判，不猜。
+    //   · Ollama 呼叫只在觸發字命中時增加（每類一次）；上游請求 0、MIS 0。
+    if (verdict && ruleTrig.codes.length) {
+      const facts = {};
+      for (const c of ruleTrig.codes) {
         try {
-          const a2 = await askOllama(subjQ, { priority: 1, temperature: NEWS_TEMP });
-          if (/^\s*是/.test(a2 || '')) {
-            verdict = {
-              ...verdict,
-              label: '利空', bullish: false,
-              confidence: verdict.confidence === '低' ? '中' : verdict.confidence,
-              // ⚠ 長度要控制：原版拼出來超過 100 字，畫面截斷在句中
-              //   （「…但此為公司」）反而讓資訊不完整。壓縮但兩項關鍵資訊都留：
-              //   ①這是規則覆寫不是 AI 判的 ②AI 原本判什麼。
-              reason: `【規則】涉檢調搜索，法律判定前視為利空（AI 原判${verdict.label}：`
-                + `${(verdict.reason || '').replace(/[。\n].*$/, '').slice(0, 24)}）`,
-              ruleOverride: 'legal-event',
-            };
-          }
-        } catch { /* 二次提問失敗就維持原判，不猜 */ }
+          const q = ruleFactQuestion(c, it, ruleTrig.byCode[c].slice(0, 3), { maxChars: 1200 });
+          const a2 = await askOllama(q, { priority: 1, temperature: NEWS_TEMP });
+          facts[c] = a2 ? parseRuleFactAnswer(c, a2) : null;
+        } catch { facts[c] = null; /* 提問失敗就維持原判，不猜 */ }
       }
+      verdict = applyRuleFacts(verdict, { facts });
+      const asked = Object.entries(verdict.ruleFacts || {}).map(([k, x]) => `${k}:${x}`).join(' ');
+      log(`  ↳ ${it.code} 規則事實 ${asked}${verdict.ruleClass ? ` ⇒ ${verdict.ruleClass}${verdict.ruleHits ? `（另 ${verdict.ruleHits.join('、')}）` : ''}${verdict.aiOriginal?.label && verdict.aiOriginal.label !== '利空' ? `（AI 原判${verdict.aiOriginal.label}→規則利空）` : ''}` : ''}`);
     }
     } else {
       verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
@@ -6837,6 +6889,7 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
         quoteVerified: v.quoteVerified ?? null, gate: v.gate || null,
         unverifiedNums: v.unverifiedNums || null, revision: v.revision || null,
         srcList: u.srcs.join('／'),
+        ...ruleFieldsOf(v),   // 規則類利空欄位（news-rule-classes；三個寫入端共用）
       };
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
@@ -7046,6 +7099,7 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
         dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
         strengthBasis: v.strengthBasis || null,
         quotes: v.quotes || null, quoteVerified: v.quoteVerified ?? null,
+        ...ruleFieldsOf(v),   // 規則類利空欄位（news-rule-classes；三個寫入端共用）
       };
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
@@ -7274,6 +7328,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         // 後續要不要因此降權，等 newsLift 分組看得出差異再決定——現在先留證據。
         articles: (u.articles || []).length || null,
         minCoMentions: (u.articles || []).length ? Math.min(...u.articles.map(a => a.coMentions)) : null,
+        ...ruleFieldsOf(v),   // 規則類利空欄位（news-rule-classes；三個寫入端共用）
       };
       // 記下這輪看過的標題，供下一趟（與明日晨間）跳過
       const titles = (r.allTitles || []).slice(0, 60);
@@ -9875,7 +9930,8 @@ async function trackStopDiscipline() {
         const key = `${uid}:${code}`;
         if (_disciplineAlerted.has(key)) continue; _disciplineAlerted.add(key);
         const lossPct = ((price - avg) / avg * 100).toFixed(1);
-        newAlerts.push({ code, name: g.name, type: 'discipline', price, days, message: `⛔ ${code} ${g.name} 停損(${it.stopPrice})已觸發第 ${days} 天未處理（現價 ${price}，${lossPct}%）${extraLoss > 0 ? `。若觸發當日執行，可少虧約 ${extraLoss.toLocaleString()} 元` : ''} — 請面對決策：停損或明確寫下續抱理由`, at: Date.now() });
+        // 第 9 項 #3：只描述事實（「未處理」「可少虧」改為兩個價格的差額，帶正負號一律寫出）；結尾保留句（第 7 項）由 disciplinePushTextS2b 接上
+        newAlerts.push({ code, name: g.name, type: 'discipline', price, days, message: disciplinePushTextS2b({ code, name: g.name, stopPrice: it.stopPrice, days, price, lossPct, p0: it.priceAtTrigger, qty: g.qty }), at: Date.now() });
       }
       await ref.set({ updatedAt: Date.now(), items });
       if (newAlerts.length) {
@@ -9884,6 +9940,7 @@ async function trackStopDiscipline() {
         await aref.set({ updatedAt: Date.now(), alerts: [...newAlerts, ...prev].slice(0, 40) });
         pushAlerts(uid, newAlerts).catch(() => {});
         for (const al of newAlerts) log(`  🔔 ${uid} ${al.message.slice(0, 80)}`);
+        _stopShadow?.noteLegacy(uid, newAlerts).catch(() => {});   // 停損影子：舊制紀律實際送出（對照用；只記類型與代號、價位）
       }
     } catch (e) { _disciplineAlerted.rollback(_tok); log('  ✖ discipline', uid, e.message); }
   }
@@ -11155,9 +11212,10 @@ async function checkCrashDefense() {
       const highN = items.filter(i => i.risk === 'high').length;
       const lines = [`# ${today} 崩盤防禦檢查`, `> 大盤急跌（跌幅中位 ${median.toFixed(1)}%、${(downRatio * 100).toFixed(0)}% 個股下跌）自動觸發`, ''];
       for (const i of items) lines.push(`- ${i.risk === 'high' ? '🔴' : i.risk === 'mid' ? '🟡' : '🟢'} ${i.code} ${i.name}：今日 ${i.todayPct >= 0 ? '+' : ''}${i.todayPct}%、損益 ${i.pnlPct != null ? (i.pnlPct >= 0 ? '+' : '') + i.pnlPct : '?'}%、距停損 ${i.distToStop ?? '?'}%（停損 ${i.stop}）`);
-      lines.push('', '**建議動作**：🔴 距停損 ≤3% 者優先決策（執行停損或掛好停損單）；避免恐慌性全砍，依計畫執行。', '', '> 程式自動彙整，非投資建議。');
+      // 第 9 項 #4：只描述事實（第一階段崩盤防禦口徑＝max(帶, 成本×0.92)，與停損紀律同口徑；不得寫「與停損推播同口徑」）
+      lines.push('', defenseListText({ red: highN, amber: items.filter(i => i.risk === 'mid').length, green: items.filter(i => i.distToStop != null && i.distToStop > 8).length, phase: 's2b' }), '', '> 程式自動彙整，非投資建議。');
       await db.collection('users').doc(uid).collection('data').doc('defenseReport').set({ at: Date.now(), date: today, median: +median.toFixed(2), downRatio: +(downRatio * 100).toFixed(0), content: lines.join('\n'), highRisk: highN });
-      const al = { code: items[0]?.code || '', name: '防禦模式', type: 'defense', message: `🛡 大盤急跌（中位 ${median.toFixed(1)}%）— 防禦檢查完成：${items.length} 檔持股，${highN} 檔逼近停損（🔴），請開投組頁查看防禦清單`, at: Date.now() };
+      const al = { code: items[0]?.code || '', name: '防禦模式', type: 'defense', message: defensePushText({ median, n: items.length, m: highN }), at: Date.now() };   // #5
       const aref = db.collection('users').doc(uid).collection('data').doc('alerts');
       const prev = (await aref.get()).data()?.alerts || [];
       await aref.set({ updatedAt: Date.now(), alerts: [al, ...prev].slice(0, 40) });
@@ -15142,7 +15200,7 @@ async function checkOpenSell() {
       const list = codes.map(([c, g]) => `${c} ${g.name} ${g.qty}張`).join('、');
       const al = {
         code: codes[0][0], name: codes[0][1].name, type: 'opensell', price: 0, threshold: 0, pnlPct: 0,
-        message: `⏰ 隔日沖開盤賣出提醒：昨日進場 ${list} — 鐵律 9:00–9:05 出場（實測開盤賣 73%／+1.48%，抱到收盤 40%／−0.44%）；開低直接認賠、不留倉`,
+        message: overnightOpenPushText({ list }),   // 第 9 項 #9：第 13 項裁定條件句「若為隔日沖計畫」
         at: Date.now(),
       };
       const aref = db.collection('users').doc(u.id).collection('data').doc('alerts');
@@ -15929,6 +15987,31 @@ if (!ONESHOT) { setTimeout(swingAccountTick, 30_000); setInterval(swingAccountTi
 if (!ONESHOT) dailyJobsLoop();
 if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔斷器狀態、任務耗時 → system/daemonHealth
 
+// ── AI 停損規範 stop-v1.1 影子試算（S3；2026-10-05 使用者「其它都ok go」；規範 .claude/skills/tw-ai-stoploss「生效範圍」影子期）──
+//   只記錄、不推播、不寫 alerts；現行停損推播／停損紀律／崩盤防禦／投資論點的觸發算法一行不改。排程（lib/stop-shadow-runner.mjs）：
+//   交易日 08:46 起盤前刷新（markJobDone 'stopShadowPre'）；盤中隨 checkAlerts 每輪判定；資料到齊班車完成後收盤結算
+//   （定版看資料：_otcFixDate＝今日且歸檔兩市到齊；開盤前可補跑前一交易日；markJobDone 'stopShadowClose'）；非交易日每小時處理持股變動。
+//   動態 import：影子用的集線器會連帶載入另一流程的檔（warroom-news → after-market-news），載入失敗只停用影子、daemon 照常。
+const EXRIGHT_HISTORY_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'exright-history.json');
+async function stopShadowLoop() {
+  try {
+    const [{ createStopShadow }, { createFirestoreStopStore }] = await Promise.all([
+      import('./lib/stop-shadow-runner.mjs'), import('./lib/stop-shadow-store.mjs'),
+    ]);
+    _stopShadow = createStopShadow({
+      store: createFirestoreStopStore({ db, FieldValue, FieldPath }), log, getPremiumUsers, isTradingDayIso: _isTradingDayIso,
+      trainDone: ymd => _otcFixDate === ymd, fetchExright, loadPriceFactors,
+      readExHistory: () => JSON.parse(readFileSync(EXRIGHT_HISTORY_FILE, 'utf8')), fetchRiskSets, readJobMarks, markJobDone,
+    });
+    log('✓ 停損 v1.1 影子試算已載入（只記錄、不推播；stopBooks／stopEventShadow／stopSpecAudit）');
+  } catch (e) { log('⚠ 停損 v1.1 影子試算載入失敗——影子停用，現行停損推播不受影響:', (e.message || '').slice(0, 120)); return; }
+  for (;;) {
+    try { await _stopShadow.step(); } catch (e) { log('✖ 停損影子排程:', (e.message || '').slice(0, 80)); }
+    await sleep(60000);
+  }
+}
+if (!ONESHOT) stopShadowLoop();
+
 // 再平衡設定監看：使用者在 UI 更新現金部位後，45 秒內重算配置漂移
 // (否則要等每日排程，看起來像「輸入沒成功」)。
 async function rebalanceSettingsLoop() {
@@ -16086,6 +16169,7 @@ if (ONESHOT) {
         }
         if (v) {
           log(`      L1 抽取: 事件類型 ${v.eventType || '—'}｜確定性 ${v.certainty || '—'}｜新穎性 ${v.novelty || '—'}`);
+          if (v.ruleFacts) log(`      規則事實: ${JSON.stringify(v.ruleFacts)}｜規則類別 ${v.ruleClass || '—'}${v.ruleHits ? `（另 ${v.ruleHits.join('、')}）` : ''}${v.aiOriginal ? `｜AI 原判 ${v.aiOriginal.label}` : ''}`);
           log(`      關鍵句: ${(v.keyQuote || '—').slice(0, 46)}`);
           log(`      影響路徑: ${(v.impactPath || '—').slice(0, 54)}`);
           log(`      初判挑戰: ${(v.challenge || '—').slice(0, 44)}`);

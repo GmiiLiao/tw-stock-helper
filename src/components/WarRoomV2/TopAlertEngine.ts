@@ -4,26 +4,30 @@
 // 一級警示引擎（Z2 警示帶與手機 S1 計數點的資料面）。只在一處掛：桌機 ZoneAlerts、手機 MobileBars（兩棵樹擇一）。
 //
 // 本期能做的一級（使用者裁定第 8 題；跌停排隊、開板＝2 期）：
-//   觸停損   依 AI 停損規範 stop-v1 由前端判定（使用者 2026-10-05 指示；warroom-mine.stepStopEpisodes）：只限自己的持股、
-//            只認今日成交更新的最低價、試撮與收盤競價窗不判定；每個觸及事件只發一次（本機 localStorage wr-stop-ep:<uid> 記事件，
-//            前一交易日收盤 > 停損×1.02 才結束）。本機表同時是棘輪的上一版（停損、版本、逐筆快照）：攤平、FIFO 賣出不下移，
-//            成本更正才歸零；09:00 後偵測到換版（或今天買進）＝今日新設停損，前端沒有真成交旗標 ⇒ 當日不判定。
+//   觸停損   依 AI 停損規範 stop-v1.1 由前端判定（第二輪 A7「ok」已裁定：網頁判定、標「單一裝置·暫算」，維持到停損簿切換正式；
+//            warroom-mine.stepStopEpisodes）：停損＝v1.1 前端暫算（成本線與持股分析 ATR 帶取高、ATR 帶不棘輪；與 A1 同一支
+//            warStopView、同一份 useWarStopCtx）。只限自己的持股、只認今日成交更新的最低價、試撮與收盤競價窗不判定；每個觸及事件只發
+//            一次（本機 localStorage wr-stop-ep:<uid> 記事件，前一交易日收盤 > 停損×1.02 才結束）。本機表同時是成本線棘輪的上一版
+//            （停損、成本線、版本、逐筆快照）：攤平、FIFO 賣出不下移，成本更正才歸零；09:00 後持股變動／成本更正換版（或今天買進）
+//            ＝今日新設停損，前端沒有真成交旗標 ⇒ 當日不判定；ATR 帶換值開盤起就適用 ⇒ 照常判定、進行中的事件延續。
+//            持股分析或停損簿還在讀取（最多 15 秒）時先不推進事件表，避免「只有成本線」的暫時值換版。
 //            這一檔第一次拿到前一交易日收盤時已在停損下（切換當天）只發一則二級彙總；之後本機沒有事件而前一交易日收盤已在
 //            停損下＝本裝置漏判 ⇒ 一級「前一交易日收盤後補判·本裝置」。成本資料可疑 ⇒ 該檔一級暫停、每日一則二級。
-//            這是單一裝置的判定（停損簿 stopBooks 上線前的退回做法），不同裝置可能不同；Z2 文字標「前端暫算（未含除權息調整）」。
-//            ⚠ 規範「生效範圍」把第一階段 Z2 定為讀 daemon type 'stop'——前端判一級是否在使用者第 (2) 條指示範圍內，待使用者裁定。
-//            daemon 寫入的 type 'stop'／'discipline' 是舊制推播（停損算法不同）⇒ 一律二級並標明，避免同頁兩種停損口徑。
-//   重大利空 AI 新聞識讀（媒體 M；慢層 board.news 精簡表，權重＝rankMediaVerdicts、先驗·未校準）× 使用者持股，
+//            Z2 文字只寫代號、事件與生效線（成本線／ATR 帶），標「單一裝置·暫算」，不寫停損價。
+//            停損簿生效前，daemon 寫入的 type 'stop'／'discipline' 是舊制推播（停損算法不同）⇒ 一律二級並標明。
+//            停損簿生效（stopBooks/{uid} phase 'live'）後停用前端判定與本機事件表，改讀 daemon 帶 requireAck＋id 的 type 'stop'
+//            為一級（warroom-top.eventFromDaemonAlert stopLive；「收到」回寫同一則）。
+//   重大利空 AI 新聞識讀（媒體 M；慢層 board.news 精簡表）× 使用者持股，
 //            條件 A–E 與去重在 warroom-news.mjs（majorBearOf／stepMajorBear，有測試）：
-//            一級＝規則法律（daemon 確認對象是本公司的檢調、搜索、起訴…，§1.5，不看權重）；
-//            ⚠ daemon 只在 AI 未判利空時做法律規則確認 ⇒ AI 自判利空的檢調搜索沒有規則標記，最高二級並標「可能為法律事件
-//            （未經規則確認）」——要不要升一級待使用者裁定；
-//            權重門檻（w≥0.6、法律/處分類 w≥0.3）待使用者裁定前降二級（規範 §6.5：未校準分數不決定名單）；
+//            只看規則類利空（daemon 程式規則判定：AI 讀內文認定主體與事實、方向由規則定；news-rule-classes.mjs）的
+//            類別權重（新聞技能 §4.1，先驗·未回測）：≥0.7 一級、0.3–0.7 二級、<0.3 不列；
+//            影響權重 w 研究期只顯示，不發任何等級（停損規範 §13.2 B4）；
 //            同日每檔只發一次（判讀較新且警示等級上升＝二級→一級才再發，強弱升級不再發）、隔日同一句（逐字核對的引文，
 //            沒有用理由）降二級「持續」；本機 wr-nvbear:<uid> 記錄。
 //   大盤危險 資料時間 09:10 後、跌停 ≥10 且 ≥ 漲停×1.5、連續 2 拍（狀態機在 scripts/lib/warroom-top.mjs，有測試）；
 //            當日已發狀態記在本機（wr-danger），重新整理不重發
-// daemon 個人警示（停利、爆量下殺、舊制停損…）一律二級「我的」紀錄，給 B2；文案只寫代號與事件，不寫個人停損價、成本、損益。
+// daemon 個人警示（停利、爆量下殺、舊制停損…）一律二級「我的」紀錄，給 B2（停損簿生效後帶 requireAck＋id 的觸停損除外，見上）；
+//   文案只寫代號與事件，不寫個人停損價、成本、損益。
 // 「收到」：本工作階段 ackWarEvent＋本機記當日（wr-z2-ack）；daemon 要求確認（requireAck＋id）的另照 PortfolioAlerts 回寫 ack
 //   （交易內讀改寫、共用 alerts-split 的 ackAlertIn，避免蓋掉同一陣列裡 daemon 剛寫入的新警示——critique H3）。
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +47,7 @@ import { setTopState, EMPTY_STOP_BOOK } from './TopStore';
 import { fmtPct, fmtInt } from './parts/fmt';
 import { FAST_CODES_MAX } from './useWarRoomBus';
 import { useRiskCodes, isDispositionPending, type RiskInfo } from '@/lib/useRiskCodes';
-import { prevTradingYmd, stopCalcPriceOf, usePreAuction } from './MineModel';
+import { prevTradingYmd, stopCalcPriceOf, usePreAuction, useWarStopCtx } from './MineModel';
 import { useNewsBoard } from './NewsModel';
 import type { WarQuote } from './useWarRoomBus';
 import {
@@ -53,8 +57,9 @@ import {
 import { aggregatePositions, type Position } from '../../../scripts/lib/ai-stoploss.mjs';
 import {
   warStopView, parseStopEpisodes, serializeStopEpisodes, stepStopEpisodes, stopLevel1Events, stopSeededEvent, stopSuspectEvents,
-  type StopEpisodeRow, type StopEpisodeState, type StopBook,
+  type StopEpisodeRow, type StopEpisodeState, type StopBook, type WarStopCtx,
 } from '../../../scripts/lib/warroom-mine.mjs';
+import { stopBookLive } from '../../../scripts/lib/warroom-stopbook.mjs';
 import type { WarSegment } from '@/lib/warroom/types';
 import { LEGACY_ALERTS_DOC, ackAlertIn } from '../../../scripts/lib/alerts-split.mjs';
 import {
@@ -130,7 +135,7 @@ function writeDanger(state: DangerState, text: string): void {
 
 const dangerEventId = (ymd: string, seq: number) => `marketDanger:${ymd}:${seq}`;
 
-// ── 觸停損（規範 stop-v1·本機事件表） ─────────────────────────────────────
+// ── 觸停損（規範 stop-v1.1·本機事件表；A7 單一裝置·暫算） ───────────────────────
 
 type TradedMap = Readonly<Record<string, { price: number; revealAt: number }>>;
 
@@ -142,14 +147,16 @@ interface StopRowCtx {
   segment: WarSegment;
   preAuction: TradedMap;
   book: StopBook;
+  /** 停損共用輸入（持股分析 ATR 帶、前一交易日、停損簿；與 A1 同一份 useWarStopCtx） */
+  stopCtx: WarStopCtx;
 }
 
 /**
- * 每檔持股的判定列：與 A1 同一支 warStopView、同一支 stopCalcPriceOf、同一份本機事件表（數字必然一致）；
- * prevClose 只在今日有真成交時給（MIS 昨收）。
+ * 每檔持股的判定列：與 A1 同一支 warStopView、同一支 stopCalcPriceOf、同一份本機事件表與停損共用輸入（數字必然一致）；
+ * floor／source＝這一版的成本線棘輪與生效線（存進本機表）；prevClose 只在今日有真成交時給（MIS 昨收）。
  */
 function stopRowsOf(groups: readonly Position[], ctx: StopRowCtx): StopEpisodeRow[] {
-  const { quotes, risk, nowMs, tradingDay, segment, preAuction, book } = ctx;
+  const { quotes, risk, nowMs, tradingDay, segment, preAuction, book, stopCtx } = ctx;
   const today = taipeiYmd(nowMs);
   const prevYmd = prevTradingYmd(today);
   return groups.map((p) => {
@@ -159,9 +166,10 @@ function stopRowsOf(groups: readonly Position[], ctx: StopRowCtx): StopEpisodeRo
       position: p, quote: q, calcPrice: stopCalcPriceOf(segment, q, preAuction[p.code]).calcPrice, nowMs, todayYmd: today, tradingDay,
       disposition: risk.loaded && risk.disposition.has(p.code) && !isDispositionPending(risk, p.code),
       entry: Object.prototype.hasOwnProperty.call(book, p.code) ? book[p.code] : null,
+      ctx: stopCtx,
     });
     return {
-      code: p.code, stop: v.stop, touch: v.touch, at: q?.revealAt ?? null,
+      code: p.code, stop: v.stop, floor: v.res.floorStop, source: v.res.stopSource, touch: v.touch, at: q?.revealAt ?? null,
       prevClose: live && q.prevClose > 0 ? q.prevClose : null, prevYmd: live && prevYmd !== today ? prevYmd : null,
       lots: p.lots, reason: v.res.versionReason, suspect: v.stop != null && v.res.suspect,
     };
@@ -192,6 +200,10 @@ export function useTopAlertEngine(): void {
     for (const id of loadAcks(ymd)) ackWarEvent(id);
   }, [ymd]);
 
+  // 停損共用輸入（與 A1 同一份）；停損簿生效（phase live）⇒ Z2 觸停損一級改讀 daemon、停用前端判定（A7）
+  const stopCtx = useWarStopCtx(ymd);
+  const stopLive = stopBookLive(stopCtx.book);
+
   // daemon 個人警示
   useEffect(() => {
     if (!dataUid || !dbReady()) return undefined;
@@ -203,7 +215,7 @@ export function useTopAlertEngine(): void {
       const inputs: WarEventInput[] = [];
       const byEvent = new Map<string, string>();
       for (const a of list) {
-        const e = eventFromDaemonAlert(a, today);
+        const e = eventFromDaemonAlert(a, today, { stopLive });
         if (!e) continue;
         inputs.push(e);
         if (isObj(a) && a.requireAck === true && typeof a.id === 'string') byEvent.set(e.id, a.id);
@@ -213,26 +225,30 @@ export function useTopAlertEngine(): void {
       publishWarEvents(inputs);
     }, (err) => { console.warn('[warroom] 個人警示訂閱失敗', err?.message ?? err); });
     return () => { unsub(); ackTargets = { uid: null, byEvent: new Map() }; };
-  }, [dataUid]);
+  }, [dataUid, stopLive]);
 
-  // 停損（規範 stop-v1·前端暫算）：每拍報價重判。
-  //   · 一級觸停損：本機事件表依使用者分開存（身分模擬不混到自己的）；表同時是棘輪的上一版，發布到 TopStore.stopBook
-  //     讓 A1、快看抽屜讀同一份。
-  //   · 逼近停損（價格在停損下或距停損 ≤2%）＋監控檔數：距停損用的價與 A1 同一支 stopCalcPriceOf（盤前昨收、
-  //     收盤競價窗 13:25 前成交），停損帶同一份本機表。只用持股與報價，沒有「讀取中無法計算」的狀態。
+  // 停損（規範 stop-v1.1；停損簿生效前＝前端暫算）：每拍報價重判。
+  //   · 一級觸停損（A7 單一裝置·暫算）：本機事件表依使用者分開存（身分模擬不混到自己的）；表同時是成本線棘輪的上一版，
+  //     發布到 TopStore.stopBook 讓 A1、快看抽屜讀同一份。停損簿生效後不再推進、不再發（改讀 daemon）。
+  //     持股分析 ATR 帶或停損簿還在讀取（最多 15 秒，之後狀態 'slow'）時先不推進，避免「只有成本線」的暫時值被記成一版。
+  //   · 逼近停損（價格在停損下或 ≤1 ATR；沒有 ATR14 時 ≤2%）＋監控檔數：距停損用的價與 A1 同一支 stopCalcPriceOf（盤前昨收、
+  //     收盤競價窗 13:25 前成交），停損帶同一份本機表與停損共用輸入；讀取中標「暫無法計算」。
   const risk = useRiskCodes();
   const tradingDay = segment !== 'nontrading';
   const preAuction = usePreAuction(quotes, segment, ymd);
   const epKey = dataUid ? `${STOP_EP_KEY}:${dataUid}` : null;
   const epRef = useRef<{ key: string; state: StopEpisodeState } | null>(null);
+  const stopReady = stopCtx.bandStatus !== 'loading' && stopCtx.bookStatus !== 'loading';
   useEffect(() => {
     const nowMs = Date.now();
     const today = taipeiYmd(nowMs);
     let book: StopBook = EMPTY_STOP_BOOK;
     if (epKey) {   // 未登入或身分未就緒：不判（事件表依使用者存）
       if (epRef.current?.key !== epKey) epRef.current = { key: epKey, state: parseStopEpisodes(readJson(epKey)) };
-      if (groups.length) {
-        const rows = stopRowsOf(groups, { quotes, risk, nowMs, tradingDay, segment, preAuction, book: epRef.current.state.byCode });
+      if (groups.length && stopReady && !stopLive) {
+        const rows = stopRowsOf(groups, {
+          quotes, risk, nowMs, tradingDay, segment, preAuction, book: epRef.current.state.byCode, stopCtx,
+        });
         // 換版的版本日：非交易日記為最後交易日（使用者規則）
         const versionYmd = tradingDay ? today : prevTradingYmd(today);
         const step = stepStopEpisodes(epRef.current.state, rows, { todayYmd: today, nowMs, versionYmd });
@@ -253,8 +269,11 @@ export function useTopAlertEngine(): void {
       const px = stopCalcPriceOf(segment, quotes[g.code] ?? null, preAuction[g.code]).calcPrice;
       if (px != null && px > 0) prices[g.code] = px;
     }
-    setTopState({ stopBook: book, nearStop: nearStopList(holdings, prices, book), nearStopKnown: true, holdingCount: groups.length });
-  }, [groups, holdings, quotes, risk, tradingDay, segment, preAuction, epKey]);
+    setTopState({
+      stopBook: book, nearStop: nearStopList(holdings, prices, book, { ctx: stopCtx, todayYmd: today, nowMs }),
+      nearStopKnown: stopReady, holdingCount: groups.length,
+    });
+  }, [groups, holdings, quotes, risk, tradingDay, segment, preAuction, epKey, stopCtx, stopReady, stopLive]);
 
   // 大盤危險：先還原本機狀態（當日已發且未收到的，重新掛回 Z2；不算新發）
   const dangerRef = useRef<DangerState | null>(null);

@@ -1,5 +1,6 @@
 // 盤中戰情 v2·新聞判別（權重沿用 rankMediaVerdicts）單元測試：node --test scripts/lib/warroom-news.test.mjs
-// 對照 news-weight.md §3.11 必測案例 1–10，以及 tw-news-impact-analyst §0／§1.1／1.4／1.5／1.6／§2／§6.2 的程式強制。
+// 對照 news-weight.md §3.11 必測案例 1–10，以及 tw-news-impact-analyst §0／§1.1／1.4／1.5／1.6／1.7／§2／§6.2 的程式強制。
+// 2026-10-05 第二輪 A4＋B4：Z2 持股重大利空只看規則類別的類別權重（≥0.7 一級、0.3–0.7 二級、<0.3 不列），影響權重 w 研究期只顯示。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rankMediaVerdicts } from './after-market-news.mjs';
@@ -7,8 +8,9 @@ import {
   newsBoardFromDoc, verdictState, isAiRead, isRuleLegal, newsTier, newsCtxOf, isCurrentEntry, isNewsUniverse,
   newsLampView, newsShortText, newsWeightText, newsKpi, majorBearOf, stepMajorBear, parseMajorBearState, initialMajorBearState,
   majorBearEvents, majorBearText, b2MarketNewsEvents, activeNewsCodes, mineNewsEvents, premarketNewsRows, newsHealthOf,
-  newsTimeTag, quoteHash, NEWS_WEIGHT_NOTE, WEIGHT_GATE_LEVEL, RULE_LEGAL_PREFIX, GATE_D, GATE_E,
+  newsTimeTag, quoteHash, NEWS_WEIGHT_NOTE, RULE_LEGAL_PREFIX, GATE_D, GATE_E,
   isPossibleLegalBear, isUnchallengedEntry, UNCHALLENGED_TAG, UNCHALLENGED_NOTE, POSSIBLE_LEGAL_NOTE,
+  isRuleBear, ruleClassNote, majorBearNote,
 } from './warroom-news.mjs';
 
 const YMD = '2026-10-05';
@@ -46,15 +48,16 @@ test('權重與盤後報告同一支 rankMediaVerdicts（同名同口徑；不�
   assert.equal(b.meta.covered, 3);
 });
 
-test('案例 1：利空·強·高·已確認·首次·未反映 → w 0.75、強；持股 Z2 條件成立（權重門檻待裁定前級別＝WEIGHT_GATE_LEVEL）', () => {
+test('案例 1：利空·強·高·已確認·首次·未反映 → w 0.75、強（只顯示）；不是規則類別 ⇒ 不進 Z2（B4：w 不當任何等級的警示門檻）', () => {
   const e = board({ 2317: V() }).map['2317'];
   assert.equal(newsTier(e.w), 'strong');
   const v = newsLampView(e, CTX);
   assert.equal(v.tone, 'dn');
   assert.equal(v.tier, 'strong');
-  assert.ok(v.title.includes('利空·強') && v.title.includes(NEWS_WEIGHT_NOTE));
-  assert.deepEqual(majorBearOf(e, OPT), { level: WEIGHT_GATE_LEVEL, basis: 'weight', scope: 'holding' });
-  assert.equal(WEIGHT_GATE_LEVEL, 2);   // §6.5：未校準權重不決定一級名單，待使用者裁定
+  assert.ok(v.title.includes('利空·強') && v.title.includes(`影響權重 0.75（${NEWS_WEIGHT_NOTE}）`));
+  assert.equal(NEWS_WEIGHT_NOTE, '研究期·只顯示');
+  assert.equal(majorBearOf(e, OPT), null);
+  assert.equal(majorBearOf(e, { ...OPT, scope: 'watch' }), null);
 });
 
 test('案例 2：利空·強·中（0.525）→ 中，不達重大利空', () => {
@@ -72,7 +75,7 @@ test('案例 3：規則法律 w 0.18、走過挑戰 → 一級（不看權重）
   assert.equal(e.st, 'bear');
   assert.equal(e.lg, true);
   assert.equal(e.w, 0.18);
-  assert.deepEqual(majorBearOf(e, OPT), { level: 1, basis: 'rule-legal', scope: 'holding' });
+  assert.deepEqual(majorBearOf(e, OPT), { level: 1, basis: 'rule-legal', scope: 'holding', cls: 'C16a', band: 'high' });
   const e2 = board({ 3037: { ...legal, challenged: false } }).map['3037'];
   assert.equal(newsLampView(e2, CTX).tone, 'dn');
   assert.equal(majorBearOf(e2, OPT), null);
@@ -85,11 +88,11 @@ test('案例 4：eventType=法律 但 AI 判利多（和解金類）→ 燈照 A
   assert.equal(e.st, 'bull');
   assert.equal(e.lg, false);
   assert.equal(newsLampView(e, CTX).tone, 'up');
-  // eventType=法律 的利空、w≥0.3：屬權重門檻類（legal-type），不是規則覆寫
+  // eventType=法律 的利空、w≥0.3：AI 的事件類型不是規則類別，權重門檻類（舊 legal-type）不發任何等級（B4）
   const e2 = board({ 4123: V({ eventType: '法律', confidence: '低', strength: '極強' }) }).map['4123'];
   assert.equal(e2.w, 0.4);
-  assert.equal(majorBearOf(e2, OPT).basis, 'legal-type');
-  assert.equal(majorBearOf(e2, OPT).level, WEIGHT_GATE_LEVEL);
+  assert.equal(e2.rc, null);
+  assert.equal(majorBearOf(e2, OPT), null);
 });
 
 test('案例 5（§1.1／1.3／1.8）：D 拒答、只有標題、E 引用未過 → 資訊不足空心、權重 0；中性＋AI 未回應 → 未判別', () => {
@@ -163,12 +166,13 @@ test('案例 9：ETF、權證、6 碼 → 「—」（不做個股新聞識讀�
 
 test('案例 10：Z2 去重——同日不重發；判讀較新且等級上升才再發；隔日同一關鍵句降二級「持續」', () => {
   const mk = (over) => {
-    const e = board({ 2317: V(over) }).map['2317'];
+    const e = board({ 2317: V({ ruleClass: 'C16b', ...over }) }).map['2317'];   // 裁罰訴訟：類別權重 0.35 ⇒ 二級
     return [{ code: '2317', entry: e, mb: majorBearOf(e, OPT) }];
   };
   const s1 = stepMajorBear(initialMajorBearState(), mk({}), { targetDate: YMD });
   assert.equal(s1.changed, true);
   assert.equal(s1.items[0].seq, 1);
+  assert.equal(s1.items[0].level, 2);
   assert.equal(s1.items[0].cont, false);
   // 同一份資料再送：不變、同 seq（事件 id 相同，由 events.ts 去重）
   const s2 = stepMajorBear(s1.state, mk({}), { targetDate: YMD });
@@ -177,14 +181,14 @@ test('案例 10：Z2 去重——同日不重發；判讀較新且等級上升�
   // 判讀較新但等級沒升：不再發
   const s3 = stepMajorBear(s2.state, mk({ at: T(11, 0) }), { targetDate: YMD });
   assert.equal(s3.items[0].seq, 1);
-  // 判讀較新且出現法律覆寫：再發（seq 2）
-  const s4 = stepMajorBear(s3.state, mk({ at: T(11, 30), reason: `${RULE_LEGAL_PREFIX}涉檢調搜索，法律判定前視為利空（AI 原判利空：…）`, keyQuote: '檢調今日搜索公司' }), { targetDate: YMD });
+  // 判讀較新且出現法律規則判定：一級，再發（seq 2）
+  const s4 = stepMajorBear(s3.state, mk({ at: T(11, 30), ruleClass: 'C16a', keyQuote: '檢調今日搜索公司' }), { targetDate: YMD });
   assert.equal(s4.items[0].seq, 2);
   assert.equal(s4.items[0].level, 1);
   // 隔日同一關鍵句再判利空 ⇒ 二級持續
   const nextYmd = '2026-10-06';
   const nextCtx = newsCtxOf({ targetDate: nextYmd }, nextYmd);
-  const e = newsBoardFromDoc(docOf({ 2317: V({ at: Date.parse('2026-10-05T23:30:00+08:00'), pass: 'evening' }) }, { targetDate: nextYmd })).map['2317'];
+  const e = newsBoardFromDoc(docOf({ 2317: V({ ruleClass: 'C17', at: Date.parse('2026-10-05T23:30:00+08:00'), pass: 'evening' }) }, { targetDate: nextYmd })).map['2317'];
   const mb = majorBearOf(e, { ctx: nextCtx, minAtMs: PREV_CLOSE });
   const s5 = stepMajorBear(s4.state, [{ code: '2317', entry: e, mb }], { targetDate: nextYmd });
   assert.equal(s5.items[0].cont, true);
@@ -192,16 +196,16 @@ test('案例 10：Z2 去重——同日不重發；判讀較新且等級上升�
   const ev = majorBearEvents(s5.items, new Map([['2317', '鴻海']]), nextYmd)[0];
   assert.equal(ev.kind, 'newsVerdict');
   assert.equal(ev.level, 2);
-  assert.ok(ev.text.startsWith('2317 鴻海 利空持續'));
+  assert.ok(ev.text.startsWith('2317 鴻海 利空持續（同一關鍵句前一適用日已判利空）·工安停工·'));
   // 新的（逐字核對過的）引文＝新進展 ⇒ 不是持續
   const e6 = { ...e, vq: '公司公告第二家客戶也抽單' };
   const s6 = stepMajorBear(s4.state, [{ code: '2317', entry: e6, mb }], { targetDate: nextYmd });
   assert.equal(s6.items[0].cont, false);
 });
 
-test('Z2 事件：規則法律一級 kind majorNegative、文案只寫事實；權重門檻類二級並註明未校準', () => {
+test('Z2 事件：規則法律一級 kind majorNegative、文案只寫事實（類別權重，不寫影響權重）；類別權重 0.3–0.7 二級', () => {
   const legal = board({ 3037: V({ strength: '中', confidence: '低', reason: `${RULE_LEGAL_PREFIX}涉檢調搜索，法律判定前視為利空（AI 原判中性：…）` }) }).map['3037'];
-  const w = board({ 2317: V() }).map['2317'];
+  const w = board({ 2317: V({ label: '利空', ruleClass: 'C16b', aiOriginal: { label: '中性', reason: '和解金額有限' } }) }).map['2317'];
   const step = stepMajorBear(null, [
     { code: '3037', entry: legal, mb: majorBearOf(legal, OPT) },
     { code: '2317', entry: w, mb: majorBearOf(w, OPT) },
@@ -211,10 +215,12 @@ test('Z2 事件：規則法律一級 kind majorNegative、文案只寫事實；�
   assert.equal(l1.kind, 'majorNegative');
   assert.equal(l1.level, 1);
   assert.equal(l1.id, `majorNegative:${YMD}:3037:1`);
-  assert.equal(l1.text, `3037 欣興 AI 讀內文判定利空（法律事件：法律判定前視為利空）·影響權重 0.18（${NEWS_WEIGHT_NOTE}）·盤中 10:25 判讀·引文 2 條已核對`);
+  assert.equal(l1.text, '3037 欣興 持股 規則判定利空·法律事件（法律判定前視為利空）·AI 讀內文確認主體與事實·類別權重 0.90（先驗·未回測）·盤中 10:25 判讀·引文 2 條已核對');
   const l2 = evs.find((e) => e.code === '2317');
   assert.equal(l2.level, 2);
-  assert.ok(l2.text.includes('權重門檻未經校準，暫列二級'));
+  assert.equal(l2.kind, 'newsVerdict');
+  assert.equal(l2.text, '2317 鴻海 持股 規則判定利空·裁罰訴訟·AI 讀內文確認主體與事實·類別權重 0.35（先驗·未回測）·AI 原判中性·類別權重未達一級切點，列二級·盤中 10:25 判讀·引文 2 條已核對');
+  assert.doesNotMatch(evs.map((e) => e.text).join(''), /影響權重/);
   assert.doesNotMatch(evs.map((e) => e.text).join(''), /建議|宜|勿|應該|停損/);
 });
 
@@ -253,7 +259,7 @@ test('B2 全市場：只收今日盤中趟 AI 讀內文利多／利空，不用�
   });
   const evs = b2MarketNewsEvents(b, { todayYmd: YMD });
   assert.deepEqual(evs.map((e) => e.code), ['3037', '2330', '2317']);
-  assert.equal(evs[0].text, '利空·法律事件（法律判定前視為利空）·規則覆寫·AI 已讀內文');
+  assert.equal(evs[0].text, '利空·法律事件（法律判定前視為利空）·規則判定·AI 已讀內文確認事實');
   assert.equal(evs[1].text, '利多·弱·權重 0.18·AI 已讀內文');
   assert.equal(evs[1].side, 'long');
   assert.equal(evs[2].text, '利空·強·權重 0.75·AI 已讀內文');
@@ -266,10 +272,10 @@ test('B2 全市場：只收今日盤中趟 AI 讀內文利多／利空，不用�
 
 test('B2「我的」：盤中判別（含中性）＋持股盤前利空＋自選達一級條件（二級）；持股達條件的交給 Z2 引擎', () => {
   const b = board({
-    2317: V(),                                                         // 持股·達權重門檻 ⇒ Z2 引擎發，這裡略過
+    2317: V({ ruleClass: 'C17' }),                                     // 持股·規則類工安停工（一級）⇒ Z2 引擎發，這裡略過
     2330: V({ label: '中性', pass: 'intraday', at: T(10, 5) }),         // 自選·盤中中性
-    2382: V({ confidence: '中', pass: 'morning', at: T(7, 40) }),       // 持股·晨間利空、未達條件
-    2454: V({ pass: 'evening', at: Date.parse('2026-10-04T23:40:00+08:00') }),   // 自選·達條件 ⇒ 二級
+    2382: V({ confidence: '中', pass: 'morning', at: T(7, 40) }),       // 持股·晨間利空、不是規則類
+    2454: V({ ruleClass: 'C22', pass: 'evening', at: Date.parse('2026-10-04T23:40:00+08:00') }),   // 自選·規則類財務危機 ⇒ 二級
     3008: V({ label: '利多', pass: 'morning', at: T(7, 50) }),          // 自選·晨間利多 ⇒ 不列（盤前判別在 A2）
     6669: V({ label: '利多', pass: 'intraday', at: T(10, 10) }),        // 釘選·盤中利多
   });
@@ -281,7 +287,7 @@ test('B2「我的」：盤中判別（含中性）＋持股盤前利空＋自選
   assert.equal(evs[1].text, '判中性·AI 已讀內文');
   assert.equal(evs[1].side, undefined);
   assert.equal(evs[2].text, '利空·中·權重 0.53·AI 已讀內文（持股）（盤前）');
-  assert.equal(evs[3].text, '利空·強·權重 0.75·AI 已讀內文（自選·達一級條件，自選只列二級）（10/04）');
+  assert.equal(evs[3].text, '利空·財務危機·規則判定·AI 已讀內文確認事實（自選·達一級條件，自選只列二級）（10/04）');
   // 判別表不是今日適用 ⇒ 不發
   assert.deepEqual(mineNewsEvents(b, { holdings: new Set(['2382']), watch: new Set(), pinned: new Set(), ctx: newsCtxOf({ targetDate: '2026-10-02' }, YMD), nowMs: NOW }), []);
 });
@@ -376,14 +382,14 @@ test('時間標記與 Z2 本機狀態解析（不信任本機資料）', () => {
   assert.deepEqual(parseMajorBearState('garbage'), initialMajorBearState());
   assert.equal(quoteHash('甲乙'), quoteHash('甲乙'));
   assert.notEqual(quoteHash('甲乙'), quoteHash('乙甲'));
-  // 文案範例（權重門檻類，自選）
-  const e = board({ 2454: V() }).map['2454'];
+  // 文案範例（規則類，自選）
+  const e = board({ 2454: V({ ruleClass: 'C17' }) }).map['2454'];
   const txt = majorBearText('2454', '聯發科', { code: '2454', level: 2, seq: 1, cont: false, mb: majorBearOf(e, { ...OPT, scope: 'watch' }), entry: e });
-  assert.ok(txt.startsWith('2454 聯發科 自選 AI 讀內文判定利空·強'));
+  assert.ok(txt.startsWith('2454 聯發科 自選 規則判定利空·工安停工'));
   assert.ok(txt.includes('自選只列二級'));
 });
 
-test('§1.5 AI 自判利空的法律事件（daemon 只在 AI 未判利空時做規則確認）⇒ 標「可能為法律事件（未經規則確認）」、不套 §1.4／§1.6；不升一級（待裁定）', () => {
+test('§1.5 AI 自判利空的法律事件、沒有法律事實回答（舊判別）⇒ 標「可能為法律事件（未經規則確認）」、不套 §1.4／§1.6；不發 Z2（B4）', () => {
   const b = board({
     2317: V({ strength: '極強', eventType: '法律', keyQuote: '檢調今日搜索公司總部', reason: '涉檢調搜索，營運恐受影響' }),
     3037: V({ eventType: '其他', keyQuote: '檢調搜索公司，股價重挫跌停', reason: '涉檢調搜索' }),
@@ -393,8 +399,14 @@ test('§1.5 AI 自判利空的法律事件（daemon 只在 AI 未判利空時做
   assert.equal(e.lg, false);
   assert.equal(e.pl, true);
   assert.equal(e.w, 1);
-  assert.deepEqual(majorBearOf(e, OPT), { level: WEIGHT_GATE_LEVEL, basis: 'weight', scope: 'holding' });
+  assert.equal(majorBearOf(e, OPT), null);
   assert.ok(newsLampView(e, CTX).title.includes(POSSIBLE_LEGAL_NOTE));
+  // 2026-10-05 起 daemon 也對 AI 自判利空的問法律事實：答「否」（主體不是本公司）⇒ 不標；沒答（none）⇒ 照標
+  const legalWords = { strength: '極強', eventType: '法律', keyQuote: '檢調今日搜索公司總部', reason: '涉檢調搜索，營運恐受影響' };
+  assert.equal(isPossibleLegalBear(V({ ...legalWords, ruleFacts: { C16a: 'no' } })), false);
+  assert.equal(isPossibleLegalBear(V({ ...legalWords, ruleFacts: { C16a: 'none' }, ruleFocused: 'no' })), false);
+  assert.equal(isPossibleLegalBear(V({ ...legalWords, ruleFacts: { C16a: 'none' } })), true);
+  assert.equal(isPossibleLegalBear(V({ ...legalWords, ruleFacts: { C17: 'no' } })), true);
   // 依據句同時有檢調搜索與「股價重挫」：不被 §1.4 改判成價格描述
   assert.equal(b.map['3037'].st, 'bear');
   assert.equal(b.map['3037'].pl, true);
@@ -420,7 +432,7 @@ test('§4.1 C20b 信評機構調降評等或展望＝利空（不是 §1.6 關�
 test('§1.8 AI 摘句沒有逐字核對：「無」當沒有；精簡表另帶逐字核對過的引文 vq', () => {
   const b = board({
     2317: V({ keyQuote: '無', quotes: ['客戶通知第四季訂單取消三成', '公司預估第四季營收季減一成'] }),
-    2330: V({ keyQuote: '客戶通知第四季訂單取消三成' }),
+    2330: V({ keyQuote: '客戶通知第四季訂單取消三成', ruleClass: 'C17' }),
   });
   assert.equal(b.map['2317'].kq, null);
   assert.equal(b.map['2317'].vq, '客戶通知第四季訂單取消三成');
@@ -430,17 +442,18 @@ test('§1.8 AI 摘句沒有逐字核對：「無」當沒有；精簡表另帶�
   // 去重鍵用逐字核對的引文或理由；都沒有就不判「持續」
   const noKey = { ...b.map['2330'], vq: null, r: null };
   const s1 = stepMajorBear(initialMajorBearState(), [{ code: '2330', entry: noKey, mb: majorBearOf(noKey, OPT) }], { targetDate: YMD });
+  assert.equal(s1.items.length, 1);
   assert.deepEqual(s1.state.q, {});
   const nextYmd = '2026-10-06';
-  const s2 = stepMajorBear(s1.state, [{ code: '2330', entry: noKey, mb: { level: 2, basis: 'weight', scope: 'holding' } }], { targetDate: nextYmd });
+  const s2 = stepMajorBear(s1.state, [{ code: '2330', entry: noKey, mb: { level: 2, basis: 'rule-class', scope: 'holding', cls: 'C16b', band: 'mid' } }], { targetDate: nextYmd });
   assert.equal(s2.items[0].cont, false);
 });
 
 test('§2 沒走四角色挑戰（可能是 14 日舊聞回退）⇒ ◆、不列強弱、不計入 KPI 利空、不進 B2 我的、A2 落在非今日適用', () => {
   const b = board({
     2317: V({ challenged: false, confidence: '低', eventType: '營收財報' }),
-    2330: V(),
-    2454: V({ challenged: false, pass: 'morning', at: T(7, 40) }),
+    2330: V({ ruleClass: 'C17' }),
+    2454: V({ challenged: false, pass: 'morning', at: T(7, 40), ruleClass: 'C17' }),
   });
   const e = b.map['2317'];
   assert.equal(isUnchallengedEntry(e, CTX), true);
@@ -453,7 +466,8 @@ test('§2 沒走四角色挑戰（可能是 14 日舊聞回退）⇒ ◆、不�
   assert.equal(newsShortText(e, CTX), `利空◆${UNCHALLENGED_TAG}`);
   assert.deepEqual(newsKpi(['2317', '2330'], b.map, CTX), { bear: 1, missing: 0, old: 1, na: 0 });
   const evs = mineNewsEvents(b, { holdings: new Set(['2317', '2330', '2454']), watch: new Set(), pinned: new Set(), ctx: CTX, minAtMs: PREV_CLOSE, nowMs: NOW });
-  assert.deepEqual(evs.map((x) => x.code), []);   // 2330 達權重門檻交給 Z2 引擎；2317、2454 沒走挑戰
+  assert.deepEqual(evs.map((x) => x.code), []);   // 2330 規則類一級交給 Z2 引擎；2317、2454 沒走挑戰
+  assert.equal(majorBearOf(b.map['2454'], OPT), null, '規則類但沒走挑戰（可能舊聞）⇒ 不進 Z2');
   const r = premarketNewsRows(b, { holdings: ['2454'], watch: [], ctx: CTX, minAtMs: PREV_CLOSE });
   assert.deepEqual(r.rows.map((x) => [x.code, x.cat]), [['2454', 7]]);
 });
@@ -467,7 +481,7 @@ test('B2「我的」與 A2：權重不決定名單——自選、釘選的盤前
   assert.equal(newsTier(b.map['2454'].w), 'weak');
   const evs = mineNewsEvents(b, { holdings: new Set(), watch: new Set(['2454', '1102']), pinned: new Set(['6669']), ctx: CTX, minAtMs: PREV_CLOSE, nowMs: NOW });
   assert.deepEqual(evs.map((x) => x.code), ['1102', '6669', '2454']);
-  assert.ok(evs[0].text.endsWith('（自選·達一級條件，自選只列二級）（盤前）'));
+  assert.ok(evs[0].text.endsWith('（自選）（盤前）'), 'w 1.0 也不加「達一級條件」註記（B4：w 不當警示門檻）');
   assert.ok(evs[1].text.includes('（釘選）'));
   assert.ok(evs[2].text.includes('（自選）'));
   // A2：前一交易日盤中趟判出、被承接到今日表 ⇒ 不消失，落在非今日適用
@@ -479,12 +493,103 @@ test('B2「我的」與 A2：權重不決定名單——自選、釘選的盤前
 
 test('Z2 同日再發只看警示等級上升（二級→一級），強弱（權重）升級不再發', () => {
   const mk = (over) => {
-    const e = board({ 2317: V(over) }).map['2317'];
+    const e = board({ 2317: V({ ruleClass: 'C15a', ...over }) }).map['2317'];   // 內部人轉讓 0.30 ⇒ 二級
     return [{ code: '2317', entry: e, mb: majorBearOf(e, OPT) }];
   };
-  const s1 = stepMajorBear(initialMajorBearState(), mk({ eventType: '法律', confidence: '中' }), { targetDate: YMD });   // legal-type 0.525
-  assert.equal(s1.items[0].mb.basis, 'legal-type');
-  const s2 = stepMajorBear(s1.state, mk({ eventType: '法律', strength: '極強', at: T(11, 0) }), { targetDate: YMD });   // 權重升到 1.0，仍二級
+  const s1 = stepMajorBear(initialMajorBearState(), mk({ confidence: '中' }), { targetDate: YMD });
+  assert.deepEqual(s1.items[0].mb, { level: 2, basis: 'rule-class', scope: 'holding', cls: 'C15a', band: 'mid' });
+  const s2 = stepMajorBear(s1.state, mk({ strength: '極強', at: T(11, 0) }), { targetDate: YMD });   // 權重升到 1.0，仍二級
   assert.equal(s2.items[0].seq, 1);
   assert.equal(s2.changed, false);
+});
+
+// ── 規則類別（第二輪 A4「做skills判定與加權重」）＋B4（w 研究期只顯示） ─────────────────────
+
+test('規則類利空（新欄位 ruleClass）：daemon 已把 label 覆寫為利空、AI 原判記在 aiOriginal；AI 原判中性時 w 不顯示在利空燈上；類別權重 ≥0.7 一級', () => {
+  const b = board({
+    2317: V({ label: '利空', ruleClass: 'C17', ruleOverride: 'accident', aiOriginal: { label: '中性', reason: '公司說明產線已恢復' }, keyQuote: '廠區昨晚發生火災' }),
+    2330: V({ label: '利空', ruleClass: 'C22', aiOriginal: { label: '利多', reason: '…' } }),
+    2454: V({ ruleClass: 'C17', aiOriginal: { label: '利空', reason: '…' } }),   // AI 自己也判利空（漏網修正後補欄位）
+    2603: V({ label: '中性', ruleClass: 'C17' }),   // label 不是利空的 ruleClass（覆寫前的過渡資料）⇒ 不算規則類（§10A.1-C）
+  });
+  const e = b.map['2317'];
+  assert.deepEqual([e.st, e.rc, e.rs, e.ra, e.lg, e.w], ['bear', 'C17', null, '中性', false, null]);
+  assert.equal(isRuleBear(V({ label: '利空', ruleClass: 'C17' })), true);
+  assert.equal(isRuleBear(V({ label: '中性', ruleClass: 'C17' })), false);
+  assert.deepEqual([b.map['2603'].st, b.map['2603'].rc], ['neutral', null]);
+  const v = newsLampView(e, CTX);
+  assert.equal(v.tone, 'dn');
+  assert.equal(v.rule, '工安停工');
+  assert.equal(v.legal, false);
+  assert.ok(v.title.startsWith('利空·規則'));
+  assert.ok(v.title.includes('規則類利空：工安停工——AI 讀內文確認主體與事實，方向由規則定為利空·類別權重 0.70（新聞技能 §4.1 先驗·未回測；不是影響權重）·AI 原判中性'));
+  assert.equal(newsShortText(e, CTX), '利空·工安停工（規則判定）');
+  assert.deepEqual(majorBearOf(e, OPT), { level: 1, basis: 'rule-class', scope: 'holding', cls: 'C17', band: 'high' });
+  assert.equal(majorBearOf(e, { ...OPT, scope: 'watch' }).level, 2);
+  assert.deepEqual([b.map['2330'].st, b.map['2330'].w, b.map['2330'].ra], ['bear', null, '利多'], 'AI 判利多的 w 屬於利多，不顯示在規則利空上');
+  assert.deepEqual([b.map['2454'].st, b.map['2454'].ra, b.map['2454'].w], ['bear', null, 0.75], 'AI 自己也判利空：w 照常只顯示');
+  assert.equal(newsKpi(['2317', '2330', '2454'], b.map, CTX).bear, 3);
+});
+
+test('類別權重分級：0.3–0.7 二級、<0.3 與 C15a 贈與信託不列 Z2（B2「我的」照列二級）；C23 交易限制 0.90 一級（警示，停損另不收緊）', () => {
+  const b = board({
+    1101: V({ ruleClass: 'C16b' }),
+    1102: V({ ruleClass: 'C20b', pass: 'morning', at: T(7, 30) }),
+    1103: V({ ruleClass: 'C15a', ruleSub: 'giftOrTrust', pass: 'morning', at: T(7, 31) }),
+    1104: V({ ruleClass: 'C15a' }),
+    1105: V({ ruleClass: 'C23' }),
+    1106: V({ ruleClass: 'C11a' }),
+  });
+  assert.equal(majorBearOf(b.map['1101'], OPT).level, 2);
+  assert.equal(majorBearOf(b.map['1102'], OPT), null);
+  assert.equal(b.map['1103'].rs, 'giftOrTrust');
+  assert.equal(majorBearOf(b.map['1103'], OPT), null);
+  assert.equal(majorBearOf(b.map['1104'], OPT).level, 2);
+  assert.equal(majorBearOf(b.map['1105'], OPT).level, 1);
+  assert.equal(majorBearOf(b.map['1106'], OPT), null);
+  const evs = mineNewsEvents(b, { holdings: new Set(['1102', '1103', '1101']), watch: new Set(), pinned: new Set(), ctx: CTX, minAtMs: PREV_CLOSE, nowMs: NOW });
+  assert.deepEqual(evs.map((x) => x.code), ['1103', '1102'], '低類別權重的規則類利空不進 Z2，B2「我的」照列；1101 交給 Z2');
+  assert.equal(evs[1].text, '利空·信評調降·規則判定·AI 已讀內文確認事實（持股）（盤前）');
+  assert.ok(ruleClassNote(b.map['1103']).includes('類別權重 0.05'));
+  assert.equal(majorBearNote(majorBearOf(b.map['1105'], OPT)), '達持股重大利空一級條件（規則類別·類別權重 ≥0.7；Z2 警示）');
+  assert.equal(majorBearNote(majorBearOf(b.map['1101'], OPT)), '規則類利空·類別權重 0.3–0.7（Z2 二級）');
+  assert.equal(majorBearNote(majorBearOf(b.map['1105'], { ...OPT, scope: 'watch' })), '達重大利空一級條件（自選只列二級）');
+  assert.equal(majorBearNote(majorBearOf(b.map['1101'], { ...OPT, scope: 'watch' })), '規則類利空（自選只列二級）');
+  assert.equal(majorBearNote(null), null);
+});
+
+test('w 不變式（B4／§10B）：只改 w 的成分（強度、信心、確定性、新穎、反映）⇒ majorBearOf 完全相同；權重門檻類任何 w 都不進 Z2', () => {
+  for (const cls of [undefined, 'C16a', 'C17', 'C16b', 'C20b']) {
+    const base = majorBearOf(board({ 2317: V({ ruleClass: cls }) }).map['2317'], OPT);
+    for (const over of [{ strength: '弱', confidence: '低' }, { certainty: '傳聞', novelty: '重複', priced: '是' }, { strength: '極強', confidence: '高', eventType: '法律' }]) {
+      const e = board({ 2317: V({ ruleClass: cls, ...over }) }).map['2317'];
+      assert.deepEqual(majorBearOf(e, OPT), base, `${cls} ${JSON.stringify(over)}`);
+      assert.deepEqual(majorBearOf(e, { ...OPT, scope: 'watch' }), majorBearOf(board({ 2317: V({ ruleClass: cls }) }).map['2317'], { ...OPT, scope: 'watch' }));
+    }
+  }
+  assert.ok(newsWeightText(board({ 2317: V() }).map['2317']).includes('不進排序、警示與停損'));
+});
+
+test('規則類別：E 引用未過照樣算 AI 讀內文（AI 只認定事實）；不套 §1.4 價格描述／§1.6 關注度；A2 排第 0 類', () => {
+  const b = board({
+    2317: V({ label: '利空', gate: GATE_E, ruleClass: 'C22', reason: '【規則·財務危機】涉財務危機事件，依規則視為利空（AI 原判中性：引用強制未過：無法從原文逐字引出支撐此判別）', aiOriginal: { label: '中性', reason: '引用強制未過' }, pass: 'morning', at: T(7, 0) }),
+    2330: V({ eventType: '其他', keyQuote: '廠區火警，股價重挫跌停', ruleClass: 'C17', pass: 'morning', at: T(7, 10) }),
+    2454: V({ label: '中性', gate: GATE_E, pass: 'morning', at: T(7, 20) }),
+  });
+  assert.equal(isAiRead(V({ label: '利空', gate: GATE_E, ruleClass: 'C22' })), true);
+  assert.equal(isAiRead(V({ label: '中性', gate: GATE_E, ruleClass: 'C22' })), false, 'label 不是利空的 ruleClass 不算規則類');
+  assert.equal(b.map['2317'].st, 'bear');
+  assert.equal(b.map['2330'].st, 'bear');
+  assert.equal(b.map['2454'].st, 'insufficient');
+  const r = premarketNewsRows(b, { holdings: ['2454', '2330', '2317'], watch: [], ctx: CTX, minAtMs: PREV_CLOSE });
+  assert.deepEqual(r.rows.map((x) => [x.code, x.cat]), [['2330', 0], ['2317', 0]]);
+  assert.deepEqual(r.missing, ['2454']);
+});
+
+test('舊精簡表相容：沒有 rc、只有 lg 的列（前後端部署時間差）⇒ 仍以法律事件判一級', () => {
+  const e = board({ 3037: V({ reason: `${RULE_LEGAL_PREFIX}涉檢調搜索，法律判定前視為利空（AI 原判中性：…）` }) }).map['3037'];
+  const { rc: _rc, rs: _rs, ra: _ra, ...old } = e;
+  assert.deepEqual(majorBearOf(old, OPT), { level: 1, basis: 'rule-legal', scope: 'holding', cls: 'C16a', band: 'high' });
+  assert.ok(ruleClassNote(old).startsWith('規則類利空：法律事件（法律判定前視為利空）'));
+  assert.equal(ruleClassNote(board({ 2317: V() }).map['2317']), null);
 });

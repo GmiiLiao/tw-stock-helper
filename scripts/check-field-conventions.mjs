@@ -149,6 +149,10 @@ export const DATE_ALLOWLIST = new Set([
   //   training.cutoffDate／lastLabelDate＝訓練列截止日／最晚標籤日。只在 surge-shadow-report 的讀取端與測試夾具出現；
   //   寫上後台的 surgeShadow 文件改名 trainCutoff／lastLabel（reportJson 內），稽核契約不看它。
   'cutoffDate', 'lastLabelDate',
+  // AI 停損規範 stop-v1.1 停損簿 stopBooks/{uid}.positions[code]（daemon 寫、本人唯讀；scripts/lib/ai-stoploss*.mjs·2026-10-05）：
+  //   sourceDate＝生效停損目前那條線被設定的資料日；floorSourceDate／bandSourceDate＝成本／保本／追蹤棘輪與 ATR 帶棘輪各自的設定日。
+  //   都是欄位級的領域日期（棘輪來源），不是文件資料日（文件資料日用 dataDate），稽核契約不看它們。
+  'sourceDate', 'floorSourceDate', 'bandSourceDate',
 ]);
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，

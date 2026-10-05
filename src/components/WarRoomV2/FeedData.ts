@@ -8,7 +8,7 @@
 //                       ＋ events.ts 的本機事件（AlertEngine／Z2 等發佈的我的警示，level 1–2）
 //                       ＋ 依持股／釘選從 index 補出的「我的」重訊
 //                       ＋ 從 board.news 精簡表過濾出的「我的」新聞判別（warroom-news.mineNewsEvents：持股＋自選＋釘選；
-//                         權重沿用 rankMediaVerdicts、先驗·未校準；持股達重大利空條件的由 Z2 引擎發，這裡不重複）；新到舊
+//                         權重沿用 rankMediaVerdicts、研究期·只顯示；持股達重大利空條件〔規則類別〕的由 Z2 引擎發，這裡不重複）；新到舊
 //   useArrivals()       新到事件的 NEW（3 分鐘）與底色閃（3 秒，只限我的／本機二級以上）
 // 伺服器事件刻意不寫進 events.ts：它的 ring buffer 只有 200 筆，市場事件一天就能把 Z2 的一級警示擠掉。
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';

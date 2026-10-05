@@ -15,14 +15,15 @@
 //   的 marketPulse）才成立；成立後連續 2 拍不成立才解除；同日再發需距上次 30 分鐘。daemon 原本的 warns 不升級（它在 09:01
 //   「跌停 1、漲停 0」就會成立）。
 // 價格類一級警示暫停窗：08:30–09:00 盤前試撮、13:25–13:30 收盤集合競價（試撮指示價可能不成交，critique 可用性 #6）。
-// 逼近停損：停損一律用 AI 停損規範 stop-v1（使用者 2026-10-05 指示；暫算同 A1：warroom-mine.provisionalStop＝成本線、
-//   未含除權息調整，帶同一份本機事件表當棘輪的上一版），逼近＝距停損 ≤2%（沒有 ATR14）。
-//   daemon 寫的觸停損（type 'stop'）是舊制推播（停損算法不同）⇒ 降為二級。
+// 逼近停損：停損一律用 AI 停損規範 stop-v1.1，與 A1 同一支 warroom-mine.warStopResOf、同一份 ctx 與本機事件表
+//   （停損簿生效前＝前端暫算：成本線與持股分析 ATR 帶取高、未含除權息調整；生效後＝停損簿）；逼近＝≤1 ATR，沒有 ATR14 時 ≤2%。
+//   停損簿生效前，daemon 寫的觸停損（type 'stop'）是舊制推播（停損算法不同）⇒ 降為二級；生效後（stopLive）daemon 帶
+//   requireAck＋id 的 type 'stop' 才是一級（第二輪 A7：切換正式後停用前端判定、改讀 daemon）。
 // 單元測試：node --test scripts/lib/warroom-top.test.mjs
 // ─────────────────────────────────────────────────────────────────────────────
 import { taipeiMinuteOfDay, taipeiYmd } from './warroom-session.mjs';
-import { aggregatePositions, stopDistance } from './ai-stoploss.mjs';
-import { provisionalStop } from './warroom-mine.mjs';
+import { aggregatePositions, stopDistance, stopSourceLabel } from './ai-stoploss.mjs';
+import { warStopResOf } from './warroom-mine.mjs';
 
 const M = (h, m) => h * 60 + m;
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
@@ -178,23 +179,27 @@ export function parseDangerState(raw, ymd) {
   };
 }
 
-// ── 持股與停損（AI 停損規範 stop-v1；暫算與 A1 同一支 warroom-mine.provisionalStop） ──────
+// ── 持股與停損（AI 停損規範 stop-v1.1；與 A1 同一支 warroom-mine.warStopResOf） ──────
 
 /**
- * 逼近停損清單（價格在停損價或以下，或距停損 ≤2%——停損簿未上線、沒有 ATR14），依距離由近到遠。
+ * 逼近停損清單（價格在停損價或以下，或距停損 ≤1 ATR；沒有 ATR14 時 ≤2%），依距離由近到遠。
  * prices：{ [code]: 距停損用的價 }（與 A1 同口徑：盤前＝昨收、收盤競價窗＝13:25 前最後成交）。沒有價的不列（不拿成本當現價）；
  * 成本可疑（現價÷成本 <0.25 或 >5）的不列（規範：該檔停損警示暫停）。
- * book：本機事件表（代號 → 這一版；棘輪的上一版，與 A1、Z2 同一份）；沒有就從成本線起算。
+ * book：本機事件表（代號 → 這一版；前端暫算的棘輪上一版，與 A1、Z2 同一份）；沒有就從成本線起算。
+ * opts.ctx：持股分析 ATR 帶、前一交易日、停損簿（與 A1 同一份；沒有＝只有成本線）；opts.todayYmd／nowMs：與 A1 同一個今天。
  */
-export function nearStopList(holdings, prices, book = null) {
+export function nearStopList(holdings, prices, book = null, opts = null) {
   const out = [];
+  const ctx = isObj(opts?.ctx) ? opts.ctx : null;
+  const todayYmd = typeof opts?.todayYmd === 'string' ? opts.todayYmd : '';
+  const nowMs = isNum(opts?.nowMs) ? opts.nowMs : 0;
   for (const p of aggregatePositions(holdings)) {
     const price = prices ? prices[p.code] : undefined;
     if (!(typeof price === 'number' && price > 0)) continue;
     const entry = isObj(book) && Object.prototype.hasOwnProperty.call(book, p.code) ? book[p.code] : null;
-    const res = provisionalStop(p, price, 0, '', entry);
+    const { res } = warStopResOf(p, price, { nowMs, todayYmd, entry, ctx });
     if (res.stop == null || res.suspect) continue;
-    const d = stopDistance(res.stop, price, null);
+    const d = stopDistance(res.stop, price, res.atr14);
     if (!d || !(price <= res.stop || d.near)) continue;
     out.push({ code: p.code, name: p.name, distPct: +d.pct.toFixed(1) });
   }
@@ -217,24 +222,58 @@ export const DAEMON_ALERT_LABEL = Object.freeze({
   earlybird: '早盤機會（昨日策略榜）', opensell: '開盤賣出提醒', chipclear: '籌碼出清', chipsell: '籌碼賣壓', chipweak: '籌碼轉弱',
   finwarn: '財務警訊', rebound: '反彈出脫提醒', washout: '洗盤監測', rsiHot85: 'RSI5 高檔', rsiDual85: 'RSI5／RSI10 雙高',
   reversalUp: '反轉向上訊號', reversalDown: '出貨訊號',
+  // 停損簿生效（S5）後 daemon 只寫文件的二級停損資訊（事件收緊、除權息調整…；實作計畫 §3.5）
+  stopInfo: '停損資訊',
 });
 
-/** daemon 停損類推播（推播停損與停損紀律）仍是舊算法——戰情停損改用規範 stop-v1，這兩類一律二級並標明，避免同頁兩種停損口徑 */
+/** 停損簿生效前，daemon 停損類推播（推播停損與停損紀律）仍是舊算法——戰情停損用規範 stop-v1.1，這兩類一律二級並標明，避免同頁兩種停損口徑 */
 export const LEGACY_STOP_TYPES = Object.freeze(['stop', 'discipline']);
 export const LEGACY_STOP_NOTE = '舊制推播（停損算法不同）';
+/** 停損簿生效後仍走舊分支的代號（5～6 碼與英文字尾 ETF、興櫃在官方日 K 歸檔驗證前，第二輪 A3）：舊格式的 type 'stop' */
+export const LEGACY_BRANCH_NOTE = '沿用現行推播口徑（ETF／興櫃官方日 K 歸檔驗證前）';
+
+const DAEMON_STOP_KIND_TEXT = Object.freeze({
+  touch: '今日最低觸及', gap: '開盤即低於停損', close: '收盤時判定', late: '收盤後補判',
+});
+const STOP_SOURCES = new Set(['cost', 'atrBand', 'breakeven', 'trail', 'event']);
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 停損簿生效後 daemon 的一級觸停損（requireAck＋id，實作計畫 §3.2）→ Z2 一級：id 用警示的 id（「收到」回寫同一則）；
+ * 文字只寫代號、事件與來源，例「2330 觸停損（ATR 帶·開盤即低於停損）」，不寫停損價（events.ts）。
+ */
+function liveStopEvent(a, at, code, who) {
+  const src = STOP_SOURCES.has(a.stopSource)
+    ? stopSourceLabel(a.stopSource, { effectiveFrom: typeof a.sourceDate === 'string' && YMD_RE.test(a.sourceDate) ? a.sourceDate : null })
+    : '';
+  const kind = DAEMON_STOP_KIND_TEXT[a.sub] ?? '觸及停損';
+  return {
+    id: a.id.slice(0, 120), at, kind: 'stopLoss', level: 1, code, mine: true,
+    text: `${who} 觸停損（${src ? `${src}·` : ''}${kind}）`.trim(),
+  };
+}
 
 /**
  * daemon 寫在 users/{uid}/data/alerts 的一筆 → 戰情事件輸入；不是 daemon 格式（使用者自設價警示定義）或不是今天的回 null。
- * 全部二級「我的」紀錄（B2）。一級「觸停損」改由前端依規範 stop-v1 判定（warroom-mine.stepStopEpisodes）；
- * daemon 的 type 'stop'／'discipline' 標「舊制推播（停損算法不同）」，落在試撮窗的另註明。
+ * 停損簿生效前（opts.stopLive 未設）：全部二級「我的」紀錄（B2）；一級「觸停損」由前端依規範判定（warroom-mine.stepStopEpisodes，
+ *   A7 單一裝置·暫算）；daemon 的 type 'stop'／'discipline' 標「舊制推播（停損算法不同）」，落在試撮窗的另註明。
+ * 停損簿生效後（opts.stopLive）：帶 requireAck＋id 的 type 'stop' ＝一級觸停損（前端停用自己的判定）；舊格式的 type 'stop'
+ *   （舊分支代號）二級標「沿用現行推播口徑」；'discipline' 是每日一則紀律彙總（二級）。
  */
-export function eventFromDaemonAlert(a, todayYmd) {
+export function eventFromDaemonAlert(a, todayYmd, opts = null) {
   if (!isObj(a) || typeof a.type !== 'string' || typeof a.message !== 'string') return null;
   const at = epochMs(a.at);
   if (at == null || taipeiYmd(at) !== todayYmd) return null;
   const code = typeof a.code === 'string' && /^\d{4,6}$/.test(a.code) ? a.code : undefined;
   const who = code ? `${code} ${typeof a.name === 'string' ? a.name : ''}`.trim() : (typeof a.name === 'string' ? a.name : '');
   const label = DAEMON_ALERT_LABEL[a.type] ?? '個人警示';
+  if (opts?.stopLive === true && LEGACY_STOP_TYPES.includes(a.type)) {
+    const id = typeof a.id === 'string' ? a.id : '';
+    if (a.type === 'stop' && a.requireAck === true && id.startsWith('stop:')) return liveStopEvent(a, at, code, who);
+    // v1.1 紀律彙總（id 'discipline:<日期>'，name 已是「X 等 n 檔」）；其餘是舊分支代號的舊格式推播
+    const text = a.type === 'discipline' && id.startsWith('discipline:') ? `${who} 停損紀律彙總` : `${who} ${label}·${LEGACY_BRANCH_NOTE}`;
+    return { id: `daemon:${a.type}:${code ?? ''}:${at}`, at, kind: 'mine', level: 2, code, mine: true, text: text.trim() };
+  }
   if (LEGACY_STOP_TYPES.includes(a.type)) {
     const paused = a.type === 'stop' && isIndicativeMinute(taipeiMinuteOfDay(at));
     return {

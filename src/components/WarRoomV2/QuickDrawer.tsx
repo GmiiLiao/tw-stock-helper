@@ -3,7 +3,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // D1 快看抽屜（preview.html drawerHtml；第一階段）。點任一列 ui.openDrawer(code) 開啟；
 //   桌機：右側 520px（.drawer，不推動版面）；手機：底部 70% 高（.sheet）。
-// 內容：價格＋揭示章＋新聞燈｜停損（持有的才顯示；AI 停損規範 stop-v1·成本線·前端暫算，與 A1 同一支；結構參考價只顯示、非停損）｜
+// 內容：價格＋揭示章＋新聞燈｜停損（持有的才顯示；AI 停損規範 stop-v1.1，與 A1 同一支：生效停損與生效線、組成線、ATR 帶〔持股分析·
+//       觸發線之一〕、是否還原除權息、Z2 判定口徑〔A7 單一裝置·暫算〕、影子期 daemon 試算對照）｜
 //       新聞判別權重明細（AI 新聞識讀·媒體 M；權重先驗·未校準；官方重訊另列，見 DrawerNews.tsx）｜
 //       1 分走勢（昨收虛線；VWAP 第一階段不畫）｜五檔（既有 OrderBookDepth）｜內外盤（取樣）｜
 //       回本檔數（tw-fee＋你的券商折讓＋最低手續費＋當沖稅 0.15%，參考值）｜◆前交易日法人｜＋候選、📌 釘選、個股頁 →
@@ -21,7 +22,8 @@ import { useRiskCodes } from '@/lib/useRiskCodes';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import OrderBookDepth from '@/components/shared/OrderBookDepth';
 import { breakevenTicks } from '../../../scripts/lib/warroom-drawer.mjs';
-import { lastCloseOf, stopJudgeText } from '../../../scripts/lib/warroom-mine.mjs';
+import { lastCloseOf, stopJudgeText, type WarStopView } from '../../../scripts/lib/warroom-mine.mjs';
+import { mmddText } from '../../../scripts/lib/ai-stoploss.mjs';
 import type { ZoneProps } from './parts/ZoneFrame';
 import Stamp from './parts/Stamp';
 import { Badge, Indicative } from './parts/Badge';
@@ -29,7 +31,7 @@ import { fmtNet, fmtPct, fmtPrice, hhmm, mmdd, netToneOf, priceDecimals, toneCla
 import { useWarData, useWarUi } from './WarRoomContext';
 import type { WarQuote } from './useWarRoomBus';
 import type { WarSegment } from '@/lib/warroom/types';
-import { riskTagOf, useDrawerStop, type DrawerStop } from './MineModel';
+import { riskTagOf, useDrawerStop, type DrawerStop, type DrawerEventLayer } from './MineModel';
 import { DrawerNewsBlock, DrawerNewsLine } from './DrawerNews';
 import DrawerChart from './DrawerChart';
 import {
@@ -137,33 +139,74 @@ function BreakevenLine({ code, price, broker }: { code: string; price: number | 
   );
 }
 
-function structLine(st: DrawerStop): string | null {
-  if (st.structStatus === 'error') return '結構參考價：暫時讀不到';
-  if (st.structText == null) return null;
-  return `結構參考價 ${st.structText}（非停損：舊「AI 停損」ATR 浮動帶，只顯示、不觸發）`;
+/** 持股分析 ATR 帶（觸發線之一）沒有進到組成線時的說明（前端暫算才有；有套用時組成線列已寫出今日值） */
+function bandLine(st: DrawerStop, v: WarStopView): string | null {
+  if (v.mode !== 'front') return null;
+  if (st.ratingBandText == null) {
+    if (st.bandStatus === 'error') return 'ATR 帶（持股分析·觸發線之一）：暫時讀不到，停損只含成本線';
+    if (st.bandStatus === 'loading' || st.bandStatus === 'slow') return 'ATR 帶（持股分析·觸發線之一）：讀取中，停損只含成本線';
+    return 'ATR 帶（持股分析·觸發線之一）：持股分析沒有這檔的帶值，停損只含成本線';
+  }
+  if (v.res.lines.bandLine != null) return null;
+  return `ATR 帶（持股分析·觸發線之一）${st.ratingBandText}：今日未套用（見口徑）`;
 }
 
-/** 停損區塊（只在持有這檔時顯示）：停損價、距停損、依據（是否已還原除權息）、今日判定、結構參考價 */
+/** 依據＋是否已還原除權息（依據本身已寫「未含除權息調整」就不重複） */
+function basisWithEx(v: WarStopView): string {
+  const ex = v.exAdjusted ? '已還原除權息' : '未含除權息調整';
+  return v.res.basisText.includes(ex) ? v.res.basisText : `${v.res.basisText}·${ex}`;
+}
+
+/** 四條組成線當日值（沒有的寫「—」；SKILL §1、實作計畫 §3.3） */
+function linesText(v: WarStopView, code: string): string {
+  const l = v.res.lines;
+  const px = (n: number | null) => (n == null ? '—' : fmtPrice(n, code));
+  return `組成線：成本線 ${px(l.costLine)}｜ATR 帶今日 ${px(l.bandLine)}｜保本線 ${px(l.beLine)}｜追蹤線 ${px(l.trailLine)}`;
+}
+
+/** 事件收緊一層（類別權重是新聞技能 §4.1 先驗，不是新聞影響權重 w；wording.md） */
+function eventText(e: DrawerEventLayer, code: string): string {
+  const w = e.weight != null ? `·類別權重 ${e.weight.toFixed(2)}（新聞技能 §4.1 先驗·未回測）` : '';
+  return `事件收緊：${e.label ?? '規則類利空'}·${mmddText(e.effectiveFrom ?? '')} 起至 ${mmddText(e.expiresAfter ?? '')}·收緊線 ${e.line == null ? '—' : fmtPrice(e.line, code)}${w}`;
+}
+
+/** 影子期 daemon 試算值（只供對照；不參與任何判定） */
+function shadowText(st: DrawerStop, code: string): string | null {
+  const s = st.shadow;
+  if (!s) return null;
+  return `影子試算（daemon stop-v1.1·只記錄、不推播）：停損 ${fmtPrice(s.stop, code)}（${s.basisText}）·資料日 ${mmddText(s.dataDate ?? '')}`;
+}
+
+/**
+ * 停損區塊（只在持有這檔時顯示）：生效停損與生效線、距停損、依據與是否已還原除權息、四條組成線、ATR 帶（持股分析·觸發線之一）、
+ * 事件收緊（停損簿生效時）、今日判定、Z2 判定口徑（A7）、影子試算（影子期）。只描述事實。
+ */
 function StopBlock({ code, st }: { code: string; st: DrawerStop }) {
   const v = st.view;
   if (!v) return null;
-  const caption = <div className={drawer.caption}>停損·AI 停損規範 stop-v1（成本線·前端暫算，停損簿未上線）·非投資建議</div>;
-  const struct = structLine(st);
+  const caption = <div className={drawer.caption}>停損·AI 停損規範 stop-v1.1（{v.modeNote || v.res.basisText}）·非投資建議</div>;
+  const shadow = shadowText(st, code);
   if (v.stop == null) {
     return <div className={drawer.block}>{caption}<div className={drawer.line}>停損：<span className={drawer.muted}>—（{v.res.basisText}）</span></div></div>;
   }
   const amber = v.level === 'hit' || v.level === 'near' ? drawer.stopAmber : undefined;
   const dist = v.distPct == null ? '—' : `${v.distPct < 0 ? '−' : ''}${Math.abs(v.distPct).toFixed(1)}%`;
+  const band = bandLine(st, v);
   return (
     <div className={drawer.block}>
       {caption}
       <div className={drawer.line}>
-        停損 <b>{fmtPrice(v.stop, code)}</b>　距停損 <b className={amber}>{dist}</b>
+        停損 <b>{fmtPrice(v.stop, code)}</b>（生效線：{v.source}）　距停損 <b className={amber}>{dist}</b>
+        {v.atrMultiple != null && <span className={drawer.muted}>（{v.atrMultiple.toFixed(1)} ATR）</span>}
         <span className={drawer.muted}>（{st.priceLabel} {fmtPrice(st.calcPrice, code)}）</span>
       </div>
-      <div className={drawer.line}><span className={drawer.muted}>依據：{v.res.basisText}</span></div>
+      <div className={drawer.line}><span className={drawer.muted}>依據：{basisWithEx(v)}</span></div>
+      <div className={drawer.line}><span className={drawer.muted}>{linesText(v, code)}</span></div>
+      {band && <div className={drawer.line}><span className={drawer.muted}>{band}</span></div>}
+      {st.events.map((e) => <div key={e.key} className={drawer.line}><span className={drawer.muted}>{eventText(e, code)}</span></div>)}
       <div className={drawer.line}>狀態：<span className={amber}>{v.reason ?? stopJudgeText(v)}</span></div>
-      {struct && <div className={drawer.line}><span className={drawer.muted}>{struct}</span></div>}
+      <div className={drawer.line}><span className={drawer.muted}>{st.judgeNote}</span></div>
+      {shadow && <div className={drawer.line}><span className={drawer.muted}>{shadow}</span></div>}
     </div>
   );
 }

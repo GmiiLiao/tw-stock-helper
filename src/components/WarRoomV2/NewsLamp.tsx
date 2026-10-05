@@ -4,7 +4,7 @@
 //   利多紅、利空綠、中性／關注度灰、未判別／資訊不足／價格描述空心、不做個股新聞識讀「—」。
 //   強弱（權重 rankMediaVerdicts：w≥0.6 強＝外圈、0.3–0.6 中＝一般、<0.3 弱＝小點）只在今日適用、非承接的判別顯示；
 //   強弱同時寫在 tooltip 文字裡（不只靠圖形）。承接／前一交易日的判別加 ◆；達持股重大利空一級的加紫色 ⚠。
-//   權重為先驗·未校準：只表強弱與警示門檻，不是分數。
+//   影響權重研究期·只顯示：只表強弱，不是分數、不當警示門檻（Z2 一級看規則類別，見 warroom-news.majorBearOf）。
 import type { NewsLampView } from '../../../scripts/lib/warroom-news.mjs';
 import type { NewsState } from './MineModel';
 import styles from './WarRoomV2.module.css';

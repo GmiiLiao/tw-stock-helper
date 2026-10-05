@@ -13,10 +13,10 @@ export type WarEventLevel = 1 | 2 | 3;
 export type WarEventSource = 'O' | 'M';
 
 export type WarEventKind =
-  | 'stopLoss'        // 一級：持股觸及停損（依 AI 停損規範 stop-v1 由前端判定，見 TopAlertEngine／warroom-mine；daemon 舊制停損推播降二級 'mine'）
+  | 'stopLoss'        // 一級：持股觸及停損（AI 停損規範 stop-v1.1；停損簿生效前由前端判定〔A7 單一裝置·暫算〕、daemon 舊制停損推播降二級 'mine'；生效後讀 daemon）
   | 'limitDownQueue'  // 一級：持股跌停排隊（2 期）
   | 'limitOpen'       // 一級：持股漲停開板（2 期）
-  | 'majorNegative'   // 一級：持股出現 AI 讀過內文判定的重大利空（目前只有規則法律；權重門檻類待使用者裁定前發二級 'newsVerdict'，見 warroom-news.mjs）
+  | 'majorNegative'   // 一級：持股出現規則類重大利空（類別權重 ≥0.7；0.3–0.7 發二級 'newsVerdict'；影響權重 w 不發，見 warroom-news.mjs）
   | 'marketDanger'    // 一級：大盤翻轉危險（09:10 後、跌停 ≥10 且 ≥ 漲停×1.5、連續 2 拍）
   | 'holdingLimitUp'  // 二級：持股鎖漲停
   | 'watchPrice'      // 二級：自選觸及自設價

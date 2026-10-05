@@ -5,7 +5,7 @@
 // 試撮中只保留不含價格的兩列（今日不能做、盤前新聞）。持股試撮指示價＝2 期，本次不出現。
 // 資料：pulse.focus.script（limitQueue／asiaPremarket）＋匯流排指數的 usMarket（那指期、台積電 ADR）
 //       ＋useRiskCodes（處置／注意，站上既有來源，模組層級快取）
-//       ＋board.news 精簡表（盤前新聞：AI 新聞識讀·媒體 M，與 A1 燈、Z2、B2 同一份；權重先驗·未校準，只表強弱，不當排序鍵）。
+//       ＋board.news 精簡表（盤前新聞：AI 新聞識讀·媒體 M，與 A1 燈、Z2、B2 同一份；影響權重研究期·只顯示，只表強弱，不當排序鍵）。
 import type { ReactNode } from 'react';
 import { useRiskCodes, type RiskInfo } from '@/lib/useRiskCodes';
 import { focusPartActive, FOCUS_WINDOW } from '../../../scripts/lib/warroom-focus-codec.mjs';
@@ -25,7 +25,7 @@ import styles from './WarRoomV2.module.css';
 import css from './ZoneFocus.module.css';
 
 const NEWS_LINE_TITLE = `只列持股與自選的盤後／夜補／晨間判別；AI 讀過內文才算判別，沒涵蓋的標「未判別」。`
-  + `排序依類別與時間（規則法律→利空→利多→中性→關注度→◆非今日適用），不依權重；強弱依影響權重（${NEWS_WEIGHT_NOTE}）。`
+  + `排序依類別與時間（規則類利空→利空→利多→中性→關注度→◆非今日適用），不依權重；強弱依影響權重（${NEWS_WEIGHT_NOTE}）。`
   + `承接、前一交易日或沒走四角色挑戰（可能是舊聞回退）的標 ◆、不列強弱。非投資建議`;
 const QUEUE_TITLE = '買一貼漲停×賣一全空×當日最高尚未觸及漲停＝排隊搶漲停（尚未成交上去，不是已漲停）；張數＝買一委買張數';
 

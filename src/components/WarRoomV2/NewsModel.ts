@@ -5,7 +5,7 @@
 //   useNewsBoard()  精簡表＋與「今日適用交易日」的關係（ctx）＋Z2 條件 B 的時間下限；讀取失敗沿用上一份
 //   useNewsPool()   使用者自己的持股／自選／當日釘選（同一份表在前端過濾，網址不帶個人參數）
 //   useMopsIndex()  今日官方重訊索引（O 管線；只做「重訊」徽章，不併入新聞權重）
-// 規則與文案的唯一實作在 scripts/lib/warroom-news.mjs（權重＝rankMediaVerdicts，先驗·未校準，只顯示強弱與警示門檻）。
+// 規則與文案的唯一實作在 scripts/lib/warroom-news.mjs（權重＝rankMediaVerdicts，研究期·只顯示強弱；Z2 看規則類別）。
 // ─────────────────────────────────────────────────────────────────────────────
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
