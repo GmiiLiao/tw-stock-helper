@@ -43,6 +43,7 @@ import {
   newsLampView, majorBearOf, isNewsUniverse, newsKpi, type NewsLampView, type MajorBear,
 } from '../../../scripts/lib/warroom-news.mjs';
 import { useNewsBoard, type NewsBoardView } from './NewsModel';
+import { indexAsOf } from './TopView';
 
 /** 顯示價的性質：live 盤中報價｜close 收盤後／休市｜yclose 盤前顯示昨收｜indicative 收盤競價試撮指示價｜none 尚無報價 */
 export type PriceMode = 'live' | 'close' | 'yclose' | 'indicative' | 'none';
@@ -391,7 +392,7 @@ export function usePreAuction(quotes: Readonly<Record<string, WarQuote>>, segmen
 
 /** A1 的資料（ZoneMine 用）。須在 WarRoomProvider 內。 */
 export function useMineModel(): MineModel {
-  const { quotes, segment, clock, now } = useWarData();
+  const { quotes, segment, clock, now, index } = useWarData();
   const { pinned } = useWarUi();
   const holdings = useAppStore((s) => s.holdings);
   const allStocks = useAppStore((s) => s.allStocks);
@@ -411,9 +412,16 @@ export function useMineModel(): MineModel {
     return m;
   }, [allStocks, codesKey]);
 
-  return useMemo(() => buildMineModel({
-    holdings, pinned, quotes, stocks, segment, clock, now, broker, structRefs, risk, news, preAuction, stopBook,
-  }), [holdings, pinned, quotes, stocks, segment, clock, now, broker, structRefs, risk, news, preAuction, stopBook]);
+  const closeAsOf = indexAsOf(index);
+  return useMemo(() => {
+    const m = buildMineModel({
+      holdings, pinned, quotes, stocks, segment, clock, now, broker, structRefs, risk, news, preAuction, stopBook,
+    });
+    // 收盤後報價來自收盤資料（沒有揭示時戳）⇒ 資料章改用指數自報的收盤時間（■ 收盤），不要標「無資料」
+    const closed = segment === 'closing' || segment === 'after' || segment === 'nontrading';
+    const hasPrice = [...m.rows, ...m.pins].some((r) => (r.quote?.price ?? 0) > 0);
+    return m.asOf == null && closed && hasPrice && closeAsOf != null ? { ...m, asOf: closeAsOf } : m;
+  }, [holdings, pinned, quotes, stocks, segment, clock, now, broker, structRefs, risk, news, preAuction, stopBook, closeAsOf]);
 }
 
 export interface DrawerStop {
