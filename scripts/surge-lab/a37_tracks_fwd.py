@@ -74,7 +74,8 @@ def prewire_gate(out: str, p: dict = None, cfg: dict = None, overlap: dict = Non
       · 證明必須綁定正式環境：前向快取與鏡像根目錄（realpath）＝本次 p、PREWIRE_CODE 的 sha256＝現在的程式（改了就要重跑 prewire）。
         演練（rehearsal）只把路徑不符記成 rehearsal_binding，不擋。
       · 封印決定（FDEV-007）：比對程式（a37_tracks_dispatt.py）的 sha256 要登錄（OVERLAP-CHECK 列）；本版已封印 fail ⇒ 擋；
-        其他版本封印的 fail（含第一版接線前證明內的 fail）要有 OVERLAP-SUPERSEDE 列（相對路徑＋封印）才算被取代，否則擋。"""
+        其他版本封印的 fail（含第一版接線前證明內的 fail）要有 OVERLAP-SUPERSEDE 列（相對路徑＋封印＋「使用者核可 YYYY-MM-DD」）才算被取代，
+        否則擋（FDEV-007 補記一：取代封印決定要使用者裁定，同 APPROVAL_RE／G60-RULING）。"""
     pw = IO.read_json(os.path.join(out, PREWIRE_PATH))
     if not pw or not IO.verify_seal(pw):
         return dict(ok=False, why='沒有接線前證明（python3 a37_tracks_fwd.py prewire）或封印不符')
@@ -98,6 +99,8 @@ def prewire_gate(out: str, p: dict = None, cfg: dict = None, overlap: dict = Non
     if da == 'pending' and not pending_ok:
         bad.append('disp_att_overlap=pending（處置／注意鏡像與 v2 釘住檔的重疊比對尚未證明；登錄要求第一份凍結前證明，'
                    '例外需 forward_config.allowDispAttPending 的使用者核可，FDEV-001／FDEV-005）')
+    elif da == 'error':
+        bad.append(f'disp_att_overlap=error（重疊比對程式出錯或超過時間預算：{str((overlap or {}).get("why") or "")[:200]}；不得凍結）')
     elif da not in ('pass', 'pending'):
         bad.append(f'disp_att_overlap={da}（比對不同：先寫前向偏差並由使用者裁定，不得凍結）')
     dec = DA.decision_state(out, devlog)
@@ -199,7 +202,16 @@ def freeze_core(I, ctx, day, target) -> dict:
         return dict(day=day, result='gap', write=write_gap(p, ctx, day, target, '計算完成時已過目標日 09:00（凍結後時鐘閘）'))
     doc['frozen_time'] = IO.iso_tw(now2)
     w = IO.write_once(SC.core_path(out, day), IO.sealed(doc))
-    return dict(day=day, result=w, seal=IO.seal_of(doc))
+    return dict(day=day, result=w, seal=IO.seal_of(doc), **frozen_disp_unknown(doc, day))
+
+
+def frozen_disp_unknown(doc: dict, day: str) -> dict:
+    """凍結檔的處置未知（FDEV-002／FDEV-007）：哪些市場的 DK_s 整個記成未知、其中哪些是缺「s 當天」的鏡像處置列。
+    鏡像落後告警（disp_att_live）只要求到前一交易日；s 當天缺（22:40 那輪沒抓到、23:10 照常凍結）只有這裡看得到 ⇒ 告警 DISP_S_MISSING（error）。
+    只回報，不改凍結內容、不改 C4（C4 要不要等，屬判定語意，另需前向偏差＋使用者核可）。"""
+    su = ((doc.get('disposal_attention') or {}).get('strict_unknown')) or {}
+    unk = {src: list(w.get('disposal_missing_days') or []) for src, w in su.items() if (w or {}).get('disposal_missing_days')}
+    return dict(dk_unknown_markets=unk, disp_s_missing=sorted(src for src, days in unk.items() if day in days))
 
 
 # ───────────────────────── 評分、parity ─────────────────────────
@@ -469,9 +481,13 @@ def disp_att_overlap(p, I=None) -> dict:
     return DA.overlap_check(p, panel)
 
 
-def overlap_now(p, out, I=None) -> dict:
-    """每輪重算重疊比對；狀態檔可覆寫，本版比對（sha256）第一次落定 pass／fail 另寫封印決定檔（只寫一次；舊版決定檔與證明一律保留）。"""
-    ov = disp_att_overlap(p, I)
+def overlap_now(p, out, I=None, daily: bool = False) -> dict:
+    """重疊比對（狀態檔可覆寫）；本版比對（sha256）第一次落定 pass／fail 另寫封印決定檔（只寫一次；舊版決定檔與證明一律保留）。
+    daily＝True：本版已封印、窗內輸入指紋相同就沿用封印結果；否則在固定窗內重算，超過 DA.DAILY_BUDGET_S 丟 DA.BudgetExceeded（FDEV-007 補記一）。"""
+    if daily and I is not None:
+        ov = DA.overlap_daily(p, dict(dates=I['dates'], codes=I['codes'], mkt=I['mkt']), out)
+    else:
+        ov = disp_att_overlap(p, I)
     IO.write_json_atomic(os.path.join(out, OVERLAP_PATH), ov)
     return dict(ov, decided_record=DA.record_decision(out, ov))
 
@@ -568,15 +584,15 @@ def run_daily(a, p, st) -> int:
     st['sync'] = {k: dict(last=v['last'], added=v['added'][-5:]) for k, v in man['official'].items() if k in ('twse_limit', 'tpex_daily')}
     st['sync']['disp_att'] = {k: dict(days=v['days'], last=v['last'], problems=len(v['problems'])) for k, v in man['disp_att'].items()}
     I = C.load_inputs(p)                                  # 重疊比對的推導層要面板（FDEV-007）
-    try:
-        ov = overlap_now(p, p['out'], I)                  # 每輪重算重疊比對：本版比對第一次落定 pass／fail 寫封印決定檔（fail 擋凍結）
-    except Exception as e:                                # 比對程式本身出錯：記 error（閘門照擋），評分與摘要照跑
+    try:                                                  # 本版已封印且窗內輸入沒變 ⇒ 沿用；否則固定窗重算（有時間預算；FDEV-007 補記一）
+        ov = overlap_now(p, p['out'], I, daily=True)      # 本版比對第一次落定 pass／fail 寫封印決定檔（fail 擋凍結）
+    except Exception as e:                                # 比對程式出錯或超過時間預算：記 error（閘門照擋），評分與摘要照跑
         st['errors'].append(dict(step='disp_att_overlap', error=f'{type(e).__name__}: {e}'[:600], trace=traceback.format_exc()[-1500:]))
         ov = dict(status='error', why=f'重疊比對程式出錯：{type(e).__name__}: {e}'[:300])
     ctx['prewire'] = prewire_gate(p['out'], p, cfg, ov, rehearsal=bool(a.rehearsal))
     ctx['disp_att_live'] = disp_att_live(p, cal, today)
     st['prewire_gate'] = {k: ctx['prewire'].get(k) for k in ('ok', 'why', 'statuses', 'disp_att_pending_approval', 'rehearsal_binding', 'overlap_decision')}
-    st['disp_att_overlap'] = {k: ov.get(k) for k in ('status', 'why', 'days_total', 'check', 'decided_record')}
+    st['disp_att_overlap'] = {k: ov.get(k) for k in ('status', 'why', 'days_total', 'check', 'decided_record', 'window', 'reused')}
     st['disp_att_live'] = ctx['disp_att_live']
     st['pins_ok'] = I['pins']['ok']
     st['pins_mismatches'] = I['pins']['mismatches']
@@ -601,6 +617,8 @@ def run_daily(a, p, st) -> int:
             st['frozen'].append(freeze_core(I, ctx, x['date'], x['nextTD']))
         except Exception as e:                          # 單日失敗不中止
             st['errors'].append(dict(step=f'freeze {x["date"]}', error=f'{type(e).__name__}: {e}'[:600], trace=traceback.format_exc()[-1500:]))
+    st['disp_s_missing'] = [dict(day=f['day'], markets=f['disp_s_missing'], missing_days=f.get('dk_unknown_markets'))
+                            for f in st['frozen'] if f.get('result') == 'written' and f.get('disp_s_missing')]   # 告警 DISP_S_MISSING（tracksAlerts）
     for name, fn in (('score', score_all), ('parity', parity_all)):
         try:
             st[name] = fn(I, ctx)

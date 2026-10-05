@@ -458,6 +458,29 @@ def test_prewire_gate_pass_only_binding_and_approval():
     assert FWD.prewire_gate(out, p, overlap=dict(status='pass'))['ok'] is False
 
 
+def test_frozen_disp_unknown_flags_missing_day_s():
+    """凍結時處置鏡像缺 s 當天（22:40 那輪沒抓到、23:10 照常凍結）⇒ 該市場 DK_s 記未知，回報 disp_s_missing（告警 DISP_S_MISSING）；
+    只缺更早的日子只記 dk_unknown_markets（鏡像落後告警另有 DISP_ATT_LAG）。"""
+    doc = dict(disposal_attention=dict(strict_unknown=dict(
+        TWSE=dict(disposal_missing_days=[], attention_missing_days=['2026-10-06']),
+        TPEx=dict(disposal_missing_days=['2026-10-06', '2026-10-07'], attention_missing_days=[]))))
+    r = FWD.frozen_disp_unknown(doc, '2026-10-07')
+    assert r == dict(dk_unknown_markets={'TPEx': ['2026-10-06', '2026-10-07']}, disp_s_missing=['TPEx']), r
+    assert FWD.frozen_disp_unknown(doc, '2026-10-08')['disp_s_missing'] == []
+    assert FWD.frozen_disp_unknown({}, '2026-10-07') == dict(dk_unknown_markets={}, disp_s_missing=[])
+    orig_l, orig_b = C.listing_asof, C.build_core
+    C.listing_asof = lambda root, day: dict(snaps={}, names={}, files={}, sha256='x')
+    C.build_core = lambda I, s, target, lst, extra: dict(extra, date_s='2026-10-05', t=target, lists={}, disposal_attention=dict(strict_unknown=dict(
+        TWSE=dict(disposal_missing_days=['2026-10-05'], attention_missing_days=[]), TPEx=dict(disposal_missing_days=[], attention_missing_days=[]))))
+    try:
+        out, cache = _tmp(), _tmp()
+        I, ctx = _fake_freeze_inputs(out, cache)
+        r = FWD.freeze_core(I, ctx, '2026-10-05', '2026-10-06')
+        assert r['result'] == 'written' and r['disp_s_missing'] == ['TWSE'], r                # 凍結照寫（不擋、不改內容），但回報給告警
+    finally:
+        C.listing_asof, C.build_core = orig_l, orig_b
+
+
 if __name__ == '__main__':
     tests = [v for k, v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
     for t in tests:

@@ -123,7 +123,9 @@ python3 a35_shadow_list.py --day 2026-10-05        # 目標日由休市日曆推
 - 處置／注意重疊比對（`a37_tracks_dispatt.py`，FDEV-007）：鏡像鍵 D 的處置列＝**處置期間含 D**（不是 D 公布的）、注意列＝日期＝D；
   「編號」與處置「累計」、上市注意「累計次數」隨查詢區間變，不比。另以前向合併＋截斷＋未知規則重建 DK_s／at_known5／20／t 日起處置，與釘住檔逐檔比較。
   每版比對（檔案 sha256）第一次落定 pass／fail 寫一次 `prewire/tracks_fwd_dispatt_overlap_<sha256>_<狀態>.json`；改比對程式要在偏差紀錄加
-  `OVERLAP-CHECK` 列，舊版封印的 fail 要有 `OVERLAP-SUPERSEDE` 列（相對路徑＋封印）才算被取代（舊檔保留）。
+  `OVERLAP-CHECK` 列，舊版封印的 fail 要有 `OVERLAP-SUPERSEDE` 列（相對路徑＋封印＋**使用者核可 YYYY-MM-DD**）才算被取代（舊檔保留）。
+  比對窗固定 2026-08-21～2026-10-02（鏡像回補不擴大）；daily 本版已封印且窗內輸入指紋沒變就沿用、不重算，要重算時有 240 秒預算（超過記 error、擋凍結）。
+  凍結時鏡像缺 s 當天的處置列 ⇒ 該市場 DK_s 記未知並告警 `DISP_S_MISSING`（FDEV-007 補記一）。
 - 告警：`out/tracks_fwd/_alerts/LATEST.json`（每輪覆寫）；釘選不符、接線前證明不成立、新缺口、C6、程式失敗記成 `tracks-health` 步驟失敗（a35 狀態檔與後台可見）。
 - 本機紀錄全部不進版控；逐位副本在 `surgeShadow/tracks-raw-*`（發佈時讀回比對 sha256）。本機目錄遺失：`node a37_tracks_publish.mjs --restore`（只補不存在的檔）。
 - 偏差紀錄：`tracks/DEVIATIONS_t1_tracks_forward.md`（FDEV-001～007）。G60 HALT 的使用者裁定寫成一行 `G60-RULING: CONTINUE <日期> …`。

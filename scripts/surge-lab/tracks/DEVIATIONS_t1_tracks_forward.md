@@ -173,3 +173,30 @@ OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json fa0da7c505e01
   確認 `disp_att_overlap＝pass` 並寫出本版決定檔；22:47 那份證明保留、由上面的 OVERLAP-SUPERSEDE 列取代。
 
 *影子模式·未扣成本·非投資建議。*
+
+---
+
+## FDEV-007 補記一　重疊比對窗固定、daily 沿用封印決定＋時間預算、取代封印 fail 必須有使用者核可、凍結時缺 s 當天處置鏡像要告警
+
+- **日期／階段**：2026-10-05 深夜（FDEV-007 審查之後、分支 `claude/tracks-fwd-dispatt` 合併前）；總開關仍是 `enabled:false`，沒有任何前向凍結、標籤或報酬；正式 `out/tracks_fwd/` 沒有被寫。
+- **為什麼是補記、不是新編號**：FDEV-007 尚未合併進 main，也沒有任何正式封印記錄引用它的文字；FDEV-008 已在另一分支佔用編號並被 commit 雜湊引用。本段只往後追加，修的是 FDEV-007 本身的實作與規則；使用者對 FDEV-007 的裁定一併涵蓋本段。
+- **審查發現與修正**：
+  1. **比對窗沒有下限（HIGH）**：官方鏡像回補（twse_punish／twse_notice／tpex_bulletin_* 的 from＝2022-07-18，10-05 回補紀錄 pending 27,176）會把列層與推導層的窗一路擴大到 2022。推導層每個決策日都重讀、重合併 (cut, d] 的全部鏡像檔，成本隨天數平方成長，而 daily 在凍結之前跑 ⇒ 會超過協調器 10 分鐘逾時（被終止，不會記成 error），凍結整步做不成、前向日變成永不補產的缺口；而且 2022～2025 任一天的列層差異都會讓 status＝fail 擋凍結。
+     **修正**：比對窗固定為 `[OVERLAP_FROM＝2026-08-21, BASE_TO＝2026-10-02]`（FDEV-007 驗過的 29 個交易日），窗外的鏡像日一律不讀；同一次比對內每個鏡像檔只讀一次（`_payload_cache`）；推導層處置區間為空時拒絕比對（`disposal.build_matrices` 對空串列會改讀預設研究快取，不可默默換資料）。
+  2. **daily 每輪重算（HIGH）**：封印決定檔另記窗內輸入指紋 `window.fingerprint`（四個資料集窗內 manifest 列、釘住檔 sha256、面板日期／代號／市場別）。daily 若本版比對已封印決定且指紋相同 ⇒ 直接沿用封印結果、不重算；指紋不同才在固定窗內重算，時間預算 240 秒（`DAILY_BUDGET_S`），超過丟 `BudgetExceeded` ⇒ 記 `disp_att_overlap=error`、閘門照擋，評分與摘要照跑。完整重算只在 prewire 或窗內輸入變動時發生。
+  3. **取代封印 fail 沒有使用者裁定（MEDIUM）**：FDEV-001 寫明「比對不同就要再寫一筆偏差並由使用者裁定」。取代列改為必須帶合法日期的「使用者核可 YYYY-MM-DD」才算數（與 `allowDispAttPending` 的 APPROVAL_RE、`G60-RULING` 一致），格式：
+     `OVERLAP-SUPERSEDE: <out/tracks_fwd 內相對路徑> <封印> <FDEV-編號> 使用者核可 YYYY-MM-DD（說明）`
+     **FDEV-007 原本登錄的取代列（沒有核可）從本版起不算數**：使用者裁定前，正式環境重跑 prewire 閘門照擋（訊息「…OVERLAP-SUPERSEDE 列缺『使用者核可 YYYY-MM-DD』」）。使用者核可後，由執行者在本檔末尾**追加**一行（上面任何一行都不改）：
+     `OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json fa0da7c505e01ead98737c579876ac7c29b2d564c0cdfb18a733449b10d780e4 FDEV-007 使用者核可 <日期>`
+  4. **凍結時缺 s 當天的處置鏡像沒有告警（MEDIUM）**：DK_s 要 s 當天的鏡像列（FDEV-007），但鏡像落後告警只要求到前一交易日、C4 恆為 ok ⇒ 22:40 那輪若沒抓到 s 當天，23:10 會照常凍結、該市場 DK_s 整個記未知（寫一次）而沒有任何告警。
+     **修正**：凍結結果與狀態檔記 `disp_s_missing`（市場與缺的日子），協調器告警 `DISP_S_MISSING`（error 級，tracks-health 步驟失敗）。**C4 語意不改**（要不要等下一輪再凍結屬判定語意，另需前向偏差與使用者核可）。
+  5. 閘門對 `disp_att_overlap=error` 改說「重疊比對程式出錯或超過時間預算」（原本誤寫成「比對不同」）。
+- **實測**（正式前向快取的 APFS 複本、正式鏡像唯讀、輸出在 scratch）：新版比對四個資料集各 29 天、列層 0 天不同（146／482／483／611 列）；推導層 DK_s、at_known5、at_known20 各 29 個決策日、t 日起處置 28 個決策日，0 格不同、0 格未知 ⇒ pass，耗時 33 秒；之後 daily 沿用封印結果 0.01 秒。合成 338 個鏡像日（回補一年多）、窗外一天內容不同：只讀窗內 21 天、每個鏡像檔只讀一次、判定 pass、0.7 秒；同一份資料把窗下限改到 2000 年，列層就抓到窗外那一天（證明窗外不再影響判定）。
+- **本筆登錄的列**：
+
+OVERLAP-CHECK: a37_tracks_dispatt.py 2dee18c7438493fa83b63775886df6ef7a7f991972293dbec0a3c901fdfc18f5
+
+- **當下已看過的前向結果**：無。**對判定的可能影響**：無（清單、排名、RAND、判定規則與門檻、C4 都沒改；改的是比對窗、比對的執行方式、取代規則的核可要求與告警）。
+- **啟用前仍要做**：①使用者裁定 FDEV-007（含本補記），並依第 3 點追加核可列；②在主 checkout 重跑 `python3 a37_tracks_fwd.py prewire`（`PREWIRE_CODE` 含 `a37_tracks_dispatt.py`，本版 sha256 變了），確認寫出 `prewire/tracks_fwd_dispatt_overlap_2dee18c7…_pass.json` 且 `prewire_gate.ok=true`。
+
+*影子模式·未扣成本·非投資建議。*

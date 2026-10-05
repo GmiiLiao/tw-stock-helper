@@ -9,6 +9,7 @@ import gzip
 import json
 import os
 import tempfile
+import time
 
 import numpy as np
 
@@ -53,10 +54,10 @@ def _roc(d, sep='/'):
     return f'{int(y) - 1911}{sep}{m}{sep}{dd}'
 
 
-def _attn():
+def _attn(dates=None):
     """每個交易日兩市各一筆面板外的填充列（避免研究的「零筆日」遮罩讓比對變空）＋幾筆面板內的注意股。"""
     rows = []
-    for d in DATES:
+    for d in (dates or DATES):
         rows.append(('TWSE', '9998', d, '當日週轉率達 9%﹝第十款﹞。'))
         rows.append(('TPEx', '9997', d, '當日週轉率達 9%(第十款)'))
     rows += [('TWSE', '2330', '2026-09-03', '最近六個營業日累積收盤價漲幅達 32%﹝第一款﹞。'),
@@ -69,10 +70,10 @@ def _attn():
     return rows
 
 
-def _query(lo, hi):
+def _query(lo, hi, dates=None):
     """官方端點在查詢區間 [lo, hi] 的回應（各資料集的 data 列）：處置＝處置期間與區間重疊；注意＝日期在區間內。
     編號＝結果內序號；處置「累計」與上市注意「累計次數」＝結果內該代號的列數（查詢區間相依）；上櫃注意「累計」固定。"""
-    out = {}
+    out, attn = {}, _attn(dates)
     for mk in ('TWSE', 'TPEx'):
         ds = [x for x in DISPOSALS if x[0] == mk and x[3] <= hi and x[4] >= lo]
         cnt = {c: sum(1 for y in ds if y[1] == c) for _, c, *_ in ds}
@@ -82,7 +83,7 @@ def _query(lo, hi):
         else:
             out[('disposal', mk)] = [[i + 1, _roc(p), c, f'名{c}', cnt[c], f'{_roc(a)}~{_roc(b)}', cond, '第一次處置', '內容', '10', '20', '']
                                      for i, (_, c, p, a, b, cond) in enumerate(ds)]
-        at = [x for x in _attn() if x[0] == mk and lo <= x[2] <= hi]
+        at = [x for x in attn if x[0] == mk and lo <= x[2] <= hi]
         ca = {c: sum(1 for y in at if y[1] == c) for _, c, *_ in at}
         if mk == 'TWSE':
             out[('attention', mk)] = [[i + 1, c, f'名{c}', str(ca[c]), txt, _roc(d, '.'), '10.0', '---'] for i, (_, c, d, txt) in enumerate(at)]
@@ -100,21 +101,27 @@ def _gz(path, obj):
         json.dump(obj, f, ensure_ascii=False)
 
 
-def _world(mirror_days=MIRROR_DAYS, tweak=None):
-    """釘住檔＝逐月查詢（2026-08、2026-09）串接；鏡像＝逐日查詢。tweak(kind_mkt, day, rows) 可改某天的鏡像列。"""
+def _months(dates):
+    ms = sorted({d[:7] for d in dates})
+    return [(f'{m}-01', f'{m}-31') for m in ms]
+
+
+def _world(mirror_days=MIRROR_DAYS, tweak=None, dates=None):
+    """釘住檔＝逐月查詢（面板涵蓋的每個月）串接；鏡像＝逐日查詢。tweak(kind_mkt, day, rows) 可改某天的鏡像列。"""
     root, F = tempfile.mkdtemp(prefix='dartroot'), tempfile.mkdtemp(prefix='dartcache')
-    months = [('2026-08-01', '2026-08-31'), ('2026-09-01', '2026-09-30')]
+    months = _months(dates) if dates else [('2026-08-01', '2026-08-31'), ('2026-09-01', '2026-09-30')]
     base = {k: [] for k in FIELDS}
     for lo, hi in months:
-        for k, rows in _query(lo, hi).items():
+        for k, rows in _query(lo, hi, dates).items():
             base[k] += rows
+    daily = {day: _query(day, day, dates) for day in mirror_days}
     for k, (host, ds, fname, code_col) in SY.DISP_ATT.items():
         os.makedirs(os.path.join(F, 'base'), exist_ok=True)
         json.dump(dict(fields=FIELDS[k], data=base[k]), open(os.path.join(F, 'base', fname), 'w', encoding='utf-8'), ensure_ascii=False)
         d = os.path.join(root, host, ds)
         man = dict(rows={})
         for day in mirror_days:
-            rows = _query(day, day)[k]
+            rows = daily[day][k]
             if tweak:
                 rows = tweak(k, day, rows)
             man['rows'][day] = dict(status='ok' if rows else 'empty', echo=day, final=True, file=f'{day}.json.gz')
@@ -205,6 +212,80 @@ def test_derived_layer_catches_unknown_rule_that_skips_day_s():
     assert any(x['day'] == '2026-09-15' and x['field'] == 'dk_s' and '1101' in x['codes'] for x in r['derived']['diffs'])
 
 
+# ───────────────────────── 固定窗、daily 沿用、時間預算（FDEV-007 補記一）─────────────────────────
+LONG_DATES = _weekdays('2025-05-01', '2026-09-30')
+LONG_MIRROR = _weekdays('2025-06-02', '2026-09-18')                      # 回補到一年多前：338 個鏡像日（窗內只有 2026-08-21～09-18）
+
+
+def test_window_is_fixed_when_mirror_backfills_long_history():
+    """鏡像回補 300 多天：比對只讀 [OVERLAP_FROM, BASE_TO]，窗外的列層差異不影響判定，讀檔量與耗時有上限。"""
+    assert len(LONG_MIRROR) >= 300 and DA.OVERLAP_FROM == '2026-08-21'
+
+    def old_diff(k, day, rows):                                          # 窗外（2025-12-15）注意列內容不同：舊版無下限的比對會 fail
+        if k == ('attention', 'TWSE') and day == '2025-12-15':
+            return [r[:4] + ['不同的注意交易資訊'] + r[5:] for r in rows]
+        return rows
+    p = _world(mirror_days=LONG_MIRROR, tweak=old_diff, dates=LONG_DATES)
+    reads = []
+    real = SY.mirror_payload
+
+    def counting(root, host, ds, key, row):
+        reads.append(key)
+        return real(root, host, ds, key, row)
+    t0 = time.monotonic()
+    with _base_to(OVERLAP_TO), SY._patched(SY, 'mirror_payload', counting):
+        r = DA.overlap_check(p, dict(dates=LONG_DATES, codes=CODES, mkt=MKT))
+    took = time.monotonic() - t0
+    in_window = [d for d in LONG_MIRROR if DA.OVERLAP_FROM <= d <= OVERLAP_TO]
+    assert r['status'] == 'pass', r['why']
+    assert all(v['days_compared'] == len(in_window) and v['first'] == DA.OVERLAP_FROM for v in r['datasets'].values()), r['datasets']
+    assert r['derived']['first'] == DA.OVERLAP_FROM and r['derived']['fields']['dk_s']['days'] == len(in_window)
+    assert reads and min(reads) >= DA.OVERLAP_FROM, min(reads)                 # 窗外的鏡像檔一個都不讀
+    assert len(set(reads)) <= 4 * len(in_window) and len(reads) <= 4 * len(in_window), (len(reads), len(in_window))   # 每個鏡像檔只讀一次
+    assert r['window']['lo'] == DA.OVERLAP_FROM and r['window']['hi'] == OVERLAP_TO and len(r['window']['fingerprint']) == 64
+    assert took < 60, f'固定窗比對耗時 {took:.1f}s'
+
+
+def test_daily_reuses_sealed_decision_until_window_inputs_change():
+    out, p = tempfile.mkdtemp(prefix='dartout'), _world()
+    with _base_to(OVERLAP_TO):
+        ov = DA.overlap_check(p, PANEL)
+        assert ov['status'] == 'pass' and DA.record_decision(out, ov) == 'written'
+
+        def boom(*a, **k):
+            raise AssertionError('不該重算推導層')
+        with SY._patched(DA, 'derived_level', boom):
+            r = DA.overlap_daily(p, PANEL, out)
+            assert r['status'] == 'pass' and r['reused']['rel'].startswith('prewire/tracks_fwd_dispatt_overlap_' + DA.check_sha256())
+            assert DA.record_decision(out, r).startswith('exists:')
+            host, ds = SY.DISP_ATT[('attention', 'TPEx')][:2]
+            mp = os.path.join(p['official_root'], host, ds, '_manifest.json')
+            man = json.load(open(mp))
+            man['rows']['2026-08-03'] = dict(status='empty', echo='2026-08-03', final=True, file='2026-08-03.json.gz')   # 窗外回補：照樣沿用
+            json.dump(man, open(mp, 'w'))
+            assert DA.overlap_daily(p, PANEL, out)['reused'] is not None
+            man['rows']['2026-09-10']['sha256'] = 'f' * 64                   # 窗內鏡像列換了：必須重算
+            json.dump(man, open(mp, 'w'))
+            try:
+                DA.overlap_daily(p, PANEL, out)
+                raise RuntimeError('窗內輸入變了卻沒有重算')
+            except AssertionError as e:
+                assert '不該重算' in str(e)
+        r = DA.overlap_daily(p, dict(PANEL, codes=CODES[:4], mkt=MKT[:4]), out)  # 面板代號變了也重算（不沿用）
+        assert r.get('reused') is None and r['status'] in ('pass', 'pending', 'fail')
+
+
+def test_daily_recompute_has_time_budget():
+    p = _world()
+    with _base_to(OVERLAP_TO):
+        try:
+            DA.overlap_check(p, PANEL, budget_s=-1)
+            raise RuntimeError('超過時間預算卻沒有中止')
+        except DA.BudgetExceeded as e:
+            assert '時間預算' in str(e)
+    assert issubclass(DA.BudgetExceeded, Exception)                         # run_daily 的 except Exception 接得到 ⇒ 記 error、閘門照擋
+
+
 # ───────────────────────── 決定記錄與取代 ─────────────────────────
 def _devlog(lines):
     p = os.path.join(tempfile.mkdtemp(prefix='dartlog'), 'dev.md')
@@ -241,11 +322,18 @@ def test_decision_state_registration_sealed_fail_and_supersede():
                   IO.sealed(dict(kind='t1-tracks-prewire', checks=dict(disp_att_overlap=dict(status='fail')))))   # 第一版：無 check sha
     st = DA.decision_state(out, _devlog([reg]), sha=cur)
     assert st['ok'] is False and '未被取代' in st['why']
-    wrong = f'OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json {"0" * 64} FDEV-007'
+    wrong = f'OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json {"0" * 64} FDEV-007 使用者核可 2026-10-06'
     assert DA.decision_state(out, _devlog([reg, wrong]), sha=cur)['ok'] is False                       # 封印不對＝沒有取代
-    sup = f'OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json {legacy["seal"]} FDEV-007'
+    bare = f'OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json {legacy["seal"]} FDEV-007'
+    st = DA.decision_state(out, _devlog([reg, bare]), sha=cur)                                        # 實作者自填、沒有使用者核可＝不算
+    assert st['ok'] is False and '缺「使用者核可' in st['why'] and st['superseded'] == [], st
+    bad_date = bare + ' 使用者核可 2026-13-45'
+    assert DA.decision_state(out, _devlog([reg, bad_date]), sha=cur)['ok'] is False                   # 日期不合法＝不算
+    sup = bare + ' 使用者核可 2026-10-06（FDEV-007 比對錯誤的裁定）'
     st = DA.decision_state(out, _devlog([reg, sup]), sha=cur)
     assert st['ok'] is True and st['superseded'][0]['by'] == 'FDEV-007'
+    st = DA.decision_state(out, _devlog([reg, bare, sup]), sha=cur)                                   # 先有無核可列、後補核可列：以核可列為準
+    assert st['ok'] is True
     assert os.path.exists(os.path.join(out, 'prewire', 'tracks_fwd_prewire_20261005T224747.json'))      # 舊檔保留
     _put(out, f'prewire/tracks_fwd_dispatt_overlap_{cur}_fail.json', IO.sealed(dict(status='fail', check=dict(sha256=cur))))
     st = DA.decision_state(out, _devlog([reg, sup]), sha=cur)
@@ -269,10 +357,15 @@ def test_prewire_gate_blocks_unsuperseded_legacy_fail():
                   IO.sealed(dict(kind='t1-tracks-prewire', checks=dict(disp_att_overlap=dict(status='fail')))))
     g = FWD.prewire_gate(out, p, overlap=dict(status='pass'), devlog=_devlog([reg]))
     assert g['ok'] is False and '未被取代' in g['why']
-    sup = f'OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json {legacy["seal"]} FDEV-007'
+    bare = f'OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json {legacy["seal"]} FDEV-007'
+    g = FWD.prewire_gate(out, p, overlap=dict(status='pass'), devlog=_devlog([reg, bare]))
+    assert g['ok'] is False and '使用者核可' in g['why']                                              # 合併後重跑 prewire 也不會機械放行
+    sup = bare + ' 使用者核可 2026-10-06'
     g = FWD.prewire_gate(out, p, overlap=dict(status='pass'), devlog=_devlog([reg, sup]))
     assert g['ok'] is True and g['overlap_decision']['superseded'][0]['rel'] == 'prewire/tracks_fwd_prewire_20261005T224747.json'
     assert FWD.prewire_gate(out, p, overlap=dict(status='pass'), devlog=_devlog([sup]))['ok'] is False   # 本版比對沒登錄
+    g = FWD.prewire_gate(out, p, overlap=dict(status='error', why='超過時間預算'), devlog=_devlog([reg, sup]))
+    assert g['ok'] is False and 'disp_att_overlap=error' in g['why'] and '時間預算' in g['why']
 
 
 def test_current_check_is_registered_in_forward_deviation_log():
