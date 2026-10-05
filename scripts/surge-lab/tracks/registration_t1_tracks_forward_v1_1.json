@@ -1,0 +1,215 @@
+{
+ "schema": "t1-tracks-forward-registration-amendment/v1",
+ "registration_id": "T1-TRACKS-FWD-2026-10-05",
+ "version": "1.1",
+ "status": "SEALED·FROZEN",
+ "registered_on": "2026-10-05",
+ "title": "T1 分軌前向影子 v1.1 修訂：保留驗證期作廢（HO-BURNED）後 S0／S_FB 改只觀察（灰底），G250 改為升級檢定",
+ "disclaimer": "研究登錄，非投資建議。所有報酬比較一律未扣成本（成本另列參考，不當門檻）；本登錄不產生任何可交易名單。",
+ "branch": "claude/tracks-ho-burned",
+ "repo_base_commit": "e31c40564fb76d92b8dce77cb25c6f8984a479a9",
+ "amends": {
+  "registration_id": "T1-TRACKS-FWD-2026-10-05",
+  "version": 1,
+  "json": "scripts/surge-lab/tracks/registration_t1_tracks_forward.json",
+  "md": "scripts/surge-lab/tracks/REGISTRATION_t1_tracks_forward.md",
+  "sha256": "ec1a0bf87b6643bbff37b59ca346bd1746f7d500dbc402a02222343450fcae26",
+  "file_sha256": "6382ac004d6022ed2ae5070a70db7739573481a786caeee2c660ab376880be1a",
+  "seal_commit": "0a022adc78959743a6184fe7334e8fd74c528a82"
+ },
+ "relation": "v1 的 md 與 JSON 封存不改。本修訂只改 lists_override 列出的清單層級欄位（判定、標籤、灰底、G250 角色、區塊標題）與 G250／G500 的結果名稱，其餘一律沿用 v1（範圍、軌道歸屬、前向列範圍、特徵與排名、M0_fwd、資料來源、凍結條件與期限、到期與評分、RAND、bootstrap、G60（含 S0／S_FB 的崩壞檢查）、G250／G500 的量、評估窗與門檻、缺料規則、記錄欄位、implementation_pins）。前向程式以「v1 套上本修訂」（a37_tracks_reg.effective_lists）為準；兩份文字有出入時以本 JSON 為準。",
+ "basis": {
+  "user_ruling": {
+   "date": "2026-10-05",
+   "by": "使用者（回覆 DEV-013 的裁定請求）",
+   "text": "DEV-008 第 1 點、DEV-012、DEV-010 三筆鎖後 HOLDOUT 讀取全部計入 v2 §8.2 第 8 點「最多允許兩次修正重跑」的上限（合計 3 次）⇒ 依 v2 §8.3 宣告 HO-BURNED"
+  },
+  "deviation_v2": "scripts/surge-lab/tracks/DEVIATIONS_t1_tracks.md DEV-014（裁定、計數、判定前後表、視窗說明）；DEV-013（三筆讀取的合併揭露）",
+  "deviation_forward": "scripts/surge-lab/tracks/DEVIATIONS_t1_tracks_forward.md FDEV-008（指向本修訂；FDEV-007 保留給分支 claude/tracks-fwd-dispatt）",
+  "rule_v2": "v2 §8.3 HO-BURNED：HOLDOUT 不再作任何確認；判定上限 Mp＝MP-REJECT、R／S＝WATCH-ONLY（代理對 RAND 的點估計 ≤ 0 時為 REJECT）、S_FB＝SFB-WATCH-ONLY、DD＝DD-INCONCLUSIVE；之後只能靠前向 G250 升級",
+  "verdicts": {
+   "lock_file": {
+    "M": "M-UNCHANGED",
+    "Mp": "MP-REJECT",
+    "R": "R-WATCH-ONLY",
+    "S": "S-KEEP-AS-SHADOW",
+    "S_FB": "SFB-KEEP-AS-SHADOW",
+    "DD": "DD-INCONCLUSIVE",
+    "W": "W-WATCH-ONLY"
+   },
+   "ho_burned": {
+    "M": "M-UNCHANGED",
+    "Mp": "MP-REJECT",
+    "R": "R-WATCH-ONLY",
+    "S": "S-WATCH-ONLY",
+    "S_FB": "SFB-WATCH-ONLY",
+    "DD": "DD-INCONCLUSIVE",
+    "W": "W-WATCH-ONLY"
+   },
+   "changed": [
+    "S",
+    "S_FB"
+   ]
+  },
+  "proxy_vs_rand_pp": {
+   "window_rule": "「代理對 RAND 的點估計 ≤ 0 時為 REJECT」與 v2 決策樹 R-REJECT／S-REJECT 列是同一個量：HO 上 Δprecision@5(代理 − RAND) 點估計，代理類用 HOLDOUT 全部 347 日（v2 §8.1）。上限只往保守方向調；兩個代理在 SEL、HC、HO 與 HO 兩個年段都 > 0，結論不受視窗解讀影響。",
+   "source": "out/tracks_t1/tracks_t1_HO_summary.json（decision_detail、lists.*.HO*）；out/tracks_t1/tracks_t1_summary.json（lists.*.SEL／HC）",
+   "R0_combo@5": {
+    "HO": 0.9339,
+    "HO_ci": [
+     0.1887,
+     1.7844
+    ],
+    "HO_2023": 0.0173,
+    "HO_2024": 1.3309,
+    "SEL": 0.5889,
+    "HC": 0.5856
+   },
+   "S0_atr14@5": {
+    "HO": 1.1141,
+    "HO_ci": [
+     0.6212,
+     1.6573
+    ],
+    "HO_2023": 1.2219,
+    "HO_2024": 1.0674,
+    "SEL": 0.9303,
+    "HC": 1.5192
+   },
+   "SFB_atr14@5": {
+    "HO": 0.4683,
+    "HO_ci": [
+     0.2076,
+     0.7695
+    ],
+    "HO_2023": 0.2689,
+    "HO_2024": 0.5549,
+    "SEL": 0.2054,
+    "HC": 1.0296
+   },
+   "conclusion": "R0、S0 的 HO 點估計 +0.934pp、+1.114pp 都 > 0 ⇒ R、S 都是 WATCH-ONLY（不是 REJECT）；HOLDOUT 數字只作描述、不作確認。"
+  }
+ },
+ "pre_registration_state": {
+  "forward_days_evaluated": 0,
+  "forward_config": "scripts/surge-lab/tracks/forward_config.json：enabled＝false、startDay＝null（封存當下）",
+  "production_outputs": "out/tracks_fwd/ 只有接線前證明（tracks_fwd_prewire.json 與 prewire/ 兩份封印記錄）與狀態檔；沒有任何 core 凍結、缺口、評分或 parity 檔",
+  "forward_data_seen": "無（2026-10-05 之後的任何價格、標籤或報酬都沒有讀過；前向計算從未產生任何決策日）",
+  "first_decision_day": "尚未發生。v1 seal.frozen 規定「清單、判定規則與門檻在第一個決策日之後不得更改（要改就另立登錄）」：本修訂在第一個決策日之前以新的封存版本（新檔）另立，v1 兩個檔一字不改。"
+ },
+ "evidence_status": "除了前向資料，沒有任何乾淨的時間外證據：SELECTION（2025）用於選模；HALF-CONFIRM（2026-01～09）宣告已污染、只作方向閘；HOLDOUT（2023-08～2024-12）已燒掉（HO-BURNED），不再作任何確認。三個視窗的數字都只作描述；前向 G250（EXTEND 者 G500）是唯一能讓任何清單升級的證據。",
+ "scope": {
+  "in_shadow_research_lists": [],
+  "grey_watch_only_lists": [
+   "S0_atr14@5",
+   "SFB_atr14@5",
+   "R0_combo@5",
+   "W_atr14@3"
+  ],
+  "reference_lists": [
+   "M0@10",
+   "M0@20"
+  ],
+  "note": "四份代理清單照 v1 每日凍結、到期評分與記錄（研究記錄照算報酬，未扣成本），只是全部改為灰底只觀察；v1 的 not_in_shadow、no_tradable_list、unchanged、not_authorised_here 原樣沿用（本修訂不部署、不改 LaunchAgent、不寫 Firestore）。"
+ },
+ "lists_override": {
+  "S0_atr14@5": {
+   "entry_verdict": "S-WATCH-ONLY",
+   "grey_watch_only": true,
+   "label": "只觀察（保留驗證期作廢·待前向 G250）·容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）",
+   "list_verdict": "S-WATCH-ONLY：只觀察（保留驗證期作廢·待前向 G250）·容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）",
+   "g250_role": "WATCH_UPGRADABLE",
+   "title": "灰底・S0 小量軌 atr14 前 5（只觀察）",
+   "why": "DEV-014：HO-BURNED ⇒ HOLDOUT 不再確認 H_S；上限 S-WATCH-ONLY；S0 對 RAND 的 HO 點估計 +1.114pp > 0 ⇒ 不是 S-REJECT"
+  },
+  "SFB_atr14@5": {
+   "entry_verdict": "SFB-WATCH-ONLY",
+   "grey_watch_only": true,
+   "label": "探索性·只觀察（保留驗證期作廢·待前向 G250）·容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）",
+   "list_verdict": "SFB-WATCH-ONLY：探索性·只觀察（保留驗證期作廢·待前向 G250）·容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）",
+   "g250_role": "WATCH_UPGRADABLE",
+   "title": "灰底・S_FB Mp 列 atr14 前 5（探索性；只觀察）",
+   "why": "DEV-014：HO-BURNED ⇒ 上限 SFB-WATCH-ONLY（Mp 仍是 MP-REJECT ⇒ S_FB 照常啟用，不是 SFB-NA）"
+  }
+ },
+ "override_fields": [
+  "entry_verdict",
+  "grey_watch_only",
+  "label",
+  "list_verdict",
+  "g250_role",
+  "title"
+ ],
+ "unchanged_lists": {
+  "R0_combo@5": "v1 原樣：R-WATCH-ONLY、灰底、G250 升級規則（g250_watch）不變",
+  "W_atr14@3": "v1 原樣：W-WATCH-ONLY、灰底、只作描述（沒有升級途徑）",
+  "M0@10": "v1 原樣：M-UNCHANGED 參照、只作描述",
+  "M0@20": "v1 原樣：等名額對照的對照組、只作描述"
+ },
+ "G60": "v1 原樣：流程檢查 P1～P8；崩壞＝S0 或 S_FB 前 60 個評分日 Δprecision@5(清單 − RAND_E) 95% CI 上界 < 0（只觀察的清單照樣檢查崩壞），崩壞或任一流程檢查沒過 ⇒ HALT-FOR-REVIEW、G250 暫停到使用者裁定（前向偏差紀錄 G60-RULING 列）。",
+ "G250": {
+  "S0": {
+   "quantity": "Δprecision@5(S0 − RAND_S)：點估計與 95% 區塊 CI 下界（評估窗、bootstrap 同 v1）",
+   "rule": "升級檢定（WATCH-ONLY → KEEP-AS-SHADOW）：a36_tracks_fwd_rules.g250_watch（與 R0 同一個函式），依序 UPGRADE（點估計 > 0 且 CI 下界 > 0）→ EXTEND（點估計 > 0、CI 下界 ≤ 0 或無法計算）→ STAY-WATCH（其餘，含點估計 ≤ 0 或無法計算）",
+   "UPGRADE": "升為 S-KEEP-AS-SHADOW：撤除灰底，標「觀察／研究榜·代理 lift 前向確認·容量受限·不可交易」（仍不是可交易名單）",
+   "EXTEND": "維持灰底只觀察，延長到第 500 個評分日以 G500 定案",
+   "STAY-WATCH": "維持 S-WATCH-ONLY 灰底（研究記錄照算）",
+   "role": "本登錄唯一的主要檢定（單一、不需多重比較校正）",
+   "equivalence_to_v1": "量、評估窗、bootstrap 與門檻和 v1 的 g250_keep 完全相同，切分也相同：UPGRADE＝v1 CONFIRM、EXTEND＝v1 EXTEND、STAY-WATCH＝v1 DROP；差別只在出發點——v1 從 S-KEEP-AS-SHADOW 出發（CONFIRM 維持、DROP 降級），v1.1 從 S-WATCH-ONLY 出發（UPGRADE 升級、STAY-WATCH 維持）。"
+  },
+  "S_FB": {
+   "quantity": "Δprecision@5(atr14_FB − RAND_FB)",
+   "rule": "同 S0（g250_watch）",
+   "UPGRADE": "升為 SFB-KEEP-AS-SHADOW：撤除灰底，標「探索性·觀察／研究榜·代理 lift 前向確認·容量受限·不可交易」（保留「探索性」）",
+   "EXTEND": "維持灰底到 500 日，以 G500 定案",
+   "STAY-WATCH": "維持 SFB-WATCH-ONLY 灰底",
+   "role": "探索性、未調整（報告時標明）"
+  },
+  "R0": "v1 原樣（g250_watch：UPGRADE＝升為 R-KEEP-AS-SHADOW／EXTEND／STAY-WATCH）",
+  "W": "v1 原樣（只作描述）",
+  "M0_and_equal_slot": "v1 原樣（只作描述）",
+  "pause": "v1 原樣：G60 為 HALT-FOR-REVIEW 且沒有使用者裁定 G60-RULING: CONTINUE ⇒ G250 暫停（verdict＝null）",
+  "implementation": "a37_tracks_score.gate_report(…, roles＝a37_tracks_reg.gate_roles(本修訂))：WATCH_UPGRADABLE ⇒ g250_watch、KEEP ⇒ g250_keep、DESCRIPTIVE ⇒ 只描述；本修訂之後四份代理清單沒有任何一份是 KEEP。",
+  "exclusive_exhaustive": "每份清單依上列順序判定，互斥且窮盡。"
+ },
+ "G500": "只對 G250 判 EXTEND 的清單：a36_tracks_fwd_rules.g500_final，點估計 > 0 且 CI 下界 > 0 ⇒ UPGRADE（S0 → S-KEEP-AS-SHADOW、S_FB → SFB-KEEP-AS-SHADOW、R0 → R-KEEP-AS-SHADOW），否則 STAY-WATCH（維持灰底）。最終定案，不再延長。",
+ "presentation": {
+  "sections": {
+   "S0": "灰底・S0 小量軌 atr14 前 5（只觀察）",
+   "S_FB": "灰底・S_FB Mp 列 atr14 前 5（探索性；只觀察）",
+   "others": "v1 原樣（R_GREY、W_GREY、M0_REF、EQ_CONTROL）"
+  },
+  "section_codes": "section 代碼 S0、S_FB 不變（不混排的結構不變），只改灰底、標題與標籤",
+  "watch_label": "只觀察（保留驗證期作廢·待前向 G250）",
+  "labels": {
+   "S0_atr14@5": "只觀察（保留驗證期作廢·待前向 G250）·容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）",
+   "SFB_atr14@5": "探索性·只觀察（保留驗證期作廢·待前向 G250）·容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）"
+  },
+  "header_one_line": "保留驗證期作廢（HO-BURNED，2026-10-05 使用者裁定）：鎖後三次額外讀取 HOLDOUT 都計入「最多兩次修正重跑」上限，HOLDOUT 不再確認任何事——S0／S_FB 改為只觀察，只能靠前向 G250 升級。",
+  "returns_display": "四份代理清單（S0、S_FB、R0、W）都是灰底：介面不顯示任何報酬或報酬衍生數字（研究記錄照算）；可顯示 T1 命中與否（到期後）與累計 Δprecision 對 RAND（精確度類，不是報酬）。",
+  "no_mixing": "v1 原樣：各區獨立排名與呈現，S 列不進 W 的排名池、S_FB 不與 S 混排"
+ },
+ "forward_code_contract": {
+  "loader": "a37_tracks_reg.load_amendment()：先以 a36_tracks_fwd_rules.load_forward_registration() 驗 v1；再重算本 JSON 正規化 sha256 與 md 表頭比對，核對 registration_id、version＝\"1.1\"、amends.sha256＝v1 封存雜湊、implementation_pins 摘要＝v1 的釘選、只覆寫 lists_override 允許的清單與欄位；任一不符 ⇒ 拒跑（SystemExit）。",
+  "core": "a37_tracks_fwd.freeze_core：a37_tracks_core.build_core（不改，產生 v1 標籤）→ a37_tracks_reg.apply_to_core 換上本修訂的 label、list_verdict、grey_watch_only，加 entry_verdict、g250_role 與 registration_amendment 區塊（id、version、sha256、v1 雜湊、FDEV-008）後才封印；池、名單、名次、分數、RAND 一律不動（parity 的 compare_core 只比軌道、池列數、名單與分數，不比這些標籤欄）。",
+  "gap": "缺口記錄加 registration_amendment 區塊",
+  "summary": "a37_tracks_fwd.summary：G 判定用 gate_roles(本修訂)，摘要記 registration（v1 與 v1.1 的雜湊）",
+  "ui": "scripts/lib/surge-tracks-report.mjs 的 LIST_META 與本 JSON lists_override 逐字一致（node 測試讀本檔核對）；src/components/Admin/SurgeTracks.tsx：S0、S_FB 灰底＋「只觀察（保留驗證期作廢·待前向 G250）」標籤，頁首一行說明 HO-BURNED",
+  "prewire": "接線前證明的程式綁定（PREWIRE_CODE＝a37_tracks_fwd_io.py、a37_tracks_sync.py、a37_tracks_core.py）不變：本修訂不改這三個檔，也不改任何釘選檔"
+ },
+ "implementation_pins": {
+  "inherit": "v1",
+  "files_sha256_canonical": "34947ca34c47919dc0463ec981e163bd6fe4efef3bef2979e472cf131ea2cbd7",
+  "n_files": 17,
+  "rule": "v1 原樣（要改釘選檔先寫前向偏差並加 PIN-UPDATE 列）；本修訂不改任何釘選檔。載入時核對 v1 implementation_pins.files_sha256 的正規化 sha256 等於此值，不同就拒跑。"
+ },
+ "seal": {
+  "hash_algorithm": "sha256",
+  "canonical_form": "hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()，obj＝本檔 json.load 後的物件",
+  "hash_recorded_in": "scripts/surge-lab/tracks/REGISTRATION_t1_tracks_forward_v1_1.md 表頭「JSON 封存雜湊」一列（本 JSON 不含自身雜湊）",
+  "consumer_rule": "前向 daily 與 summary 開跑前：v1 以 a36_tracks_fwd_rules.load_forward_registration() 驗證（不符拒跑），再以 a37_tracks_reg.load_amendment() 驗證本修訂（不符拒跑）；釘選照 v1 以 check_pins() 核對（C7）。",
+  "frozen": "封存 commit 之後本檔與 md 都不得修改；之後的偏差只能寫進前向偏差紀錄（只增不改）；要再改清單、判定規則或門檻就另立新的封存版本（新檔）。"
+ },
+ "amendment_policy": "v1 與本修訂都封存不改。實作錯誤可修（前向偏差＋PIN-UPDATE），規則不可改；凍結檔與第一次評分記錄永不修改；G60 的 HALT 裁定、資料修正與任何例外都寫進前向偏差紀錄並在所有報告並列揭露。",
+ "note": "影子模式·未扣成本·事後欄位以 m_ 標示·非投資建議"
+}
