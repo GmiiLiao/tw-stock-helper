@@ -58,9 +58,16 @@ if has '^scripts/'; then
   run lt "scripts 單元測試失敗或測試數低於基線（node scripts/check-test-count.mjs）" node "$SNAP/scripts/check-test-count.mjs" --root "$SNAP"
   [ -s "$OUT/lt" ] && grep -E '^(✓|ℹ)' "$OUT/lt"
 fi
+# T1 分軌前向登錄的實作釘選（2026-10-05 審查 HIGH）：commit 觸及 implementation_pins 的檔（build.py、official_features.py、disposal.py…
+#   多數是共用模組）時，staged 內容 sha256 要等於登錄值或前向偏差紀錄有 PIN-UPDATE 列——否則前向凍結會靜默停擺、每天變成永不補產的缺口。
+if has '^scripts/surge-lab/'; then
+  printf '%s\n' "$STAGED" >"$OUT/staged.txt"
+  run tp "改到 T1 分軌前向釘選檔卻沒有 PIN-UPDATE（scripts/surge-lab/tracks/DEVIATIONS_t1_tracks_forward.md；需使用者同意）" \
+    node "$SNAP/scripts/check-tracks-pins.mjs" --root "$SNAP" --staged-file "$OUT/staged.txt"
+fi
 # 外部資料來源登錄（2026-09-28·wm-source-legitimacy／WM-SCAN G4-10）：程式碼出現未登錄或未核准的網域即擋。
 if has '^(src/|scripts/)'; then
   run sr "外部來源未登錄／未核准（scripts/source-registry.json，見 wm-source-legitimacy）" node "$SNAP/scripts/check-source-registry.mjs" --root "$SNAP"
 fi
-[ $fail -eq 0 ] && echo "✓ pre-commit（staged 快照）：語法＋import 存在性＋欄位契約＋route 普查＋ratchet＋safe-storage＋測試＋來源登錄 通過"
+[ $fail -eq 0 ] && echo "✓ pre-commit（staged 快照）：語法＋import 存在性＋欄位契約＋route 普查＋ratchet＋safe-storage＋測試＋前向釘選＋來源登錄 通過"
 exit $fail

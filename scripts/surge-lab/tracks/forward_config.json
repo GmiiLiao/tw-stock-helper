@@ -1,0 +1,10 @@
+{
+ "_doc": "T1 分軌前向影子（登錄 T1-TRACKS-FWD-2026-10-05）總開關。磁碟即部署：起漲影子協調器 a35_shadow_daily.mjs 每個排程時段讀這份；enabled＝true 且 startDay（第一個決策日，YYYY-MM-DD）有值才凍結，否則整步略過。啟用要另一個 commit，並經使用者核可（接線與部署另案核可、官方鏡像每日排程確認長出新的一天、在主 checkout 重跑的接線前證明 out/tracks_fwd/tracks_fwd_prewire.json 通過——閘門綁定正式快取路徑與程式 sha256）。s0＝啟用後第一個產出 core 凍結檔的交易日；startDay 之前的日子不回補。",
+ "enabled": false,
+ "startDay": null,
+ "m0ref": {
+  "enabled": false,
+  "note": "M0@10／M0@20 參照（第二期）：重現凍結模型指紋 80ec0f8e… 後才可啟用；未接線前後台 M0 區顯示「尚未接線」"
+ },
+ "_doc_allowDispAttPending": "（選填，預設不存在＝不放行）處置／注意鏡像與 v2 釘住檔的重疊比對（登錄 adapter_parity_before_first_freeze）未證明時凍結一律擋下；只有使用者核可 FDEV-001 的例外時才加 \"allowDispAttPending\": \"FDEV-001 使用者核可 YYYY-MM-DD（…）\"（格式不符＝不算），該字串會寫進每份 core。比對落定 fail 時有核可也擋。"
+}

@@ -51,10 +51,17 @@ Next.js on Firebase App Hosting（us-central1）
 | 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:30／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
 | 分析師團隊 `daily-analyst-evening` | 週一～五 23:20 起跑（腳本內每 10 分鐘輪詢「熱力定版＋資料到齊」，硬死線 00:30） | `scripts/analyst-desk-run.mjs evening`／`scripts/install-daily-analyst-schedule.sh`（技能 `tw-analyst-desk`）；claude -p 雲端引擎不碰 Ollama；定版寫 `second-brain/daily-analyst/`，發佈 Firestore `dailyAnalyst/*`（公開）＋`dailyAnalystFocus/*`（管理員）；範本已寫、**尚未安裝** |
 | 分析師團隊 `daily-analyst-morning` | 週二～六 06:10 起跑（同上輪詢，硬死線 07:30；07:00 daemon 晨間新聞趟占 Ollama 不影響主引擎） | 同上 `analyst-desk-run.mjs morning`；晨間定版優先於盤後版；未定版至死線寫 `_alerts`、頁面退回模板版 |
-| 起漲影子 `surge-shadow` | 平日 17:30／19:30／21:00／22:40／23:50＋週二～週六 07:05 | `scripts/surge-lab/a35_shadow_daily.mjs`；範本 `scripts/surge-lab/launchd/com.gmii.twstock.surge-shadow.plist`（2026-10-04 使用者核可安裝）。資料到齊（收盤＋法人＋站上 pred 定版＋資券/借券/當沖）才凍結、下一交易日 09:00 前；研究程序在跑會略過；網路只有除權息 2 請求；寫 Firestore `surgeShadow/*`；日誌 `~/Library/Logs/twstock-surge-shadow/` |
+| 起漲影子 `surge-shadow` | 平日 17:30／19:30／21:00／22:40／23:50＋週二～週六 07:05 | `scripts/surge-lab/a35_shadow_daily.mjs`；範本 `scripts/surge-lab/launchd/com.gmii.twstock.surge-shadow.plist`（2026-10-04 使用者核可安裝）。資料到齊（收盤＋法人＋站上 pred 定版＋資券/借券/當沖）才凍結、下一交易日 09:00 前；研究程序在跑會略過；網路只有除權息 2 請求；寫 Firestore `surgeShadow/*`；日誌 `~/Library/Logs/twstock-surge-shadow/`。a35 發佈之後另跑 T1 分軌前向（`a37_tracks_fwd.py`＋`a37_tracks_publish.mjs`；總開關 `scripts/surge-lab/tracks/forward_config.json`，**預設停用**；前向快取 `.surge-cache-F`、本機 `out/tracks_fwd/`、Firestore `surgeShadow/tracks-*`；分軌程式本身 0 網路（面板刷新與除權息補抓沿用 a35 的步驟），要官方鏡像 TWT84U／dailyQuotes 每日長出新的一天才會凍結） |
 
 鏡像與 daemon 共用出口：鏡像程式避開平日 07:30–15:30 與 daemon 重任務窗 16:25–16:55、21:40–22:35（`scripts/lib/official-mirror.mjs` 的 `DAEMON_BUSY_WINDOWS`）。
 新增排程時把它加進這張表，並確認不落在上述窗內。
+⚠ 鏡像範本的平日 22:40 與起漲影子的 22:40 同時打 TWSE（同一出口 IP）：重裝鏡像排程前先錯開（需使用者核可；見 `DEVIATIONS_t1_tracks_forward.md` FDEV-006）。
+
+**T1 分軌前向釘選（約到 2027-10）**：前向登錄 `T1-TRACKS-FWD-2026-10-05` 的 `implementation_pins` 釘住 17 個 `scripts/surge-lab/` 檔——
+`build.py`、`build_v2.py`、`official_features.py`、`official_limits.py`、`disposal.py`、`attention.py`、`models.py`、`run_cv.py`、`cv_official.py`、`fingerprint.py`
+（a35 與其他研究共用）＋`a36_tracks_{lib,proxy,fwd_rules,fwd_m0,fit,eval,build}.py`。sha256 一變，前向凍結就停擺（C7）、每天變成永不補產的缺口。
+pre-commit（`scripts/check-tracks-pins.mjs`）會擋：真的要改，先在 `scripts/surge-lab/tracks/DEVIATIONS_t1_tracks_forward.md` 寫前向偏差並加
+`PIN-UPDATE: <路徑> <新 sha256>` 列（只准修實作錯誤，要先取得使用者同意）。
 
 **Cloud Function 在 us-central1，美國 IP 已被 mis.twse.com.tw 封鎖**
 （`src/lib/twse-api-server.ts:929-931`、`src/app/api/twse/market-index/route.ts:10-11` 都有註解）。

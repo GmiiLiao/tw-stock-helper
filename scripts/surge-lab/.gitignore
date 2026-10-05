@@ -1,6 +1,8 @@
 .surge-cache/
 # 研究 L 管線的隔離快取（.surge-cache 的 APFS 複本；retrain_official.sh 用，2026-10-04）
 .surge-cache-L/
+# T1 分軌 G1 第 4 項鎖後驗證的 APFS 複本（.surge-cache-T 的 cp -c -R；a36_tracks_fwd_verify.py 只寫這裡，2026-10-05）
+.surge-cache-T2/
 # 起漲影子每日協調器：鎖目錄、演練輸出（--cache 複本＋--no-publish → <快取>-out-rehearsal；2026-10-04）
 .a35_shadow_daily.lock/
 .surge-cache*-out-rehearsal/
@@ -27,3 +29,10 @@ out/tracks_t1/tracks_t1_S_picks.csv
 out/tracks_t1/tracks_t1_HO_M_picks.csv
 out/tracks_t1/tracks_t1_HO_Mp_picks.csv
 out/tracks_t1/tracks_t1_events_SELHC.csv
+
+# T1 分軌前向影子（a37_tracks_*，2026-10-05）：前向專用快取（只增不改）與本機紀錄一律不進版控。凍結檔、評分、parity、缺口、
+# 接線前證明的逐位副本存在 Firestore surgeShadow/tracks-raw-*（gzip、讀回比對 sha256；本機遺失用 a37_tracks_publish.mjs --restore 補回）。
+# 接線前證明要在正式環境（主 checkout）重跑、綁定快取路徑與程式 sha256，所以也不進版控（重跑不會弄髒主 checkout）；
+# worktree 演練時的那一份留在 prewire/tracks_fwd_prewire_20261005T212506.json（已追蹤，只作歷史證據，閘門不認）。
+.surge-cache-F/
+out/tracks_fwd/*

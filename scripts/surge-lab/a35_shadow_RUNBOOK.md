@@ -111,3 +111,30 @@ python3 a35_shadow_list.py --day 2026-10-05        # 目標日由休市日曆推
 - 漲停真值＝`build.build_events`（除權息參考價＋檔位）；站上 daemon 規則（前收×1.1 以前收檔位取整）另列交叉檢查，不一致的檔列在輸出 JSON 的 `truth.disagreeWithDaemonRule`。
 - 站上 `pred-2026-10-02` 於 17:39 寫入（當時上櫃收盤尚未到齊，候選池僅上市）；影子名單含上櫃。比較兩者時以「上市單獨」「整體」兩種口徑並列。
 - 單日樣本很小（每日 10／30 檔）：單日結果只當紀錄，判斷用多日合併（Wilson／5 日區塊 bootstrap）。非投資建議。
+
+## T1 分軌前向影子（2026-10-05 接線；協調器 ⑦b 步驟；登錄 `tracks/REGISTRATION_t1_tracks_forward.md`）
+
+- 總開關 `tracks/forward_config.json`：`enabled` 為布林 `true` 且 `startDay`（第一個決策日）有值才會凍結；預設停用（磁碟即部署）。
+- 前向專用快取 `.surge-cache-F`（第一次從 `.surge-cache-T` 以 cp -c 播種；之後只增不改）；本機紀錄 `out/tracks_fwd/`；後台 `surgeShadow/tracks-*`。
+- 凍結條件（看資料、不看時鐘；期限＝下一交易日 09:00）：兩市收盤＋法人官方到齊且無第三方補洞（C1）、凍結面板上市 ≥ 800／上櫃 ≥ 500 檔有收盤（C1b）、
+  官方漲停價檔 TWT84U(s)／dailyQuotes(前一交易日)（C2）且兩市覆蓋率 ≥ 95%（C2b）、除權息補抓涵蓋、上市快照、登錄雜湊與釘選（C7）、
+  接線前證明（`out/tracks_fwd/tracks_fwd_prewire.json`：**必須在主 checkout 跑**，綁定前向快取路徑、鏡像根目錄與程式 sha256；
+  處置／注意重疊比對只接受 pass，每輪自動重算）。分區 assertion 失敗（C6）當日直接寫缺口。過期就寫缺口，永不補產。
+- 告警：`out/tracks_fwd/_alerts/LATEST.json`（每輪覆寫）；釘選不符、接線前證明不成立、新缺口、C6、程式失敗記成 `tracks-health` 步驟失敗（a35 狀態檔與後台可見）。
+- 本機紀錄全部不進版控；逐位副本在 `surgeShadow/tracks-raw-*`（發佈時讀回比對 sha256）。本機目錄遺失：`node a37_tracks_publish.mjs --restore`（只補不存在的檔）。
+- 偏差紀錄：`tracks/DEVIATIONS_t1_tracks_forward.md`（FDEV-001～006）。G60 HALT 的使用者裁定寫成一行 `G60-RULING: CONTINUE <日期> …`。
+- 釘選的 17 個檔（`implementation_pins`）不可隨意改：pre-commit `scripts/check-tracks-pins.mjs` 會擋；要改先寫前向偏差＋`PIN-UPDATE` 列。
+
+```bash
+cd scripts/surge-lab
+# 接線前證明（上市快照、漲跌停增量＝全量、處置／注意鏡像重疊比對、≥5 個歷史日研究路徑 parity）；手動執行會取協調器同一把鎖
+SURGE_CACHE=$PWD/.surge-cache-F SURGE_TRACKS_SHARED=$PWD/.surge-cache SURGE_TRACKS_OUT=$PWD/out/tracks_fwd \
+  /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 a37_tracks_fwd.py prewire
+# 測試
+/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 a37_tracks_fwd_test.py
+node --test ../lib/surge-tracks-daily.test.mjs ../lib/surge-tracks-report.test.mjs ../lib/tracks-pins.test.mjs a37_tracks_publish.test.mjs
+# 協調器乾跑（會印出分軌的凍結／缺口／等待／到期評分）
+node a35_shadow_daily.mjs --dry-run
+# 發佈乾跑（只印文件數與大小、逐位副本本機往返，不寫 Firestore）
+node a37_tracks_publish.mjs --dry-run
+```

@@ -10,7 +10,7 @@ import { useLabView, twTime } from './surgeLabFetch';
 // 研究模型（GBDT，目標＝隔日收漲停）每個交易日盤後凍結名單（sha256 封印），隔一交易日收盤後對答案。
 // 資料：scripts/surge-lab/a35_shadow_publish.mjs → surgeShadow/* → /api/admin/surge-shadow。
 // 影子模式：不取代站上漲停預測；「歷史回推」是事後用同一套流程重算的名單，不是事前凍結的成績。
-// 子分頁（2026-10-04 使用者「我需要在後台看到資料」）：影子名單｜官方化重訓驗證｜鏡像健康——切到才載入（元件與資料都按需）。
+// 子分頁（2026-10-04 使用者「我需要在後台看到資料」）：影子名單｜官方化重訓驗證｜鏡像健康｜T1 連板起漲（分軌）——切到才載入（元件與資料都按需）。
 
 interface Cell { n: number; hit: number; buy: number }
 interface DaySum { id: string; scoringDay: string; targetDay: string; kind: string; sha12: string; scored: boolean; nLimitUp: number | null; top10: Cell | null; top30: Cell | null; site10: Cell | null; site30: Cell | null }
@@ -257,8 +257,9 @@ export function PipelineLine() {
 const loadingBox = () => <div style={{ padding: 16, color: 'var(--text-muted)' }}>載入中…</div>;
 const SurgeCvOfficial = dynamic(() => import('./SurgeCvOfficial'), { loading: loadingBox });
 const MirrorHealth = dynamic(() => import('./MirrorHealth'), { loading: loadingBox });
-type Sub = 'list' | 'cv' | 'mirror';
-const SUBS: ReadonlyArray<readonly [Sub, string]> = [['list', '影子名單'], ['cv', '官方化重訓驗證'], ['mirror', '鏡像健康']];
+const SurgeTracks = dynamic(() => import('./SurgeTracks'), { loading: loadingBox });
+type Sub = 'list' | 'cv' | 'mirror' | 'tracks';
+const SUBS: ReadonlyArray<readonly [Sub, string]> = [['list', '影子名單'], ['cv', '官方化重訓驗證'], ['mirror', '鏡像健康'], ['tracks', 'T1 連板起漲（分軌）']];
 
 export default function SurgeShadow() {
   const [sub, setSub] = useState<Sub>('list');
@@ -274,7 +275,7 @@ export default function SurgeShadow() {
       </div>
       {SUBS.filter(([k]) => seen.has(k)).map(([k]) => (
         <div key={k} role="tabpanel" hidden={sub !== k}>
-          {k === 'list' ? <><PipelineLine /><ShadowList /></> : k === 'cv' ? <SurgeCvOfficial /> : <MirrorHealth />}
+          {k === 'list' ? <><PipelineLine /><ShadowList /></> : k === 'cv' ? <SurgeCvOfficial /> : k === 'mirror' ? <MirrorHealth /> : <SurgeTracks />}
         </div>
       ))}
     </div>

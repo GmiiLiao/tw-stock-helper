@@ -6,6 +6,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
 import { LAB_DOC_IDS, parseRowsQuery, resolveRowsDoc, queryRows, type CvDoc, type RowsTable } from '../../../../../scripts/lib/surge-lab-report.mjs';
+import { TRACKS_INDEX_ID, DAY_RE as TRACKS_DAY_RE, dayDocId as tracksDayDocId, type TracksIndexDoc } from '../../../../../scripts/lib/surge-tracks-report.mjs';
 
 // ── 🚀 起漲影子名單＋研究後台（**超級管理員專用·唯讀**）──────────────────────
 // 研究模型盤後凍結的「隔日漲停」影子名單（sha256 封印）＋隔一交易日收盤後的對答案。
@@ -14,13 +15,15 @@ import { LAB_DOC_IDS, parseRowsQuery, resolveRowsDoc, queryRows, type CvDoc, typ
 //   GET ?day=fwd-YYYY-MM-DD｜hist-YYYY-MM-DD（省略＝最新一天）——影子名單（原行為）
 //   GET ?view=cv｜mirror｜pipeline——官方化重訓驗證摘要／鏡像健康／每日影子管線狀態（lab-* 單一文件）
 //   GET ?view=cvrows&task&version&model&kind[&market&rankMin&rankMax&from&to&q&sort&page]——命中／漏網／母體外逐列（伺服器端篩選，每頁 200 列）
+//   GET ?view=tracks[&day=YYYY-MM-DD]——T1 分軌前向影子索引＋一天（省略＝最新凍結日）；?view=tracksDay&day=YYYY-MM-DD——只取那一天
+//       （surgeShadow/tracks-index、tracks-fwd-{日}，由 scripts/surge-lab/a37_tracks_publish.mjs 寫；文件本身不含任何報酬欄位）
 // 全部回應（含錯誤）Cache-Control: no-store：超級管理員私有資料，不進 CDN。
 export const dynamic = 'force-dynamic';
 
 const OWNER = process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'nicholas@gmii.tw';
 const DAY_ID_RE = /^(fwd|hist)-\d{4}-\d{2}-\d{2}$/;   // 與 scripts/lib/surge-shadow-report.mjs DAY_ID_RE 同一格式
 const NO_STORE = { 'Cache-Control': 'no-store' };
-const VIEWS = ['cv', 'cvrows', 'mirror', 'pipeline'] as const;
+const VIEWS = ['cv', 'cvrows', 'mirror', 'pipeline', 'tracks', 'tracksDay'] as const;
 type View = typeof VIEWS[number];
 type Db = NonNullable<ReturnType<typeof getAdminDb>>;
 
@@ -74,7 +77,25 @@ async function cvRows(params: URLSearchParams): Promise<Response> {
   return gzipJsonAuto({ found: true, doc: { id: ref.id, totalRows: ref.totalRows, keptRows: ref.keptRows, filterNote: ref.filterNote, model: ref.model, verified: ref.verified, verifyNote: ref.verifyNote }, dataDate: cv.dataDate, ...page }, NO_STORE);
 }
 
-async function labView(db: Db, view: Exclude<View, 'cvrows'>): Promise<Response> {
+// T1 分軌前向影子：索引（tracks）＋單日（tracksDay）。day 參數只接受 YYYY-MM-DD，文件 id 由伺服器組（不讓呼叫端指定任意文件）。
+async function tracksView(db: Db, params: URLSearchParams, dayOnly: boolean): Promise<Response> {
+  const want = params.get('day');
+  if (want !== null && !TRACKS_DAY_RE.test(want)) return fail('day 格式應為 YYYY-MM-DD', 400);
+  if (dayOnly && want === null) return fail('tracksDay 需要 day=YYYY-MM-DD', 400);
+  let index: TracksIndexDoc | null = null;
+  let updatedAt: string | null = null;
+  if (!dayOnly) {
+    const r = await readLab(db, TRACKS_INDEX_ID);
+    if (!r) return gzipJsonAuto({ found: false }, NO_STORE);
+    index = r.report as TracksIndexDoc;
+    updatedAt = r.updatedAt;
+  }
+  const dayId = want ? tracksDayDocId(want) : (index?.days?.find(d => d.status === 'frozen')?.id ?? null);
+  const dr = dayId ? await readLab(db, dayId) : null;
+  return gzipJsonAuto({ found: true, index, updatedAt, day: dr ? dr.report : null, dayId: dr ? dayId : null }, NO_STORE);
+}
+
+async function labView(db: Db, view: Exclude<View, 'cvrows' | 'tracks' | 'tracksDay'>): Promise<Response> {
   const r = await readLab(db, LAB_DOC_IDS[view]);
   if (!r) return gzipJsonAuto({ found: false }, NO_STORE);
   return gzipJsonAuto({ found: true, updatedAt: r.updatedAt, [view]: r.report }, NO_STORE);
@@ -91,7 +112,8 @@ export async function GET(request: Request) {
   if (view !== null && !(VIEWS as readonly string[]).includes(view)) return fail(`view 應為 ${VIEWS.join('｜')}`, 400);
   try {
     if (view === 'cvrows') return await cvRows(params);
-    if (view) return await labView(db, view as Exclude<View, 'cvrows'>);
+    if (view === 'tracks' || view === 'tracksDay') return await tracksView(db, params, view === 'tracksDay');
+    if (view) return await labView(db, view as Exclude<View, 'cvrows' | 'tracks' | 'tracksDay'>);
     const want = params.get('day');
     if (want !== null && !DAY_ID_RE.test(want)) return fail('day 格式應為 fwd-YYYY-MM-DD 或 hist-YYYY-MM-DD', 400);
     const col = db.collection('surgeShadow');
