@@ -1,0 +1,552 @@
+{
+ "schema": "t1-tracks-forward-registration/v1",
+ "registration_id": "T1-TRACKS-FWD-2026-10-05",
+ "version": 1,
+ "status": "SEALED·FROZEN",
+ "registered_on": "2026-10-05",
+ "title": "T1 分軌前向影子：S0／S_FB 觀察研究榜、R0／W 灰底觀察、M0 參照與等名額對照",
+ "disclaimer": "研究登錄，非投資建議。所有報酬比較一律未扣成本（成本另列參考，不當門檻）；本登錄不產生任何可交易名單。",
+ "branch": "claude/tracks-fwd-prep",
+ "repo_base_commit": "3480e2f105bf761df01dbecbf69dc48fa4192f9b",
+ "parent_registration": {
+  "id": "T1-TRACKS-PREREG-2026-10-04",
+  "version": 2,
+  "sha256": "065a92c6b063ccfb0bcb5a8facc99734e4f7d769f7af66198953cd7f5592c3e3",
+  "json": "scripts/surge-lab/tracks/registration_t1_tracks.json",
+  "md": "scripts/surge-lab/tracks/REGISTRATION_t1_tracks.md",
+  "seal_commit_on_main": "1fa118e692b53758d73be3da6b76d029f4064250",
+  "holdout_lock": {
+   "file": "scripts/surge-lab/out/tracks_t1/tracks_t1_HO_LOCK.json",
+   "file_sha256": "97d596b33752b8fac1dac6aabab15d5a1fe83cd29545a1c1ebfcad6e5eaa6ef0",
+   "commit_on_main": "0173abca87b43bbdf6d6c7b2d7747c23208bd9a4",
+   "decisions": {
+    "Mp": "MP-REJECT",
+    "R": "R-WATCH-ONLY",
+    "S": "S-KEEP-AS-SHADOW",
+    "S_FB": "SFB-KEEP-AS-SHADOW",
+    "DD": "DD-INCONCLUSIVE",
+    "M": "M-UNCHANGED",
+    "W": "W-WATCH-ONLY"
+   }
+  },
+  "report": "docs/SURGE-TRACKS-T1-2026-10-05.md",
+  "deviation_log": "scripts/surge-lab/tracks/DEVIATIONS_t1_tracks.md（DEV-001～008 為 v2 執行與鎖後審查；本登錄的接線前修正與驗證是 DEV-009～011）",
+  "relation": "v2 凍結不改、HOLDOUT 判定不受本登錄影響。v2 的定義、公式與決策樹，凡本登錄沒有另寫者一律沿用（以「v2:<JSON 路徑>」引用）；v2 windows.FORWARD 與 decision_tree.FORWARD 由本登錄具體化，差異逐項列在 DEV-011。前向評估兩者有出入時以本登錄為準。"
+ },
+ "g1_decisions": {
+  "date": "2026-10-05",
+  "by": "使用者（G1 審查，回覆報告第 11 節）",
+  "items": {
+   "1": "S0 atr14@5（S 軌）與 S_FB atr14@5（Mp 列，加註探索性）進前向影子；標「觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認」，各自獨立一區、不與 W 混排；G60 只檢查流程與是否崩壞；G250 以 Δprecision@5(S0 − RAND) 判 CONFIRM／EXTEND／DROP。",
+   "2": "R0 combo@5（R-WATCH-ONLY）與 W atr14@3（W-WATCH-ONLY）只做灰底觀察區：介面不顯示報酬，研究記錄照算；R 在 G250 達到 CI 下界 > 0 才能升級。",
+   "3": "Mp（M′）不進影子；主榜 M0 不動；第 4 項完成後進前向影子。",
+   "4": "接線前修正依報告建議（本登錄 prewiring_fixes）。",
+   "5": "補算落選挑戰者 R2、S1、S2 的 HOLDOUT 鎖後描述記錄（DEV-006）：只是描述、不改任何判定；不在本登錄範圍（另案）。",
+   "6": "處置漂移若要往交易規則走，另立登錄（不在本登錄範圍）。"
+  },
+  "question_research_period": "使用者問「研究期多久」：見 power_and_duration（G60 約 3 個月、G250 約 1 年、EXTEND 時延長到 500 個評分日約 2 年）。"
+ },
+ "seal": {
+  "hash_algorithm": "sha256",
+  "canonical_form": "hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()，obj＝本檔 json.load 後的物件",
+  "hash_recorded_in": "scripts/surge-lab/tracks/REGISTRATION_t1_tracks_forward.md 表頭「JSON 封存雜湊」一列（本 JSON 不含自身雜湊）",
+  "consumer_rule": "前向建置、評分與 G60／G250／G500 評估開跑前一律以 a36_tracks_fwd_rules.load_forward_registration() 重算雜湊並與 md 記載值比對，不符就拒跑；再以 check_pins() 核對 implementation_pins，不符就拒跑（除非前向偏差紀錄有對應的 PIN-UPDATE 列）。參數一律從本檔讀。",
+  "frozen": "封存 commit 之後本檔與 md 都不得再修改。與本登錄不同的做法只能寫進前向偏差紀錄；清單、判定規則與門檻在第一個決策日之後不得更改（要改就另立登錄）。",
+  "deviation_log": "scripts/surge-lab/tracks/DEVIATIONS_t1_tracks_forward.md（第一筆前向偏差發生時建立，只增不改；每筆寫日期、階段、內容、理由、當下已看過哪些前向結果、對判定的可能影響；改動釘選檔時另寫一列「PIN-UPDATE: <scripts/surge-lab/檔名> <sha256>」）"
+ },
+ "pre_registration_state": {
+  "forward_days_evaluated": 0,
+  "statement": "封存時沒有任何前向決策日、凍結檔或前向標籤。清單、判定規則與門檻都來自 v2 決策樹與 G1 決定，封存後不依前向結果調整。",
+  "seen_before_sealing": [
+   "v2 的全部結果：SEL＋HC、HOLDOUT 鎖檔、鎖後稽核與補遺（報告 docs/SURGE-TRACKS-T1-2026-10-05.md、DEV-001～008）",
+   "G1 第 4 項修正的鎖後驗證：scripts/surge-lab/out/tracks_t1/fwdprep/tracks_t1_FWDPREP_VERIFY.json（sha256 468f43ac51ae8b0bab15cc71653e55ecbb81b64876e944ac9274c3ab973e403d；結果見 prewiring_fixes.verification）",
+   "前向凍結 M0 的擬合指紋（scripts/surge-lab/out/tracks_t1/fwdprep/tracks_t1_FWDPREP_M0FWD.json，T2 紀錄的位元組複本；fingerprint 80ec0f8e2c892d6ef61190525fa6c8a469404ba9bea368a993c9bc0dd09d5b2b）",
+   "官方鏡像目錄結構（second-brain/official：twse_twt84u、tpex_dailyquotes 逐日檔；處置、注意、上市快照目前只有 2026-10-02 一份）"
+  ],
+  "forward_data_seen": "無（2026-10-05 之後的任何價格、標籤或報酬都沒有讀過；本登錄的前向計算從未執行）"
+ },
+ "scope": {
+  "in_shadow_research_lists": [
+   "S0_atr14@5",
+   "SFB_atr14@5"
+  ],
+  "grey_watch_only_lists": [
+   "R0_combo@5",
+   "W_atr14@3"
+  ],
+  "reference_lists": [
+   "M0@10",
+   "M0@20"
+  ],
+  "not_in_shadow": [
+   "Mp1／M′ 清單（MP-REJECT）",
+   "R1、R2、S1、S2（未經確認或落選的挑戰者）",
+   "M0*（Mp 對照）",
+   "處置漂移的任何交易規則（另立登錄）"
+  ],
+  "no_tradable_list": "本登錄沒有任何清單可以被標成「可交易名單」；G250／G500 的 CONFIRM 只確認「代理 lift 在前向也成立」。可交易主張要另立登錄（至少含 DK_s＝0 選股報酬 CI、成本、開盤競價量與分盤撮合模擬）。",
+  "unchanged": "主榜 M0、站上預測（computeLimitUpForecast、ai-daemon）、起漲影子（a35）都不改。",
+  "not_authorised_here": "本登錄不部署、不安裝或修改 LaunchAgent、不寫 Firestore；接線與部署另案核可（v2 §17）。"
+ },
+ "lists": {
+  "S0_atr14@5": {
+   "track": "S",
+   "pool": [
+    "S"
+   ],
+   "K": 5,
+   "ranking": "atr14",
+   "section": "S0",
+   "grey_watch_only": false,
+   "exploratory": false,
+   "entry_verdict": "S-KEEP-AS-SHADOW",
+   "label": "觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認",
+   "list_verdict": "S-KEEP-AS-SHADOW：觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認",
+   "g250_role": "KEEP",
+   "primary_quantity": "Δprecision@5(S0 − RAND_S)",
+   "capacity": "容量受限（S 的 q＝1%；HO 選股 Qmax 中位數 1 張、≥2 張占 39.0%）",
+   "why": "v2 判定 S-KEEP-AS-SHADOW（H_S 經 Holm 拒絕＝代理 lift 的時間外複製；T6 只表示超額不顯著為負，T1 未過）"
+  },
+  "SFB_atr14@5": {
+   "track": "Mp",
+   "pool": [
+    "Mp"
+   ],
+   "K": 5,
+   "ranking": "atr14",
+   "section": "S_FB",
+   "grey_watch_only": false,
+   "exploratory": true,
+   "entry_verdict": "SFB-KEEP-AS-SHADOW",
+   "label": "探索性·觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認",
+   "list_verdict": "SFB-KEEP-AS-SHADOW：探索性·觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認",
+   "g250_role": "KEEP",
+   "primary_quantity": "Δprecision@5(atr14_FB − RAND_FB)",
+   "activation": "v2 MP-REJECT 成立 ⇒ S_FB 啟用（池＝Mp 軌列，不與 S 列混排）",
+   "capacity_note": "標籤依 G1 決定與 S0 相同（含「容量受限」）；實測 S_FB 選股 vol20 ≥ 300、HO Qmax(2%) 中位數 28 張、≥2 張占 100%，容量限制遠小於 S0（揭露，不改標籤）",
+   "why": "v2 判定 SFB-KEEP-AS-SHADOW（探索性、未納入 Holm）"
+  },
+  "R0_combo@5": {
+   "track": "R",
+   "pool": [
+    "R"
+   ],
+   "K": 5,
+   "ranking": "combo",
+   "section": "R_GREY",
+   "grey_watch_only": true,
+   "exploratory": false,
+   "entry_verdict": "R-WATCH-ONLY",
+   "label": "不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）",
+   "list_verdict": "R-WATCH-ONLY：不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）",
+   "g250_role": "WATCH_UPGRADABLE",
+   "primary_quantity": "Δprecision@5(R0 − RAND_R)",
+   "why": "v2 判定 R-WATCH-ONLY（挑戰者 R1 未經確認、退回 R0；R0 對 RAND 點估計 > 0）",
+   "upgrade_rule": "只有 G250（或延長後 G500）Δprecision@5(R0 − RAND_R) 的 95% CI 下界 > 0 才可升為 R-KEEP-AS-SHADOW（觀察／研究榜，仍不可交易）"
+  },
+  "W_atr14@3": {
+   "track": "W",
+   "pool": [
+    "W"
+   ],
+   "K": 3,
+   "ranking": "atr14",
+   "section": "W_GREY",
+   "grey_watch_only": true,
+   "exploratory": false,
+   "entry_verdict": "W-WATCH-ONLY",
+   "label": "不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）",
+   "list_verdict": "W-WATCH-ONLY：不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）",
+   "g250_role": "DESCRIPTIVE",
+   "primary_quantity": "Δprecision@3(W − RAND_W)（只作描述）",
+   "why": "v2 判定 W-WATCH-ONLY（一律只觀察，沒有升級途徑）"
+  },
+  "M0@10": {
+   "track": "M",
+   "pool": [
+    "M"
+   ],
+   "K": 10,
+   "ranking": "M0",
+   "section": "M0_REF",
+   "grey_watch_only": false,
+   "exploratory": false,
+   "entry_verdict": "M-UNCHANGED",
+   "label": "主榜 M0 參照（M-UNCHANGED）·本研究未作可交易判定",
+   "list_verdict": "M-UNCHANGED：主榜 M0 參照（M-UNCHANGED）·本研究未作可交易判定",
+   "g250_role": "DESCRIPTIVE",
+   "primary_quantity": "precision@10、lift（只作描述）",
+   "why": "M-UNCHANGED：主榜不動；本研究不對 M0 作可交易判定"
+  },
+  "M0@20": {
+   "track": "M",
+   "pool": [
+    "M"
+   ],
+   "K": 20,
+   "ranking": "M0",
+   "section": "EQ_CONTROL",
+   "grey_watch_only": false,
+   "exploratory": false,
+   "entry_verdict": "M-UNCHANGED（等名額對照的對照組）",
+   "label": "等名額對照（描述用，不參與任何判定）",
+   "list_verdict": "M-UNCHANGED（等名額對照的對照組）：等名額對照（描述用，不參與任何判定）",
+   "g250_role": "DESCRIPTIVE",
+   "primary_quantity": "等名額對照的對照組（只作描述）"
+  }
+ },
+ "equal_slot_control": {
+  "composite": [
+   "M0@10",
+   "R0_combo@5",
+   "S0_atr14@5"
+  ],
+  "versus": "M0@20",
+  "quantity": "Δprecision(composite − M0@20)，composite＝當日 M0 前 10＋R0 前 5＋S0 前 5（各在自己的池內排名，不跨池重排；池列數不足時選股數照實，不遞補）",
+  "role": "只作描述（v2 metrics.descriptive_only），不參與任何判定；只用 core 與 m0ref 兩份凍結檔都有的日子。",
+  "label": "等名額對照（描述用，不參與任何判定）"
+ },
+ "track_assignment": {
+  "rule": "v2:definitions.flags、definitions.tracks、definitions.precedence、definitions.partition_indicators、definitions.partition_assertions 原樣沿用：NE_TDR → NE_SUSP → NE_LU_S → M → Mp → R → S → W，每列恰屬一軌，全部沒通過的條件都記（多標籤）。brk_future 在前向不可得，也從不使用。",
+  "forward_domain": "D_fwd(s)＝{j：面板代號、first_trade_idx(j) ≤ s、且 [s−249, s] 內至少有一筆收盤}。v2 的 row_domain 用到 last_close_idx（看未來），前向不可用；這只影響 NE_SUSP 的列數，不影響任何池、清單或 RAND（池只含 s 日有收盤的軌道列）。",
+  "decision_days": "第一個決策日 s0 起的每一個交易日（Firestore system/tradingCalendar）。v2 的 SHOCK_S 衝擊窗與「面板最後 5 日」排除只適用於歷史視窗，前向不排除任何交易日。",
+  "panel_start": "面板索引 0＝2022-07-18（PANEL_START）。實盤面板起點不同 ⇒ 當日記缺口（理由：面板起點不符），不改規則。",
+  "listing": {
+   "rules": [
+    "快照上市日 < 2022-07-18 ⇒ −∞（official_prepanel）",
+    "快照上市日 ≥ 2022-07-18 ⇒ min(上市日索引, 面板第一筆收盤索引)；兩者相等 official，第一筆收盤較早 transfer_min",
+    "（v3，DEV-009）快照上市日 ≥ 2022-07-18 而面板第一筆收盤在面板第一天（轉市場、面板前已在交易）⇒ −∞（transfer_prepanel）",
+    "不在快照、第一筆收盤在面板起點 ⇒ −∞（fallback_prepanel）",
+    "不在快照、第一筆收盤在面板中途 ⇒ 第一筆收盤（fallback_first_close）"
+   ],
+   "implementation": "a36_tracks_fwd_rules.listing_info_v3；listing_src 代碼表 LISTING_SRC_V3（v2 的 0～6 不變，7＝transfer_prepanel）",
+   "snapshot_asof": "每個市場取官方鏡像中檔名日期 ≤ s 的最新快照（TWSE openapi t187ap03_L、TPEx t187ap03_O；latest_snapshot_file），疊在 v2 釘住的 2026-10-02 快照之上（同代號以較新者為準，merge_snapshots）。",
+   "ages": "age_off、age_cap（＝min(age_off, 250)，面板前上市記 250）、hist_len 同 v2:definitions.listing 與 definitions.hist_len。"
+  },
+  "disposal_attention": "v2:definitions.disposal_attention 原樣（DK_s＝KNOWN、公告日 ≤ s−1；at_known5／20；coverage_rule：注意股逐交易日零筆 ⇒ NaN、處置零筆月 ⇒ NaN；s 當晚公告只記事後欄 m_disp_t_exec）。DK_s 為 NaN 一律記「處置狀態未知（來源缺漏）」，不得當 0。",
+  "qmax": "v2:liquidity（M、Mp、R、S_FB q＝2%，R 處置中 1%，S q＝1%，W 不適用；只用 s 日 vol20）",
+  "daily_assertion": "v2 §2.1 的結構 assertion 每個決策日都要在當日列上成立；不成立 ⇒ core 當日記缺口（理由：分區 assertion 失敗），不產生名單。"
+ },
+ "features_and_ranking": {
+  "proxies": "v2:proxies 的 atr14、n_lu_250、r20、c_ma120、combo（池內同日百分位、至少 3 項有值，否則 NaN）；組成項套 v2 短歷史 NaN 規則，窗長表＝out/tracks_t1/feature_windows_t1.json（sha256 3dcf0e0a86815c3e19e5500809b92f00a31ebc81cf07000c374ebc592240d459）；由 s 日為止的還原面板計算（還原因子只用生效日 ≤ s 的除權息／減資事件；a36_tracks_proxy.components）。",
+  "ranking": "依值由大到小；NaN 視為 −∞ 排最後；同值以 u(s, code)＝int(sha256('{date}|{code}|t1tracks'),16)/2**256 大者優先（v2:proxies.tie_noise；a36_tracks_proxy.rank_in_day registered 模式）。",
+  "since_features": {
+   "rule": "（DEV-009）days_since_lu 與 dp_since 不再用 999：近 W＝250 日內觀察到 ⇒ 原值；未觀察到（或觀察到但 > W）且 hist_len ≥ W ⇒ W＋1＝251（右截斷，state＝censored）；其餘（hist_len < W 且未觀察到、或來源缺漏）⇒ NaN（state＝unknown）。實作 a36_tracks_fwd_rules.censor_since／since_from_legacy；記錄另附 *_state 欄。",
+   "applies_to": "前向的全部記錄與特徵庫。前向清單都是代理（atr14、combo），不使用這兩個特徵。",
+   "frozen_M0_exception": "M0_fwd 是凍結模型，輸入維持訓練時的編碼（days_since_lu 為 999）；模型輸入與訓練編碼不同會讓同一個模型給出不同分數。理由與影響見 DEV-009。"
+  },
+  "global_rank": "記錄中的整體名次＝當日 M、Mp、R、S、W 全部列的 combo（只作描述，v2:proxies.assignment.global_rank）。"
+ },
+ "m0_forward": {
+  "model": "M0_fwd＝v2 M0 協定（cv_official official 欄位、run_cv：訓練列＝釘住資料集 s ≤ ts−11 且非 extra，正例全留、負例 10% 以 default_rng(seed＋ts) 抽，HistGBDT(run_cv.GB)，種子 0／1／2）；ts＝1022（2026-10-02），最後訓練日 s＝1011（2026-09-15）；實作 a36_tracks_fwd_m0.fit_frozen_forward。",
+  "dataset": ".surge-cache-T/dataset_t1L_off.npz（v2 釘住，內容指紋 fac51da2a75183426e76a02f82c7039dfbbe9577287f4b9b4b81cc28bd067d2a；只讀）",
+  "fingerprint": {
+   "sha256": "80ec0f8e2c892d6ef61190525fa6c8a469404ba9bea368a993c9bc0dd09d5b2b",
+   "rule": "sha256(concat_seeds(decision_function(釘住資料集全部列的 M0 百分位輸入)).astype(<f8))",
+   "rows": 812555,
+   "reproducible_twice": true,
+   "record": "scripts/surge-lab/out/tracks_t1/fwdprep/tracks_t1_FWDPREP_M0FWD.json",
+   "record_sha256": "d80fb662567ac602bd4c3aa3d8dea18b88cd975bd3a7ce82560888140db81a56"
+  },
+  "frozen": "整個前向期間（G60、G250、G500）不重擬；要重擬或換模型就另立登錄。接線在第一份 m0ref 凍結之前以同一函式重擬並核對指紋，不同就不得凍結 m0ref（記缺口）。",
+  "inference": "每個決策日：以 a36_tracks_lib.compute_all／features_all（與 G0.4 驗證相同的函式）在 s 日為止的實盤面板算 official 162 個特徵（訓練時的編碼）；同日百分位的母體＝當日 M 軌全部列（a36_tracks_fwd_rules.rank_pct_by_day；含 s 日無法判定 brk_future 的列、不含 TDR），mkt_* 用原值；分數＝三種子 decision_function 的 ((z0＋z1)＋z2)/3 轉 float32（a36_tracks_fwd_m0.score），排名時加 u×1e-9。",
+  "role": "參照與等名額對照，只作描述（M-UNCHANGED）；不參與任何判定。",
+  "source_completeness": "m0ref 只在 official_features.load_matrices 當日要讀的每一個官方來源檔都存在時才凍結（逐格缺值照訓練時的口徑保留 NaN）；任一來源整天缺 ⇒ m0ref 當日記缺口，core 不受影響。"
+ },
+ "data_sources": {
+  "panel": "研究面板 .surge-cache/panel.npz（fetch_cache.mjs 由 Firestore chipArchive 唯讀匯出 → panel.py）；s 日兩市收盤必須是官方（canonical-gate archiveDayStatus 收盤＋法人到齊，dataBasis 沒有 Yahoo 補洞）。",
+  "official_limits": "官方漲停價：上市 TWT84U(s)、上櫃 dailyquotes(s−1) 的「次日漲停價」（鏡像 second-brain/official/www.twse.com.tw/twse_twt84u/<s>.json.gz、www.tpex.org.tw/tpex_dailyquotes/<s−1>.json.gz）→ official_limits.py 的 LIMUP；9995＝無漲跌幅限制。單格缺官方價時沿用 v2 build.build_events 的檔位推算（件數逐日揭露）。",
+  "corporate_actions": "還原用的除權息／減資事件同面板建置（priceEvents、exright-history、exright_delta、鏡像補抓的除權息），只用生效日 ≤ s 者。",
+  "disposal": "v2 釘住的 disposal_twse.json／disposal_tpex.json（至 2026-10-02）∪ 官方鏡像中檔名日期 ≤ s 的快照（openapi.twse.com.tw/twse_oa_announcement_punish、www.tpex.org.tw/tpex_oa_tpex_disposal_information），依 disposal.py 的口徑解析（公布日、處置起迄、2026-08-10 新制迄日校正）。",
+  "attention": "v2 釘住的 attention_twse.json／attention_tpex.json ∪ 鏡像快照 ≤ s（openapi.twse.com.tw/twse_oa_announcement_notice、www.tpex.org.tw/tpex_bulletin_warning），依 attention.py 的口徑解析。",
+  "listing": "見 track_assignment.listing.snapshot_asof。",
+  "market_names": "市場別 code_market.json（＋a34 擴充）；轉市場股另給 market_by_date。名稱 names.json → 官方快照現名 → TWSE 終止上市名單 → 「來源未提供」（name_src）。",
+  "calendar": "Firestore system/tradingCalendar（唯讀）決定 t＝下一交易日與凍結期限；s 日以後才補進日曆的臨時休市照實順延 t，凍結檔記 targetDayBasis。",
+  "m0_official_sources": "official_features 讀的官方原始檔（SURGE_CACHE/official：MI_INDEX／dailyQuotes、MI_QFIIS、T86 與上櫃法人、TWTB4U／上櫃當沖、MOPS 財報、月營收、產業別、MI_MARGN、TWT93U 等），s 日為止。",
+  "adapter_parity_before_first_freeze": "接線在第一份凍結之前，要證明鏡像轉接器在重疊期間（≤ 2026-10-02）解析出的處置、注意、上市快照與 v2 釘住的研究檔逐筆相同（代號、公布日、期間／上市日）；不同就先寫前向偏差，不得直接凍結。",
+  "network": "前向建置本身不發任何新的上游請求；只讀既有排程（daemon、官方鏡像、起漲影子協調器）已落地的資料。"
+ },
+ "freeze": {
+  "artifacts": {
+   "core": "S0_atr14@5、SFB_atr14@5、R0_combo@5、W_atr14@3 的選股＋各池當日列清單與列數＋RAND 抽樣名單",
+   "m0ref": "M0@10、M0@20 的選股與 M 軌母體列數"
+  },
+  "core_conditions": [
+   "C1 面板含 s，兩市收盤官方且到齊（同 canonical-gate：收盤＋法人兩市到齊；dataBasis 無 Yahoo 補洞）",
+   "C2 官方漲停價檔齊（TWT84U(s)、dailyquotes(s−1)）",
+   "C3 生效日 ≤ s 的還原事件已載入（面板建置的同一份）",
+   "C4 處置、注意公告已依 coverage_rule 建好（公告日 ≤ s−1；缺漏照規則記 NaN，本條不會擋凍結）",
+   "C5 上市快照 as-of s 可讀（至少有 v2 釘住的 2026-10-02 快照）",
+   "C6 當日分區 assertion 成立",
+   "C7 登錄雜湊與 implementation_pins 核對通過"
+  ],
+  "m0ref_conditions": [
+   "C1～C7",
+   "M1 m0_forward.source_completeness 成立",
+   "M2 M0_fwd 指紋已核對"
+  ],
+  "timing": "看資料、不看時鐘：條件都成立後的第一個協調器時段就凍結；必須在 t 日 09:00（Asia/Taipei）之前寫入。期限前沒有凍結 ⇒ 寫缺口記錄（決策日、哪一份、理由、缺哪些條件、期限前被研究程序擋下的時段），之後永遠不補產（不回補、不追溯）。",
+  "write_once": "以「不存在才建立」的方式寫檔；不覆寫、不更新。重跑時內容必須逐位相同，否則記 parity 失敗（G60 P3），原檔不動。",
+  "seal": "seal＝sha256(canonical JSON，不含 seal 欄位；sort_keys、ensure_ascii=False、separators=(',', ':'))；若發佈到 Firestore，副本攜帶同一個 seal（< 900 KB，超過就壓縮／分片）。",
+  "content": [
+   "registration_id、本 JSON 的 sha256、implementation_pins 的實際 sha256",
+   "date_s、t、targetDayBasis、凍結時間（Asia/Taipei）、期限",
+   "dataBasis（兩市收盤來源、官方漲停價檔、處置／注意／上市快照的檔名與 sha256、面板最後日期）",
+   "各清單：名次、代號、名稱（name_src）、軌道、分數、combo 項數、vol20、Qmax、DK_s、disposal_status、list_verdict、當下已知的旗標（DK1、DKNA）",
+   "各池當日列數與池列代號（RAND 的分母與抽樣母體）、RAND 抽樣名單與種子",
+   "m0ref 另含 M0_fwd 指紋與 M 軌母體列數"
+  ],
+  "non_trading_day_rule": "所有記錄的日期都是交易日；非交易日產生或修改的記錄，日期記為最後一個交易日（定版看資料、不看時鐘）。"
+ },
+ "maturity_and_scoring": {
+  "label": "y(s, j)＝v2 T1 標籤（t 起連續 ≥2 日收漲停；LU 依 build.build_events＋官方漲停價）。需要 t 與 t＋1 兩日的 C1、C2 ⇒ 最早在 s＋2 個交易日（t＋1 收盤資料到齊後）評分。",
+  "pool_events": "RAND 的事件數＝凍結檔中該池列的 y 加總（池成員在 s 凍結，之後不變）。",
+  "buyable": "buyable(t)＝t 日有開盤，且開盤沒有鎖在 t 日官方漲停價（build_v2.forward_meta；9995 不鎖）。t 日資料到齊後記錄。",
+  "returns": "c1（t）、c5＝close(t+4)/open(t)−1（s＋5）、c10＝close(t+9)/open(t)−1（s＋10），用到期日當時的還原面板；到期時計算一次、只寫一次，之後的回溯還原不改寫。",
+  "exit_flags": "出場日分類 a36_tracks_fwd_rules.exit_category（記錄時點＝到期日：OK／NOCLOSE_UNRESOLVED；之後在 G60／G250 評估時以評估日為記錄時點另附一份重分類：NOCLOSE_HALT、NOCLOSE_ILLIQ、NOCLOSE_UNRESOLVED，只增不改）。",
+  "disposal_from_t": "m_disp_t_exec＝t 日起處置（s 日盤後公告、t 日開盤前已知）：取公布日＝s、處置起日＝t 的公告，t 日記錄；只作旗標與敏感度，不改 DK_s。",
+  "write_once": "每個 (s, 期數) 的評分記錄只寫一次；上游官方資料事後修正時不改寫，另附更正記錄（舊值、新值、來源、時間），指標一律用第一次的記錄並揭露更正件數。",
+  "label_unavailable": "s＋2 之後再過 10 個交易日仍無 t／t＋1 的官方資料 ⇒ 記 label_unavailable（理由），該日不進任何指標、逐日揭露；不補值、不當 0。"
+ },
+ "metrics": {
+  "per_day": "每個評分日、每份清單：n_s（池列數）、events_s、picks＝min(K, n_s)、hits、E_RAND、可買選股數、DK_s＝0 選股數、逐日揭露（daily_disclosure）。",
+  "precision_at_K": "Σhits／Σpicks（含開盤鎖死的選股；v2:metrics.precision_at_K）",
+  "delta_vs_rand": "Δprecision(清單 − RAND)＝(Σhits − ΣE_RAND)／Σpicks（pp）；CI＝bootstrap 每次重抽的 ratio(hits, picks) − ratio(E_RAND, picks)",
+  "lift": "Σhits／ΣE_RAND",
+  "returns_descriptive": "逐日等權 c5、c10（全部可買選股、DK_s＝0 子集）與相對同軌同日的超額，未扣成本；登錄口徑＝出場日無收盤者排除（不補 0），另報兩種出場價敏感度（出場日前最後收盤、出場日後第一個開盤）與排除 t 日起處置的敏感度。只作研究記錄，不參與判定；灰底清單的報酬不在介面顯示。",
+  "liquidity": "Qmax ≥ 2 張占比、中位數、=0 占比；S 清單一律標容量受限。",
+  "descriptive_splits": "上市／上櫃（market_by_date）、市值三分位、DK_s 拆層、combo 只有 3 項的占比。",
+  "counting_days": "只計已評分的日子（core 已凍結且 T1 標籤到期）；缺口日與 label_unavailable 日不計入、逐日揭露。"
+ },
+ "rand": {
+  "primary": "RAND_E（判定只用這個）：同 v2:metrics.RAND_reference，期望值、不抽樣：picks_s＝min(K, n_s)、E[hits_s]＝events_s × picks_s ÷ n_s（a36_tracks_fwd_rules.rand_expected）。",
+  "secondary": "RAND_draw（稽核／介面基準）：池代號升冪排序後以 default_rng(int(sha256('{date_s}|{list_id}|t1fwd-rand')[:16], 16)) 不放回抽 min(K, n_s) 檔（rand_draw），與名單一起凍結封印；其精確度與 Δprecision(清單 − RAND_draw) 只作描述。"
+ },
+ "bootstrap": {
+  "rule": "v2:bootstrap 原樣：20 日循環區塊、B＝2000、seed＝11（a36_tracks_eval.boot_index）；日序列＝評估窗內已評分的前向日依時間排序（缺口日直接略過、不補）；配對比較共用同一組重抽日；百分位 2.5%／97.5%。"
+ },
+ "G60": {
+  "when": "第 60 個已評分的 core 決策日的 T1 標籤到期後（約 s0 起 3 個月）。",
+  "process_checks": {
+   "P1": "每個前向交易日都有 core 凍結檔或缺口記錄（沒有無聲缺日）；core 缺口占交易日 ≤ 20%。",
+   "P2": "每份凍結檔與評分記錄的封印都能重算相符；沒有任何覆寫；Firestore 副本（若有）與本機逐位相同。",
+   "P3": "parity：每個評分日以研究路徑（a36_tracks_lib.compute_all＋listing_info_v3、a36_tracks_proxy）在「截到 ≤ s 的面板」重算，軌道歸屬、池列數、各清單成員與名次 0 差異；上游官方資料在凍結後被修正造成的差異另記「資料修正」並附證據（不算 parity 失敗，但逐件揭露）。",
+   "P4": "每個決策日的分區 assertion 都成立。",
+   "P5": "缺料都寫進記錄、沒有補假值（DK_s 未知、at_known 未知、出場日無收盤都以 NaN／旗標呈現；出現任何以 0 填補即失敗）。",
+   "P6": "每個評分日的 T1 標籤恰寫一次，而且寫在 t＋1 的資料到齊之後。",
+   "P7": "登錄雜湊與 implementation_pins 每天核對通過（或有對應的 PIN-UPDATE 偏差列）。",
+   "P8": "介面：灰底清單（R0、W）沒有顯示任何報酬；S0、S_FB、R0、W、M0 各自一區、沒有混排。"
+  },
+  "crash": "S0、S_FB：前 60 個評分日的 Δprecision@5(清單 − RAND_E) 95% CI 上界 < 0（a36_tracks_fwd_rules.g60_crash）。R0、W 只描述。",
+  "outcomes": {
+   "CONTINUE": "P1～P8 全過，而且 S0、S_FB 都沒有崩壞。",
+   "HALT-FOR-REVIEW": "任一流程檢查失敗，或 S0／S_FB 崩壞。凍結照常進行（記錄保留），但 G250 暫停，直到使用者裁定（裁定寫進前向偏差紀錄）。"
+  },
+  "exclusive_exhaustive": "兩種結果互斥且窮盡（以「全部通過且沒有崩壞」二分）。"
+ },
+ "G250": {
+  "when": "第 250 個已評分的 core 決策日的 T1 標籤到期後（約 s0 起 1 年）；評估窗＝s0 起前 250 個已評分日。G60 為 HALT-FOR-REVIEW 且尚未裁定時不評估。",
+  "S0": {
+   "quantity": "Δprecision@5(S0 − RAND_S)：點估計與 95% 區塊 CI 下界",
+   "rule": "a36_tracks_fwd_rules.g250_keep：依序 DROP（點估計 ≤ 0 或無法計算）→ CONFIRM（CI 下界 > 0）→ EXTEND（其餘）",
+   "CONFIRM": "維持 S-KEEP-AS-SHADOW，標籤改為「觀察／研究榜·代理 lift 前向確認·容量受限·不可交易」（仍不是可交易名單）",
+   "EXTEND": "標籤不變，延長到第 500 個已評分日，以 G500 定案",
+   "DROP": "降為 S-WATCH-ONLY：移到灰底觀察區，介面不顯示報酬，研究記錄照算",
+   "role": "本登錄唯一的主要檢定（單一、不需多重比較校正）"
+  },
+  "S_FB": {
+   "quantity": "Δprecision@5(atr14_FB − RAND_FB)",
+   "rule": "同 S0（g250_keep）",
+   "CONFIRM": "維持 SFB-KEEP-AS-SHADOW（標籤保留「探索性」、改「前向確認」）",
+   "EXTEND": "延長到 500 日以 G500 定案",
+   "DROP": "降為 SFB-WATCH-ONLY（灰底）",
+   "role": "探索性、未調整（報告時標明）"
+  },
+  "R0": {
+   "quantity": "Δprecision@5(R0 − RAND_R)",
+   "rule": "a36_tracks_fwd_rules.g250_watch：UPGRADE（點估計 > 0 且 CI 下界 > 0）→ EXTEND（點估計 > 0、下界 ≤ 0）→ STAY-WATCH（其餘）",
+   "UPGRADE": "升為 R-KEEP-AS-SHADOW：撤除灰底，標「觀察／研究榜·代理 lift 前向確認·不可交易」（仍不是可交易名單）",
+   "EXTEND": "維持灰底到 500 日，以 G500（CONFIRM＝UPGRADE、DROP＝維持灰底）定案",
+   "STAY-WATCH": "維持 R-WATCH-ONLY 灰底",
+   "role": "未調整；v2 檢定力約 0.21，預期多半停在灰底"
+  },
+  "W": {
+   "rule": "只作描述（W-WATCH-ONLY，沒有升級途徑）"
+  },
+  "M0_and_equal_slot": {
+   "rule": "只作描述"
+  },
+  "exclusive_exhaustive": "每份清單的結果依上列順序判定，互斥且窮盡。",
+  "outputs": "每次評估都輸出各清單的 HIT 與 MISS 記錄（該軌每個 T1 事件對該清單的名次與結果）、全部選股記錄、逐日揭露與摘要。"
+ },
+ "G500": {
+  "when": "只對 G250 判為 EXTEND 的清單：第 500 個已評分日的 T1 標籤到期後，評估窗＝前 500 個已評分日。",
+  "rule": "a36_tracks_fwd_rules.g500_final：點估計 > 0 且 CI 下界 > 0 ⇒ CONFIRM（R0 為 UPGRADE），否則 DROP（R0 為維持灰底）。這是最終定案，之後不再延長。"
+ },
+ "presentation": {
+  "sections": {
+   "S0": "S 小量軌・觀察／研究榜（S0 atr14 前 5）",
+   "S_FB": "S_FB・觀察／研究榜（探索性；Mp 列 atr14 前 5）",
+   "R_GREY": "灰底・R0 再點火 combo 前 5（不可交易，僅觀察）",
+   "W_GREY": "灰底・W 觀察 atr14 前 3（不可交易，僅觀察）",
+   "M0_REF": "M0 參照（主榜模型前 10）",
+   "EQ_CONTROL": "等名額對照（描述）"
+  },
+  "no_mixing": "各區獨立排名與呈現：S 列不進 W 的排名池、S_FB 不與 S 混排、灰底清單不與任何研究榜混排。",
+  "labels": {
+   "S0_atr14@5": "觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認",
+   "SFB_atr14@5": "探索性·觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認",
+   "R0_combo@5": "不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）",
+   "W_atr14@3": "不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）",
+   "M0@10": "主榜 M0 參照（M-UNCHANGED）·本研究未作可交易判定",
+   "M0@20": "等名額對照（描述用，不參與任何判定）"
+  },
+  "fixed_labels": [
+   "未扣成本（成本參考：2.8 折來回約 0.38%、全額約 0.585%；只作參考，不當門檻）",
+   "交易方法狀態未知（全額交割、變更交易方法、停止信用交易的來源未提供）",
+   "容量以 s 日 vol20 估計，未模擬開盤競價量與滑價",
+   "非投資建議"
+  ],
+  "returns_display": "灰底清單（R0、W）介面不顯示任何報酬或報酬衍生數字（研究記錄照算）。S0、S_FB、M0 的名單卡片也不顯示報酬，只顯示 T1 命中與否（到期後）與累計 Δprecision 對 RAND；報酬只在管理員研究記錄分頁，附「未扣成本·不可交易·非投資建議」。",
+  "disposal_display": {
+   "DK1": "處置中（DK_s＝1）·交易規則另案登錄",
+   "DKNA": "處置狀態未知（來源缺漏）",
+   "DISP_T": "t 日起處置（s 日盤後公告、t 日開盤前已知；可交易口徑照算，另列敏感度）"
+  },
+  "access": "只在管理員頁（super-admin gate）；API 回應 gzip＋no-store；Firestore 文件 < 900 KB（壓縮／分片）。"
+ },
+ "records_outputs": {
+  "pick_columns_new": [
+   "disposal_status（取代 v2 的 tradable_status；值見 a36_tracks_fwd_rules.DISPOSAL_STATUS）",
+   "list_verdict",
+   "section",
+   "grey_watch_only",
+   "flags（代碼，FLAG_TEXT）",
+   "flags_text",
+   "m_has_open_t",
+   "exit_c5_cat",
+   "exit_c10_cat",
+   "days_since_lu／dp_since 與 *_state"
+  ],
+  "legacy_alias": "讀 v2 鎖定選股記錄時一律經 a36_tracks_fwd_rules.alias_legacy_tradable_status（tradable_status → disposal_status，值換成處置語意）；不得把 tradable_status 當成清單層級的可交易判定。",
+  "daily_disclosure": "逐日 × 清單：n_picks、n_dk0、n_dk1、n_dk_unknown、n_disp_t、n_buyable、n_no_open_t、n_locked_open_t、c5／c10 各出場狀態件數（a36_tracks_fwd_rules.daily_disclosure）。",
+  "hits_misses": "每次 G 評估：每一軌的每個 T1 事件，對該軌每份前向清單各記一行（名次、命中或漏網、分數、池列數、關鍵特徵、DK_s、旗標、事後 m_ 欄）；Mp 軌事件對 S_FB 記錄。",
+  "note_column": "每列固定寫「未扣成本·事後欄位以 m_ 標示·非投資建議」"
+ },
+ "missing_data": {
+  "principle": "缺料就記缺、不捏造：沒有任何預設 0；NaN／null＋原因。",
+  "cases": {
+   "core 條件期限前不成立": "當日 core 記缺口（理由、缺哪些條件），永不補產；不計入 G 的評分日。",
+   "m0ref 條件不成立": "m0ref 記缺口；core 照常；等名額對照略過該日。",
+   "單格官方漲停價缺": "沿用 v2 檔位推算並逐日揭露件數（與 v2 相同口徑）。",
+   "處置／注意公告缺漏": "v2 coverage_rule：DK_s、dp_*、at_known* 設 NaN、標「處置狀態未知（來源缺漏）」；可交易口徑本來就不適用（本登錄沒有可交易名單）。",
+   "上市快照缺": "用 as-of 規則取更早的快照；連 v2 釘住快照都讀不到 ⇒ core 缺口。",
+   "標籤資料缺": "label_unavailable（maturity_and_scoring）。",
+   "出場日無收盤": "報酬記 NaN＋旗標（NOCLOSE_*），不補 0；敏感度另列。",
+   "研究程序占用共用快取": "照 a35 協調器的 preflight 略過該時段；期限前仍未凍結即記缺口並註明被擋時段。"
+  }
+ },
+ "power_and_duration": {
+  "G60": "60 個評分日 ≈ 3 個月：只查流程與崩壞（v2 power.R_G60 檢定力 0.08）。",
+  "G250": "250 個評分日 ≈ 1 年：S0 的檢定力約 0.74（v2 power.S_G250，假設 2025 年類似的基準與 lift）；R0 約 0.21（v2 power.R_G250）；S_FB 以 HO 的 +0.47pp 與 0.69% 精確度、1,250 筆選股、設計效應 1.5 估算 SE 約 0.29pp ⇒ 檢定力約 0.37（若像 SELECTION 的 +0.21pp 則約 0.08）。",
+  "G500": "EXTEND 時 500 個評分日 ≈ 2 年。",
+  "calendar_estimate": "若 s0 在 2026-10 中旬：G60 約 2027-01、G250 約 2027-10、G500 約 2028-10（實際日期取決於 s0 與缺口日數）。",
+  "answer_to_user": "研究期（到 G250 決定去留）約 1 年；S0 若 G250 判 EXTEND，最長延到約 2 年（G500 定案）。"
+ },
+ "prewiring_fixes": {
+  "note": "G1 第 4 項：v2 登錄與鎖定程式不改，修正寫在新模組，前向與鎖後驗證共用（DEV-009）。",
+  "i": {
+   "what": "選股記錄的 tradable_status 只代表處置狀態 ⇒ 前向改名 disposal_status；另加清單層級 list_verdict",
+   "impl": "a36_tracks_fwd_rules.disposal_status、alias_legacy_tradable_status、FWD_LISTS、LIST_VERDICT_FWD"
+  },
+  "ii": {
+   "what": "出場日無收盤與 t 日起處置用同一套旗標並逐日揭露",
+   "impl": "a36_tracks_fwd_rules.exit_category、pick_flag_codes、FLAG_TEXT、daily_disclosure（與鎖後補遺 exit_alternatives 逐列等價）"
+  },
+  "iii": {
+   "what": "M0 前向推論的同日百分位母體＝當日 M 軌全部列",
+   "impl": "a36_tracks_fwd_rules.rank_pct_by_day、a36_tracks_fwd_m0"
+  },
+  "iv": {
+   "what": "轉市場股第一筆收盤在面板起點視為面板前上市（transfer_prepanel）；999 改為 W＋1 右截斷／NaN＋state 欄",
+   "impl": "a36_tracks_fwd_rules.listing_info_v3、censor_since、since_from_legacy"
+  },
+  "verification": {
+   "file": "scripts/surge-lab/out/tracks_t1/fwdprep/tracks_t1_FWDPREP_VERIFY.json",
+   "sha256": "468f43ac51ae8b0bab15cc71653e55ecbb81b64876e944ac9274c3ab973e403d",
+   "deviation": "DEV-010",
+   "cache": ".surge-cache-T2（.surge-cache-T 的 APFS 複本；T 未改）",
+   "selection_equal": true,
+   "selection_fixed": {
+    "W_R": "R1@5",
+    "W_S": "S0_atr14@5",
+    "Mp1_carry_to_holdout": true
+   },
+   "decisions_equal": true,
+   "decisions_fixed": {
+    "Mp": "MP-REJECT",
+    "R": "R-WATCH-ONLY",
+    "S": "S-KEEP-AS-SHADOW",
+    "S_FB": "SFB-KEEP-AS-SHADOW",
+    "DD": "DD-INCONCLUSIVE",
+    "M": "M-UNCHANGED",
+    "W": "W-WATCH-ONLY"
+   },
+   "proxy_lists_metrics_identical": {
+    "SELHC": true,
+    "HO": true
+   },
+   "m0_training_bit_identical": true,
+   "rank_fn_reproduces_m0_ranks": true,
+   "exit_category_equivalent_to_audit": {
+    "SELHC": true,
+    "HO": true
+   },
+   "verdicts_unchanged": true,
+   "code_note": "驗證時 a36_tracks_fwd_rules.py 的 sha256 為 ca1e66200645a17154d61e39973347f32923fee36076c0b96d2973cb48ba9729；之後只改了 check_pins 的路徑基準（commit 3480e2f），驗證用到的函式未改，釘選記的是改後版本。"
+  }
+ },
+ "implementation_pins": {
+  "files_sha256": {
+   "scripts/surge-lab/a36_tracks_lib.py": "e1ec6280d58dd3219a180a84438b8b80685141378725d1d4a67a4558f97a5ce0",
+   "scripts/surge-lab/a36_tracks_proxy.py": "0e69e1d7a3dfca407c0609e11f9d9773adbb7874850afe3b7147301342b52247",
+   "scripts/surge-lab/a36_tracks_fwd_rules.py": "6bec88ea1d25600396c1f94b6c112f5a771fe26ae99d3f5fe0c780829a2e4c92",
+   "scripts/surge-lab/a36_tracks_fwd_m0.py": "675f9b26aff66cc8de5fb5bf102dcb759f226da5a69dc0a4dcfa682e475b6856",
+   "scripts/surge-lab/a36_tracks_fit.py": "1716bb9559cb54cf91e797885e93b06891ae9c3c15e845a2fcaceb09dca8eea9",
+   "scripts/surge-lab/a36_tracks_eval.py": "7ea10156c1cadfba8437b3f1869e510386562dd4877cd432c78c8b301d968a54",
+   "scripts/surge-lab/a36_tracks_build.py": "fb393a36f07f4b375e9afb3f3993234e18709fcb42cf5af5bfdb37ab04f48810",
+   "scripts/surge-lab/build.py": "7678087713aabd21caa2c8881a4a396fe3015c1ad0e133164af18ae778811a9b",
+   "scripts/surge-lab/build_v2.py": "6c7e289c852aefb8b6ce31cd7abe8dfd0b4bd8a3a1b0665ad1a6a86ac333df14",
+   "scripts/surge-lab/official_features.py": "7eef67f18206828ddd8ee9b56b31df59f59371799bf2020653f01d6159e4c67b",
+   "scripts/surge-lab/official_limits.py": "b6ea8f7aae4c696cd42f17356fe92cac002062a0cbf78da5bd6b0e4ba9a137c0",
+   "scripts/surge-lab/disposal.py": "742d80be9d75174d002b2d659c33952fa5bcda1a3488495b09e32d9bf62a5fab",
+   "scripts/surge-lab/attention.py": "2ec18d1de227c781c22cb7f7cd41a5a96be6e426dbaf534de93701b6ea0b17c5",
+   "scripts/surge-lab/models.py": "d55e859b8dbfa490dbe7edb9aa689d20c1ed253d729d00f86c9ede5619c910e7",
+   "scripts/surge-lab/run_cv.py": "fb3b80c15a83b474d3cced96c5611355a1153a2a3c6530778b10becda9078bdf",
+   "scripts/surge-lab/cv_official.py": "2973e2f95ed76bcc41e486fd778ddfbcb6c1e8fba000484052d8e28cd9b81270",
+   "scripts/surge-lab/fingerprint.py": "798b409fb7d2af4cd2aa28eb94302ab764cd730c7b9b97b3f97e307655575d85"
+  },
+  "rule": "前向建置與評估必須 import 這些檔（sha256 相符）；要改任何一個，先寫前向偏差（理由、影響、當下已看過哪些前向結果）並加「PIN-UPDATE: <檔> <新 sha256>」列；只准修實作錯誤，不准改清單、判定規則或門檻。",
+  "not_pinned": "a36_tracks_fwd_verify.py（鎖後驗證用，不在前向路徑）；接線自己的協調／發佈程式（另由接線登記，但不得改變本登錄的計算）。"
+ },
+ "cost_reference": {
+  "note": "只供參考；一律不扣成本比較，也不當門檻。",
+  "fee_side_discounted_pct": 0.0399,
+  "tax_pct": 0.3,
+  "tax_daytrade_pct": 0.15,
+  "roundtrip_discounted_2.8_pct": 0.3798,
+  "roundtrip_fullfee_pct": 0.585,
+  "per_holding_day_c5_pct": 0.076,
+  "per_holding_day_c10_pct": 0.038,
+  "unmodelled": "小型股的價差與滑價（1 檔約占股價 0.1～0.2%）、開盤競價量、處置股分盤撮合與預收款券"
+ },
+ "execution_order": [
+  "1. 本登錄（md＋JSON）單獨一個 commit 封存。",
+  "2. 接線（另案、需使用者核可接線與部署）：前向建置 import implementation_pins 的模組；第一份凍結之前完成 M0_fwd 指紋重現、鏡像轉接 parity、以及至少 5 個歷史交易日的研究路徑 parity（軌道、池、清單逐位相同），結果寫成檔案並記 sha256。",
+  "3. s0＝接線上線後第一個產出 core 凍結檔的交易日（記在該檔）；s0 之前的日子不回補。",
+  "4. G60：流程與崩壞檢查 → 報告給使用者。",
+  "5. G250（EXTEND 者到 G500）：判定由程式依本 JSON 機械計算 → 交使用者。"
+ ],
+ "amendment_policy": "封存後本檔與 md 不改。實作錯誤可修（前向偏差＋PIN-UPDATE），規則不可改；凍結檔與第一次評分記錄永不修改；G60 的 HALT 裁定、資料修正與任何例外都寫進前向偏差紀錄並在所有報告並列揭露。",
+ "note": "未扣成本·事後欄位以 m_ 標示·非投資建議"
+}

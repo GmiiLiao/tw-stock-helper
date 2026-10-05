@@ -159,7 +159,67 @@
 
 ---
 
-## DEV-009　落選挑戰者 R2、S1、S2 的 HOLDOUT 鎖後描述記錄（DEV-006 的後續；使用者 G1 第 5 項核可）
+## DEV-009　G1 第 4 項：影子接線前的四項修正（新模組實作；v2 登錄與鎖定程式一行不改）
+
+- **日期／階段**：2026-10-05，HOLDOUT 鎖檔與鎖後稽核之後；使用者同日 G1 決定「第 4 項依建議、完成就進影子」。
+- **為何記偏差**：四項都改變 v2 的定義或記錄格式（上市日規則 2、999 的語意、M0 的同日百分位母體、選股記錄欄名）。只用於前向與鎖後敏感度，**不改 v2 的任何鎖定產出或判定**。
+- **實作**：`scripts/surge-lab/a36_tracks_fwd_rules.py`（純規則）、`a36_tracks_fwd_m0.py`（M0 前向）；單元測試 `a36_tracks_fwd_rules_test.py`（13 項）。鎖定的 `a36_tracks_{lib,eval,cv,ho,decide,fit,proxy,build,stages}.py` 不改（HO 摘要內嵌其雜湊，一改 `--verify-identical` 就不再逐位）；需要 v3 規則時以 context manager 暫時替換 `L.listing_info`／`L.LISTING_SRC`。
+  1. **(i) 處置狀態與清單判定**：選股記錄的 `tradable_status` 改名 `disposal_status`，值改為「非處置（DK_s＝0）／處置中（DK_s＝1）·交易規則另案登錄／處置狀態未知（來源缺漏）」；讀 v2 鎖定記錄一律經 `alias_legacy_tradable_status`（未登錄的值直接報錯）。另加清單層級 `list_verdict`（`FWD_LISTS`：S0、S_FB 為觀察／研究榜，R0、W 為灰底，M0 為參照）。
+  2. **(ii) 統一旗標**：`DK1`、`DKNA`、`DISP_T`（t 日起處置）、`NO_OPEN_T`、`LOCKED_OPEN_T`、`C5／C10_{PENDING, NOCLOSE_HALT, NOCLOSE_ILLIQ, NOCLOSE_UNRESOLVED}`，文字見 `FLAG_TEXT`；出場日分類 `exit_category` 只用「記錄時點」（asof）以前的資料——前向到期當下只會是 OK 或 NOCLOSE_UNRESOLVED，「之後恢復收盤」的重分類在 G 評估時另附（只增不改）。研究記錄以面板末日為記錄時點時，與鎖後補遺 `exit_alternatives` 逐列等價（panel_end＝PENDING；DEV-010 在 SEL+HC 與 HO 的全部前向清單選股上核對）。逐日揭露 `daily_disclosure`（每日 × 清單：處置三態、t 日起處置、不可買原因、c5／c10 出場狀態件數）。
+  3. **(iii) M0 前向的同日百分位母體＝當日 M 軌全部列**（`rank_pct_by_day`；含 s 收盤時無法判定 brk_future 的列）。決定兩點：(a) **不含 TDR**——TDR 列屬 NE_TDR 軌，不是 M 軌；凍結 M0 的訓練母體（釘住資料集）含 e1 條件下的 TDR 列（例如 HC1 6 列，SEL 0 列），推論母體因此與訓練母體每日至多差數列，揭露；(b) **訓練段與輸入編碼不改**：M0_fwd 是凍結模型，days_since_lu 仍用訓練時的 999 編碼（同一個模型吃不同編碼會給出不同分數，等於換模型）。
+  4. **(iv-a) v3 上市日規則**：快照上市日 ≥ 面板起點、但面板第一筆收盤就在面板第一天（轉市場、面板前已在交易）⇒ first_trade＝−∞、`listing_src＝transfer_prepanel`（代碼 7；v2 的 0～6 不變）。影響 7 檔：3652、4736、5236、6446、6472、6589、8476（DEV-008 第 6 點）。hist_len 不變（first_trade＝0 與 −∞ 都得 s＋1），只改 s < 249 的 age_cap、s < 59 的 A60（後者讓 s < 59 的列換軌：Mp ＋203、S ＋64、W −267 列，全在任何評估與訓練範圍之外）。前向另規定上市快照取鏡像中 ≤ s 的最新一份疊在 2026-10-02 快照上。
+  5. **(iv-b) 「距上次」右截斷**：days_since_lu、dp_since 近 W＝250 日內觀察到 ⇒ 原值；未觀察到或觀察到但 > W、且 hist_len ≥ W ⇒ 251（state＝censored）；其餘 NaN（state＝unknown；含來源缺漏）。門檻 hist_len ≥ W 與 v2 的 r_days_since_seg_end（hist_len ≥ 250 ⇒ 251）一致。DEV-008 第 7 點寫「hist_len 夠長用窗長＋1、不夠長用 NaN」，任務寫「NaN＋明確指標」——兩者合併為「251／NaN＋state 欄」，999 不再出現在任何前向特徵或記錄。注意：**觀察到但 > 250 日的值也截斷成 251**（窗外）；全面板 D 內這類格子 days_since_lu 147,888、dp_since 134,609。v2 的 999 對觀察值是保序的，截斷不是 ⇒ 新模型（Mp1、M0\*、R1、R2、S1、S2）的輸入會變，所以 DEV-010 要重擬新模型驗證判定。
+- **當下已看過的結果**：v2 全部結果（判定已鎖）、DEV-001～008。
+- **對判定的可能影響**：v2 判定以鎖檔為準，不受影響。修正套進鎖定路徑的敏感度見 DEV-010。
+
+## DEV-010　鎖後驗證：第 4 項修正套進 v2 鎖定評估路徑重跑（.surge-cache-T2），判定全部不變
+
+- **日期／階段**：2026-10-05 20:09～20:31，DEV-009 實作後、前向登錄封存前。
+- **為何記偏差**：這是鎖後讀 HOLDOUT（重擬、重評）；不是 §8.2 第 8 點的「修正重跑」（v2 登錄規則本身沒有實作錯誤，這裡套的是下一輪規則），是鎖後敏感度、不改判定。是否計入「修正重跑兩次上限」由使用者裁定（同 DEV-008 第 1 點；若計入，是第 2 次）。
+- **做法**（`a36_tracks_fwd_verify.py`）：`.surge-cache-T` 以 `cp -c -R` 複製成 `.surge-cache-T2`（APFS 複本，內放 `.gitignore`＝`*` 與標記檔；所有寫入只在 T2，程式以路徑與標記檔防呆；**T 沒有被改**，輸入雜湊照 v2 登錄核對）。
+  1. `rebuild`：v3 上市日＋「距上次」右截斷重算全面板，寫 T2 軌道檔；與 T 逐欄比對：**只有預期的欄位不同**（f_age_cap、f_days_since_lu、f_dp_since、k_age_cap、k_age_off、k_fA60、k_first_trade_idx、k_listing_src、listing_src_names），換軌的列全在 s < 59（Mp ＋203、S ＋64、W −267，全在評估與訓練範圍外）。D 內 days_since_lu 的 999 共 508,394 格 → observed 1,227,347／censored 377,408／unknown 278,874（觀察到但 > 250 的 147,888 格改為 251）；dp_since 的 999 共 1,549,809 格 → observed 199,211／censored 1,215,626／unknown 468,792（> 250 的 134,609 格改為 251）。`out/tracks_t1/fwdprep/tracks_t1_FWDPREP_REBUILD.json`（T2 紀錄的位元組複本）。
+  2. `m0pop`：M0 的 13 折 × 3 種子：訓練段照 run_m0，資料集測試列分數與 T 的檢查點**逐位相同（39／39）**；`rank_pct_by_day` 在資料集列上逐位重現 m0_ranks（39／39）；再以「當日 M 軌全部列」為母體重評。母體與資料集測試列的差：SEL4 ＋5、HC3 ＋9、HO4 ＋6、HO5 ＋1（只卡 brk_future 的列；HO 共 7 列＝DEV-008 第 8 點），HC1 −6、HC2 −3（TDR 列）。
+  3. 新模型（a36_tracks_fit.py prep／run）：以修正後特徵重擬 M0\*、Mp1、R1、R2、S1、S2 的 SEL＋HC 七折（126 份）與 Mp1、M0\*、R1 的 HO 六折（54 份）。
+  4. `eval`：同一個 `a36_tracks_cv.build_selhc`（選模）→ `ho_label_assertion`、`evaluate('HO')`、`a36_tracks_ho.decide`，逐項對照鎖檔。
+- **結果**（`out/tracks_t1/fwdprep/tracks_t1_FWDPREP_VERIFY.json`）：
+  - **選模不變**：W_R＝R1（SEL R1−R0 ＋0.755pp [0.084, 1.430] 不變；HC ＋1.136 → ＋1.250）、W_S＝S0（S1、S2 的 SEL CI 下界仍 ≤ 0，數字不變）、Mp1 帶進 HO（SEL Δprec@10 −0.209 → −0.126pp、Δc5 ＋0.172 → ＋0.213pp；HC ＋0.227pp、−0.046 → −0.039pp）。
+  - **HO 判定全部相同**：MP-REJECT、R-WATCH-ONLY、S-KEEP-AS-SHADOW、SFB-KEEP-AS-SHADOW、DD-INCONCLUSIVE、M-UNCHANGED、W-WATCH-ONLY；第一道 assertion 與鎖檔相同。
+  - Holm：H_Mp 的 p 0.185 → 0.250（Δprec@10 ＋0.269 → ＋0.323pp、Δc5 −0.005 → −0.056pp [−0.309, 0.243]；調整後 0.370 → 0.500，仍不拒絕）；H_R 0.874、H_S 0.0005 不變；以未捨入 p 重算拒絕與否相同。C1 ＋0.108 → ＋0.161pp [−0.108, 0.430]。
+  - **代理清單**（M_atr14@5、M_combo@5、SFB_atr14@5、R0_combo@5、S0_atr14@5、W_atr14@3）在 SEL、HC、HO 全部子窗的指標**完全相同**，選股的成員、名次、命中、報酬、DK_s、Qmax **逐列相同** ⇒ 前向的四份代理清單不受任何修正影響。
+  - M0@10、M0@20：每個視窗的命中、精確度、Δ、p 都不變；只有少數日子成員互換、可買選股報酬小幅變動（HO c5 ＋0.142% → ＋0.145%）。等名額對照（HO）final ＋0.087pp、proxy ＋0.159pp 不變。
+  - 新模型的變動只在描述層：Mp1@10 SEL 命中 50 → 52、HO-model 51 → 52；R1@5 HC 35 → 36；S1@5 HC 24 → 23；R2@5 HC 47 → 48。
+  - 統一旗標的出場日分類與鎖後補遺 `exit_alternatives` 在 SEL＋HC 與 HO 全部前向清單選股上逐列等價。
+  - 修正後格式的前向清單選股（disposal_status、list_verdict、flags、exit_c5_cat／exit_c10_cat）與逐日揭露：`fwdprep/tracks_t1_FWDPREP_{SELHC,HO}_{fwdlists_picks,daily_disclosure}.csv.gz`；修正後重跑的 v2 格式命中／漏網／選股記錄：`fwdprep/records/{SELHC,HO}/`（專案規則：每次評估都留 HIT 與 MISS）。記錄檔與鎖檔的 sha256 不同，差在描述欄（pct_key_features 的 days_since_lu、7 檔轉市場股的 listing_src、新模型分數與 M0 名次）。
+  - 前向凍結 M0（ts＝2026-10-02、訓練到 2026-09-15）兩次擬合逐位相同，指紋 `80ec0f8e…5b2b`（`fwdprep/tracks_t1_FWDPREP_M0FWD.json`）。
+- **HO 讀取紀錄**：`tracks_t1_HO_ATTEMPTS.jsonl` 增 10 列 `post-lock:fwdprep:*`（m0pop 兩個行程各 start／done、HO 擬合 start／done、HO 評估兩次各 start／done——第二次只多加代理選股逐列比對）。
+- **當下已看過的結果**：v2 全部結果與本驗證的結果。
+- **對判定的可能影響**：無（v2 判定以鎖檔為準；修正後重跑的判定也完全相同）。
+
+*未扣成本·非投資建議。*
+
+---
+
+## DEV-011　前向登錄 T1-TRACKS-FWD-2026-10-05 封存：v2 FORWARD 節的具體化與差異
+
+- **日期／階段**：2026-10-05，DEV-010 驗證完成之後、任何前向資料之前。
+- **內容**：前向評估改依 `tracks/REGISTRATION_t1_tracks_forward.md`＋`registration_t1_tracks_forward.json`（JSON 正規化 sha256 `ec1a0bf87b6643bbff37b59ca346bd1746f7d500dbc402a02222343450fcae26`，封存 commit `0a022ad`，只含這兩個檔）。v2 的 `windows.FORWARD` 與 `decision_tree.FORWARD` 由它具體化；與 v2 文字不同或 v2 沒寫的地方逐項如下（v2 判定不受影響）：
+  1. **清單範圍**依 G1：S0、S_FB 進影子；R0、W 灰底；M0@10／M0@20 參照；Mp、R1／R2／S1／S2 不進。
+  2. **前向列範圍** D_fwd：v2 row_domain 用 last_close_idx（看未來），改為「first_trade ≤ s 且 [s−249, s] 內有收盤」；只影響 NE_SUSP 列數。前向不排除任何交易日（v2 的衝擊窗與面板末 5 日排除只適用歷史）。
+  3. **G60 流程檢查**在 v2 的四條之外加：缺口占交易日 ≤ 20%、不得以 0 填補、標籤恰寫一次、釘選核對、介面無報酬與不混排；parity 仍要求 0 差異，上游事後修正另記「資料修正」並附證據。崩壞判定只對 S0、S_FB（R0、W 只描述）；HALT 時凍結照常、G250 暫停到使用者裁定。
+  4. **G250 判定順序**寫成互斥窮盡：點估計 ≤ 0（或無法計算）先判 DROP，再看 CI 下界。v2 寫「EXTEND 延到 500 日再評估一次並定案」，本登錄定為 **G500：點估計 > 0 且 CI 下界 > 0 ⇒ CONFIRM，否則 DROP**。WATCH-ONLY 的 R0：UPGRADE（CI 下界 > 0）／EXTEND（點估計 > 0）／STAY-WATCH；W 沒有升級途徑（v2「一律只觀察」）。
+  5. **RAND**：判定仍只用 v2 的期望值 RAND；另加逐日種子抽樣名單（RAND_draw，與名單一起封印、可重現），只作稽核與介面基準。
+  6. **M0_fwd**：v2 沒有規定前向 M0 用哪個模型；本登錄定為 ts＝2026-10-02 的一次擬合（v2 M0 協定、種子 0／1／2），整個前向期不重擬，以擬合指紋釘住。
+  7. **凍結檔分兩份**（core、m0ref），M0 缺料不影響 core；標籤 s＋2 到期，逾 10 個交易日仍缺 ⇒ label_unavailable。
+  8. 第 4 項修正（DEV-009）全部套用於前向。
+  9. 實作釘選 17 檔（`implementation_pins`）。DEV-010 驗證時 `a36_tracks_fwd_rules.py` 的 sha256 是 `ca1e6620…`；之後只改了 `check_pins` 的路徑基準（`3480e2f`），驗證用到的函式未改，釘選記的是改後版本。
+- **當下已看過的結果**：v2 全部結果、DEV-010 的驗證結果；沒有任何前向資料。
+- **對判定的可能影響**：無（v2 判定已鎖；前向判定規則在任何前向資料之前封存）。
+
+*未扣成本·非投資建議。*
+
+---
+
+## DEV-012　落選挑戰者 R2、S1、S2 的 HOLDOUT 鎖後描述記錄（DEV-006 的後續；使用者 G1 第 5 項核可；合併前編號 DEV-009）
 
 - **日期／階段**：2026-10-05，鎖後（HOLDOUT 鎖檔 5fda1c7 之後、G1 審查）。使用者在 G1 第 5 項選「補算落選」。
 - **偏差內容**：DEV-006 採「HO 只算選定模型」，落選挑戰者 R2、S1、S2 的 HO 記錄從缺（與 `outputs.hits_misses_rule` 衝突）。本次依使用者決定補算，**只作鎖後描述，不參與判定，不得用於重新選模**；這是 HOLDOUT 的額外讀取（三個模型在 HO 六折重擬），不是修正重跑——沒有修正任何實作錯誤、沒有重產任何鎖定產出。依 §8.2 第 8 點不計入「修正重跑兩次上限」；是否計入由使用者裁定（若計入，與 DEV-008 第 1 點合計是第 2 次）。
@@ -172,5 +232,7 @@
 - **數字（HO-model 186 日，挑戰者評估窗；描述）**：R2@5 33／930（3.55%，lift 2.40），對 R0 +0.215pp [−0.755, 1.290]（p 0.379），對 HO 前選定的 R1 +0.860pp [0.108, 1.720]；S1@5、S2@5 各 11／930（1.18%，lift 6.94），對 S0 都是 0.000pp（S1 [−0.430, 0.430]、S2 [−0.753, 0.753]）。三份清單 DK_s＝0 的 c5 逐日平均 CI 都跨 0。
 - **不改判定的理由**：選模只看 SELECTION（R2 對 R0 [−0.252, 1.258]、S1 對 S0 [−0.084, 1.255]、S2 對 S0 [−0.251, 1.339]，下界都 ≤ 0，落選依據不變），HOLDOUT 結果依登錄不得用來重新選模；R2 勝過 R1 只說明「SEL 選中的挑戰者在 HO 不是最好的」，不改變 R-WATCH-ONLY（判定樹在 W_R 未經確認時退回代理 R0）。
 - **當下已看過的結果**：全部（判定已鎖）。**對判定的可能影響**：無（七軌判定重算與鎖檔逐字相同）。
+
+- **編號更正（合併時，2026-10-05）**：本條在分支 `claude/tracks-ho-addendum` 上原編為 DEV-009，與同日封存的前向登錄 `T1-TRACKS-FWD-2026-10-05`（JSON sha256 `ec1a0bf8…`）指名的 DEV-009～011（G1 第 4 項修正、鎖後驗證、前向登錄差異）撞號；封存登錄不可改，故本條依「只增不改」附在 DEV-011 之後改編 DEV-012。已 commit 的記錄 `out/tracks_t1/addendum/ho_losers/` 各 CSV 每列的 `addendum_note`、`tracks_t1_HO_losers_summary.json` 的 `label_detail`／`user_decision`／`disclosures`，以及產生它們的 `a36_tracks_ho_losers.py`（docstring 與 `LABEL_LONG`）字面寫的「DEV-009」**一律指本條（DEV-012）**；不為改號重產記錄或改程式（重產＝再讀一次 HOLDOUT；改程式會讓摘要內嵌的程式雜湊 `code_sha256` 對不上），兩者維持原樣。HOLDOUT 額外讀取的合計見 DEV-013。
 
 *未扣成本·非投資建議。*

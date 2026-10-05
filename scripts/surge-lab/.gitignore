@@ -1,9 +1,11 @@
 .surge-cache/
 # 研究 L 管線的隔離快取（.surge-cache 的 APFS 複本；retrain_official.sh 用，2026-10-04）
 .surge-cache-L/
-# T1 分軌：登錄釘住的快取 T 與其 APFS 複本 T3（DEV-009 落選挑戰者 HO 重擬只寫 T3；19 GB，不進版控，2026-10-05）
+# T1 分軌：登錄釘住的快取 T 與其 APFS 複本 T3（DEV-012〔合併前編號 DEV-009〕落選挑戰者 HO 重擬只寫 T3；19 GB，不進版控，2026-10-05）
 .surge-cache-T/
 .surge-cache-T3/
+# T1 分軌 G1 第 4 項鎖後驗證的 APFS 複本（.surge-cache-T 的 cp -c -R；a36_tracks_fwd_verify.py 只寫這裡，2026-10-05）
+.surge-cache-T2/
 # 起漲影子每日協調器：鎖目錄、演練輸出（--cache 複本＋--no-publish → <快取>-out-rehearsal；2026-10-04）
 .a35_shadow_daily.lock/
 .surge-cache*-out-rehearsal/
