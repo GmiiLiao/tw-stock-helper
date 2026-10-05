@@ -1,0 +1,1615 @@
+{
+  "schema": 1,
+  "kind": "dailyAnalyst",
+  "dataDate": "2026-10-02",
+  "edition": "evening",
+  "dates": {
+    "prev": "2026-10-01",
+    "data": "2026-10-02",
+    "next": "2026-10-05"
+  },
+  "useRules": {
+    "usedForScoring": false,
+    "nature": "AI 依資料包整理的盤後分析與觀察名單；描述事實與條件式觀察，不是買賣建議、不是評分、不是預測",
+    "forbidden": [
+      "進任何模型分數、排序鍵、濾網、門檻",
+      "餵新聞識讀／AI 波段 LLM 當方向依據",
+      "寫入 picksHistory／picksScoreboard／任何推薦榜"
+    ],
+    "disclaimer": "本頁由 AI 分析師依證交所、櫃買中心、公開資訊觀測站等官方資料與站內整理資料撰寫，經程式查核數字與引用來源。內容為資料日的市場事實描述與條件式觀察，不是投資建議，不含價格目標、買賣或進出場指示，也不保證任何結果。列示的個股僅為資料整理出的觀察名單，不構成推薦、招攬或個人化投資建議。AI 可能出錯，請以官方公告為準；報酬數字未扣交易成本，過去的表現不代表未來。投資請自行判斷並承擔風險。",
+    "disclaimerShort": "AI 整理，非投資建議；個股為資料觀察名單，非買賣建議。"
+  },
+  "summary": {
+    "headline": "權值股帶動，上市等權同步走高（示範資料）",
+    "points": [
+      {
+        "id": "c18",
+        "raw": "上市等權平均 {{m.ew|sg2}}%，前一交易日為 {{prev.m.ew|sg2}}%。",
+        "text": "上市等權平均 +0.85%，前一交易日為 -0.31%。",
+        "refs": [
+          "m.ew",
+          "prev.m.ew"
+        ],
+        "kind": "comparison",
+        "tier": "官方衍生",
+        "direction": "偏強",
+        "authors": [
+          "editor"
+        ]
+      },
+      {
+        "id": "c19",
+        "raw": "台積電貢獻加權指數 {{ix.2330.pts|pts1}} 點，半導體業等權 {{ind.半導體業.ew|sg2}}%。",
+        "text": "台積電貢獻加權指數 45.2 點，半導體業等權 +1.42%。",
+        "refs": [
+          "ix.2330.pts",
+          "ind.半導體業.ew"
+        ],
+        "kind": "fact",
+        "tier": "官方衍生",
+        "direction": "拉抬",
+        "authors": [
+          "editor",
+          "momentum"
+        ]
+      },
+      {
+        "id": "c20",
+        "raw": "美東費半 {{gl.^SOX.chgPct|sg2}}%，匯率 {{fx.USDTWD.rate|txt}}。",
+        "text": "美東費半 +1.35%，匯率 30.52。",
+        "refs": [
+          "gl.^SOX.chgPct",
+          "fx.USDTWD.rate"
+        ],
+        "kind": "fact",
+        "tier": "站內整理",
+        "direction": "無",
+        "authors": [
+          "global"
+        ]
+      }
+    ],
+    "nextFocus": [
+      {
+        "id": "c21",
+        "raw": "若費半夜盤漲幅 >= {{gl.^SOX.chgPct|sg2}}%，則觀察半導體權值股開盤表現。",
+        "text": "若費半夜盤漲幅 >= +1.35%，則觀察半導體權值股開盤表現。",
+        "refs": [
+          "gl.^SOX.chgPct"
+        ],
+        "kind": "conditional",
+        "tier": "站內整理",
+        "direction": "無",
+        "authors": [
+          "editor",
+          "global"
+        ],
+        "cond": {
+          "if": {
+            "ref": "gl.^SOX.chgPct",
+            "op": ">=",
+            "value": 1.35
+          },
+          "watch": "半導體權值股開盤表現"
+        }
+      }
+    ],
+    "risks": [
+      {
+        "id": "c22",
+        "raw": "上市下跌 {{br.dn|int}} 檔，漲跌家數並非一面倒。",
+        "text": "上市下跌 693 檔，漲跌家數並非一面倒。",
+        "refs": [
+          "br.dn"
+        ],
+        "kind": "caveat",
+        "tier": "官方衍生",
+        "direction": "無",
+        "authors": [
+          "momentum"
+        ]
+      },
+      {
+        "id": "c23",
+        "raw": "台積電外資當日淨額 {{ch.2330.fi.net|sg2}} 億，與股價方向不同。",
+        "text": "台積電外資當日淨額 -3.20 億，與股價方向不同。",
+        "refs": [
+          "ch.2330.fi.net"
+        ],
+        "kind": "caveat",
+        "tier": "官方",
+        "direction": "無",
+        "authors": [
+          "editor"
+        ]
+      }
+    ],
+    "byline": {
+      "editor": "總編輯",
+      "contributors": [
+        "momentum",
+        "industry",
+        "global"
+      ]
+    }
+  },
+  "cards": [
+    {
+      "id": "prev",
+      "title": "昨日股市｜前交易日 10/01",
+      "asOf": {
+        "day": "2026-10-01",
+        "label": "前交易日 10/01"
+      },
+      "sections": [
+        {
+          "id": "overview",
+          "title": "盤勢概述",
+          "analyst": "editor",
+          "claims": [
+            {
+              "id": "c1",
+              "raw": "前一交易日上市等權平均 {{prev.m.ew|sg2}}%。",
+              "text": "前一交易日上市等權平均 -0.31%。",
+              "refs": [
+                "prev.m.ew"
+              ],
+              "kind": "fact",
+              "tier": "官方衍生",
+              "direction": "偏弱",
+              "authors": [
+                "momentum"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "momentum",
+          "title": "盤面動能",
+          "analyst": "momentum",
+          "claims": [
+            {
+              "id": "c2",
+              "raw": "前一交易日上市等權平均 {{prev.m.ew|sg2}}%，今日為 {{m.ew|sg2}}%，差值 {{diff.m.ew|sg2}}pp。",
+              "text": "前一交易日上市等權平均 -0.31%，今日為 +0.85%，差值 +1.16pp。",
+              "refs": [
+                "prev.m.ew",
+                "m.ew",
+                "diff.m.ew"
+              ],
+              "kind": "comparison",
+              "tier": "官方衍生",
+              "direction": "無",
+              "authors": [
+                "momentum"
+              ]
+            },
+            {
+              "id": "c3",
+              "raw": "本卡只引用前一交易日以前的資料，之後的消息不列入。",
+              "text": "本卡只引用前一交易日以前的資料，之後的消息不列入。",
+              "refs": [],
+              "kind": "caveat",
+              "direction": "無",
+              "authors": [
+                "editor"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "global",
+          "title": "全球與總經",
+          "analyst": "global",
+          "claims": [
+            {
+              "id": "c4",
+              "raw": "美元兌新台幣 {{fx.USDTWD.rate|txt}}（{{fx.USDTWD.chg|sg2}}%）。",
+              "text": "美元兌新台幣 30.52（+0.08%）。",
+              "refs": [
+                "fx.USDTWD.rate",
+                "fx.USDTWD.chg"
+              ],
+              "kind": "fact",
+              "tier": "站內整理",
+              "direction": "持平",
+              "authors": [
+                "global"
+              ]
+            }
+          ]
+        }
+      ],
+      "focus": {
+        "kind": "recap",
+        "poolRule": "pool-v1",
+        "poolSize": 24,
+        "excludedCount": 7,
+        "stocks": [
+          {
+            "code": "2330",
+            "name": "台積電",
+            "market": "上市",
+            "industry": "半導體業",
+            "cardId": "prev",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +1.90%，成交值 412.3 億，為加權指數貢獻最大的一檔。",
+            "evidence": [
+              {
+                "ref": "st.2330.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2330.valM",
+                "role": "成交值"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "外資當日淨額 -3.20 億。",
+                "refs": [
+                  "ch.2330.fi.net"
+                ]
+              }
+            ],
+            "adverse": [
+              "ch.2330.fi.net"
+            ],
+            "sponsors": [
+              "momentum"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2330.close"
+            }
+          },
+          {
+            "code": "2317",
+            "name": "鴻海",
+            "market": "上市",
+            "industry": "其他電子業",
+            "cardId": "prev",
+            "kind": "recap",
+            "thesis": "收盤 -0.60%，與指數方向不同，列入資料對照。",
+            "evidence": [
+              {
+                "ref": "st.2317.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2317.valM",
+                "role": "成交值"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "媒體判讀為 利空。",
+                "refs": [
+                  "nv.2317.label"
+                ]
+              }
+            ],
+            "adverse": [
+              "nv.2317.label"
+            ],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2317.close"
+            }
+          },
+          {
+            "code": "2454",
+            "name": "聯發科",
+            "market": "上市",
+            "industry": "半導體業",
+            "cardId": "prev",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +2.30%，官方公告：董事會決議召開法人說明會。",
+            "evidence": [
+              {
+                "ref": "st.2454.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2454.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "mo.2454.法說.subject",
+                "role": "官方公告"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "公告內容需讀內文，方向不由主旨判定。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "momentum",
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2454.close"
+            }
+          },
+          {
+            "code": "3037",
+            "name": "欣興",
+            "market": "上市",
+            "industry": "電子零組件業",
+            "cardId": "prev",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +4.12%，成交值 85.6 億，電子零組件業等權 +0.77%。",
+            "evidence": [
+              {
+                "ref": "st.3037.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.3037.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "ind.電子零組件業.ew",
+                "role": "產業"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "單日漲幅偏大，後續延續性未驗證。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.3037.close"
+            }
+          },
+          {
+            "code": "3564",
+            "name": "其陽",
+            "market": "上櫃",
+            "industry": "通信網路業",
+            "cardId": "prev",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +3.05%，媒體判讀 利多（確定性屬 傳聞）。",
+            "evidence": [
+              {
+                "ref": "st.3564.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.3564.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "nv.3564.label",
+                "role": "媒體"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "消息屬傳聞等級，需以官方公告為準。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.3564.close"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "data",
+      "title": "今日盤後｜前交易日 10/02",
+      "asOf": {
+        "day": "2026-10-02",
+        "label": "前交易日 10/02"
+      },
+      "sections": [
+        {
+          "id": "overview",
+          "title": "盤勢概述",
+          "analyst": "editor",
+          "claims": [
+            {
+              "id": "c5",
+              "raw": "上市等權平均 {{m.ew|sg2}}%，加權指數 {{m.cap|sg2}}%，指數與等權相差 {{br.gapPp|sg2}}pp。",
+              "text": "上市等權平均 +0.85%，加權指數 +0.62%，指數與等權相差 +0.23pp。",
+              "refs": [
+                "m.ew",
+                "m.cap",
+                "br.gapPp"
+              ],
+              "kind": "comparison",
+              "tier": "官方衍生",
+              "direction": "偏強",
+              "authors": [
+                "editor",
+                "momentum"
+              ]
+            },
+            {
+              "id": "c6",
+              "raw": "上市上漲 {{br.up|int}} 檔、下跌 {{br.dn|int}} 檔。",
+              "text": "上市上漲 812 檔、下跌 693 檔。",
+              "refs": [
+                "br.up",
+                "br.dn"
+              ],
+              "kind": "fact",
+              "tier": "官方衍生",
+              "direction": "無",
+              "authors": [
+                "momentum"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "momentum",
+          "title": "盤面動能",
+          "analyst": "momentum",
+          "claims": [
+            {
+              "id": "c7",
+              "raw": "台積電對加權指數貢獻 {{ix.2330.pts|pts1}} 點，鴻海 {{ix.2317.pts|pts1}} 點。",
+              "text": "台積電對加權指數貢獻 45.2 點，鴻海 -8.6 點。",
+              "refs": [
+                "ix.2330.pts",
+                "ix.2317.pts"
+              ],
+              "kind": "fact",
+              "tier": "官方衍生",
+              "direction": "拉抬",
+              "authors": [
+                "momentum"
+              ]
+            },
+            {
+              "id": "c8",
+              "raw": "聯發科貢獻 {{ix.2454.pts|pts1}} 點，台積電成交值 {{st.2330.valM|bn1}} 億。",
+              "text": "聯發科貢獻 12.3 點，台積電成交值 412.3 億。",
+              "refs": [
+                "ix.2454.pts",
+                "st.2330.valM"
+              ],
+              "kind": "fact",
+              "tier": "官方衍生",
+              "direction": "拉抬",
+              "authors": [
+                "momentum"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "industry",
+          "title": "產業與本土消息",
+          "analyst": "industry",
+          "claims": [
+            {
+              "id": "c9",
+              "raw": "半導體業等權平均 {{ind.半導體業.ew|sg2}}%，電子零組件業 {{ind.電子零組件業.ew|sg2}}%。",
+              "text": "半導體業等權平均 +1.42%，電子零組件業 +0.77%。",
+              "refs": [
+                "ind.半導體業.ew",
+                "ind.電子零組件業.ew"
+              ],
+              "kind": "comparison",
+              "tier": "官方衍生",
+              "direction": "偏強",
+              "authors": [
+                "industry"
+              ]
+            },
+            {
+              "id": "c10",
+              "raw": "聯發科公告：{{mo.2454.法說.subject|txt}}。",
+              "text": "聯發科公告：董事會決議召開法人說明會。",
+              "refs": [
+                "mo.2454.法說.subject"
+              ],
+              "kind": "fact",
+              "tier": "官方",
+              "direction": "需讀內文",
+              "authors": [
+                "industry"
+              ]
+            },
+            {
+              "id": "c11",
+              "raw": "其陽媒體判讀為 {{nv.3564.label|txt}}，消息確定性屬 {{nv.3564.certainty|txt}}，僅供參考。",
+              "text": "其陽媒體判讀為 利多，消息確定性屬 傳聞，僅供參考。",
+              "refs": [
+                "nv.3564.label",
+                "nv.3564.certainty"
+              ],
+              "kind": "caveat",
+              "tier": "傳聞",
+              "direction": "利多",
+              "authors": [
+                "industry"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "global",
+          "title": "全球與總經",
+          "analyst": "global",
+          "claims": [
+            {
+              "id": "c12",
+              "raw": "美東當日費半 {{gl.^SOX.chgPct|sg2}}%、標普500 {{gl.^GSPC.chgPct|sg2}}%。",
+              "text": "美東當日費半 +1.35%、標普500 +0.62%。",
+              "refs": [
+                "gl.^SOX.chgPct",
+                "gl.^GSPC.chgPct"
+              ],
+              "kind": "fact",
+              "tier": "站內整理",
+              "direction": "偏強",
+              "authors": [
+                "global"
+              ]
+            }
+          ]
+        }
+      ],
+      "focus": {
+        "kind": "recap",
+        "poolRule": "pool-v1",
+        "poolSize": 24,
+        "excludedCount": 7,
+        "stocks": [
+          {
+            "code": "2330",
+            "name": "台積電",
+            "market": "上市",
+            "industry": "半導體業",
+            "cardId": "data",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +1.90%，成交值 412.3 億，為加權指數貢獻最大的一檔。",
+            "evidence": [
+              {
+                "ref": "st.2330.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2330.valM",
+                "role": "成交值"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "外資當日淨額 -3.20 億。",
+                "refs": [
+                  "ch.2330.fi.net"
+                ]
+              }
+            ],
+            "adverse": [
+              "ch.2330.fi.net"
+            ],
+            "sponsors": [
+              "momentum"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2330.close"
+            }
+          },
+          {
+            "code": "2317",
+            "name": "鴻海",
+            "market": "上市",
+            "industry": "其他電子業",
+            "cardId": "data",
+            "kind": "recap",
+            "thesis": "收盤 -0.60%，與指數方向不同，列入資料對照。",
+            "evidence": [
+              {
+                "ref": "st.2317.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2317.valM",
+                "role": "成交值"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "媒體判讀為 利空。",
+                "refs": [
+                  "nv.2317.label"
+                ]
+              }
+            ],
+            "adverse": [
+              "nv.2317.label"
+            ],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2317.close"
+            }
+          },
+          {
+            "code": "2454",
+            "name": "聯發科",
+            "market": "上市",
+            "industry": "半導體業",
+            "cardId": "data",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +2.30%，官方公告：董事會決議召開法人說明會。",
+            "evidence": [
+              {
+                "ref": "st.2454.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2454.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "mo.2454.法說.subject",
+                "role": "官方公告"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "公告內容需讀內文，方向不由主旨判定。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "momentum",
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2454.close"
+            }
+          },
+          {
+            "code": "3037",
+            "name": "欣興",
+            "market": "上市",
+            "industry": "電子零組件業",
+            "cardId": "data",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +4.12%，成交值 85.6 億，電子零組件業等權 +0.77%。",
+            "evidence": [
+              {
+                "ref": "st.3037.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.3037.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "ind.電子零組件業.ew",
+                "role": "產業"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "單日漲幅偏大，後續延續性未驗證。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.3037.close"
+            }
+          },
+          {
+            "code": "3564",
+            "name": "其陽",
+            "market": "上櫃",
+            "industry": "通信網路業",
+            "cardId": "data",
+            "kind": "recap",
+            "thesis": "收盤漲幅 +3.05%，媒體判讀 利多（確定性屬 傳聞）。",
+            "evidence": [
+              {
+                "ref": "st.3564.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.3564.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "nv.3564.label",
+                "role": "媒體"
+              }
+            ],
+            "watchConditions": [],
+            "risks": [
+              {
+                "text": "消息屬傳聞等級，需以官方公告為準。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.3564.close"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "next",
+      "title": "明日預期｜下一交易日 10/05",
+      "asOf": {
+        "day": "2026-10-05",
+        "label": "下一交易日 10/05"
+      },
+      "sections": [
+        {
+          "id": "outlook",
+          "title": "明日觀察",
+          "analyst": "editor",
+          "claims": [
+            {
+              "id": "c13",
+              "raw": "下一交易日為 {{cal.nextTrading|date}}，開盤前以最新夜盤與官方公告為準。",
+              "text": "下一交易日為 2026-10-05，開盤前以最新夜盤與官方公告為準。",
+              "refs": [
+                "cal.nextTrading"
+              ],
+              "kind": "caveat",
+              "tier": "官方",
+              "direction": "無",
+              "authors": [
+                "editor"
+              ]
+            },
+            {
+              "id": "c14",
+              "raw": "若費半夜盤漲幅 >= {{gl.^SOX.chgPct|sg2}}%，則觀察半導體權值股開盤表現。",
+              "text": "若費半夜盤漲幅 >= +1.35%，則觀察半導體權值股開盤表現。",
+              "refs": [
+                "gl.^SOX.chgPct"
+              ],
+              "kind": "conditional",
+              "tier": "站內整理",
+              "direction": "無",
+              "authors": [
+                "editor",
+                "global"
+              ],
+              "cond": {
+                "if": {
+                  "ref": "gl.^SOX.chgPct",
+                  "op": ">=",
+                  "value": 1.35
+                },
+                "watch": "半導體權值股開盤表現"
+              }
+            }
+          ]
+        },
+        {
+          "id": "global",
+          "title": "全球與總經",
+          "analyst": "global",
+          "claims": [
+            {
+              "id": "c15",
+              "raw": "美元兌新台幣 {{fx.USDTWD.rate|txt}}，日變動 {{fx.USDTWD.chg|sg2}}%；匯率走向影響外資資金流向。",
+              "text": "美元兌新台幣 30.52，日變動 +0.08%；匯率走向影響外資資金流向。",
+              "refs": [
+                "fx.USDTWD.rate",
+                "fx.USDTWD.chg"
+              ],
+              "kind": "linkage",
+              "tier": "站內整理",
+              "direction": "無",
+              "authors": [
+                "global"
+              ]
+            },
+            {
+              "id": "c16",
+              "raw": "熱力頁次日觀察：{{hm.watch.半導體業|txt}}（先驗，未驗證）。",
+              "text": "熱力頁次日觀察：次日觀察清單列入（先驗，未驗證）。",
+              "refs": [
+                "hm.watch.半導體業"
+              ],
+              "kind": "caveat",
+              "tier": "先驗·未驗證",
+              "direction": "無",
+              "authors": [
+                "momentum"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "industry",
+          "title": "產業與本土消息",
+          "analyst": "industry",
+          "claims": [
+            {
+              "id": "c17",
+              "raw": "欣興成交值 {{st.3037.valM|bn1}} 億；供應鏈位置：{{wk.3037.chain|txt}}（AI 待驗）。",
+              "text": "欣興成交值 85.6 億；供應鏈位置：ABF 載板供應鏈（wiki 整理）（AI 待驗）。",
+              "refs": [
+                "st.3037.valM",
+                "wk.3037.chain"
+              ],
+              "kind": "fact",
+              "tier": "AI待驗",
+              "direction": "無",
+              "authors": [
+                "industry"
+              ]
+            }
+          ]
+        }
+      ],
+      "focus": {
+        "kind": "watch",
+        "poolRule": "pool-v1",
+        "poolSize": 28,
+        "excludedCount": 9,
+        "stocks": [
+          {
+            "code": "2330",
+            "name": "台積電",
+            "market": "上市",
+            "industry": "半導體業",
+            "cardId": "next",
+            "kind": "watch",
+            "thesis": "收盤漲幅 +1.90%，成交值 412.3 億，為加權指數貢獻最大的一檔。",
+            "evidence": [
+              {
+                "ref": "st.2330.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2330.valM",
+                "role": "成交值"
+              }
+            ],
+            "watchConditions": [
+              {
+                "text": "開盤後觀察成交值是否延續 412.3 億水準。",
+                "refs": [
+                  "st.2330.valM"
+                ]
+              }
+            ],
+            "risks": [
+              {
+                "text": "外資當日淨額 -3.20 億。",
+                "refs": [
+                  "ch.2330.fi.net"
+                ]
+              }
+            ],
+            "adverse": [
+              "ch.2330.fi.net"
+            ],
+            "sponsors": [
+              "momentum"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2330.close"
+            }
+          },
+          {
+            "code": "2317",
+            "name": "鴻海",
+            "market": "上市",
+            "industry": "其他電子業",
+            "cardId": "next",
+            "kind": "watch",
+            "thesis": "收盤 -0.60%，與指數方向不同，列入資料對照。",
+            "evidence": [
+              {
+                "ref": "st.2317.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2317.valM",
+                "role": "成交值"
+              }
+            ],
+            "watchConditions": [
+              {
+                "text": "開盤後觀察成交值是否延續 96.4 億水準。",
+                "refs": [
+                  "st.2317.valM"
+                ]
+              }
+            ],
+            "risks": [
+              {
+                "text": "媒體判讀為 利空。",
+                "refs": [
+                  "nv.2317.label"
+                ]
+              }
+            ],
+            "adverse": [
+              "nv.2317.label"
+            ],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2317.close"
+            }
+          },
+          {
+            "code": "2454",
+            "name": "聯發科",
+            "market": "上市",
+            "industry": "半導體業",
+            "cardId": "next",
+            "kind": "watch",
+            "thesis": "收盤漲幅 +2.30%，官方公告：董事會決議召開法人說明會。",
+            "evidence": [
+              {
+                "ref": "st.2454.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.2454.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "mo.2454.法說.subject",
+                "role": "官方公告"
+              }
+            ],
+            "watchConditions": [
+              {
+                "text": "開盤後觀察成交值是否延續 70.2 億水準。",
+                "refs": [
+                  "st.2454.valM"
+                ]
+              }
+            ],
+            "risks": [
+              {
+                "text": "公告內容需讀內文，方向不由主旨判定。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "momentum",
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.2454.close"
+            }
+          },
+          {
+            "code": "3037",
+            "name": "欣興",
+            "market": "上市",
+            "industry": "電子零組件業",
+            "cardId": "next",
+            "kind": "watch",
+            "thesis": "收盤漲幅 +4.12%，成交值 85.6 億，電子零組件業等權 +0.77%。",
+            "evidence": [
+              {
+                "ref": "st.3037.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.3037.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "ind.電子零組件業.ew",
+                "role": "產業"
+              }
+            ],
+            "watchConditions": [
+              {
+                "text": "開盤後觀察成交值是否延續 85.6 億水準。",
+                "refs": [
+                  "st.3037.valM"
+                ]
+              }
+            ],
+            "risks": [
+              {
+                "text": "單日漲幅偏大，後續延續性未驗證。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.3037.close"
+            }
+          },
+          {
+            "code": "3564",
+            "name": "其陽",
+            "market": "上櫃",
+            "industry": "通信網路業",
+            "cardId": "next",
+            "kind": "watch",
+            "thesis": "收盤漲幅 +3.05%，媒體判讀 利多（確定性屬 傳聞）。",
+            "evidence": [
+              {
+                "ref": "st.3564.ret",
+                "role": "價格"
+              },
+              {
+                "ref": "st.3564.valM",
+                "role": "成交值"
+              },
+              {
+                "ref": "nv.3564.label",
+                "role": "媒體"
+              }
+            ],
+            "watchConditions": [
+              {
+                "text": "開盤後觀察成交值是否延續 6.4 億水準。",
+                "refs": [
+                  "st.3564.valM"
+                ]
+              }
+            ],
+            "risks": [
+              {
+                "text": "消息屬傳聞等級，需以官方公告為準。",
+                "refs": []
+              }
+            ],
+            "adverse": [],
+            "sponsors": [
+              "industry"
+            ],
+            "asOf": {
+              "day": "2026-10-02",
+              "closeRef": "st.3564.close"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "linkages": [
+    {
+      "id": "l1",
+      "from": {
+        "ref": "gl.^SOX.chgPct"
+      },
+      "to": {
+        "ref": "ind.半導體業.ew"
+      },
+      "mechanism": "同業連動",
+      "tier": "站內整理",
+      "text": "美東費半 +1.35%，對照台股半導體業等權 +1.42%，方向一致。",
+      "refs": [
+        "gl.^SOX.chgPct",
+        "ind.半導體業.ew"
+      ],
+      "authors": [
+        "global",
+        "industry"
+      ]
+    },
+    {
+      "id": "l2",
+      "from": {
+        "ref": "fx.USDTWD.chg"
+      },
+      "to": {
+        "ref": "ch.2330.fi.net"
+      },
+      "mechanism": "匯率",
+      "tier": "站內整理",
+      "text": "美元兌新台幣 +0.08%，同日台積電外資淨額 -3.20 億，兩者關聯待驗。",
+      "refs": [
+        "fx.USDTWD.chg",
+        "ch.2330.fi.net"
+      ],
+      "authors": [
+        "global",
+        "momentum"
+      ]
+    },
+    {
+      "id": "l3",
+      "from": {
+        "ref": "gl.^GSPC.chgPct"
+      },
+      "to": {
+        "ref": "m.ew"
+      },
+      "mechanism": "資金流向",
+      "tier": "站內整理",
+      "text": "標普500 +0.62%，上市等權 +0.85%。",
+      "refs": [
+        "gl.^GSPC.chgPct",
+        "m.ew"
+      ],
+      "authors": [
+        "global",
+        "momentum"
+      ]
+    }
+  ],
+  "refTable": {
+    "br.dn": {
+      "v": 693,
+      "unit": "檔",
+      "fmt": "int",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "上市下跌檔數"
+    },
+    "br.gapPp": {
+      "v": 0.23,
+      "unit": "pp",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "等權與指數差"
+    },
+    "br.up": {
+      "v": 812,
+      "unit": "檔",
+      "fmt": "int",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "上市上漲檔數"
+    },
+    "cal.nextTrading": {
+      "v": "2026-10-05",
+      "unit": "文字",
+      "fmt": "date",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所休市日程表",
+      "label": "下一交易日"
+    },
+    "ch.2330.fi.net": {
+      "v": -3.2,
+      "unit": "億",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所三大法人買賣金額統計",
+      "label": "台積電外資淨額"
+    },
+    "diff.m.ew": {
+      "v": 1.16,
+      "unit": "pp",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "程式預算（今日減前一日）",
+      "label": "等權平均漲跌差值"
+    },
+    "fx.USDTWD.chg": {
+      "v": 0.08,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "站內整理",
+      "source": "Yahoo 全球行情（站內整理）",
+      "label": "美元兌新台幣日變動"
+    },
+    "fx.USDTWD.rate": {
+      "v": 30.52,
+      "unit": "元",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "站內整理",
+      "source": "Yahoo 全球行情（站內整理）",
+      "label": "美元兌新台幣"
+    },
+    "gl.^GSPC.chgPct": {
+      "v": 0.62,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "站內整理",
+      "source": "Yahoo 全球行情（站內整理）",
+      "label": "標普500漲跌（美東 10/02 收盤）"
+    },
+    "gl.^SOX.chgPct": {
+      "v": 1.35,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "站內整理",
+      "source": "Yahoo 全球行情（站內整理）",
+      "label": "費城半導體指數漲跌（美東 10/02 收盤）"
+    },
+    "hm.watch.半導體業": {
+      "v": "次日觀察清單列入",
+      "unit": "文字",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "先驗·未驗證",
+      "source": "每日熱力 watch（站內先驗，未驗證）",
+      "label": "熱力次日觀察"
+    },
+    "ind.半導體業.ew": {
+      "v": 1.42,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "半導體業等權平均漲跌"
+    },
+    "ind.電子零組件業.ew": {
+      "v": 0.77,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "電子零組件業等權平均漲跌"
+    },
+    "ix.2317.pts": {
+      "v": -8.6,
+      "unit": "點",
+      "fmt": "pts1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "鴻海對加權指數貢獻"
+    },
+    "ix.2330.pts": {
+      "v": 45.2,
+      "unit": "點",
+      "fmt": "pts1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "台積電對加權指數貢獻"
+    },
+    "ix.2454.pts": {
+      "v": 12.3,
+      "unit": "點",
+      "fmt": "pts1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "聯發科對加權指數貢獻"
+    },
+    "m.cap": {
+      "v": 0.62,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "加權指數漲跌"
+    },
+    "m.ew": {
+      "v": 0.85,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "上市等權平均漲跌"
+    },
+    "mo.2454.法說.subject": {
+      "v": "董事會決議召開法人說明會",
+      "unit": "文字",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "公開資訊觀測站重大訊息",
+      "label": "聯發科官方公告主旨"
+    },
+    "nv.2317.label": {
+      "v": "利空",
+      "unit": "文字",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "媒體",
+      "source": "AI 讀內文判別（媒體 M）",
+      "label": "鴻海媒體判讀"
+    },
+    "nv.3564.certainty": {
+      "v": "傳聞",
+      "unit": "文字",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "傳聞",
+      "source": "AI 讀內文判別（媒體 M）",
+      "label": "其陽消息確定性"
+    },
+    "nv.3564.label": {
+      "v": "利多",
+      "unit": "文字",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "媒體",
+      "source": "AI 讀內文判別（媒體 M）",
+      "label": "其陽媒體判讀"
+    },
+    "prev.m.ew": {
+      "v": -0.31,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-01",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "前一交易日上市等權平均漲跌"
+    },
+    "st.2317.close": {
+      "v": 218.5,
+      "unit": "元",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所收盤行情",
+      "label": "鴻海收盤價"
+    },
+    "st.2317.ret": {
+      "v": -0.6,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "鴻海漲跌幅"
+    },
+    "st.2317.valM": {
+      "v": 96.4,
+      "unit": "億",
+      "fmt": "bn1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情",
+      "label": "鴻海成交值"
+    },
+    "st.2330.close": {
+      "v": 1085,
+      "unit": "元",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所收盤行情",
+      "label": "台積電收盤價"
+    },
+    "st.2330.ret": {
+      "v": 1.9,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "台積電漲跌幅"
+    },
+    "st.2330.valM": {
+      "v": 412.3,
+      "unit": "億",
+      "fmt": "bn1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情",
+      "label": "台積電成交值"
+    },
+    "st.2454.close": {
+      "v": 1320,
+      "unit": "元",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所收盤行情",
+      "label": "聯發科收盤價"
+    },
+    "st.2454.ret": {
+      "v": 2.3,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "聯發科漲跌幅"
+    },
+    "st.2454.valM": {
+      "v": 70.2,
+      "unit": "億",
+      "fmt": "bn1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情",
+      "label": "聯發科成交值"
+    },
+    "st.3037.close": {
+      "v": 412.5,
+      "unit": "元",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所收盤行情",
+      "label": "欣興收盤價"
+    },
+    "st.3037.ret": {
+      "v": 4.12,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "欣興漲跌幅"
+    },
+    "st.3037.valM": {
+      "v": 85.6,
+      "unit": "億",
+      "fmt": "bn1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情",
+      "label": "欣興成交值"
+    },
+    "st.3564.close": {
+      "v": 118.5,
+      "unit": "元",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "官方",
+      "source": "證交所收盤行情",
+      "label": "其陽收盤價"
+    },
+    "st.3564.ret": {
+      "v": 3.05,
+      "unit": "%",
+      "fmt": "sg2",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情（站內計算）",
+      "label": "其陽漲跌幅"
+    },
+    "st.3564.valM": {
+      "v": 6.4,
+      "unit": "億",
+      "fmt": "bn1",
+      "asOf": "2026-10-02",
+      "tier": "官方衍生",
+      "source": "證交所收盤行情",
+      "label": "其陽成交值"
+    },
+    "wk.3037.chain": {
+      "v": "ABF 載板供應鏈（wiki 整理）",
+      "unit": "文字",
+      "fmt": "txt",
+      "asOf": "2026-10-02",
+      "tier": "AI待驗",
+      "source": "站內 wiki（AI 萃取，待驗）",
+      "label": "欣興供應鏈位置"
+    }
+  },
+  "meta": {
+    "engineTier": "claude",
+    "generatedAt": "2026-10-02T14:31:40.000Z",
+    "canonicalAt": "2026-10-02T14:34:02.000Z",
+    "analysts": [
+      {
+        "id": "momentum",
+        "engine": "claude",
+        "model": "sample",
+        "rounds": 2
+      },
+      {
+        "id": "industry",
+        "engine": "claude",
+        "model": "sample",
+        "rounds": 2
+      },
+      {
+        "id": "global",
+        "engine": "claude",
+        "model": "sample",
+        "rounds": 2
+      }
+    ],
+    "editor": {
+      "engine": "claude",
+      "model": "sample"
+    },
+    "check": {
+      "pass": true,
+      "rules": {
+        "R01": "pass",
+        "R02": "pass",
+        "R03": "pass",
+        "R04": "pass",
+        "R05": "pass",
+        "R06": "pass",
+        "R07": "pass",
+        "R08": "pass",
+        "R09": "pass",
+        "R10": "pass",
+        "R11": "pass",
+        "R12": "pass",
+        "R13": "pass",
+        "R14": "pass",
+        "R15": "pass",
+        "R16": "pass",
+        "R17": "pass",
+        "R18": "pass",
+        "R19": "pass",
+        "R20": "pass",
+        "R21": "pass",
+        "R22": "pass",
+        "R23": "pass",
+        "R24": "pass",
+        "R25": "pass"
+      },
+      "blockers": 0,
+      "redactions": [],
+      "warnings": [],
+      "repairRounds": 0
+    },
+    "degraded": [
+      "sample:fixture-not-real-data"
+    ],
+    "fallback": null,
+    "pack": {
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "refCount": 39,
+      "absent": []
+    }
+  }
+}

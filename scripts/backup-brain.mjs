@@ -40,6 +40,8 @@ const DATED = [
   'chipArchive', 'chipDaily', 'newsDaily', 'morningNote', 'marketReports', 'premarketBrief',
   'picksHistory', 'limitUpForecast', 'marketWind', 'sectorWind',
   'dailyHeatmap',           // 2026-10-04：每日熱力報告頁（本機另有 second-brain/daily-heatmap 定版檔）
+  'dailyAnalyst',           // 2026-10-05：每日 AI 分析師團隊（公開分析文字；本機另有 second-brain/daily-analyst 定版檔）
+  'dailyAnalystFocus',      // 2026-10-05：同上的管理員專用「資料觀察名單」（含個股；admin SDK 讀得到，備份留本機 second-brain/backup 內、不外流）
   // ↓ 2026-08-10 補：先前完全未備份的歷史序列
   'tdccArchive',            // 集保股權分散（每週；官方只留 51 週，斷了就永遠補不回）
   'revenueArchive',         // MOPS 月營收逐檔（每月）

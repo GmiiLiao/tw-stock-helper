@@ -49,6 +49,8 @@ Next.js on Firebase App Hosting（us-central1）
 | wiki `wiki-nightly` | 每晚 23:40 | `scripts/stock-wiki-nightly.mjs`／`scripts/install-stock-wiki-schedule.sh` |
 | wiki `wiki-monthly` | 每月 1 日 20:30 | 同上 |
 | 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:30／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
+| 分析師團隊 `daily-analyst-evening` | 週一～五 23:20 起跑（腳本內每 10 分鐘輪詢「熱力定版＋資料到齊」，硬死線 00:30） | `scripts/analyst-desk-run.mjs evening`／`scripts/install-daily-analyst-schedule.sh`（技能 `tw-analyst-desk`）；claude -p 雲端引擎不碰 Ollama；定版寫 `second-brain/daily-analyst/`，發佈 Firestore `dailyAnalyst/*`（公開）＋`dailyAnalystFocus/*`（管理員）；範本已寫、**尚未安裝** |
+| 分析師團隊 `daily-analyst-morning` | 週二～六 06:10 起跑（同上輪詢，硬死線 07:30；07:00 daemon 晨間新聞趟占 Ollama 不影響主引擎） | 同上 `analyst-desk-run.mjs morning`；晨間定版優先於盤後版；未定版至死線寫 `_alerts`、頁面退回模板版 |
 | 起漲影子 `surge-shadow` | 平日 17:30／19:30／21:00／22:40／23:50＋週二～週六 07:05 | `scripts/surge-lab/a35_shadow_daily.mjs`；範本 `scripts/surge-lab/launchd/com.gmii.twstock.surge-shadow.plist`（2026-10-04 使用者核可安裝）。資料到齊（收盤＋法人＋站上 pred 定版＋資券/借券/當沖）才凍結、下一交易日 09:00 前；研究程序在跑會略過；網路只有除權息 2 請求；寫 Firestore `surgeShadow/*`；日誌 `~/Library/Logs/twstock-surge-shadow/` |
 
 鏡像與 daemon 共用出口：鏡像程式避開平日 07:30–15:30 與 daemon 重任務窗 16:25–16:55、21:40–22:35（`scripts/lib/official-mirror.mjs` 的 `DAEMON_BUSY_WINDOWS`）。
@@ -408,7 +410,7 @@ rate limit 目前是 per-instance in-memory，要全域一致需自行申請 Ups
 ```bash
 npx tsc --noEmit && npx eslint .
 npm run build          # 只能在 Mac 上跑
-node scripts/audit-data-sources.mjs     # 全站資料源健康稽核（2026-10-04：96 契約＋官方鏡像本機列；外部 probe 另計）
+node scripts/audit-data-sources.mjs     # 全站資料源健康稽核（2026-10-04：96 契約＋官方鏡像本機列；2026-10-05 起 +dailyAnalyst；外部 probe 另計）
 node scripts/check-field-conventions.mjs  # 欄位命名契約（新 xxxAt/xxxDate 名字必須登記，防止讀寫兩端相撞）
 node scripts/check-test-count.mjs         # scripts/**/*.test.mjs 全跑＋測試數不得低於 scripts/test-baseline.json（新增測試後 --update）
 ```

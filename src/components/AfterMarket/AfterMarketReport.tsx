@@ -12,13 +12,15 @@ import { dayLabel, fmtTs, useApi } from './shared';
 //   （2026-10-04 使用者：重疊太多，取消不必要的；選股訊號分頁已依建議移除）。
 // 一個子分頁＝一組 API，切到才掛載；全部是公開、盤後定版或收盤後穩定的資料。
 // 不放：盤中即時、盤前、會員限定（盤中戰情區）、管理／營運資料、使用者專屬資料。
+// 「分析報告」為預設第一個子分頁（2026-10-05）：AI 分析師團隊版（總結卡＋昨日／今日／明日三卡；個股觀察名單研究期僅管理員可見），
+//   缺資料或降級時退回資料模板版。
 // 本頁自己算的是「每日熱力」與「當晚消息排行」；價格結構事件與現貨是站內既有資料（站上其他頁沒有消費端）。
 // 本頁不預測、不計分；排序與熱度都是描述，非投資建議。
 
 const lazy = <T,>(p: () => Promise<{ default: React.ComponentType<T> }>) => dynamic(p, { loading: () => <p className={styles.note}>載入中…</p> });
 
 const News = lazy(() => import('./AfterMarketNews'));
-const Analysis = lazy(() => import('./AnalysisReport'));
+const Analysis = lazy(() => import('./AnalystDesk'));   // AI 分析師團隊版；缺資料／降級時自行退回 AnalysisReport（資料模板版）
 const DailyHeatmap = lazy(() => import('@/components/DailyHeatmap/DailyHeatmap'));
 
 const PriceEventsCard = lazy(() => import('./cards/PriceEventsCard'));
@@ -26,7 +28,7 @@ const SectorSpotCard = lazy(() => import('./cards/SectorSpotCard'));
 
 type Tab = 'news' | 'heat' | 'events' | 'report';
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'news', label: '📰 當晚消息' }, { id: 'heat', label: '🔥 熱力·權值股' }, { id: 'events', label: '📅 事件與現貨' }, { id: 'report', label: '📝 分析報告' },
+  { id: 'report', label: '📝 分析報告' }, { id: 'news', label: '📰 當晚消息' }, { id: 'heat', label: '🔥 熱力·權值股' }, { id: 'events', label: '📅 事件與現貨' },
 ];
 
 /** 頁首更新時間：熱力定版、媒體消息判讀、官方公告各自的時間（資料日標註在前）。 */
@@ -43,7 +45,7 @@ function UpdatedAt() {
 }
 
 export default function AfterMarketReport() {
-  const [tab, setTab] = useState<Tab>('news');
+  const [tab, setTab] = useState<Tab>('report');
   return (
     <div className={styles.wrap}>
       <header className={styles.head}>

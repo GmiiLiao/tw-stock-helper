@@ -149,6 +149,9 @@ const CONTRACTS = [
   { c: 'marketWind',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   // 每日熱力（技能 tw-daily-heatmap）：獨立 LaunchAgent 22:30 起輪詢、06:50 補班，經 publish-daily-heatmap 發佈
   { c: 'dailyHeatmap',     kind: 'latest',  maxStale: 36 * HOUR, session: 'daily', dateField: 'dataDate' },
+  // 每日 AI 分析師團隊（技能 tw-analyst-desk）：獨立 LaunchAgent evening 23:20 起／morning 06:10 起，經 publish-daily-analyst 發佈；
+  //   公開 doc 不含個股名單（管理員專用的 dailyAnalystFocus 只由管理員 API 讀，稽核不列）。updatedAt 為發佈時刻（number ms）
+  { c: 'dailyAnalyst',     kind: 'latest',  maxStale: 36 * HOUR, session: 'daily', dateField: 'dataDate' },
   { c: 'marketHealth',     kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'topicPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
   { c: 'swingPicks',       kind: 'latest',  maxStale: 30 * HOUR, session: 'daily' },
@@ -972,7 +975,7 @@ async function main() {
   // 2026-09-04 現況 72 設 60；2026-09-28 契約 88 條（WM-SCAN G2-13：60 的餘裕大到契約表悄悄縮掉 20 多條也不會吼）
   // ⇒ 改「現況減 4」。新增契約時順手上調；刪契約要同時下調並寫明理由。低於此值＝範圍異常。
   // 2026-10-04：契約 96 條（+G2-21 的 scoringV3／swingFormula／picksHistory／squeezeReview／aiSwingMembers×2／surgeShadow）＋officialMirror 本機列 ⇒ 92。
-  const MIN_SOURCES = 94;   // 2026-10-04 rebase 後實測 98 個資料源（含 dailyHeatmap、KY 組成閘門）⇒ 現況減 4
+  const MIN_SOURCES = 95;   // 2026-10-05：2026-10-04 實測 98 個資料源（含 dailyHeatmap、KY 組成閘門）＋dailyAnalyst ⇒ 99，現況減 4（尚未實跑稽核驗證，見交付報告）
   const auditIncomplete = results.length < MIN_SOURCES;
   if (auditIncomplete) console.log(`\n❌ 稽核範圍異常：只檢查了 ${results.length} 個資料源（下限 ${MIN_SOURCES}）——契約表或 probe 流程有問題，本次「全綠」不可信`);
 
