@@ -341,11 +341,14 @@ def pin_updates(log_path: str = FWD_DEV_LOG) -> dict:
     return out
 
 
-def check_pins(reg: dict, lab: str = L.LAB, log_path: str = FWD_DEV_LOG) -> dict:
-    """登錄 implementation_pins 的每個檔：sha256 等於登錄值，或列在前向偏差紀錄的 PIN-UPDATE。不符的檔清單供呼叫端拒跑。"""
+REPO_ROOT = os.path.dirname(os.path.dirname(L.LAB))                # 釘選鍵是 repo 相對路徑（scripts/surge-lab/…）
+
+
+def check_pins(reg: dict, root: str = REPO_ROOT, log_path: str = FWD_DEV_LOG) -> dict:
+    """登錄 implementation_pins 的每個檔（repo 相對路徑）：sha256 等於登錄值，或列在前向偏差紀錄的 PIN-UPDATE。不符的檔清單供呼叫端拒跑。"""
     ups, bad = pin_updates(log_path), []
     for rel, want in reg['implementation_pins']['files_sha256'].items():
-        p = os.path.join(lab, rel)
+        p = os.path.join(root, rel)
         cur = L.file_sha256(p) if os.path.isfile(p) else None
         if cur != want and cur not in ups.get(rel, set()):
             bad.append(dict(file=rel, now=cur, registered=want))
