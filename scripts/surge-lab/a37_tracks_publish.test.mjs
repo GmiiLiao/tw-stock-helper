@@ -4,8 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { collect, rawWrites, readBackShas, restoreFromRaw } from './a37_tracks_publish.mjs';
 
 const sha = b => createHash('sha256').update(b).digest('hex');
@@ -54,4 +56,26 @@ test('逐位副本往返：gzip→分片→讀回→解壓 sha256＝本機原檔
   const evil = heads.map(h => (h.id === 'tracks-raw-gap-2026-10-07' ? { ...h, data: { ...h.data, file: '../../etc/x.json' } } : h));
   const r3 = await restoreFromRaw(mkdtempSync(join(tmpdir(), 'a37restore-')), evil, get);
   assert.ok(r3.bad.some(x => x.includes('檔名不合規')));
+});
+
+test('發佈乾跑：一天的凍結檔清單判定與該版本後台標籤不一致時，只擋那一天、其餘照常（exit 1＋列出那一天），不再整批中止', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'a37pubday-'));
+  const amend = { registration_id: 'T1-TRACKS-FWD-2026-10-05', version: '1.1' };
+  const days = { '2026-10-06': {}, '2026-10-07': { 'S0_atr14@5': { list_verdict: 'S-KEEP-AS-SHADOW：觀察／研究榜', picks: [] } }, '2026-10-08': {} };
+  for (const [d, lists] of Object.entries(days)) {
+    writeFileSync(join(dir, `tracks_fwd_${d}.json`), JSON.stringify({ kind: 't1-tracks-core', date_s: d, t: null, rehearsal: false, lists, registration_amendment: amend }));
+  }
+  // 封印＝與 a37_tracks_fwd_io.seal_of 同參數的正規化 JSON sha256（發佈端用 python3 重算核對）
+  const PY = existsSync('/Library/Frameworks/Python.framework/Versions/3.14/bin/python3') ? '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3' : 'python3';
+  const seal = 'import json,hashlib,sys,glob\nfor f in glob.glob(sys.argv[1]+"/tracks_fwd_*.json"):\n    o=json.load(open(f,encoding="utf-8"))\n'
+    + '    o["seal"]=hashlib.sha256(json.dumps(o,sort_keys=True,ensure_ascii=False,separators=(",",":"),allow_nan=False).encode("utf-8")).hexdigest()\n'
+    + '    json.dump(o,open(f,"w",encoding="utf-8"),ensure_ascii=False)';
+  execFileSync(PY, ['-c', seal, dir]);
+  const r = spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), 'a37_tracks_publish.mjs'), '--dir', dir, '--dry-run'], { encoding: 'utf8' });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /凍結 2 日/);                                          // 兩天照常建日文件
+  assert.match(r.stdout, /日文件 2 份/);
+  assert.match(r.stdout, /逐位副本本機往返 全部逐位相同/);                     // 逐位副本（三天的封印記錄）照常
+  assert.match(r.stderr, /2026-10-07：凍結檔 S0_atr14@5 的清單判定與後台標籤不一致（v1\.1）/);
+  assert.doesNotMatch(r.stderr, /整批中止/);
 });

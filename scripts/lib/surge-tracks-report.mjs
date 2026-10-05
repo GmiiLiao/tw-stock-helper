@@ -1,10 +1,12 @@
-// ── T1 分軌前向影子（登錄 T1-TRACKS-FWD-2026-10-05）→ surgeShadow/tracks-* 文件（純函式，不碰 I/O）──────────────
+// ── T1 分軌前向影子（登錄 T1-TRACKS-FWD-2026-10-05 v1＋修訂 v1.1）→ surgeShadow/tracks-* 文件（純函式，不碰 I/O）──────────────
+// v1.1（2026-10-05，HO-BURNED：保留驗證期作廢；DEV-014／FDEV-008）：S0、S_FB 由研究榜改為灰底只觀察，四份代理清單全部灰底；
+//   LIST_META 的 S0／S_FB 必須與 scripts/surge-lab/tracks/registration_t1_tracks_forward_v1_1.json 的 lists_override 逐字一致（測試核對）。
 // 研究端 scripts/surge-lab/a37_tracks_fwd.py 寫本機 out/tracks_fwd/（凍結 core、到期評分、parity、缺口、摘要）；
 // scripts/surge-lab/a37_tracks_publish.mjs 讀檔驗封印後交給這裡整理成後台文件；API（?view=tracks｜tracksDay）與後台元件只顯示。
-//   · 後台文件一律不放任何報酬或報酬衍生數字（c1／c5／c10、超額、日均）：灰底清單（R0、W）依 G1 決定「介面不顯示報酬」，
-//     S0／S_FB／M0 的名單卡片依登錄 presentation.returns_display 也只顯示 T1 命中與否與累計 Δprecision；報酬只留在本機研究記錄。
+//   · 後台文件一律不放任何報酬或報酬衍生數字（c1／c5／c10、超額、日均）：灰底清單（v1.1 起 S0、S_FB、R0、W 全部）「介面不顯示報酬」，
+//     M0 的名單卡片依登錄 presentation.returns_display 也只顯示 T1 命中與否與累計 Δprecision；報酬只留在本機研究記錄。
 //     assertNoReturns 對每一份要寫的文件遞迴檢查鍵名，測試保證（G60 P8）。
-//   · 各清單固定順序、各自一區、不混排：M0 參照 → S0 → S_FB → R0（灰底）→ W（灰底）。
+//   · 各清單固定順序、各自一區、不混排：M0 參照 → S0（灰底）→ S_FB（灰底）→ R0（灰底）→ W（灰底）。
 //   · kind 絕不可用 'frozen-forward'（a35_shadow_publish.assertNoForwardReplace 以該值查詢，誤用會讓 a35 整批發佈中止）。
 // 影子模式·未扣成本·非投資建議。欄位命名避開未登記的 xxxAt／xxxDate（scripts/check-field-conventions.mjs）。
 
@@ -18,6 +20,12 @@ export const TRACKS_DAY_ID_RE = /^tracks-fwd-\d{4}-\d{2}-\d{2}$/;
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const MAX_DOC_BYTES = 900_000;
 export const REGISTRATION_ID = 'T1-TRACKS-FWD-2026-10-05';
+export const REGISTRATION_VERSION = '1.1';                   // 登錄修訂 v1.1（HO-BURNED 後 S0／S_FB 只觀察）
+/** S0／S_FB 的只觀察標籤（登錄 v1.1 presentation.watch_label） */
+export const WATCH_LABEL = '只觀察（保留驗證期作廢·待前向 G250）';
+/** 頁首一行（登錄 v1.1 presentation.header_one_line） */
+export const HO_BURNED_NOTE = '保留驗證期作廢（HO-BURNED，2026-10-05 使用者裁定）：鎖後三次額外讀取 HOLDOUT 都計入「最多兩次修正重跑」上限，HOLDOUT 不再確認任何事——S0／S_FB 改為只觀察，只能靠前向 G250 升級。';
+const GREY_TAIL = '容量受限·不可交易（灰底；介面不顯示報酬，研究記錄照算）';
 export const FOOTER = '影子模式·未扣成本·非投資建議';
 export const G60_N = 60;
 export const G250_N = 250;
@@ -29,25 +37,44 @@ export const TRACKS_RAW_SCHEMA = 'surgeShadow.tracksRaw.v1';
 export const TRACKS_RAW_PREFIX = 'tracks-raw-';
 export const RAW_SHARD_BYTES = 800_000;
 
-/** 固定順序（M0 參照最上，灰底在最後；各自一區） */
+/** 固定順序（M0 參照最上，其餘四份代理清單 v1.1 起全部灰底；各自一區） */
 export const LIST_ORDER = ['M0@10', 'S0_atr14@5', 'SFB_atr14@5', 'R0_combo@5', 'W_atr14@3'];
 export const LIST_META = {
   'M0@10': { section: 'M0_REF', title: 'M0 參照（主榜模型前 10）', grey: false, exploratory: false, K: 10,
-    label: '主榜 M0 參照（M-UNCHANGED）·本研究未作可交易判定', verdict: 'M-UNCHANGED' },
-  'S0_atr14@5': { section: 'S0', title: 'S 小量軌・觀察／研究榜（S0 atr14 前 5）', grey: false, exploratory: false, K: 5,
-    label: '觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認', verdict: 'S-KEEP-AS-SHADOW' },
-  'SFB_atr14@5': { section: 'S_FB', title: 'S_FB・觀察／研究榜（探索性；Mp 列 atr14 前 5）', grey: false, exploratory: true, K: 5,
-    label: '探索性·觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認', verdict: 'SFB-KEEP-AS-SHADOW' },
+    label: '主榜 M0 參照（M-UNCHANGED）·本研究未作可交易判定', verdict: 'M-UNCHANGED', watchLabel: null },
+  'S0_atr14@5': { section: 'S0', title: '灰底・S0 小量軌 atr14 前 5（只觀察）', grey: true, exploratory: false, K: 5,
+    label: `${WATCH_LABEL}·${GREY_TAIL}`, verdict: 'S-WATCH-ONLY', watchLabel: WATCH_LABEL },
+  'SFB_atr14@5': { section: 'S_FB', title: '灰底・S_FB Mp 列 atr14 前 5（探索性；只觀察）', grey: true, exploratory: true, K: 5,
+    label: `探索性·${WATCH_LABEL}·${GREY_TAIL}`, verdict: 'SFB-WATCH-ONLY', watchLabel: WATCH_LABEL },
   'R0_combo@5': { section: 'R_GREY', title: '灰底・R0 再點火 combo 前 5（不可交易，僅觀察）', grey: true, exploratory: false, K: 5,
-    label: '不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）', verdict: 'R-WATCH-ONLY' },
+    label: '不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）', verdict: 'R-WATCH-ONLY', watchLabel: null },
   'W_atr14@3': { section: 'W_GREY', title: '灰底・W 觀察 atr14 前 3（不可交易，僅觀察）', grey: true, exploratory: false, K: 3,
-    label: '不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）', verdict: 'W-WATCH-ONLY' },
+    label: '不可交易，僅觀察（灰底；介面不顯示報酬，研究記錄照算）', verdict: 'W-WATCH-ONLY', watchLabel: null },
 };
+/** v1（HO-BURNED 前）的清單標籤：只用來顯示／核對以 v1 凍結的記錄（S0、S_FB 與 v1 JSON 的 list_verdict 逐字一致，測試核對）。 */
+const LIST_META_V1 = {
+  ...LIST_META,
+  'S0_atr14@5': { section: 'S0', title: 'S 小量軌・觀察／研究榜（S0 atr14 前 5）', grey: false, exploratory: false, K: 5,
+    label: '觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認', verdict: 'S-KEEP-AS-SHADOW', watchLabel: null },
+  'SFB_atr14@5': { section: 'S_FB', title: 'S_FB・觀察／研究榜（探索性；Mp 列 atr14 前 5）', grey: false, exploratory: true, K: 5,
+    label: '探索性·觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認', verdict: 'SFB-KEEP-AS-SHADOW', watchLabel: null },
+};
+/**
+ * 依凍結檔的登錄版本查清單標籤（core.registration_amendment.version；沒有修訂指標＝'1'）。日後 v1.2 等修訂要在這裡加一份，
+ * 已封印的舊版凍結檔才會繼續對照它當時的標籤（全域只有一份 LIST_META 時，改一次版本就會讓所有舊凍結檔不一致、發佈永久停擺——審查 MEDIUM）。
+ */
+export const LIST_META_BY_VERSION = Object.freeze({ '1': LIST_META_V1, [REGISTRATION_VERSION]: LIST_META });
+export function listMetaFor(version) {
+  return Object.prototype.hasOwnProperty.call(LIST_META_BY_VERSION, version) ? LIST_META_BY_VERSION[version] : null;
+}
 /** 清單固定警示（登錄 lists／presentation；S 的容量提醒是使用者 G1 指定文字） */
 export const LIST_WARNINGS = {
   'M0@10': ['M0 前向參照需重現凍結模型指紋（80ec0f8e…）後才凍結；尚未接線前本區不顯示名單'],
-  'S0_atr14@5': ['量薄，單筆 ≤1% 均量', '容量受限（Qmax＝floor(1%×vol20)；HO 選股中位數 1 張）', '不可交易·只確認代理 lift 是否在前向成立'],
-  'SFB_atr14@5': ['探索性（未納入 Holm）', '標籤沿用 S0（含容量受限）；實際 vol20 ≥ 300、HO Qmax(2%) 中位數 28 張'],
+  'S0_atr14@5': ['量薄，單筆 ≤1% 均量', '容量受限（Qmax＝floor(1%×vol20)；HO 選股中位數 1 張）',
+    '保留驗證期作廢（HO-BURNED）：HOLDOUT 不再確認，只觀察；介面不顯示任何報酬',
+    '升級條件：G250 的 Δprecision@5(S0 − RAND) 點估計 > 0 且 CI 下界 > 0（唯一主要檢定；仍不可交易）'],
+  'SFB_atr14@5': ['探索性（未納入 Holm）', '標籤沿用 S0（含容量受限）；實際 vol20 ≥ 300、HO Qmax(2%) 中位數 28 張',
+    '保留驗證期作廢（HO-BURNED）：只觀察；升級條件同 S0（探索性、未調整）'],
   'R0_combo@5': ['灰底：不可交易，僅觀察；介面不顯示任何報酬', '升級條件：G250 的 Δprecision CI 下界 > 0'],
   'W_atr14@3': ['灰底：不可交易，僅觀察；介面不顯示任何報酬', '只作描述，沒有升級途徑'],
 };
@@ -59,7 +86,7 @@ export const REFERENCE = {
   'R0_combo@5': { sel: { hits: 21, picks: 1192, precisionPct: 1.76, deltaPp: 0.59, deltaCiPp: [-0.10, 1.25], lift: 1.50 }, ho: { hits: 43, picks: 1734, precisionPct: 2.48, deltaPp: 0.93, deltaCiPp: [0.19, 1.78], lift: 1.60 } },
   'W_atr14@3': { sel: { hits: 12, picks: 717, precisionPct: 1.67, deltaPp: 1.50, deltaCiPp: [0.67, 2.34], lift: 9.74 }, ho: { hits: 18, picks: 1041, precisionPct: 1.73, deltaPp: 1.50, deltaCiPp: [0.61, 2.46], lift: 7.45 } },
 };
-export const REFERENCE_NOTE = 'SEL＝2025 選模視窗、HO＝2023-08～2024-12 保留驗證（研究回測、未扣成本）；前向數字要累積到 G60（約 3 個月）才看流程、G250（約 1 年）才判去留';
+export const REFERENCE_NOTE = 'SEL＝2025 選模視窗、HO＝2023-08～2024-12 保留驗證（已作廢 HO-BURNED：只作描述、不作確認；研究回測、未扣成本）；前向數字要累積到 G60（約 3 個月）才看流程、G250（約 1 年）才判升級';
 /** 成本參考（登錄 cost_reference；只作參考，不當門檻） */
 export const COST_REF = [
   { item: '手續費（2.8 折），單邊', value: '0.0399%' },
@@ -127,13 +154,23 @@ function pickRow(p, outcome) {
   };
 }
 
+/** 凍結檔的登錄版本（套過修訂＝修訂版號；否則 v1） */
+export function coreRegistrationVersion(core) {
+  return core?.registration_amendment ? String(core.registration_amendment.version ?? '') : '1';
+}
+
 function listBlock(id, core, y) {
-  const meta = LIST_META[id];
+  const ver = coreRegistrationVersion(core);
+  const metas = listMetaFor(ver);
+  if (!metas) throw new Error(`凍結檔的登錄版本 v${ver} 在後台沒有對應的清單標籤（LIST_META_BY_VERSION）`);
+  const meta = metas[id];
   const fl = core?.lists?.[id] || null;
   const yl = y?.lists?.[id] || null;
   const base = { id, section: meta.section, title: meta.title, label: meta.label, listVerdict: `${meta.verdict}：${meta.label}`, grey: meta.grey,
-    exploratory: meta.exploratory, K: meta.K, warnings: LIST_WARNINGS[id], reference: REFERENCE[id] || null };
+    watchLabel: meta.watchLabel, exploratory: meta.exploratory, K: meta.K, warnings: LIST_WARNINGS[id], reference: REFERENCE[id] || null };
   if (!fl) return { ...base, status: id === 'M0@10' ? 'not-wired' : 'missing', nPool: null, ranking: null, picks: [], rand: null, outcome: null };
+  // 套過登錄修訂的凍結檔：封印記錄裡的清單判定必須等於「該版本」的後台標籤（不一致＝程式與登錄脫鉤；只有這一天不發佈，見 buildTracksDayDocs）
+  if (core?.registration_amendment && fl.list_verdict !== base.listVerdict) throw new Error(`凍結檔 ${id} 的清單判定與後台標籤不一致（v${ver}）：${fl.list_verdict}`);
   const byRank = new Map((yl?.picks_outcome || []).map(o => [o.rank, o]));
   const outcome = yl ? {
     events: fin(yl.events), picks: fin(yl.picks), hits: fin(yl.hits), expectedRand: round(yl.E_rand, 4),
@@ -179,7 +216,8 @@ export function buildTracksDayDoc({ core, y = null, c5 = null, c10 = null, parit
   const [yy, c55, c1010, pp] = [mine(y), mine(c5), mine(c10), mine(parity)];
   const yOk = yy && yy.status === 'ok' ? yy : null;
   const doc = {
-    schema: TRACKS_DAY_SCHEMA, kind: TRACKS_KIND_DAY, registrationId: REGISTRATION_ID, day: core.date_s, t: str(core.t), seal: core.seal,
+    schema: TRACKS_DAY_SCHEMA, kind: TRACKS_KIND_DAY, registrationId: REGISTRATION_ID, registrationVersion: coreRegistrationVersion(core),
+    day: core.date_s, t: str(core.t), seal: core.seal,
     sealShort: core.seal.slice(0, 12), frozenAt: str(core.frozen_time), deadline: str(core.deadline),
     trackCounts: isObj(core.track_counts) ? core.track_counts : {},
     matured: { y: yy ? yy.status : null, h5: c55 ? c55.status : null, h10: c1010 ? c1010.status : null },   // 只帶到期狀態（報酬不進文件）
@@ -213,6 +251,31 @@ export function gapSummary(gap) {
     unmet: isObj(gap?.unmet_conditions) ? Object.keys(gap.unmet_conditions) : [] };
 }
 
+/**
+ * 逐日建日文件：任一天建不出來（例如凍結檔清單判定與該版本後台標籤不一致）只擋那一天——記進 problems（day、t、封印前 12 碼、原因），
+ * 其餘日文件照常（審查 MEDIUM：原本一天不一致就整批發佈中止，連索引都不寫）。
+ */
+export function buildTracksDayDocs(days) {
+  const docs = [];
+  const problems = [];
+  for (const d of days || []) {
+    try {
+      docs.push(buildTracksDayDoc(d));
+    } catch (e) {
+      const c = d?.core;
+      problems.push({ day: str(c?.date_s) ?? str(d?.day), t: str(c?.t), sealShort: typeof c?.seal === 'string' ? c.seal.slice(0, 12) : null,
+        why: String(e?.message || e).slice(0, 300) });
+    }
+  }
+  return { docs, problems };
+}
+
+/** 被擋下的日子在索引的那一列（不連到日文件；後台顯示原因） */
+export function problemSummary(p) {
+  return { id: null, day: str(p?.day), t: str(p?.t), status: 'problem', sealShort: str(p?.sealShort), matured: null, lists: {}, nEvents: null,
+    parity: null, gapReason: null, problem: str(p?.why) };
+}
+
 function statBlock(st) {
   if (!isObj(st)) return null;
   return { days: fin(st.days), windowDays: fin(st.window_days), picks: fin(st.picks), hits: fin(st.hits), expectedRand: round(st.E_rand, 4),
@@ -235,7 +298,7 @@ function gatesBlock(summary) {
       failedChecks: Array.isArray(g60?.failed_checks) ? g60.failed_checks.map(String) : [], ruling: str(g60?.ruling) },
     g250: { target: G250_N, reached: nScored >= G250_N, paused: g250 ? g250.paused === true : null, reason: str(g250?.reason), verdict: verdictMap(g250?.verdict) },
     g500: { target: G500_N, reached: nScored >= G500_N, verdict: verdictMap(g500?.verdict) },
-    note: 'G60 只查流程與崩壞（HALT 時 G250 暫停到使用者裁定）；G250 以 Δprecision@5(S0 − RAND) 判 CONFIRM／EXTEND／DROP；EXTEND 者到 G500 定案（登錄 §9～§10）',
+    note: 'G60 只查流程與崩壞（HALT 時 G250 暫停到使用者裁定）；v1.1（HO-BURNED）起四份代理清單都只觀察：G250 以 Δprecision@K(清單 − RAND) 判 UPGRADE（點估計 > 0 且 CI 下界 > 0）／EXTEND（點估計 > 0）／STAY-WATCH，S0 為唯一主要檢定；EXTEND 者到 G500 定案（登錄 v1.1 §2）',
   };
 }
 
@@ -258,11 +321,12 @@ function processBlock(proc) {
  * summary＝a37_tracks_fwd.py 的 tracks_fwd_summary.json（stats 只取精確度類，報酬類欄位一律不帶）。
  * alerts＝協調器寫的 out/tracks_fwd/_alerts/LATEST.json；rawArchive＝發佈端讀回 tracks-raw-* 的逐位比對結果。
  */
-export function buildTracksIndexDoc({ days = [], summary = null, status = null, generatedAt, alerts = null, rawArchive = null }) {
+export function buildTracksIndexDoc({ days = [], summary = null, status = null, generatedAt, alerts = null, rawArchive = null, publishProblems = [] }) {
   const rows = [...days].filter(d => d && DAY_RE.test(d.day || '')).sort((a, b) => b.day.localeCompare(a.day));
   const st = isObj(summary?.stats) ? summary.stats : {};
   const doc = {
-    schema: TRACKS_INDEX_SCHEMA, kind: TRACKS_KIND_INDEX, registrationId: REGISTRATION_ID, generatedAt: str(generatedAt), s0: str(summary?.s0),
+    schema: TRACKS_INDEX_SCHEMA, kind: TRACKS_KIND_INDEX, registrationId: REGISTRATION_ID, registrationVersion: REGISTRATION_VERSION, hoBurnedNote: HO_BURNED_NOTE,
+    generatedAt: str(generatedAt), s0: str(summary?.s0),
     days: rows, nCore: rows.filter(r => r.status === 'frozen').length, nGaps: rows.filter(r => r.status === 'gap').length,
     cumulative: Object.fromEntries(LIST_ORDER.filter(id => id !== 'M0@10').map(id => [id, statBlock(st[id])])),
     gates: gatesBlock(summary),
@@ -272,9 +336,11 @@ export function buildTracksIndexDoc({ days = [], summary = null, status = null, 
       dispAttOverlap: str(status.disp_att_overlap?.status), pinsOk: typeof status.pins_ok === 'boolean' ? status.pins_ok : null } : null,
     alerts: Array.isArray(alerts?.alerts) ? alerts.alerts.filter(isObj).map(x => ({ level: str(x.level), code: str(x.code), msg: str(x.msg) })) : [],
     alertsTime: str(alerts?.time),
+    // 這次發佈被擋下的日子（凍結檔與該版本後台標籤不一致等；其餘日文件與索引照常發佈——審查 MEDIUM）
+    publishProblems: Array.isArray(publishProblems) ? publishProblems.filter(isObj).slice(0, 50).map(x => ({ day: str(x.day), why: str(x.why) })) : [],
     rawArchive: isObj(rawArchive) ? { ok: rawArchive.ok === true, nLocal: fin(rawArchive.n_local), nVerified: fin(rawArchive.n_verified), time: str(rawArchive.time),
       missing: Array.isArray(rawArchive.missing) ? rawArchive.missing.slice(0, 20).map(String) : [] } : null,
-    listMeta: Object.fromEntries(LIST_ORDER.map(id => [id, { title: LIST_META[id].title, grey: LIST_META[id].grey, exploratory: LIST_META[id].exploratory }])),
+    listMeta: Object.fromEntries(LIST_ORDER.map(id => [id, { title: LIST_META[id].title, grey: LIST_META[id].grey, exploratory: LIST_META[id].exploratory, watchLabel: LIST_META[id].watchLabel }])),
     referenceNote: REFERENCE_NOTE, footer: FOOTER,
   };
   const out = clean(doc);
@@ -290,11 +356,15 @@ export function assertTracksDocSizes(writes) {
   return sizes;
 }
 
-/** 已發佈的前向凍結日文件不可被不同封印覆蓋、也不可消失（前向成績不可事後改寫）。published＝[{ id, seal }]。 */
-export function forwardReplaceProblems(published, next) {
+/**
+ * 已發佈的前向凍結日文件不可被不同封印覆蓋、也不可消失（前向成績不可事後改寫）。published＝[{ id, seal }]。
+ * withheld＝這次因日文件建不出來而暫不寫的 id（本機紀錄還在，只是這次不重寫）：不算「消失」，Firestore 上的舊版原樣保留。
+ */
+export function forwardReplaceProblems(published, next, withheld = []) {
   const want = new Map(next.map(w => [w.id, w.seal]));
+  const hold = new Set(withheld);
   const clash = published.filter(p => want.has(p.id) && want.get(p.id) !== p.seal).map(p => p.id);
-  const missing = published.filter(p => !want.has(p.id)).map(p => p.id);
+  const missing = published.filter(p => !want.has(p.id) && !hold.has(p.id)).map(p => p.id);
   return { clash, missing };
 }
 

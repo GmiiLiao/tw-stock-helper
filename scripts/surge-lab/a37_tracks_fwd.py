@@ -37,7 +37,7 @@ OVERLAP_PATH = 'tracks_fwd_dispatt_overlap.json'                 # 每輪重算�
 OVERLAP_MIN_DAYS = DA.MIN_DAYS                                   # 四個資料集各自至少比到 5 個重疊日才算「有證明」，否則 pending
 PREWIRE_CODE = ('a37_tracks_fwd_io.py', 'a37_tracks_sync.py', 'a37_tracks_core.py', 'a37_tracks_dispatt.py')   # 證明綁定的程式（改了就要重跑 prewire）
 APPROVAL_RE = r'FDEV-001.*使用者核可.*\d{4}-\d{2}-\d{2}'          # forward_config.allowDispAttPending 的格式（只有使用者核可才可放行 pending）
-FDEV_REF = 'DEVIATIONS_t1_tracks_forward.md FDEV-001～FDEV-007'
+FDEV_REF = 'DEVIATIONS_t1_tracks_forward.md FDEV-001～FDEV-008'
 
 
 def parse_args(argv):
@@ -59,6 +59,15 @@ def parse_args(argv):
 # ───────────────────────── 條件與凍結 ─────────────────────────
 def code_digest() -> dict:
     return {f: IO.file_sha256(os.path.join(IO.LAB, f)) for f in PREWIRE_CODE}
+
+
+def amendment(ctx: dict) -> dict:
+    """前向登錄修訂 v1.1（HO-BURNED 後 S0／S_FB 只觀察；FDEV-008）：run_daily 先載入；直接呼叫 freeze_core／write_gap 時在這裡補載。
+    載入失敗丟 SystemExit（main 記 registration 錯誤、exit 2），同 v1 雜湊不符。"""
+    import a37_tracks_reg as REG
+    if ctx.get('amend') is None:
+        ctx['amend'] = REG.load_amendment()
+    return ctx['amend']
 
 
 def approval_ok(value) -> bool:
@@ -141,6 +150,7 @@ def conditions(I, ctx, day, target) -> dict:
 
 
 def write_gap(p, ctx, day, target, reason, extra=None) -> str:
+    import a37_tracks_reg as REG
     import a37_tracks_score as SC
     out = p['out']
     if os.path.exists(SC.core_path(out, day)) or os.path.exists(SC.gap_path(out, day)):
@@ -151,12 +161,14 @@ def write_gap(p, ctx, day, target, reason, extra=None) -> str:
     doc = dict(schema=IO.SCHEMA_GAP, kind='t1-tracks-gap', which='core', date_s=day, t=target, deadline=IO.iso_tw(dl), reason=reason,
                unmet_conditions=wait.get('unmet'), last_wait_time=wait.get('time'), blocked_slots=blocks,
                recorded=IO.iso_tw(ctx['now']), rehearsal=ctx['rehearsal'], registration_id='T1-TRACKS-FWD-2026-10-05',
+               registration_amendment=REG.ref(amendment(ctx)),
                rule='期限前沒有凍結 ⇒ 缺口，永不補產（登錄 freeze.timing）', note=IO.NOTE, **(extra or {}))
     return IO.write_once(SC.gap_path(out, day), IO.sealed(doc))
 
 
 def freeze_core(I, ctx, day, target) -> dict:
     import a37_tracks_core as C
+    import a37_tracks_reg as REG
     import a37_tracks_score as SC
     p, out = I['p'], I['p']['out']
     if os.path.exists(SC.core_path(out, day)):
@@ -197,6 +209,7 @@ def freeze_core(I, ctx, day, target) -> dict:
         IO.write_json_atomic(SC.wait_path(out, day), dict(day=day, target=target, time=IO.iso_tw(ctx['now']), unmet={'C6': dict(ok=False, error=err)}))
         return dict(day=day, result='gap', unmet=['C6'],
                     write=write_gap(p, ctx, day, target, '分區 assertion 失敗（C6；登錄 track_assignment.daily_assertion）', dict(assertion_error=err)))
+    doc = REG.apply_to_core(doc, amendment(ctx))         # 登錄修訂 v1.1：只換清單判定／標籤／灰底並加修訂指標，池與名單不動（FDEV-008）
     now2 = IO.now_tw(ctx['now_override'])
     if now2 >= dl:
         return dict(day=day, result='gap', write=write_gap(p, ctx, day, target, '計算完成時已過目標日 09:00（凍結後時鐘閘）'))
@@ -354,7 +367,9 @@ def summary(out: str, rehearsal: bool, cal=None, start=None, now=None) -> dict:
     import numpy as np
     import pandas as pd
     import a36_tracks_fwd_rules as FR
+    import a37_tracks_reg as REG
     import a37_tracks_score as SC
+    amend = REG.load_amendment()                         # G 判定的角色依登錄修訂 v1.1（S0／S_FB 為升級檢定）；不符就 SystemExit
     days = []
     for day in SC.frozen_days(out):
         fz = IO.read_json(SC.core_path(out, day))
@@ -429,7 +444,8 @@ def summary(out: str, rehearsal: bool, cal=None, start=None, now=None) -> dict:
     doc = dict(schema='t1-tracks-forward-summary/v2', generated=IO.iso_tw(IO.now_tw()), rehearsal=rehearsal, s0=first, n_core=len(days),
                n_m0ref_gaps=sum(1 for _, fz, _, _ in days if (fz.get('m0ref') or {}).get('gap')),
                n_gaps=len(gaps), gaps=gaps, n_scored=n, g60_reached=n >= SC.G60_N, g250_reached=n >= SC.G250_N, g500_reached=n >= SC.G500_N,
-               stats=stats, windows=windows, gate=SC.gate_report(windows, n, proc, SC.g60_ruling()), process=proc, files=files, note=IO.NOTE)
+               stats=stats, windows=windows, gate=SC.gate_report(windows, n, proc, SC.g60_ruling(), roles=REG.gate_roles(amend)), process=proc, files=files,
+               registration=dict(v1=dict(registration_id=FR.FWD_REG_ID, version=1, sha256=FR.recorded_sha256()), amendment=REG.ref(amend)), note=IO.NOTE)
     IO.write_json_atomic(os.path.join(out, 'tracks_fwd_summary.json'), doc)
     return doc
 
@@ -594,6 +610,9 @@ def run_daily(a, p, st) -> int:
     st['prewire_gate'] = {k: ctx['prewire'].get(k) for k in ('ok', 'why', 'statuses', 'disp_att_pending_approval', 'rehearsal_binding', 'overlap_decision')}
     st['disp_att_overlap'] = {k: ov.get(k) for k in ('status', 'why', 'days_total', 'check', 'decided_record', 'window', 'reused')}
     st['disp_att_live'] = ctx['disp_att_live']
+    import a37_tracks_reg as REG
+    ctx['amend'] = REG.load_amendment(v1=I['reg_fwd'])    # 登錄修訂 v1.1（FDEV-008）：不符就 SystemExit，整輪拒跑（同 v1 雜湊不符）
+    st['registration'] = REG.ref(ctx['amend'])
     st['pins_ok'] = I['pins']['ok']
     st['pins_mismatches'] = I['pins']['mismatches']
     st['panel_last'] = I['dates'][-1]                     # 協調器據此判斷下一輪要不要刷新面板（tracksNeedData）

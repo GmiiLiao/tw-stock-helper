@@ -128,7 +128,7 @@ python3 a35_shadow_list.py --day 2026-10-05        # 目標日由休市日曆推
   凍結時鏡像缺 s 當天的處置列 ⇒ 該市場 DK_s 記未知並告警 `DISP_S_MISSING`（FDEV-007 補記一）。
 - 告警：`out/tracks_fwd/_alerts/LATEST.json`（每輪覆寫）；釘選不符、接線前證明不成立、新缺口、C6、程式失敗記成 `tracks-health` 步驟失敗（a35 狀態檔與後台可見）。
 - 本機紀錄全部不進版控；逐位副本在 `surgeShadow/tracks-raw-*`（發佈時讀回比對 sha256）。本機目錄遺失：`node a37_tracks_publish.mjs --restore`（只補不存在的檔）。
-- 偏差紀錄：`tracks/DEVIATIONS_t1_tracks_forward.md`（FDEV-001～007）。G60 HALT 的使用者裁定寫成一行 `G60-RULING: CONTINUE <日期> …`。
+- 偏差紀錄：`tracks/DEVIATIONS_t1_tracks_forward.md`（FDEV-001～008；FDEV-007 另有補記一）。G60 HALT 的使用者裁定寫成一行 `G60-RULING: CONTINUE <日期> …`。
 - 釘選的 17 個檔（`implementation_pins`）不可隨意改：pre-commit `scripts/check-tracks-pins.mjs` 會擋；要改先寫前向偏差＋`PIN-UPDATE` 列。
 
 ```bash

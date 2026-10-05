@@ -262,3 +262,50 @@
 - **對判定的可能影響**：選 1 或 3 ⇒ 無；選 2 ⇒ 見上（由使用者決定，不由程式或作者自行改判）。
 
 *未扣成本·非投資建議。*
+
+---
+
+## DEV-014　使用者裁定 DEV-013：鎖後三次 HOLDOUT 讀取全部計入兩次上限 ⇒ HO-BURNED（依 §8.3 套用判定上限）
+
+- **日期／階段**：2026-10-05，鎖後；回覆 DEV-013 的裁定請求（選項 2「計入」）。前向登錄 `T1-TRACKS-FWD-2026-10-05` 尚未產生任何前向決策日（`forward_config.json` `enabled:false`、`startDay:null`；正式輸出 `out/tracks_fwd/` 只有接線前證明，沒有任何 core、缺口或評分檔）。
+- **裁定（使用者，2026-10-05）**：DEV-008 第 1 點、DEV-012、DEV-010 三筆鎖後 HOLDOUT 讀取**全部計入** §8.2 第 8 點「最多允許兩次修正重跑」的上限。
+- **計數**：
+
+  | 次序 | 偏差 | 讀了什麼 | 在 HO 重擬模型 | 計入 |
+  |---|---|---|---|---|
+  | 1 | DEV-008 第 1 點 | 鎖定 HO 摘要的 p 值（未捨入重算 Holm） | 否 | 是 |
+  | 2 | DEV-012（落選挑戰者 R2、S1、S2；20:00:42–20:05:10） | HO 標籤＋六折重擬（`.surge-cache-T3`） | 是 | 是 |
+  | 3 | DEV-010（G1 第 4 項鎖後驗證；20:09:15–20:31:44） | HO 標籤＋六折重擬 Mp1、M0\*、R1（`.surge-cache-T2`） | 是 | 是 |
+
+  合計 **3 次 > 2 次** ⇒ 依 §8.2 第 8 點與 §8.3 宣告 **HO-BURNED**。DEV-005／DEV-008 的鎖後補遺與 `--verify-identical`（只讀鎖定產出、不重擬）不在使用者裁定的三筆之內，照 DEV-013 的表列為「—」、不計數；它們不影響結論（2 次以上已觸發）。
+- **HO-BURNED 的效果（登錄 §8.3 原文照套，沒有改任何規則）**：
+  1. **HOLDOUT 不再作任何確認。** H_S 的 Holm 拒絕（調整後 p 0.0015）與 S_FB 的 CI 下界 > 0 都不再構成「經確認」；鎖定的 HO 數字、記錄與鎖檔一律保留原樣，只作描述（標「HO-BURNED：只作描述，不作確認」）。
+  2. **判定上限**：Mp 為 MP-REJECT；R、S 為 WATCH-ONLY（代理對 RAND 的點估計 ≤ 0 時為 REJECT）；S_FB 為 SFB-WATCH-ONLY；DD 為 DD-INCONCLUSIVE。之後只能靠前向 G250 升級。
+  3. 往後任何 HOLDOUT 讀取都不得用於任何判定、選模或升級；若仍有讀取（例如稽核），照舊寫 `tracks_t1_HO_ATTEMPTS.jsonl` 並在偏差紀錄揭露。
+- **「代理對 RAND 的點估計 ≤ 0 時為 REJECT」用哪個視窗**：§8.3 這句沒有另寫視窗，它是決策樹 R／S 表第一列（R-REJECT／S-REJECT：「沒有經確認，而且 **HO 上** Δprecision@5(代理 − RAND) 點估計 ≤ 0」）的同一個量；依 §8.1，代理類用 HOLDOUT 全部 347 日。上限只會往保守方向調（燒掉的 HOLDOUT 不能再把任何一軌往上推，但點估計 ≤ 0 仍會把它壓到 REJECT），所以用的是 HO 347 日的點估計。代理是 R0（R 的挑戰者 R1 未經確認、退回代理；HO-BURNED 下任何挑戰者都不可能經確認）與 S0。數字（`tracks_t1_HO_summary.json` `decision_detail.{R,S}_detail.proxy_minus_RAND_HO_pp`；SEL／HC 取自 `tracks_t1_summary.json`）：
+
+  | 代理 | HO 347 日（規則所指） | HO-2023 | HO-2024 | SEL 2025（239 日） | HC 2026（176 日，已污染） |
+  |---|---|---|---|---|---|
+  | R0 combo@5 | **+0.934pp** [0.189, 1.784] | +0.017 | +1.331 | +0.589 [−0.096, 1.252] | +0.586 [−0.495, 1.863] |
+  | S0 atr14@5 | **+1.114pp** [0.621, 1.657] | +1.222 | +1.067 | +0.930 [0.452, 1.439] | +1.519 [0.824, 2.268] |
+  | （參考）S_FB atr14@5 | +0.468pp [0.208, 0.770] | +0.269 | +0.555 | +0.205 [−0.067, 0.528] | +1.030 [0.462, 1.624] |
+
+  兩個代理在規則所指的 HO 視窗都 > 0 ⇒ **WATCH-ONLY，不是 REJECT**；換成 SEL、HC 或 HO 任一年段也都 > 0，結論不受視窗解讀影響。
+- **判定（前 → 後）**：
+
+  | 軌 | 鎖檔判定（v2 決策樹） | HO-BURNED 後 | 理由 |
+  |---|---|---|---|
+  | M | M-UNCHANGED | M-UNCHANGED | 不在 §8.3 的上限清單；主榜本來就不動 |
+  | Mp | MP-REJECT | **MP-REJECT** | 上限＝MP-REJECT（與原判定相同） |
+  | R | R-WATCH-ONLY | **R-WATCH-ONLY** | 上限＝WATCH-ONLY；R0 對 RAND HO 點估計 +0.934pp > 0，不到 REJECT |
+  | S | S-KEEP-AS-SHADOW | **S-WATCH-ONLY** | 上限＝WATCH-ONLY（HOLDOUT 不再確認 H_S）；S0 對 RAND HO 點估計 +1.114pp > 0，不到 REJECT |
+  | S_FB | SFB-KEEP-AS-SHADOW | **SFB-WATCH-ONLY** | 上限＝SFB-WATCH-ONLY（Mp 仍是 MP-REJECT ⇒ S_FB 照常啟用，不是 SFB-NA） |
+  | DD | DD-INCONCLUSIVE | **DD-INCONCLUSIVE** | 上限＝DD-INCONCLUSIVE（與原判定相同） |
+  | W | W-WATCH-ONLY | W-WATCH-ONLY | 依登錄一律只觀察 |
+
+  實際改變的只有 S 與 S_FB 兩軌（KEEP-AS-SHADOW → WATCH-ONLY）。鎖檔 `tracks_t1_HO_LOCK.json`、`tracks_t1_HO_summary.json` 的 `decisions` 欄不改（不可改寫）；所有摘要與報告一律並列「鎖檔判定」與「HO-BURNED 後判定」，以後者為準。
+- **對前向的影響**：G1 決定「S0、S_FB 以觀察／研究榜進前向影子」的依據（v2 判定 KEEP）已不成立。前向登錄 v1 封存不改；另立封存修訂 **v1.1**（`tracks/REGISTRATION_t1_tracks_forward_v1_1.md`＋`registration_t1_tracks_forward_v1_1.json`，前向偏差 FDEV-008 指向它）：前向機制全部沿用 v1，只把 S0、S_FB 改標只觀察（灰底），S0 的 G250 改為升級檢定（WATCH-ONLY → KEEP-AS-SHADOW，量與門檻與 v1 相同：Δprecision@5(S0 − RAND) 點估計 > 0 且 CI 下界 > 0），R0 的升級規則不變。**除了前向資料，沒有任何乾淨的時間外證據**：SELECTION 用於選模、HALF-CONFIRM 宣告已污染、HOLDOUT 已燒掉。
+- **當下已看過的結果**：v2 全部結果（判定已鎖）、DEV-008～013 的鎖後讀取結果；沒有任何前向資料（2026-10-05 之後的價格、標籤、報酬都沒有讀過）。
+- **對判定的可能影響**：如上表（S、S_FB 降為 WATCH-ONLY；其餘不變）。這是登錄 §8.3 的機械結果，不是新規則；沒有重跑或重讀 HOLDOUT（本筆只讀已 commit 的鎖定摘要數字）。
+
+*未扣成本·非投資建議。*

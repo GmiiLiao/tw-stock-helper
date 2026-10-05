@@ -200,3 +200,27 @@ OVERLAP-CHECK: a37_tracks_dispatt.py 2dee18c7438493fa83b63775886df6ef7a7f9919722
 - **啟用前仍要做**：①使用者裁定 FDEV-007（含本補記），並依第 3 點追加核可列；②在主 checkout 重跑 `python3 a37_tracks_fwd.py prewire`（`PREWIRE_CODE` 含 `a37_tracks_dispatt.py`，本版 sha256 變了），確認寫出 `prewire/tracks_fwd_dispatt_overlap_2dee18c7…_pass.json` 且 `prewire_gate.ok=true`。
 
 *影子模式·未扣成本·非投資建議。*
+
+---
+
+## FDEV-008　登錄修訂 v1.1 的指標：HO-BURNED 後 S0／S_FB 改只觀察（灰底），G250 改為升級檢定
+
+- **編號說明**：FDEV-007 保留給分支 `claude/tracks-fwd-dispatt`（處置／注意重疊比對）；本筆在另一個分支同日寫成，合併時依編號排在 FDEV-007 之後，兩筆內容互不相依。
+- **日期／階段**：2026-10-05，任何前向決策日之前（`forward_config.json` `enabled:false`、`startDay:null`；正式 `out/tracks_fwd/` 沒有任何 core、缺口、評分或 parity 檔）。
+- **依據**：使用者裁定 DEV-013 ⇒ `DEVIATIONS_t1_tracks.md` **DEV-014**：DEV-008 第 1 點、DEV-012、DEV-010 全部計入 v2 §8.2 第 8 點的兩次上限 ⇒ v2 §8.3 **HO-BURNED**。HOLDOUT 不再作任何確認；S 由 S-KEEP-AS-SHADOW 降為 **S-WATCH-ONLY**、S_FB 由 SFB-KEEP-AS-SHADOW 降為 **SFB-WATCH-ONLY**（R0、S0 對 RAND 的 HO 點估計 +0.934pp、+1.114pp > 0，不到 REJECT）；Mp、R、DD、M、W 不變。
+- **為什麼另立版本而不是偏差**：v1 規定「清單、判定規則與門檻在第一個決策日之後不得更改（要改就另立登錄）」，v1 兩個檔封存不改。S0／S_FB 的判定、標籤與 G250 的結果名稱屬於清單與判定規則，所以在第一個決策日之前另立封存修訂：
+  - `tracks/REGISTRATION_t1_tracks_forward_v1_1.md`＋`tracks/registration_t1_tracks_forward_v1_1.json`
+  - **v1.1 JSON 正規化 sha256 `db8e088beb29804b2ae585877944c95da00f7537d16009c4447bc0147f9ca274`**（檔案位元組 `54306ce532c993874ab8747d605c54fa2dde7a6178555f57c6c509e733468313`）；修訂對象 v1 `ec1a0bf87b6643bbff37b59ca346bd1746f7d500dbc402a02222343450fcae26`。
+  - 封存 commit `683826e5188ab2499c1e7da6eb464d045be7fa49`（分支 `claude/tracks-ho-burned`，只含這兩個檔）；裁定紀錄 DEV-014 在其前一個 commit `e8d567f`。
+- **v1.1 的內容**（其餘全部沿用 v1）：S0、S_FB 改灰底只觀察，標「只觀察（保留驗證期作廢·待前向 G250）」；S0（主要檢定）與 S_FB（探索性）的 G250 由維持檢定改為**升級檢定**（`g250_watch`：點估計 > 0 且 CI 下界 > 0 ⇒ UPGRADE 升為 KEEP-AS-SHADOW；點估計 > 0 ⇒ EXTEND 到 G500；其餘 STAY-WATCH），量、窗、bootstrap 與門檻和 v1 相同、切分逐格相同；R0 升級規則不變；G60（含 S0／S_FB 崩壞檢查）不變。除了前向資料，沒有任何乾淨的時間外證據。
+- **實作**（都不在 `implementation_pins`，也不在接線前證明綁定的 `PREWIRE_CODE`）：
+  1. 新模組 `a37_tracks_reg.py`：`load_amendment`（先驗 v1，再驗 v1.1 雜湊、registration_id、version、修訂對象＝v1 封存雜湊、釘選摘要＝v1、覆寫範圍；不符 ⇒ SystemExit 拒跑）、`effective_lists`、`apply_to_core`、`gate_roles`、`ref`。
+  2. `a37_tracks_fwd.py`：`run_daily` 在 `load_inputs` 之後載入 v1.1（狀態檔記 `registration`）；`freeze_core` 在 `build_core` 之後、封印之前以 `apply_to_core` 換上 v1.1 的 `label`、`list_verdict`、`grey_watch_only` 並加 `entry_verdict`、`g250_role`、`registration_amendment`；缺口記錄加 `registration_amendment`；摘要的 G 判定用 `gate_roles(v1.1)` 並記 v1／v1.1 雜湊。
+  3. `a37_tracks_score.gate_report` 的 `roles` 改為必填（`G250_ROLES_V1` 只供對照與測試）。
+  4. 後台：`scripts/lib/surge-tracks-report.mjs` 的 `LIST_META`（S0、S_FB 灰底、判定與標籤）與 v1.1 JSON 逐字一致（node 測試讀 JSON 核對）；`src/components/Admin/SurgeTracks.tsx` 灰底＋只觀察標籤＋頁首一行 HO-BURNED。
+  - `a37_tracks_core.py`、`a37_tracks_fwd_io.py`、`a37_tracks_sync.py`（`PREWIRE_CODE`）與 17 個釘選檔**都沒有改** ⇒ 接線前證明的程式綁定照舊有效；本筆**沒有 PIN-UPDATE 列**。
+- **驗證**：`python3 a37_tracks_reg_test.py`（7 項：真實登錄鏈結、竄改拒跑、覆寫不動 FR、core 套用後 parity 不變、G250／G500 升級語意與 v1 切分逐格等價、freeze_core 封印帶 v1.1 標籤、缺口帶修訂指標）、`python3 a37_tracks_fwd_test.py`、`node --test scripts/lib/surge-tracks-report.test.mjs`。
+- **當下已看過的前向結果**：無（沒有任何前向凍結、標籤或報酬）。
+- **對判定的可能影響**：前向的池、名單、名次、RAND 與判定量都不變；改變的只有 S0、S_FB 的出發判定（KEEP → WATCH-ONLY）、介面呈現（灰底）與 G250／G500 的結果名稱（CONFIRM／DROP → UPGRADE／STAY-WATCH）。
+
+*影子模式·未扣成本·非投資建議。*
