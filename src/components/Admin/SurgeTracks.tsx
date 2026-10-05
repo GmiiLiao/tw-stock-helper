@@ -1,11 +1,13 @@
 'use client';
 
 // ── 🧭 T1 連板起漲（分軌）前向影子（超級管理員；起漲影子分頁的子分頁）────────────────────────────
-// 登錄 T1-TRACKS-FWD-2026-10-05：每個交易日盤後凍結四份代理清單（S0、S_FB 研究榜；R0、W 灰底觀察），t＋1 收盤後對答案。
+// 登錄 T1-TRACKS-FWD-2026-10-05 v1＋修訂 v1.1：每個交易日盤後凍結四份代理清單，t＋1 收盤後對答案。
+// v1.1（2026-10-05，HO-BURNED：保留驗證期作廢，DEV-014／FDEV-008）：S0、S_FB 由研究榜改為灰底只觀察，四份（S0、S_FB、R0、W）全部灰底。
 // 資料：scripts/surge-lab/a37_tracks_fwd.py → a37_tracks_publish.mjs → surgeShadow/tracks-* → /api/admin/surge-shadow?view=tracks｜tracksDay。
-// 文件本身不含任何報酬欄位（灰底清單依 G1 決定不顯示報酬；研究榜卡片也只顯示 T1 命中與 Δprecision）。
-// 版面：上方＝當日對帳（每個 T1 事件的軌道／沒通過的條件／名次／是否入選），下方依固定順序 M0 參照 → S0 → S_FB → R0（灰底）→ W（灰底），各自一區、不混排。
+// 文件本身不含任何報酬欄位（灰底清單不顯示報酬；卡片只顯示 T1 命中與 Δprecision）。
+// 版面：上方＝當日對帳（每個 T1 事件的軌道／沒通過的條件／名次／是否入選），下方依固定順序 M0 參照 → S0 → S_FB → R0 → W（後四者灰底），各自一區、不混排。
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { HO_BURNED_NOTE } from '../../../scripts/lib/surge-tracks-report.mjs';
 import type { TracksIndexDoc, TracksDayDoc, TracksListBlock, TracksPick, TracksCum, TracksRefStat } from '../../../scripts/lib/surge-tracks-report.mjs';
 import { Kpi, Section, ListTable, MONO } from './AiLabParts';
 import { labGet, twTime } from './surgeLabFetch';
@@ -50,7 +52,7 @@ function ListSection({ b }: { b: TracksListBlock }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))', color: b.grey ? 'var(--text-muted)' : undefined }}>{b.title}</span>
         {b.exploratory && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '0 8px', borderRadius: 999, border: `1px solid ${AMBER}`, color: AMBER }}>探索性</span>}
-        {b.grey && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '0 8px', borderRadius: 999, border: '1px solid var(--border-primary)', color: 'var(--text-muted)' }}>灰底·不顯示報酬</span>}
+        {b.grey && <span style={{ fontSize: 'calc(11.5px * var(--fz))', padding: '0 8px', borderRadius: 999, border: '1px solid var(--border-primary)', color: 'var(--text-muted)' }}>{b.watchLabel ?? '灰底·不顯示報酬'}</span>}
       </div>
       <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginTop: 2 }}>{b.listVerdict}</div>
       {b.status === 'not-wired' ? (
@@ -143,6 +145,7 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
     return (
       <div style={{ padding: 16, color: 'var(--text-muted)', lineHeight: 1.7 }}>
         尚無 T1 分軌前向紀錄。前向影子由 scripts/surge-lab/tracks/forward_config.json 總開關控制（預設停用）；啟用並凍結第一天後，協調器會自動發佈到這裡。
+        <div style={{ marginTop: 6, color: AMBER }}>⚠ {HO_BURNED_NOTE}</div>
         <div style={{ marginTop: 6 }}>影子模式·未扣成本·非投資建議</div>
       </div>
     );
@@ -159,8 +162,9 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
   return (
     <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.7 }}>
       <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)', marginBottom: 10 }}>
-        <b>🧭 T1 連板起漲（分軌）前向影子</b>（{ix.registrationId}）：每個交易日盤後凍結（封印、下一交易日 09:00 前），t＋1 收盤後對答案。
-        S0／S_FB 是「觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認」；R0、W 只做灰底觀察。<b>沒有任何清單是可交易名單。</b>
+        <b>🧭 T1 連板起漲（分軌）前向影子</b>（{ix.registrationId} v{ix.registrationVersion ?? '1'}）：每個交易日盤後凍結（封印、下一交易日 09:00 前），t＋1 收盤後對答案。
+        S0、S_FB、R0、W 四份都只做灰底觀察（不顯示報酬）。<b>沒有任何清單是可交易名單。</b>
+        <div style={{ marginTop: 4, color: AMBER }}>⚠ {ix.hoBurnedNote ?? HO_BURNED_NOTE}</div>
         <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>s0 {ix.s0 ?? '—'}｜凍結 {ix.nCore} 日、缺口 {ix.nGaps} 日｜發佈 {twTime(ix.generatedAt)}{ix.pipeline?.finished ? `｜管線 ${twTime(ix.pipeline.finished)}（exit ${ix.pipeline.exit ?? '—'}${ix.pipeline.errors ? `、錯誤 ${ix.pipeline.errors}` : ''}）` : ''}
           {ix.rawArchive ? `｜逐位副本 ${ix.rawArchive.nVerified ?? 0}／${ix.rawArchive.nLocal ?? 0}${ix.rawArchive.ok ? ' 相符' : ' 未全數驗證'}` : ''}</div>
       </div>
@@ -174,8 +178,8 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
         <Kpi label="已評分交易日" value={g.nScored} sub={`G60 ${Math.min(g.nScored, g.g60.target)}／${g.g60.target}｜G250 ${Math.min(g.nScored, g.g250.target)}／${g.g250.target}`} hint={g.note} />
         <Kpi label="G60（流程與崩壞）" value={g60Txt} color={g.g60.outcome === 'HALT-FOR-REVIEW' ? RED : undefined}
           sub={g.g60.reached ? [crash.length ? `崩壞 ${crash.join('、')}` : '未崩壞', g.g60.failedChecks.length ? `未過 ${g.g60.failedChecks.join('、')}` : null, g.g60.ruling ? `裁定 ${g.g60.ruling}` : null].filter(Boolean).join('｜') : '前 60 個評分日；只查流程，不判去留'} />
-        <Kpi label="G250（去留）" value={g250Txt} color={g.g250.paused ? AMBER : undefined} sub="前 250 個評分日；S0 為唯一主要檢定" />
-        <Kpi label="G500（EXTEND 定案）" value={g500Txt} sub="只對 G250 判 EXTEND 的清單" />
+        <Kpi label="G250（升級）" value={g250Txt} color={g.g250.paused ? AMBER : undefined} sub="前 250 個評分日；UPGRADE／EXTEND／STAY-WATCH，S0 為唯一主要檢定" hint={g.note} />
+        <Kpi label="G500（EXTEND 定案）" value={g500Txt} sub="只對 G250 判 EXTEND 的清單；UPGRADE 或維持只觀察" />
         <Kpi label="無聲缺日（P1）" value={p1?.ok === false ? `${p1.silentDays?.length ?? 0} 日` : p1?.ok ? '0' : '—'} color={p1?.ok === false ? RED : undefined}
           sub={p1 ? `${p1.nTradingDays ?? '—'} 個交易日、缺口 ${p1.gapRatio == null ? '—' : `${(p1.gapRatio * 100).toFixed(1)}%`}${p1.silentDays?.length ? `：${p1.silentDays.slice(0, 5).join('、')}` : ''}` : '—'} />
       </div>

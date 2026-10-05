@@ -342,11 +342,20 @@ def _ci(st, i):
     return ci[i] if ci else None
 
 
-def gate_report(windows: dict, n_scored: int, process: dict, ruling=None) -> dict:
+G250_ROLES_V1 = {lid: FR.FWD_LISTS[lid]['g250'] for lid in FWD_LIST_IDS}   # v1：S0／S_FB＝KEEP、R0＝WATCH_UPGRADABLE、W＝DESCRIPTIVE
+
+
+def gate_report(windows: dict, n_scored: int, process: dict, ruling=None, *, roles: dict) -> dict:
     """G60／G250／G500 的機械判定（登錄 G60、G250、G500）。每個 G 各用自己固定的窗（前 60／250／500 個評分日）。
-      · G60：P1～P8 全過且 S0、S_FB 都沒崩壞 ⇒ CONTINUE；否則 HALT-FOR-REVIEW（任一流程檢查無法判定也算沒過）。
-      · G250：G60 為 HALT 且前向偏差紀錄沒有「G60-RULING: CONTINUE」⇒ 暫停（verdict＝null，理由寫明）；否則 S0／S_FB 用 g250_keep、R0 用 g250_watch、W 只描述。
-      · G500：只對 G250 判 EXTEND 的清單；S0／S_FB 用 g500_final（CONFIRM／DROP），R0 的 CONFIRM＝UPGRADE、DROP＝STAY-WATCH（維持灰底）。"""
+    roles＝每份清單的 G250 角色（必填，不給預設以免靜默套錯版本）：正式路徑用 a37_tracks_reg.gate_roles(登錄修訂 v1.1)
+    （S0／S_FB／R0＝WATCH_UPGRADABLE、W＝DESCRIPTIVE）；G250_ROLES_V1 是 v1 原文（S0／S_FB＝KEEP），只供對照與測試。
+      · G60：P1～P8 全過且 S0、S_FB 都沒崩壞 ⇒ CONTINUE；否則 HALT-FOR-REVIEW（任一流程檢查無法判定也算沒過）。v1.1 不改。
+      · G250：G60 為 HALT 且前向偏差紀錄沒有「G60-RULING: CONTINUE」⇒ 暫停（verdict＝null，理由寫明）；
+        否則 KEEP 用 g250_keep（CONFIRM／EXTEND／DROP）、WATCH_UPGRADABLE 用 g250_watch（UPGRADE／EXTEND／STAY-WATCH）、DESCRIPTIVE 只描述。
+      · G500：只對 G250 判 EXTEND 的清單；g500_final 的 CONFIRM／DROP，WATCH_UPGRADABLE 改稱 UPGRADE／STAY-WATCH（維持灰底）。"""
+    bad = sorted(set(FWD_LIST_IDS) - set(roles or {})) + sorted(k for k, r in (roles or {}).items() if r not in ('KEEP', 'WATCH_UPGRADABLE', 'DESCRIPTIVE'))
+    if bad:
+        raise ValueError(f'gate_report 的 roles 不完整或不合規：{bad}')
     out = dict(n_scored=n_scored, g60=None, g250=None, g500=None)
     w60 = windows.get('g60')
     if w60:
@@ -361,10 +370,9 @@ def gate_report(windows: dict, n_scored: int, process: dict, ruling=None) -> dic
         if g60.get('outcome') != 'CONTINUE' and ruling != 'CONTINUE':
             out['g250'] = dict(paused=True, verdict={lid: None for lid in FWD_LIST_IDS}, reason='G250 暫停（G60 HALT-FOR-REVIEW，待使用者裁定）')
         else:
-            v = {lid: FR.g250_keep(w250[lid].get('delta_pp'), _ci(w250[lid], 0)) for lid in ('S0_atr14@5', 'SFB_atr14@5')}
-            v['R0_combo@5'] = FR.g250_watch(w250['R0_combo@5'].get('delta_pp'), _ci(w250['R0_combo@5'], 0))
-            v['W_atr14@3'] = 'DESCRIPTIVE'
-            out['g250'] = dict(paused=False, verdict=v, window_days=G250_N)
+            rule = {'KEEP': FR.g250_keep, 'WATCH_UPGRADABLE': FR.g250_watch}
+            v = {lid: (rule[roles[lid]](w250[lid].get('delta_pp'), _ci(w250[lid], 0)) if roles[lid] in rule else 'DESCRIPTIVE') for lid in FWD_LIST_IDS}
+            out['g250'] = dict(paused=False, verdict=v, window_days=G250_N, roles=dict(roles))
     w500 = windows.get('g500')
     if w500 and out['g250'] and not out['g250']['paused']:
         v = {}
@@ -372,6 +380,6 @@ def gate_report(windows: dict, n_scored: int, process: dict, ruling=None) -> dic
             if g != 'EXTEND':
                 continue
             f = FR.g500_final(w500[lid].get('delta_pp'), _ci(w500[lid], 0))
-            v[lid] = ('UPGRADE' if f == 'CONFIRM' else 'STAY-WATCH') if lid == 'R0_combo@5' else f
+            v[lid] = ('UPGRADE' if f == 'CONFIRM' else 'STAY-WATCH') if roles[lid] == 'WATCH_UPGRADABLE' else f
         out['g500'] = dict(verdict=v, window_days=G500_N, note='只對 G250 判 EXTEND 的清單；最終定案、不再延長')
     return out

@@ -5,9 +5,14 @@ import {
   buildTracksDayDoc, buildTracksIndexDoc, tracksDaySummary, gapSummary, assertNoReturns, assertTracksDocSizes, forwardReplaceProblems,
   dayDocId, isTracksDayId, LIST_ORDER, LIST_META, TRACKS_KIND_DAY, TRACKS_KIND_INDEX, MAX_DOC_BYTES, clean,
   rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, RAW_SHARD_BYTES, TRACKS_KIND_RAW,
+  REGISTRATION_VERSION, WATCH_LABEL, HO_BURNED_NOTE,
 } from './surge-tracks-report.mjs';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const AMEND = JSON.parse(readFileSync(new URL('../surge-lab/tracks/registration_t1_tracks_forward_v1_1.json', import.meta.url), 'utf8'));
+const V1 = JSON.parse(readFileSync(new URL('../surge-lab/tracks/registration_t1_tracks_forward.json', import.meta.url), 'utf8'));
 
 const SEAL = 'f'.repeat(64);
 const pick = (rank, code, over = {}) => ({
@@ -57,7 +62,7 @@ test('日文件：清單固定順序 M0→S0→S_FB→R0→W、M0 未接線、�
   assert.deepEqual(d.lists.map(l => l.id), LIST_ORDER);
   assert.equal(d.lists[0].status, 'not-wired');
   assert.deepEqual(d.lists[0].picks, []);
-  assert.deepEqual(d.lists.map(l => l.grey), [false, false, false, true, true]);
+  assert.deepEqual(d.lists.map(l => l.grey), [false, true, true, true, true]);          // v1.1（HO-BURNED）：四份代理清單全部灰底
   for (const b of d.lists.slice(1)) assert.ok(b.picks.every(p => p.track === { 'S0_atr14@5': 'S', 'SFB_atr14@5': 'Mp', 'R0_combo@5': 'R', 'W_atr14@3': 'W' }[b.id]));
   assert.equal(d.matured.y, null);
   assert.equal(d.events, null);
@@ -196,4 +201,47 @@ test('逐位副本：檔名→id、gzip 分片→組回逐位相同、已發佈�
   assert.deepEqual(rawReplaceProblems([{ id: 'a', sha256: '1' }, { id: 'b', sha256: '2' }], [{ id: 'a', sha256: '9' }]), { clash: ['a'], missing: ['b'] });
   assert.deepEqual(rawVerifyStatus([{ id: 'a', sha256: '1' }, { id: 'b', sha256: '2' }], { a: { sha256: '1' }, b: { sha256: 'old' } }, 't'),
     { ok: false, n_local: 2, n_verified: 1, missing: ['b'], time: 't' });
+});
+
+test('登錄修訂 v1.1：S0／S_FB 的判定、標籤、灰底、標題與登錄 JSON 逐字一致；R0／W 不變', () => {
+  assert.equal(REGISTRATION_VERSION, AMEND.version);
+  assert.equal(WATCH_LABEL, AMEND.presentation.watch_label);
+  assert.equal(WATCH_LABEL, '只觀察（保留驗證期作廢·待前向 G250）');
+  assert.equal(HO_BURNED_NOTE, AMEND.presentation.header_one_line);
+  for (const [id, o] of Object.entries(AMEND.lists_override)) {
+    const m = LIST_META[id];
+    assert.equal(m.verdict, o.entry_verdict, id);
+    assert.equal(m.label, o.label, id);
+    assert.equal(`${m.verdict}：${m.label}`, o.list_verdict, id);
+    assert.equal(m.grey, o.grey_watch_only, id);
+    assert.equal(m.title, o.title, id);
+    assert.equal(m.watchLabel, WATCH_LABEL, id);
+    assert.equal(m.section, { 'S0_atr14@5': 'S0', 'SFB_atr14@5': 'S_FB' }[id], id);    // section 代碼不變（不混排結構不變）
+  }
+  assert.deepEqual(Object.keys(AMEND.lists_override).sort(), ['S0_atr14@5', 'SFB_atr14@5']);
+  assert.equal(LIST_META['R0_combo@5'].verdict, 'R-WATCH-ONLY'); assert.equal(LIST_META['R0_combo@5'].watchLabel, null);
+  assert.equal(LIST_META['W_atr14@3'].verdict, 'W-WATCH-ONLY'); assert.equal(LIST_META['M0@10'].grey, false);
+  for (const id of ['R0_combo@5', 'W_atr14@3', 'M0@10']) {                           // 沒覆寫的清單＝v1 原文（凍結檔的 list_verdict 由 v1 常數產生）
+    assert.equal(`${LIST_META[id].verdict}：${LIST_META[id].label}`, V1.lists[id].list_verdict, id);
+    assert.equal(LIST_META[id].grey, V1.lists[id].grey_watch_only, id);
+  }
+});
+
+test('套過登錄修訂的凍結檔：清單判定必須等於後台標籤，否則整份不發佈；文件帶版本與 HO-BURNED 說明', () => {
+  const amended = () => {
+    const c = core({ registration_amendment: { registration_id: 'T1-TRACKS-FWD-2026-10-05', version: '1.1' } });
+    for (const id of Object.keys(c.lists)) c.lists[id] = { ...c.lists[id], list_verdict: `${LIST_META[id].verdict}：${LIST_META[id].label}`, grey_watch_only: LIST_META[id].grey };
+    return c;
+  };
+  const d = buildTracksDayDoc({ core: amended() });
+  assert.equal(d.registrationVersion, '1.1');
+  const s0 = d.lists.find(l => l.id === 'S0_atr14@5');
+  assert.equal(s0.grey, true); assert.equal(s0.watchLabel, WATCH_LABEL); assert.ok(s0.listVerdict.startsWith(`S-WATCH-ONLY：${WATCH_LABEL}`));
+  const bad = amended();
+  bad.lists['S0_atr14@5'] = { ...bad.lists['S0_atr14@5'], list_verdict: 'S-KEEP-AS-SHADOW：觀察／研究榜' };
+  assert.throws(() => buildTracksDayDoc({ core: bad }), /清單判定與後台標籤不一致/);
+  assert.equal(buildTracksDayDoc({ core: core() }).registrationVersion, '1');                       // 沒有修訂指標的凍結檔照實標 v1
+  const ix = buildTracksIndexDoc({ days: [], generatedAt: 'x' });
+  assert.equal(ix.registrationVersion, '1.1'); assert.equal(ix.hoBurnedNote, HO_BURNED_NOTE);
+  assert.equal(ix.listMeta['SFB_atr14@5'].watchLabel, WATCH_LABEL); assert.equal(ix.listMeta['SFB_atr14@5'].grey, true);
 });

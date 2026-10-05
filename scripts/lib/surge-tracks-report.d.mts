@@ -11,7 +11,7 @@ export interface TracksPick {
 }
 export interface TracksListOutcome { events: number | null; picks: number | null; hits: number | null; expectedRand: number | null; baseRatePct: number | null; precisionPct: number | null; deltaPp: number | null; randDrawHits: number | null; nDispTUnknown: number | null }
 export interface TracksListBlock {
-  id: TracksListId; section: string; title: string; label: string; listVerdict: string; grey: boolean; exploratory: boolean; K: number;
+  id: TracksListId; section: string; title: string; label: string; listVerdict: string; grey: boolean; watchLabel: string | null; exploratory: boolean; K: number;
   warnings: string[]; reference: { sel: TracksRefStat; ho: TracksRefStat } | null; status: 'frozen' | 'not-wired' | 'missing';
   nPool: number | null; ranking: string | null; rand: { picks: number | null; drawCodes: string[] } | null; picks: TracksPick[]; outcome: TracksListOutcome | null;
 }
@@ -19,7 +19,7 @@ export interface TracksEvent { code: string | null; name: string | null; market:
 export interface TracksCovRow { nClose: number | null; nOfficial: number | null; nTickFallback: number | null; coverage: number | null }
 export interface TracksLimitCoverage { s: Record<string, TracksCovRow> | null; t: Record<string, TracksCovRow> | null; t1: Record<string, TracksCovRow> | null; min: number | null }
 export interface TracksDayDoc {
-  schema: string; kind: string; registrationId: string; day: string; t: string | null; seal: string; sealShort: string; frozenAt: string | null; deadline: string | null;
+  schema: string; kind: string; registrationId: string; registrationVersion: string; day: string; t: string | null; seal: string; sealShort: string; frozenAt: string | null; deadline: string | null;
   trackCounts: Record<string, number>; matured: { y: string | null; h5: string | null; h10: string | null };
   lists: TracksListBlock[]; events: TracksEvent[] | null; eventsByTrack: Record<string, number> | null;
   parity: { verdict: string | null; nDiffs: number | null; inputsChanged: string[] } | null;
@@ -32,7 +32,7 @@ export interface TracksDayRow {
 }
 export interface TracksCum { days: number | null; windowDays: number | null; picks: number | null; hits: number | null; expectedRand: number | null; precisionPct: number | null; randPrecisionPct: number | null; deltaPp: number | null; deltaCiPp: Ci; lift: number | null; liftCi: Ci }
 export interface TracksIndexDoc {
-  schema: string; kind: string; registrationId: string; generatedAt: string | null; s0: string | null; days: TracksDayRow[]; nCore: number; nGaps: number;
+  schema: string; kind: string; registrationId: string; registrationVersion: string; hoBurnedNote: string; generatedAt: string | null; s0: string | null; days: TracksDayRow[]; nCore: number; nGaps: number;
   cumulative: Record<string, TracksCum | null>;
   gates: {
     nScored: number;
@@ -45,7 +45,7 @@ export interface TracksIndexDoc {
   pipeline: { finished: string | null; exit: number | null; errors: number | null; skipped: string | null; prewireOk: boolean | null; prewireWhy: string | null; dispAttOverlap: string | null; pinsOk: boolean | null } | null;
   alerts: Array<{ level: string | null; code: string | null; msg: string | null }>; alertsTime: string | null;
   rawArchive: { ok: boolean; nLocal: number | null; nVerified: number | null; time: string | null; missing: string[] } | null;
-  listMeta: Record<string, { title: string; grey: boolean; exploratory: boolean }>; referenceNote: string; footer: string;
+  listMeta: Record<string, { title: string; grey: boolean; exploratory: boolean; watchLabel: string | null }>; referenceNote: string; footer: string;
 }
 
 export const TRACKS_INDEX_SCHEMA: string;
@@ -58,6 +58,9 @@ export const TRACKS_DAY_ID_RE: RegExp;
 export const DAY_RE: RegExp;
 export const MAX_DOC_BYTES: number;
 export const REGISTRATION_ID: string;
+export const REGISTRATION_VERSION: string;
+export const WATCH_LABEL: string;
+export const HO_BURNED_NOTE: string;
 export const FOOTER: string;
 export const G60_N: number;
 export const G250_N: number;
@@ -69,7 +72,7 @@ export const TRACKS_RAW_PREFIX: string;
 export const RAW_SHARD_BYTES: number;
 export const TRACKS_RAW_ID_RE: RegExp;
 export const LIST_ORDER: TracksListId[];
-export const LIST_META: Record<TracksListId, { section: string; title: string; grey: boolean; exploratory: boolean; K: number; label: string; verdict: string }>;
+export const LIST_META: Record<TracksListId, { section: string; title: string; grey: boolean; exploratory: boolean; K: number; label: string; verdict: string; watchLabel: string | null }>;
 export const LIST_WARNINGS: Record<TracksListId, string[]>;
 export const REFERENCE: Record<TracksListId, { sel: TracksRefStat; ho: TracksRefStat }>;
 export const REFERENCE_NOTE: string;

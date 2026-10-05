@@ -277,21 +277,22 @@ def test_boot_stats_and_gate_report_windows_halt_g500():
     assert st['delta_ci_pp'][0] <= st['delta_pp'] <= st['delta_ci_pp'][1]
     assert SC.boot_stats([], [], [])['delta_pp'] is None
     ok_proc = {f'P{i}': dict(ok=True) for i in range(1, 9)}
+    V1 = SC.G250_ROLES_V1                                                  # v1 原文的角色（S0／S_FB＝KEEP）；正式路徑用登錄修訂 v1.1
     w = lambda d, lo, hi: dict(delta_pp=d, delta_ci_pp=[lo, hi])
     good = {lid: w(0.5, 0.1, 0.9) for lid in SC.FWD_LIST_IDS}
-    g = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)})}, 60, ok_proc)
+    g = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)})}, 60, ok_proc, roles=V1)
     assert g['g60']['outcome'] == 'HALT-FOR-REVIEW' and g['g60']['crash']['S0_atr14@5'] is True and g['g250'] is None
-    g = SC.gate_report({'g60': good}, 60, dict(ok_proc, P1=dict(ok=None)))                 # 無法判定的流程檢查不能當通過
+    g = SC.gate_report({'g60': good}, 60, dict(ok_proc, P1=dict(ok=None)), roles=V1)                 # 無法判定的流程檢查不能當通過
     assert g['g60']['outcome'] == 'HALT-FOR-REVIEW' and g['g60']['failed_checks'] == ['P1']
     w250 = {'S0_atr14@5': w(0.5, 0.1, 0.9), 'SFB_atr14@5': w(0.3, -0.1, 0.7), 'R0_combo@5': w(0.3, -0.1, 0.5), 'W_atr14@3': w(1, 0.5, 2)}
-    halted = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)}), 'g250': w250}, 250, ok_proc)
+    halted = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)}), 'g250': w250}, 250, ok_proc, roles=V1)
     assert halted['g250']['paused'] is True and all(v is None for v in halted['g250']['verdict'].values())
-    ruled = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)}), 'g250': w250}, 250, ok_proc, ruling='CONTINUE')
+    ruled = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)}), 'g250': w250}, 250, ok_proc, ruling='CONTINUE', roles=V1)
     assert ruled['g250']['paused'] is False and ruled['g250']['verdict']['S0_atr14@5'] == 'CONFIRM'
-    g = SC.gate_report({'g60': good, 'g250': w250}, 250, ok_proc)
+    g = SC.gate_report({'g60': good, 'g250': w250}, 250, ok_proc, roles=V1)
     assert g['g250']['verdict'] == {'S0_atr14@5': 'CONFIRM', 'SFB_atr14@5': 'EXTEND', 'R0_combo@5': 'EXTEND', 'W_atr14@3': 'DESCRIPTIVE'} and g['g500'] is None
     w500 = dict(w250, **{'SFB_atr14@5': w(0.4, 0.05, 0.8), 'R0_combo@5': w(0.2, -0.2, 0.6)})
-    g = SC.gate_report({'g60': good, 'g250': w250, 'g500': w500}, 500, ok_proc)
+    g = SC.gate_report({'g60': good, 'g250': w250, 'g500': w500}, 500, ok_proc, roles=V1)
     assert g['g500']['verdict'] == {'SFB_atr14@5': 'CONFIRM', 'R0_combo@5': 'STAY-WATCH'}          # 只對 EXTEND；R0 的 DROP＝維持灰底
 
 
