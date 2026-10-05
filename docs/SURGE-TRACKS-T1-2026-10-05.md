@@ -241,6 +241,21 @@ Qmax（單筆上限，張）＝floor(q × s 日 vol20)：M、Mp、R、S_FB 的 q
 
 S 的 T6 超額在兩種出場價下是 +0.182% [−0.488, 0.877]、+0.178% [−0.484, 0.866]，上界都 ≥ 0；T1 的 CI 下界都 < 0。**判定不變**。前向影子要用同一套規則，並逐日揭露缺值件數。
 
+### 7.1 落選挑戰者 R2、S1、S2 的 HOLDOUT 記錄（鎖後描述，不參與判定；DEV-012，合併前編號 DEV-009）
+
+依 G1 第 5 項，以登錄的 HO 協定（六折 expanding、purge 11、種子 0／1／2、各挑戰者的登錄特徵，`a36_tracks_fit` 同一條擬合路徑）在釘住快取的複本 `.surge-cache-T3` 重擬三個落選挑戰者，再以同一個 `evaluate` 評估；加入後鎖定的 16 份 HO 記錄、全部清單指標與七軌判定逐位不變，釘住快取 T 沒有被寫。挑戰者只看 HO-model（186 日）：R2 對 R0 的 Δ CI 跨 0；S1、S2 與 S0 在 HO-model 的命中完全相同（都是 11 件）。R2 對 HO 前選定的 R1 是 +0.860pp [0.108, 1.720]——SEL 選中的挑戰者在 HO 並不是最好的，但依登錄 HOLDOUT 結果不得用來重新選模，**R 仍是 R-WATCH-ONLY（最終清單 R0），S 仍是 S-KEEP-AS-SHADOW（S0）**。記錄（命中／漏網／選股與摘要）在 `out/tracks_t1/addendum/ho_losers/`，每列標「鎖後描述，不參與判定」。
+
+| 清單（HO-model，186 日） | SEL 對代理 Δ [CI]（落選依據） | 命中／選股 | 精確度 | lift | Δ vs RAND [CI] | 對代理 Δ [CI] | c5（DK_s＝0）[CI] |
+|---|---|---|---|---|---|---|---|
+| R2@5 | +0.503 [−0.252, 1.258] | 33／930 | 3.55% | 2.40 | +2.07 [1.07, 3.14] | +0.215 [−0.755, 1.290] | +0.75% [−0.92, 2.20] |
+| S1@5 | +0.586 [−0.084, 1.255] | 11／930 | 1.18% | 6.94 | +1.01 [0.48, 1.55] | 0.000 [−0.430, 0.430] | +0.21% [−0.72, 1.07] |
+| S2@5 | +0.502 [−0.251, 1.339] | 11／930 | 1.18% | 6.94 | +1.01 [0.27, 1.83] | 0.000 [−0.753, 0.753] | +0.03% [−0.86, 0.98] |
+| 對照：R0 combo@5（代理） | — | 31／930 | 3.33% | 2.25 | +1.85 [0.81, 3.02] | — | −0.02% [−2.34, 2.69] |
+| 對照：R1@5（HO 前選定） | +0.755 [0.084, 1.430] | 25／930 | 2.69% | 1.82 | +1.21 [0.61, 1.86] | −0.645 [−1.828, 0.538] | +0.28% [−0.90, 1.43] |
+| 對照：S0 atr14@5（代理） | — | 11／930 | 1.18% | 6.94 | +1.01 [0.49, 1.55] | — | +0.25% [−1.05, 1.51] |
+
+（HO 全 347 日含第 1～3 折，屬面板起點限制、只作描述：R2 50／1,734、S1 19／1,735、S2 18／1,735。Δ 單位 pp；未納入 Holm、未扣成本。）
+
 ---
 
 ## 8. 限制與未證明事項
@@ -262,6 +277,7 @@ S 的 T6 超額在兩種出場價下是 +0.182% [−0.488, 0.877]、+0.178% [−
 - **資料面**：TPEx 存活者偏誤未檢查（終止上櫃名單來源未提供）；處置公告疑似缺漏月份（TWSE 2023-01、2023-08，TPEx 2023-01，揭露不改值）；交易方法狀態未知；停牌與冷門股無成交只能推定。
 - **HOLDOUT 的乾淨程度**：smallcap／分軌這條線從未算過 2023～2024，但 lab 其他工作用過（tune.py 以 2024Q4 選超參數等，登錄 §8.4）；排除 2024Q4 的敏感度見 HO 摘要（只作描述）。
 - **DEV-007**：當時冒充試跑的 patch 沒有留存，「未讀任何 HO 標籤」無法由產物驗證；最壞情況只會先看到 HO 各軌事件數，不影響已封存的選模與機械判定。
+- **鎖後 HOLDOUT 額外讀取的合計（DEV-013，待使用者裁定）**：DEV-008 第 1 點自記「若計入是第 1 次」，DEV-012（落選挑戰者，20:00–20:05）與 DEV-010（G1 第 4 項鎖後驗證，20:09–20:31）各自寫「若計入是第 2 次」、互不知道對方；三者若都計入是 3 次，超過 §8.2 第 8 點「修正重跑兩次」上限。三者都沒有修正實作錯誤、判定全部與鎖檔相同；是否計入由使用者裁定（若計入，依該點文字要考慮宣告 HO-BURNED；S0／S_FB 進前向影子的依據就要重新檢視）。裁定前，HOLDOUT 判定一律與「鎖後另有三次讀取、判定都沒變」並列揭露。
 - **前向 G60／G250 未開始**：S 的 G250 檢定力約 0.74，R 約 0.21（R 很可能長期停在 WATCH-ONLY）。
 
 ---
@@ -276,7 +292,7 @@ S 的 T6 超額在兩種出場價下是 +0.182% [−0.488, 0.877]、+0.178% [−
 | 命中／漏網／選股（HOLDOUT） | `tracks_t1_HO_{M,Mp,R,S,W}_{hits,misses,picks}.csv`、`tracks_t1_HO_outside.csv`；HO_M_picks、HO_Mp_picks 在 `gz/` |
 | Phase 0 事件目錄 | `gz/tracks_t1_events_SELHC.csv.gz`、`tracks_t1_events_limit_rule_diff.csv` |
 | 產出清單 | `tracks_t1_ARTIFACT_MANIFEST.json`（每份原檔與 .gz 的 sha256、與摘要／鎖檔的比對、還原指令：`gunzip -c gz/<檔>.gz > <檔>`） |
-| 鎖後補遺（描述） | `addendum/tracks_t1_{SELHC,HO}_ADDENDUM_summary.json`；`addendum/tracks_t1_{SELHC,HO}_addendum_{M0at20_picks, M_extra_hits, M_extra_misses, composite_{final,proxy}_lists_{picks,hits,misses}, picks_annotation}.csv.gz` |
+| 鎖後補遺（描述） | `addendum/tracks_t1_{SELHC,HO}_ADDENDUM_summary.json`；`addendum/tracks_t1_{SELHC,HO}_addendum_{M0at20_picks, M_extra_hits, M_extra_misses, composite_{final,proxy}_lists_{picks,hits,misses}, picks_annotation}.csv.gz`；落選挑戰者 HO（DEV-012；記錄與程式字面寫 DEV-009，合併前編號）`addendum/ho_losers/tracks_t1_HO_losers_{summary.json, {R,S}_{hits,misses}.csv, {R,S}_picks.csv.gz}`（程式 `a36_tracks_ho_losers.py`） |
 | 程式 | `scripts/surge-lab/a36_tracks_{build,stages,lib,fit,proxy,gate,eval,decide,ho,cv}.py`、`a36_tracks_t1_audit.py`（鎖後稽核）；測試 `a36_tracks_test.py`、`a36_tracks_cv_test.py`、`a36_tracks_t1_audit_test.py` |
 
 每列記錄固定寫「未扣成本·事後欄位以 m_ 標示·非投資建議」。注意：選股記錄的 `tradable_status` 只代表處置狀態，清單層級判定請讀補遺的 `list_verdict`。
