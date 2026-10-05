@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import {
   buildTracksDayDoc, buildTracksIndexDoc, tracksDaySummary, gapSummary, assertNoReturns, assertTracksDocSizes, forwardReplaceProblems,
   dayDocId, isTracksDayId, LIST_ORDER, LIST_META, TRACKS_KIND_DAY, TRACKS_KIND_INDEX, MAX_DOC_BYTES, clean,
+  rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, RAW_SHARD_BYTES, TRACKS_KIND_RAW,
 } from './surge-tracks-report.mjs';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 const SEAL = 'f'.repeat(64);
 const pick = (rank, code, over = {}) => ({
@@ -31,14 +34,17 @@ const outcome = (rank, code, over = {}) => ({ rank, code, y: 0, m_buyable: 1, m_
 const yDoc = (over = {}) => ({
   kind: 't1-tracks-score', stage: 'y', status: 'ok', frozen_seal: SEAL, t: '2026-10-07', due: '2026-10-08',
   lists: {
-    'S0_atr14@5': { K: 5, n_pool: 367, events: 2, picks: 5, hits: 1, E_rand: 0.0272, rand_draw_hits: 0, picks_outcome: [outcome(1, '2923', { y: 1 }), outcome(2, '3609')], pool_y: [1, 0], pool_buyable: [1, 1] },
+    'S0_atr14@5': { K: 5, n_pool: 367, events: 2, picks: 5, hits: 1, E_rand: 0.0272, rand_draw_hits: 0, n_disp_t_unknown: 1,
+      picks_outcome: [outcome(1, '2923', { y: 1 }), outcome(2, '3609', { m_disp_t_exec: null, flags: 'DKNA;DTNA' })], pool_y: [1, 0], pool_buyable: [1, 1] },
     'SFB_atr14@5': { K: 5, n_pool: 22, events: 0, picks: 5, hits: 0, E_rand: 0, rand_draw_hits: 0, picks_outcome: [outcome(1, '1591')] },
     'R0_combo@5': { K: 5, n_pool: 63, events: 3, picks: 5, hits: 1, E_rand: 0.238, rand_draw_hits: 1, picks_outcome: [outcome(1, '2305', { y: 1, m_locked_open: 1, m_buyable: 0 })] },
     'W_atr14@3': { K: 3, n_pool: 683, events: 4, picks: 3, hits: 0, E_rand: 0.0176, rand_draw_hits: 0, picks_outcome: [outcome(1, '6225')] },
   },
-  events: [{ code: '2923', name: '鼎固-KY', market: 'TWSE', track: 'S', failing: [], list_id: 'S0_atr14@5', rank: 1, K: 5, n_pool: 367, picked: true },
+  events: [{ code: '2923', name: '鼎固-KY', market: 'TWSE', track: 'S', failing: [], list_id: 'S0_atr14@5', rank: 1, K: 5, n_pool: 367, picked: true,
+    score: 0.0612345678, DK_s: 0, atr14: 0.07, flags: '', m_c1: 0.09, m_buyable: 1, m_disp_t_exec: 0 },
     { code: '3021', name: '鴻名', market: 'TWSE', track: 'R', failing: ['fCD'], list_id: 'R0_combo@5', rank: 24, K: 5, n_pool: 63, picked: false }],
   events_by_track: { S: 1, R: 1 },
+  official_limit_coverage: { t: { TWSE: { n_close: 1080, n_official: 1080, n_tick_fallback: 0, coverage: 1 }, TPEx: { n_close: 870, n_official: 868, n_tick_fallback: 2, coverage: 0.9977 } }, t1: null },
   ...over,
 });
 const retDoc = stage => ({ kind: 't1-tracks-score', stage, status: 'ok', frozen_seal: SEAL,
@@ -116,9 +122,17 @@ test('索引：新→舊、凍結與缺口並列、累計只帶精確度類；G6
   const d1 = tracksDaySummary(buildTracksDayDoc({ core: core(), y: yDoc() }));
   const g = gapSummary({ date_s: '2026-10-07', t: '2026-10-08', reason: '已過目標日 09:00', seal: 'a'.repeat(64), unmet_conditions: { C2: {} } });
   const summary = { s0: '2026-10-06', n_scored: 1, stats: { 'S0_atr14@5': { days: 1, window_days: 1, picks: 5, hits: 1, E_rand: 0.0272, precision_pct: 20, rand_precision_pct: 0.544,
-    delta_pp: 19.456, delta_ci_pp: [19.456, 19.456], lift: 36.76, lift_ci: [36.76, 36.76], daily_mean_buyable: 0.5 } }, gate: { 'S0_atr14@5': { g60_crash: null, g250: null } },
-  process: { P2_seals: true } };
-  const ix = buildTracksIndexDoc({ days: [d1, g], summary, status: { finished: 'x', exit: 0, errors: [] }, generatedAt: '2026-10-08T23:55:00Z' });
+    delta_pp: 19.456, delta_ci_pp: [19.456, 19.456], lift: 36.76, lift_ci: [36.76, 36.76], daily_mean_buyable: 0.5 } }, gate: { n_scored: 1, g60: null, g250: null, g500: null },
+  process: { P1: { ok: false, n_trading_days: 3, silent_days: ['2026-10-05'], gap_ratio: 0.33 }, P2: { ok: true, local_seals: true }, P3: { ok: true, fail: [], data_correction: ['2026-10-02'] } } };
+  const alerts = { time: '2026-10-08T15:50:00Z', alerts: [{ level: 'error', code: 'PREWIRE', msg: '接線前證明不成立' }, { level: 'warn', code: 'DISP_ATT_LAG', msg: '落後' }] };
+  const ix = buildTracksIndexDoc({ days: [d1, g], summary, status: { finished: 'x', exit: 0, errors: [], prewire_gate: { ok: false, why: 'pending' }, pins_ok: true },
+    alerts, rawArchive: { ok: false, n_local: 3, n_verified: 2, missing: ['tracks-raw-core-2026-10-06'], time: null }, generatedAt: '2026-10-08T23:55:00Z' });
+  assert.equal(ix.process.P1.ok, false); assert.deepEqual(ix.process.P1.silentDays, ['2026-10-05']);
+  assert.deepEqual(ix.process.P3.dataCorrection, ['2026-10-02']);
+  assert.deepEqual(ix.alerts.map(x => x.code), ['PREWIRE', 'DISP_ATT_LAG']);
+  assert.equal(ix.pipeline.prewireOk, false);
+  assert.deepEqual(ix.rawArchive, { ok: false, nLocal: 3, nVerified: 2, time: null, missing: ['tracks-raw-core-2026-10-06'] });
+  assert.equal(ix.gates.g500.reached, false);
   assert.equal(ix.kind, TRACKS_KIND_INDEX);
   assert.deepEqual(ix.days.map(r => [r.day, r.status]), [['2026-10-07', 'gap'], ['2026-10-06', 'frozen']]);
   assert.equal(ix.nCore, 1); assert.equal(ix.nGaps, 1);
@@ -144,4 +158,42 @@ test('文件 id 與 clean：沒有 undefined／NaN', () => {
   assert.deepEqual(clean({ a: undefined, b: NaN, c: [Infinity, 1] }), { a: null, b: null, c: [null, 1] });
   const walk = (v, p) => { assert.notEqual(v, undefined, p); if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, `${p}.${k}`); };
   walk(buildTracksDayDoc({ core: core(), y: yDoc() }), '$');
+});
+
+test('t 日起處置未知：卡片標未知（不當成未處置）；事件列不帶任何 m_ 報酬；漲停價檔位推算件數揭露', () => {
+  const d = buildTracksDayDoc({ core: core({ official_limit_coverage: { min: 0.95, rows: { TWSE: { n_close: 1086, n_official: 1086, n_tick_fallback: 0, coverage: 1 } } } }), y: yDoc() });
+  const s0 = d.lists.find(l => l.id === 'S0_atr14@5');
+  assert.equal(s0.picks[1].outcome.dispTUnknown, true);
+  assert.equal(s0.picks[1].outcome.dispT, false);
+  assert.equal(s0.picks[0].outcome.dispTUnknown, false);
+  assert.equal(s0.outcome.nDispTUnknown, 1);
+  assert.equal(d.events[0].score, 0.061235);
+  assert.ok(!JSON.stringify(d.events).includes('m_c1') && !JSON.stringify(d.events).includes('0.09'));
+  assert.equal(d.limitCoverage.s.TWSE.nTickFallback, 0);
+  assert.equal(d.limitCoverage.t.TPEx.nTickFallback, 2);
+  assert.equal(d.limitCoverage.t1, null);
+});
+
+test('逐位副本：檔名→id、gzip 分片→組回逐位相同、已發佈不可改寫或消失、驗證帳', () => {
+  assert.equal(rawDocId('tracks_fwd_2026-10-06.json'), 'tracks-raw-core-2026-10-06');
+  assert.equal(rawDocId('tracks_fwd_score_2026-10-06_c10.json'), 'tracks-raw-score-2026-10-06-c10');
+  assert.equal(rawDocId('tracks_fwd_gap_2026-10-07.json'), 'tracks-raw-gap-2026-10-07');
+  assert.equal(rawDocId('tracks_fwd_parity_2026-10-06.json'), 'tracks-raw-parity-2026-10-06');
+  assert.equal(rawDocId('prewire/tracks_fwd_prewire_20261007T221500.json'), 'tracks-raw-prewire-20261007T221500');
+  assert.equal(rawDocId('prewire/tracks_fwd_dispatt_overlap_pass.json'), 'tracks-raw-overlap-pass');
+  for (const f of ['tracks_fwd_summary.json', 'tracks_fwd_status.json', 'plan.json', '../x.json', 'tracks_fwd_dispatt_overlap.json']) assert.equal(rawDocId(f), null, f);
+  const bytes = Buffer.from(JSON.stringify({ a: '中'.repeat(10), seal: 'x' }));
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  const small = rawDocWrites({ id: 'tracks-raw-core-2026-10-06', file: 'tracks_fwd_2026-10-06.json', seal: 'x', sha256: sha, bytes: bytes.length, gz: gzipSync(bytes) });
+  assert.equal(small.length, 1); assert.equal(small[0][1].kind, TRACKS_KIND_RAW); assert.equal(small[0][1].nShards, 1);
+  assert.equal(createHash('sha256').update(gunzipSync(rawAssemble(small[0][1]))).digest('hex'), sha);
+  const big = Buffer.from(Array.from({ length: RAW_SHARD_BYTES * 2 + 10 }, (_, i) => (i * 7919) % 251));   // 不可壓縮 ⇒ 3 片
+  const w = rawDocWrites({ id: 'tracks-raw-score-2026-10-06-y', file: 'tracks_fwd_score_2026-10-06_y.json', seal: null, sha256: 'z', bytes: big.length, gz: big });
+  assert.deepEqual(w.map(([id]) => id), ['tracks-raw-score-2026-10-06-y', 'tracks-raw-score-2026-10-06-y~1', 'tracks-raw-score-2026-10-06-y~2']);
+  assert.ok(Buffer.from(rawAssemble(w[0][1], [w[2][1], w[1][1]])).equals(big));
+  assert.throws(() => rawAssemble(w[0][1], [w[1][1]]), /分片不齊/);
+  assert.throws(() => rawDocWrites({ id: 'tracks-fwd-2026-10-06', file: 'x', seal: null, sha256: 'z', bytes: 1, gz: Buffer.from('x') }), /不合規/);
+  assert.deepEqual(rawReplaceProblems([{ id: 'a', sha256: '1' }, { id: 'b', sha256: '2' }], [{ id: 'a', sha256: '9' }]), { clash: ['a'], missing: ['b'] });
+  assert.deepEqual(rawVerifyStatus([{ id: 'a', sha256: '1' }, { id: 'b', sha256: '2' }], { a: { sha256: '1' }, b: { sha256: 'old' } }, 't'),
+    { ok: false, n_local: 2, n_verified: 1, missing: ['b'], time: 't' });
 });

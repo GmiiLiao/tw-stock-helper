@@ -271,15 +271,163 @@ def test_maturity_wait_ready_unavailable():
     assert m['due'] == '2026-10-12' and m['state'] == 'wait'
 
 
-def test_boot_stats_and_gate_verdicts():
+def test_boot_stats_and_gate_report_windows_halt_g500():
     st = SC.boot_stats([1, 0, 0, 2], [5, 5, 5, 5], [0.1, 0.1, 0.2, 0.1])
     assert st['hits'] == 3 and st['picks'] == 20 and abs(st['delta_pp'] - (3 - 0.5) / 20 * 100) < 1e-9
     assert st['delta_ci_pp'][0] <= st['delta_pp'] <= st['delta_ci_pp'][1]
     assert SC.boot_stats([], [], [])['delta_pp'] is None
-    g = SC.gate_verdicts({'S0_atr14@5': dict(delta_pp=-0.1, delta_ci_pp=[-0.5, -0.01]), 'R0_combo@5': dict(delta_pp=0.3, delta_ci_pp=[0.1, 0.5])}, 60)
-    assert g['S0_atr14@5']['g60_crash'] is True and g['S0_atr14@5']['g250'] is None and g['R0_combo@5']['g250'] is None
-    g = SC.gate_verdicts({'S0_atr14@5': dict(delta_pp=0.5, delta_ci_pp=[0.1, 0.9]), 'R0_combo@5': dict(delta_pp=0.3, delta_ci_pp=[-0.1, 0.5])}, 250)
-    assert g['S0_atr14@5']['g250'] == 'CONFIRM' and g['R0_combo@5']['g250'] == 'EXTEND' and g['SFB_atr14@5']['g250'] == 'DROP'
+    ok_proc = {f'P{i}': dict(ok=True) for i in range(1, 9)}
+    w = lambda d, lo, hi: dict(delta_pp=d, delta_ci_pp=[lo, hi])
+    good = {lid: w(0.5, 0.1, 0.9) for lid in SC.FWD_LIST_IDS}
+    g = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)})}, 60, ok_proc)
+    assert g['g60']['outcome'] == 'HALT-FOR-REVIEW' and g['g60']['crash']['S0_atr14@5'] is True and g['g250'] is None
+    g = SC.gate_report({'g60': good}, 60, dict(ok_proc, P1=dict(ok=None)))                 # 無法判定的流程檢查不能當通過
+    assert g['g60']['outcome'] == 'HALT-FOR-REVIEW' and g['g60']['failed_checks'] == ['P1']
+    w250 = {'S0_atr14@5': w(0.5, 0.1, 0.9), 'SFB_atr14@5': w(0.3, -0.1, 0.7), 'R0_combo@5': w(0.3, -0.1, 0.5), 'W_atr14@3': w(1, 0.5, 2)}
+    halted = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)}), 'g250': w250}, 250, ok_proc)
+    assert halted['g250']['paused'] is True and all(v is None for v in halted['g250']['verdict'].values())
+    ruled = SC.gate_report({'g60': dict(good, **{'S0_atr14@5': w(-0.1, -0.5, -0.01)}), 'g250': w250}, 250, ok_proc, ruling='CONTINUE')
+    assert ruled['g250']['paused'] is False and ruled['g250']['verdict']['S0_atr14@5'] == 'CONFIRM'
+    g = SC.gate_report({'g60': good, 'g250': w250}, 250, ok_proc)
+    assert g['g250']['verdict'] == {'S0_atr14@5': 'CONFIRM', 'SFB_atr14@5': 'EXTEND', 'R0_combo@5': 'EXTEND', 'W_atr14@3': 'DESCRIPTIVE'} and g['g500'] is None
+    w500 = dict(w250, **{'SFB_atr14@5': w(0.4, 0.05, 0.8), 'R0_combo@5': w(0.2, -0.2, 0.6)})
+    g = SC.gate_report({'g60': good, 'g250': w250, 'g500': w500}, 500, ok_proc)
+    assert g['g500']['verdict'] == {'SFB_atr14@5': 'CONFIRM', 'R0_combo@5': 'STAY-WATCH'}          # 只對 EXTEND；R0 的 DROP＝維持灰底
+
+
+def test_g60_ruling_reads_last_line():
+    d = _tmp()
+    lp = os.path.join(d, 'dev.md')
+    open(lp, 'w', encoding='utf-8').write('## FDEV-009\nG60-RULING: HALT 2027-01-20\n說明 G60-RULING: CONTINUE（行中不算）\nG60-RULING: CONTINUE 2027-01-25 使用者核可\n')
+    assert SC.g60_ruling(lp) == 'CONTINUE'
+    assert SC.g60_ruling(os.path.join(d, 'none.md')) is None
+
+
+def test_flags_dtna_and_disp_t_unknown():
+    assert SC.flags_fwd(0.0, 1, True, 0, 'PENDING', 'NA') == 'DISP_T;C5_PENDING'
+    assert SC.flags_fwd(np.nan, None, True, 0, 'NA', 'NA') == 'DKNA;DTNA'
+    assert SC.flags_fwd(0.0, None, False, 0, 'NA', 'NA') == 'DTNA;NO_OPEN_T'
+    assert 't 日起處置狀態未知' in SC.flags_text_fwd('DKNA;DTNA')
+    I = dict(dates=['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06'], mkt=np.array(['TWSE', 'TPEx', 'unknown']),
+             coverage=dict(base_to='2026-10-02', disposal=dict(TWSE=['2026-10-05', '2026-10-06'], TPEx=['2026-10-05'])))
+    m, why = C.disp_t_unknown(I, 4)                                       # s＝10-06：看 [s−20, s] 中 10-02 之後的 10-05、10-06（含 s 當天公告）
+    assert m.tolist() == [False, True, True] and why == dict(TWSE=[], TPEx=['2026-10-06'])
+    m2, _ = C.disp_t_unknown(I, 2)                                        # 歷史日（≤ BASE_TO）：釘住檔涵蓋，全部已知
+    assert m2.tolist() == [False, False, False]
+
+
+def _fake_freeze_inputs(out, cache, closes_tpex=True, limits_twse=True):
+    dates = ['2026-10-01', '2026-10-02', '2026-10-05']
+    codes = [f'1{i:03d}' for i in range(900)] + [f'6{i:03d}' for i in range(600)]
+    mkt = np.array(['TWSE'] * 900 + ['TPEx'] * 600)
+    Cc = np.full((3, len(codes)), 10.0)
+    if not closes_tpex:
+        Cc[2, 900:] = np.nan                                              # 上櫃整批消失（本專案的故障族）
+    U = np.full((3, len(codes)), 11.0)
+    if not limits_twse:
+        U[2, :900] = np.nan                                               # 鏡像回應格式漂移、解析出 0 列
+    for ds, d in (('twse_limit', '2026-10-05'), ('tpex_daily', '2026-10-02')):
+        _gz(os.path.join(cache, 'official', ds, f'{d}.json.gz'), {})
+    cal = IO.Calendar([], [2026])
+    to = (IO.read_json(os.path.join(IO.LAB, '..', 'data', 'exright-history.json')) or {}).get('to') or '2026-10-02'
+    for d in cal.between(to, '2026-10-05'):                               # C3：exright-history 之後每個交易日都有兩市補抓檔
+        json.dump(dict(date=d, items=[]), open(os.path.join(cache, f'a35_shadow_exright_{d}.json'), 'w'))
+    I = dict(p=dict(out=out, cache=cache, official_root=cache), dates=dates, codes=codes, mkt=mkt, P=dict(C=Cc), U=U,
+             pins=dict(ok=True, mismatches=[]))
+    ok = dict(found=True, ready=True, nonOfficialOtcClose=False)
+    ctx = dict(plan=dict(preflightBlocks=[]), cal=cal, now=IO.now_tw('2026-10-05T23:50'), now_override=None, rehearsal=True,
+               basis={'2026-10-05': ok}, prewire=dict(ok=True))
+    return I, ctx
+
+
+def test_c1b_c2b_block_freeze_when_market_missing():
+    orig = C.listing_asof
+    C.listing_asof = lambda root, day: dict(snaps={}, names={}, files={}, sha256='x')
+    exr = os.path.join(IO.LAB, '..', 'data', 'exright-history.json')
+    try:
+        for kw, key in ((dict(closes_tpex=False), 'C1b'), (dict(limits_twse=False), 'C2b')):
+            out, cache = _tmp(), _tmp()
+            I, ctx = _fake_freeze_inputs(out, cache, **kw)
+            cond = FWD.conditions(I, dict(ctx, listing=dict(snaps={})), '2026-10-05', '2026-10-06')
+            assert cond[key]['ok'] is False, (key, cond[key])
+            r = FWD.freeze_core(I, ctx, '2026-10-05', '2026-10-06')
+            assert r['result'] == 'wait' and key in r['unmet'], r
+            assert not os.path.exists(SC.core_path(out, '2026-10-05'))       # 面板缺半個市場：絕不凍結（凍結檔寫一次、不覆寫）
+        out, cache = _tmp(), _tmp()
+        I, ctx = _fake_freeze_inputs(out, cache)
+        cond = FWD.conditions(I, dict(ctx, listing=dict(snaps={})), '2026-10-05', '2026-10-06')
+        assert cond['C1b']['ok'] and cond['C2b']['ok'] and cond['C1b']['counts']['TPEx'] == 600, (cond['C1b'], cond['C2b'])
+        assert cond['C2b']['coverage']['TWSE']['n_tick_fallback'] == 0
+    finally:
+        C.listing_asof = orig
+    assert os.path.exists(exr)
+
+
+def test_c6_assertion_failure_writes_gap_immediately():
+    orig_l, orig_b = C.listing_asof, C.build_core
+    C.listing_asof = lambda root, day: dict(snaps={}, names={}, files={}, sha256='x')
+
+    def boom(*a, **k):
+        raise AssertionError('分區 assertion：測試')
+    C.build_core = boom
+    try:
+        out, cache = _tmp(), _tmp()
+        I, ctx = _fake_freeze_inputs(out, cache)
+        r = FWD.freeze_core(I, ctx, '2026-10-05', '2026-10-06')
+        assert r['result'] == 'gap' and r['unmet'] == ['C6'] and r['write'] == 'written', r
+        g = json.load(open(SC.gap_path(out, '2026-10-05')))
+        assert 'C6' in g['reason'] and list(g['unmet_conditions']) == ['C6'] and IO.verify_seal(g)
+    finally:
+        C.listing_asof, C.build_core = orig_l, orig_b
+
+
+def test_disp_att_overlap_needs_min_days_and_fails_on_mismatch():
+    root, F = _tmp(), _tmp()
+    spec = {('disposal', 'TWSE'): (['編號', '公布日期', '證券代號'], 1), ('disposal', 'TPEx'): (['編號', '公布日期', '證券代號'], 1),
+            ('attention', 'TWSE'): (['編號', '證券代號', '日期'], 2), ('attention', 'TPEx'): (['編號', '證券代號', '公告日期'], 2)}
+    days = ['2026-09-24', '2026-09-25', '2026-09-26', '2026-09-29', '2026-09-30', '2026-10-01']
+    roc = lambda d: f'{int(d[:4]) - 1911}/{d[5:7]}/{d[8:]}'
+    for (kind, mkt), (fields, dcol) in spec.items():
+        host, ds, fname, code_col = SY.DISP_ATT[(kind, mkt)]
+        data = [[1, roc('2026-09-30'), '2330'] if dcol == 1 else [1, '2330', roc('2026-09-30')]]
+        _disp_base(F, fname, fields, data)
+
+    def put(n_days, extra=False):
+        for (kind, mkt), (fields, dcol) in spec.items():
+            host, ds, fname, code_col = SY.DISP_ATT[(kind, mkt)]
+            d = os.path.join(root, host, ds)
+            rows = {}
+            for k in days[:n_days]:
+                base_rows = [[1, roc(k), '2330'] if dcol == 1 else [1, '2330', roc(k)]] if k == '2026-09-30' else []
+                if extra and k == '2026-09-24' and (kind, mkt) == ('disposal', 'TWSE'):
+                    base_rows = [[9, roc(k), '9999']]
+                st = 'ok' if base_rows else 'empty'
+                rows[k] = dict(status=st, echo=k, final=True, file=f'{k}.json.gz')
+                payload = dict(fields=fields, data=base_rows) if mkt == 'TWSE' else dict(tables=[dict(fields=fields, data=base_rows)])
+                _gz(os.path.join(d, f'{k}.json.gz'), dict(meta={}, payload=payload))
+            os.makedirs(d, exist_ok=True)
+            json.dump(dict(rows=rows), open(os.path.join(d, '_manifest.json'), 'w'))
+    p = dict(cache=F, official_root=root)
+    assert FWD.disp_att_overlap(p)['status'] == 'pending'                 # 鏡像從未產出：0 天
+    put(4)
+    r = FWD.disp_att_overlap(p)
+    assert r['status'] == 'pending' and '不足 5 天' in r['why']
+    put(6)
+    assert FWD.disp_att_overlap(p)['status'] == 'pass'
+    put(6, extra=True)
+    r = FWD.disp_att_overlap(p)
+    assert r['status'] == 'fail' and r['datasets']['disposal_TWSE']['n_mismatched'] == 1
+
+
+def test_process_checks_p1_flags_silent_days():
+    out = _tmp()
+    cal = IO.Calendar(['2026-10-09'], [2026])
+    now = IO.now_tw('2026-10-12T10:00')
+    proc = FWD.process_checks([], {'2026-10-06': dict(seal='x', unmet_conditions={})}, cal, '2026-10-05', now, out)
+    p1 = proc['P1']
+    assert p1['n_trading_days'] == 4 and p1['silent_days'] == ['2026-10-05', '2026-10-07', '2026-10-08'] and p1['ok'] is False   # 10-12 期限 10-13 09:00 未到
+    assert proc['P2']['ok'] is False                                     # 缺口檔封印不符
+    assert FWD.process_checks([], {}, None, None, None, out)['P1']['ok'] is None
 
 
 # ───────────────────────── 缺口與時鐘閘 ─────────────────────────
@@ -299,16 +447,32 @@ def test_gap_written_once_with_blocks_and_clock_gate_before_compute():
     assert FWD.freeze_core(dict(p=p), ctx, '2026-10-06', '2026-10-07')['result'] == 'gap-exists'
 
 
-def test_prewire_gate_requires_core_proofs():
+def test_prewire_gate_pass_only_binding_and_approval():
     out = _tmp()
-    assert FWD.prewire_gate(out)['ok'] is False
+    p = dict(cache='/x/.surge-cache-F', official_root='/o')
+    assert FWD.prewire_gate(out, p)['ok'] is False
     checks = dict(listing=dict(status='pass'), limits_incremental=dict(status='pass'), research_path=dict(status='pass'), disp_att_overlap=dict(status='pending'))
-    IO.write_json_atomic(os.path.join(out, FWD.PREWIRE_PATH), IO.sealed(dict(checks=checks)))
-    assert FWD.prewire_gate(out)['ok'] is True
-    IO.write_json_atomic(os.path.join(out, FWD.PREWIRE_PATH), IO.sealed(dict(checks=dict(checks, disp_att_overlap=dict(status='fail')))))
-    assert FWD.prewire_gate(out)['ok'] is False
-    IO.write_json_atomic(os.path.join(out, FWD.PREWIRE_PATH), dict(checks=checks, seal='0' * 64))      # 封印不符
-    assert FWD.prewire_gate(out)['ok'] is False
+    base = dict(checks=checks, cache='/x/.surge-cache-F', official_root='/o', code_sha256=FWD.code_digest())
+    put = lambda doc: IO.write_json_atomic(os.path.join(out, FWD.PREWIRE_PATH), IO.sealed(doc))
+    put(base)
+    g = FWD.prewire_gate(out, p)
+    assert g['ok'] is False and 'pending' in g['why']                                   # 預設只接受 pass
+    assert FWD.prewire_gate(out, p, dict(allowDispAttPending='yes'))['ok'] is False      # 格式不對＝不算核可
+    appr = 'FDEV-001 使用者核可 2026-10-07（處置／注意重疊比對待鏡像回補）'
+    g = FWD.prewire_gate(out, p, dict(allowDispAttPending=appr))
+    assert g['ok'] is True and g['disp_att_pending_approval'] == appr
+    assert FWD.prewire_gate(out, p, dict(allowDispAttPending=appr), overlap=dict(status='fail'))['ok'] is False   # 每輪重算落定 fail ⇒ 擋
+    assert FWD.prewire_gate(out, p, overlap=dict(status='pass'))['ok'] is True         # 鏡像回補後重算 pass ⇒ 不需核可
+    other = dict(cache='/w/worktree/.surge-cache-F', official_root='/o')
+    assert FWD.prewire_gate(out, other, overlap=dict(status='pass'))['ok'] is False    # 證明不是在正式環境做的
+    g = FWD.prewire_gate(out, other, overlap=dict(status='pass'), rehearsal=True)
+    assert g['ok'] is True and g['rehearsal_binding']['cache']['proof'] == '/x/.surge-cache-F'
+    put(dict(base, code_sha256=dict(base['code_sha256'], **{'a37_tracks_core.py': '0' * 64})))
+    assert '程式與證明時不同' in FWD.prewire_gate(out, p, overlap=dict(status='pass'))['why']
+    put(dict(base, checks=dict(checks, research_path=dict(status='fail'))))
+    assert FWD.prewire_gate(out, p, overlap=dict(status='pass'))['ok'] is False
+    IO.write_json_atomic(os.path.join(out, FWD.PREWIRE_PATH), dict(base, seal='0' * 64))      # 封印不符
+    assert FWD.prewire_gate(out, p, overlap=dict(status='pass'))['ok'] is False
 
 
 if __name__ == '__main__':

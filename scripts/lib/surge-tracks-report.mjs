@@ -21,6 +21,13 @@ export const REGISTRATION_ID = 'T1-TRACKS-FWD-2026-10-05';
 export const FOOTER = '影子模式·未扣成本·非投資建議';
 export const G60_N = 60;
 export const G250_N = 250;
+export const G500_N = 500;
+// 封印記錄的逐位副本（P2：Firestore 副本與本機逐位相同）：gzip 位元組存成 Firestore Bytes，超過分片；後台 API 不讀這種文件。
+export const TRACKS_KIND_RAW = 't1-tracks-raw';
+export const TRACKS_KIND_RAW_SHARD = 't1-tracks-raw-shard';
+export const TRACKS_RAW_SCHEMA = 'surgeShadow.tracksRaw.v1';
+export const TRACKS_RAW_PREFIX = 'tracks-raw-';
+export const RAW_SHARD_BYTES = 800_000;
 
 /** 固定順序（M0 參照最上，灰底在最後；各自一區） */
 export const LIST_ORDER = ['M0@10', 'S0_atr14@5', 'SFB_atr14@5', 'R0_combo@5', 'W_atr14@3'];
@@ -115,7 +122,7 @@ function pickRow(p, outcome) {
     score: round(p?.score, 6), comboN: fin(p?.combo_n),
     outcome: outcome ? {
       t1: outcome.y === 1, buyable: outcome.m_buyable === 1, lockedOpen: outcome.m_locked_open === 1, noOpen: outcome.m_has_open_t === 0,
-      dispT: outcome.m_disp_t_exec === 1, flags: str(outcome.flags) || '',
+      dispT: outcome.m_disp_t_exec === 1, dispTUnknown: outcome.m_disp_t_exec === null, flags: str(outcome.flags) || '',
     } : null,
   };
 }
@@ -133,7 +140,7 @@ function listBlock(id, core, y) {
     baseRatePct: fl.n_pool ? round((yl.events / fl.n_pool) * 100, 3) : null,
     precisionPct: yl.picks ? round((yl.hits / yl.picks) * 100, 2) : null,
     deltaPp: yl.picks ? round(((yl.hits - yl.E_rand) / yl.picks) * 100, 3) : null,
-    randDrawHits: fin(yl.rand_draw_hits),
+    randDrawHits: fin(yl.rand_draw_hits), nDispTUnknown: fin(yl.n_disp_t_unknown),
   } : null;
   return {
     ...base, status: 'frozen', nPool: fin(fl.n_pool), ranking: str(fl.ranking),
@@ -147,7 +154,18 @@ function eventRow(e) {
     code: str(e.code), name: str(e.name), market: str(e.market), track: str(e.track), trackText: TRACK_TEXT[e.track] || str(e.track),
     failing: (Array.isArray(e.failing) ? e.failing : []).map(f => FAIL_TEXT[f] || f), listId: str(e.list_id), rank: fin(e.rank), K: fin(e.K),
     nPool: fin(e.n_pool), picked: e.picked === true, note: str(e.note) || str(e.outside_reason),
+    score: round(e.score, 6), dk: fin(e.DK_s), flags: str(e.flags) || '',
   };
+}
+
+const covRows = rows => (isObj(rows) ? Object.fromEntries(Object.entries(rows).map(([m, v]) => [m, {
+  nClose: fin(v?.n_close), nOfficial: fin(v?.n_official), nTickFallback: fin(v?.n_tick_fallback), coverage: round(v?.coverage, 4) }])) : null);
+
+/** 官方漲停價覆蓋（s 日來自 core；t、t＋1 來自 y 評分檔）：缺官方值的格子由 v2 檔位推算，逐日揭露件數（登錄 missing_data）。 */
+function limitCoverageBlock(core, y) {
+  const c = core?.official_limit_coverage;
+  const yc = y?.official_limit_coverage;
+  return { s: covRows(c?.rows), t: covRows(yc?.t), t1: covRows(yc?.t1), min: fin(c?.min) };
 }
 
 /**
@@ -171,6 +189,7 @@ export function buildTracksDayDoc({ core, y = null, c5 = null, c10 = null, parit
     parity: pp ? { verdict: str(pp.verdict), nDiffs: fin(pp.n_diffs), inputsChanged: Array.isArray(pp.inputs_changed) ? pp.inputs_changed : [] } : null,
     disposalAttention: { strictUnknown: isObj(core.disposal_attention?.strict_unknown) ? core.disposal_attention.strict_unknown : null },
     closesAtS: isObj(core.closes_at_s) ? core.closes_at_s : null,
+    limitCoverage: limitCoverageBlock(core, yOk),
     fixedLabels: FIXED_LABELS, costRef: COST_REF, referenceNote: REFERENCE_NOTE, footer: FOOTER,
   };
   const out = clean(doc);
@@ -201,26 +220,60 @@ function statBlock(st) {
     lift: fin(st.lift), liftCi: ci2(st.lift_ci) };
 }
 
+const verdictMap = v => (isObj(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x)])) : {});
+
+/** G60／G250／G500：各自固定窗（前 60／250／500 個評分日）的機械判定（summary.gate＝a37_tracks_score.gate_report）。 */
+function gatesBlock(summary) {
+  const nScored = fin(summary?.n_scored) ?? 0;
+  const g = isObj(summary?.gate) ? summary.gate : {};
+  const g60 = isObj(g.g60) ? g.g60 : null;
+  const g250 = isObj(g.g250) ? g.g250 : null;
+  const g500 = isObj(g.g500) ? g.g500 : null;
+  return {
+    nScored,
+    g60: { target: G60_N, reached: nScored >= G60_N, outcome: str(g60?.outcome), crash: isObj(g60?.crash) ? Object.fromEntries(Object.entries(g60.crash).map(([k, v]) => [k, v === true])) : {},
+      failedChecks: Array.isArray(g60?.failed_checks) ? g60.failed_checks.map(String) : [], ruling: str(g60?.ruling) },
+    g250: { target: G250_N, reached: nScored >= G250_N, paused: g250 ? g250.paused === true : null, reason: str(g250?.reason), verdict: verdictMap(g250?.verdict) },
+    g500: { target: G500_N, reached: nScored >= G500_N, verdict: verdictMap(g500?.verdict) },
+    note: 'G60 只查流程與崩壞（HALT 時 G250 暫停到使用者裁定）；G250 以 Δprecision@5(S0 − RAND) 判 CONFIRM／EXTEND／DROP；EXTEND 者到 G500 定案（登錄 §9～§10）',
+  };
+}
+
+/** 流程檢查 P1～P8（只帶 ok 與少量計數；不帶報酬）。 */
+function processBlock(proc) {
+  if (!isObj(proc)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(proc)) {
+    if (!isObj(v)) continue;
+    out[k] = { ok: v.ok === true ? true : v.ok === false ? false : null,
+      ...(k === 'P1' ? { nTradingDays: fin(v.n_trading_days), silentDays: Array.isArray(v.silent_days) ? v.silent_days.map(String) : [], gapRatio: fin(v.gap_ratio), why: str(v.why) } : {}),
+      ...(k === 'P3' ? { fail: Array.isArray(v.fail) ? v.fail.map(String) : [], dataCorrection: Array.isArray(v.data_correction) ? v.data_correction.map(String) : [] } : {}),
+      ...(k === 'P7' ? { c7Gaps: Array.isArray(v.c7_gaps) ? v.c7_gaps.map(String) : [] } : {}) };
+  }
+  return out;
+}
+
 /**
- * 索引文件：每日一列（新→舊；凍結與缺口並列）＋累計精確度／Δ／lift（判定窗）＋G60／G250 進度＋流程檢查。
+ * 索引文件：每日一列（新→舊；凍結與缺口並列）＋累計精確度／Δ／lift（全部已評分日）＋G60／G250／G500＋流程檢查＋告警＋逐位副本狀態。
  * summary＝a37_tracks_fwd.py 的 tracks_fwd_summary.json（stats 只取精確度類，報酬類欄位一律不帶）。
+ * alerts＝協調器寫的 out/tracks_fwd/_alerts/LATEST.json；rawArchive＝發佈端讀回 tracks-raw-* 的逐位比對結果。
  */
-export function buildTracksIndexDoc({ days = [], summary = null, status = null, generatedAt }) {
+export function buildTracksIndexDoc({ days = [], summary = null, status = null, generatedAt, alerts = null, rawArchive = null }) {
   const rows = [...days].filter(d => d && DAY_RE.test(d.day || '')).sort((a, b) => b.day.localeCompare(a.day));
   const st = isObj(summary?.stats) ? summary.stats : {};
-  const nScored = fin(summary?.n_scored) ?? 0;
   const doc = {
     schema: TRACKS_INDEX_SCHEMA, kind: TRACKS_KIND_INDEX, registrationId: REGISTRATION_ID, generatedAt: str(generatedAt), s0: str(summary?.s0),
     days: rows, nCore: rows.filter(r => r.status === 'frozen').length, nGaps: rows.filter(r => r.status === 'gap').length,
     cumulative: Object.fromEntries(LIST_ORDER.filter(id => id !== 'M0@10').map(id => [id, statBlock(st[id])])),
-    gates: {
-      nScored, g60: { target: G60_N, reached: nScored >= G60_N, crash: isObj(summary?.gate) ? Object.fromEntries(Object.entries(summary.gate).map(([k, v]) => [k, v?.g60_crash ?? null])) : {} },
-      g250: { target: G250_N, reached: nScored >= G250_N, verdict: isObj(summary?.gate) ? Object.fromEntries(Object.entries(summary.gate).map(([k, v]) => [k, v?.g250 ?? null])) : {} },
-      note: 'G60 只查流程與崩壞；G250 以 Δprecision@5(S0 − RAND) 判 CONFIRM／EXTEND／DROP（登錄 §9～§10）',
-    },
-    process: isObj(summary?.process) ? summary.process : null,
+    gates: gatesBlock(summary),
+    process: processBlock(summary?.process),
     pipeline: isObj(status) ? { finished: str(status.finished), exit: fin(status.exit), errors: Array.isArray(status.errors) ? status.errors.length : null,
-      skipped: str(status.skipped) } : null,
+      skipped: str(status.skipped), prewireOk: isObj(status.prewire_gate) ? status.prewire_gate.ok === true : null, prewireWhy: str(status.prewire_gate?.why),
+      dispAttOverlap: str(status.disp_att_overlap?.status), pinsOk: typeof status.pins_ok === 'boolean' ? status.pins_ok : null } : null,
+    alerts: Array.isArray(alerts?.alerts) ? alerts.alerts.filter(isObj).map(x => ({ level: str(x.level), code: str(x.code), msg: str(x.msg) })) : [],
+    alertsTime: str(alerts?.time),
+    rawArchive: isObj(rawArchive) ? { ok: rawArchive.ok === true, nLocal: fin(rawArchive.n_local), nVerified: fin(rawArchive.n_verified), time: str(rawArchive.time),
+      missing: Array.isArray(rawArchive.missing) ? rawArchive.missing.slice(0, 20).map(String) : [] } : null,
     listMeta: Object.fromEntries(LIST_ORDER.map(id => [id, { title: LIST_META[id].title, grey: LIST_META[id].grey, exploratory: LIST_META[id].exploratory }])),
     referenceNote: REFERENCE_NOTE, footer: FOOTER,
   };
@@ -243,4 +296,53 @@ export function forwardReplaceProblems(published, next) {
   const clash = published.filter(p => want.has(p.id) && want.get(p.id) !== p.seal).map(p => p.id);
   const missing = published.filter(p => !want.has(p.id)).map(p => p.id);
   return { clash, missing };
+}
+
+// ── 封印記錄的逐位副本（tracks-raw-*）────────────────────────────────────────────────────────────
+const RAW_FILE_RULES = [
+  [/^tracks_fwd_(\d{4}-\d{2}-\d{2})\.json$/, m => `core-${m[1]}`],
+  [/^tracks_fwd_gap_(\d{4}-\d{2}-\d{2})\.json$/, m => `gap-${m[1]}`],
+  [/^tracks_fwd_score_(\d{4}-\d{2}-\d{2})_(y|c5|c10)\.json$/, m => `score-${m[1]}-${m[2]}`],
+  [/^tracks_fwd_parity_(\d{4}-\d{2}-\d{2})\.json$/, m => `parity-${m[1]}`],
+  [/^prewire\/tracks_fwd_prewire_(\d{8}T\d{6})\.json$/, m => `prewire-${m[1]}`],
+  [/^prewire\/tracks_fwd_dispatt_overlap_(pass|fail)\.json$/, m => `overlap-${m[1]}`],
+];
+export const TRACKS_RAW_ID_RE = /^tracks-raw-(core|gap|parity)-\d{4}-\d{2}-\d{2}$|^tracks-raw-score-\d{4}-\d{2}-\d{2}-(y|c5|c10)$|^tracks-raw-prewire-\d{8}T\d{6}$|^tracks-raw-overlap-(pass|fail)$/;
+
+/** out/tracks_fwd 內的相對路徑 → 逐位副本文件 id；不是封印記錄就回 null。 */
+export function rawDocId(rel) {
+  for (const [re, f] of RAW_FILE_RULES) { const m = String(rel).match(re); if (m) return `${TRACKS_RAW_PREFIX}${f(m)}`; }
+  return null;
+}
+
+/**
+ * 一份封印記錄 → Firestore 文件（第 0 片在主文件，其餘 `${id}~${i}`）。gz＝gzip 位元組（Buffer／Uint8Array）；sha256＝原檔位元組的 sha256。
+ * 回傳 [[id, data], …]；data.gz 是 Bytes 片段。主文件帶 seal（與本機同值）、file、sha256、bytes、gzBytes、nShards。
+ */
+export function rawDocWrites({ id, file, seal, sha256, bytes, gz }) {
+  if (!TRACKS_RAW_ID_RE.test(id)) throw new Error(`逐位副本 id 不合規：${id}`);
+  const n = Math.max(1, Math.ceil(gz.length / RAW_SHARD_BYTES));
+  const part = i => gz.subarray(i * RAW_SHARD_BYTES, Math.min(gz.length, (i + 1) * RAW_SHARD_BYTES));
+  const head = { schema: TRACKS_RAW_SCHEMA, kind: TRACKS_KIND_RAW, file, seal: str(seal), sha256, bytes, gzBytes: gz.length, nShards: n, shard: 0, gz: part(0) };
+  return [[id, head], ...Array.from({ length: n - 1 }, (_, k) => [`${id}~${k + 1}`, { schema: TRACKS_RAW_SCHEMA, kind: TRACKS_KIND_RAW_SHARD, parent: id, shard: k + 1, gz: part(k + 1) }])];
+}
+
+/** 讀回的主文件＋分片 → gzip 位元組（依 shard 排序；缺片就丟錯）。 */
+export function rawAssemble(head, shards = []) {
+  if (!head || head.kind !== TRACKS_KIND_RAW) throw new Error('不是逐位副本主文件');
+  const parts = [head, ...shards].sort((a, b) => a.shard - b.shard);
+  if (parts.length !== head.nShards || parts.some((p, i) => p.shard !== i)) throw new Error(`分片不齊：要 ${head.nShards} 片，讀到 ${parts.length} 片`);
+  return Buffer.concat(parts.map(p => Buffer.from(p.gz)));
+}
+
+/** 已發佈的逐位副本不可被不同內容覆蓋、也不可在本機消失（同 forwardReplaceProblems）。published＝[{ id, sha256 }]。 */
+export function rawReplaceProblems(published, next) {
+  const want = new Map(next.map(w => [w.id, w.sha256]));
+  return { clash: published.filter(p => want.has(p.id) && want.get(p.id) !== p.sha256).map(p => p.id), missing: published.filter(p => !want.has(p.id)).map(p => p.id) };
+}
+
+/** 逐位副本的驗證帳：verified＝{ id: { sha256, time } }（每次讀回比對相符才記）；local＝[{ id, sha256 }]。 */
+export function rawVerifyStatus(local, verified, time) {
+  const missing = local.filter(x => verified?.[x.id]?.sha256 !== x.sha256).map(x => x.id);
+  return { ok: missing.length === 0, n_local: local.length, n_verified: local.length - missing.length, missing, time };
 }

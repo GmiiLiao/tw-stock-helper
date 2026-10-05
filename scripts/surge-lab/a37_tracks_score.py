@@ -31,6 +31,24 @@ LABEL_GRACE = 10                     # t＋1 之後再等 10 個交易日（登�
 HORIZONS = {'c5': 5, 'c10': 10}
 NODE = '/opt/homebrew/bin/node'
 G60_N, G250_N, G500_N = 60, 250, 500
+FWD_LIST_IDS = ('S0_atr14@5', 'SFB_atr14@5', 'R0_combo@5', 'W_atr14@3')
+# 前向自己的旗標：DTNA＝t 日起處置狀態未知（釘選的 FR.FLAG_TEXT 沒有這一碼；FR.pick_flag_codes 遇到 None 只會「不標 DISP_T」，等於當成未處置）
+FLAG_TEXT_FWD = {**FR.FLAG_TEXT, 'DTNA': 't 日起處置狀態未知（鏡像處置公告缺漏；不當成未處置，FDEV-005）'}
+G60_RULING_RE = r'^\s*G60-RULING:\s*(CONTINUE|HALT)\b'
+
+
+def flags_fwd(dk, te, has_open, locked, cat5, cat10) -> str:
+    """FR.pick_flag_codes（固定順序）＋前向的 DTNA：te 為 None（未知）時插在 DISP_T 的位置（DK 旗標之後）。"""
+    codes = FR.pick_flag_codes([dk], [te if te is not None else 0], [has_open], [locked], [cat5], [cat10])[0]
+    if te is not None:
+        return codes
+    parts = [c for c in codes.split(';') if c]
+    at = 1 if parts and parts[0] in ('DK1', 'DKNA') else 0
+    return ';'.join(parts[:at] + ['DTNA'] + parts[at:])
+
+
+def flags_text_fwd(codes: str) -> str:
+    return '；'.join(FLAG_TEXT_FWD[c] for c in codes.split(';') if c)
 
 
 # ───────────────────────── 檔名 ─────────────────────────
@@ -104,14 +122,23 @@ def maturity(I, cal, frozen, stage, basis, today) -> dict:
     need = [t] + cal.between(t, due)
     dates, cache = I['dates'], I['p']['cache']
     why = []
+    rows_ok = False
     if D not in dates:
         why.append(f'面板沒有決策日 {D}')
     else:
         s = dates.index(D)
+        rows_ok = True
         for i, d in enumerate(need, 1):
             if s + i >= len(dates) or dates[s + i] != d:
                 why.append(f'面板第 s＋{i} 列不是 {d}（{dates[s + i] if s + i < len(dates) else "尚無"}）')
+                rows_ok = False
                 break
+    if stage == 'y' and rows_ok and 'U' in I:                       # C2b 同口徑：t、t＋1 兩市官方漲停價覆蓋率（格式漂移解析出 0 列時不無聲退回檔位推算）
+        mk = C.market_array(I, None)
+        for i, d in ((1, t), (2, due)):
+            chk = C.limit_coverage_check(I, s + i, mk)
+            if not chk['ok']:
+                why.append(f'{d} 官方漲停價覆蓋率不足 {chk["min"]}：{chk["low"]}')
     for d in need:
         if not basis_ok(basis.get(d)):
             why.append(f'{d} 收盤＋法人未到齊或含第三方補洞')
@@ -148,8 +175,12 @@ def outcome_y(I, frozen, mat, snaps) -> dict:
     with L._patched(B, 'official_limit_up', lambda T_, N_: res['_t']['U']):
         meta = V2.forward_meta(si, allj, res['A'], P, res['F_day'], T)
     open_t = P['O'][s + 1]
+    unk, why = C.disp_t_unknown(I, s)                     # 鏡像處置公告缺漏的市場：t 日起處置記 NaN（不捏造 0，FDEV-005）
+    disp_t = np.where(unk, np.nan, res['da']['disp_t_exec'][s].astype(np.float64))
+    mk = C.market_array(I, snaps)
     return dict(y=res['fl']['y'][s].astype(bool), buyable=(np.isfinite(open_t) & (meta['locked_open'] == 0)), has_open=np.isfinite(open_t),
-                locked=meta['locked_open'].astype(int), c1=meta['o_c1'], disp_t=res['da']['disp_t_exec'][s].astype(int))
+                locked=meta['locked_open'].astype(int), c1=meta['o_c1'], disp_t=disp_t, disp_t_unknown_why=why,
+                limit_coverage={'t': C.limit_coverage(I, s + 1, mk), 't1': C.limit_coverage(I, t1, mk)})
 
 
 def outcome_ret(I, frozen, mat, k) -> dict:
@@ -166,11 +197,22 @@ def _f(x):
     return C.fnum(x)
 
 
+def _te(Y, j):
+    """t 日起處置：1／0；鏡像處置公告缺漏 ⇒ None（DTNA）。"""
+    if j < 0:
+        return None
+    v = float(Y['disp_t'][j])
+    return int(v) if np.isfinite(v) else None
+
+
 def score_y_doc(I, frozen, mat, Y) -> dict:
     jm = {}
     lists, ev_rows = {}, []
-    dmap = dict(zip(frozen['domain']['codes'], frozen['domain']['track']))
-    fmask = dict(zip(frozen['domain']['codes'], frozen['domain']['failmask']))
+    dom = frozen['domain']
+    dmap = dict(zip(dom['codes'], dom['track']))
+    fmask = dict(zip(dom['codes'], dom['failmask']))
+    dix = {c: i for i, c in enumerate(dom['codes'])}
+    feats = dom.get('features') or {}
     for lid, fl in frozen['lists'].items():
         codes = fl['ranked_codes']
         jj = _jmap(I, codes)
@@ -185,33 +227,42 @@ def score_y_doc(I, frozen, mat, Y) -> dict:
         for pk in fl['picks']:
             i = pk['rank'] - 1
             j = int(jj[i])
-            te = int(Y['disp_t'][j]) if j >= 0 else None
+            te = _te(Y, j)
             ho, lo = (bool(Y['has_open'][j]), int(Y['locked'][j])) if j >= 0 else (False, 0)
-            codes_f = FR.pick_flag_codes([pk['DK_s'] if pk['DK_s'] is not None else np.nan], [te], [ho], [lo], ['PENDING' if buy[i] else 'NA'],
-                                         ['PENDING' if buy[i] else 'NA'])[0]
+            codes_f = flags_fwd(pk['DK_s'] if pk['DK_s'] is not None else np.nan, te, ho, lo, 'PENDING' if buy[i] else 'NA', 'PENDING' if buy[i] else 'NA')
             prs.append(dict(rank=pk['rank'], code=pk['code'], y=int(y[i]), m_buyable=int(buy[i]), m_has_open_t=int(ho), m_locked_open=lo,
-                            m_c1=_f(Y['c1'][j]) if j >= 0 and buy[i] else None, m_disp_t_exec=te, flags=codes_f, flags_text=FR.flags_text(codes_f)))
+                            m_c1=_f(Y['c1'][j]) if j >= 0 and buy[i] else None, m_disp_t_exec=te, flags=codes_f, flags_text=flags_text_fwd(codes_f)))
         lists[lid] = dict(K=K, n_pool=n, events=int(y.sum()), picks=int(picks_n[0]), hits=int(sum(p['y'] for p in prs)), E_rand=float(E[0]),
                           rand_draw_hits=int(sum(int(y[i]) for i, c in enumerate(codes) if c in rd)), buyable_picks=int(sum(p['m_buyable'] for p in prs)),
                           buyable_hits=int(sum(p['m_buyable'] and p['y'] for p in prs)),
-                          dk0_picks=int(sum(1 for p in fl['picks'] if p['DK_s'] == 0)), picks_outcome=prs,
+                          dk0_picks=int(sum(1 for p in fl['picks'] if p['DK_s'] == 0)),
+                          n_disp_t_unknown=int(sum(1 for p in prs if p['m_disp_t_exec'] is None)), picks_outcome=prs,
                           pool_y=[int(v) for v in y], pool_buyable=[int(v) for v in buy])
-    # 對帳：當日每個 T1 事件（y＝1）
+    # 對帳：當日每個 T1 事件（y＝1）——名次、命中或漏網、分數（凍結的池內分數）、池列數、關鍵特徵（凍結）、DK_s、旗標、事後 m_ 欄
     for j in np.nonzero(Y['y'])[0]:
         code = I['codes'][j]
         tr = dmap.get(code)
         tn = L.TRACKS[tr] if tr is not None and tr >= 0 else None
         lid = C.TRACK_LIST.get(tn) if tn else None
         mk = str(I['mkt'][j])
+        k = dix.get(code)
+        dk = dom['DK_s'][k] if k is not None and 'DK_s' in dom else None
+        te = _te(Y, int(j))
+        ho, lo = bool(Y['has_open'][j]), int(Y['locked'][j])
+        codes_f = flags_fwd(dk if dk is not None else np.nan, te, ho, lo, 'NA', 'NA')
         row = dict(code=code, name=C.name_of(I, code, {})[0], market=mk if mk in ('TWSE', 'TPEx') else '來源未提供', track=tn or 'outside',
-                   failing=[k for k, b in C.FAIL_BITS.items() if fmask.get(code, 0) & b], list_id=None, rank=None, K=None, n_pool=None,
-                   picked=False, m_buyable=int(Y['buyable'][j]), m_locked_open=int(Y['locked'][j]))
+                   failing=[kk for kk, b in C.FAIL_BITS.items() if fmask.get(code, 0) & b], list_id=None, rank=None, K=None, n_pool=None, score=None,
+                   picked=False, DK_s=dk, at_known5=(dom['at_known5'][k] if k is not None and 'at_known5' in dom else None),
+                   **{f: (feats[f][k] if k is not None and f in feats else None) for f in C.DOMAIN_FEATURES},
+                   flags=codes_f, flags_text=flags_text_fwd(codes_f), m_buyable=int(Y['buyable'][j]), m_has_open_t=int(ho), m_locked_open=lo,
+                   m_disp_t_exec=te, m_c1=_f(Y['c1'][j]) if Y['buyable'][j] else None)
         if tn is None:
             row['outside_reason'] = 's 日不在列範圍（s 日無收盤、或面板內上市日之後）'
         elif lid in frozen['lists']:
             fl = frozen['lists'][lid]
             rk = fl['ranked_codes'].index(code) + 1 if code in fl['ranked_codes'] else None
-            row.update(list_id=lid, rank=rk, K=fl['K'], n_pool=fl['n_pool'], picked=bool(rk is not None and rk <= fl['K']))
+            row.update(list_id=lid, rank=rk, K=fl['K'], n_pool=fl['n_pool'], picked=bool(rk is not None and rk <= fl['K']),
+                       score=fl['ranked_scores'][rk - 1] if rk is not None else None)
         elif lid == 'M0@10':
             row.update(list_id='M0@10', note='M0 參照（m0ref）尚未接線：第二期重現凍結模型指紋後才排名')
         else:
@@ -220,11 +271,13 @@ def score_y_doc(I, frozen, mat, Y) -> dict:
     by_track = {}
     for r in ev_rows:
         by_track[r['track']] = by_track.get(r['track'], 0) + 1
-    return dict(lists=lists, events=ev_rows, n_events=len(ev_rows), events_by_track=by_track)
+    return dict(lists=lists, events=ev_rows, n_events=len(ev_rows), events_by_track=by_track,
+                official_limit_coverage=Y.get('limit_coverage'), disp_t_unknown_days=Y.get('disp_t_unknown_why'))
 
 
 def score_ret_doc(I, frozen, y_doc, R, k, stage) -> dict:
-    """到期當下（記錄時點＝到期日）的出場分類只會是 OK／NOCLOSE_UNRESOLVED（之後的重分類另檔、只增不改）。"""
+    """到期當下（記錄時點＝到期日）的出場分類只會是 OK／NOCLOSE_UNRESOLVED（之後的重分類另檔、只增不改）。
+    另對 y 檔的每個 T1 事件記同一期報酬（events_outcome；只在本機研究記錄，後台文件不帶）。"""
     out = {}
     s = I['dates'].index(frozen['date_s'])
     for lid, fl in frozen['lists'].items():
@@ -244,7 +297,17 @@ def score_ret_doc(I, frozen, y_doc, R, k, stage) -> dict:
         pool_ok = [float(ret[i]) for i in range(len(jj)) if buy[i] and np.isfinite(ret[i])]
         out[lid] = dict(picks_outcome=prs, daily_mean_buyable=float(np.mean(okp)) if okp else None, daily_mean_dk0=float(np.mean(dk0)) if dk0 else None,
                         pool_mean_buyable=float(np.mean(pool_ok)) if pool_ok else None, n_buyable_with_ret=len(okp))
-    return dict(lists=out)
+    ev = []
+    evs = (y_doc or {}).get('events') or []
+    if evs:
+        ej = _jmap(I, [e['code'] for e in evs])
+        ebuy = np.array([bool(e.get('m_buyable')) for e in evs]) & (ej >= 0)
+        nan20 = np.full(len(evs), np.nan)                      # 事件列沒有凍結 nan20：停牌／冷門無成交無法區分時歸 NOCLOSE_HALT（只作描述）
+        cats = FR.exit_category(R['fin'], np.full(len(evs), s), np.maximum(ej, 0), k, R['asof'], ebuy, nan20)
+        for e, j, b, cat in zip(evs, ej, ebuy, cats):
+            v = _f(R['ret'][j]) if j >= 0 and b and str(cat) == 'OK' else None
+            ev.append(dict(code=e['code'], list_id=e.get('list_id'), rank=e.get('rank'), **{f'm_{stage}': v, f'exit_{stage}_cat': str(cat)}))
+    return dict(lists=out, events_outcome=ev)
 
 
 # ───────────────────────── 摘要（G60／G250 進度）─────────────────────────
@@ -261,14 +324,54 @@ def boot_stats(hits, picks, E) -> dict:
                 lift=round(H / Es, 3) if Es > 0 else None, lift_ci=EV.ci(EV.ratio_b(hits, E, IDX), 1, 3) if Es > 0 else None)
 
 
-def gate_verdicts(stats: dict, n_scored: int) -> dict:
-    out = {}
-    for lid in ('S0_atr14@5', 'SFB_atr14@5'):
-        st = stats.get(lid) or {}
-        ci = st.get('delta_ci_pp')
-        out[lid] = dict(g60_crash=FR.g60_crash(ci[1] if ci else None) if n_scored >= G60_N else None,
-                        g250=FR.g250_keep(st.get('delta_pp'), ci[0] if ci else None) if n_scored >= G250_N else None)
-    st = stats.get('R0_combo@5') or {}
-    ci = st.get('delta_ci_pp')
-    out['R0_combo@5'] = dict(g250=FR.g250_watch(st.get('delta_pp'), ci[0] if ci else None) if n_scored >= G250_N else None)
+def g60_ruling(path: str = None):
+    """前向偏差紀錄中使用者對 G60 HALT 的裁定列「G60-RULING: CONTINUE｜HALT …」（取最後一列；沒有＝None）。"""
+    import re
+    path = path or FR.FWD_DEV_LOG
+    out = None
+    if os.path.exists(path):
+        for ln in open(path, encoding='utf-8'):
+            m = re.match(G60_RULING_RE, ln)
+            if m:
+                out = m.group(1)
+    return out
+
+
+def _ci(st, i):
+    ci = (st or {}).get('delta_ci_pp')
+    return ci[i] if ci else None
+
+
+def gate_report(windows: dict, n_scored: int, process: dict, ruling=None) -> dict:
+    """G60／G250／G500 的機械判定（登錄 G60、G250、G500）。每個 G 各用自己固定的窗（前 60／250／500 個評分日）。
+      · G60：P1～P8 全過且 S0、S_FB 都沒崩壞 ⇒ CONTINUE；否則 HALT-FOR-REVIEW（任一流程檢查無法判定也算沒過）。
+      · G250：G60 為 HALT 且前向偏差紀錄沒有「G60-RULING: CONTINUE」⇒ 暫停（verdict＝null，理由寫明）；否則 S0／S_FB 用 g250_keep、R0 用 g250_watch、W 只描述。
+      · G500：只對 G250 判 EXTEND 的清單；S0／S_FB 用 g500_final（CONFIRM／DROP），R0 的 CONFIRM＝UPGRADE、DROP＝STAY-WATCH（維持灰底）。"""
+    out = dict(n_scored=n_scored, g60=None, g250=None, g500=None)
+    w60 = windows.get('g60')
+    if w60:
+        crash = {lid: FR.g60_crash(_ci(w60.get(lid), 1)) for lid in ('S0_atr14@5', 'SFB_atr14@5')}
+        failed = sorted(k for k, v in (process or {}).items() if not (isinstance(v, dict) and v.get('ok') is True))
+        outcome = 'CONTINUE' if not failed and not any(crash.values()) else 'HALT-FOR-REVIEW'
+        out['g60'] = dict(outcome=outcome, crash=crash, failed_checks=failed, window_days=G60_N, ruling=ruling,
+                          note='HALT 時凍結照常、G250 暫停到使用者裁定（裁定寫進前向偏差紀錄 G60-RULING 列）')
+    w250 = windows.get('g250')
+    if w250:
+        g60 = out['g60'] or {}
+        if g60.get('outcome') != 'CONTINUE' and ruling != 'CONTINUE':
+            out['g250'] = dict(paused=True, verdict={lid: None for lid in FWD_LIST_IDS}, reason='G250 暫停（G60 HALT-FOR-REVIEW，待使用者裁定）')
+        else:
+            v = {lid: FR.g250_keep(w250[lid].get('delta_pp'), _ci(w250[lid], 0)) for lid in ('S0_atr14@5', 'SFB_atr14@5')}
+            v['R0_combo@5'] = FR.g250_watch(w250['R0_combo@5'].get('delta_pp'), _ci(w250['R0_combo@5'], 0))
+            v['W_atr14@3'] = 'DESCRIPTIVE'
+            out['g250'] = dict(paused=False, verdict=v, window_days=G250_N)
+    w500 = windows.get('g500')
+    if w500 and out['g250'] and not out['g250']['paused']:
+        v = {}
+        for lid, g in out['g250']['verdict'].items():
+            if g != 'EXTEND':
+                continue
+            f = FR.g500_final(w500[lid].get('delta_pp'), _ci(w500[lid], 0))
+            v[lid] = ('UPGRADE' if f == 'CONFIRM' else 'STAY-WATCH') if lid == 'R0_combo@5' else f
+        out['g500'] = dict(verdict=v, window_days=G500_N, note='只對 G250 判 EXTEND 的清單；最終定案、不再延長')
     return out

@@ -55,6 +55,13 @@ Next.js on Firebase App Hosting（us-central1）
 
 鏡像與 daemon 共用出口：鏡像程式避開平日 07:30–15:30 與 daemon 重任務窗 16:25–16:55、21:40–22:35（`scripts/lib/official-mirror.mjs` 的 `DAEMON_BUSY_WINDOWS`）。
 新增排程時把它加進這張表，並確認不落在上述窗內。
+⚠ 鏡像範本的平日 22:40 與起漲影子的 22:40 同時打 TWSE（同一出口 IP）：重裝鏡像排程前先錯開（需使用者核可；見 `DEVIATIONS_t1_tracks_forward.md` FDEV-006）。
+
+**T1 分軌前向釘選（約到 2027-10）**：前向登錄 `T1-TRACKS-FWD-2026-10-05` 的 `implementation_pins` 釘住 17 個 `scripts/surge-lab/` 檔——
+`build.py`、`build_v2.py`、`official_features.py`、`official_limits.py`、`disposal.py`、`attention.py`、`models.py`、`run_cv.py`、`cv_official.py`、`fingerprint.py`
+（a35 與其他研究共用）＋`a36_tracks_{lib,proxy,fwd_rules,fwd_m0,fit,eval,build}.py`。sha256 一變，前向凍結就停擺（C7）、每天變成永不補產的缺口。
+pre-commit（`scripts/check-tracks-pins.mjs`）會擋：真的要改，先在 `scripts/surge-lab/tracks/DEVIATIONS_t1_tracks_forward.md` 寫前向偏差並加
+`PIN-UPDATE: <路徑> <新 sha256>` 列（只准修實作錯誤，要先取得使用者同意）。
 
 **Cloud Function 在 us-central1，美國 IP 已被 mis.twse.com.tw 封鎖**
 （`src/lib/twse-api-server.ts:929-931`、`src/app/api/twse/market-index/route.ts:10-11` 都有註解）。

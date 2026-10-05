@@ -40,7 +40,11 @@ FAIL_TEXT = {'fP10': '收盤<10', 'fP5': '收盤<5', 'fV300': 'vol20<300 張', '
              'fA60': '上市未滿60日', 'fN20': '近20日有缺值', 'fBP': '近125日價格結構斷點', 'fCD': '冷卻期（前10日內連板）',
              'NE_TDR': 'TDR（不參與）', 'NE_SUSP': 's 日無收盤', 'NE_LU_S': 's 日已收漲停'}
 FWD_WINDOW = 'FWD'
-MIN_CLOSES = {'TWSE': 800, 'TPEx': 500}           # s 日兩市收盤檔數下限（同 a35 名單的上櫃到齊防呆，上市另加）
+MIN_CLOSES = {'TWSE': 800, 'TPEx': 500}           # s 日兩市收盤檔數下限（C1b；同 a35 名單的上櫃到齊防呆，上市另加）
+LIMIT_COVERAGE_MIN = 0.95                         # C2b：s 日有收盤的列中，官方漲停價有值的比例下限（兩市各自；2025-08～2026-10 實測最低 0.9965）
+DISP_T_LOOKBACK = 20                              # t 日起處置（m_disp_t_exec）要看的公告日窗：[s−20, s]（實測處置期最長 12 個交易日、起日＝公告次一交易日）
+MARKETS = ('TWSE', 'TPEx')
+DOMAIN_FEATURES = ('atr14', 'n_lu_250', 'r20', 'c_ma120')
 LISTING_DIRS = {'TWSE': ('openapi.twse.com.tw', 'twse_oa_opendata_t187ap03_L', '公司代號', '上市日期', '公司簡稱'),
                 'TPEx': ('www.tpex.org.tw', 'tpex_oa_mopsfin_t187ap03_O', 'SecuritiesCompanyCode', 'DateOfListing', 'CompanyAbbreviation')}
 
@@ -221,6 +225,63 @@ def market_of(I: dict, j: int, code: str, snaps: dict) -> str:
     return m if m in ('TWSE', 'TPEx') else '來源未提供'
 
 
+def market_array(I: dict, snaps) -> np.ndarray:
+    """每個面板代號的市場別（上市快照優先，其次 code_market；都沒有＝「來源未提供」）。snaps＝None 時只用 code_market。"""
+    snaps = snaps or {}
+    return np.array([market_of(I, j, c, snaps) for j, c in enumerate(I['codes'])])
+
+
+# ───────────────────────── 完整性（C1b、C2b）─────────────────────────
+def closes_by_market(I: dict, s: int, mk: np.ndarray) -> dict:
+    """第 s 列（截斷後面板就是這一列）各市場有收盤的檔數。"""
+    fin = np.isfinite(I['P']['C'][s])
+    return {m: int((fin & (mk == m)).sum()) for m in (*MARKETS, '來源未提供')}
+
+
+def closes_check(I: dict, s: int, mk: np.ndarray) -> dict:
+    """C1b：s 日兩市收盤檔數各自 ≥ MIN_CLOSES（面板缺半個市場就不凍結——凍結檔寫一次、不覆寫）。"""
+    n = closes_by_market(I, s, mk)
+    short = {m: n[m] for m in MARKETS if n[m] < MIN_CLOSES[m]}
+    return dict(ok=not short, counts=n, min=MIN_CLOSES, short=short)
+
+
+def limit_coverage(I: dict, s: int, mk: np.ndarray) -> dict:
+    """第 s 列官方漲停價的覆蓋（s 日有收盤的列）：n_official＝有官方值、n_tick_fallback＝缺官方值、由 v2 檔位推算（登錄 missing_data：逐日揭露件數）。"""
+    fin = np.isfinite(I['P']['C'][s])
+    has = np.isfinite(I['U'][s])
+    out = {}
+    for m in (*MARKETS, '來源未提供'):
+        sel = fin & (mk == m)
+        n, k = int(sel.sum()), int((sel & has).sum())
+        out[m] = dict(n_close=n, n_official=k, n_tick_fallback=n - k, coverage=(k / n) if n else None)
+    return out
+
+
+def limit_coverage_check(I: dict, s: int, mk: np.ndarray) -> dict:
+    """C2b：兩市各自覆蓋率 ≥ LIMIT_COVERAGE_MIN（鏡像回應格式漂移、解析出 0 列時不會整天無聲退回檔位推算）。"""
+    cov = limit_coverage(I, s, mk)
+    low = {m: cov[m]['coverage'] for m in MARKETS if cov[m]['coverage'] is None or cov[m]['coverage'] < LIMIT_COVERAGE_MIN}
+    return dict(ok=not low, coverage=cov, min=LIMIT_COVERAGE_MIN, low=low)
+
+
+# ───────────────────────── t 日起處置的涵蓋（m_disp_t_exec）─────────────────────────
+def disp_t_unknown(I: dict, s: int) -> tuple:
+    """t 日起處置（DISP[t]）取決於公告日在 [s−20, s] 的處置公告（處置起日＝公告次一交易日、處置期最長 12 個交易日）。
+    其中 BASE_TO 之後的交易日，若該市場的鏡像帶日期處置資料集沒有定版列 ⇒ 該市場（含市場別不明）的 m_disp_t_exec 記 None＋DTNA，
+    不當成「未處置」（FDEV-005）。回傳 (mask over codes, 說明)。"""
+    dates, mkt, cov = I['dates'], I['mkt'], I['coverage']
+    lo = max(0, s - DISP_T_LOOKBACK)
+    days = [d for d in dates[lo:s + 1] if d > cov.get('base_to', SY.BASE_TO)]
+    mask, why = np.zeros(len(mkt), bool), {}
+    for src in MARKETS:
+        have = set(cov.get('disposal', {}).get(src, []))
+        miss = [d for d in days if d not in have]
+        if miss:
+            mask |= (mkt == src) | (mkt == 'unknown')
+        why[src] = miss
+    return mask, why
+
+
 # ───────────────────────── 輸入摘要（parity 歸因用）─────────────────────────
 def input_digests(I: dict, s: int, snaps_sha: str, code_list=None) -> dict:
     """面板／官方漲停價（只取 code_list 的欄，依代號對齊——之後新上市讓欄位位移也比得了）、除權息、處置、注意、上市快照的雜湊。"""
@@ -290,17 +351,21 @@ def build_core(I: dict, s: int, t_day: str, lst: dict, extra: dict) -> dict:
     counts = {name: int((tr == tid[name]).sum()) for name in L.TRACKS}
     counts['NE_SUSP_fwd'] = int(len(susp))
     m_pool = sorted(codes[j] for j in np.nonzero(tr == tid['M'])[0])
-    mk = np.array([market_of(I, j, codes[j], lst['snaps']) for j in range(len(codes))])
-    fin = np.isfinite(R['close'])
+    mk = market_array(I, lst['snaps'])
     return dict(
         schema=IO.SCHEMA_CORE, kind=IO.KIND_CORE, registration_id=FR.FWD_REG_ID, registration_sha256=FR.recorded_sha256(),
         parent_registration_sha256=L.REG_SHA256, implementation_pins=I['pins'], date_s=dates[s], s_index=int(s), t=t_day, window=FWD_WINDOW,
         panel=dict(first=dates[0], last_used=dates[s], panel_last=dates[-1], T_used=int(s + 1), N=len(codes), panel_sha256=I['panel_sha256']),
-        closes_at_s={m: int((fin & (mk == m)).sum()) for m in ('TWSE', 'TPEx')},
+        closes_at_s=closes_by_market(I, s, mk), min_closes=MIN_CLOSES,
+        official_limit_coverage=dict(rows=limit_coverage(I, s, mk), min=LIMIT_COVERAGE_MIN,
+                                     note='s 日有收盤的列：n_official＝官方漲停價、n_tick_fallback＝缺官方值改用 v2 檔位推算（登錄 missing_data 逐日揭露）'),
         partition_checks={k: bool(v) for k, v in R['checks'].items()},
         track_counts=counts, lists=lists,
         domain=dict(codes=[codes[j] for j in dom], track=[int(tr[j]) for j in dom], failmask=[int(R['failmask'][j]) for j in dom],
-                    tracks=list(L.TRACKS), fail_bits=FAIL_BITS, fail_text=FAIL_TEXT, lu_s=[bool(R['lu_s'][j]) for j in dom]),
+                    tracks=list(L.TRACKS), fail_bits=FAIL_BITS, fail_text=FAIL_TEXT, lu_s=[bool(R['lu_s'][j]) for j in dom],
+                    features={f: [fnum(R['px'][f][j]) for j in dom] for f in DOMAIN_FEATURES},
+                    DK_s=[fnum(R['dk'][j]) for j in dom], at_known5=[fnum(R['at5'][j]) for j in dom],
+                    features_note='s 日凍結的四個代理特徵（短歷史 NaN 規則後）、DK_s（含 FDEV-002 未知）、at_known5；命中／漏網記錄的「關鍵特徵」取這裡'),
         ne_susp_fwd=dict(n=int(len(susp)), codes=[codes[j] for j in susp], note='D_fwd：上市日 ≤ s、近 250 日有收盤、s 日停牌（只作描述，不入任何池）'),
         m_pool=dict(n=len(m_pool), codes=m_pool, note='M 軌全部列（M0 前向推論的同日百分位母體；m0ref 另檔）'),
         disposal_attention=dict(strict_unknown=R['strict_unknown'], base_to=I['coverage'].get('base_to'),

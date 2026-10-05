@@ -26,7 +26,7 @@ function refText(r: TracksRefStat | undefined, label: string) {
 function outcomeCell(p: TracksPick) {
   const o = p.outcome;
   if (!o) return <span style={{ color: 'var(--text-muted)' }}>待到期</span>;
-  const extra = [o.lockedOpen ? '開盤鎖漲停' : null, o.noOpen ? 't 日無開盤' : null, o.dispT ? 't 日起處置' : null].filter(Boolean).join('·');
+  const extra = [o.lockedOpen ? '開盤鎖漲停' : null, o.noOpen ? 't 日無開盤' : null, o.dispT ? 't 日起處置' : null, o.dispTUnknown ? 't 日起處置未知（來源缺漏）' : null].filter(Boolean).join('·');
   return (
     <span title="事後欄位（凍結之後才知道）">
       <span style={{ color: o.t1 ? 'var(--color-up)' : 'var(--text-muted)', fontWeight: o.t1 ? 800 : 400 }}>{o.t1 ? '✅ T1 連板' : '✖ 未連板'}</span>
@@ -63,6 +63,7 @@ function ListSection({ b }: { b: TracksListBlock }) {
             <span>候選 <b style={MONO}>{b.nPool ?? '—'}</b> 檔（{b.ranking ?? '—'} 由大到小，取前 {b.K}）</span>
             {o ? <span>當日基準率 <b style={MONO}>{n2(o.baseRatePct, '%')}</b>（池內 T1 {o.events ?? '—'} 件）</span> : <span style={{ color: 'var(--text-muted)' }}>基準率待到期</span>}
             {o && <span>命中 <b style={MONO}>{o.hits}／{o.picks}</b>、Δ 對 RAND <b style={MONO}>{pp(o.deltaPp)}</b>（同日隨機期望 {o.expectedRand ?? '—'} 件）</span>}
+            {o && (o.nDispTUnknown ?? 0) > 0 && <span style={{ color: AMBER }}>t 日起處置未知 {o.nDispTUnknown} 檔（鏡像處置公告缺漏，不當成未處置）</span>}
           </div>
           <div style={{ marginTop: 4, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>
             研究參考：{[refText(b.reference?.sel, 'SEL'), refText(b.reference?.ho, 'HO')].filter(Boolean).join('｜') || '—'}
@@ -85,6 +86,17 @@ function ListSection({ b }: { b: TracksListBlock }) {
       )}
     </section>
   );
+}
+
+/** 官方漲停價：缺官方值改用檔位推算的件數（s 日、t、t＋1；登錄 missing_data 逐日揭露）。 */
+function covText(d: TracksDayDoc): string {
+  const c = d.limitCoverage;
+  if (!c) return '';
+  const part = (lab: string, rows: TracksDayDoc['limitCoverage']['s']) => (rows
+    ? `${lab} ${['TWSE', 'TPEx'].map(m => `${MKT[m]} ${rows[m]?.nTickFallback ?? '—'}`).join('／')}`
+    : null);
+  const xs = [part('s', c.s), part('t', c.t), part('t＋1', c.t1)].filter(Boolean);
+  return xs.length ? `漲停價檔位推算件數 ${xs.join('、')}` : '';
 }
 
 function Reconcile({ d }: { d: TracksDayDoc }) {
@@ -138,19 +150,36 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
   const ix = data.index; const d = data.day ?? null;
   const g = ix.gates;
   const crash = Object.entries(g.g60.crash || {}).filter(([, v]) => v === true).map(([k]) => k);
+  const errs = (ix.alerts || []).filter(x => x.level === 'error');
+  const warns = (ix.alerts || []).filter(x => x.level !== 'error');
+  const p1 = ix.process?.P1;
+  const g60Txt = !g.g60.reached ? '未到' : g.g60.outcome === 'CONTINUE' ? '繼續' : g.g60.outcome === 'HALT-FOR-REVIEW' ? '暫停待審' : '—';
+  const g250Txt = !g.g250.reached ? '未到' : g.g250.paused ? '暫停（G60 待裁定）' : Object.entries(g.g250.verdict).map(([k, v]) => `${k.split('_')[0]} ${v ?? '—'}`).join('·');
+  const g500Txt = !g.g500.reached ? '未到' : Object.entries(g.g500.verdict).map(([k, v]) => `${k.split('_')[0]} ${v ?? '—'}`).join('·') || '無延長清單';
   return (
     <div style={{ fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.7 }}>
       <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)', marginBottom: 10 }}>
         <b>🧭 T1 連板起漲（分軌）前向影子</b>（{ix.registrationId}）：每個交易日盤後凍結（封印、下一交易日 09:00 前），t＋1 收盤後對答案。
         S0／S_FB 是「觀察／研究榜·代理 lift 的時間外複製·容量受限·不可交易·待前向確認」；R0、W 只做灰底觀察。<b>沒有任何清單是可交易名單。</b>
-        <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>s0 {ix.s0 ?? '—'}｜凍結 {ix.nCore} 日、缺口 {ix.nGaps} 日｜發佈 {twTime(ix.generatedAt)}{ix.pipeline?.finished ? `｜管線 ${twTime(ix.pipeline.finished)}（exit ${ix.pipeline.exit ?? '—'}${ix.pipeline.errors ? `、錯誤 ${ix.pipeline.errors}` : ''}）` : ''}</div>
+        <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>s0 {ix.s0 ?? '—'}｜凍結 {ix.nCore} 日、缺口 {ix.nGaps} 日｜發佈 {twTime(ix.generatedAt)}{ix.pipeline?.finished ? `｜管線 ${twTime(ix.pipeline.finished)}（exit ${ix.pipeline.exit ?? '—'}${ix.pipeline.errors ? `、錯誤 ${ix.pipeline.errors}` : ''}）` : ''}
+          {ix.rawArchive ? `｜逐位副本 ${ix.rawArchive.nVerified ?? 0}／${ix.rawArchive.nLocal ?? 0}${ix.rawArchive.ok ? ' 相符' : ' 未全數驗證'}` : ''}</div>
       </div>
+      {errs.length > 0 && (
+        <div role="alert" style={{ padding: '8px 12px', borderRadius: 10, border: `1px solid ${RED}`, color: RED, marginBottom: 10, whiteSpace: 'normal' }}>
+          ⚠ 分軌前向告警（{twTime(ix.alertsTime)}）：{errs.map(x => `[${x.code}] ${x.msg}`).join('；')}
+        </div>
+      )}
+      {warns.length > 0 && <div style={{ color: AMBER, marginBottom: 8, whiteSpace: 'normal' }}>注意：{warns.map(x => x.msg).join('；')}</div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Kpi label="已評分交易日" value={g.nScored} sub={`G60 ${Math.min(g.nScored, g.g60.target)}／${g.g60.target}｜G250 ${Math.min(g.nScored, g.g250.target)}／${g.g250.target}`} hint={g.note} />
-        <Kpi label="G60（流程與崩壞）" value={g.g60.reached ? (crash.length ? '崩壞' : '未崩壞') : '未到'} color={crash.length ? RED : undefined} sub={crash.length ? crash.join('、') : '只查流程，不判去留'} />
-        <Kpi label="G250（去留）" value={g.g250.reached ? Object.entries(g.g250.verdict).map(([k, v]) => `${k.split('_')[0]} ${v ?? '—'}`).join('·') : '未到'} sub="S0 為唯一主要檢定" />
+        <Kpi label="G60（流程與崩壞）" value={g60Txt} color={g.g60.outcome === 'HALT-FOR-REVIEW' ? RED : undefined}
+          sub={g.g60.reached ? [crash.length ? `崩壞 ${crash.join('、')}` : '未崩壞', g.g60.failedChecks.length ? `未過 ${g.g60.failedChecks.join('、')}` : null, g.g60.ruling ? `裁定 ${g.g60.ruling}` : null].filter(Boolean).join('｜') : '前 60 個評分日；只查流程，不判去留'} />
+        <Kpi label="G250（去留）" value={g250Txt} color={g.g250.paused ? AMBER : undefined} sub="前 250 個評分日；S0 為唯一主要檢定" />
+        <Kpi label="G500（EXTEND 定案）" value={g500Txt} sub="只對 G250 判 EXTEND 的清單" />
+        <Kpi label="無聲缺日（P1）" value={p1?.ok === false ? `${p1.silentDays?.length ?? 0} 日` : p1?.ok ? '0' : '—'} color={p1?.ok === false ? RED : undefined}
+          sub={p1 ? `${p1.nTradingDays ?? '—'} 個交易日、缺口 ${p1.gapRatio == null ? '—' : `${(p1.gapRatio * 100).toFixed(1)}%`}${p1.silentDays?.length ? `：${p1.silentDays.slice(0, 5).join('、')}` : ''}` : '—'} />
       </div>
-      <Section title="累計（判定窗內的已評分日）" sub="只有精確度、Δ 對同日隨機（期望值）與 lift；報酬不在後台顯示">
+      <Section title="累計（全部已評分日；判定另用各 G 的固定窗）" sub="只有精確度、Δ 對同日隨機（期望值）與 lift；報酬不在後台顯示">
         <CumTable ix={ix} />
         <div style={{ marginTop: 4, fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>{ix.referenceNote}</div>
       </Section>
@@ -173,6 +202,7 @@ export function SurgeTracksView({ data, onPick, pending = null, err = '' }: View
             {d.day} 盤後凍結 → {d.t ?? '—'}｜封印 <span style={MONO}>{d.sealShort}</span>｜凍結 {d.frozenAt ? twTime(d.frozenAt) : '—'}（期限 {d.deadline ? twTime(d.deadline) : '—'}）｜
             各軌列數 {Object.entries(d.trackCounts).filter(([k]) => !k.startsWith('NE_SUSP_fwd')).map(([k, v]) => `${k} ${v}`).join('、')}
             {d.parity && <span style={{ color: d.parity.verdict === 'fail' ? RED : d.parity.verdict === 'data_correction' ? AMBER : undefined }}>｜parity {d.parity.verdict}{d.parity.inputsChanged.length ? `（${d.parity.inputsChanged.join('、')} 修正）` : ''}</span>}
+            {covText(d) && <span>｜{covText(d)}</span>}
           </div>
           <Section title="當日對帳" sub="每個 T1 事件（t 起連續 ≥2 日收漲停）→ 軌道、沒通過的條件、名次、是否入選；只用官方標籤">
             <Reconcile d={d} />

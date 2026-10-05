@@ -43,7 +43,7 @@ import {
 } from '../lib/surge-shadow-daily.mjs';
 import { basisOf } from './a35_shadow_meta.mjs';
 import {
-  parseForwardConfig, tracksPlan, mirrorLimitStatus, prevTradingDay, pendingScores, tracksNeedData, TRACKS_CORE_RE, TRACKS_GAP_RE, TRACKS_OUT_DIR,
+  parseForwardConfig, tracksPlan, mirrorLimitStatus, prevTradingDay, pendingScores, tracksNeedData, tracksUptoDays, tracksAlerts, TRACKS_CORE_RE, TRACKS_GAP_RE, TRACKS_OUT_DIR,
 } from '../lib/surge-tracks-daily.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -61,7 +61,7 @@ const FROZEN_RE = /^shadow_(\d{4}-\d{2}-\d{2})\.json$/;
 const TRACKS_CONFIG = join(HERE, 'tracks', 'forward_config.json');
 const MIRROR_ROOT = process.env.OFFICIAL_ROOT ? resolve(process.env.OFFICIAL_ROOT) : join(REPO, 'second-brain/official');   // worktree 演練可指到主 checkout 的鏡像（唯讀）
 const TRACKS_PROD_CACHE = join(HERE, '.surge-cache-F');        // 分軌前向專用快取（只增不改；共用／釘住快取不寫）
-const TRACKS_FINGERPRINT_SKIP = /^(tracks_fwd_status\.json|plan\.json|\.published\.json)$/;
+const TRACKS_FINGERPRINT_SKIP = /^(tracks_fwd_status\.json|tracks_fwd_dispatt_overlap\.json|plan\.json|\.published(_raw_verify)?\.json)$/;
 const MIN = 60_000;
 const TIMEOUT = { fetchCache: 20 * MIN, panel: 15 * MIN, exright: 2 * MIN, score: 15 * MIN, matrix: 5 * MIN, buildLu1: 60 * MIN, prep: 30 * MIN, list: 40 * MIN, publish: 10 * MIN, labPublish: 10 * MIN,
   tracks: 10 * MIN, tracksPublish: 5 * MIN };
@@ -189,12 +189,13 @@ async function tracksSurvey(db, { nowTw, cal, docs, blocks, rehearsal }) {
     snaps.forEach((sn, i) => extra.set(unknown[i], sn.exists ? sn.data() : null));
   }
   const days = window.map(d => (docs.has(d) ? basisOf(d, docs.get(d)) : extra.has(d) ? basisOf(d, extra.get(d)) : { ...basisOf(d, null), found: d >= oldest ? false : null }));
+  const readyDays = new Set([...docs.keys()].filter(d => basisOf(d, docs.get(d)).ready));   // 到期評分只在當天資料到齊後才算「可處理」（07:05 不為今天抓除權息）
   const rows = { twse: mirrorManifestRows('www.twse.com.tw/twse_twt84u'), tpex: mirrorManifestRows('www.tpex.org.tw/tpex_dailyquotes') };
   const mirrorOf = d => { try { return mirrorLimitStatus(rows, d, prevTradingDay(d, cal)); } catch (e) { return { ok: false, missing: [String(e?.message || e)] }; } };
   const plan = tracksPlan({ days, cal, nowTw, start, hasCore: d => core.has(d), hasGap: d => gap.has(d), mirrorOf, blocks });
   const yStatus = d => readJson(join(out, `tracks_fwd_score_${d}_y.json`))?.status ?? null;
   const hasScore = (d, stage) => existsSync(join(out, `tracks_fwd_score_${d}_${stage}.json`)) || (stage !== 'y' && yStatus(d) !== null && yStatus(d) !== 'ok');
-  const pending = pendingScores({ frozenDays: [...core], hasScore, cal, today });
+  const pending = pendingScores({ frozenDays: [...core], hasScore, cal, today, isReady: d => readyDays.has(d) });
   const panelLast = readJson(join(out, 'tracks_fwd_status.json'))?.panel_last ?? null;
   return { ...base, start, plan, pending, panelLast, needData: tracksNeedData({ produce: plan.produce, pending, panelLast }) };
 }
@@ -290,6 +291,13 @@ async function tracksStep(st, ctx, step) {
     const env = { ...ctx.env, SURGE_CACHE: t.cache, SURGE_TRACKS_SHARED: ctx.cache, OFFICIAL_ROOT: MIRROR_ROOT, SURGE_TRACKS_OUT: t.out };
     const r = await step('tracks', PY, ['a37_tracks_fwd.py', 'daily', '--plan', planPath, ...(ctx.rehearsal ? ['--rehearsal'] : [])], { timeoutMs: TIMEOUT.tracks, env });
     st.tracks.exit = r.code;
+    // 凍結停擺（釘選檔被改、接線前證明不成立）、新缺口、C6、鏡像落後：期限前每一輪都告警（寫 _alerts＋error 級記成步驟失敗）
+    const alerts = tracksAlerts(readJson(join(t.out, 'tracks_fwd_status.json')), r.code);
+    writeJsonAtomic(join(t.out, '_alerts', 'LATEST.json'), { schema: 't1-tracks-alerts/v1', time: new Date().toISOString(), nowTw: ctx.nowTw, alerts });
+    st.tracks.alerts = alerts;
+    const errs = alerts.filter(x => x.level === 'error');
+    st.steps.push({ name: 'tracks-health', ok: errs.length === 0, ms: 0, err: errs.length ? errs.map(x => `[${x.code}] ${x.msg}`).join('｜').slice(0, 900) : null,
+      warn: alerts.filter(x => x.level === 'warn').map(x => x.msg).join('｜') || null });
   } else st.steps.push({ name: 'tracks', ok: true, ms: 0, skipped: '分軌前向：沒有要凍結、記缺口或到期評分的日子' });
   if (ctx.noPublish) { st.steps.push({ name: 'tracks-publish', ok: true, ms: 0, skipped: '--no-publish（本機演練，不寫 Firestore）' }); return; }
   const fp = tracksFingerprint(t.out);
@@ -316,7 +324,7 @@ async function execute(st, ctx) {
   if (needData) {
     if ((await step('fetch_cache', NODE, ['fetch_cache.mjs', cache], { timeoutMs: TIMEOUT.fetchCache })).code !== 0) return;
     if ((await step('panel', PY, ['panel.py'], { timeoutMs: TIMEOUT.panel })).code !== 0) return;
-    const upto = [...plan.produce.map(p => p.date), ...scores.map(s => s.targetDay), ...(tr?.plan?.produce || []).map(p => p.date), ...(tr?.pending || []).map(p => p.due)].sort().at(-1);
+    const upto = [...plan.produce.map(p => p.date), ...scores.map(s => s.targetDay), ...(tr?.enabled ? tracksUptoDays({ produce: tr.plan.produce, pending: tr.pending }) : [])].sort().at(-1);
     const todo = exrightTodo(cal, upto, cache);
     for (const [i, d] of todo.entries()) {
       if (i) await sleep(3500);
@@ -403,11 +411,11 @@ async function main() {
     if (latest) { st.D = latest.date; st.nextTD = latestNext; st.deadline = latestNext ? deadlineOf(latestNext) : null; st.dataBasis = latest; }
     log(`現在 ${nowTw}（台北）；最近交易日 ${st.D ?? '—'}（到齊 ${latest?.ready ?? '—'}、${latest?.basis ?? ''}）→ 下一交易日 ${st.nextTD ?? '—'}，期限 ${st.deadline ?? '—'}`);
     const tp = sv.tracks;
-    log(`分軌前向：${tp?.error ? `規劃失敗 ${tp.error}` : !tp?.enabled ? '未啟用（forward_config.enabled＝false）' : `起算 ${tp.start ?? '—'}｜凍結 ${tp.plan.produce.map(p => `${p.date}→${p.nextTD}`).join(', ') || '無'}｜缺口 ${tp.plan.missed.map(m => `${m.date}（${m.reason}）`).join(', ') || '無'}｜等待 ${tp.plan.waiting.map(w => `${w.date}（${w.why}）`).join(', ') || '無'}｜到期評分 ${tp.pending.map(p => `${p.day}:${p.stage}`).join(', ') || '無'}${tp.plan.suspected.length ? `｜疑似臨時休市 ${tp.plan.suspected.map(x => x.date).join(', ')}` : ''}${tp.plan.errors.length ? `｜錯誤 ${JSON.stringify(tp.plan.errors)}` : ''}`}`);
+    log(`分軌前向：${tp?.error ? `規劃失敗 ${tp.error}` : !tp?.enabled ? '未啟用（forward_config.enabled＝false）' : `起算 ${tp.start ?? '—'}｜凍結 ${tp.plan.produce.map(p => `${p.date}→${p.nextTD}`).join(', ') || '無'}｜缺口 ${tp.plan.missed.map(m => `${m.date}（${m.reason}）`).join(', ') || '無'}｜等待 ${tp.plan.waiting.map(w => `${w.date}（${w.why}）`).join(', ') || '無'}｜到期評分 ${tp.pending.map(p => `${p.day}:${p.stage}${p.actionable === false ? '（到期日資料未到齊，不刷新）' : ''}`).join(', ') || '無'}${tp.plan.suspected.length ? `｜疑似臨時休市 ${tp.plan.suspected.map(x => x.date).join(', ')}` : ''}${tp.plan.errors.length ? `｜錯誤 ${JSON.stringify(tp.plan.errors)}` : ''}`}`);
     log(`計畫：產生 ${plan.produce.map(p => `${p.date}→${p.nextTD}`).join(', ') || '無'}｜等待 ${plan.waiting.map(w => `${w.date}（${w.why}）`).join(', ') || '無'}｜新缺口 ${plan.missed.map(m => `${m.scoringDay}（${m.reason}）`).join(', ') || '無'}｜對答案 ${scores.map(s => `${s.scoringDay}→${s.targetDay}${s.targetDay !== s.sealedTargetDay ? `（封印 ${s.sealedTargetDay}）` : ''}`).join(', ') || '無'}｜已完成 ${plan.done.join(', ') || '無'}${plan.suspected.length ? `｜疑似臨時休市 ${plan.suspected.map(x => x.scoringDay).join(', ')}` : ''}${plan.errors.length ? `｜錯誤 ${JSON.stringify(plan.errors)}` : ''}`);
     if (a.dryRun) {
       const needData = plan.produce.length > 0 || scores.length > 0 || !!tp?.needData;
-      const upto = [...plan.produce.map(p => p.date), ...scores.map(s => s.targetDay), ...(tp?.plan?.produce || []).map(p => p.date), ...(tp?.pending || []).map(p => p.due)].sort().at(-1);
+      const upto = [...plan.produce.map(p => p.date), ...scores.map(s => s.targetDay), ...(tp?.enabled && tp.plan ? tracksUptoDays({ produce: tp.plan.produce, pending: tp.pending }) : [])].sort().at(-1);
       const steps = [];
       if (needData) {
         steps.push(`node fetch_cache.mjs ${cache}`, 'python3 panel.py');
