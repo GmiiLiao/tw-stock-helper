@@ -224,3 +224,9 @@ OVERLAP-CHECK: a37_tracks_dispatt.py 2dee18c7438493fa83b63775886df6ef7a7f9919722
 - **對判定的可能影響**：前向的池、名單、名次、RAND 與判定量都不變；改變的只有 S0、S_FB 的出發判定（KEEP → WATCH-ONLY）、介面呈現（灰底）與 G250／G500 的結果名稱（CONFIRM／DROP → UPGRADE／STAY-WATCH）。
 
 *影子模式·未扣成本·非投資建議。*
+
+## 使用者裁定（2026-10-06 00:10）
+
+使用者核可 FDEV-007（含補記一）：22:47 那份接線前證明的 disp_att_overlap=fail 是比對程式錯誤（處置端點以處置期間查詢），以新版比對（2dee18c7…）的 pass 決定取代；舊紀錄保留。
+
+OVERLAP-SUPERSEDE: prewire/tracks_fwd_prewire_20261005T224747.json fa0da7c505e01ead98737c579876ac7c29b2d564c0cdfb18a733449b10d780e4 FDEV-007 使用者核可 2026-10-06（FDEV-007＋補記一：比對錯誤、資料一致）
