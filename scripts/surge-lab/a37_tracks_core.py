@@ -6,8 +6,10 @@
   · 上市日 v3（listing_info_v3、LISTING_SRC_V3）只在本次計算範圍內替換（同 a36_tracks_fwd_verify.v3_patches）。
   · 前向日曆：usable 全 True（v2 衝擊窗與「面板最後 5 日」排除只適用歷史視窗）；視窗記為 FWD（不混進 HC 摘要）。
   · compute_all 的列範圍在截斷面板上＝s 日有收盤的列；D_fwd 另含「近 250 日有收盤、s 日停牌」的列，只作 NE_SUSP 描述（DEV-002 第 4 點）。
-  · 處置／注意：v2 coverage_rule 之外另加前向更嚴的未知規則（FDEV-002）：[s−20, s−1] 內任一個 2026-10-02 之後的交易日沒有鏡像定版列
+  · 處置／注意：v2 coverage_rule 之外另加前向更嚴的未知規則（FDEV-002，FDEV-007 補 s 當天）：2026-10-02 之後的交易日沒有鏡像定版列
     ⇒ 該市場 DK_s、dp_*、at_known* 記 NaN（「處置狀態未知（來源缺漏）」），R 的 Qmax 隨之未知。只會把值變成未知，不會改變任何池或名單。
+    鏡像鍵 D 的處置列＝處置期間含 D 的處置（不是 D 公布的；FDEV-007 實證）⇒ DK_s 必看 s 當天、t 日起處置必看 t 當天；
+    注意列＝D 公告的 ⇒ at_known5／20 看 [s−20, s−1]。
 影子模式·未扣成本·事後欄位以 m_ 標示·非投資建議。
 """
 import contextlib
@@ -153,15 +155,19 @@ def compute_upto(I: dict, s: int, snaps: dict) -> dict:
 
 
 def strict_unknown(I: dict, s: int) -> tuple:
-    """FDEV-002：每個市場在 [s−20, s−1] 內、BASE_TO 之後的交易日，鏡像沒有定版列 ⇒ 該市場（含市場別不明）DK／at 未知。回傳 (disp_mask, att_mask, 說明)。"""
+    """FDEV-002／FDEV-007：BASE_TO 之後的交易日，該市場鏡像沒有定版列 ⇒ 該市場（含市場別不明）DK／at 未知。回傳 (disp_mask, att_mask, 說明)。
+    處置看 [s−20, s]：鏡像處置是「處置期間含 D」的列，s 日起處置（s−1 公布）的那筆只出現在 s 以後的鏡像日，缺 s 當天 DK_s 會被算成 0
+    （FDEV-002 原本只看 [s−20, s−1]，FDEV-007 補 s）；注意看 [s−20, s−1]（at_cnt5／20 只用 ≤ s−1 的公告日）。"""
     dates, mkt, cov = I['dates'], I['mkt'], I['coverage']
     lo = max(0, s - 20)
-    days = [d for d in dates[lo:s] if d > cov.get('base_to', SY.BASE_TO)]
+    base_to = cov.get('base_to', SY.BASE_TO)
+    days_d = [d for d in dates[lo:s + 1] if d > base_to]
+    days_a = [d for d in dates[lo:s] if d > base_to]
     dm, am, why = np.zeros(len(mkt), bool), np.zeros(len(mkt), bool), {}
     for src in ('TWSE', 'TPEx'):
         cols = (mkt == src) | (mkt == 'unknown')
-        miss_d = [d for d in days if d not in set(cov.get('disposal', {}).get(src, []))]
-        miss_a = [d for d in days if d not in set(cov.get('attention', {}).get(src, []))]
+        miss_d = [d for d in days_d if d not in set(cov.get('disposal', {}).get(src, []))]
+        miss_a = [d for d in days_a if d not in set(cov.get('attention', {}).get(src, []))]
         if miss_d:
             dm |= cols
         if miss_a:
@@ -266,12 +272,17 @@ def limit_coverage_check(I: dict, s: int, mk: np.ndarray) -> dict:
 
 # ───────────────────────── t 日起處置的涵蓋（m_disp_t_exec）─────────────────────────
 def disp_t_unknown(I: dict, s: int) -> tuple:
-    """t 日起處置（DISP[t]）取決於公告日在 [s−20, s] 的處置公告（處置起日＝公告次一交易日、處置期最長 12 個交易日）。
-    其中 BASE_TO 之後的交易日，若該市場的鏡像帶日期處置資料集沒有定版列 ⇒ 該市場（含市場別不明）的 m_disp_t_exec 記 None＋DTNA，
+    """t 日起處置（DISP[t]）：鏡像處置是「處置期間含 D」的列（FDEV-007 實證），t 日在處置中的每一筆都在鏡像 t 當天；s 晚上公布、t 起處置的那筆
+    只出現在 t 以後的鏡像日 ⇒ 必看 t 當天（面板沒有 t 列＝無法確認，同樣記未知）。FDEV-005 原本的 [s−20, s]（以為鏡像鍵是公布日）照留作保守條件。
+    BASE_TO 之後的這些交易日，該市場鏡像帶日期處置資料集沒有定版列 ⇒ 該市場（含市場別不明）的 m_disp_t_exec 記 None＋DTNA，
     不當成「未處置」（FDEV-005）。回傳 (mask over codes, 說明)。"""
     dates, mkt, cov = I['dates'], I['mkt'], I['coverage']
     lo = max(0, s - DISP_T_LOOKBACK)
-    days = [d for d in dates[lo:s + 1] if d > cov.get('base_to', SY.BASE_TO)]
+    base_to = cov.get('base_to', SY.BASE_TO)
+    if s + 1 >= len(dates):
+        return np.ones(len(mkt), bool), {src: ['面板沒有 t 列'] for src in MARKETS}
+    t_day = dates[s + 1]
+    days = [d for d in dates[lo:s + 1] if d > base_to] + ([t_day] if t_day > base_to else [])
     mask, why = np.zeros(len(mkt), bool), {}
     for src in MARKETS:
         have = set(cov.get('disposal', {}).get(src, []))

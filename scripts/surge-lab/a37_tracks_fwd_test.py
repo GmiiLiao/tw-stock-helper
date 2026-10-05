@@ -1,7 +1,7 @@
 """T1 分軌前向影子接線（a37_tracks_*）的合成資料測試：python3 a37_tracks_fwd_test.py（或 pytest -q a37_tracks_fwd_test.py）。
 涵蓋：封印／只寫一次／期限／休市日曆／總開關／環境防呆；鏡像增量只收定版列且不覆寫；處置／注意合併（欄位漂移整源不收、去重、涵蓋日）；
 官方漲跌停矩陣「增量對齊」與 official_features.load_matrices 全量重建逐位相同（含新上市讓欄位位移、上櫃前一面板列位移、上市優先、同代號後列覆蓋）；
-前向更嚴的處置／注意未知規則；parity 比對；到期判定；bootstrap 與 G 判定；缺口只寫一次、凍結前時鐘閘。
+前向更嚴的處置／注意未知規則（FDEV-007：處置看 s 當天、t 日起處置看 t 當天）；parity 比對；到期判定；bootstrap 與 G 判定；缺口只寫一次、凍結前時鐘閘。
 """
 import gzip
 import json
@@ -217,14 +217,18 @@ def test_incremental_limits_equal_full_rebuild_bitwise():
 def test_strict_unknown_marks_market_when_mirror_day_missing():
     I = dict(dates=['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07'],
              mkt=np.array(['TWSE', 'TPEx', 'unknown']),
-             coverage=dict(base_to='2026-10-02', disposal=dict(TWSE=['2026-10-05', '2026-10-06'], TPEx=['2026-10-05']),
+             coverage=dict(base_to='2026-10-02', disposal=dict(TWSE=['2026-10-05', '2026-10-06', '2026-10-07'], TPEx=['2026-10-05', '2026-10-07']),
                            attention=dict(TWSE=['2026-10-05', '2026-10-06'], TPEx=['2026-10-05', '2026-10-06'])))
-    dm, am, why = C.strict_unknown(I, 5)                                 # s＝10-07：看 [s−20, s−1] 中 10-02 之後的 10-05、10-06
+    dm, am, why = C.strict_unknown(I, 5)                                 # s＝10-07：處置看 [s−20, s]、注意看 [s−20, s−1]（10-02 之後）
     assert dm.tolist() == [False, True, True]                             # TPEx 處置 10-06 缺 ⇒ TPEx 與市場不明的列未知；TWSE 齊 ⇒ 已知
     assert why['TPEx']['disposal_missing_days'] == ['2026-10-06'] and why['TWSE']['disposal_missing_days'] == []
-    assert am.tolist() == [False, False, False]
-    dm2, _, _ = C.strict_unknown(I, 3)                                    # s＝10-05：窗內沒有 10-02 之後的日子 ⇒ 全部已知
+    assert am.tolist() == [False, False, False] and why['TWSE']['attention_missing_days'] == []   # 注意不看 s 當天（at_cnt 只用 ≤ s−1）
+    dm2, _, _ = C.strict_unknown(I, 3)                                    # s＝10-05：兩市都有 10-05 ⇒ 全部已知
     assert dm2.tolist() == [False, False, False]
+    I2 = dict(I, coverage=dict(I['coverage'], disposal=dict(TWSE=['2026-10-05', '2026-10-06'], TPEx=['2026-10-05', '2026-10-06'])))
+    dm3, _, why3 = C.strict_unknown(I2, 5)                                # FDEV-007：缺 s 當天（10-07）⇒ 未知（鏡像處置鍵＝處置期間含 D；
+    assert dm3.tolist() == [True, True, True]                             #  s 起處置、s−1 公布的那筆只在 s 以後的鏡像日）
+    assert why3['TWSE']['disposal_missing_days'] == ['2026-10-07']
 
 
 def test_compare_core_detects_track_rank_and_pool_diffs():
@@ -309,12 +313,19 @@ def test_flags_dtna_and_disp_t_unknown():
     assert SC.flags_fwd(np.nan, None, True, 0, 'NA', 'NA') == 'DKNA;DTNA'
     assert SC.flags_fwd(0.0, None, False, 0, 'NA', 'NA') == 'DTNA;NO_OPEN_T'
     assert 't 日起處置狀態未知' in SC.flags_text_fwd('DKNA;DTNA')
-    I = dict(dates=['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06'], mkt=np.array(['TWSE', 'TPEx', 'unknown']),
-             coverage=dict(base_to='2026-10-02', disposal=dict(TWSE=['2026-10-05', '2026-10-06'], TPEx=['2026-10-05'])))
-    m, why = C.disp_t_unknown(I, 4)                                       # s＝10-06：看 [s−20, s] 中 10-02 之後的 10-05、10-06（含 s 當天公告）
+    I = dict(dates=['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07'], mkt=np.array(['TWSE', 'TPEx', 'unknown']),
+             coverage=dict(base_to='2026-10-02', disposal=dict(TWSE=['2026-10-05', '2026-10-06', '2026-10-07'], TPEx=['2026-10-05', '2026-10-07'])))
+    m, why = C.disp_t_unknown(I, 4)                                       # s＝10-06：看 [s−20, s] 中 10-02 之後的 10-05、10-06，再加 t＝10-07
     assert m.tolist() == [False, True, True] and why == dict(TWSE=[], TPEx=['2026-10-06'])
-    m2, _ = C.disp_t_unknown(I, 2)                                        # 歷史日（≤ BASE_TO）：釘住檔涵蓋，全部已知
+    m2, _ = C.disp_t_unknown(I, 1)                                        # 歷史日（s、t ≤ BASE_TO）：釘住檔涵蓋，全部已知
     assert m2.tolist() == [False, False, False]
+    m3, why3 = C.disp_t_unknown(I, 2)                                     # s＝10-02（≤ BASE_TO）但 t＝10-05：鏡像兩市都有 ⇒ 已知
+    assert m3.tolist() == [False, False, False] and why3 == dict(TWSE=[], TPEx=[])
+    I2 = dict(I, coverage=dict(I['coverage'], disposal=dict(TWSE=['2026-10-05', '2026-10-06'], TPEx=['2026-10-05', '2026-10-06'])))
+    m4, why4 = C.disp_t_unknown(I2, 4)                                    # FDEV-007：缺 t 當天（10-07）⇒ 未知（s 晚上公布、t 起處置的那筆只在 t 以後）
+    assert m4.tolist() == [True, True, True] and why4 == dict(TWSE=['2026-10-07'], TPEx=['2026-10-07'])
+    m5, why5 = C.disp_t_unknown(I, 5)                                     # 面板沒有 t 列：無法確認 ⇒ 未知
+    assert m5.all() and why5['TWSE'] == ['面板沒有 t 列']
 
 
 def _fake_freeze_inputs(out, cache, closes_tpex=True, limits_twse=True):
@@ -382,42 +393,14 @@ def test_c6_assertion_failure_writes_gap_immediately():
         C.listing_asof, C.build_core = orig_l, orig_b
 
 
-def test_disp_att_overlap_needs_min_days_and_fails_on_mismatch():
+def test_disp_att_overlap_delegates_to_corrected_check():
+    """第一版（公布日分組、整列比對）已由 a37_tracks_dispatt 取代（FDEV-007）；細部語意測試在 a37_tracks_dispatt_test.py。"""
     root, F = _tmp(), _tmp()
-    spec = {('disposal', 'TWSE'): (['編號', '公布日期', '證券代號'], 1), ('disposal', 'TPEx'): (['編號', '公布日期', '證券代號'], 1),
-            ('attention', 'TWSE'): (['編號', '證券代號', '日期'], 2), ('attention', 'TPEx'): (['編號', '證券代號', '公告日期'], 2)}
-    days = ['2026-09-24', '2026-09-25', '2026-09-26', '2026-09-29', '2026-09-30', '2026-10-01']
-    roc = lambda d: f'{int(d[:4]) - 1911}/{d[5:7]}/{d[8:]}'
-    for (kind, mkt), (fields, dcol) in spec.items():
-        host, ds, fname, code_col = SY.DISP_ATT[(kind, mkt)]
-        data = [[1, roc('2026-09-30'), '2330'] if dcol == 1 else [1, '2330', roc('2026-09-30')]]
-        _disp_base(F, fname, fields, data)
-
-    def put(n_days, extra=False):
-        for (kind, mkt), (fields, dcol) in spec.items():
-            host, ds, fname, code_col = SY.DISP_ATT[(kind, mkt)]
-            d = os.path.join(root, host, ds)
-            rows = {}
-            for k in days[:n_days]:
-                base_rows = [[1, roc(k), '2330'] if dcol == 1 else [1, '2330', roc(k)]] if k == '2026-09-30' else []
-                if extra and k == '2026-09-24' and (kind, mkt) == ('disposal', 'TWSE'):
-                    base_rows = [[9, roc(k), '9999']]
-                st = 'ok' if base_rows else 'empty'
-                rows[k] = dict(status=st, echo=k, final=True, file=f'{k}.json.gz')
-                payload = dict(fields=fields, data=base_rows) if mkt == 'TWSE' else dict(tables=[dict(fields=fields, data=base_rows)])
-                _gz(os.path.join(d, f'{k}.json.gz'), dict(meta={}, payload=payload))
-            os.makedirs(d, exist_ok=True)
-            json.dump(dict(rows=rows), open(os.path.join(d, '_manifest.json'), 'w'))
-    p = dict(cache=F, official_root=root)
-    assert FWD.disp_att_overlap(p)['status'] == 'pending'                 # 鏡像從未產出：0 天
-    put(4)
-    r = FWD.disp_att_overlap(p)
-    assert r['status'] == 'pending' and '不足 5 天' in r['why']
-    put(6)
-    assert FWD.disp_att_overlap(p)['status'] == 'pass'
-    put(6, extra=True)
-    r = FWD.disp_att_overlap(p)
-    assert r['status'] == 'fail' and r['datasets']['disposal_TWSE']['n_mismatched'] == 1
+    for (kind, mkt), (host, ds, fname, code_col) in SY.DISP_ATT.items():
+        _disp_base(F, fname, ['編號', '公布日期', '證券代號', '處置起迄時間', '處置起訖時間', '日期', '公告日期'], [])
+    r = FWD.disp_att_overlap(dict(cache=F, official_root=root))             # 鏡像從未產出：0 天、沒有面板 ⇒ pending
+    assert r['status'] == 'pending' and r['check']['file'] == 'a37_tracks_dispatt.py' and r['days_total'] == 0
+    assert 'a37_tracks_dispatt.py' in FWD.PREWIRE_CODE                       # 比對程式改了就要重跑接線前證明
 
 
 def test_process_checks_p1_flags_silent_days():
@@ -474,6 +457,29 @@ def test_prewire_gate_pass_only_binding_and_approval():
     assert FWD.prewire_gate(out, p, overlap=dict(status='pass'))['ok'] is False
     IO.write_json_atomic(os.path.join(out, FWD.PREWIRE_PATH), dict(base, seal='0' * 64))      # 封印不符
     assert FWD.prewire_gate(out, p, overlap=dict(status='pass'))['ok'] is False
+
+
+def test_frozen_disp_unknown_flags_missing_day_s():
+    """凍結時處置鏡像缺 s 當天（22:40 那輪沒抓到、23:10 照常凍結）⇒ 該市場 DK_s 記未知，回報 disp_s_missing（告警 DISP_S_MISSING）；
+    只缺更早的日子只記 dk_unknown_markets（鏡像落後告警另有 DISP_ATT_LAG）。"""
+    doc = dict(disposal_attention=dict(strict_unknown=dict(
+        TWSE=dict(disposal_missing_days=[], attention_missing_days=['2026-10-06']),
+        TPEx=dict(disposal_missing_days=['2026-10-06', '2026-10-07'], attention_missing_days=[]))))
+    r = FWD.frozen_disp_unknown(doc, '2026-10-07')
+    assert r == dict(dk_unknown_markets={'TPEx': ['2026-10-06', '2026-10-07']}, disp_s_missing=['TPEx']), r
+    assert FWD.frozen_disp_unknown(doc, '2026-10-08')['disp_s_missing'] == []
+    assert FWD.frozen_disp_unknown({}, '2026-10-07') == dict(dk_unknown_markets={}, disp_s_missing=[])
+    orig_l, orig_b = C.listing_asof, C.build_core
+    C.listing_asof = lambda root, day: dict(snaps={}, names={}, files={}, sha256='x')
+    C.build_core = lambda I, s, target, lst, extra: dict(extra, date_s='2026-10-05', t=target, lists={}, disposal_attention=dict(strict_unknown=dict(
+        TWSE=dict(disposal_missing_days=['2026-10-05'], attention_missing_days=[]), TPEx=dict(disposal_missing_days=[], attention_missing_days=[]))))
+    try:
+        out, cache = _tmp(), _tmp()
+        I, ctx = _fake_freeze_inputs(out, cache)
+        r = FWD.freeze_core(I, ctx, '2026-10-05', '2026-10-06')
+        assert r['result'] == 'written' and r['disp_s_missing'] == ['TWSE'], r                # 凍結照寫（不擋、不改內容），但回報給告警
+    finally:
+        C.listing_asof, C.build_core = orig_l, orig_b
 
 
 if __name__ == '__main__':

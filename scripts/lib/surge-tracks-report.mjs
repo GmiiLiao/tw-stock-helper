@@ -376,8 +376,10 @@ const RAW_FILE_RULES = [
   [/^tracks_fwd_parity_(\d{4}-\d{2}-\d{2})\.json$/, m => `parity-${m[1]}`],
   [/^prewire\/tracks_fwd_prewire_(\d{8}T\d{6})\.json$/, m => `prewire-${m[1]}`],
   [/^prewire\/tracks_fwd_dispatt_overlap_(pass|fail)\.json$/, m => `overlap-${m[1]}`],
+  // FDEV-007：重疊比對的封印決定以比對程式（a37_tracks_dispatt.py）sha256 為鍵；第一版（無 sha）照舊保留
+  [/^prewire\/tracks_fwd_dispatt_overlap_([0-9a-f]{64})_(pass|fail)\.json$/, m => `overlap-${m[1]}-${m[2]}`],
 ];
-export const TRACKS_RAW_ID_RE = /^tracks-raw-(core|gap|parity)-\d{4}-\d{2}-\d{2}$|^tracks-raw-score-\d{4}-\d{2}-\d{2}-(y|c5|c10)$|^tracks-raw-prewire-\d{8}T\d{6}$|^tracks-raw-overlap-(pass|fail)$/;
+export const TRACKS_RAW_ID_RE = /^tracks-raw-(core|gap|parity)-\d{4}-\d{2}-\d{2}$|^tracks-raw-score-\d{4}-\d{2}-\d{2}-(y|c5|c10)$|^tracks-raw-prewire-\d{8}T\d{6}$|^tracks-raw-overlap-(pass|fail)$|^tracks-raw-overlap-[0-9a-f]{64}-(pass|fail)$/;
 
 /** out/tracks_fwd 內的相對路徑 → 逐位副本文件 id；不是封印記錄就回 null。 */
 export function rawDocId(rel) {

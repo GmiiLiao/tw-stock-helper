@@ -152,3 +152,13 @@ test('分軌告警：釘選不符、接線前證明不成立、新缺口、C6、
   assert.equal(a.at(-1).level, 'warn');
   assert.deepEqual(tracksAlerts({ pins_ok: true, prewire_gate: { ok: true }, errors: [{ step: 'score', error: 'x' }] }, 1).map(x => x.code), ['EXIT']);
 });
+
+test('分軌告警：凍結時處置鏡像缺 s 當天（DK_s 整個市場記未知）是 error，不只靠鏡像落後 warn', () => {
+  const st = { pins_ok: true, prewire_gate: { ok: true }, errors: [], disp_att_live: { any_lagging: false },
+    disp_s_missing: [{ day: '2026-10-07', markets: ['TPEx'], missing_days: { TPEx: ['2026-10-07'] } }, { day: '2026-10-08', markets: [] }] };
+  const a = tracksAlerts(st, 0);
+  assert.deepEqual(a.map(x => [x.code, x.level]), [['DISP_S_MISSING', 'error']]);
+  assert.match(a[0].msg, /2026-10-07（TPEx）/);
+  assert.doesNotMatch(a[0].msg, /2026-10-08/);
+  assert.deepEqual(tracksAlerts({ pins_ok: true, prewire_gate: { ok: true }, errors: [], disp_s_missing: [] }, 0), []);
+});

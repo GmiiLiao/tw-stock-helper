@@ -175,7 +175,7 @@ def outcome_y(I, frozen, mat, snaps) -> dict:
     with L._patched(B, 'official_limit_up', lambda T_, N_: res['_t']['U']):
         meta = V2.forward_meta(si, allj, res['A'], P, res['F_day'], T)
     open_t = P['O'][s + 1]
-    unk, why = C.disp_t_unknown(I, s)                     # 鏡像處置公告缺漏的市場：t 日起處置記 NaN（不捏造 0，FDEV-005）
+    unk, why = C.disp_t_unknown(I, s)                     # 鏡像處置缺 t 當天或 [s−20, s] 的市場：t 日起處置記 NaN（不捏造 0，FDEV-005／FDEV-007）
     disp_t = np.where(unk, np.nan, res['da']['disp_t_exec'][s].astype(np.float64))
     mk = C.market_array(I, snaps)
     return dict(y=res['fl']['y'][s].astype(bool), buyable=(np.isfinite(open_t) & (meta['locked_open'] == 0)), has_open=np.isfinite(open_t),
