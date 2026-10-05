@@ -656,7 +656,7 @@ export default function StockTrendChart({ code, name, closePrice, livePrice, cha
                 <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 'calc(12.5px * var(--fz))', color: '#e2e8f0' }}
                   labelStyle={{ color: '#ffffff', fontWeight: 800, marginBottom: 4 }}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  formatter={(value: any, nm: any) => (nm === 'prev' ? [parseFloat(String(value)).toFixed(2), `昨日 ${prevDay?.date?.slice(5) ?? ''}`] : nm === 'close' ? [parseFloat(String(value)).toFixed(2), '成交價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
+                  formatter={(value: any, nm: any) => (nm === 'prev' ? [parseFloat(String(value)).toFixed(2), `昨日 ${prevDay?.date?.slice(5) ?? ''}`] : nm === 'close' ? [parseFloat(String(value)).toFixed(2), '現價'] : nm === 'volume' ? [`${Math.round(parseFloat(String(value)) / 1000).toLocaleString()} 張`, '成交量'] : [value, nm])} />
                 {refPrev !== null && refPrev > 0 && (
                   <ReferenceLine y={refPrev} stroke="#fbbf24" strokeDasharray="5 4" strokeWidth={1.5} ifOverflow="extendDomain"
                     label={{ value: `平盤 ${refPrev.toFixed(2)}`, position: 'insideTopRight', fill: '#fbbf24', fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700 }} />

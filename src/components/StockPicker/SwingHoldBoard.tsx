@@ -229,7 +229,7 @@ export default function SwingHoldBoard() {
             <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: MUTED, marginBottom: 6 }}>📐 {data.amtMethod}｜整合＝四窗每張淨額榜的上榜數＋Σ(26−名次)</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
               <thead><tr>
-                <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤</th><th style={head}>即時</th>
+                <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤價</th><th style={head}>即時</th>
                 <th style={head} title="逐日漲跌×成交量縮圖（優先 20 日窗）">量序</th>
                 <th style={head} title="進了幾個窗的每張淨額榜（最多 4）">上榜</th><th style={head} title="Σ(26−名次)，越高越靠前">分數</th>
                 <th style={head} title="各窗每張淨額（元）與名次">5日</th><th style={head}>10日</th><th style={head}>20日</th><th style={head}>60日</th><th style={head} title="目前連漲天數（標記）">連漲標記</th><th style={head}>均額(百萬)</th>
@@ -252,7 +252,7 @@ export default function SwingHoldBoard() {
         ) : tab === 'combo' ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead><tr>
-              <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤</th><th style={head}>即時</th>
+              <th style={head}>#</th><th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>收盤價</th><th style={head}>即時</th>
               <th style={head} title="逐日漲跌×成交量縮圖（優先 20 日窗）：紅＝漲、綠＝跌，柱高＝量">量序</th>
               <th style={head} title="進了幾個窗的榜（最多 4）">上榜</th><th style={head} title="Σ(26−名次)，越高越靠前">分數</th>
               <th style={head}>5日</th><th style={head}>10日</th><th style={head}>20日</th><th style={head}>60日</th><th style={head}>目前連漲</th><th style={head}>均額(百萬)</th>
@@ -341,7 +341,7 @@ export default function SwingHoldBoard() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
                   <thead><tr>
-                    <th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>昨日名次</th><th style={head}>昨收 → 今收</th><th style={head} title="自上一資料日收盤到本資料日收盤">變動</th><th style={head}>即時</th>
+                    <th style={{ ...head, textAlign: 'left' }}>標的</th><th style={head}>昨日名次</th><th style={head}>昨收 → 收盤價</th><th style={head} title="自上一資料日收盤到本資料日收盤">變動</th><th style={head}>即時</th>
                     {tab === 'combo' ? <th style={head}>上榜數</th> : <><th style={head}>昨漲幅</th><th style={head}>今區間漲幅</th></>}
                     <th style={{ ...head, textAlign: 'left' }}>離榜原因</th>
                   </tr></thead>

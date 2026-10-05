@@ -164,7 +164,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
               <div style={{ position: 'absolute', top: 8, left: view.x(tip[0]) / W > 0.55 ? 8 : undefined, right: view.x(tip[0]) / W > 0.55 ? undefined : 8,
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono',monospace", pointerEvents: 'none' }}>
                 <div style={{ color: 'var(--text-muted)' }}>時間：{fmtT(tip[0])}</div>
-                <div style={{ color: getChangeColor(tip[1] - view.prev) }}>成交價：{tip[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}（{tip[1] > view.prev ? '+' : ''}{(tip[1] - view.prev).toFixed(2)}）</div>
+                <div style={{ color: getChangeColor(tip[1] - view.prev) }}>現價：{tip[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}（{tip[1] > view.prev ? '+' : ''}{(tip[1] - view.prev).toFixed(2)}）</div>
                 <div style={{ color: '#f59e0b' }}>成交值：{tipVol.toFixed(2)} 億</div>
               </div>
             )}

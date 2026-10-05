@@ -92,8 +92,9 @@ export function classifyOfficial(subject) {
  *  權重不隨則數累加（來源越多槓桿越大是已知問題，tw-news-impact-analyst §2）；例行（權重 0）與未分類只計數、不入排行。 */
 export function rankOfficial(items, { limit = 40 } = {}) {
   const groups = new Map();
-  let routine = 0, unclassified = 0, rankedAnn = 0;
+  let routine = 0, unclassified = 0, rankedAnn = 0, updatedAt = null;
   for (const it of items || []) {
+    if (Number.isFinite(it.at) && (updatedAt == null || it.at > updatedAt)) updatedAt = it.at;
     const c = classifyOfficial(it.subject);
     if (c.id === null) { unclassified++; continue; }
     if (c.weight === 0) { routine++; continue; }
@@ -111,6 +112,6 @@ export function rankOfficial(items, { limit = 40 } = {}) {
   const total = rows.reduce((s, x) => s + x.weight, 0);
   return {
     items: rows.slice(0, limit).map((x, i) => ({ ...x, order: i + 1, share: total ? r4(x.weight / total) : null })),
-    total: (items || []).length, ranked: rows.length, rankedAnnouncements: rankedAnn, routine, unclassified,
+    total: (items || []).length, ranked: rows.length, rankedAnnouncements: rankedAnn, routine, unclassified, updatedAt,
   };
 }

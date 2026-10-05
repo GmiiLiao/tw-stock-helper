@@ -140,7 +140,7 @@ export default function AiSwingLab() {
             <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
               <div style={{ fontWeight: 900, fontSize: 'calc(14px * var(--fz))' }}>🔄 持股檢視：{d.review.holdings.length} 檔 → 賣出 {d.review.sells.length} 檔、續抱 {d.review.holdings.length - d.review.sells.length} 檔
                 {d.cashForBuys != null && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>　買進資金 {d.cashForBuys.toLocaleString()} 元（含賣出估計回收款）</span>}</div>
-              {d.review.sells.map(x => <div key={x.key} style={{ fontSize: 'calc(13.5px * var(--fz))' }}>🔻 賣出 <b>{x.code} {x.name}</b> {x.shares.toLocaleString()} 股（決定時收盤 {x.estPx ?? '—'}）：{x.reason}</div>)}
+              {d.review.sells.map(x => <div key={x.key} style={{ fontSize: 'calc(13.5px * var(--fz))' }}>🔻 賣出 <b>{x.code} {x.name}</b> {x.shares.toLocaleString()} 股（決定時收盤價 {x.estPx ?? '—'}）：{x.reason}</div>)}
               {d.review.holdings.filter(h => !d.review!.sells.some(x => x.key === h.key)).map(h => <div key={h.key} style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>✋ 續抱 {h.code} {h.name}（{pct(h.pnlPct)}·已持有 {h.heldDays ?? '—'} 日）</div>)}
             </div>
           )}
@@ -197,10 +197,10 @@ export function Positions({ snapshot }: { snapshot?: Snapshot | null }) {
   const by: Record<PosState, Holding[]> = { held: [], selling: [], pending: [] };
   for (const h of hs) by[stateOf(h)].push(h);
   const asOf = snapshot?.provisional
-    ? `市值以 ${snapshot.dataDate} 盤中即時價計${snapshot.liveAt ? `（${tw(snapshot.liveAt)}）` : '（暫無即時價者以成本計）'}，收盤歸檔後改以官方收盤重算`
-    : snapshot?.dataDate ? `市值以 ${snapshot.dataDate} 收盤計（除權息還原價）` : '每日 17:00 後結算時更新';
+    ? `市值以 ${snapshot.dataDate} 盤中即時價計${snapshot.liveAt ? `（${tw(snapshot.liveAt)}）` : '（暫無即時價者以成本計）'}，收盤歸檔後改以官方收盤價重算`
+    : snapshot?.dataDate ? `市值以 ${snapshot.dataDate} 收盤價計（除權息還原價）` : '每日 17:00 後結算時更新';
   // 2026-10-01 使用者：「買進 時間·價」移到最右欄（數字欄先看、成交時間與來源標記放最後）
-  const posHead = ['個股', '股數', '成本（含手續費）', '最新收盤', '淨市值', '淨未實現', '已持有／AI 預期', '買進 時間·價'];
+  const posHead = ['個股', '股數', '成本（含手續費）', '最新收盤價', '淨市值', '淨未實現', '已持有／AI 預期', '買進 時間·價'];
   const posRows = (list: Holding[]) => list.map(h => [
     <b key="c">{h.code} {h.name}</b>, h.shares.toLocaleString(),
     h.cost.toLocaleString(), h.lastPx ?? '—', h.netValue != null ? h.netValue.toLocaleString() : '—',
@@ -300,7 +300,7 @@ function PickCard({ p, doc }: { p: SwingPick; doc: SwingLabDoc }) {
           <button onClick={() => setOpen(v => !v)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, cursor: 'pointer', color: '#7dd3fc', fontSize: 'calc(12.5px * var(--fz))' }}>{open ? '▾' : '▸'} 各持有期交易單（買賣時間·金額·費稅）</button>
           {open && HS.map(h => { const o = doc.outcomes?.[h]?.picks.find(x => x.code === p.code); return o?.ledger ? (
             <div key={h} style={{ marginTop: 6 }}>
-              <div style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))' }}>持有 {h} 日　<span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>期間最深 {pct(o.maxDD)}／最高 {pct(o.maxUp)}{o.openMissing ? '·進場日無開盤價，改用收盤' : ''}</span></div>
+              <div style={{ fontWeight: 800, fontSize: 'calc(13px * var(--fz))' }}>持有 {h} 日　<span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>期間最深 {pct(o.maxDD)}／最高 {pct(o.maxUp)}{o.openMissing ? '·進場日無開盤價，改用收盤價' : ''}</span></div>
               <TradeSlip L={o.ledger} withDate />
             </div>) : null; })}
         </>

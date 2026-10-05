@@ -387,9 +387,9 @@ export default function SqueezePanel() {
                 <th style={{ padding: '4px 4px', textAlign: 'left' }}>代號/名稱</th>
                 {/* 盤中（2026-09-17 使用者指定）：現價欄改名「即時」並多一欄「前日價」對照；盤後維持原樣。以 market-clock 判定，不看文件 mode。 */}
                 <th style={{ padding: '4px 4px' }} title="定案名單所根據的資料日收盤價（名單當天不變）">定案價</th>
-                <th style={{ padding: '4px 4px' }} title="即時價（共用快線）">即時</th>
-                <th style={{ padding: '4px 4px' }} title="今日漲跌（即時價對前一交易日收盤）">今日漲跌</th>
-                {marketOpenNow && <th style={{ padding: '4px 4px' }} title="前一交易日收盤價（daemon 提供；舊文件缺時由即時價÷(1+漲幅) 反推）">前日價</th>}
+                <th style={{ padding: '4px 4px' }} title={marketOpenNow ? '現價（共用快線即時價）' : '即時價（共用快線）'}>{marketOpenNow ? '現價' : '即時'}</th>
+                <th style={{ padding: '4px 4px' }} title={marketOpenNow ? '今日漲跌（現價對昨收）' : '今日漲跌（即時價對前一交易日收盤）'}>今日漲跌</th>
+                {marketOpenNow && <th style={{ padding: '4px 4px' }} title="昨收：前一交易日收盤價（daemon 提供；舊文件缺時由現價÷(1+漲幅) 反推）">昨收</th>}
                 <th style={{ padding: '4px 4px' }} title="定案資料日的漲幅">定案日漲幅</th>
                 <th style={{ padding: '4px 4px' }} title="前一交易日的漲幅（收盤對再前一日收盤）：連兩天大漲＝已漲多的訊號之一">昨日漲幅</th>
                 <th style={{ padding: '4px 4px' }}>券資比</th>

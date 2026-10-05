@@ -76,7 +76,7 @@ export default function ShadowAccount() {
               → 差距 <b style={{ color: s.ruleSim.diff > 0 ? '#2f9e44' : '#f03e3e', fontSize: 'calc(14px * var(--fz))' }}>{s.ruleSim.diff > 0 ? `破戒多虧 ${fmt(s.ruleSim.diff)}` : `你贏過鐵律 ${fmt(-s.ruleSim.diff)}`}</b> 元
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>全確定性計算（交易紀錄+官方收盤），每日盤後更新。非投資建議。</div>
+          <div style={{ marginTop: 6, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>全確定性計算（交易紀錄+官方收盤價），每日盤後更新。非投資建議。</div>
         </div>
       )}
     </div>

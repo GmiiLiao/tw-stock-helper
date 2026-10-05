@@ -297,9 +297,9 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
             <div style={{ display: 'grid', gap: 4 }}>
               <div style={{ display: 'grid', gridTemplateColumns: LU_GRID, columnGap: 8, padding: '2px 8px 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-primary)', marginBottom: 4 }}>
                 <span /><span /><span style={{ textAlign: 'right' }}>#</span><span>代號</span><span>名稱</span><span style={{ textAlign: 'center' }}>市</span>
-                <span title="收＝資料日收盤；即時＝盤中快線成交價" style={{ textAlign: 'center' }}>價</span><span style={{ textAlign: 'right' }}>現價</span><span style={{ textAlign: 'right' }}>漲跌</span>
-                <span title="資料日前一交易日收盤" style={{ textAlign: 'right' }}>昨收</span><span style={{ textAlign: 'right' }}>昨漲跌</span>
-                <span title="依回測加權的模型分（越高越前）" style={{ textAlign: 'right' }}>模型分</span><span title="資料日收盤推算的次日漲停價" style={{ textAlign: 'right' }}>漲停價</span>
+                <span title="收＝資料日收盤價；即時＝盤中快線即時價" style={{ textAlign: 'center' }}>價</span><span style={{ textAlign: 'right' }}>現價</span><span style={{ textAlign: 'right' }}>漲跌</span>
+                <span title="昨收＝資料日前一交易日收盤價" style={{ textAlign: 'right' }}>昨收</span><span style={{ textAlign: 'right' }}>昨漲跌</span>
+                <span title="依回測加權的模型分（越高越前）" style={{ textAlign: 'right' }}>模型分</span><span title="資料日收盤價推算的次日漲停價" style={{ textAlign: 'right' }}>漲停價</span>
               </div>
               {aRows.map((p, i) => {
                 const b = mBadge(p.market);
@@ -317,7 +317,7 @@ export default function LimitUpPanel({ source = 'frozen' }: { source?: 'frozen' 
                       <span style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, padding: '1px 5px', borderRadius: 5, background: `${b.c}22`, color: b.c, textAlign: 'center' })}>{b.t}</span>
                       {/* 現價欄：盤中有即時成交且與資料日收盤不同＝即時價（標「即時」），否則資料日收盤（標「收」） */}
                       {(() => { const q = quotes[p.code]; const isLive = !!q?.price && q.price !== p.price; const px = isLive ? q!.price : p.price; const d = isLive ? (q!.changePercent ?? 0) : p.chg; return (<>
-                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤與當日漲跌'} style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center' })}>{isLive ? '即時' : '收'}</span>
+                        <span title={isLive ? '即時價（共用快線）與今日漲跌' : '資料日收盤價與當日漲跌'} style={LU_CELL({ fontSize: 'calc(12.5px * var(--fz))', color: isLive ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center' })}>{isLive ? '即時' : '收'}</span>
                         <span style={NUM_COL(0, 'var(--text-primary)', 700)}>{px}</span>
                         <span style={NUM_COL(0, getChangeColor(d), 800)}>{d > 0 ? '+' : ''}{(+d).toFixed(2)}%</span>
                       </>); })()}

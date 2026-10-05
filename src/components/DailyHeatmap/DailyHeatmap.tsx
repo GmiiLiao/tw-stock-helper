@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
-import { PriceCell, StockCell } from '@/components/AfterMarket/shared';
+import { AsOfContext, PriceCell, StockCell, dayLabel, useAsOf } from '@/components/AfterMarket/shared';
 import styles from './DailyHeatmap.module.css';
 
 // ── 📊 每日熱力：最後交易日報告頁（技能 tw-daily-heatmap）────────────────
@@ -77,12 +77,13 @@ function Toggle({ open, onClick }: { open: boolean; onClick: () => void }) {
 
 /** 成分個股：代號＋名稱，點「分析」進入該股詳細分析頁（navigateTo('stock')）。 */
 function MemberList({ members, showResonance }: { members?: Member[]; showResonance?: boolean }) {
+  const asOf = useAsOf();
   const navigateTo = useAppStore(s => s.navigateTo);
   if (!members || members.length === 0) return <p className={styles.note}>此資料日尚無成分個股明細（舊版定版檔）。</p>;
   return (
     <div className={styles.memberBox}>
       <table className={styles.tbl}>
-        <thead><tr><th>個股</th><th>價格</th><th>當日漲跌%</th><th>成交(百萬)</th><th>標記</th>{showResonance && <th>共振</th>}<th>詳細分析</th></tr></thead>
+        <thead><tr><th>個股</th><th>現價／昨收</th><th>{asOf}<br />漲跌%</th><th>{asOf}<br />成交(百萬)</th><th>{asOf}<br />標記</th>{showResonance && <th>共振</th>}<th>詳細分析</th></tr></thead>
         <tbody>{members.map(m => (
           <tr key={m.code}>
             <td><StockCell code={m.code} name={m.name} /></td><td><PriceCell code={m.code} showChange={false} /></td>
@@ -92,17 +93,18 @@ function MemberList({ members, showResonance }: { members?: Member[]; showResona
           </tr>
         ))}</tbody>
       </table>
-      <p className={styles.note}>共 {members.length} 檔，依當日漲跌由高到低；漲跌幅以官方參考價計。</p>
+      <p className={styles.note}>共 {members.length} 檔，依 {asOf} 漲跌由高到低（以官方參考價計）；現價為目前價。</p>
     </div>
   );
 }
 
 function LayerTable({ title, rows, note }: { title: string; rows: Layer[]; note: string }) {
+  const asOf = useAsOf();
   const o = useOpenSet();
   if (!rows.length) return null;
   return (
     <section className={styles.block}>
-      <h3>{title} <span className={styles.tier}>{note}</span></h3>
+      <h3>{title} <span className={styles.tier}>{note}</span><span className={styles.tier}>{asOf}</span></h3>
       <BulkButtons keys={rows.slice(0, 15).map(x => x.key)} o={o} />
       <table className={styles.tbl}>
         <thead><tr><th></th><th>名稱</th><th>n</th><th>等權%</th><th>超額pp</th><th>z</th><th>漲/跌</th><th>漲停</th></tr></thead>
@@ -120,11 +122,12 @@ function LayerTable({ title, rows, note }: { title: string; rows: Layer[]; note:
 }
 
 function BoardTable({ title, rows }: { title: string; rows: BoardRow[] }) {
+  const asOf = useAsOf();
   return (
     <section className={styles.block}>
-      <h3>{title}</h3>
+      <h3>{title} <span className={styles.tier}>{asOf}</span></h3>
       <table className={styles.tbl}>
-        <thead><tr><th>個股</th><th>價格</th><th>產業</th><th>當日漲跌%</th><th>成交(百萬)</th><th>共振</th><th>wiki 連動（站內整理）</th></tr></thead>
+        <thead><tr><th>個股</th><th>現價／昨收</th><th>產業</th><th>{asOf}<br />漲跌%</th><th>{asOf}<br />成交(百萬)</th><th>共振</th><th>wiki 連動（站內整理）</th></tr></thead>
         <tbody>{rows.slice(0, 15).map(s => (
           <tr key={s.code}>
             <td><StockCell code={s.code} name={s.name} /></td><td><PriceCell code={s.code} showChange={false} /></td>
@@ -158,14 +161,17 @@ export default function DailyHeatmap() {
 
   const ix = d.index;
   const hot = d.industries.filter(x => x.listable);
+  const asOf = dayLabel(d.dataDate);
   return (
+    <AsOfContext.Provider value={asOf}>
     <div className={styles.wrap}>
       <header className={styles.head}>
-        <h2>📊 每日熱力分析 · 資料日 {d.dataDate}</h2>
+        <h2>📊 每日熱力分析 · {asOf}</h2>
         <p className={styles.note}>
-          最後交易日收盤事實的描述，<b>非投資建議</b>；熱度是當日統計量，不是動能或買賣訊號，不進任何推薦排序。
+          <b>{asOf}</b> 收盤事實的描述，<b>非投資建議</b>；熱度是該日統計量，不是動能或買賣訊號，不進任何推薦排序。
           報酬以官方參考價計、未扣成本。官方產業別為事實；站內整理／AI 待驗關聯只供標註。
         </p>
+        <p className={styles.note}>報價名稱：<b>現價</b>＝目前價（盤中為即時價、收盤後即收盤價），<b>昨收</b>＝前一交易日收盤價；<b>{asOf}</b>＝該日收盤資料，其餘數字都標註日期。</p>
         {d.degraded && d.degraded.length > 0 && <p className={styles.warn}>⚠ {d.degraded.join('；')}</p>}
       </header>
 
@@ -182,7 +188,7 @@ export default function DailyHeatmap() {
 
       {tab === 'industry' && (
         <section className={styles.block}>
-          <h3>官方產業別熱力 <span className={styles.tier}>官方</span></h3>
+          <h3>官方產業別熱力 <span className={styles.tier}>官方</span><span className={styles.tier}>{asOf}</span></h3>
           <p className={styles.note}>heat＝0.5·Z(超額等權)＋0.5·Z(漲停占比)，僅 n≥8 排序。歷史統計約 40% 預測力來自今日漲停連板（買不到），僅供描述。</p>
           <BulkButtons keys={d.industries.map(x => x.key)} o={ind} />
           <table className={styles.tbl}>
@@ -207,7 +213,7 @@ export default function DailyHeatmap() {
       {tab === 'index' && ix && (
         <>
           <section className={styles.block}>
-            <h3>權值股對加權指數的漲跌貢獻（上市）</h3>
+            <h3>權值股對加權指數的漲跌貢獻（上市）<span className={styles.tier}>{asOf}</span></h3>
             <p className={styles.note}>
               官方沒有逐檔權重，權重由「收盤價×發行股數」自算；價格指數不調整現金股利，貢獻以前一日實際收盤為基期。
               指數 {sg(ix.officialPts)} 點，重建 {sg(ix.predPts)} 點，殘差 {sg(ix.residualPts)} 點（{ix.residualBp}bp，{ix.grade}＝{GRADE[ix.grade]}）。
@@ -215,7 +221,7 @@ export default function DailyHeatmap() {
               {ix.grade === '紅' && <> ⛔ 歸因不可靠，以下僅供對照、不作結論。</>}
             </p>
             <table className={styles.tbl}>
-              <thead><tr><th>#</th><th>個股</th><th>價格</th><th>前日權重%</th><th>收盤後權重%</th><th>漲跌%</th><th>貢獻(點)</th><th>隔日 1% 敏感度(點)</th></tr></thead>
+              <thead><tr><th>#</th><th>個股</th><th>現價／昨收</th><th>{asOf}<br />開盤前權重%</th><th>{asOf}<br />收盤後權重%</th><th>{asOf}<br />漲跌%</th><th>{asOf}<br />貢獻(點)</th><th>隔日 1% 敏感度(點)</th></tr></thead>
               <tbody>{ix.top.slice(0, 10).map((x, i) => (
                 <tr key={x.code}><td>{i + 1}</td><td><StockCell code={x.code} name={x.name} /></td><td><PriceCell code={x.code} showChange={false} /></td>
                   <td>{x.wPrev}</td><td>{x.wClose}</td><td className={tone(x.ret)}>{sg(x.ret)}</td><td className={tone(x.pts)}>{sg(x.pts, 1)}</td><td>{x.sens1pctPts}</td></tr>
@@ -269,7 +275,7 @@ export default function DailyHeatmap() {
                 <ul className={styles.list}>{d.watch[k].slice(0, 15).map(w => (
                   <li key={`${k}${w.key}`}>
                     {w.kind === 'stock'
-                      ? <><StockCell code={w.key} name={w.name} /><span>　現價 </span><PriceCell code={w.key} />{w.ret != null && <span className={tone(w.ret)}>　當日 {sg(w.ret)}%</span>}</>
+                      ? <><StockCell code={w.key} name={w.name} /><span>　現價 </span><PriceCell code={w.key} />{w.ret != null && <span className={tone(w.ret)}>　{asOf} {sg(w.ret)}%</span>}</>
                       : <b>{w.key}</b>}
                     <br />
                     <span>{w.reason ?? w.trigger.rule}</span>
@@ -286,5 +292,6 @@ export default function DailyHeatmap() {
         排除：無成交 {d.universe.noTrade}、無參考價 {d.universe.noRef}、|報酬|&gt;10.5% {d.universe.unlimited.length}。處置／注意股旗標：來源未提供。{d.useRules.disclaimer}
       </footer>
     </div>
+    </AsOfContext.Provider>
   );
 }

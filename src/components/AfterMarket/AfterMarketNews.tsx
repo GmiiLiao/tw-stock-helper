@@ -65,7 +65,7 @@ function Verdict({ x, name }: { x: MediaRank['items'][number]; name: string }) {
           <span>判讀依據 <b>{x.basis === 'content' ? '讀內文' : x.basis ?? '—'}</b></span>
           <span>讀了 <b>{x.articlesRead ?? '—'}</b> 篇</span>
           <span>判別通道 <b>{x.pass === 'evening' ? '盤後趟' : x.pass === 'night' ? '夜間補判' : x.pass === 'morning' ? '晨間趟' : x.pass ?? '—'}</b></span>
-          <span>判別時點價 <b>{x.px ?? '—'}</b></span>
+          <span>{x.pxSrc === 'close' ? '判別時收盤價' : '判別時股價'} <b>{x.px ?? '—'}</b></span>
           <span>判別時間 <b>{hhmm(x.verdictAt)}</b></span>
         </div>
       </Detail>
@@ -86,7 +86,7 @@ function Media({ d }: { d: NewsDoc['media'] }) {
   const toggle = (c: string) => setOpen(o => { const n = new Set(o); if (!n.delete(c)) n.add(c); return n; });
   return (
     <Card title="媒體消息判別（AI 讀完內文）· 依影響比重排行" state="ok" tier="媒體 M" dateLabel="適用交易日" dataDate={d.targetDate}
-      note="影響權重＝強度×信心×確定性×新穎性×尚未反映（皆為先驗，未經量測）；占比＝該則占本晚利多／利空合計權重。顯示排序，不是分數、不是買賣訊號。資訊不足者不排名。點每列左側 ▸ 展開 AI 判讀分析與相關新聞連結。">
+      note="影響權重＝強度×信心×確定性×新穎性×尚未反映（皆為先驗，未經量測）；占比＝該則占本晚利多／利空合計權重。顯示排序，不是分數、不是買賣訊號。資訊不足者不排名。「現價／昨收」：現價為盤中即時價（收盤後即收盤價）、昨收為前一交易日收盤價；判讀依據的是適用交易日之前的新聞。點每列左側 ▸ 展開 AI 判讀分析與相關新聞連結。">
       <p className={s.note}>
         涵蓋 {d.covered ?? '—'} 檔（{d.lastPass === 'evening' ? '盤後趟' : d.lastPass === 'night' ? '夜間補判' : d.lastPass ?? '—'}，更新 {hhmm(d.updatedAt)}）：
         利多 <b className={s.up}>{d.bullish}</b>／利空 <b className={s.dn}>{d.bearish}</b>／中性 {d.neutral}／資訊不足 {d.insufficient}
@@ -96,7 +96,7 @@ function Media({ d }: { d: NewsDoc['media'] }) {
         <button type="button" onClick={() => setOpen(new Set())}>全部收合</button>
       </div>
       <table className={s.tbl}>
-        <thead><tr><th></th><th>#</th><th>個股</th><th>價格</th><th>方向</th><th>影響比重</th><th>判讀要素</th><th>事件類型</th></tr></thead>
+        <thead><tr><th></th><th>#</th><th>個股</th><th>現價／昨收</th><th>方向</th><th>影響比重</th><th>判讀要素</th><th>事件類型</th></tr></thead>
         <tbody>{d.items.map(x => {
           const isOpen = open.has(x.code);
           const name = nameOf(x.code);
@@ -153,7 +153,7 @@ function Official({ d }: { d: NewsDoc['official'] }) {
             <button type="button" onClick={() => setOpen(new Set())}>全部收合</button>
           </div>
           <table className={s.tbl}>
-            <thead><tr><th></th><th>#</th><th>個股</th><th>價格</th><th>事件類型</th><th>方向(規則)</th><th>影響比重</th><th>公告主旨</th></tr></thead>
+            <thead><tr><th></th><th>#</th><th>個股</th><th>現價／昨收</th><th>事件類型</th><th>方向(規則)</th><th>影響比重</th><th>公告主旨</th></tr></thead>
             <tbody>{d.items.map(x => {
               const k = keyOf(x), isOpen = open.has(k);
               return (

@@ -84,7 +84,7 @@ export async function GET(request: Request) {
       if (volRatio >= 1.5) reasons.push(`📦 量比 ${volRatio.toFixed(1)} 倍（較昨日同時段放量）`);
       if (chg >= 1) reasons.push(`⚡ 盤中上攻 +${chg.toFixed(2)}%，距漲停仍有空間`);
       if (pos != null && pos >= 0.9) reasons.push('⚠️ 極度貼高（收位≥90%）——2年實測明開賣淨-0.36%/筆·開高率僅46%（貼高慣性反向，勿因強勢加碼）');
-      else if (pos != null && pos >= 0.7) reasons.push('📈 現價貼近今日高點（提示：2年實測貼高組隔日偏弱，此項已不加分）');
+      else if (pos != null && pos >= 0.7) reasons.push('📈 即時價貼近今日高點（提示：2年實測貼高組隔日偏弱，此項已不加分）');
       if (gapPart) reasons.push('🔴 開盤站上昨收（跳空開高）');
       if (baseScore >= 60) reasons.push(`🤖 昨日完整評分 ${baseScore} 分，體質穩健`);
 

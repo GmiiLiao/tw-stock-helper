@@ -62,3 +62,8 @@ test('官方：同公司同事件類型多則公告合併成一列、權重不�
   assert.equal(cap.subject, '公告本公司現金增資認股繳款期間');
   assert.equal(r.rankedAnnouncements, 5); assert.equal(r.ranked, 3);
 });
+
+test('官方：updatedAt＝所有公告（含例行與未分類）中最晚的時間', () => {
+  const r = rankOfficial([{ code: '1', name: 'a', subject: '公告本公司更名', at: 9 }, { code: '2', name: 'b', subject: '其他', at: 5 }, { code: '3', name: 'c', subject: '公告取得重大訂單', at: 7 }]);
+  assert.equal(r.updatedAt, 9);
+});

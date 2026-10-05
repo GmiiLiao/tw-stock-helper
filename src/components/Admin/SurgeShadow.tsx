@@ -89,7 +89,7 @@ function ListTable({ rows, scored }: { rows: Row[]; scored: boolean }) {
     <div style={{ overflowX: 'auto' }}>
       <table style={{ borderCollapse: 'collapse', fontFamily: MONO, fontSize: 'calc(13px * var(--fz))', whiteSpace: 'nowrap' }}>
         <thead><tr style={{ color: 'var(--text-muted)' }}>
-          {['#', '代號', '名稱', '市場', '收盤', '漲跌%', '打分日', '分數', '站上名次', '隔日結果'].map(h => <th key={h} style={h === '名稱' || h === '隔日結果' ? { ...th, textAlign: 'left' } : th}>{h}</th>)}
+          {['#', '代號', '名稱', '市場', '收盤價', '漲跌%', '打分日', '分數', '站上名次', '隔日結果'].map(h => <th key={h} style={h === '名稱' || h === '隔日結果' ? { ...th, textAlign: 'left' } : th}>{h}</th>)}
         </tr></thead>
         <tbody>
           {visible.map(r => {

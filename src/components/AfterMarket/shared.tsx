@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAppStore } from '@/lib/store';
 import { marketBadge, type StockInfo } from '@/lib/twse-api';
 import RiskBadge from '@/components/shared/RiskBadge';
@@ -11,17 +11,28 @@ import styles from './AfterMarket.module.css';
 
 export type ApiState = 'loading' | 'ok' | 'empty' | 'error';
 
+// 同一網址 60 秒內共用同一次 fetch（頁首更新時間、分析報告、各分頁都讀同一支 API 時不重複請求）；失敗不快取。
+const FETCH_CACHE = new Map<string, { t: number; p: Promise<unknown> }>();
+function fetchCached(url: string): Promise<unknown> {
+  const hit = FETCH_CACHE.get(url);
+  if (hit && Date.now() - hit.t < 60_000) return hit.p;
+  const p = fetch(url).then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))));
+  FETCH_CACHE.set(url, { t: Date.now(), p });
+  p.catch(() => FETCH_CACHE.delete(url));
+  return p;
+}
+
 /** 讀一個 JSON API。null／空物件／{found:false} 視為 empty；HTTP 非 2xx（含 503）視為 error。 */
 export function useApi<T>(url: string): { data: T | null; state: ApiState } {
   const [data, setData] = useState<T | null>(null);
   const [state, setState] = useState<ApiState>('loading');
   useEffect(() => {
     let live = true;
-    fetch(url)
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then(j => {
+    fetchCached(url)
+      .then((j) => {
         if (!live) return;
-        const empty = j == null || (typeof j === 'object' && (Object.keys(j).length === 0 || j.found === false));
+        const o = j as Record<string, unknown> | null;
+        const empty = o == null || (typeof o === 'object' && (Object.keys(o).length === 0 || o.found === false));
         if (empty) { setState('empty'); return; }
         setData(j as T); setState('ok');
       })
@@ -31,12 +42,30 @@ export function useApi<T>(url: string): { data: T | null; state: ApiState } {
   return { data, state };
 }
 
+/** 時戳（epoch ms 或 ISO 字串）→ 台北時間「10/04 23:17」；缺值「—」。 */
+export function fmtTs(v: number | string | null | undefined): string {
+  if (v == null) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 /** 代號→名稱（全站即時清單，缺就回代號本身）。 */
 export function useNameOf(): (code: string) => string {
   const allStocks = useAppStore(s => s.allStocks);
   const map = new Map(allStocks.map(s => [s.code, s.name]));
   return code => map.get(code) ?? code;
 }
+
+// ── 報價名稱統一（2026-10-05 使用者）──────────────────────────────────────────
+//   現價＝即時價（盤中即時、收盤後即收盤價）；前交易日 M/D＝該日收盤資料；其餘一律標註日期。
+//   資料日早於今天（台北）稱「前交易日」，等於今天（收盤後定版）稱「當日」。
+export const taipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+export const mdOf = (iso?: string | null) => (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? `${+iso.slice(5, 7)}/${iso.slice(8, 10)}` : '');
+export const dayLabel = (iso?: string | null) => (iso ? `${iso < taipeiToday() ? '前交易日' : '當日'} ${mdOf(iso)}` : '資料日');
+/** 資料日標籤（例：前交易日 10/02），由頁面最上層提供，表頭、小標共用。 */
+export const AsOfContext = createContext<string>('前交易日');
+export const useAsOf = () => useContext(AsOfContext);
 
 export const sg = (x: number | null | undefined, d = 2) => (x == null || !Number.isFinite(x) ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(d)}`);
 /** 台股慣例：紅漲綠跌 */
@@ -70,11 +99,19 @@ export function StockCell({ code, name }: { code: string; name?: string }) {
   );
 }
 
-/** 價格欄：現價（收盤後即收盤價）與漲跌%，來自全站即時清單；清單沒有該檔顯示「—」。 */
+/** 價格欄（站上統一用語 2026-10-05：有比較價格的畫面＝現價與昨收）：現價（盤中為即時價、收盤後即收盤價）、昨收（前一交易日收盤價）、
+ *  漲跌%；全站即時清單沒有該檔顯示「—」。有獨立漲跌欄的表傳 showChange={false} 避免重複。 */
 export function PriceCell({ code, showChange = true }: { code: string; showChange?: boolean }) {
   const info = useStockInfo()(code);
   if (!info || !(info.price > 0)) return <span>—</span>;
-  return <span title="盤中為即時價，收盤後為收盤價"><b>{info.price.toFixed(2)}</b>{showChange && <> <span className={tone(info.changePercent)}>{sg(info.changePercent)}%</span></>}</span>;
+  const prev = info.price - info.change;
+  return (
+    <span title="現價：盤中為即時價，收盤後即收盤價；昨收：前一交易日收盤價">
+      <b>{info.price.toFixed(2)}</b>
+      {showChange && <> <span className={tone(info.changePercent)}>{sg(info.changePercent)}%</span></>}
+      {prev > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 'calc(11.5px * var(--fz))' }}> 昨收 {prev.toFixed(2)}</span>}
+    </span>
+  );
 }
 
 export function StockLink({ code, name }: { code: string; name?: string }) {

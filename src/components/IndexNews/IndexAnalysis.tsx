@@ -562,7 +562,7 @@ export default function IndexAnalysis() {
               nowrap 是同一件事的另一半：絕不在一個數值中間換行。 */}
           <table className="idxHistTable" style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 'calc(12.5px * var(--fz))', fontFamily: 'JetBrains Mono, monospace' }}>
             <thead><tr style={{ color: '#cbd5f5', textAlign: 'right' }}>
-              <th style={{ textAlign: 'left' }}>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌%</th><th>成交量</th><th>RSI5</th><th>K</th>
+              <th style={{ textAlign: 'left' }}>日期</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤價</th><th>漲跌%</th><th>成交量</th><th>RSI5</th><th>K</th>
             </tr></thead>
             <tbody>
               {hist.map((b, i) => {

@@ -20,7 +20,7 @@ export default function PriceEventsCard() {
       note={`相鄰兩個有收盤日的價格比值超出 ±20% 者${w?.from ? `（視窗 ${w.from} ~ ${w.to ?? '—'}）` : ''}。比值＝事後收盤÷事前收盤；上市減資的「恢復買賣參考價」來自證交所，來源未提供者顯示「—」。僅為記錄，非投資建議。`}>
       {items.length === 0 ? <p className={amStyles.note}>近期無事件（視窗內沒有符合條件的價格結構變動）。</p> : (
         <table className={amStyles.tbl}>
-          <thead><tr><th>個股</th><th>日期</th><th>類型</th><th>前收→收盤</th><th>比值</th><th>參考價</th></tr></thead>
+          <thead><tr><th>個股</th><th>日期</th><th>類型</th><th>昨收→收盤價</th><th>比值</th><th>參考價</th></tr></thead>
           <tbody>
             {items.slice(0, SHOW).map(e => (
               <tr key={`${e.date}-${e.code}`}>

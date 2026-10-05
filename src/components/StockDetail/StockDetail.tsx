@@ -1053,7 +1053,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
           { label: '今日開盤', value: todayOpen == null ? '—' : todayOpen.toFixed(2), color: vsPrevColor(todayOpen), emoji: '🔔' },
           { label: '今日最高', value: todayHigh == null ? '—' : todayHigh.toFixed(2), color: vsPrevColor(todayHigh), emoji: '📈' },
           { label: '今日最低', value: todayLow == null ? '—' : todayLow.toFixed(2), color: vsPrevColor(todayLow), emoji: '📉' },
-          { label: '昨日收盤', value: prevClose.toFixed(2), color: 'var(--text-muted)', emoji: '📌' },
+          { label: '昨收', value: prevClose.toFixed(2), color: 'var(--text-muted)', emoji: '📌' },
         ].map(({ label, value, color, emoji }) => (
           <div key={label} style={{
             background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
@@ -1321,7 +1321,7 @@ function StrategyTab({ trendData, loading, stockName }: {
         {[
           { label: '預期開盤低點', value: pm.expectedOpeningRange.low.toFixed(2), color: 'var(--color-down)', emoji: '📉' },
           { label: '預期開盤高點', value: pm.expectedOpeningRange.high.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
-          { label: '前日收盤',     value: pm.prevClose.toFixed(2),                color: 'var(--text-muted)', emoji: '📌' },
+          { label: '昨收',         value: pm.prevClose.toFixed(2),                color: 'var(--text-muted)', emoji: '📌' },
           { label: '建議停損價',   value: pm.stopLossPrice.toFixed(2),            color: '#f97316', emoji: '🛡️' },
         ].map(({ label, value, color, emoji }) => (
           <div key={label} style={{

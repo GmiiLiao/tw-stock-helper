@@ -260,7 +260,7 @@ export default function TrendPanel({ stockCode, stockName }: { stockCode: string
           {/* Price overview */}
           <div className={styles.priceOverviewGrid}>
             <div className={styles.priceOverItem}>
-              <span className={styles.priceOverLabel}>昨日收盤</span>
+              <span className={styles.priceOverLabel}>昨收</span>
               <span className={styles.priceOverValue}>{pm.todayClose.toFixed(2)}</span>
             </div>
             <div className={styles.priceOverItem} style={{ borderColor: 'rgba(240,62,62,0.3)' }}>
