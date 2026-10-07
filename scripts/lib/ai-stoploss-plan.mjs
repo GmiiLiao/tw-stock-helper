@@ -141,7 +141,9 @@ function eventInfoAlerts(code, name, records, res, overlays, before, dayYmd, now
         line: r.line, label, baseStop: res.baseStop, baseSource: stopSourceLabel(res.baseStop === res.floorStop ? res.floorSource : 'atrBand'), isEtf,
       }), nowMs, { threshold: r.line ?? 0 }));
     } else if (r.outcome === 'deferred') {
-      out.push(stopInfo(code, name, 'eventDeferred', `${r.cls}:${dayYmd}`, stopFactText('eventDeferred', { price: o.deferredPx, line: r.line, isEtf }), nowMs));
+      // 延後層的成交價在層上；N4 換新的延後（舊層照常生效）在舊層的 renewPending 上
+      const price = o.deferredPx ?? (isObj(o.renewPending) ? o.renewPending.deferredPx : null);
+      out.push(stopInfo(code, name, 'eventDeferred', `${r.cls}:${dayYmd}`, stopFactText('eventDeferred', { price, line: r.line, isEtf }), nowMs));
     } else if (r.outcome === 'noBite') {
       out.push(stopInfo(code, name, 'eventNoBite', `${r.cls}:${dayYmd}`, stopFactText('eventNoBite', { stop: res.stop, source: stopSourceLabel(res.stopSource), line: r.line, isEtf }), nowMs));
     } else if (r.outcome === 'expired') {
@@ -431,8 +433,8 @@ export function planCloseSettle(input) {
     let overlays = Array.isArray(bp?.events) ? bp.events : [];
     let seen = Array.isArray(bp?.eventSeen) ? bp.eventSeen : [];
     let res = resolveStop({ ...common, events: activeOverlays(overlays) });
-    // ③ 延後的事件收緊：今日官方收盤重算、次一交易日生效
-    if (overlays.some(x => x?.state === 'deferred')) {
+    // ③ 延後的事件收緊（含 N4 換新的延後 renewPending）：今日官方收盤重算、次一交易日生效
+    if (overlays.some(x => x?.state === 'deferred' || isObj(x?.renewPending))) {
       const before = overlays;
       const step = stepEventOverlay(overlays, {
         seen, baseStop: res.baseStop, refClose: o?.close ?? null, atr14: li?.atr14 ?? null, todayYmd: dateYmd, nowMs, when: 'close', isTradingDay, isEtf,

@@ -248,6 +248,139 @@ test('N9 期限內除權息 ⇒ 收緊線 ceilTick(×f)、期限不變；部位�
   assert.equal(a.overlays[0].expiresAfter, '2026-10-12');
 });
 
+// ── N4（2026-10-07 使用者「依建議進行」）：延續期內事件日期較晚的新進展 ⇒ 停損收緊重新起算 ─────────────
+
+const EVD = (ed, over = {}) => EV({ eventDate: ed, ...over });
+const D7 = '2026-10-07';
+const AT7 = { todayYmd: D7, nowMs: T(8, 46, D7), refYmd: '2026-10-06' };
+
+test('N4 ruleBearEvents 帶事件日期：延續軌跡優先、再看稽核軌跡；非 C16a 與 2026-10-07 前的舊資料為 null（JSON 可存）', () => {
+  const NEW = { label: '利空', ruleClass: 'C16a', ruleOverride: 'legal-event', ruleFacts: { C16a: 'yes' } };
+  const ed = v => ruleBearEvents(docOf({ 3037: V(v) }), CTX)[0]?.eventDate;
+  assert.equal(ed({ ...NEW, ruleEvidence: { C16a: { eventDate: YMD } } }), YMD);
+  assert.equal(ed({ ...NEW, ruleEvidence: { C16a: { eventDate: '2026-10-02' } }, ruleTrail: { C16a: { since: YMD, eventDate: '2026-10-04~2026-10-05' } } }), '2026-10-04~2026-10-05');
+  assert.equal(ed({ ...NEW, ruleEvidence: { C16a: { eventDate: 'bad' } } }), null);
+  assert.equal(ed({}), null);
+  const c22 = ruleBearEvents(docOf({ 2317: V({ label: '中性', ruleClass: 'C22', ruleFacts: { C22: 'yes' }, reason: 'AI 理由' }) }), CTX);
+  assert.deepEqual(c22.map(e => [e.cls, e.eventDate]), [['C22', null]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(c22)), c22);
+  // 延續（ruleCont）照舊不收；較晚的新進展（N4 換新、沒有 ruleCont）照收
+  const renewed = V({ ...NEW, ruleEvidence: { C16a: { eventDate: YMD } }, ruleTrail: { C16a: { since: YMD, eventDate: YMD, renewOf: '2026-10-01' } } });
+  assert.deepEqual(ruleBearEvents(docOf({ 3037: renewed }), CTX).map(e => [e.code, e.eventDate]), [['3037', YMD]]);
+});
+
+test('N4 停損重新起算：舊事件期限內來了事件日期較晚的新進展 ⇒ 同類別的層換新（生效日＝今日、期限重算、eventDate／renewOf），線取新舊較高者（不提前放寬）；同日期、較早、讀不到 ⇒ sameEvent', () => {
+  const a = step([], { events: [EVD(YMD)] });
+  assert.deepEqual(a.seen, [['3037:C16a', YMD, '2026-10-12', YMD]]);
+  assert.deepEqual([a.overlays[0].eventDate, a.overlays[0].renewOf], [YMD, undefined]);
+  for (const ed of [YMD, '2026-10-02', '2026-10-05~2026-10-07', null, 'bad']) {
+    const r = step(a.overlays, { seen: a.seen, events: [EVD(ed)], ...AT7 });
+    assert.deepEqual(r.records.map(x => [x.outcome, x.renew]), [['sameEvent', undefined]], String(ed));
+    assert.deepEqual([r.overlays, r.seen], [a.overlays, a.seen], `${ed}：不改線、不延長`);
+  }
+  // 兩天後羈押、價格持平（前收 104）⇒ 換新：線同為 100.5，期限從 10/07 重算到 10/14（10/09 休市）
+  const flat = step(a.overlays, { seen: a.seen, events: [EVD(D7)], ...AT7 });
+  assert.deepEqual(flat.records.map(x => [x.outcome, x.renew, x.line]), [['applied', true, 100.5]]);
+  assert.equal(flat.overlays.length, 1);
+  const o = flat.overlays[0];
+  assert.deepEqual([o.line, o.effectiveFrom, o.expiresAfter, o.eventDate, o.renewOf, o.state, o.source], [100.5, D7, '2026-10-14', D7, YMD, 'active', 'premarket']);
+  assert.deepEqual(flat.seen, [['3037:C16a', D7, '2026-10-14', D7]]);
+  assert.deepEqual(flat.changed, ['tighten']);
+  // 期限重新起算：原本那層 10/13 盤前到期；換新後 10/14 仍有效、10/16（10/15 颱風假）才到期
+  assert.equal(step(a.overlays, { seen: a.seen, events: [], todayYmd: '2026-10-13' }).overlays.length, 0);
+  assert.equal(step(flat.overlays, { seen: flat.seen, events: [], todayYmd: '2026-10-14' }).overlays.length, 1);
+  assert.equal(step(flat.overlays, { seen: flat.seen, events: [], todayYmd: '2026-10-16' }).overlays.length, 0);
+  // 價格漲過（前收 110）⇒ 新線 106.5 較高、口徑換成新的前收
+  const up = step(a.overlays, { seen: a.seen, events: [EVD(D7)], ...AT7, refClose: 110 });
+  assert.deepEqual([up.overlays[0].line, up.overlays[0].refClose, up.overlays[0].refYmd], [106.5, 110, '2026-10-06']);
+  // 價格已跌（前收 95 ⇒ 新線 92.1）⇒ 沿用舊線 100.5 與它的口徑（不提前放寬），期限照樣重算
+  const down = step(a.overlays, { seen: a.seen, events: [EVD(D7)], ...AT7, refClose: 95 });
+  assert.deepEqual([down.overlays[0].line, down.overlays[0].refClose, down.overlays[0].refYmd, down.overlays[0].expiresAfter], [100.5, 104, '2026-10-02', '2026-10-14']);
+  assert.deepEqual(down.records.map(x => [x.outcome, x.renew, x.line]), [['applied', true, 100.5]]);
+  // 盤中：成交價已不高於新線 106.5（B3）⇒ 比照首次事件延後（2026-10-07 審查：不只延長期限）——舊層照常生效（線、期限不動），
+  //   換新掛在舊層的 renewPending；成交價在新線之上 ⇒ 立即抬到新線
+  const intra = px => step(a.overlays, { seen: a.seen, events: [EVD(D7)], ...AT7, refClose: 110, when: 'intraday', lastTradePx: px, nowMs: T(10, 30, D7) });
+  const blocked = intra(105);
+  assert.deepEqual([blocked.records.map(x => [x.outcome, x.renew, x.line]), blocked.changed], [[['deferred', true, 106.5]], ['deferred']]);
+  const bo = blocked.overlays[0];
+  assert.deepEqual([blocked.overlays.length, bo.line, bo.state, bo.effectiveFrom, bo.expiresAfter, bo.eventDate, bo.renewOf], [1, 100.5, 'active', YMD, '2026-10-12', YMD, undefined], '舊層照常生效');
+  const pd = bo.renewPending;
+  assert.deepEqual([pd.eventDate, pd.renewOf, pd.deferredPx, pd.deferredLine, pd.tier, pd.label], [D7, YMD, 105, 106.5, 'strong', '法律事件']);
+  assert.deepEqual(blocked.seen, [['3037:C16a', D7, '2026-10-14', D7]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(blocked.overlays)), blocked.overlays, '停損簿可序列化');
+  assert.deepEqual([intra(99).records[0].outcome, activeOverlays(intra(99).overlays, D7)[0].line], ['deferred', 100.5], '成交價已在舊線下：舊線本來就生效，換新照樣延後');
+  assert.deepEqual([intra(108).records[0].outcome, intra(108).overlays[0].line, intra(108).overlays[0].renewPending], ['applied', 106.5, undefined]);
+  // 同一新進展下一輪再送 ⇒ sameEvent（認得延後換新的事件日期，不重複延後）
+  const again = step(blocked.overlays, { seen: blocked.seen, events: [EVD(D7)], ...AT7, refClose: 110, when: 'intraday', lastTradePx: 104, nowMs: T(11, 0, D7) });
+  assert.deepEqual([again.records.map(x => x.outcome), again.overlays], [['sameEvent'], blocked.overlays]);
+  // 收盤班車：以今日官方收盤重算、取新舊較高者、次一交易日（10/08）生效、期限從那天起算（10/09、10/15 休市 ⇒ 10/16）
+  const settle = (close, over = {}) => stepEventOverlay(blocked.overlays, {
+    seen: blocked.seen, baseStop: 92, refClose: close, atr14: 2, todayYmd: D7, nowMs: T(16, 50, D7), when: 'close', isTradingDay: isTD, ...over,
+  });
+  const s1 = settle(105);   // 105 − max(2, 3.15)＝101.85 → 101.5（高於舊線 100.5）
+  assert.deepEqual(s1.records.map(x => [x.outcome, x.renew, x.line]), [['applied', true, 101.5]]);
+  assert.deepEqual(s1.changed, ['tighten']);
+  const n1 = s1.overlays[0];
+  assert.deepEqual([s1.overlays.length, n1.line, n1.refClose, n1.refYmd, n1.effectiveFrom, n1.expiresAfter, n1.eventDate, n1.renewOf, n1.state, n1.source, n1.renewPending],
+    [1, 101.5, 105, D7, '2026-10-08', '2026-10-16', D7, YMD, 'active', 'deferred', undefined]);
+  assert.deepEqual(s1.seen, [['3037:C16a', '2026-10-08', '2026-10-16', D7]]);
+  assert.equal(activeOverlays(s1.overlays, D7).length, 0, '今天已收盤：次一交易日才生效');
+  assert.equal(activeOverlays(s1.overlays, '2026-10-08')[0].line, 101.5);
+  // 收盤已跌（101 ⇒ 97.9 低於舊線）⇒ 沿用舊線 100.5 與它的口徑，期限照樣從 10/08 重算（不提前放寬）
+  const s2 = settle(101).overlays[0];
+  assert.deepEqual([s2.line, s2.refClose, s2.refYmd, s2.effectiveFrom, s2.expiresAfter], [100.5, 104, '2026-10-02', '2026-10-08', '2026-10-16']);
+  // 沒有收盤價 ⇒ noRef：舊層照舊（去掉延後標記）；收緊線 ≤ 基礎停損 ⇒ noBite：舊層照舊到期，身分記憶換新
+  const s3 = settle(null);
+  assert.deepEqual([s3.records.map(x => [x.outcome, x.renew]), s3.overlays], [[['noRef', true]], [a.overlays[0]]]);
+  const s4 = settle(105, { baseStop: 102 });
+  assert.deepEqual([s4.records.map(x => [x.outcome, x.line]), s4.overlays, s4.seen], [[['noBite', 101.5]], [a.overlays[0]], [['3037:C16a', '2026-10-08', '2026-10-16', D7]]]);
+  assert.deepEqual(step(s3.overlays, { seen: s3.seen, events: [EVD(D7)], ...AT7 }).records.map(x => x.outcome), ['sameEvent'], 'noRef 之後同一新進展不重收（身分記憶已記新日期）');
+  // 收盤班車沒跑到、舊層先到期（10/13 盤前）⇒ 延後換新轉成一般延後層，下一次收盤班車照首次事件的延後層處理
+  const exp13 = step(blocked.overlays, { seen: blocked.seen, events: [], todayYmd: '2026-10-13', nowMs: T(8, 46, '2026-10-13') });
+  assert.deepEqual(exp13.records.map(x => x.outcome), ['expired']);
+  assert.deepEqual(exp13.overlays.map(x => [x.state, x.line, x.eventDate, x.renewOf, x.deferredLine, x.renewPending]), [['deferred', null, D7, YMD, 106.5, undefined]]);
+  const c13 = stepEventOverlay(exp13.overlays, { seen: exp13.seen, baseStop: 92, refClose: 105, atr14: 2, todayYmd: '2026-10-13', nowMs: T(16, 50, '2026-10-13'), when: 'close', isTradingDay: isTD });
+  assert.deepEqual(c13.overlays.map(x => [x.state, x.line, x.effectiveFrom, x.eventDate]), [['active', 101.5, '2026-10-14', D7]]);
+  // 換新後的生效收緊線不低於舊層
+  for (const r of [flat, up, down, blocked, intra(108)]) assert.ok(activeOverlays(r.overlays, D7)[0].line >= a.overlays[0].line);
+  // 其他類別的層不受影響
+  const two = step([], { events: [EVD(YMD), EV({ cls: 'C17', key: '3037:C17', label: '工安停工' })] });
+  const r2 = step(two.overlays, { seen: two.seen, events: [EVD(D7)], ...AT7 });
+  assert.deepEqual(r2.overlays.map(x => [x.key, x.effectiveFrom]).sort(), [['3037:C16a', D7], ['3037:C17', YMD]]);
+});
+
+test('N4 停損：只有身分記憶（首件 noBite）或延後層時，期限內的新進展照新事件判；到期後的冷卻期照舊 sameEvent（D22 不變）；舊層沒有事件日期 ⇒ sameEvent 並補上，之後更晚的才換新', () => {
+  const nb = step([], { events: [EVD(YMD)], baseStop: 101 });
+  assert.deepEqual([nb.records.map(x => x.outcome), nb.seen], [['noBite'], [['3037:C16a', YMD, '2026-10-12', YMD]]]);
+  const r = step([], { seen: nb.seen, events: [EVD(D7)], ...AT7 });
+  assert.deepEqual(r.records.map(x => [x.outcome, x.renew]), [['applied', true]]);
+  assert.deepEqual([r.overlays[0].effectiveFrom, r.overlays[0].renewOf], [D7, YMD]);
+  // 到期（10/12）後的冷卻期：日期再晚也是同一事件
+  const a = step([], { events: [EVD(YMD)] });
+  for (const d of ['2026-10-13', '2026-10-20']) {
+    assert.deepEqual(step([], { seen: a.seen, events: [EVD(d)], todayYmd: d }).records.map(x => [x.outcome, x.renew]), [['sameEvent', undefined]], d);
+  }
+  assert.deepEqual(step([], { seen: a.seen, events: [EVD('2026-10-21')], todayYmd: '2026-10-21' }).records.map(x => x.outcome), ['applied'], '冷卻期過了照舊是新事件');
+  // 舊層沒有事件日期（N4 前建立）：比不了 ⇒ sameEvent，補上這件的日期；之後更晚的日期才換新
+  const legacy = step([], { events: [EV()] });
+  assert.deepEqual([legacy.overlays[0].eventDate, legacy.seen], [undefined, [['3037:C16a', YMD, '2026-10-12']]]);
+  const fill = step(legacy.overlays, { seen: legacy.seen, events: [EVD('2026-10-06')], todayYmd: '2026-10-06' });
+  assert.deepEqual(fill.records.map(x => x.outcome), ['sameEvent']);
+  assert.deepEqual([fill.overlays[0].eventDate, fill.overlays[0].line, fill.overlays[0].expiresAfter], ['2026-10-06', 100.5, '2026-10-12']);
+  assert.deepEqual(fill.seen, [['3037:C16a', YMD, '2026-10-12', '2026-10-06']]);
+  assert.deepEqual(step(fill.overlays, { seen: fill.seen, events: [EVD('2026-10-06')], ...AT7 }).records.map(x => x.outcome), ['sameEvent']);
+  assert.deepEqual(step(fill.overlays, { seen: fill.seen, events: [EVD(D7)], ...AT7 }).records.map(x => [x.outcome, x.renew]), [['applied', true]]);
+  // 延後層：收盤班車把事件日期帶進身分記憶；期限內遇到新進展 ⇒ 換掉延後層、照新事件判
+  const def = step([], { events: [EVD(YMD)], when: 'intraday', lastTradePx: 100, nowMs: T(10, 30) });
+  assert.equal(def.overlays[0].state, 'deferred');
+  const close = stepEventOverlay(def.overlays, { seen: def.seen, baseStop: 92, refClose: 99, atr14: 2, todayYmd: YMD, nowMs: T(16, 50), when: 'close', isTradingDay: isTD });
+  assert.deepEqual(close.seen, [['3037:C16a', '2026-10-06', '2026-10-13', YMD]]);
+  const dr = step(def.overlays, { seen: def.seen, events: [EVD('2026-10-06')], when: 'intraday', lastTradePx: 103, todayYmd: '2026-10-06', nowMs: T(10, 30, '2026-10-06') });
+  assert.deepEqual(dr.overlays.map(x => [x.state, x.line, x.renewOf]), [['active', 100.5, YMD]]);
+  // 身分記憶舊的三格照認（validSeen）；格式不對的丟掉
+  assert.deepEqual(step([], { seen: [['3037:C16a', YMD, '2026-10-12'], ['x', 'bad', 'bad', 'z'], ['y', YMD, YMD, 5]] }).records.map(x => x.outcome), ['sameEvent']);
+});
+
 // ── N10：影子紀錄 ────────────────────────────────────────────────────────────
 
 function barsFrom(start, rows) {

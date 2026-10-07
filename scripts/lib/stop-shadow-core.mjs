@@ -26,7 +26,7 @@ export const PREMARKET_FROM = M(8, 46);
 export const MARKET_OPEN = M(9, 0);
 export const MARKET_CLOSE = M(13, 30);
 
-// ── 停損簿編解碼（Firestore 不收巢狀陣列：ex.events 的 [日期, 係數]、eventSeen 的 [key, 生效日, 最後有效日]） ─────
+// ── 停損簿編解碼（Firestore 不收巢狀陣列：ex.events 的 [日期, 係數]、eventSeen 的 [key, 生效日, 最後有效日, 事件日期?]） ─────
 
 /** undefined 的鍵刪除、陣列中的 undefined 轉 null（同 firestore-clean.dropUndefined；這裡自帶一份以免依賴非純模組） */
 function clean(v) {
@@ -44,7 +44,9 @@ export function encodePosition(p) {
   const ex = isObj(p.ex)
     ? { coverFrom: p.ex.coverFrom ?? null, coverTo: p.ex.coverTo ?? null, events: (Array.isArray(p.ex.events) ? p.ex.events : []).map(e => (Array.isArray(e) ? { d: e[0], f: e[1] } : e)) }
     : null;
-  const eventSeen = (Array.isArray(p.eventSeen) ? p.eventSeen : []).map(s => (Array.isArray(s) ? { k: s[0], e: s[1], x: s[2] } : s));
+  // eventSeen 第 4 格＝事件日期（2026-10-07 N4，有值才有）⇒ d
+  const eventSeen = (Array.isArray(p.eventSeen) ? p.eventSeen : [])
+    .map(s => (Array.isArray(s) ? { k: s[0], e: s[1], x: s[2], ...(typeof s[3] === 'string' && s[3] ? { d: s[3] } : {}) } : s));
   return clean({ ...p, ex, eventSeen });
 }
 
@@ -57,8 +59,9 @@ export function decodePosition(raw) {
         .filter(e => Array.isArray(e) && typeof e[0] === 'string' && isPos(e[1])),
     }
     : null;
-  const eventSeen = (Array.isArray(raw.eventSeen) ? raw.eventSeen : []).map(s => (isObj(s) ? [s.k, s.e, s.x] : s))
-    .filter(s => Array.isArray(s) && s.length === 3 && s.every(x => typeof x === 'string'));
+  const eventSeen = (Array.isArray(raw.eventSeen) ? raw.eventSeen : [])
+    .map(s => (isObj(s) ? (typeof s.d === 'string' && s.d ? [s.k, s.e, s.x, s.d] : [s.k, s.e, s.x]) : s))
+    .filter(s => Array.isArray(s) && (s.length === 3 || s.length === 4) && s.every(x => typeof x === 'string'));
   return { ...raw, ex, eventSeen };
 }
 

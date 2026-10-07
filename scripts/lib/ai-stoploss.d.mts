@@ -188,6 +188,8 @@ export interface RuleBearEvent {
   code: string; cls: RuleClassCode; clsKey: string; label: string; sub: string | null;
   /** `${code}:${cls}`（確定性；不用引文雜湊） */
   key: string;
+  /** 事件日期（'YYYY-MM-DD' 或 'YYYY-MM-DD~YYYY-MM-DD'；延續軌跡優先、再看稽核軌跡；非 C16a 與舊資料 null）——N4 重新起算用（2026-10-07） */
+  eventDate: string | null;
   pass: 'evening' | 'night' | 'morning' | 'intraday' | null; at: number; targetDate: string | null;
   weight: number | null; weightSource: string | null; tier: EventTier;
   /** 只記錄（研究期），不參與任何判斷 */
@@ -202,12 +204,30 @@ export interface EventOverlay {
   effectiveFrom: string | null; expiresAfter: string | null;
   startedAt: number; source: 'premarket' | 'intraday' | 'deferred'; state: 'active' | 'deferred';
   deferredPx?: number | null; deferredLine?: number | null;
+  /** 這一層的事件日期（N4：期限內來了更晚日期的新進展 ⇒ 換成新的一層、重新起算；2026-10-07）；沒有＝非 C16a 或 N4 前建立 */
+  eventDate?: string | null;
+  /** N4 換新時被取代的舊事件日期 */
+  renewOf?: string | null;
+  /**
+   * N4 盤中換新、成交價已不高於新線（B3）：這一層（舊層）照常生效，換新延到 16:45 收盤班車以官方收盤重算（取新舊較高者）、
+   * 次一交易日生效、期限從那天起算——比照首次事件的延後（2026-10-07 審查）。收盤班車處理後移除
+   */
+  renewPending?: EventRenewPending | null;
 }
-/** [key, 生效日, 最後有效日]；保留到期後 eventRearmDays 個交易日 */
-export type EventSeen = readonly [key: string, effectiveFrom: string, expiresAfter: string];
+/** 掛在舊層上的延後換新（新層的欄位＋盤中當時的成交價與新線） */
+export interface EventRenewPending {
+  code?: string | null; sub?: string | null; label: string | null; tier: EventTier; weight: number | null; startedAt: number;
+  eventDate: string; renewOf: string | null; deferredPx: number | null; deferredLine: number | null;
+}
+/** [key, 生效日, 最後有效日, 事件日期?]；保留到期後 eventRearmDays 個交易日（事件日期 2026-10-07 起有值才帶） */
+export type EventSeen = readonly [key: string, effectiveFrom: string, expiresAfter: string, eventDate?: string];
 export type EventOutcome = 'applied' | 'noBite' | 'deferred' | 'noRef' | 'boughtSameDay' | 'boughtAfter' | 'noFirstDate'
   | 'sameEvent' | 'expired' | 'belowWeight' | 'notSignal';
-export interface EventRecord { key: string; cls: string; outcome: EventOutcome; line: number | null; tier: EventTier | null; weight: number | null }
+export interface EventRecord {
+  key: string; cls: string; outcome: EventOutcome; line: number | null; tier: EventTier | null; weight: number | null;
+  /** N4 重新起算（期限內事件日期較晚的新進展） */
+  renew?: true;
+}
 export function stepEventOverlay(prev: readonly EventOverlay[] | null, input: {
   events?: readonly RuleBearEvent[]; seen?: readonly EventSeen[];
   baseStop?: number | null; firstDate?: string | null;

@@ -17,6 +17,14 @@
 //     報導裡而 C17 答「是」（或沒答「否」而引用句帶事故、爆炸等較寬字樣）⇒ C16a 記 'acc'，主類別由 C17 擔任（C17 只記欄位、不改 label，R1）。
 //   其它：規則事實題留可稽核軌跡 ruleEvidence；同一檔同類別同一組報導當日已問過就沿用答案（不重問，減少 Ollama 呼叫）；
 //     題數與答案分布依資料日累計（ruleAuditCounts，只放計數）。newsVerdict 單檔接近 1MB 時壓縮證據（fitVerdictJson）。
+//
+// 使用者 2026-10-07 再裁定（原話「依建議進行」，對 N3／N4／N5）：
+//   N3 不回溯修改既有 newsVerdict 文件（不動歷史資料）。
+//   N4 延續有效期內出現「事件日期晚於軌跡記的事件日期」的新進展（例：先搜索、兩天後羈押或起訴）⇒ 新事件：照既有 C16a 新進展規則
+//     改判利空（引用逐字、日期在視窗內）、不標延續（可推播、停損收緊重新起算、戰情 Z2 依類別權重發級），軌跡換成新的 since 與
+//     eventDate（renewOf 記被取代的舊事件日期，只留在發生的那一筆）。事件日期相同或更早、或任一邊讀不到 ⇒ 仍算延續；
+//     舊軌跡沒有 eventDate ⇒ 延續，並以這次的事件日期補上（之後再有更晚日期的新進展才算新事件）。比較用 eventDateLater（區間要整段晚於）。
+//   N5 讀不到日期就不改判（維持 resolveRuleFact 的 'old'／dateUnknown，不改程式）。
 // 非投資建議。
 // ─────────────────────────────────────────────────────────────────────────────
 import {
@@ -347,6 +355,38 @@ export function reconcileAccident(facts, byCode) {
 
 // ── 延續（同一檔同類別在有效期內重複觸發） ─────────────────────────────────
 
+const EVENT_SPAN_RE = /^(\d{4}-\d{2}-\d{2})(?:~(\d{4}-\d{2}-\d{2}))?$/;
+
+/** 事件日期字串（resolveRuleFact 的 eventDate：'YYYY-MM-DD' 或 'YYYY-MM-DD~YYYY-MM-DD'）→ { lo, hi }；格式不對回 null */
+export function eventDateSpan(text) {
+  const m = typeof text === 'string' ? text.match(EVENT_SPAN_RE) : null;
+  if (!m) return null;
+  const lo = m[1], hi = m[2] ?? m[1];
+  return lo <= hi ? { lo, hi } : null;
+}
+
+/**
+ * 新事件日期 a 是不是「晚於」舊事件日期 b（N4）：兩邊都讀得到、而且 a 整段在 b 之後（a.lo > b.hi）。
+ * 相同、更早、區間重疊、任一邊讀不到 ⇒ false（算延續，保守）。
+ */
+export function eventDateLater(a, b) {
+  const sa = eventDateSpan(a), sb = eventDateSpan(b);
+  return !!sa && !!sb && sa.lo > sb.hi;
+}
+
+const validEventDate = v => (eventDateSpan(v) ? v : null);
+
+/**
+ * 判別裡某類別的事件日期：先看延續軌跡 ruleTrail[cls].eventDate（事件身分，ruleEvidence 被瘦身時也還在），沒有再看
+ * ruleEvidence[cls].eventDate；都沒有（非 C16a 類別、2026-10-07 前的舊資料）回 null。停損 ruleBearEvents 用它帶事件日期。
+ */
+export function ruleEventDateOf(v, cls) {
+  if (!isObj(v) || typeof cls !== 'string') return null;
+  const t = isObj(v.ruleTrail) && isObj(v.ruleTrail[cls]) ? validEventDate(v.ruleTrail[cls].eventDate) : null;
+  if (t) return t;
+  return isObj(v.ruleEvidence) && isObj(v.ruleEvidence[cls]) ? validEventDate(v.ruleEvidence[cls].eventDate) : null;
+}
+
 /**
  * 這筆判別的主類別有沒有「被當成新事件」（延續的起算條件；2026-10-07 審查修正）：主類別（ruleClass，該類事實答「是」）、
  * 走過四角色挑戰（challenged）、非承接（carriedFrom）、AI 讀過內文（basis 'content'）、label 利空。
@@ -361,12 +401,16 @@ export function ruleTrailEligible(v) {
 }
 
 /**
- * 判別 → 帶上延續軌跡的新判別。prevTrail：同一檔前一筆判別的 ruleTrail（{ [code]: { since, eventDate? } }）；
+ * 判別 → 帶上延續軌跡的新判別。prevTrail：同一檔前一筆判別的 ruleTrail（{ [code]: { since, eventDate?, renewOf? } }）；
  * targetDate：這筆判別的適用交易日；contFromYmd：有效期的第一個交易日（＝適用日往前數 RULE_CONT_TRADING_DAYS 個交易日，含適用日）。
- * - 有效期內的舊軌跡照抄（這次沒答「是」也保留，免得中間某次沒觸發就讓之後的重複觸發被當新事件）；
+ * - 有效期內的舊軌跡照抄 since、eventDate（這次沒答「是」也保留，免得中間某次沒觸發就讓之後的重複觸發被當新事件）；renewOf 不抄；
  * - 主類別沒有軌跡、而且這筆判別「被當成新事件」（ruleTrailEligible）⇒ 以適用日為 since 新建。沒被當成新事件的（沒挑戰過、
  *   次要類別、label 不是利空）不起算——否則隔日真的收成事件時會被標延續、從頭到尾沒收（2026-10-07 審查修正）；
- * - 主類別（ruleClass）的 since 早於適用日 ⇒ ruleCont＝since（延續：不當新事件、不重複推播、停損不再收）。
+ * - N4（2026-10-07「依建議進行」）：主類別已有軌跡，這筆的事件日期晚於軌跡的事件日期（eventDateLater）⇒ 新事件、不標延續；
+ *   這筆也「被當成新事件」時軌跡換成 { since: 適用日, eventDate: 新日期, renewOf: 舊日期 }（有效期從新的 since 重算），
+ *   沒被當成新事件的（例：挑戰失敗）軌跡不動、下一筆照新事件判（同首次起算的取捨：寧可多推一次、不可永久漏收）；
+ * - 舊軌跡沒有 eventDate（相容）：讀不到就比不了 ⇒ 延續，並補上這筆的事件日期（之後更晚日期的新進展才算新事件）；
+ * - 主類別（ruleClass）的 since 早於適用日、而且不是 N4 的較晚新進展 ⇒ ruleCont＝since（延續：不當新事件、不重複推播、停損不再收）。
  *   同一適用日的重判（例如晨間判到、盤中再判）不是延續：當日的停損與戰情要照常認得它。
  */
 export function withRuleTrail(verdict, prevTrail, { targetDate, contFromYmd = null } = {}) {
@@ -376,22 +420,38 @@ export function withRuleTrail(verdict, prevTrail, { targetDate, contFromYmd = nu
   for (const [c, t] of Object.entries(isObj(prevTrail) ? prevTrail : {})) {
     if (!RULE_CLASS_BY_CODE[c] || !isObj(t) || !isYmd(t.since) || t.since > targetDate) continue;
     if (isYmd(contFromYmd) && t.since < contFromYmd) continue;
-    trail[c] = compact({ since: t.since, eventDate: typeof t.eventDate === 'string' ? t.eventDate : null });
+    trail[c] = compact({ since: t.since, eventDate: validEventDate(t.eventDate) });
   }
   const facts = isObj(rest.ruleFacts) ? rest.ruleFacts : {};
   const primary = typeof rest.ruleClass === 'string' && facts[rest.ruleClass] === 'yes' ? rest.ruleClass : null;
-  if (primary && !trail[primary] && ruleTrailEligible(rest)) {
-    const ed = rest.ruleEvidence?.[primary]?.eventDate;
-    trail[primary] = compact({ since: targetDate, eventDate: typeof ed === 'string' ? ed : null });
+  if (!primary) return Object.keys(trail).length ? { ...rest, ruleTrail: trail } : rest;
+  const ed = isObj(rest.ruleEvidence) && isObj(rest.ruleEvidence[primary]) ? validEventDate(rest.ruleEvidence[primary].eventDate) : null;
+  const prev = trail[primary] ?? null;
+  const later = !!prev && eventDateLater(ed, prev.eventDate);
+  if (!prev || later) {
+    if (ruleTrailEligible(rest)) trail[primary] = compact({ since: targetDate, eventDate: ed, renewOf: later ? prev.eventDate : null });
+  } else if (!prev.eventDate && ed) {
+    trail[primary] = { ...prev, eventDate: ed };
   }
   const out = Object.keys(trail).length ? { ...rest, ruleTrail: trail } : rest;
-  if (primary && trail[primary] && trail[primary].since < targetDate) return { ...out, ruleCont: trail[primary].since };
+  const t = trail[primary];
+  if (t && !later && t.since < targetDate) return { ...out, ruleCont: t.since };
   return out;
 }
 
 /** 規則類利空而且是延續（ruleCont）：不當新事件、不重複推播、停損 ruleBearEvents 不再收 */
 export function isRuleContinuation(v) {
   return isObj(v) && isYmd(v.ruleCont) && ruleClassOf(v) !== null;
+}
+
+/**
+ * N4：這筆判別是「有效期內事件日期較晚的新進展」而把主類別軌跡換新（ruleTrail[ruleClass].renewOf＝被取代的舊事件日期）。
+ * 只在發生換新的那一筆為真（之後的判別抄軌跡時不抄 renewOf）；計數與 daemon log 用。
+ */
+export function isRuleRenewal(v) {
+  if (!isObj(v) || typeof v.ruleClass !== 'string' || ruleClassOf(v) !== v.ruleClass || !isObj(v.ruleTrail)) return false;
+  const t = v.ruleTrail[v.ruleClass];
+  return isObj(t) && typeof t.renewOf === 'string' && !isYmd(v.ruleCont);
 }
 
 /** C16a 舊案（涉訟中）：法律事實答「舊案」，而且這筆不是法律規則判定 */
@@ -403,10 +463,11 @@ export function isLegalOngoing(v) {
 
 /**
  * 一筆判別的事實題 → 計數：asked（實際送出的題數，含失敗）、reused（當日沿用、沒送出）、fail（呼叫失敗或空白）、
- * ans（新送出且有回覆的答案分布，依 state）、quoteFail（C16a 引用比不上）、cont（延續）。只回有值的鍵。
+ * ans（新送出且有回覆的答案分布，依 state）、quoteFail（C16a 引用比不上）、cont（延續）、renew（N4 有效期內較晚的新進展換新軌跡）。
+ * 只回有值的鍵。
  */
 export function ruleAuditCounts(facts, verdict = null) {
-  const out = { asked: {}, reused: {}, fail: {}, ans: {}, quoteFail: {}, cont: {} };
+  const out = { asked: {}, reused: {}, fail: {}, ans: {}, quoteFail: {}, cont: {}, renew: {} };
   const inc = (k, c, sub = null) => {
     if (sub) { out[k][c] = { ...(out[k][c] ?? {}) }; out[k][c][sub] = (out[k][c][sub] ?? 0) + 1; }
     else out[k][c] = (out[k][c] ?? 0) + 1;
@@ -420,6 +481,7 @@ export function ruleAuditCounts(facts, verdict = null) {
     if (f.ev?.why === 'quote') inc('quoteFail', c);
   }
   if (isRuleContinuation(verdict)) inc('cont', verdict.ruleClass);
+  if (isRuleRenewal(verdict)) inc('renew', verdict.ruleClass);
   return Object.fromEntries(Object.entries(out).filter(([, v]) => Object.keys(v).length));
 }
 

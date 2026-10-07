@@ -156,6 +156,66 @@ test('J13／J4 盤前刷新：事件收緊在 08:46 生效（版本不是 setTod
   assert.deepEqual(gone.bookPatch, { 2330: null });
 });
 
+test('N4（2026-10-07「依建議進行」）盤前刷新：期限內事件日期較晚的新進展 ⇒ 停損收緊重新起算（新的生效日與期限、二級 stopInfo 換新 id）；價格已跌時不提前放寬、不觸發自檢 loosen', () => {
+  const r1 = refresh({ newsEvents: [EV({ eventDate: TODAY })] });
+  assert.equal(r1.bookPatch['2330'].stop, 100.5);
+  assert.deepEqual(r1.bookPatch['2330'].eventSeen, [['2330:C16a', TODAY, '2026-10-12', TODAY]]);
+  const book = bookOf(r1.bookPatch);
+  const D7 = '2026-10-07';
+  const day7 = (close, ed = D7) => planBookRefresh({
+    holdings: [H()], book, exTables: { 2330: EX }, lineInputs: { 2330: LI({ dataDate: '2026-10-06', close }) }, when: 'premarket',
+    latestCanonicalYmd: '2026-10-06', nowMs: T(8, 46, 7), tradeDate: D7, isTradingDay: isTD,
+    newsEvents: [EV({ eventDate: ed, targetDate: D7, at: T(7, 10, 7) })],
+  });
+  const up = day7(110);
+  const p = up.bookPatch['2330'];
+  assert.deepEqual([p.stop, p.stopSource, p.sourceDate], [106.5, 'event', D7]);
+  assert.deepEqual(p.events.map(o => [o.effectiveFrom, o.expiresAfter, o.eventDate, o.renewOf]), [[D7, '2026-10-14', D7, TODAY]]);
+  assert.ok(up.eventRecords.some(x => x.outcome === 'applied' && x.renew === true));
+  const info = up.docOnlyAlerts.find(a => a.sub === 'eventTighten');
+  assert.ok(info && info.message.startsWith('停損收緊：106.5（事件收緊·10/07 法律事件·至 10/14'), info?.message);
+  assert.ok(!r1.docOnlyAlerts.some(a => a.sub === 'eventTighten' && a.id === info.id), '換新 id（類別＋新生效日），不被前一件的二級去重吃掉');
+  // 價格已跌（前收 95）：新線較低 ⇒ 沿用舊線 100.5，期限重算；停損不下降、沒有自檢 loosen
+  const down = day7(95).bookPatch['2330'];
+  assert.deepEqual([down.stop, down.events[0].line, down.events[0].effectiveFrom, down.events[0].expiresAfter], [100.5, 100.5, D7, '2026-10-14']);
+  assert.notEqual(down.versionReason, 'init');
+  // 同一事件日期（重報）⇒ 不換新、不延長
+  const same = day7(110, TODAY).bookPatch['2330'];
+  assert.deepEqual([same.stop, same.events[0].effectiveFrom, same.events[0].expiresAfter], [100.5, TODAY, '2026-10-12']);
+});
+
+test('N4 盤中換新而成交價已不高於新線（2026-10-07 審查）⇒ 比照首次事件延後：舊層照常生效、二級「事件收緊未生效」帶成交價；收盤班車以收盤價重算、次一交易日生效、期限從那天起算', () => {
+  const D7 = '2026-10-07';
+  const r1 = refresh({ newsEvents: [EV({ eventDate: TODAY })] });
+  const pre7 = planBookRefresh({
+    holdings: [H()], book: bookOf(r1.bookPatch), exTables: { 2330: EX }, lineInputs: { 2330: LI({ dataDate: '2026-10-06', close: 110 }) },
+    when: 'premarket', latestCanonicalYmd: '2026-10-06', nowMs: T(8, 46, 7), tradeDate: D7, isTradingDay: isTD,
+  });
+  const book7 = bookOf(pre7.bookPatch);
+  assert.deepEqual([book7.positions['2330'].stop, book7.positions['2330'].events.map(o => o.line)], [100.5, [100.5]]);
+  const q = Q({ price: 105, low: 104.5, open: 106, high: 107, liveAt: T(10, 42, 7), revealAt: T(10, 42, 7) });
+  const t = tick(book7, {
+    intradayEvents: [EV({ eventDate: D7, targetDate: D7, pass: 'intraday', at: T(10, 25, 7) })],
+    quotes: { 2330: q }, nowMs: T(10, 43, 7), openMs: T(9, 0, 7), todayYmd: D7, refPrices: { 2330: 110 },
+  });
+  const p = t.bookPatch['2330'];
+  assert.equal(p.stop, 100.5, '舊層照常生效、今天不抬（新線 106.5 不低於成交價 105）');
+  assert.deepEqual(p.events.map(o => [o.line, o.effectiveFrom, o.renewPending?.eventDate, o.renewPending?.deferredPx]), [[100.5, TODAY, D7, 105]]);
+  assert.equal(t.docOnlyAlerts.find(a => a.sub === 'eventDeferred')?.message, '事件收緊未生效：成交價 105.0 已低於收緊線 106.5，改於今日收盤後依官方收盤重算');
+  assert.ok(t.eventRecords.some(x => x.outcome === 'deferred' && x.renew === true));
+  const c = planCloseSettle({
+    uid: 'u1', holdings: [H()], book: bookOf(t.bookPatch, book7), official: { 2330: { open: 106, high: 107, low: 104.5, close: 105 } },
+    lineInputs: { 2330: LI({ dataDate: D7, close: 105 }) }, dateYmd: D7, openMs: T(9, 0, 7), isTradingDay: isTD, refPrices: { 2330: 110 }, nowMs: T(16, 50, 7),
+  });
+  const cp = c.bookPatch['2330'];
+  // 105 − max(2, 3.15)＝101.85 → 101.5，高於舊線；10/08 起生效、到 10/15（10/09 休市）
+  assert.deepEqual(cp.events.map(o => [o.line, o.effectiveFrom, o.expiresAfter, o.eventDate, o.renewOf, o.renewPending]), [[101.5, '2026-10-08', '2026-10-15', D7, TODAY, undefined]]);
+  assert.equal(cp.stop, 101.5);
+  assert.ok(c.eventRecords.some(x => x.outcome === 'applied' && x.renew === true && x.when === 'close'));
+  const info = c.docOnlyAlerts.find(a => a.sub === 'eventTighten');
+  assert.ok(info && info.message.startsWith('停損收緊：101.5（事件收緊·10/08 法律事件·至 10/15'), info?.message);
+});
+
 test('盤前除權息：停損 ×f、版本 exAdjust、二級 stopInfo（只寫文件）寫出前後停損與係數', () => {
   const book = bookOf(refresh().bookPatch);
   const r = planBookRefresh({

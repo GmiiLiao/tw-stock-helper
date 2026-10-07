@@ -37,10 +37,12 @@
 //   §6.5 研究期分數「不影響任何排名或名單」⇒ 權重門檻類（w≥0.6、法律/處分 w≥0.3）不發任何等級的警示（停損規範 §13.2 B4 已確認）。
 //        Z2 持股重大利空只看規則類別的**類別權重**（新聞技能 §4.1 baseWeight，先驗·未回測，不是 w）：≥0.7 一級、0.3–0.7 二級、
 //        <0.3 不列 Z2（B2「我的」照列二級）。B2 全市場與「我的」新聞事件、A2 盤前清單的名單與排序都不用 w；
-//        Z2 同日再發只看警示等級上升（二級→一級），不看強弱。w 只用來顯示強弱文字。
+//        Z2 同日再發只看警示等級上升（二級→一級）或「先發延續、後來不是延續」（N4 新進展），不看強弱。w 只用來顯示強弱文字。
 //   2026-10-07 使用者裁定 N1(b)（news-rule-evidence.mjs）：C16a 舊案（事件日期在新聞視窗外、只在背景句出現；ruleFacts.C16a==='old'）
 //        只標「涉訟中」事實標籤（lt）——不當利空燈（燈照 AI 原判）、不進 Z2、不標「可能為法律事件」；規則類利空的延續
 //        （ruleCont：同一檔同類別有效期內重複觸發）照樣是規則利空，但 Z2 一律降二級「延續」（不當新事件），B2 文字標延續。
+//   2026-10-07 N4「依建議進行」：延續期內事件日期較晚的新進展 daemon 不標 ruleCont（rf＝null）＝新事件；同一適用日先以延續發過
+//        Z2 二級的，stepMajorBear 照新事件再發（seq+1，依類別權重）。web 端執行（TopAlertEngine），改動要隨 web 部署才生效。
 // ─────────────────────────────────────────────────────────────────────────────
 import { rankMediaVerdicts } from './after-market-news.mjs';
 import {
@@ -533,6 +535,9 @@ function pruneQ(q, targetDate) {
  *   · 同一適用日每檔只發一次；判讀時間較新「且」警示等級上升（二級→一級，例：新出現法律覆寫）才再發（seq+1，新 id）。
  *     強弱（權重）升級不再發（§6.5）。
  *   · 同一關鍵句在前一個適用日已判過利空 ⇒ 降二級「持續」（法律事件方向不變，但只有新進展才重新觸發，§5.4）。
+ *   · 同日先以「持續／延續」發過、之後來了判讀較新而且不是延續的條目（沒有 rf、關鍵句也不是前一適用日判過的；例：晨間趟重報
+ *     舊的搜索帶 rf，盤中出現羈押＝N4 新進展，2026-10-07「依建議進行」）⇒ 當新事件再發（seq+1、cont:false），級別依類別權重。
+ *     只看等級上升會漏掉它：延續記的等級本來就跟換新同級，隔日換新後的軌跡又標延續，新進展從頭到尾不會發一級（2026-10-07 審查）。
  *   · 換適用日：當日記錄清空；關鍵句記錄保留 NEWS_REPEAT_KEEP_DAYS 天（只記第一次判到的日子）。
  * 回 { state, items:[{ code, level, seq, cont, mb, entry }], changed }——items 每次都回（同 id 重送由 events.ts 去重；
  * 重新整理後已發未收到的會重新掛回，已收到的由本機收到記錄過濾）。
@@ -547,15 +552,15 @@ export function stepMajorBear(prev, cands, { targetDate }) {
     if (!c || !CODE_RE.test(c.code) || !isObj(c.entry) || !c.mb || !isNum(c.entry.at)) continue;
     const rank = alertRank(c.mb);
     const qk = quoteKeyOf(c.code, c.entry);
+    const firstDay = qk ? s.q[qk] : undefined;
+    // 延續：同一關鍵句前一適用日已判過，或 daemon 標了規則類利空延續（ruleCont，2026-10-07「不當新事件」）
+    const cont = (!!firstDay && firstDay < t) || !!c.entry.rf;
     let sent = s.sent[c.code];
     if (!sent) {
-      const firstDay = qk ? s.q[qk] : undefined;
-      // 延續：同一關鍵句前一適用日已判過，或 daemon 標了規則類利空延續（ruleCont，2026-10-07「不當新事件」）
-      const cont = (!!firstDay && firstDay < t) || !!c.entry.rf;
       sent = { at: c.entry.at, rank, seq: 1, cont };
       s = { ...s, sent: { ...s.sent, [c.code]: sent }, q: firstDay || !qk ? s.q : { ...s.q, [qk]: t } };
       changed = true;
-    } else if (c.entry.at > sent.at && rank > sent.rank) {
+    } else if (c.entry.at > sent.at && (rank > sent.rank || (sent.cont && !cont))) {
       sent = { at: c.entry.at, rank, seq: sent.seq + 1, cont: false };
       s = { ...s, sent: { ...s.sent, [c.code]: sent }, q: !qk || s.q[qk] ? s.q : { ...s.q, [qk]: t } };
       changed = true;

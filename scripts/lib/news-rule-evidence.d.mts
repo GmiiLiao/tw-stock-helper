@@ -32,11 +32,16 @@ export function asReused<T extends RuleFactResult>(fact: T | null | undefined): 
 export function reconcileAccident<T extends Record<string, RuleFactResult | null | undefined>>(
   facts: T, byCode: Partial<Record<RuleClassCode, ReadonlyArray<{ title?: string; content?: string }>>> | null | undefined,
 ): T;
+export function eventDateSpan(text: unknown): DateSpan | null;
+/** N4：新事件日期整段晚於舊的（a.lo > b.hi）；任一邊讀不到 ⇒ false */
+export function eventDateLater(a: unknown, b: unknown): boolean;
+export function ruleEventDateOf(verdict: unknown, cls: string): string | null;
 export function ruleTrailEligible(verdict: unknown): boolean;
 export function withRuleTrail<T extends Record<string, unknown>>(
   verdict: T, prevTrail: unknown, opts: { targetDate: string; contFromYmd?: string | null },
 ): T & Pick<RuleVerdictFields, 'ruleTrail' | 'ruleCont'>;
 export function isRuleContinuation(verdict: unknown): boolean;
+export function isRuleRenewal(verdict: unknown): boolean;
 export function isLegalOngoing(verdict: unknown): boolean;
 export interface RuleAuditCounts {
   asked?: Partial<Record<RuleClassCode, number>>;
@@ -45,6 +50,7 @@ export interface RuleAuditCounts {
   ans?: Partial<Record<RuleClassCode, Partial<Record<RuleFactText, number>>>>;
   quoteFail?: Partial<Record<RuleClassCode, number>>;
   cont?: Partial<Record<RuleClassCode, number>>;
+  renew?: Partial<Record<RuleClassCode, number>>;
 }
 export function ruleAuditCounts(facts: Record<string, RuleFactResult | null | undefined> | null | undefined, verdict?: unknown): RuleAuditCounts;
 export function slimRuleEvidence<T extends Record<string, unknown>>(verdicts: T, level?: 'text' | 'all'): T;

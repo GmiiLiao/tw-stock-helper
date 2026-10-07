@@ -25,6 +25,13 @@ test('停損簿編碼：ex.events 與 eventSeen 的巢狀陣列轉物件（Fires
   const dec = decodePosition(JSON.parse(JSON.stringify(enc)));
   assert.deepEqual(dec.ex.events, [['2026-07-15', 0.962]]);
   assert.deepEqual(dec.eventSeen, [['2330:C16a', '2026-10-05', '2026-10-09']]);
+  // 2026-10-07 N4：身分記憶第 4 格＝事件日期（有值才帶）⇒ d；舊的三格照解
+  const p4 = { ...p, eventSeen: [['2330:C16a', '2026-10-07', '2026-10-14', '2026-10-07'], ['2317:C17', '2026-10-05', '2026-10-09']] };
+  const enc4 = encodePosition(p4);
+  assert.equal(hasNestedArray(enc4), false);
+  assert.deepEqual(enc4.eventSeen, [{ k: '2330:C16a', e: '2026-10-07', x: '2026-10-14', d: '2026-10-07' }, { k: '2317:C17', e: '2026-10-05', x: '2026-10-09' }]);
+  assert.deepEqual(decodePosition(JSON.parse(JSON.stringify(enc4))).eventSeen, p4.eventSeen);
+  assert.deepEqual(decodePosition({ eventSeen: [{ k: 'a', e: '2026-10-05', x: '2026-10-09', d: 5 }, { k: 'b', e: 1, x: '2026-10-09' }] }).eventSeen, [['a', '2026-10-05', '2026-10-09']]);
   const book = decodeBook(JSON.parse(JSON.stringify(encodeBook({ positions: { 2330: p }, nextEpisodeId: 3 }))));
   assert.deepEqual(book.positions['2330'].ex.events, [['2026-07-15', 0.962]]);
   assert.equal(decodeBook(null), null);

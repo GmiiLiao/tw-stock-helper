@@ -91,8 +91,8 @@ export interface RuleVerdictFields {
   aiOriginal?: { label: string; reason: string };
   ruleFacts?: Partial<Record<RuleClassCode, RuleFactText>>;
   ruleEvidence?: Partial<Record<RuleClassCode, RuleEvidence>>;
-  /** 各類別首次判定「是」的適用日（延續判定用） */
-  ruleTrail?: Partial<Record<RuleClassCode, { since: string; eventDate?: string }>>;
+  /** 各類別被當成新事件那次的適用日 since＋事件日期 eventDate（延續判定用）；N4 有效期內事件日期較晚的新進展換新時 renewOf＝被取代的舊事件日期（2026-10-07） */
+  ruleTrail?: Partial<Record<RuleClassCode, { since: string; eventDate?: string; renewOf?: string }>>;
   /** 主類別是延續時＝首次判定的適用日 */
   ruleCont?: string;
 }

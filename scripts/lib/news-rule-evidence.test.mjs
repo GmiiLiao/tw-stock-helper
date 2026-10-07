@@ -7,6 +7,7 @@ import {
   RULE_CONT_TRADING_DAYS, RULE_DOC_SOFT_MAX, ACCIDENT_LINK_RE, ACCIDENT_CONTEXT_RE, normForQuote, quoteInArticles, parseLegalFactDetail, factDateSpan,
   windowRelation, quoteDateRelation, quoteClauseOf, isBackgroundClause, resolveRuleFact, ruleFactKey, reuseRuleFact, asReused, reconcileAccident,
   ruleTrailEligible, withRuleTrail, isRuleContinuation, isLegalOngoing, ruleAuditCounts, slimRuleEvidence, fitVerdictJson,
+  eventDateSpan, eventDateLater, ruleEventDateOf, isRuleRenewal,
 } from './news-rule-evidence.mjs';
 import {
   applyRuleFacts, ruleFieldsOf, ruleClassOf, ruleFactQuestion, parseRuleFactAnswer, ruleTriggerScan, ruleTriggerHit, factStateOf,
@@ -432,4 +433,176 @@ test('端到端（10/07 裁定）：寫入端欄位 → 停損 ruleBearEvents �
   const bars = c => [{ date: '2026-10-06', o: 100, h: 100, l: 100, c: 100 }, { date: YMD, o: 92, h: 92, l: 90, c: 90 }].map(b => ({ ...b, code: c }));
   const misses = missShadowRows({ universe: ['3037', '2454'], barsByCode: { 3037: bars('3037'), 2454: bars('2454') }, newsDoc: doc, dateYmd: YMD, applicableYmd: YMD, minAtMs });
   assert.deepEqual(misses.map(m => [m.code, m.reason]), [['2454', 'continuation'], ['3037', 'legalOngoing']]);
+});
+
+// ── 2026-10-07 N3／N4／N5（使用者「依建議進行」）：延續期內事件日期較晚的新進展＝新事件 ─────────────────────
+
+const yesOn = (ed, over = {}) => applyRuleFacts(AI(over), { facts: { C16a: { yes: true, sub: null, state: 'yes', ev: ed ? { eventDate: ed } : {} } } });
+
+test('N4 事件日期比較（eventDateLater）：整段晚於才算；相同、更早、區間重疊、讀不到、格式不對 ⇒ 否（算延續）', () => {
+  assert.deepEqual(eventDateSpan('2026-10-06~2026-10-07'), { lo: '2026-10-06', hi: '2026-10-07' });
+  assert.deepEqual(eventDateSpan('2026-10-07'), { lo: '2026-10-07', hi: '2026-10-07' });
+  for (const bad of [null, undefined, '', 'bad', '2026/10/07', '2026-10-07~2026-10-06', 20261007]) assert.equal(eventDateSpan(bad), null, String(bad));
+  for (const [a, b] of [['2026-10-07', '2026-10-05'], ['2026-10-06~2026-10-07', '2026-10-05'], ['2026-10-08', '2026-10-05~2026-10-07']]) {
+    assert.equal(eventDateLater(a, b), true, `${a} > ${b}`);
+  }
+  for (const [a, b] of [
+    ['2026-10-05', '2026-10-05'], ['2026-10-04', '2026-10-05'], ['2026-10-06~2026-10-07', '2026-10-06'], ['2026-10-07', '2026-10-05~2026-10-07'],
+    [null, '2026-10-05'], ['2026-10-07', null], ['2026-10-07', undefined], ['bad', '2026-10-05'], ['2026-10-07', 'bad'],
+  ]) assert.equal(eventDateLater(a, b), false, `${a} vs ${b}`);
+});
+
+test('N4 搜索→兩天後羈押：延續期內事件日期較晚 ⇒ 新事件（不標延續、可推播、軌跡換成新的 since／eventDate、renewOf 記舊日期）；同一事件重報 ⇒ 延續；有效期從新的 since 重算', () => {
+  const d1 = withRuleTrail(yesOn('2026-10-05'), null, { targetDate: '2026-10-05', contFromYmd: '2026-09-29' });
+  assert.deepEqual(d1.ruleTrail, { C16a: { since: '2026-10-05', eventDate: '2026-10-05' } });
+  // 隔日同一件搜索再被報導（事件日期相同）⇒ 延續
+  const d2 = withRuleTrail(yesOn('2026-10-05'), d1.ruleTrail, { targetDate: '2026-10-06', contFromYmd: '2026-09-30' });
+  assert.deepEqual([d2.ruleCont, isRuleContinuation(d2), isRuleRenewal(d2)], ['2026-10-05', true, false]);
+  // 兩天後羈押（事件日期 10/07 晚於軌跡的 10/05）⇒ 新事件
+  const d3 = withRuleTrail(yesOn('2026-10-07'), d2.ruleTrail, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.equal(d3.ruleCont, undefined);
+  assert.equal(isRuleContinuation(d3), false, '不是延續：推播（完成訊號利空清單、盤中突發）照列、ruleBearEvents 照收');
+  assert.equal(isRuleRenewal(d3), true);
+  assert.deepEqual(d3.ruleTrail, { C16a: { since: '2026-10-07', eventDate: '2026-10-07', renewOf: '2026-10-05' } });
+  assert.deepEqual([d3.label, d3.ruleClass, d3.reason.startsWith(RULE_LEGAL_PREFIX)], ['利空', 'C16a', true], '照既有 C16a 新進展規則改判利空');
+  assert.deepEqual(ruleAuditCounts({}, d3), { renew: { C16a: 1 } });
+  // 羈押隔日再被報導（同一事件日期）⇒ 延續（自新的 since 起算）；renewOf 不抄
+  const d4 = withRuleTrail(yesOn('2026-10-07'), d3.ruleTrail, { targetDate: '2026-10-08', contFromYmd: '2026-10-02' });
+  assert.deepEqual([d4.ruleCont, d4.ruleTrail.C16a, isRuleRenewal(d4)], ['2026-10-07', { since: '2026-10-07', eventDate: '2026-10-07' }, false]);
+  assert.deepEqual(ruleAuditCounts({}, d4), { cont: { C16a: 1 } });
+  // 事件日期更早（又報舊的搜索）⇒ 延續、軌跡不動
+  const back = withRuleTrail(yesOn('2026-10-05'), d4.ruleTrail, { targetDate: '2026-10-09', contFromYmd: '2026-10-05' });
+  assert.deepEqual([back.ruleCont, back.ruleTrail.C16a.eventDate], ['2026-10-07', '2026-10-07']);
+  // 有效期重新起算：原本 10/05 起算的軌跡在 contFrom＝10/06 時已過期，換新後（since 10/07）仍有效
+  const later = withRuleTrail(yesOn('2026-10-07'), d4.ruleTrail, { targetDate: '2026-10-12', contFromYmd: '2026-10-06' });
+  assert.equal(later.ruleCont, '2026-10-07');
+  // 同一適用日的重判帶較晚日期（晨間判到搜索、盤中又出羈押）⇒ 換新但本來就不是延續
+  const sameDay = withRuleTrail(yesOn('2026-10-06'), d1.ruleTrail, { targetDate: '2026-10-05', contFromYmd: '2026-09-29' });
+  assert.deepEqual([sameDay.ruleCont, sameDay.ruleTrail.C16a], [undefined, { since: '2026-10-05', eventDate: '2026-10-06', renewOf: '2026-10-05' }]);
+  // 區間：與軌跡日期重疊 ⇒ 延續；整段晚於 ⇒ 新事件
+  assert.equal(withRuleTrail(yesOn('2026-10-05~2026-10-06'), d1.ruleTrail, { targetDate: '2026-10-06' }).ruleCont, '2026-10-05');
+  assert.equal(withRuleTrail(yesOn('2026-10-06~2026-10-07'), d1.ruleTrail, { targetDate: '2026-10-07' }).ruleCont, undefined);
+  // 輸入不變
+  assert.deepEqual(d1.ruleTrail, { C16a: { since: '2026-10-05', eventDate: '2026-10-05' } });
+});
+
+test('N4／N5 讀不到事件日期 ⇒ 仍算延續（這筆沒有 eventDate、非 C16a 類別、日期格式不對）；N5 日期讀不出來本來就不改判（舊案）', () => {
+  const t1 = { C16a: { since: '2026-10-05', eventDate: '2026-10-05' } };
+  for (const v of [yesOn(null), yesOn('bad'), yesOn('10月7日')]) {
+    const out = withRuleTrail(v, t1, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+    assert.deepEqual([out.ruleCont, out.ruleTrail.C16a, isRuleRenewal(out)], ['2026-10-05', t1.C16a, false], JSON.stringify(v.ruleEvidence));
+  }
+  // 非法律類別沒有事件日期：照舊延續
+  const c17 = applyRuleFacts(AI({ label: '利空' }), { facts: { C17: { yes: true, sub: null, state: 'yes' } } });
+  const e1 = withRuleTrail(c17, null, { targetDate: '2026-10-05' });
+  assert.deepEqual(e1.ruleTrail, { C17: { since: '2026-10-05' } });
+  assert.equal(withRuleTrail(c17, e1.ruleTrail, { targetDate: '2026-10-07' }).ruleCont, '2026-10-05');
+  // N5：AI 說是新進展但日期讀不出來 ⇒ 'old'（dateUnknown）＝涉訟中，不改判、不起算、不換新（維持現行，不改程式）
+  const arts = scanOf(ART_NEW, '欣興').byCode.C16a;
+  const f = resolveRuleFact('C16a', legalAns({ nd: '是', date: '不確定', quote: '調查局今日搜索欣興總部' }), OPTS(arts));
+  assert.deepEqual([f.state, f.ev.why], ['old', 'dateUnknown']);
+  const v = withRuleTrail(applyRuleFacts(AI(), { facts: { C16a: f } }), t1, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.deepEqual([v.label, v.ruleClass, v.ruleCont, v.ruleTrail], ['中性', undefined, undefined, t1]);
+});
+
+test('N4 相容：舊軌跡沒有 eventDate ⇒ 延續並補上這次的事件日期；之後有更晚日期的新進展才算新事件', () => {
+  const legacy = { C16a: { since: '2026-10-05' } };
+  const c1 = withRuleTrail(yesOn('2026-10-06'), legacy, { targetDate: '2026-10-06', contFromYmd: '2026-09-30' });
+  assert.deepEqual([c1.ruleCont, c1.ruleTrail.C16a, isRuleRenewal(c1)], ['2026-10-05', { since: '2026-10-05', eventDate: '2026-10-06' }, false]);
+  const c2 = withRuleTrail(yesOn('2026-10-06'), c1.ruleTrail, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.equal(c2.ruleCont, '2026-10-05', '同一個補上的日期 ⇒ 仍延續');
+  const c3 = withRuleTrail(yesOn('2026-10-08'), c2.ruleTrail, { targetDate: '2026-10-08', contFromYmd: '2026-10-02' });
+  assert.deepEqual([c3.ruleCont, c3.ruleTrail.C16a], [undefined, { since: '2026-10-08', eventDate: '2026-10-08', renewOf: '2026-10-06' }]);
+  // 格式不對的舊 eventDate 當沒有（延續＋補上）；這次也讀不到 ⇒ 延續、不補
+  const junk = withRuleTrail(yesOn('2026-10-07'), { C16a: { since: '2026-10-05', eventDate: 'x' } }, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.deepEqual([junk.ruleCont, junk.ruleTrail.C16a], ['2026-10-05', { since: '2026-10-05', eventDate: '2026-10-07' }]);
+  const none = withRuleTrail(yesOn(null), legacy, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.deepEqual([none.ruleCont, none.ruleTrail.C16a], ['2026-10-05', { since: '2026-10-05' }]);
+});
+
+test('N4 較晚的新進展但沒被當成新事件（挑戰失敗、承接）⇒ 不標延續、軌跡不動；隔日挑戰過 ⇒ 換新（同首次起算的取捨）', () => {
+  const t1 = { C16a: { since: '2026-10-05', eventDate: '2026-10-05' } };
+  const weak = withRuleTrail(yesOn('2026-10-07', { challenged: false }), t1, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.deepEqual([weak.ruleCont, weak.ruleTrail, isRuleRenewal(weak), isRuleContinuation(weak)], [undefined, t1, false, false]);
+  const carried = withRuleTrail({ ...yesOn('2026-10-07'), carriedFrom: '2026-10-06' }, t1, { targetDate: '2026-10-07', contFromYmd: '2026-10-01' });
+  assert.deepEqual([carried.ruleCont, carried.ruleTrail], [undefined, t1]);
+  const next = withRuleTrail(yesOn('2026-10-07'), weak.ruleTrail, { targetDate: '2026-10-08', contFromYmd: '2026-10-02' });
+  assert.deepEqual([next.ruleCont, next.ruleTrail.C16a], [undefined, { since: '2026-10-08', eventDate: '2026-10-07', renewOf: '2026-10-05' }]);
+  // 停損帶的事件日期：延續軌跡優先、再看稽核軌跡；都沒有 ⇒ null
+  assert.equal(ruleEventDateOf(next, 'C16a'), '2026-10-07');
+  assert.equal(ruleEventDateOf(yesOn('2026-10-06'), 'C16a'), '2026-10-06');
+  assert.equal(ruleEventDateOf({ ...yesOn('2026-10-06'), ruleTrail: { C16a: { since: '2026-10-05', eventDate: '2026-10-05' } } }, 'C16a'), '2026-10-05');
+  assert.equal(ruleEventDateOf(yesOn(null), 'C16a'), null);
+  assert.equal(ruleEventDateOf(null, 'C16a'), null);
+});
+
+test('N4 端到端（搜索→兩天後羈押）：resolveRuleFact 逐字引用＋視窗內日期 → 新事件：完成訊號與盤中突發照列、停損 ruleBearEvents 收（帶新事件日期）、戰情 Z2 依類別權重一級；重報 ⇒ 延續', async () => {
+  const { ruleBearEvents } = await import('./ai-stoploss.mjs');
+  const { newsBoardFromDoc, newsCtxOf, majorBearOf, stepMajorBear } = await import('./warroom-news.mjs');
+  const SEARCH = { title: '調查局搜索欣興總部', at: AT('2026-10-05'), src: '工商時報', content: '調查局今日搜索欣興總部並約談財務主管，欣興表示將配合調查。' };
+  const DETAIN = { title: '欣興前財務長遭羈押', at: AT('2026-10-07'), src: '經濟日報', content: '台北地院今日裁定欣興前財務長羈押禁見，全案持續偵辦中，欣興表示營運正常。' };
+  const judge = (art, day, from, ans, prevTrail, contFromYmd) => {
+    const scan = scanOf(art, '欣興');
+    const facts = { C16a: resolveRuleFact('C16a', ans, { articles: scan.byCode.C16a, window: { from, to: day }, todayYmd: day, day, key: day }) };
+    return withRuleTrail(applyRuleFacts(AI(), { facts }), prevTrail, { targetDate: day, contFromYmd });
+  };
+  const ansS = legalAns({ nd: '是', date: '2026-10-05', quote: '調查局今日搜索欣興總部' });
+  const d1 = judge(SEARCH, '2026-10-05', '2026-10-02', ansS, null, '2026-09-29');
+  const d2 = judge(SEARCH, '2026-10-06', '2026-10-05', ansS, d1.ruleTrail, '2026-09-30');
+  const d3 = judge(DETAIN, '2026-10-07', '2026-10-06', legalAns({ nd: '是', date: '2026-10-07', quote: '台北地院今日裁定欣興前財務長羈押禁見' }), d2.ruleTrail, '2026-10-01');
+  assert.deepEqual([d1.ruleClass, d1.ruleCont, d2.ruleCont, d3.ruleCont], ['C16a', undefined, '2026-10-05', undefined]);
+  assert.deepEqual(d3.ruleTrail.C16a, { since: '2026-10-07', eventDate: '2026-10-07', renewOf: '2026-10-05' });
+  // daemon 推播的兩個篩選式（news-rule-daemon-pin 釘住）：完成訊號利空清單、盤中突發
+  const pushable = v => v.label === '利空' && !isRuleContinuation(v);
+  assert.deepEqual([pushable(d2), pushable(d3)], [false, true]);
+  const YMD = '2026-10-07';
+  const at = Date.parse(`${YMD}T10:25:00+08:00`);
+  const minAtMs = Date.parse('2026-10-06T13:30:00+08:00');
+  const write = v => ({ label: v.label, confidence: v.confidence, strength: v.strength, reason: v.reason, basis: v.basis, n: 2, pass: 'intraday', at, challenged: true, gate: null, quoteVerified: 1, eventType: '法律', ...ruleFieldsOf(v) });
+  const doc = { date: YMD, targetDate: YMD, updatedAt: at + 1000, lastPass: 'intraday', verdictJson: JSON.stringify({ 3037: write(d3) }) };
+  const evs = ruleBearEvents(doc, { applicableYmd: YMD, minAtMs });
+  assert.deepEqual(evs.map(e => [e.code, e.cls, e.tier, e.eventDate]), [['3037', 'C16a', 'strong', '2026-10-07']]);
+  const board = newsBoardFromDoc(doc);
+  const ctx = newsCtxOf(board.meta, YMD);
+  const e = board.map['3037'];
+  assert.deepEqual([e.st, e.rc, e.rf], ['bear', 'C16a', null]);
+  const mb = majorBearOf(e, { scope: 'holding', ctx, minAtMs });
+  const step = stepMajorBear(null, [{ code: '3037', entry: e, mb }], { targetDate: YMD });
+  assert.deepEqual(step.items.map(i => [i.level, i.cont]), [[1, false]], 'Z2 依類別權重（C16a 0.90）發一級、不降延續');
+  // 同一適用日先以延續發過 Z2 二級（前一晚盤後趟或晨間趟重報搜索，帶 rf），盤中羈押換新 ⇒ 照新事件再發一級（seq 2）。
+  //   只看等級上升會漏：延續記的等級本來就是一級的 rank，換新不會再發，隔日軌跡換新後又標延續（2026-10-07 審查）。
+  const { majorBearEvents, majorBearText } = await import('./warroom-news.mjs');
+  for (const [pass, atPrev] of [['evening', Date.parse('2026-10-06T23:00:00+08:00')], ['morning', Date.parse(`${YMD}T07:30:00+08:00`)]]) {
+    const dm = judge(SEARCH, YMD, '2026-10-05', ansS, d2.ruleTrail, '2026-10-01');
+    assert.deepEqual([dm.ruleClass, dm.ruleCont], ['C16a', '2026-10-05'], pass);
+    const dr = judge(DETAIN, YMD, '2026-10-05', legalAns({ nd: '是', date: '2026-10-07', quote: '台北地院今日裁定欣興前財務長羈押禁見' }), dm.ruleTrail, '2026-10-01');
+    assert.deepEqual([dr.ruleCont, dr.ruleTrail.C16a.renewOf], [undefined, '2026-10-05'], pass);
+    const entryOf = (v, p, t) => {
+      const d = { date: YMD, targetDate: YMD, updatedAt: t + 1000, lastPass: p, verdictJson: JSON.stringify({ 3037: { ...write(v), pass: p, at: t } }) };
+      const b = newsBoardFromDoc(d);
+      const en = b.map['3037'];
+      return { code: '3037', entry: en, mb: majorBearOf(en, { scope: 'holding', ctx: newsCtxOf(b.meta, YMD), minAtMs }) };
+    };
+    const cm = entryOf(dm, pass, atPrev);
+    assert.equal(cm.entry.rf, '2026-10-05', pass);
+    const s1 = stepMajorBear(null, [cm], { targetDate: YMD });
+    assert.deepEqual(s1.items.map(i => [i.level, i.cont, i.seq]), [[2, true, 1]], `${pass}：延續降二級`);
+    const ci = entryOf(dr, 'intraday', at);
+    const s2 = stepMajorBear(s1.state, [ci], { targetDate: YMD });
+    assert.deepEqual([s2.changed, s2.items.map(i => [i.level, i.cont, i.seq])], [true, [[1, false, 2]]], `${pass}：盤中新進展照新事件再發一級`);
+    const [ev] = majorBearEvents(s2.items, new Map([['3037', '欣興']]), YMD);
+    assert.deepEqual([ev.kind, ev.id], ['majorNegative', `majorNegative:${YMD}:3037:2`], pass);
+    assert.doesNotMatch(majorBearText('3037', '欣興', s2.items[0]), /持續|延續/, pass);
+    // 重新整理後（同一份 state、同一筆換新）不再重發；之後再送延續條目也不降回二級
+    const s3 = stepMajorBear(s2.state, [ci], { targetDate: YMD });
+    assert.deepEqual([s3.changed, s3.items.map(i => [i.level, i.seq])], [false, [[1, 2]]], pass);
+    const late = { ...cm, entry: { ...cm.entry, at: at + 60_000 } };
+    assert.deepEqual(stepMajorBear(s2.state, [late], { targetDate: YMD }).items.map(i => [i.level, i.cont, i.seq]), [[1, false, 2]], pass);
+  }
+  // 延續之後再來的仍是延續（rf 照帶）⇒ 不再發、維持二級延續
+  const contA = { code: '3037', entry: { ...e, rf: '2026-10-05', at: at - 3_600_000, r: '調查局搜索欣興總部' }, mb };
+  const contB = { code: '3037', entry: { ...e, rf: '2026-10-05', at, r: '欣興遭搜索後續' }, mb };
+  const c1 = stepMajorBear(null, [contA], { targetDate: YMD });
+  const c2 = stepMajorBear(c1.state, [contB], { targetDate: YMD });
+  assert.deepEqual([c2.changed, c2.items.map(i => [i.level, i.cont, i.seq])], [false, [[2, true, 1]]]);
 });

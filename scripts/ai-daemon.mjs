@@ -67,9 +67,10 @@ import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDayt
 //   三個 newsVerdict 寫入端的欄位。純資料＋純函式、不 import 任何模組（daemon 靜態 import 鏈不會因此多載入別的檔）。
 import { ruleTriggerScan, applyRuleFacts, ruleFactQuestion, ruleFieldsOf } from './lib/news-rule-classes.mjs';
 // 規則事實題的判定細節（C16a 新進展／日期／逐字引用、N2 工安事故調查）、稽核軌跡 ruleEvidence、延續 ruleCont、當日沿用、計數、
-//   單檔大小（2026-10-07 使用者裁定 N1(b)／N2／其它依建議）。純函式；只 import news-rule-classes.mjs。
+//   單檔大小（2026-10-07 使用者裁定 N1(b)／N2／其它依建議）；延續期內事件日期較晚的新進展＝新事件（同日 N4「依建議進行」，isRuleRenewal）。
+//   純函式；只 import news-rule-classes.mjs。
 import {
-  resolveRuleFact, ruleFactKey, reuseRuleFact, asReused, reconcileAccident, withRuleTrail, isRuleContinuation, ruleAuditCounts,
+  resolveRuleFact, ruleFactKey, reuseRuleFact, asReused, reconcileAccident, withRuleTrail, isRuleContinuation, isRuleRenewal, ruleAuditCounts,
   fitVerdictJson, RULE_CONT_TRADING_DAYS,
 } from './lib/news-rule-evidence.mjs';
 // 開盤感應器 v2.1（影子·只記錄·先驗未校準；design-v2.1，使用者 10/05 S1–S8、10/07 O1–O8）：0 MIS 請求（只吃快線與主迴圈已拿到的報價、t00／o00），
@@ -6632,7 +6633,7 @@ function ruleFactMemSet(key, fact) {
 
 /**
  * judgeOneStock 的兩個出口共用：帶上延續軌跡（withRuleTrail：opts.prevVerdict＝同一檔前一筆判別、opts.targetDate＝適用交易日，
- * 有效期＝適用日往前 RULE_CONT_TRADING_DAYS 個交易日），延續時記一行 log，再把這次事實題的計數累計進 stopSpecAudit。
+ * 有效期＝適用日往前 RULE_CONT_TRADING_DAYS 個交易日），延續或 N4 新進展換新時各記一行 log，再把這次事實題的計數累計進 stopSpecAudit。
  */
 function finishRuleVerdict(code, v, facts, opts = {}) {
   if (!v) return v;
@@ -6640,6 +6641,11 @@ function finishRuleVerdict(code, v, facts, opts = {}) {
   const back = prevTradingIsos(targetDate, RULE_CONT_TRADING_DAYS);
   const out = withRuleTrail(v, opts.prevVerdict?.ruleTrail, { targetDate, contFromYmd: back[back.length - 1] || null });
   if (out.ruleCont) log(`  ↳ ${code} 規則 ${out.ruleClass} 延續（${out.ruleCont} 首次判定）：不當新事件、不重複推播、停損不再收`);
+  // N4（2026-10-07「依建議進行」）：延續期內事件日期較晚的新進展 ⇒ 新事件（可推播、停損重新起算、Z2 依類別權重），軌跡換成新的事件日期
+  else if (isRuleRenewal(out)) {
+    const t = out.ruleTrail[out.ruleClass];
+    log(`  ↳ ${code} 規則 ${out.ruleClass} 新進展（事件日 ${t.eventDate} 晚於軌跡 ${t.renewOf}）：當新事件、重新起算`);
+  }
   if (facts) void recordRuleAudit(ruleAuditCounts(facts, out));
   return out;
 }
