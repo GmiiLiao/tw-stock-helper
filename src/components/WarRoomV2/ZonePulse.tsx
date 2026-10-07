@@ -1,15 +1,19 @@
 'use client';
 
-// Z1 大盤脈動列（preview.html renderZ1）：4 塊——盤勢燈＋一句事實｜加權與櫃買（快層 index）＋成交值｜漲跌家數比例條｜漲停跌停。
+// Z1 大盤脈動列（preview.html renderZ1）：4 塊——盤勢燈＋一句事實｜加權與櫃買（快層 index）＋上市成交量｜漲跌家數比例條｜漲停跌停。
+// 超管另有第 5 塊「開盤結構」（開盤感應器 openSensor-v2.1·影子，OpenSensorTile；資料走匯流排影子層，不在公開的 pulse 裡）。
 // 家數口徑只用 marketPulse/latest（build-top）；盤前「待開盤」不顯示 0；期望只寫「全日均 N（非同時刻）」不顯示比值（critique H1）；
-// 成交值只寫當日累積（上市／上櫃分列；與昨日的比值待同口徑基準，見 TopView）。每塊一個主值＋一行副資訊（critique 可用性 #20），其餘放健康彈窗。
-// variant='mobile'：WarRoomV2 手機樹不掛 Z1；手機 S1 展開面板以 2×2 塊重用這裡（MobileBars）。
+// 量只寫上市當日累積成交量（萬張；t00 m 是張，不是成交金額——開盤感應器 v2.1 §10 單位修正；上櫃 o00 m 語意待證不上畫面；
+// 與昨日的比值待同口徑基準，見 TopView）。每塊一個主值＋一行副資訊（critique 可用性 #20），其餘放健康彈窗。
+// variant='mobile'：WarRoomV2 手機樹不掛 Z1；手機 S1 展開面板以 2×2 塊重用這裡（MobileBars；開盤結構整列）。
 import ZoneFrame, { type ZoneProps } from './parts/ZoneFrame';
 import Stamp from './parts/Stamp';
 import { Indicative } from './parts/Badge';
 import { MoreButton } from './parts/Chip';
 import { useWarData, useWarUi } from './WarRoomContext';
 import { useTopState } from './TopStore';
+import { useWarV2Allowed } from './parts/useWarAccess';
+import OpenSensorTile from './OpenSensorTile';
 import { fmtArrowChange, fmtInt, fmtPct, toneClass } from './parts/fmt';
 import { fmtIndex, indexView, pulseView, ratioWidths, type IndexRow, type PulseLampTone } from './TopView';
 import styles from './WarRoomV2.module.css';
@@ -37,6 +41,7 @@ export default function ZonePulse({ variant = 'desk' }: ZoneProps) {
   const { index, pulse, clock, now } = useWarData();
   const { openZoom } = useWarUi();
   const { danger } = useTopState();
+  const osOn = useWarV2Allowed();   // 開盤結構（影子）只給超管
   const topSec = pulse?.top;
   const top = topSec?.ok ? topSec.data : null;
   const iv = indexView(index, top, clock, now);
@@ -60,7 +65,7 @@ export default function ZonePulse({ variant = 'desk' }: ZoneProps) {
         <div className={css.lab}><span>加權／櫃買</span><Stamp kind="index" asOf={iv.asOf} /></div>
         <IndexLine row={iv.twii} prev={iv.prev} indicative={iv.indicative} />
         <IndexLine row={iv.otc} prev={iv.prev} indicative={iv.indicative} />
-        <div className={css.sub} title="上市＝加權指數、上櫃＝櫃買指數的累積成交金額（交易所揭示）；與昨日的比較待同口徑基準（第二階段）">{iv.amount}</div>
+        <div className={css.sub} title="上市累積成交量（交易所揭示 t00，單位張，這裡寫萬張；不是成交金額）。上櫃數字口徑核對中，暫不顯示；與昨日的比較待同口徑基準">{iv.volume}</div>
       </div>
 
       <div className={css.tile}>
@@ -109,12 +114,14 @@ export default function ZonePulse({ variant = 'desk' }: ZoneProps) {
           </>
         )}
       </div>
+
+      {osOn && <OpenSensorTile variant={variant === 'mobile' ? 'mobile' : 'desk'} />}
     </>
   );
 
   if (variant === 'mobile') return <div className={css.mobileTiles}>{tiles}</div>;
   return (
-    <ZoneFrame area="z1" bare label="大盤脈動" className={css.z1}>
+    <ZoneFrame area="z1" bare label="大盤脈動" className={osOn ? `${css.z1} ${css.z1Five}` : css.z1}>
       {tiles}
     </ZoneFrame>
   );

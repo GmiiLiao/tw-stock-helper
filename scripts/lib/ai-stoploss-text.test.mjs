@@ -227,6 +227,23 @@ test('extractStopPrices：只擷取停損語境；排除後接日／%／MA／線
   assert.deepEqual(extractStopPrices('停損 <49.8>', ref).map(x => x.value), [49.8]);
 });
 
+test('extractStopPrices 子句口徑（2026-10-07 線上查核：目標價、評分被當成停損價的誤報）：只取有停損語境的子句；同子句以「目標／評分」起頭的數字不算', () => {
+  // 線上日誌原句（系統停損 6086.35，AI 寫對了；舊版記 1 筆數字不一致＋2 筆高於現價）
+  assert.deepEqual(extractStopPrices('目標價為 6546.17、6730.1、7006，停損設於 6086.35', { refPrice: 6400 }).map(x => x.value), [6086.35]);
+  assert.deepEqual(extractStopPrices('目標價區間涵蓋 50.55 至 53.45，建議的停損點位為 47.65', { refPrice: 50 }).map(x => x.value), [47.65]);
+  assert.deepEqual(extractStopPrices('AI技術評分為66.38(B+)，停損 47.65', { refPrice: 50 }).map(x => x.value), [47.65]);
+  assert.deepEqual(extractStopPrices('停損 47.65（AI評分 66.38）', { refPrice: 50 }).map(x => x.value), [47.65]);
+  assert.deepEqual(extractStopPrices('停損 47.65、目標 50.55 至 53.45', { refPrice: 50 }).map(x => x.value), [47.65]);
+  assert.deepEqual(extractStopPrices('停損設於 47.65，若站上 53 則加碼', { refPrice: 50 }).map(x => x.value), [47.65]);
+  // 召回不變：「跌破 X，停損」型（同一句有停損）、跌破在停損之前、千分位
+  assert.deepEqual(extractStopPrices('若跌破 47.65，應停損出場', { refPrice: 50 }).map(x => x.value), [47.65]);
+  assert.deepEqual(extractStopPrices('TRIGGER: 跌破 98 停損', { refPrice: 100 }).map(x => x.value), [98]);
+  assert.deepEqual(extractStopPrices('停損價 1,234.5，目標 1,400', { refPrice: 1300 }).map(x => x.value), [1234.5]);
+  const s = extractStopPrices('目標價為 70，停損設於 47.65。', { refPrice: 50 })[0];
+  assert.equal(s.sentence, '目標價為 70，停損設於 47.65', 'sentence 仍是整句（enforce 的整句移除口徑不變）');
+  assert.equal(s.index, '目標價為 70，停損設於 '.length);
+});
+
 test('H53 validateLlmStopText：T1 缺／不符；T2 差 >1 檔（enforce 改數字並另起一行加註）；T3 ≥ 現價；T4 買點當停損；T5 ATR 帶當日值當停損', () => {
   const ctx = { stop: 52.35, refPrice: 55, band: 49.8, buyPoints: [53.5], lastPrice: 55, stopRef: 52.35, isEtf: true };
   const ok = validateLlmStopText({ TRIGGER: '跌破 52.35 停損；站上 61 加碼' }, { ...ctx, mode: 'measure' });

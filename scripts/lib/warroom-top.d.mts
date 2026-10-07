@@ -28,11 +28,12 @@ export interface TopPulse {
   counts: TopCounts | null;
   level: TopLevel | null;
   twiiChg: number | null;
-  /** 累積成交值（億） */
-  value: number | null;
-  /** 昨日全日成交值（億；daemon 以收盤價×張數估） */
-  prevValue: number | null;
-  valueVsPrevFullDay: number | null;
+  /** 上市累積成交量（張；t00 m）。舊文件的 value（m÷1000＝千張）×1000 相容——不是成交金額 */
+  volLots: number | null;
+  /** 前一交易日上市全日成交量（張；orderFlowArchive.tradeVol，MI_5MINS 口徑） */
+  prevDayVolLots: number | null;
+  /** 累積量÷昨日全日量（非同時刻；台股量能 U 型分佈，不可當縮量判斷） */
+  volVsPrevFullDay: number | null;
   otcChg: number | null;
 }
 

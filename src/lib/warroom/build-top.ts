@@ -7,8 +7,9 @@
 //   system/daemonHealth（slow，快線揭示落後統計，每小時寫一次）· taifexPositions/latest（daily，外資台指淨未平倉◆前交易日）
 // 持股重大利空（Z2）不在這裡：改由慢層 board.news（build-news.ts）精簡表＋前端依使用者持股判定（warroom-news.mjs），
 //   這支中層路由不再讀 newsVerdict（每 30 秒省掉數百 KB 的解析）。
-// 不讀的：marketIndex（前端快層已每 5 秒抓 market-index，Z1 指數與成交值直接用匯流排）、那指期（market-index 路由在伺服器
-//   端打 Yahoo——不可進聚合路由；前端從匯流排已拿到的 market-index 回應讀 usMarket，不多打任何請求）。
+// 不讀的：marketIndex（前端快層已每 5 秒抓 market-index，Z1 指數與上市成交量直接用匯流排）、那指期（market-index 路由在伺服器
+//   端打 Yahoo——不可進聚合路由；前端從匯流排已拿到的 market-index 回應讀 usMarket，不多打任何請求）、
+//   openSensor（開盤感應器影子資料不可進這支不需登入、CDN 共享的路由——改走超管專用 /api/admin/open-sensor，見 build-open-sensor.ts）。
 // 各來源各自成敗：讀取故障的記進 failed（給健康燈），其餘照常回；marketPulse 讀不到時整段 ok:false（前端沿用上一份）。
 import type { WarReader, DocRead } from './reader';
 import { guardSection, okSection, errSection, type Section } from './section';
@@ -26,7 +27,7 @@ export type {
 export type TopSourceLabel = '家數' | '盤型' | 'daemon 心跳' | '快線統計' | '外資台指';
 
 export interface TopData {
-  /** marketPulse/latest：家數、漲跌停、盤勢級距、成交值對昨全日（非同時刻） */
+  /** marketPulse/latest：家數、漲跌停、盤勢級距、上市成交量對昨日全日量（張；非同時刻） */
   pulse: TopPulse | null;
   /** 今日盤型（marketPattern.live；不是今天的為 null） */
   pattern: TopPattern | null;

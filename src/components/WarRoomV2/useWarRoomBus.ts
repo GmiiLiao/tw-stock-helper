@@ -8,6 +8,9 @@
 //        /api/twse/mis-quote?codes=…&nv=1&t=revealTick  A1 持股＋釘選（最多 40 檔；nv=1 不登記瀏覽中、不佔快線名額）
 //   中層  /api/warroom/pulse   30 秒
 //   慢層  /api/warroom/board   60 秒
+//   影子層 /api/admin/open-sensor（開盤感應器 v2.1·影子；超管專用、帶 Firebase ID token、private no-store）
+//        只在 useWarV2Allowed() 為真時啟動；交易日 08:55–10:15 每 30 秒（含 10:06 拿定格），其餘時間掛載時抓一次。
+//        影子資料不進公開的 pulse／board（CDN 共享），也不進資料健康燈（影子不影響正式燈號）。
 // 閘門 shouldPollWarRoom：交易日 08:30–13:45 且分頁在前景。盤外／非交易日：掛載時抓一次後就不再發請求
 //   （計時器以 10 分鐘空轉；交易日 08:30 前會在 08:30 準時醒來）。快層代號變動時另抓一次報價（盤外也抓，次數有界）。
 // 出錯保留上一份資料（不清空），記 lastError／lastOkAt 供資料章判斷；URL 不帶 Date.now()（拍號才是快取鍵）。
@@ -16,10 +19,15 @@
 // 也要能讀同一份報價（critique C1：戰情頁的 AlertEngine 改吃匯流排的報價）——用 getWarBusState／useWarBusState。
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useSyncExternalStore } from 'react';
-import { startLiveLoop, liveQuoteInterval, msToNextReveal, isForeground, revealTick } from '@/lib/market-clock';
+import { startLiveLoop, liveQuoteInterval, msToNextReveal, isForeground, revealTick, isTradingDay } from '@/lib/market-clock';
+import { auth } from '@/lib/firebase';
 import { warSegment, shouldPollWarRoom, msUntilWarPollWindow } from '@/lib/warroom/session';
 import type { MarketIndexData, MisQuote } from '@/lib/twse-api-server';
-import type { PulsePayload, BoardPayload } from '@/lib/warroom/types';
+import type { PulsePayload, BoardPayload, OpenSensorPayload } from '@/lib/warroom/types';
+import { useWarV2Allowed } from './parts/useWarAccess';
+import {
+  normalizeOpenSensorPayload, shouldPollOpenSensorAt, msUntilOpenSensorWindow, OS_POLL,
+} from '../../../scripts/lib/warroom-open-sensor.mjs';
 
 // ── 型別 ──────────────────────────────────────────────────────────────────────
 
@@ -27,15 +35,20 @@ import type { PulsePayload, BoardPayload } from '@/lib/warroom/types';
 export type WarIndex = Pick<MarketIndexData, 'weighted' | 'weightedChange' | 'weightedChangePercent'>
   & Partial<Pick<MarketIndexData, 'high' | 'low' | 'prevClose' | 'source' | 'tradeTime' | 'tradeDate' | 'snapshotAt' | 'usMarket' | 'twNight'>>
   & {
-    /** 累積成交值（億元，t00 的 m 欄÷1000） */
+    /** 上市累積成交量（張；t00 的 m 原值）——2026-10-07 起 daemon 新欄位（開盤感應器 v2.1 §10.3） */
+    tseVolLots?: number;
+    /** 上櫃 o00 的 m 原值（語意待證：初判是成交金額·十萬元，只核對 1 日；核對完成前不上畫面） */
+    otcMRaw?: number;
+    /** @deprecated 舊文件：t00 m÷1000＝**千張**（不是億元）；只用來換算 tseVolLots 相容（×1000） */
     value?: number;
+    /** @deprecated 舊文件：o00 m÷1000（語意待證）；不上畫面 */
+    otcValue?: number;
     otc?: number;
     otcChange?: number;
     otcChangePercent?: number;
     otcPrevClose?: number;
     otcHigh?: number;
     otcLow?: number;
-    otcValue?: number;
     /** daemon 寫 marketIndex/latest 的時刻（epoch ms）——盤外也每 5 分鐘重寫，不是資料時間；資料章用 TopView.indexAsOf（tradeDate＋tradeTime） */
     at?: number;
   };
@@ -78,7 +91,9 @@ export interface WarBusState {
   quotes: Readonly<Record<string, WarQuote>>;
   pulse: PulsePayload | null;
   board: BoardPayload | null;
-  layers: Readonly<{ index: LayerMeta; quotes: LayerMeta; pulse: LayerMeta; board: LayerMeta }>;
+  /** 影子層：開盤感應器（超管；沒有資格或還沒抓到為 null） */
+  openSensor: OpenSensorPayload | null;
+  layers: Readonly<{ index: LayerMeta; quotes: LayerMeta; pulse: LayerMeta; board: LayerMeta; openSensor: LayerMeta }>;
   /** 匯流排是否運作中（WarRoomProvider 掛載中） */
   active: boolean;
 }
@@ -91,7 +106,8 @@ const INITIAL: WarBusState = Object.freeze({
   quotes: Object.freeze({}),
   pulse: null,
   board: null,
-  layers: Object.freeze({ index: META0, quotes: META0, pulse: META0, board: META0 }),
+  openSensor: null,
+  layers: Object.freeze({ index: META0, quotes: META0, pulse: META0, board: META0, openSensor: META0 }),
   active: false,
 });
 
@@ -315,6 +331,30 @@ async function loadPayload(name: 'pulse' | 'board', signal: AbortSignal): Promis
   }
 }
 
+/** Firebase ID token；掛載當下登入狀態可能還在還原（store 已有 user、currentUser 仍 null）⇒ 先等 authStateReady */
+async function idToken(): Promise<string> {
+  if (!auth.currentUser && typeof auth.authStateReady === 'function') await auth.authStateReady();
+  return (await auth.currentUser?.getIdToken()) ?? '';
+}
+
+/** 影子層：帶 Firebase ID token 讀超管路由；主文件讀取故障（非 2xx）保留上一份 */
+async function loadOpenSensor(signal: AbortSignal): Promise<void> {
+  try {
+    const token = await idToken();
+    if (!token) throw new Error('未登入');
+    const r = await fetch('/api/admin/open-sensor', { signal: linkTimeout(signal), headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const openSensor = normalizeOpenSensorPayload(await r.json());
+    if (!openSensor) throw new Error('回應格式不符');
+    if (signal.aborted) return;
+    setBus({ ...bus, openSensor, layers: withLayer(bus, 'openSensor', ok()) });
+  } catch (e) {
+    if (signal.aborted) return;
+    setBus({ ...bus, layers: withLayer(bus, 'openSensor', fail(bus.layers.openSensor, e)) });
+    throw e;
+  }
+}
+
 async function loadFast(signal: AbortSignal): Promise<void> {
   const [a, b] = await Promise.allSettled([loadIndex(signal), loadQuotes(signal)]);
   if (a.status === 'rejected') throw a.reason;
@@ -343,14 +383,26 @@ const slowInterval = (ms: number) => (): number => {
   return shouldPollWarRoom() ? ms : idleDelay();
 };
 
+const tradingNow = () => isTradingDay(new Date());
+const shouldPollOpenSensor = () => shouldPollOpenSensorAt(Date.now(), tradingNow(), !isForeground());
+
+/** 影子層：窗內 30 秒；交易日 08:55 前準時醒來；其餘 10 分鐘空轉（窗外不發請求） */
+function openSensorInterval(): number {
+  if (!isForeground()) return IDLE_MS;
+  if (shouldPollOpenSensor()) return OS_POLL.everyMs;
+  const wait = msUntilOpenSensorWindow(Date.now(), tradingNow());
+  return wait == null ? IDLE_MS : Math.min(IDLE_MS, Math.max(1_000, wait + 500));
+}
+
 // ── Hook（只有 WarRoomProvider 呼叫）────────────────────────────────────────
 
 const swallow = () => { /* 失敗已記在 layers；保留上一份資料 */ };
 
-/** 啟動三層輪詢並回傳狀態。全頁只能有一個呼叫點（WarRoomProvider）。 */
+/** 啟動三層輪詢（＋超管影子層）並回傳狀態。全頁只能有一個呼叫點（WarRoomProvider）。 */
 export function useWarRoomBus(): WarBusState {
   const state = useSyncExternalStore(subscribeWarBus, getWarBusState, () => INITIAL);
   const codesKey = useSyncExternalStore(subscribeWarFastCodes, getFastKey, () => '');
+  const osAllowed = useWarV2Allowed();
 
   // 掛載旗標（AlertEngine 據此判斷要不要改吃匯流排報價）
   useEffect(() => {
@@ -371,6 +423,19 @@ export function useWarRoomBus(): WarBusState {
     ];
     return () => { ac.abort(); for (const stop of stops) stop(); };
   }, []);
+
+  // 影子層（開盤感應器）：只有超管；掛載時抓一次（不看窗——盤外也要看定格結果），之後窗內 30 秒。
+  // 資格消失（例如超管切換模擬其他會員）就停並清掉，不留影子資料在畫面上。
+  useEffect(() => {
+    if (!osAllowed) {
+      if (bus.openSensor) setBus({ ...bus, openSensor: null, layers: withLayer(bus, 'openSensor', META0) });
+      return undefined;
+    }
+    const ac = new AbortController();
+    void loadOpenSensor(ac.signal).catch(swallow);
+    const stop = startLiveLoop(signal => (shouldPollOpenSensor() ? loadOpenSensor(signal) : undefined), openSensorInterval);
+    return () => { ac.abort(); stop(); };
+  }, [osAllowed]);
 
   // 快層代號變動（A1 持股載入、釘選增減）：立刻抓一次報價——盤外也抓（只在變動時，次數有界）
   useEffect(() => {

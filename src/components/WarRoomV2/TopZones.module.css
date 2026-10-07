@@ -222,6 +222,37 @@
   .z1 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(88px, auto); }
 }
 
+/* ── Z1 第 5 塊「開盤結構」（開盤感應器·影子·只給超管；OpenSensorTile） ──────────────
+   ≥1280：Z1 列高固定 96px ⇒ 5 欄、每行單行省略（滑過看全文、「明細 →」看放大層）；<1280 與手機面板：整列、折行顯示全文。
+   燈：只有 ①–⑥ 用紅綠實心燈；⑦ 中性色實心燈；不在狀態內／量未定／未判定 灰框（空心）；尚無燈號 虛線。 */
+@media (min-width: 1280px) {
+  .z1Five { grid-template-columns: 1.15fr 0.8fr 0.8fr 0.8fr 2.45fr; }
+}
+@media (max-width: 1279px) {
+  .tileWide { grid-column: 1 / -1; }
+}
+.mobileTiles .tileWide { grid-column: 1 / -1; }
+.osTile { justify-content: flex-start; padding-top: 4px; padding-bottom: 4px; }
+.osWhen { display: inline-flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.osHead { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.osTitle { font-weight: 800; font-size: var(--wr-fs-base); flex: 0 0 auto; }
+.osTrail { font-size: var(--wr-fs-xs); color: var(--wr-t3); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.osLine { font-size: var(--wr-fs-xs); color: var(--wr-t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.osMuted { color: var(--wr-t3); }
+.osLamp { display: inline-block; width: 0.9em; height: 0.9em; border-radius: 50%; flex: 0 0 auto; box-sizing: border-box; }
+.osLampRed { background: var(--color-up); }
+.osLampGreen { background: var(--color-down); }
+.osLampNeutral { background: var(--color-flat); }
+.osLampGray { background: transparent; border: 2px solid var(--wr-t3); }
+.osLampNone { background: transparent; border: 1.5px dashed var(--wr-ln2); }
+/* 折行版（<1280 與手機面板）：全文顯示 */
+@media (max-width: 1279px) {
+  .osHead { white-space: normal; flex-wrap: wrap; }
+  .osTrail, .osLine { white-space: normal; overflow: visible; }
+}
+.osWrap .osHead { white-space: normal; flex-wrap: wrap; }
+.osWrap .osTrail, .osWrap .osLine { white-space: normal; overflow: visible; }
+
 /* ── Z2 一級警示帶 ─────────────────────────────────────────────────────────── */
 .z2 {
   height: 100%;

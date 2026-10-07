@@ -19,8 +19,19 @@
 // 用法：node scripts/backfill-orderflow.mjs [--days 750] [--from YYYYMMDD]
 // 節流：每次請求間隔 1.5 秒（TWSE rwd 無明文限制，比照本專案既有節流慣例）
 // 冪等：已存在且非 skipped 的日期直接跳過，可中斷後重跑。
+//
+// 2026-10-07 使用者裁定 O8（開盤感應器 design-v2.1 §8.5-1）：同一份 MI_5MINS 回應順便產出早盤衍生值 openMarks
+//   （口徑 openSensorMarks-v1，scripts/lib/open-sensor-marks.mjs），**不增加請求**。
+//   · 只在「回音＝請求日、已收盤、全日金額／量／筆數＝digest」時才帶 openMarks；不過關只寫 digest、印一行原因，結束碼不變。
+//   · 寫入改 set(…, { merge:true })：不覆蓋文件上其他欄位（例：回補的 indexMarks）；沒有 digest 就不寫（不建空殼）。
+//   · 已存在的日子照舊跳過（不為補 openMarks 重打）；缺的日子用 scripts/backfill-open-sensor.mjs 回補（先回報使用者）。
+//   · daemon 每交易日 ≥15:25 以子程序呼叫：execScript('backfill-orderflow.mjs', ['--days','1'], '📋 委託失衡', 5)，
+//     結束碼 0 才標當日完成；daemon 日誌只記 stdout 最後一行（所以最後一行附 openMarks 寫入數）。
+//   純函式（digest 原樣搬移、openMarks、寫入內容）與測試：scripts/lib/orderflow-archive.mjs(.test.mjs)。
 // ─────────────────────────────────────────────────────────────────────────
 import admin from 'firebase-admin';
+import { digest, openMarksFromResponse, dayDocPayload } from './lib/orderflow-archive.mjs';
+import { MI5_URL } from './lib/open-sensor-marks.mjs';
 
 process.env.GOOGLE_APPLICATION_CREDENTIALS ||=
   '/Users/gmii/Documents/GCP_憑證檔案/tw-stock-helper-firebase-adminsdk-fbsvc-1dd050d371.json';
@@ -33,15 +44,15 @@ const FROM = arg('--from', null);
 const PACE = 1500;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const num = s => +String(s ?? '').replace(/,/g, '') || 0;
 const ymd = d => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // 2026-08-02 首輪回補實測：TWSE 偶發回 **HTTP 307**（同一日期稍後重打即 200）
 // ——是節流性質的暫時性錯誤，不是該日無資料。首版沒有重試，這些日子會變成缺洞
 // 且因為只每 25 筆記錄一次日誌，真實缺漏數還看不出來。改為指數退避重試 3 次。
+// 2026-10-07（O8）：除了 data 也回傳 stat／date／title／fields（parseMi5 依欄名解析、不猜位置）與 url（openMarks.src）。
 async function fetchDay(ymd8, attempt = 0) {
-  const url = `https://www.twse.com.tw/rwd/zh/afterTrading/MI_5MINS?date=${ymd8}&response=json`;
+  const url = MI5_URL(ymd8);   // 與舊版字串相同：https://www.twse.com.tw/rwd/zh/afterTrading/MI_5MINS?date=…&response=json
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
   try {
     const r = await fetch(url, { signal: ctl.signal });
@@ -59,7 +70,7 @@ async function fetchDay(ymd8, attempt = 0) {
       const got = `${+m[1] + 1911}${String(+m[2]).padStart(2, '0')}${String(+m[3]).padStart(2, '0')}`;
       if (got !== ymd8) return { err: `日期回音不符 請求${ymd8}≠回應${got}` };
     }
-    return { rows: j.data };
+    return { rows: j.data, url, resp: { stat: j.stat, date: j.date, title: j.title, fields: j.fields, data: j.data } };
   } catch (e) {
     clearTimeout(t);
     if (attempt < 3) { await sleep(3000 * (attempt + 1)); return fetchDay(ymd8, attempt + 1); }
@@ -67,51 +78,7 @@ async function fetchDay(ymd8, attempt = 0) {
   }
 }
 
-// ⚠資料語意（2026-08-02 試跑實測，與欄位名稱不符，務必看清楚）：
-//   欄位叫「**累積**委託買進數量」，但實測**不是單調遞增**——
-//   2026-07-31 全日 3,241 列中有 **1,524 次下降**，首次在 09:00:20（開盤撮合時），
-//   13:20 峰值 37,875,122 → 13:30 收盤 24,235,296（集合競價期間單次掉 429 萬張）。
-//   ⇒ 它實際是**委託簿餘額**（掛入扣除已成交與已撤單），不是累積流入量。
-//   ⇒ 「尾盤增量失衡」不能用相減（會是負數導致 null）；改用**失衡率的變化**，
-//     並額外抓峰值與撤單率——後兩者正是餘額語意才有的資訊。
-/** 3,241 列 → 壓縮：收盤餘額 + 每15分鐘曲線 + 衍生指標 */
-function digest(rows) {
-  const parse = r => ({
-    t: r[0], bo: num(r[1]), bv: num(r[2]), ao: num(r[3]), av: num(r[4]),
-    tn: num(r[5]), tv: num(r[6]), tval: num(r[7]),
-  });
-  const all = rows.map(parse).filter(x => /^\d{2}:\d{2}:\d{2}$/.test(x.t));
-  if (!all.length) return null;
-  const last = all[all.length - 1];
-  const at = t => all.filter(x => x.t <= t).pop() || null;
-  const MARKS = ['09:00:00', '09:15:00', '09:30:00', '09:45:00', '10:00:00', '10:30:00', '11:00:00',
-    '11:30:00', '12:00:00', '12:30:00', '13:00:00', '13:15:00', '13:25:00', '13:30:00'];
-  const imb = x => (x.bv + x.av > 0 ? (x.bv - x.av) / (x.bv + x.av) : null);
-  const curve = MARKS.map(t => { const x = at(t); return x ? [t.slice(0, 5), x.bv, x.av] : null; }).filter(Boolean);
-  const c0930 = at('09:30:00'), c1300 = at('13:00:00'), c1325 = at('13:25:00');
-  const r4 = v => (v == null ? null : +v.toFixed(4));
-  // 峰值與撤單率：餘額語意才有的資訊（掛單熱度、以及尾盤有多少掛單被抽掉）
-  let pkB = 0, pkA = 0;
-  for (const x of all) { if (x.bv > pkB) pkB = x.bv; if (x.av > pkA) pkA = x.av; }
-  return {
-    bidOrders: last.bo, bidVol: last.bv, askOrders: last.ao, askVol: last.av,
-    trans: last.tn, tradeVol: last.tv, tradeValue: last.tval,
-    imbalance: r4(imb(last)),                              // 收盤委託簿失衡率 (-1~1)
-    imb0930: r4(c0930 ? imb(c0930) : null),                // 早盤失衡（09:30）
-    imb1300: r4(c1300 ? imb(c1300) : null),                // 尾盤前失衡（13:00）
-    imb1325: r4(c1325 ? imb(c1325) : null),                // 集合競價前失衡（13:25）
-    tailImbShift: r4(c1300 ? imb(last) - imb(c1300) : null),   // 13:00→收盤 失衡「率」的變化
-    auctionShift: r4(c1325 ? imb(last) - imb(c1325) : null),   // 集合競價期間失衡變化
-    peakBidVol: pkB, peakAskVol: pkA,
-    bidWithdraw: pkB > 0 ? r4(1 - last.bv / pkB) : null,   // 委買撤單率＝1−收盤/峰值
-    askWithdraw: pkA > 0 ? r4(1 - last.av / pkA) : null,
-    bidPerOrder: last.bo > 0 ? +(last.bv / last.bo).toFixed(2) : null,  // 平均每筆委買量（大單/小單）
-    askPerOrder: last.ao > 0 ? +(last.av / last.ao).toFixed(2) : null,
-    fillRate: last.bv + last.av > 0 ? r4(last.tv * 2 / (last.bv + last.av)) : null,
-    curveJson: JSON.stringify(curve),
-    n: all.length,
-  };
-}
+// digest（3,241 列 → 收盤餘額＋每 15 分鐘曲線＋衍生指標）與資料語意說明已原樣搬到 scripts/lib/orderflow-archive.mjs。
 
 const main = async () => {
   const end = FROM ? new Date(`${FROM.slice(0, 4)}-${FROM.slice(4, 6)}-${FROM.slice(6, 8)}T00:00:00+08:00`) : new Date();
@@ -127,15 +94,17 @@ const main = async () => {
 
   // 冪等：已成功存過的跳過
   const done = new Set();
+  const skippedIds = new Set();   // 帶 skipped 標記的舊文件：會重抓；改 merge 後要明講清掉該標記（舊版整份覆寫會順手清掉）
   const snap = await db.collection('orderFlowArchive').get();
-  for (const d of snap.docs) if (!d.data().skipped) done.add(d.id);
+  for (const d of snap.docs) if (!d.data().skipped) done.add(d.id); else skippedIds.add(d.id);
   console.log(`  已存在 ${done.size} 日，將處理 ${dates.filter(d => !done.has(d.i)).length} 日\n`);
 
   let ok = 0, skip = 0, fail = 0, t0 = Date.now();
+  let omOk = 0, omSkip = 0;   // O8 openMarks：隨 digest 寫入的日數／未寫（原因逐日印出）
   for (let n = 0; n < dates.length; n++) {
     const { y, i } = dates[n];
     if (done.has(i)) { skip++; continue; }
-    const { rows, err } = await fetchDay(y);
+    const { rows, url, resp, err } = await fetchDay(y);
     if (err) {
       // 假日/停市回 no data 是正常的，不算失敗
       if (/no data|OK$/.test(err) === false && !/no data/.test(err)) fail++;
@@ -145,7 +114,14 @@ const main = async () => {
     }
     const dg = digest(rows);
     if (!dg) { fail++; await sleep(PACE); continue; }
-    await db.collection('orderFlowArchive').doc(i).set({ date: i, ...dg, fetchedAt: Date.now() });
+    // O8：同一份回應順便產出 openMarks（0 新增請求）；不過關就只寫 digest（純函式不丟錯，不影響結束碼）
+    const { openMarks, reason } = openMarksFromResponse(resp, i, dg, { src: url });
+    if (openMarks) omOk++; else { omSkip++; console.log(`  ${i} openMarks 未寫：${reason}`); }
+    const payload = dayDocPayload({
+      iso: i, dg, openMarks, fetchedAt: Date.now(),
+      clearSkipped: skippedIds.has(i) ? admin.firestore.FieldValue.delete() : undefined,
+    });
+    await db.collection('orderFlowArchive').doc(i).set(payload, { merge: true });
     ok++;
     if (ok % 25 === 0) {
       const el = (Date.now() - t0) / 1000;
@@ -158,7 +134,8 @@ const main = async () => {
   console.log(`\n✓ 完成：新增 ${ok} 日、已存跳過 ${skip} 日、失敗 ${fail} 日（耗時 ${Math.round((Date.now() - t0) / 60000)} 分）`);
   const fin = await db.collection('orderFlowArchive').get();
   const ids = fin.docs.filter(d => !d.data().skipped).map(d => d.id).sort();
-  console.log(`  orderFlowArchive 現有 ${ids.length} 日：${ids[0]} → ${ids[ids.length - 1]}`);
+  // daemon 日誌只記這一行 ⇒ openMarks 的寫入數附在這裡
+  console.log(`  orderFlowArchive 現有 ${ids.length} 日：${ids[0]} → ${ids[ids.length - 1]}｜openMarks 新寫 ${omOk} 日${omSkip ? `、未寫 ${omSkip} 日（原因見上）` : ''}`);
   process.exit(0);
 };
 main();

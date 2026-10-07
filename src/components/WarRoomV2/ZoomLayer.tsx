@@ -7,7 +7,8 @@
 // 對照（使用者定案）：雷達完整版＝舊版 WarRoom 的雷達分頁（雷達寫在 WarRoom 內、無法單獨抽出 ⇒ 掛整個 WarRoom 並預選 radar，
 //   關閉時還原舊版的分頁選擇）；漲跌分布＝RiseFallPanel；當沖工作台＝RiseFallPanel 的工作台檢視（DayTradeDesk 需要它供應全市場快照）；
 //   轉空＝RiseFallPanel 的即時轉空檢視（FadeWatch，同理）；盤中漲停預測＝LimitUpPanel source="live"；族群＝MarketWind 完整版（含官方 33 類參考）；
-//   撿尾盤＝MarketPatternBanner（即時追蹤頁的同一份）；我的部位全部＝持倉頁 Portfolio；異動流全部、漲停順序流全量、資料健康＝本區自建。
+//   撿尾盤＝MarketPatternBanner（即時追蹤頁的同一份）；我的部位全部＝持倉頁 Portfolio；異動流全部、漲停順序流全量、資料健康＝本區自建；
+//   開盤結構明細（開盤感應器·影子·超管）＝本區自建 ZoomOpenSensor（只讀匯流排影子層）。
 import dynamic from 'next/dynamic';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useAppStore } from '@/lib/store';
@@ -15,6 +16,7 @@ import { useWarUi, type ZoomTarget } from './WarRoomContext';
 import ZoomFeed from './ZoomFeed';
 import ZoomLimitFlow from './ZoomLimitFlow';
 import ZoomHealth from './ZoomHealth';
+import ZoomOpenSensor from './ZoomOpenSensor';
 import styles from './WarRoomV2.module.css';
 import zs from './ZoomLayer.module.css';
 
@@ -43,6 +45,7 @@ const TITLES: Readonly<Record<ZoomTarget, string>> = {
   feed: '即時異動流（全部紀錄）',
   tailPicks: '撿尾盤（盤型與候選完整版）',
   health: '資料健康（每個來源的資料時間）',
+  openSensor: '開盤結構（開盤感應器·影子·只記錄·先驗未校準）',
 };
 
 /** 雷達完整版：掛舊版 WarRoom 並預選雷達分頁；卸載時還原原本的分頁（warTab 只有舊版用，不持久化） */
@@ -70,6 +73,7 @@ function ZoomBody({ target }: { target: ZoomTarget }) {
     case 'tailPicks': return <MarketPatternBanner />;
     case 'mine': return <Portfolio />;
     case 'health': return <ZoomHealth />;
+    case 'openSensor': return <ZoomOpenSensor />;
     default: return null;
   }
 }

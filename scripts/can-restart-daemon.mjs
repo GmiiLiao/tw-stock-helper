@@ -20,41 +20,16 @@ import { readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { recentOutageLines } from './lib/outage-scan.mjs';
+import { restartVerdict, earliestRestart, hhmm } from './lib/restart-windows.mjs';
 
 const QUIET = process.argv.includes('--quiet');
 const say = (...a) => { if (!QUIET) console.log(...a); };
 
 const taipei = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-// 保護窗（台北時間，分鐘）。只在**交易日**生效。
+// 保護窗與判定在 scripts/lib/restart-windows.mjs（2026-10-07 抽出＋單元測試；同日依 O7 新增開盤感應器窗 08:30–10:05）。
 // 每一條都要寫清楚「重啟會失去什麼」——沒有代價說明的保護窗會被下一個人拿掉。
-const WINDOWS = [
-  // 盤前判別窗（2026-08-31 補）：07:00 晨間新聞判別、08:00 軋空與漲停判別。
-  // 這段重啟會讓已完成的判別**整個重跑**——守衛旗標存在記憶體裡，重啟即歸零。
-  // 實測今天 08:20 重啟，軋空判別在 08:11 已完成卻於 08:31 又跑一次，
-  // 白白吃掉 11 分鐘；而盤前判別本來就要跑到 08:46 才就緒（距開盤 14 分鐘）。
-  // 再吃掉一次就會壓到開盤，使用者盤前拿不到當沖資格與判別。
-  { from: 7 * 60, to: 9 * 60, name: '盤前判別窗（晨間新聞＋軋空/漲停判別）',
-    cost: '已完成的判別整個重跑；實測單趟需 46 分鐘，重跑會壓到 09:00 開盤' },
-  { from: 7 * 60 + 20, to: 7 * 60 + 50, name: '當沖資格盤前抓取',
-    cost: '站上整個交易日掛昨天的當沖名單（合規風險：使用者可能對不可當沖的股票下當沖單）' },
-  { from: 8 * 60, to: 9 * 60 + 5, name: '開盤前新聞判別',
-    cost: '該窗外不再執行，當日沒有任何事前判別' },
-  { from: 8 * 60 + 30, to: 9 * 60 + 10, name: '即時價還原敏感窗',
-    cost: '_lastLive 清空，冷門股可能數十分鐘沒有即時價（CLAUDE.md 記載已發生兩次）' },
-  { from: 9 * 60, to: 9 * 60 + 20, name: '搶漲停排隊警示',
-    cost: '該日唯一的偵測窗，錯過就沒有第二次' },
-  { from: 13 * 60 + 20, to: 13 * 60 + 40, name: '尾盤五檔累積窗',
-    cost: '_depthWin 整窗蒸發，只能寫殘缺版（CLAUDE.md 記載已發生三次）' },
-  { from: 15 * 60 + 5, to: 15 * 60 + 25, name: '每日收盤歸檔',
-    cost: '當日 chipArchive 可能只寫一半，下游榜單整批位移' },
-  { from: 16 * 60 + 25, to: 16 * 60 + 55, name: '官方補抓＋上櫃併入',
-    cost: '上櫃資料整天缺席（CLAUDE.md 記載的痛點）' },
-  { from: 21 * 60 + 40, to: 22 * 60 + 35, name: '資券歸檔＋訓練資料＋檢討報表',
-    cost: '次交易日候選、軋空訓練樣本、檢討報表三者全部缺當日' },
-];
 
 const tw = taipei();
 const mins = tw.getHours() * 60 + tw.getMinutes();
@@ -101,34 +76,33 @@ if (!isTradingDay) {
   process.exit(0);
 }
 
-const active = WINDOWS.filter(w => mins >= w.from && mins < w.to);
-const upcoming = WINDOWS.filter(w => w.from > mins).sort((a, b) => a.from - b.from);
+const verdict = restartVerdict({ mins, isTradingDay });
+const earliest = earliestRestart({ mins, isTradingDay });   // 窗與窗首尾相接時，報真正可重啟的時刻（不只本窗結束）
+const earliestTxt = earliest == null ? '今日交易時段內沒有（明日再試）' : hhmm(earliest);
 
-if (active.length) {
+if (verdict.reason === 'active') {
   say('\n🚫 **不可重啟** —— 正在以下觀察窗內：');
-  for (const w of active) {
+  for (const w of verdict.active) {
     say(`   · ${w.name}（${hhmm(w.from)}–${hhmm(w.to)}）`);
     say(`     重啟會失去：${w.cost}`);
   }
-  const end = Math.max(...active.map(w => w.to));
-  say(`\n   最早可重啟：${hhmm(end)}（本窗結束）`);
+  say(`\n   最早可重啟：${earliestTxt}`);
   say('   ⚠ 開發期間不必急著重啟：CLI 的 --run <job> 讀的是磁碟上的最新程式碼，可以先驗證。\n');
   process.exit(1);
 }
 
 // 距離下一個窗太近也要擋——重啟到穩定需要一兩分鐘
-const GAP = 3;
-const near = upcoming.find(w => w.from - mins <= GAP);
-if (near) {
+if (verdict.reason === 'near') {
+  const near = verdict.near;
   say(`\n🚫 **不可重啟** —— ${near.name} 再 ${near.from - mins} 分鐘就開始（${hhmm(near.from)}）。`);
   say(`   重啟會失去：${near.cost}`);
-  say(`   請等到 ${hhmm(near.to)} 之後。\n`);
+  say(`   請等到 ${earliestTxt} 之後。\n`);
   process.exit(1);
 }
 
 say('\n✅ 目前不在任何觀察窗內 —— 可以重啟。');
-if (upcoming.length) {
-  const n = upcoming[0];
+if (verdict.upcoming.length) {
+  const n = verdict.upcoming[0];
   say(`   下一個窗：${n.name} ${hhmm(n.from)}–${hhmm(n.to)}（還有 ${n.from - mins} 分鐘）`);
 }
 say('');

@@ -29,7 +29,10 @@ interface Item {
 }
 interface Pulse {
   updatedAt: number; marketNow: boolean;
-  twii: { chg: number; value: number | null; prevValue: number | null; valueVsPrevFullDay: number | null };
+  // 開盤感應器 v2.1 §10 單位修正（2026-10-07）：上市累積量是**成交量（張）**（t00 m），不是成交值。
+  //   新文件：volLots／prevDayVolLots（張）、volVsPrevFullDay（量÷昨日全日量·非同時刻）。
+  //   舊文件（daemon 重啟前）：value＝m÷1000＝千張（標「億」是錯的）→ ×1000 換成張；valueVsPrevFullDay 是量÷值、口徑錯，不讀。
+  twii: { chg: number; volLots?: number | null; prevDayVolLots?: number | null; volVsPrevFullDay?: number | null; value?: number | null };
   otc: { chg: number | null };
   counts: { limitUp: number; limitDown: number; up: number; down: number; counted: number; live: number };
   countsBasis?: string;
@@ -37,6 +40,18 @@ interface Pulse {
   warns: Array<{ level: string; text: string }>;
   evidence?: { days: number; avgLimitUp: number; table: Array<{ label: string; min: number; luExp: number; ldExp: number }> };
   volNote?: string;
+}
+const posOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+/** 大盤脈動的上市累積成交量（張）與對昨日全日量比；同 scripts/lib/warroom-top.mjs volLotsOf 的舊文件相容（value 千張 ×1000） */
+function pulseVol(tw: Pulse['twii']): { volLots: number | null; volRatio: number | null; newVolDoc: boolean } {
+  const newVolDoc = tw.volLots !== undefined;
+  const lots = posOrNull(tw.volLots);
+  const kLots = posOrNull(tw.value);
+  return {
+    volLots: lots ?? (kLots != null ? Math.round(kLots * 1000) : null),
+    volRatio: newVolDoc ? posOrNull(tw.volVsPrevFullDay) : null,
+    newVolDoc,
+  };
 }
 interface Verdict { label: string; bullish: boolean; confidence?: string; reason: string; risk?: string | null; chain?: string | null; basis: string; n?: number; nMaterial?: number; stale?: boolean; ageDays?: number | null }
 interface ReasonType { types: string[]; tone: 'green' | 'grey' | 'none' }
@@ -180,6 +195,7 @@ export default function SqueezePanel() {
       {/* 大盤脈動：環境決定要不要出手，所以放最上面 */}
       {pulse && (() => {
         const p = pulse;
+        const { volLots, volRatio, newVolDoc } = pulseVol(p.twii);
         const tone = LEVEL_TONE[p.level.key] ?? LEVEL_FLAT;
         const danger = p.warns.some(w => w.level === 'danger');
         return (
@@ -195,9 +211,9 @@ export default function SqueezePanel() {
               <span>加權 <b style={{ color: numColor(p.twii.chg) }}>
                 {p.twii.chg > 0 ? '+' : ''}{p.twii.chg}%</b></span>
               {p.otc.chg != null && <span style={{ color: 'var(--text-muted)' }}>櫃買 {p.otc.chg >= 0 ? '+' : ''}{p.otc.chg}%</span>}
-              {p.twii.value != null && <span style={{ color: 'var(--text-muted)' }}>
-                成交值 {p.twii.value.toLocaleString()} 億
-                {p.twii.valueVsPrevFullDay != null && <>（昨日全日 {p.twii.valueVsPrevFullDay}x）</>}
+              {volLots != null && <span style={{ color: 'var(--text-muted)' }}>
+                上市成交量 {(volLots / 1e4).toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 萬張
+                {volRatio != null && <>（昨日全日 {volRatio.toFixed(2)}x·非同時刻）</>}
               </span>}
               <span>漲停 <b style={{ color: 'var(--color-up)' }}>{p.counts.limitUp}</b>
                 ／跌停 <b style={{ color: 'var(--color-down)' }}>{p.counts.limitDown}</b>
@@ -219,7 +235,8 @@ export default function SqueezePanel() {
                 {w.level === 'danger' ? '⚠' : w.level === 'good' ? '🚀' : '⚠️'} {w.text}
               </div>
             ))}
-            {p.volNote && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))', marginTop: 2 }}>{p.volNote}</div>}
+            {/* volNote 只認新文件（舊文件的說明寫「成交值」，單位錯） */}
+            {newVolDoc && p.volNote && <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))', marginTop: 2 }}>{p.volNote}</div>}
           </div>
         );
       })()}

@@ -15,6 +15,8 @@ export type { FocusData } from './build-focus';
 export type { B1Data } from './build-b1';
 export type { FeedsData } from './build-feeds';
 export type { NewsMapData } from './build-news';
+/** GET /api/admin/open-sensor（超管影子層；不在公開的 pulse／board 裡） */
+export type { OpenSensorPayload } from './build-open-sensor';
 export type { WarSegment, WarClock, WarNextNode } from './session';
 export type { FocusKind } from './focus-kinds';
 

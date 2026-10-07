@@ -1,17 +1,17 @@
 'use client';
 
 // A2 收盤後：「今日結果」（13:30–13:45 定價）與「盤後」（13:45 後、非交易日、交易日 08:30 前）。
-//   大盤收盤摘要（匯流排指數：加權、櫃買、成交值）＋持股今日漲跌摘要（匯流排報價；只列漲跌%，不重算損益——損益在「我的部位」）
+//   大盤收盤摘要（匯流排指數：加權、櫃買、上市成交量——t00 m 是張，不是成交金額；開盤感應器 v2.1 §10）＋持股今日漲跌摘要（匯流排報價；只列漲跌%，不重算損益——損益在「我的部位」）
 //   ＋連到盤後報告（市場總覽·盤後報告分頁）與盤前備課頁。
 // 另含「收盤競價」（13:25–13:30）：第一階段只顯示「收盤集合競價中·13:30 揭示後更新」（試撮看板＝2 期）。
 import { useMemo, type ReactNode } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useWarData } from './WarRoomContext';
 import Stamp from './parts/Stamp';
-import { fmtArrowChange, fmtPct, fmtYi, toneClass } from './parts/fmt';
+import { fmtArrowChange, fmtPct, toneClass } from './parts/fmt';
 import { FocusFrame, FocusMsg, CodeLink, type FocusShell } from './FocusFrame';
 import { useFocusUniverse } from './useFocusUniverse';
-import { indexAsOf } from './TopView';
+import { indexAsOf, tseVolLotsOf, fmtWanLots } from './TopView';
 import styles from './WarRoomV2.module.css';
 import css from './ZoneFocus.module.css';
 
@@ -59,6 +59,7 @@ export function FocusResultView({ shell, kind }: { shell: FocusShell; kind: 'res
   }, [u.holdings, quotes, mobile]);
 
   const idxOk = index && index.weighted > 0;
+  const volLots = tseVolLotsOf(index);
   const body = (
     <>
       <Line label="大盤" mobile={mobile}>
@@ -70,7 +71,7 @@ export function FocusResultView({ shell, kind }: { shell: FocusShell; kind: 'res
               <span className={css.item}>櫃買 <b className={styles.mono}>{index.otc.toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>
                 <span className={`${styles.mono} ${toneClass(index.otcChange ?? null)}`}>{fmtArrowChange(index.otcChange ?? null)} {fmtPct(index.otcChangePercent ?? null)}</span></span>
             )}
-            {index.value != null && index.value > 0 && <span className={css.item}>成交值 <span className={styles.mono}>{fmtYi(index.value)}</span></span>}
+            {volLots != null && <span className={css.item}>成交量 上市 <span className={styles.mono}>{fmtWanLots(volLots)}</span></span>}
           </>
         ) : <span className={styles.muted}>指數資料尚未取得</span>}
       </Line>

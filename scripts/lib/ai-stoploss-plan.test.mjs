@@ -207,6 +207,29 @@ test('切換當天已在停損下（前一交易日收盤 ≤ 停損、尚未判
   assert.equal(s.message, '已在停損下（前一交易日收盤低於停損）：2330 台積電·本次不逐檔發一級');
 });
 
+test('成本資料可疑（2026-10-07 線上查核 4746：均價 1562、收盤 48.30）：停損照算，但不列入「已在停損下」彙總與紀律彙總（本檔停損警示暫停）', () => {
+  const hold = H({ code: '4746', name: '台耀', buyPrice: 1562 });
+  const li = LI({ close: 48.3, atr14: 1.5, atrBand: { price: 45, dataDate: '2026-10-02' } });
+  const r = refresh({ holdings: [hold], exTables: { 4746: EX }, lineInputs: { 4746: li }, lastPrices: { 4746: 48.3 } });
+  const book = bookOf(r.bookPatch);
+  assert.ok(book.positions['4746'].stop > 48.3, '停損照算（成本線遠高於現價）');
+  const t = tick(book, { holdings: [hold], quotes: { 4746: Q({ price: 48.3, low: 48, open: 48.5, high: 49 }) }, refPrices: { 4746: 48.3 } });
+  assert.equal(t.bookPatch['4746'].suspect, true);
+  assert.deepEqual(t.pushAlerts, [], '不發一級');
+  assert.ok(t.docOnlyAlerts.some(a => a.sub === 'suspect'), '二級「成本資料可疑·本檔停損警示暫停」');
+  assert.equal(t.docOnlyAlerts.find(a => a.sub === 'seeded'), undefined, '不列入「已在停損下」彙總');
+  const book2 = bookOf(t.bookPatch, book, { nextEpisodeId: t.nextEpisodeId });
+  const d = planDisciplineDigest({ uid: 'u1', book: book2, holdings: [hold], prevCloses: { 4746: 48.3 }, todayYmd: '2026-10-06', isTradingDay: isTD, nowMs: T(9, 1, 6) });
+  assert.equal(d.alert, null, '不列入紀律彙總');
+  // 同一則彙總裡的其他持股照列
+  const both = [H(), hold];
+  const bk = bookOf({ ...bookOf(refresh().bookPatch).positions, 4746: book2.positions['4746'] });
+  const t2 = tick(bk, { holdings: both, quotes: { 2330: Q(), 4746: Q({ price: 48.3, low: 48, open: 48.5, high: 49 }) }, refPrices: { 2330: 104, 4746: 48.3 } });
+  const bk2 = bookOf(t2.bookPatch, bk, { nextEpisodeId: t2.nextEpisodeId });
+  const d2 = planDisciplineDigest({ uid: 'u1', book: bk2, holdings: both, prevCloses: { 2330: 94, 4746: 48.3 }, todayYmd: '2026-10-06', isTradingDay: isTD, nowMs: T(9, 1, 6) });
+  assert.deepEqual(d2.alert.codes, ['2330']);
+});
+
 test('盤中趟事件收緊：真成交價高於收緊線 ⇒ 套用（今日新設、以成交價判定）；成交價 ≤ 收緊線 ⇒ deferred，二級說明、不改停損', () => {
   const book = bookOf(refresh().bookPatch);
   const ok = tick(book, { intradayEvents: [EV({ pass: 'intraday' })], quotes: { 2330: Q({ price: 103, low: 101, open: 103.5, high: 104 }) }, nowMs: T(10, 30) });

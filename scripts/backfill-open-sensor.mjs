@@ -17,6 +17,8 @@
 //   ② Firestore orderFlowArchive/{date} 新增欄位 openMarks、indexMarks（update：文件必須已存在且有 curveJson，不建空殼；
 //      不動既有欄位。backfill-orderflow.mjs 對已存在的日子會跳過，所以兩邊不互相覆蓋）。
 //      openMarks 只在「MI_5MINS 全日三值＝orderFlowArchive 既有 tradeValue／tradeVol／trans」時才寫（同端點交叉驗證）。
+//      2026-10-07 起（O8）：backfill-orderflow.mjs 每日 15:25 已寫同口徑 openMarks ⇒ 這裡沿用它（不重打 MI_5MINS）、也不覆蓋它；
+//      本機摘要 _index／_alerts 改為依日期合併（--dates 補少數幾天不再洗掉 60 日摘要）。
 //
 // 用法：
 //   node scripts/backfill-open-sensor.mjs --dates 2026-10-05 --no-firestore --verbose   # 先跑 1 日驗格式
@@ -65,6 +67,15 @@ const readGzJson = p => JSON.parse(gunzipSync(readFileSync(p)).toString('utf8'))
 function writeJsonAtomic(p, obj) { const tmp = `${p}.tmp`; writeFileSync(tmp, JSON.stringify(obj, null, 1)); renameSync(tmp, p); }
 const localPath = d => join(OUT, `${d}.json`);
 const readLocal = d => (existsSync(localPath(d)) ? readJson(localPath(d)) : null);
+const readJsonOr = (p, fb) => { try { return existsSync(p) ? readJson(p) : fb; } catch { return fb; } };
+/**
+ * 本機摘要（_index.rows、_alerts.missing）依日期合併（2026-10-07）：這次的目標日以新結果為準（舊列先移除，
+ * 這次補到了就不再列缺），其他日子保留舊列——用 --dates 補一兩天時不會把 60 日摘要洗成兩列。
+ */
+const mergeByDate = (prev, next, targets) => [
+  ...(Array.isArray(prev) ? prev : []).filter(r => r && !targets.includes(r.date)),
+  ...next,
+].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
 // ── 參數檢查（輸入在邊界驗）──────────────────────────────
 function validateOptions() {
@@ -198,6 +209,15 @@ async function phase1(dates, ofDocs) {
     const had = { om: !!out.openMarks, im: !!out.indexMarks };
     const d8 = d.replace(/-/g, '');
 
+    // O8（2026-10-07 起）：15:25 的 backfill-orderflow.mjs 已用同一端點、同口徑寫入 openMarks ⇒ 直接沿用（0 請求），不重打 MI_5MINS
+    const fsOm = ofDocs[d]?.openMarks;
+    if (!out.openMarks && fsOm?.basis === M.BASIS && ofTotalsMatch(fsOm, ofDocs[d]) === true) {
+      const om = { ...fsOm }; for (const k of ['src', 'echo', 'backfilledAt']) delete om[k];
+      out.openMarks = om;
+      out.mi5 = { src: fsOm.src ?? null, echo: fsOm.echo ?? null, rows: fsOm.n ?? null, via: 'firestore:orderFlowArchive.openMarks（0 請求）' };
+      log(`${d} MI_5MINS ← orderFlowArchive 既有 openMarks（同口徑、全日三值吻合，0 請求）`);
+    }
+
     if (!out.openMarks) {
       // 本機鏡像 openapi 檔（只有 10/02 有）：和 orderFlowArchive 全日三值吻合才採用
       if (existsSync(MI5_MIRROR(d))) {
@@ -273,7 +293,9 @@ async function phase2(dates, ofDocs, holidays) {
 
     const payload = {};
     const stamp = Date.now();
-    if (loc.openMarks && ofMatch === true) payload.openMarks = { ...loc.openMarks, src: loc.mi5?.src ?? null, echo: loc.mi5?.echo ?? null, backfilledAt: stamp };
+    // Firestore 已有同口徑 openMarks（O8 每日寫入或先前回補）⇒ 不覆蓋（寫一次）
+    const fsHasOm = of?.openMarks?.basis === M.BASIS;
+    if (loc.openMarks && ofMatch === true && !fsHasOm) payload.openMarks = { ...loc.openMarks, src: loc.mi5?.src ?? null, echo: loc.mi5?.echo ?? null, backfilledAt: stamp };
     if (indexMarks) payload.indexMarks = { ...indexMarks, src: loc.idx?.src ?? null, echo: loc.idx?.echo ?? null, backfilledAt: stamp };
     const why = !of ? 'orderFlowArchive 無此日文件（不建空殼）' : !of.curveJson ? 'orderFlowArchive 文件不完整（無 curveJson）' : null;
     if (OPT.noFirestore) fsSkips.push(`${d}：--no-firestore`);
@@ -345,12 +367,14 @@ async function main() {
   const runsPath = join(OUT, '_runs.json');
   const runs = existsSync(runsPath) ? readJson(runsPath) : [];
   writeJsonAtomic(runsPath, [...runs, run].slice(-50));
+  const prevAlerts = readJsonOr(join(OUT, '_alerts.json'), null);
+  const prevIndex = readJsonOr(join(OUT, '_index.json'), null);
   writeJsonAtomic(join(OUT, '_alerts.json'), {
     basis: FILE_BASIS, asOfRun: run.finished, targets: run.targets,
-    missing,                                  // 交易日缺任何一個衍生值都列在這（不捏造、待補）
+    missing: mergeByDate(prevAlerts?.missing, missing, dates),   // 交易日缺任何一個衍生值都列在這（不捏造、待補）；跨次合併
     stop: state.stop,
   });
-  writeJsonAtomic(join(OUT, '_index.json'), { basis: FILE_BASIS, updatedFromRun: run.finished, rows });
+  writeJsonAtomic(join(OUT, '_index.json'), { basis: FILE_BASIS, updatedFromRun: run.finished, rows: mergeByDate(prevIndex?.rows, rows, dates) });
 
   console.log(`\n請求 ${ledger.length} 個 ${JSON.stringify(ledgerSummary)}｜Firestore 寫入 ${fsWrites.length} 日｜缺 ${missing.length} 日${state.stop ? `｜⛔ 停止：${state.stop.reason}（${state.stop.date} ${state.stop.ep}）` : ''}`);
   if (fsSkips.length) console.log(`Firestore 未寫：\n  ${fsSkips.join('\n  ')}`);

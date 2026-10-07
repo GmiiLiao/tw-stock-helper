@@ -66,6 +66,10 @@ import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDayt
 // 規則類利空事件類別（新聞技能 §1.5／§1.7／§4.1；2026-10-05 第二輪 A4「做skills判定與加權重」）：judgeOneStock 的事實確認與規則判定、
 //   三個 newsVerdict 寫入端的欄位。純資料＋純函式、不 import 任何模組（daemon 靜態 import 鏈不會因此多載入別的檔）。
 import { ruleTriggerScan, applyRuleFacts, ruleFactQuestion, parseRuleFactAnswer, ruleFieldsOf } from './lib/news-rule-classes.mjs';
+// 開盤感應器 v2.1（影子·只記錄·先驗未校準；design-v2.1，使用者 10/05 S1–S8、10/07 O1–O8）：0 MIS 請求（只吃快線與主迴圈已拿到的報價、t00／o00），
+//   不發 B2／Z2、不推播、不寫 aiMessages。靜態 import 鏈只到 scripts/lib/open-sensor-*.mjs 與 firestore-clean.mjs（不經 official-mirror）。
+import { createOpenSensorRunner } from './lib/open-sensor-runner.mjs';
+import { loadSharesLocal, loadExclusionsLocal, writeSharesCache } from './lib/open-sensor-local.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -2338,9 +2342,11 @@ let _depthWin = { date: '', data: {} };   // code → { bid, ask, at }
 let _idxAt = 0;
 // ── 大盤/櫃買盤中逐點序列（2026-08-14 使用者需求：點左上指數彈出走勢圖）──
 // 同一個 MIS 請求帶 t00+o00（不增加上游額度），每 ~55 秒累積一點
-// [epochMs, 指數, 累積成交值(億)]，寫 marketIndexIntraday/latest。
+// [epochMs, 指數, m÷1000]，寫 marketIndexIntraday/latest。⚠ 第三欄上市＝累積成交量（千張），不是成交值（2026-10-07 更正，§10）；
+// 上櫃 o00 m 的語意待證。序列內容不變（相容既有讀取端），文件另帶 seriesUnits 說明單位。
 // 重啟自快照還原當日序列（同 restoreLastLive 的教訓：記憶體序列重啟即蒸發）。
 const _idxIntra = { date: '', tse: [], otc: [], prevTse: 0, prevOtc: 0, restored: false };
+const IDX_SERIES_UNITS = Object.freeze({ tse: '千張', otc: 'm÷1000（語意待證）' });
 async function restoreIdxIntra() {
   _idxIntra.restored = true;
   try {
@@ -2367,16 +2373,24 @@ async function writeMarketIndex() {
     if (!(cur > 0 && prev > 0)) return;
     const chg = +(cur - prev).toFixed(2);
     const oCur = otc ? (_num(otc.z) || _num(otc.l)) : 0, oPrev = otc ? _num(otc.y) : 0;
+    // 開盤感應器 t00／o00 環（快線停機時由這裡接手；同一個既有請求，0 新增）
+    _openSensor.onIndex({ price: _num(tse.z), prev, mVal: _num(tse.m), open: _num(tse.o), revealAt: Number(tse.tlong) > 0 ? Number(tse.tlong) : null, realTrade: _num(tse.z) > 0 },
+      otc ? { price: _num(otc.z), prev: _num(otc.y), mVal: _num(otc.m), open: _num(otc.o), revealAt: Number(otc.tlong) > 0 ? Number(otc.tlong) : null, realTrade: _num(otc.z) > 0 } : null);
     const doc = {
       weighted: cur, weightedChange: chg, weightedChangePercent: +((chg / prev) * 100).toFixed(2),
       high: _num(tse.h), low: _num(tse.l), prevClose: prev, tradeDate: tse.d, tradeTime: tse.t,
-      value: _num(tse.m) > 0 ? +( _num(tse.m) / 1000).toFixed(1) : 0,   // m=累積成交金額(十萬元)→億（t00 無 v 欄）
+      // ⚠ 單位更正（開盤感應器 v2.1 §10，2026-10-07 實測）：t00 的 m＝上市**累積成交量（張）**，不是成交金額——
+      //   10/05 收盤 m＝14,331,403＝MI_5MINS 累積成交數量（逐位相符），當日成交金額是 11,508 億。舊欄位 value（m÷1000 標「億」）已停寫。
+      tseVolLots: _num(tse.m) > 0 ? _num(tse.m) : null,
+      open: _num(tse.o) > 0 ? _num(tse.o) : null,                        // 官方開盤（t00 o；只當附註，開盤失真見感應器 E）
+      revealAt: Number(tse.tlong) > 0 ? Number(tse.tlong) : null,          // MIS 揭示時戳（資料時間）
       at: Date.now(), source: 'daemon_mis',
     };
     if (oCur > 0 && oPrev > 0) {
       doc.otc = oCur; doc.otcChange = +(oCur - oPrev).toFixed(2);
       doc.otcChangePercent = +(((oCur - oPrev) / oPrev) * 100).toFixed(2);
-      doc.otcPrevClose = oPrev; doc.otcHigh = _num(otc.h); doc.otcLow = _num(otc.l); doc.otcValue = _num(otc.m) > 0 ? +(_num(otc.m) / 1000).toFixed(1) : 0;
+      doc.otcPrevClose = oPrev; doc.otcHigh = _num(otc.h); doc.otcLow = _num(otc.l);
+      doc.otcMRaw = _num(otc.m) > 0 ? _num(otc.m) : null;   // o00 m 原值：語意待證（10/05 初判成交金額·十萬元，只 1 日；§10.2 核對前不上畫面）
     }
     await db.collection('marketIndex').doc('latest').set(doc);
     _idxAt = Date.now();
@@ -2394,6 +2408,7 @@ async function writeMarketIndex() {
         date: today, updatedAt: Date.now(),
         prevCloseTse: prev, prevCloseOtc: oPrev || null,
         tseJson: JSON.stringify(_idxIntra.tse), otcJson: JSON.stringify(_idxIntra.otc),
+        seriesUnits: IDX_SERIES_UNITS,
       });
     }
   } catch { /* 網路波動可缺 */ }
@@ -2626,6 +2641,7 @@ async function restoreLastLive() {
       if (isoDate(new Date(v.liveAt)) !== today) continue;
       _lastLive[k] = v; n++;
     }
+    _restoredLiveN = n;   // 開盤感應器 G7：重啟後標 late 時附上還原檔數
     log(n ? `✓ 還原今日即時價 ${n} 檔（重啟不再整批退回昨收）` : '· 快照無今日即時價可還原（正常：盤前或非交易日）');
   } catch (e) { log('✖ 還原今日即時價失敗：', (e.message || '').slice(0, 80)); }
 }
@@ -2637,7 +2653,7 @@ async function restoreLastLive() {
 // 頻寬帳：快線 1 req/5s ＋ 主迴圈 1 req/3s ≈ 2.7 req/5s < MIS 限制 3 req/5s。
 // 指數 5 秒級發布（快線搭車）。headline（marketIndex/latest·小文件）每班車都寫；
 // 盤中序列（走勢圖用）≥50 秒才補一點——圖表 1 分鐘解析度足夠，不用灌爆文件。
-// ⚠ t00/o00 沒有 v 欄（成交值不在 getStockInfo），序列第三欄暫為 0，量條另尋來源。
+// ⚠ t00/o00 沒有 v 欄、也沒有成交金額欄；序列第三欄是 m÷1000（上市＝累積成交量千張；上櫃語意待證）。
 // 距下一個「MIS 揭示邊界 + offset 毫秒」還有多久（邊界＝整 5 秒牆鐘）
 function msToNextReveal(offsetMs = 1000) {
   const now = Date.now();
@@ -2645,23 +2661,30 @@ function msToNextReveal(offsetMs = 1000) {
   return Math.max(50, next - now);
 }
 
+// 快線最後一拍 t00（記憶體）：marketPattern.live 改讀這裡，不再每分鐘直打 MIS（S8）。z 只在真成交價時記（同舊口徑 z>0）
+let _hotIdxLatest = null;
 async function publishIndexFromHot(t, o) {
   if (!t || !(t.price > 0) || !(t.prev > 0)) return;
+  _hotIdxLatest = { z: t.realTrade ? t.price : 0, o: t.open > 0 ? t.open : 0, y: t.prev, revealAt: t.revealAt ?? null, at: Date.now() };
   const chg = +(t.price - t.prev).toFixed(2);
-  // 成交值：t00 的 m 欄＝累積成交金額（十萬元）——2026-08-17 以自家快照加總
-  // （6,542億 vs m/1000=7,637億·官方含冷門/零股故略高）與上週五全日 10,645 億量級雙重校準。
-  const valYi = t.mVal > 0 ? +(t.mVal / 1000).toFixed(1) : 0;
+  // ⚠ 單位更正（開盤感應器 v2.1 §10，2026-10-07）：t00 的 m 欄＝上市**累積成交量（張）**，不是成交金額（十萬元）。
+  //   舊註解的「2026-08-17 以自家快照加總 6,542 億 vs m/1000＝7,637 億」只是量級巧合：每股均價約 80 元時，張÷1000 與億元恰好同量級。
+  //   實測 10/05 收盤 m＝14,331,403＝MI_5MINS 累積成交數量；當日上市成交金額 11,508 億。舊欄位 value／otcValue 停寫（讀取端缺值顯示「—」）。
+  const kLots = t.mVal > 0 ? +(t.mVal / 1000).toFixed(1) : 0;   // 走勢圖序列第三欄（千張；內容不變）
   const doc = {
     weighted: t.price, weightedChange: chg, weightedChangePercent: +((chg / t.prev) * 100).toFixed(2),
     high: t.high, low: t.low, prevClose: t.prev,
     tradeDate: isoDate(taipei()).replace(/-/g, ''), tradeTime: taipei().toTimeString().slice(0, 8),
-    value: valYi, at: Date.now(), source: 'daemon_mis',
+    tseVolLots: t.mVal > 0 ? t.mVal : null,
+    open: t.open > 0 ? t.open : null,
+    revealAt: t.revealAt ?? null,
+    at: Date.now(), source: 'daemon_mis',
   };
   if (o && o.price > 0 && o.prev > 0) {
     const oc = +(o.price - o.prev).toFixed(2);
     doc.otc = o.price; doc.otcChange = oc; doc.otcChangePercent = +((oc / o.prev) * 100).toFixed(2);
     doc.otcPrevClose = o.prev; doc.otcHigh = o.high; doc.otcLow = o.low;
-    doc.otcValue = o.mVal > 0 ? +(o.mVal / 1000).toFixed(1) : 0;
+    doc.otcMRaw = o.mVal > 0 ? o.mVal : null;   // o00 m 原值：語意待證（§10.2 核對前不上畫面）
   }
   await db.collection('marketIndex').doc('latest').set(doc);
   _idxAt = Date.now();   // writeMarketIndex 的 55 秒守門會自動讓路（只在快線停機時段接手）
@@ -2673,12 +2696,13 @@ async function publishIndexFromHot(t, o) {
     if (_idxIntra.date !== today) { _idxIntra.date = today; _idxIntra.tse = []; _idxIntra.otc = []; }
     const lastT = _idxIntra.tse[_idxIntra.tse.length - 1]?.[0] || 0;
     if (Date.now() - lastT >= 50e3) {
-      _idxIntra.tse.push([Date.now(), t.price, valYi]);
+      _idxIntra.tse.push([Date.now(), t.price, kLots]);
       if (o && o.price > 0) _idxIntra.otc.push([Date.now(), o.price, o.mVal > 0 ? +(o.mVal / 1000).toFixed(1) : 0]);
       await db.collection('marketIndexIntraday').doc('latest').set({
         date: today, updatedAt: Date.now(),
         prevCloseTse: t.prev, prevCloseOtc: (o && o.prev > 0) ? o.prev : null,
         tseJson: JSON.stringify(_idxIntra.tse), otcJson: JSON.stringify(_idxIntra.otc),
+        seriesUnits: IDX_SERIES_UNITS,
       });
     }
   }
@@ -2713,6 +2737,7 @@ async function hotQuoteLoop() {
       const batch = [...prio.map(c => byCode[c]).filter(Boolean), { market: 'tse', code: 't00' }, { market: 'otc', code: 'o00' }];
       if (batch.length <= 2) { await sleep(15000); continue; }
       const mis = await misBatch(batch);   // 護欄（pz 紀律/漲跌停/高低價）都在裡面
+      _openSensor.onQuotes(mis); _openSensor.onIndex(mis.t00, mis.o00);   // 開盤感應器擷取緩衝與 t00／o00 環（記憶體推入、例外內吞，0 請求）
       {
         const nowMs = Date.now(); const liveQ = Object.values(mis).filter(q => q?.hasLive);
         if (liveQ.length === 0 && mins >= 9 * 60 + 2) { if (++_hotZero >= 3 && _hotRotate) { _hotRotate = false; _hotRotateOffUntil = nowMs + 10 * 60000; _hotZero = 0; log('⚠ 快線：輪換批次後連續 3 輪 0 live，退回固定批次 10 分鐘'); } }
@@ -2799,6 +2824,59 @@ async function hotQuoteLoop() {
       // 改在「揭示邊界 +1 秒」準時抓——資料落地時刻確定，前端據此對錶。
       await sleep(msToNextReveal(1000));
     } catch (e) { log('✖ 快線', (e.message || '').slice(0, 60)); await sleep(10000); }
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// 開盤感應器 v2.1（影子·只記錄·先驗未校準；scripts/lib/open-sensor-*.mjs；規格 design-v2.1）
+//   使用者裁定：10/05 S1–S8（狀態、09:02 首判最慢 09:05、每 10 分鐘修正到 10:00、開盤失真修正），
+//   10/07「如建議進行」O1–O8（七種狀態、量點估計標（估）、H 區段表、權值未表態、一般股只算上市、≥15 檔同向、重啟窗到 10:05、openMarks 搭 15:25）。
+//   · 0 MIS 請求：只吃快線（hotQuoteLoop）與主迴圈（applyMis）已拿到的報價與 t00／o00；盤前名單只讀 Firestore 與本機檔（發行股數正快取／官方鏡像）。
+//   · 影子：只寫 openSensor/{date}、openSensorUniverse/{date}、openSensorMeta/*、openSensorStats/outside；不發 B2／Z2、不推播、不寫 aiMessages。
+//   · 寫一次、重啟不覆蓋（交易內看文件欄位）；重啟後過去的檢查點只能 late 或 nodata。交易日 08:30–10:05 是觀察點（O7：can-restart-daemon BLOCK）。
+//   · 盤後（15:25 委託失衡子程序成功後）：post、indexMarks（環）→ orderFlowArchive（只在文件已存在時）、openSensorMeta/threshold、rho；
+//     完成記 daemonJobMarks.openSensorPost（重啟不重跑、不漏跑）。只描述盤勢事實，非投資建議。
+// ════════════════════════════════════════════════════════════
+const OS_BOOT_MS = Date.now();
+let _restoredLiveN = null;   // restoreLastLive 還原的今日即時價檔數（感應器 G7 restoredLive）
+const OS_MIRROR_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'official');
+const OS_SHARES_CACHE = join(MARKET_DIR, 'open-sensor', 'issued-shares.json');
+const _openSensor = createOpenSensorRunner({
+  db, log, nowMs: () => Date.now(), holidays: () => TW_HOLIDAYS, bootMs: OS_BOOT_MS,
+  marketOf: () => { const m = {}; for (const c of _codesCache || []) m[c.code] = c.market; return m; },
+  loadShares: async () => loadSharesLocal({
+    memory: _sharesCache.date === isoDate(taipei()) && _sharesCache.map ? { map: _sharesCache.map, feedDate: _sharesFeedDate } : null,
+    cacheFile: OS_SHARES_CACHE, mirrorRoot: OS_MIRROR_ROOT,
+  }),
+  loadExclusions: async date => loadExclusionsLocal({ mirrorRoot: OS_MIRROR_ROOT, date }),
+  // H 區段表重放：orderFlowArchive 的 tradeValue（MI_5MINS 13:30 累積成交金額，百萬元）÷100＝億元；只取需要的欄位
+  loadAHistory: async (from, to) => {
+    const s = await db.collection('orderFlowArchive').where('date', '>=', from).where('date', '<=', to).select('tradeValue').get();
+    const o = {}; for (const d of s.docs) { const v = d.data()?.tradeValue; if (v > 0) o[d.id] = v / 100; }
+    return o;
+  },
+  loadOpenMarks: async days => {
+    if (!days.length) return {};
+    const snaps = await db.getAll(...days.map(d => db.collection('orderFlowArchive').doc(d)), { fieldMask: ['openMarks'] });
+    return Object.fromEntries(snaps.map(s => [s.id, s.exists ? (s.data()?.openMarks ?? null) : null]));
+  },
+  restoredLive: () => _restoredLiveN,
+  orderFlowDone: date => _orderFlowDate === date,
+  readJobMarks, markJobDone,
+  readIndexClose: async date => {
+    const d = (await db.collection('marketIndex').doc('latest').get()).data();
+    return d && d.weighted > 0 && String(d.tradeDate) === date.replace(/-/g, '') && String(d.tradeTime || '') >= '13:30:00'
+      ? { t: d.tradeTime, v: d.weighted, tseVolLots: d.tseVolLots ?? null, otcMRaw: d.otcMRaw ?? null } : null;
+  },
+});
+// 交易日 08:39–11:00、15:25–18:00 每 5 秒一輪（只做記憶體運算與必要的 Firestore 讀寫），其餘每分鐘看一眼
+async function openSensorLoop() {
+  await sleep(15000);   // 開機先讓代碼表、休市日曆、快線就位
+  for (;;) {
+    try { await _openSensor.tick(); } catch (e) { log('✖ 開盤感應器迴圈:', (e?.message || '').slice(0, 80)); }
+    const tw = taipei(); const m = tw.getHours() * 60 + tw.getMinutes();
+    const busy = isTradingDay(tw) && ((m >= 8 * 60 + 39 && m < 11 * 60) || (m >= 15 * 60 + 25 && m < 18 * 60));
+    await sleep(busy ? 5000 : 60000);
   }
 }
 
@@ -3135,6 +3213,7 @@ async function marketSnapshotLoop() {
         const inDepthWin = marketNow && mins >= DEPTH_WIN_FROM && mins < DEPTH_WIN_TO;
         if (inDepthWin && _depthWin.date !== isoDate(tw)) _depthWin = { date: isoDate(tw), data: {} };
         const applyMis = (mis, captureDepth) => {
+          _openSensor.onQuotes(mis);   // 開盤感應器擷取緩衝（09:00–10:05 記憶體推入、以揭示時間對齊、例外內吞，0 請求）
           for (const k in mis) {
             const { hasLive, bid, ask, ...q } = mis[k];
             if (hasLive && inDepthWin && (bid?.length || ask?.length)) {
@@ -3175,6 +3254,7 @@ async function marketSnapshotLoop() {
         // 輪掃間隙沿用最後真實價（_lastLive），避免掃描空窗跳回昨日種子
         for (const c of codes) { const k = c.code; if (!quotes[k].live && _lastLive[k]) quotes[k] = { ..._lastLive[k] }; }
         const liveN = Object.values(quotes).filter(q => q.live).length;
+        _openSensor.onRound(liveN, marketNow);   // 感應器 G6：該輪 0 live 時不判讀
         // 盤中：今日尚無真成交的檔（分盤處置/極冷門）漲跌歸零顯示平盤——種子帶的是
         // 「昨日」漲跌，不歸零會像 1435 一樣以昨日 +7.59% 掛在今日即時漲幅榜上。
         if (marketNow) {
@@ -7727,7 +7807,7 @@ async function computeLimitQueue(quotes) {
 //   2026-10-05 更正：原註解與 volNote 寫「同時刻曲線自 2026-08-26 起累積中」與事實不符。
 //   台股量能是 U 型分佈，用全日均量除以已過時間去比會系統性誤判為縮量。所以現階段：
 //     · 漲跌幅與漲停/跌停家數 → 即時可判，無需基準，直接用
-//     · 成交值 → 只呈現絕對值與「對昨日全日」的比例，**明確標示非同時刻**；
+//     · 上市成交量（張；t00 m——2026-10-07 更正：不是成交值）→ 只呈現絕對值與「對昨日全日量」的比例，**明確標示非同時刻**；
 //       要有同時刻基準須另做逐日歸檔或回補（屬第二階段，待使用者裁定）
 const PULSE_LEVELS = [
   { key: 'strong', min: 1.5, label: '極佳', luExp: 67, ldExp: 4, note: '漲停家數期望最高（實測均 67 檔），軋空環境最有利' },
@@ -7737,13 +7817,32 @@ const PULSE_LEVELS = [
   { key: 'bad', min: -99, label: '危險', luExp: 27, ldExp: 36, note: '實測跌停家數(35.7)反超漲停(27.2)——這種盤不宜追軋空' },
 ];
 
+// 前一交易日（相對 tradeDate 'YYYYMMDD'）的上市全日成交量（張；orderFlowArchive.tradeVol＝MI_5MINS 13:30 累積成交數量）。記憶體快取到換日
+const _prevDayVol = { key: '', lots: null };
+async function prevDayTseVolLots(tradeDate) {
+  const iso = isoFromYmd8(String(tradeDate || ''));
+  if (!iso) return null;
+  const d = new Date(`${iso}T12:00:00`);
+  for (let i = 0; i < 20; i++) { d.setDate(d.getDate() - 1); if (isTradingDay(d)) break; }
+  const prevIso = isoDate(d);
+  if (_prevDayVol.key === prevIso && _prevDayVol.lots) return _prevDayVol.lots;
+  try {
+    const v = (await db.collection('orderFlowArchive').doc(prevIso).get()).data()?.tradeVol;
+    _prevDayVol.key = prevIso; _prevDayVol.lots = v > 0 ? v : null;
+  } catch { return null; }
+  return _prevDayVol.lots;
+}
+
 async function computeMarketPulse() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   const marketNow = isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 35;
   const idx = (await db.collection('marketIndex').doc('latest').get()).data();
   if (!idx) return;
   const chg = idx.weightedChangePercent ?? 0;
-  const value = idx.value ?? null;                   // 成交值（億）
+  // ⚠ 單位更正（開盤感應器 v2.1 §10，2026-10-07）：marketIndex 的上市累積量是**成交量（張）**（t00 m），不是成交值。
+  //   舊版把 value（張÷1000）除以 prevValue（Σ收盤×張×1000＝成交金額估計，且含上櫃 4 碼）＝量除以值，口徑錯誤，已拿掉。
+  //   現在：volLots（張）÷ 前一交易日全日上市成交量 prevDayVolLots（orderFlowArchive.tradeVol，同 MI_5MINS 口徑，張）。
+  const volLots = idx.tseVolLots > 0 ? idx.tseVolLots : null;
   const lvl = PULSE_LEVELS.find(l => chg >= l.min) || PULSE_LEVELS[PULSE_LEVELS.length - 1];
 
   // 即時漲停/跌停家數（直接數，不需要任何基準）
@@ -7767,15 +7866,8 @@ async function computeMarketPulse() {
     if (price <= Math.ceil(rawD / td2 - 1e-9) * td2 + 1e-6 && q.change < 0) ld++;
   }
 
-  // 昨日全日成交值（僅供對照，**非同時刻**，介面必須標示）
-  let prevVal = null;
-  try {
-    const arch = await readArchive(3, 'closeJson');
-    // ⚠ closeJson 的量是**張**，成交值＝價 × 張 × **1000 股**。
-    //   漏掉這個 ×1000 會少一千倍（實測算出 10 億、實際 9,703 億）——
-    //   CLAUDE.md 明列的經典錯誤，這裡再犯一次。
-    if (arch[0]) { const m = JSON.parse(arch[0].closeJson); let v = 0; for (const c in m) { const r = m[c]; if (r?.[0] > 0 && r?.[1] > 0) v += r[0] * r[1] * 1000; } prevVal = +(v / 1e8).toFixed(0); }
-  } catch { /* 缺就不對照 */ }
+  // 前一交易日全日上市成交量（僅供對照，**非同時刻**，介面必須標示）：相對於指數資料日（idx.tradeDate）的前一交易日
+  const prevDayVolLots = await prevDayTseVolLots(idx.tradeDate);
 
   // 警示判定（只在「有實據」的情境才示警，不亂喊）
   const warns = [];
@@ -7786,7 +7878,7 @@ async function computeMarketPulse() {
 
   const doc = {
     updatedAt: Date.now(), marketNow,
-    twii: { chg: +chg.toFixed(2), value, prevValue: prevVal, valueVsPrevFullDay: (value != null && prevVal) ? +(value / prevVal).toFixed(2) : null },
+    twii: { chg: +chg.toFixed(2), volLots, prevDayVolLots, volVsPrevFullDay: volLots != null && prevDayVolLots ? +(volLots / prevDayVolLots).toFixed(2) : null },
     otc: { chg: idx.otcChangePercent ?? null },
     counts: { limitUp: lu, limitDown: ld, up, down: dn, counted: n, live: liveN },
     countsBasis: liveN > n * 0.5 ? 'live' : 'settled',   // 盤中＝即時；盤後＝已結算收盤
@@ -7795,7 +7887,7 @@ async function computeMarketPulse() {
       luActualVsExp: lvl.luExp ? +(lu / lvl.luExp).toFixed(2) : null },
     warns,
     evidence: { days: 246, avgLimitUp: 45.4, table: PULSE_LEVELS.map(l => ({ label: l.label, min: l.min, luExp: l.luExp, ldExp: l.ldExp })) },
-    volNote: '盤中成交值僅與「昨日全日」對照，非同時刻基準——台股量能為 U 型分佈，用全日均量除以已過時間會系統性誤判為縮量。目前沒有同時刻歷史基準：盤中指數序列只保留當日一份、每日覆寫，未逐日歸檔。',
+    volNote: '上市累積成交量（張）÷前一交易日全日成交量（張），非同時刻；成交量不是成交金額。台股量能為 U 型分佈，用全日量除以已過時間會系統性誤判為縮量。',   // 公開文件（舊戰情、盤前備課都顯示）：不提超管影子功能
   };
   await db.collection('marketPulse').doc('latest').set(doc);
 
@@ -12267,6 +12359,7 @@ function classifyDayPattern(gapPct, intraPct) {
   return 'range';
 }
 let _mpRecent = { key: '', days: null };
+const MP_FRESH_MS = 120_000;   // marketPattern.live 的 t00 揭示時間新鮮度（t00 每 5 秒揭示；超過 2 分鐘沒前進就不更新 live）
 async function computeMarketPattern() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
   // 近5「完成」交易日：今天收盤後(14:00起)才把今天算入，盤中只看昨日以前
@@ -12293,20 +12386,31 @@ async function computeMarketPattern() {
   // 環境燈號把「開平殺盤」也計入盤中翻黑天數（07-07 型崩跌日不漏算）
   const fadeCount = days.filter(d => d.pattern === 'fadeDown' || d.pattern === 'flatDown').length;
   const level = fadeCount >= 3 ? 'red' : fadeCount >= 2 ? 'yellow' : 'neutral';
-  // 盤中即時：MIS 加權指數 t00（開盤後才有今日開盤價）
+  // 盤中即時：加權指數 t00（開盤後才有今日開盤價）。
+  //   S8（使用者 10/05「s8 ok」；開盤感應器 v2.1 §11.1）：不再每分鐘直打 MIS t00（每分鐘 −1 個 MIS 請求）——
+  //   改讀快線已拿到的最後一拍（記憶體，60 秒內）；快線停機時讀 marketIndex/latest（tradeDate＝今天，open／revealAt 由寫入端帶），都不打 MIS。
+  //   新鮮度一律看**揭示時間** revealAt（MIS tlong）：揭示超過 MP_FRESH_MS 沒前進（MIS 限流／封鎖、快線與 writeMarketIndex 都停）⇒
+  //   不更新 live、保留上一份——舊資料不可蓋上新的 at 看起來像剛更新（2026-10-07 審查）。live 另帶 revealAt＝資料時間。
+  //   live 欄位語意不變：官方開盤口徑（t00 o）、z 為真成交價；Banner／Hint 照讀。換成有效開盤 E′ 口徑等開燈時另行升版。
   let live = null;
   if (isTradingDay(tw) && mins >= 9 * 60 && mins < 13 * 60 + 35) {
     try {
-      const j = await fetch('https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0',
-        { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)', Referer: 'https://mis.twse.com.tw/' } }).then(r => r.json());
-      const x = j?.msgArray?.[0];
-      const z = parseFloat(x?.z), o = parseFloat(x?.o), y = parseFloat(x?.y);
+      const fresh = r => Number(r) > 0 && Date.now() - Number(r) < MP_FRESH_MS;
+      let src = null;
+      if (_hotIdxLatest && Date.now() - _hotIdxLatest.at < 60_000 && fresh(_hotIdxLatest.revealAt)) src = _hotIdxLatest;
+      else {
+        const d = (await db.collection('marketIndex').doc('latest').get()).data();
+        if (d && String(d.tradeDate) === ymd8(tw) && fresh(d.revealAt)) {
+          src = { z: Number(d.weighted) || 0, o: Number(d.open) || 0, y: Number(d.prevClose) || 0, revealAt: Number(d.revealAt) };
+        }
+      }
+      const { z = 0, o = 0, y = 0, revealAt = null } = src || {};
       if (z > 0 && o > 0 && y > 0) {
         const gapPct = +((o - y) / y * 100).toFixed(2);
         const intraPct = +((z - o) / o * 100).toFixed(2);
-        live = { date: today, price: z, gapPct, intraPct, pattern: classifyDayPattern(gapPct, intraPct), at: Date.now() };
+        live = { date: today, price: z, gapPct, intraPct, pattern: classifyDayPattern(gapPct, intraPct), revealAt, at: Date.now() };
       }
-    } catch { /* MIS 偶發失敗：保留上次 live（merge 不覆蓋） */ }
+    } catch { /* 讀不到：保留上次 live（merge 不覆蓋） */ }
   }
   const payload = { updatedAt: Date.now(), date: today, env: { level, fadeCount, days } };
   if (live) payload.live = live;
@@ -14498,10 +14602,27 @@ const BIGCAP_ETFS = [{ code: '0050', name: '元大台灣50', aum: '4000億+' }, 
 const HIDIV_ETFS = [{ code: '0056', name: '元大高股息' }, { code: '00878', name: '國泰永續高股息' }, { code: '00919', name: '群益台灣精選高息' }];
 let _sharesFeedDate = null;
 let _sharesCache = { date: '', map: null };
+// 開盤感應器 v2.1 §11.3：負快取＋盤中禁抓。失敗（抓取錯誤或不足 500 檔）記 errorAt，30 分鐘內不再抓；
+//   交易日 08:30–10:05（感應器觀察點）一律不打網路，回記憶體正快取或落地檔（second-brain/market/open-sensor/issued-shares.json）。
+//   成功路徑行為不變（etfInfluence 共用）；成功時另以 tmp＋rename 寫落地正快取，給感應器盤前名單用。
+const SHARES_NEG_TTL_MS = 30 * 60_000;
+let _sharesErr = { errorAt: 0, why: '' };
+function sharesFromLocalCache() {
+  const c = loadSharesLocal({ cacheFile: OS_SHARES_CACHE, mirrorRoot: OS_MIRROR_ROOT }).tse;
+  return c?.map || null;
+}
 async function getIssuedShares() {
   const today = isoDate(taipei());
   if (_sharesCache.date === today && _sharesCache.map) return _sharesCache.map;
+  {
+    const tw = taipei(); const m = tw.getHours() * 60 + tw.getMinutes();
+    const noNet = isTradingDay(tw) && m >= 8 * 60 + 30 && m < 10 * 60 + 5;
+    if (noNet || Date.now() - _sharesErr.errorAt < SHARES_NEG_TTL_MS) {
+      return _sharesCache.map || sharesFromLocalCache() || {};
+    }
+  }
   const map = {};
+  let why = '';
   try {
     // ⚠ 這支 opendata 沒有 rwd 對應版，只能吃 openapi（實測落後一個交易日）。
     //   但**發行股數是慢變數**（只有增資/減資/可轉債轉換才動），落後一天不影響
@@ -14515,10 +14636,17 @@ async function getIssuedShares() {
       const c = (x['公司代號'] || '').trim(); const s = (x['已發行普通股數或TDR原股發行股數'] || '').replace(/,/g, '').trim();
       if (/^\d{4}$/.test(c) && /^\d+$/.test(s)) map[c] = +s;
       }
-    }
-  } catch { /* skip */ }
-  if (Object.keys(map).length > 500) _sharesCache = { date: today, map };
-  return _sharesCache.map || map;
+    } else why = `HTTP ${r.status}`;
+  } catch (e) { why = String(e?.message || e).slice(0, 80); }
+  if (Object.keys(map).length > 500) {
+    _sharesCache = { date: today, map };
+    _sharesErr = { errorAt: 0, why: '' };
+    writeSharesCache(OS_SHARES_CACHE, { map, feedDate: _sharesFeedDate, savedAt: Date.now() });   // 落地正快取（失敗只影響感應器後備，不影響本函式回傳）
+  } else {
+    _sharesErr = { errorAt: Date.now(), why: why || `只取得 ${Object.keys(map).length} 檔` };
+    log(`  ⚠ 發行股數抓取失敗（${_sharesErr.why}），30 分鐘內不再抓`);
+  }
+  return _sharesCache.map || map;   // 回傳口徑同舊版（失敗時呼叫端自己判 <500 檔略過）
 }
 // 該月第 n 個週五(0-indexed weekday: 週五=5)
 function nthWeekdayOfMonth(year, month0, weekday, n) {
@@ -15987,6 +16115,7 @@ function swingAccountTick() {
 }
 if (!ONESHOT) { setTimeout(swingAccountTick, 30_000); setInterval(swingAccountTick, 60_000); }
 if (!ONESHOT) dailyJobsLoop();
+if (!ONESHOT) openSensorLoop();   // 開盤感應器 v2.1（影子）：放在所有每日狀態宣告之後才啟動（盤後步驟讀 _orderFlowDate）
 if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔斷器狀態、任務耗時 → system/daemonHealth
 
 // ── AI 停損規範 stop-v1.1 影子試算（S3；2026-10-05 使用者「其它都ok go」；規範 .claude/skills/tw-ai-stoploss「生效範圍」影子期）──

@@ -183,7 +183,7 @@ description: 產生、驗證、顯示或推播「持股停損價」的程式與 
 | 係數涵蓋 | `ex.coverFrom ≤ lines.barsFrom`（日 K 視窗第一根）而且 `ex.coverTo ≥ dataDate`。缺一筆視窗內的除息係數時，除息前未還原的收盤會讓 MA20×0.98 與帶值偏高，而夾值保證帶值 ≤ 收盤×0.97，上一列擋不到，棘輪會把錯值鎖住 | 前端暫算（不用還原日 K） | 當日不採用由日 K 算出的值（ATR 帶記 `bandInvalid`；保本、追蹤不新增），`bandHold`、`floorStop` 沿用上一版，記 `exGapBars`（視窗中落在涵蓋外的根數）；成本線照算 |
 | 不寬於上限 | `stop ≥ costLine` | `userSet`（第二階段） | 拒絕，記錄 `tooWide` |
 | 只升不降 | `stop ≥ ceilTick(prev.stop × 本期新增 Πf)` | `exAdjust`（已含在式中）、`costCorrection`、`init`、`eventExpire`；`bandRatchet=false` 時的 `bandDown`；第二階段的 `userSet` | 拒絕，記錄 `loosen` |
-| 成本可疑 | 現價 ÷ 還原成本 < 0.25 或 > 5（第 11 項裁定） | — | 停損照算，但**抑制該檔一級警示**，改發二級「成本資料可疑」，每日一次 |
+| 成本可疑 | 現價 ÷ 還原成本 < 0.25 或 > 5（第 11 項裁定） | — | 停損照算，但**抑制該檔一級警示**，改發二級「成本資料可疑」，每日一次。「本檔停損警示暫停」**也涵蓋**「已在停損下」彙總（`seeded`）與停損紀律彙總（§8.4）——這兩則都不列該檔（2026-10-07 線上查核 4746：均價 1562、收盤 48.30，停損是用可疑成本算的；`planUserStopTick`、`planDisciplineDigest`） |
 
 - 「上一版合法」**不比較現價**：觸及事件進行中，現價本來就在停損下。
 - `stopBooks/{uid}` 由 daemon 以 Admin SDK 寫入，Firestore 規則只開放本人讀取（§14），上面的檢查是防資料錯誤，不是防竄改。
@@ -593,7 +593,7 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 ### 10.3 驗證（`validateLlmStopText`；同 v1，T5 改為 ATR 帶）
 
 1. `STOP_REF` 必須等於停損（差距不到半檔），不符記 `stopLlmViolation`。
-2. `extractStopPrices` 從停損語境擷取價格，排除規則同 v1。跟停損差超過 1 檔：記 `textMismatch`；`enforce` 時才把數字換成停損並在欄位末尾另起一行加註。
+2. `extractStopPrices` 從停損語境擷取價格，排除規則同 v1，另加子句口徑（2026-10-07：目標價、評分不再被當成停損價；`llm-contract.md` §2 第 2a 項）。跟停損差超過 1 檔：記 `textMismatch`；`enforce` 時才把數字換成停損並在欄位末尾另起一行加註。
 3. T5 由「結構參考價當停損」改為 `bandAsStop`：停損語境的數字等於 ATR 帶當日值（±1 檔）但不等於生效停損。
 4. **上線三段**：S3 量測（提示詞不變）→ S5 換提示詞仍量測 → `enforce`（≥200 句擷取、抽 ≥100 句人工標注、誤判率 95% 上界 ≤3%、再經使用者核可）。基線：stockAI 58 檔中 53% 不符（量化 §3.12）。
 

@@ -5,16 +5,28 @@ import { shouldPollNow } from '@/lib/market-clock';
 import { getChangeColor } from '@/lib/twse-api';
 
 // ── 大盤即時走勢浮動窗（2026-08-14 使用者需求）──────────────────────
-// 點左上「台股加權指數」卡片彈出：指數線＋平盤紅綠填色＋每分鐘成交值量條
-// ＋游標查價（時間/成交價/成交值），上市/上櫃切換。
+// 點左上「台股加權指數」卡片彈出：指數線＋平盤紅綠填色＋每分鐘上市成交量量條
+// ＋游標查價（時間/成交價/成交量），上市/上櫃切換。
 // 資料：/api/twse/index-intraday（daemon 每 ~55 秒累積一點，重啟自還原）。
 // SVG 鐵則：preserveAspectRatio="none" 的 SVG 內零文字，標籤全在 HTML 層。
+// ⚠ 單位（開盤感應器 v2.1 §10，2026-10-07 實測）：序列第三欄上市＝t00 m÷1000＝**累積成交量（千張）**，不是成交值（億）——
+//   10/05 收盤 14,331 是 14,331 千張，當日上市成交金額是 11,508 億。上櫃 o00 m 的語意待證（§10.2），核對完成前不上畫面。
+//   單位以文件 seriesUnits 為準（白名單）；舊文件沒有這個欄位時上市照千張、上櫃不顯示。
 
-type Pt = [number, number, number];   // [epochMs, 指數, 累積成交值(億)]
+type Pt = [number, number, number];   // [epochMs, 指數, 第三欄（上市＝累積成交量·千張；上櫃＝o00 m÷1000·語意待證）]
 interface IdxDoc {
   date: string; updatedAt: number;
   prevCloseTse: number; prevCloseOtc: number | null;
   tseJson: string; otcJson: string;
+  seriesUnits?: { tse?: string; otc?: string } | null;
+}
+
+/** 第三欄可以上畫面的單位（白名單）。上櫃在 §10.2 核對完成、daemon 改寫 seriesUnits.otc 之前一律不顯示 */
+const SHOWN_VOL_UNITS = new Set(['千張']);
+function volUnitOf(doc: IdxDoc, market: 'tse' | 'otc'): string | null {
+  const u = doc.seriesUnits?.[market];
+  if (u == null) return market === 'tse' ? '千張' : null;
+  return SHOWN_VOL_UNITS.has(u) ? u : null;
 }
 
 const W = 760, H = 300, PH = 200, VH = 70;   // 價格區 0..200、量條由底部向上最多 70
@@ -57,9 +69,11 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
     const yPrev = y(prev);
     const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
     const area = `${line}L${x(pts[pts.length - 1][0]).toFixed(1)},${yPrev.toFixed(1)}L${x(pts[0][0]).toFixed(1)},${yPrev.toFixed(1)}Z`;
-    // 每點成交值增量（億）→ 量條。前一點為 0（歷史缺值/序列起頭補件）時不畫增量，
-    // 否則第一筆真值會被畫成一根涵蓋整個上午的天柱。
+    // 每點成交量增量（千張）→ 量條。前一點為 0（歷史缺值/序列起頭補件）時不畫增量，
+    // 否則第一筆真值會被畫成一根涵蓋整個上午的天柱。單位未核對（上櫃）⇒ 不畫量條。
+    const unit = volUnitOf(doc, market);
     const vols = pts.map((p, i) => {
+      if (!unit) return 0;
       const pv = i ? pts[i - 1][2] : 0;
       if (!(p[2] > 0)) return 0;
       return pv > 0 ? Math.max(0, p[2] - pv) : (i === 0 ? p[2] : 0);
@@ -68,7 +82,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
     const bw = Math.max(1.2, W / Math.max(pts.length, 60) * 0.7);
     const last = pts[pts.length - 1];
     const chg = last[1] - prev;
-    return { pts, prev, empty: false, x, y, yPrev, line, area, vols, vMax, bw, hi, lo, last, chg } as const;
+    return { pts, prev, empty: false, x, y, yPrev, line, area, unit, vols, vMax, bw, hi, lo, last, chg } as const;
   }, [doc, market]);
 
   if (!open) return null;
@@ -115,7 +129,11 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
             </span>
           )}
           <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>
-            {doc?.date}{view && !view.empty ? ` ・ 成交值累計 ${view.last[2].toLocaleString('zh-TW', { maximumFractionDigits: 0 })} 億` : ''}
+            {doc?.date}{view && !view.empty
+              ? (view.unit
+                ? ` ・ 上市成交量累計 ${view.last[2].toLocaleString('zh-TW', { maximumFractionDigits: 0 })} ${view.unit}`
+                : ` ・ ${market === 'otc' ? '上櫃' : '上市'} —（量值單位核對中）`)
+              : ''}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 'calc(1.1rem * var(--fz))', lineHeight: 1 }}>✕</button>
         </div>
@@ -139,8 +157,8 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
               <line x1="0" y1={view.yPrev} x2={W} y2={view.yPrev} stroke="var(--text-muted)" strokeDasharray="5 4" strokeWidth="1" vectorEffect="non-scaling-stroke" opacity="0.7" />
               {/* 指數線 */}
               <path d={view.line} fill="none" stroke={view.chg > 0 ? '#f03e3e' : view.chg < 0 ? '#2f9e44' : '#94a3b8'} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
-              {/* 量條 */}
-              {view.pts.map((p, i) => {
+              {/* 量條（單位未核對時不畫） */}
+              {view.unit && view.pts.map((p, i) => {
                 const h = (view.vols[i] / view.vMax) * (VH - 4);
                 return <rect key={i} x={view.x(p[0]) - view.bw / 2} y={H - h} width={view.bw} height={h} fill="rgba(245,158,11,0.65)" />;
               })}
@@ -165,7 +183,7 @@ export default function IndexIntradayModal({ open, onClose }: { open: boolean; o
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', fontSize: 'calc(12.5px * var(--fz))', fontFamily: "'JetBrains Mono',monospace", pointerEvents: 'none' }}>
                 <div style={{ color: 'var(--text-muted)' }}>時間：{fmtT(tip[0])}</div>
                 <div style={{ color: getChangeColor(tip[1] - view.prev) }}>現價：{tip[1].toLocaleString('zh-TW', { minimumFractionDigits: 2 })}（{tip[1] > view.prev ? '+' : ''}{(tip[1] - view.prev).toFixed(2)}）</div>
-                <div style={{ color: '#f59e0b' }}>成交值：{tipVol.toFixed(2)} 億</div>
+                {view.unit && <div style={{ color: '#f59e0b' }}>成交量：{tipVol.toFixed(1)} {view.unit}</div>}
               </div>
             )}
           </div>

@@ -15,12 +15,14 @@ test('marketPulse：照 daemon 欄位轉出，平盤＝有效−漲−跌；缺�
     updatedAt: T(10, 42), marketNow: true, countsBasis: 'live',
     counts: { limitUp: 31, limitDown: 4, up: 1012, down: 598, counted: 1797, live: 1700 },
     level: { key: 'good', label: '偏多', luExp: 44, ldExp: 3, luActualVsExp: 0.7 },
-    twii: { chg: 0.6, value: 2184, prevValue: 4752, valueVsPrevFullDay: 0.46 }, otc: { chg: 0.94 },
+    twii: { chg: 0.6, volLots: 6_543_210, prevDayVolLots: 14_331_403, volVsPrevFullDay: 0.46 }, otc: { chg: 0.94 },
   });
   assert.equal(p.asOf, T(10, 42));
   assert.deepEqual(p.counts, { limitUp: 31, limitDown: 4, up: 1012, down: 598, flat: 187, counted: 1797, live: 1700 });
   assert.equal(p.level.luExp, 44);
-  assert.equal(p.valueVsPrevFullDay, 0.46);
+  assert.equal(p.volLots, 6_543_210);
+  assert.equal(p.prevDayVolLots, 14_331_403);
+  assert.equal(p.volVsPrevFullDay, 0.46);
   assert.equal(p.basis, 'live');
   // 期望比值（luActualVsExp）不帶出（critique H1：盤中比全日系統性偏低）
   assert.equal('luActualVsExp' in p.level, false);
@@ -28,8 +30,17 @@ test('marketPulse：照 daemon 欄位轉出，平盤＝有效−漲−跌；缺�
   const bare = normalizePulse({ updatedAt: T(10, 0) });
   assert.equal(bare.counts, null);
   assert.equal(bare.level, null);
-  assert.equal(bare.value, null);
+  assert.equal(bare.volLots, null);
   assert.equal(normalizePulse(null), null);
+});
+
+test('marketPulse 單位修正（開盤感應器 v2.1 §10）：舊文件 value＝t00 m÷1000＝千張 ⇒ 換成張；成交金額估值與量÷值的比值不讀', () => {
+  // 10/05 收盤：m＝14,331,403 張 ⇒ 舊 value 14,331.4（被誤標成「億」）
+  const legacy = normalizePulse({ updatedAt: T(13, 31), twii: { chg: 1.2, value: 14331.4, prevValue: 10645, valueVsPrevFullDay: 1.35 } });
+  assert.equal(legacy.volLots, 14_331_400);
+  assert.equal(legacy.prevDayVolLots, null);
+  assert.equal(legacy.volVsPrevFullDay, null);
+  for (const k of ['value', 'prevValue', 'valueVsPrevFullDay']) assert.equal(k in legacy, false);
 });
 
 test('盤型只認今天的 live；其餘回 null', () => {

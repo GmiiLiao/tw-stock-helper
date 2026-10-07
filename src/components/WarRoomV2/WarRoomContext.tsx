@@ -15,7 +15,7 @@ import { startLiveLoop, isForeground } from '@/lib/market-clock';
 import { storageGet, storageSet } from '@/lib/safe-storage';
 import { warClock, type WarClock, type WarSegment } from '@/lib/warroom/session';
 import { focusForSegment, isFocusKind, type FocusKind } from '@/lib/warroom/focus-kinds';
-import type { PulsePayload, BoardPayload } from '@/lib/warroom/types';
+import type { PulsePayload, BoardPayload, OpenSensorPayload } from '@/lib/warroom/types';
 import {
   useWarRoomBus, registerWarFastCodes, clearWarFastCodes, getWarFastCodes, subscribeWarFastCodes,
   type WarBusState, type WarIndex, type WarQuote,
@@ -34,13 +34,16 @@ export type ZoomTarget =
   | 'sectors'       // C1 族群完整版（MarketWind 完整版、官方 33 類）
   | 'feed'          // B2 異動流全部紀錄
   | 'tailPicks'     // 撿尾盤完整清單
-  | 'health';       // 資料健康明細（Z0 健康燈彈窗「抓取明細 →」）
+  | 'health'        // 資料健康明細（Z0 健康燈彈窗「抓取明細 →」）
+  | 'openSensor';   // 開盤結構明細（Z1 第 5 塊「明細 →」；影子·超管）
 
 export interface WarRoomData {
   index: WarIndex | null;
   quotes: Readonly<Record<string, WarQuote>>;
   pulse: PulsePayload | null;
   board: BoardPayload | null;
+  /** 開盤感應器影子層（超管才有；其他人恆為 null） */
+  openSensor: OpenSensorPayload | null;
   layers: WarBusState['layers'];
   /** 目前快層追蹤的代號（優先序：A1 先；最多 40） */
   fastCodes: readonly string[];
@@ -205,7 +208,7 @@ export function WarRoomProvider({ children }: { children: ReactNode }) {
   }, [drawerCode, zoomTarget]);
 
   const data = useMemo<WarRoomData>(() => ({
-    index: bus.index, quotes: bus.quotes, pulse: bus.pulse, board: bus.board, layers: bus.layers,
+    index: bus.index, quotes: bus.quotes, pulse: bus.pulse, board: bus.board, openSensor: bus.openSensor, layers: bus.layers,
     fastCodes, now, segment, clock,
   }), [bus, fastCodes, now, segment, clock]);
 

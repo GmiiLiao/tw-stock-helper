@@ -81,10 +81,33 @@ export function stripStopRef(text) {
 }
 
 const STOP_CTX_RE = /停損|止損/;
+const BREAK_RE = /跌破/;
 const NUM_RE = /(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)/g;
 const UNIT_AFTER_RE = /^\s*(?:日|週|周|月|季|年|%|％|MA|均線|線|根|檔|張|倍)/;
+// 子句分隔：全形逗號；半形逗號後面不接數字（後接數字的是千分位，例 1,234.5）
+const CLAUSE_SEP_RE = /，|,(?!\d)/g;
+// 子句內的標籤字：數字前最近的標籤是「目標／目標價／目標區間／評分／分數」就不是停損價（2026-10-07 線上查核的誤報）。
+//   不含「買點／進場」：T4（買點當停損）要靠它們跟停損數字同子句才抓得到。
+const LABEL_RE = /停損|止損|目標(?:價|區間)?|評分|分數/g;
 
-/** 停損語境的價格擷取（llm-contract §2）：以「。；\n」切句；排除後接單位詞、−8% 類、參考價 0.5～1.5 倍以外的數字 */
+function clausesOf(body) {
+  const out = [];
+  let start = 0;
+  for (const m of body.matchAll(CLAUSE_SEP_RE)) { out.push({ text: body.slice(start, m.index), start }); start = m.index + m[0].length; }
+  out.push({ text: body.slice(start), start });
+  return out;
+}
+function lastLabel(text) {
+  let last = null;
+  for (const m of text.matchAll(LABEL_RE)) last = m[0];
+  return last;
+}
+
+/**
+ * 停損語境的價格擷取（llm-contract §2）：先以「。；\n」切句，句中有「停損／止損」才看；再以「，」切子句（2026-10-07 起），
+ *   只取「子句內有停損／止損」或「子句內有跌破、而且同一句有停損」的子句；子句內數字前最近的標籤是目標／評分類的不算。
+ *   排除後接單位詞、−8% 類、參考價 0.5～1.5 倍以外的數字。回傳的 sentence 仍是整句（enforce 的整句移除口徑不變）。
+ */
 export function extractStopPrices(text, ctx = {}) {
   const ref = isPos(ctx.refPrice) ? ctx.refPrice : null;
   const src = String(text ?? '').replace(/[<>＜＞]/g, '');
@@ -93,15 +116,20 @@ export function extractStopPrices(text, ctx = {}) {
   for (const sentence of src.split(/(?<=[。；;\n])/)) {
     const body = sentence.replace(/[。；;\n]$/, '');
     if (STOP_CTX_RE.test(body)) {
-      for (const m of body.matchAll(NUM_RE)) {
-        const after = body.slice(m.index + m[0].length);
-        const before = body.slice(0, m.index);
-        if (UNIT_AFTER_RE.test(after)) continue;
-        if (/[−\-－]\s*$/.test(before) && /^\s*[%％]/.test(after)) continue;
-        const v = Number(m[0].replace(/,/g, ''));
-        if (!isPos(v)) continue;
-        if (ref != null && (v < ref * 0.5 || v > ref * 1.5)) continue;
-        out.push({ value: v, raw: m[0], sentence: body.trim(), index: offset + m.index });
+      for (const cl of clausesOf(body)) {
+        if (!STOP_CTX_RE.test(cl.text) && !BREAK_RE.test(cl.text)) continue;
+        for (const m of cl.text.matchAll(NUM_RE)) {
+          const after = cl.text.slice(m.index + m[0].length);
+          const before = cl.text.slice(0, m.index);
+          if (UNIT_AFTER_RE.test(after)) continue;
+          if (/[−\-－]\s*$/.test(before) && /^\s*[%％]/.test(after)) continue;
+          const label = lastLabel(before);
+          if (label && !STOP_CTX_RE.test(label)) continue;
+          const v = Number(m[0].replace(/,/g, ''));
+          if (!isPos(v)) continue;
+          if (ref != null && (v < ref * 0.5 || v > ref * 1.5)) continue;
+          out.push({ value: v, raw: m[0], sentence: body.trim(), index: offset + cl.start + m.index });
+        }
       }
     }
     offset += sentence.length;

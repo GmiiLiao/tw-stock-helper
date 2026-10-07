@@ -2,9 +2,11 @@
 // 規則：
 //   · 家數、漲跌停只用 marketPulse/latest（build-top 的 pulse）；盤前（08:30–09:00 與交易日 08:30 前）顯示「待開盤」，不顯示 0
 //   · 期望漲停只寫「全日均 N（非同時刻）」，不顯示實際÷期望比值（critique H1：盤中比全日系統性偏低）
-//   · 成交值只寫當日累積（上市＝t00、上櫃＝o00 的成交金額），不與昨日比：使用者裁定第 11 題的「昨全日 ×N（非同時刻）」
-//     分母 marketPulse.prevValue 是「上市＋上櫃 4 碼股收盤價×張」估算、且收盤歸檔後會換成今天，與分子（上市全部證券官方成交金額）
-//     不同口徑（同名必同口徑）——待 daemon 寫入同口徑的前一交易日基準（第二階段）再恢復比值
+//   · 單位修正（2026-10-07，開盤感應器 v2.1 §10）：站上原本的「成交值 上市 N 億」其實是 t00 的 m÷1000＝**上市累積成交量（千張）**
+//     （10/05 顯示 14,331「億」＝14,331 千張；當天實際上市成交金額 11,508 億）。改寫「成交量 上市 N 萬張」：
+//     新欄位 tseVolLots（張）；舊文件只有 value（千張）⇒ ×1000 相容。量寫張、值寫億元，兩者分列不互換。
+//     盤中沒有官方上市成交金額，這裡不顯示金額（開盤感應器的估計值只在超管影子區塊、標「估」）。
+//     上櫃 o00 m 的語意未定（只核對 1 日，初判是成交金額）⇒ 核對完成前上櫃這一項不上畫面。不與昨日比（口徑待同口徑基準）。
 //   · 指數資料日早於今天＝◆ 前交易日收盤（不顯示前一日的漲跌，避免被當成今天）
 //   · 指數資料章＝來源自報的 tradeDate＋tradeTime（台北），不是 daemon 寫入時刻（盤外每 5 分鐘、週末也重寫）
 //   · 盤勢燈：偏多紅、偏空綠、持平灰、危險紫（使用者裁定第 2 題）；大盤危險（連續 2 拍）成立時一律危險
@@ -68,13 +70,26 @@ export interface IndexView {
   indicative: boolean;
   /** 指數資料章的時間（來源自報的 tradeDate＋tradeTime；見 indexAsOf） */
   asOf: number | null;
-  /** 成交值一行（含「非同時刻」標示）；沒有資料為 '—' */
-  amount: string;
+  /** 成交量一行：「成交量 上市 1,433.1 萬張」；沒有資料為「成交量 —」 */
+  volume: string;
   /** 那指期（NQ=F；market-index 回應的 usMarket，不另打請求）漲跌%；沒有資料為 null */
   nq: number | null;
 }
 
-// _top：保留參數位置（呼叫端不變）；成交值不再與 pulse.prevValue 比（口徑不同，見檔頭）
+/** 上市累積成交量（張）：新欄位 tseVolLots；舊文件的 value 是 t00 m÷1000＝千張 ⇒ ×1000。沒有資料回 null */
+export function tseVolLotsOf(index: WarIndex | null | undefined): number | null {
+  if (!index) return null;
+  if (isNum(index.tseVolLots) && index.tseVolLots > 0) return index.tseVolLots;
+  return isNum(index.value) && index.value > 0 ? Math.round(index.value * 1000) : null;
+}
+
+/** 張 → 「1,433.1 萬張」 */
+export function fmtWanLots(lots: number | null): string {
+  if (!isNum(lots)) return '—';
+  return `${(lots / 10_000).toLocaleString('zh-TW', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} 萬張`;
+}
+
+// _top：保留參數位置（呼叫端不變）；成交量不與昨日比（口徑待同口徑基準，見檔頭）
 export function indexView(index: WarIndex | null, _top: TopData | null, clock: Pick<WarClock, 'segment' | 'ymd'>, now: number): IndexView {
   const asOf = indexAsOf(index);
   const tradeDate = typeof index?.tradeDate === 'string' ? index.tradeDate : null;
@@ -94,16 +109,12 @@ export function indexView(index: WarIndex | null, _top: TopData | null, clock: P
     change: index && isNum(index.otcChange) ? index.otcChange : null,
     pct: index && isNum(index.otcChangePercent) ? index.otcChangePercent : null,
   };
-  const value = index && isNum(index.value) && index.value > 0 ? index.value : null;
-  const otcValue = index && isNum(index.otcValue) && index.otcValue > 0 ? index.otcValue : null;
-  let amount = '成交值 —';
-  if (value != null) {
-    amount = `${prev ? '◆ 前交易日' : ''}成交值 上市 ${fmtInt(value)} 億${otcValue != null ? `·上櫃 ${fmtInt(otcValue)} 億` : ''}`;
-  }
+  const lots = tseVolLotsOf(index);
+  const volume = lots != null ? `${prev ? '◆ 前交易日' : ''}成交量 上市 ${fmtWanLots(lots)}` : '成交量 —';
   const us = index?.usMarket;
   const nq = us && isNum(us.nasdaqFuturesPrice) && us.nasdaqFuturesPrice > 0 && isNum(us.nasdaqFuturesChangePercent)
     ? us.nasdaqFuturesChangePercent : null;
-  return { twii, otc, prev, indicative, asOf, amount, nq };
+  return { twii, otc, prev, indicative, asOf, volume, nq };
 }
 
 // ── 家數、漲跌停、盤勢燈（marketPulse） ───────────────────────────────────

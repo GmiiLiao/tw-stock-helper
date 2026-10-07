@@ -3,6 +3,9 @@
 //
 // 資料來源只認 daemon 已寫好的 Firestore 文件（欄位以 scripts/ai-daemon.mjs 寫入端為準，缺就回 null，不補預設值）：
 //   marketPulse/latest     computeMarketPulse（約 7690 行）：counts／level／twii／otc／updatedAt——家數口徑唯一來源（使用者裁定第 3 題）
+//                          twii 的量（開盤感應器 v2.1 §10 單位修正）：volLots／prevDayVolLots（張）、volVsPrevFullDay（量÷昨日全日量·非同時刻）；
+//                          舊文件的 twii.value 其實是 t00 m÷1000＝千張（不是億元），只換算成 volLots 相容；prevValue（收盤價×張估的成交金額）與
+//                          valueVsPrevFullDay（量÷值，口徑不同）一律不讀
 //   marketPattern/latest   computeMarketPattern（約 12200 行）：live.{date,pattern,at}
 //   system/ai-daemon       heartbeat（約 200 行）：active／lastHeartbeat（不外露 host、model）
 //   system/daemonHealth    writeDaemonHealth（約 636 行，每小時）：hotLag.{at,p50,p90,freshPct}
@@ -67,6 +70,14 @@ export const LEVEL_TONE = Object.freeze({ strong: 'up', good: 'up', flat: 'flat'
 
 // ── Firestore 文件 → payload（缺欄位一律 null，不補 0） ────────────────────
 
+/** marketPulse.twii 的上市累積成交量（張）：新欄位 volLots；舊文件只有 value（＝t00 m÷1000，千張）⇒ ×1000 */
+function volLotsOf(tw) {
+  const lots = posOrNull(tw.volLots);
+  if (lots != null) return lots;
+  const kLots = posOrNull(tw.value);
+  return kLots != null ? Math.round(kLots * 1000) : null;
+}
+
 /** marketPulse/latest → 大盤脈動。文件不存在回 null。 */
 export function normalizePulse(doc) {
   if (!isObj(doc)) return null;
@@ -89,9 +100,9 @@ export function normalizePulse(doc) {
       ? { key: lv.key, label: strOrNull(lv.label) ?? lv.key, luExp: posOrNull(lv.luExp), ldExp: posOrNull(lv.ldExp) }
       : null,
     twiiChg: numOrNull(tw.chg),
-    value: posOrNull(tw.value),
-    prevValue: posOrNull(tw.prevValue),
-    valueVsPrevFullDay: posOrNull(tw.valueVsPrevFullDay),
+    volLots: volLotsOf(tw),
+    prevDayVolLots: posOrNull(tw.prevDayVolLots),
+    volVsPrevFullDay: posOrNull(tw.volVsPrevFullDay),
     otcChg: numOrNull(otc.chg),
   };
 }

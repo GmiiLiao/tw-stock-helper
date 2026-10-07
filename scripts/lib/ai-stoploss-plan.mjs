@@ -338,7 +338,8 @@ export function planUserStopTick(input) {
     });
     if (adv.isNew) nextId += 1;
     episode = adv.episode;
-    if (adv.isNew && episode?.seeded && !mute) seededCodes.push(`${code} ${name}`.trim());
+    // 成本可疑：停損照算，但「本檔停損警示暫停」也涵蓋「已在停損下」彙總（2026-10-07 線上查核 4746；SKILL §3.4 成本可疑列）
+    if (adv.isNew && episode?.seeded && !mute && !res.suspect) seededCodes.push(`${code} ${name}`.trim());
     if (touch.status === 'touched' && !mute) suppressOtherTypes.add(code);
     if (mute) {
       // 尚未驗證的官方鏡像歸檔（R8）：live 時舊分支照跑，這裡只更新停損簿、不發 v1.1 警示
@@ -454,6 +455,7 @@ export function planCloseSettle(input) {
 
 /**
  * 停損紀律彙總（第 7 項裁定：保留每日推播與「請面對決策」；SKILL §8.4）：每個交易日 09:00 後第一輪、前一交易日官方收盤已定版時跑一次。
+ * 停損簿標 suspect（成本可疑）的代號不列入——同日二級已寫「本檔停損警示暫停」，停損本身是用可疑成本算的。
  * 事件第 2 個交易日起、前一交易日官方收盤 ≤ 停損的代號組成**一則** type:'discipline'（照現行推播，不加 requireAck）。去重鍵 `${uid}:digest`。
  * prevCloses：前一交易日官方收盤。停損簿標 noOfficialBars 的代號、live 時組成線來自尚未驗證官方鏡像歸檔的代號（R8）留在舊紀律分支，不列入。
  */
@@ -465,6 +467,7 @@ export function planDisciplineDigest(input) {
   for (const p of aggregatePositions(holdings)) {
     const bp = book?.positions?.[p.code];
     if (!isObj(bp) || bp.noOfficialBars === true || !bp.episode || mutedAtLive(book, bp.lineInputs, verifiedArchives)) continue;
+    if (bp.suspect === true) continue;   // 成本可疑：本檔停損警示暫停（含紀律彙總；停損是用可疑成本算的）
     const n = disciplineDay(bp.episode, todayYmd, prevCloses[p.code], bp.stop, isTradingDay);
     if (n == null) continue;
     items.push({

@@ -30,6 +30,18 @@
 .warn { color: var(--wr-amber); }
 .bad { color: var(--wr-danger); }
 
+/* 開盤結構明細（ZoomOpenSensor；影子·超管） */
+.osWrap { display: grid; gap: 14px; }
+.osHead { margin: 0; font-size: var(--wr-fs-sm); color: var(--wr-t2); line-height: 1.6; }
+.osSec { display: grid; gap: 6px; }
+.osSecTitle { margin: 0; font-size: var(--wr-fs-md); font-weight: 800; }
+.osNote { margin: 0; font-size: var(--wr-fs-sm); color: var(--wr-t3); line-height: 1.5; }
+.osKv { margin: 0; display: grid; gap: 3px; }
+.osKvRow { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: 10px; font-size: var(--wr-fs-sm); }
+.osKvRow dt { color: var(--wr-t3); }
+.osKvRow dd { margin: 0; font-variant-numeric: tabular-nums; }
+
 @media (max-width: 767px) {
   .head { padding-right: 76px; }
+  .osKvRow { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
