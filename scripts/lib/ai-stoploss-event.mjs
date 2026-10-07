@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { newsBoardFromDoc, newsCtxOf, isCurrentEntry, isAiRead, isPossibleLegalBear, GATE_E } from './warroom-news.mjs';
 import { RULE_CLASS_BY_CODE, ruleClassOf, ruleSubOf, classWeightOf } from './news-rule-classes.mjs';
+import { isRuleContinuation, isLegalOngoing } from './news-rule-evidence.mjs';
 import { STOP_PARAMS, floorTick, limitPrices, nextTradingYmd, addTradingDays } from './ai-stoploss-base.mjs';
 import { atr14Of } from './ai-stoploss-lines.mjs';
 
@@ -69,7 +70,12 @@ function parseVerdicts(doc) {
  * newsVerdict/latest → 合格的規則類利空事件（每檔最多一件）。條件：
  *   B 判別屬於今日適用交易日、非承接、判讀時間 ≥ minAtMs（上一交易日 13:30）；C 規則類利空（ruleClassOf：ruleClass＋該類事實題答「是」，
  *   舊資料 C16a 認 ruleOverride／「【規則】」前綴；**不看 label**——非法律類別 daemon 不覆寫 label，2026-10-06 R1）且 AI 讀過內文；
- *   D 走過四角色挑戰；E 類別在 ctx.classes 內（有傳時）。
+ *   D 走過四角色挑戰；E 類別在 ctx.classes 內（有傳時）；F 不是延續（ruleCont：同一檔同類別有效期內重複觸發，2026-10-07「不當新事件」——
+ *   延續只從「被當成新事件」的那次判別起算〔news-rule-evidence.mjs ruleTrailEligible：主類別、挑戰過、非承接、讀過內文、label 利空，
+ *   與這裡 B–D 同口徑〕，所以首次判定那天這裡已收過；首次沒收成事件〔挑戰失敗、只是次要類別…〕的不起算，隔日照新事件收。
+ *   之後的同一事件由 stepEventOverlay 的事件身分處理，這裡不再收）。
+ * C16a 只收「新聞視窗內有新進展」的（使用者 2026-10-07 N1(b)）：舊案 ruleFacts.C16a==='old'（涉訟中）、工安事故調查 'acc' 都沒有
+ *   ruleClass＝C16a，ruleClassOf 本來就不認；2026-10-07 前的舊資料沒有新進展欄位，照舊認（不改歷史）。
  * **不看** w、強度、信心（它們只寫進 research）。B–D 與戰情 majorBearOf 同一套（isCurrentEntry）。
  * 回傳依代號排序：{ code, cls, clsKey, label, sub, key:`${code}:${cls}`, pass, at, targetDate, weight, weightSource, tier, research }
  */
@@ -84,6 +90,7 @@ export function ruleBearEvents(doc, ctx = {}) {
     const v = raw[code];
     const cls = ruleClassOf(v);
     if (!cls || (allow && !allow.has(cls))) continue;
+    if (isRuleContinuation(v)) continue;
     if (!isCurrentEntry(entry, nctx) || entry.at == null) continue;
     if (isNum(ctx.minAtMs) && entry.at < ctx.minAtMs) continue;
     if (!ruleRead(v)) continue;
@@ -307,15 +314,17 @@ export function missShadowRows({ universe, barsByCode, newsDoc, dateYmd, applica
     else if (nctx?.fresh !== 'today') reason = 'docMismatch';
     else if (!isObj(v)) reason = 'noVerdict';
     // 不是利空、也不是規則類利空（ruleClassOf 不看 label：非法律類別 daemon 不覆寫 label，2026-10-06 R1）＝§10A.1-C 沒過
-    //   （與 ruleBearEvents 同口徑：規則欄位答「是」的判別不論 label 都往下判）
-    else if (v.label !== '利空' && !ruleClassOf(v)) reason = 'notBear';
+    //   （與 ruleBearEvents 同口徑：規則欄位答「是」的判別不論 label 都往下判）。C16a 舊案（涉訟中，2026-10-07 N1(b)）另記
+    //   'legalOngoing'，供日後量「舊案不改判」漏掉幾件大跌。
+    else if (v.label !== '利空' && !ruleClassOf(v)) reason = isLegalOngoing(v) ? 'legalOngoing' : 'notBear';
     else if (!ruleRead(v)) reason = 'notRead';
     else if (entry?.cr) reason = 'carried';
     else if (entry?.ch !== true) reason = 'notChallenged';
     else if (isNum(minAtMs) && isNum(entry?.at) && entry.at < minAtMs) reason = 'beforeMin';
     else {
       const cls = ruleClassOf(v);
-      if (!cls) reason = isPossibleLegalBear(v) ? 'aiBearLegalNoRule' : 'bearNotRule';
+      if (!cls) reason = isLegalOngoing(v) ? 'legalOngoing' : isPossibleLegalBear(v) ? 'aiBearLegalNoRule' : 'bearNotRule';
+      else if (isRuleContinuation(v)) reason = 'continuation';   // 延續：首次判定那天已是事件（ruleBearEvents 不再收）
       else reason = eventTierOf(cls, ruleSubOf(v, cls)).tier === 'none' ? 'belowWeight' : 'qualified';
     }
     rows.push({

@@ -21,6 +21,12 @@
 //   其他類別**不改** label／bullish／confidence／reason（使用者 2026-10-06 R1「ok 如建議」：label 連動推薦排序、個股評分、
 //   做空候選、squeeze-train）。停損收緊與戰情 v2 一律以規則欄位辨識規則類利空（ruleClassOf，不看 label）。
 //   寫入欄位在 ruleFieldsOf（三個寫入端共用）。
+// 使用者 2026-10-07 裁定（「n1 b／n2 依建議／其它依建議」；新聞技能 §1.5、停損規範 §10A.2）：
+//   N1(b) C16a 只有「新聞視窗內有新進展」（事件日期在本次視窗內、AI 逐字引用的法律事實句在內文找得到）才記 'yes' 並改判利空；
+//     舊案（事件日期在視窗外、只在背景句出現）記 'old'＝「涉訟中」事實標籤，不改 label、不推播、不收緊停損。
+//     C16a 的事實題併入同一題問「是否新進展、日期、逐字引用」（不增加 Ollama 呼叫）；判定在 news-rule-evidence.mjs resolveRuleFact。
+//   N2 工安事故後的檢察官相驗、勞檢、事故調查、業務過失偵查不算 C16a（記 'acc'），歸 C17；事實題寫明不算。
+//   ruleFacts 的值：'yes'｜'no'｜'none'（沒答、不確定、引用比不上）｜'old'（C16a 舊案·涉訟中）｜'acc'（C16a 實為工安事故調查）。
 // 本檔是純資料＋純函式：不 import 任何模組、不碰網路、不讀時鐘（daemon 靜態 import 本檔）。非投資建議。
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -58,7 +64,8 @@ export const RULE_BEAR_CLASSES = Object.freeze([
     // 不用裸「調查」：「TrendForce 調查」「調查顯示」等市調會誤觸發（舊 HARD_NEGATIVE 本來就不含；戰情 LEGAL_TEXT_RE 同理）
     trigger: /檢調|搜索(?!引擎)|搜查|約談|起訴|羈押|背信|掏空|調查局|地檢署|檢察官|偵辦|(?:檢方|檢察|主管機關|金管會|證期局|證交所|櫃買中心|公平會|法務部).{0,8}調查|涉(?:嫌|案).{0,8}調查/,
     fact: '這些報導中的檢調搜索、約談、起訴或主管機關調查，對象是不是 {name} 這家公司本身（含其子公司或負責人）？'
-      + '若對象是同業、客戶、供應商或其他公司，就不是；市調或研調機構的市場調查、問卷調查、搜索引擎都不算。',
+      + '若對象是同業、客戶、供應商或其他公司，就不是；市調或研調機構的市場調查、問卷調查、搜索引擎都不算；'
+      + '工安事故、火災、爆炸之後的檢察官相驗、勞動檢查、事故調查、業務過失偵查也不算（那屬工安停工，另有題目）。',
   }),
   Object.freeze({
     code: 'C23', key: 'trading-restriction', label: '交易限制', weight: 0.9, tightenEligible: false,
@@ -169,15 +176,39 @@ export function ruleSubOf(v, code = ruleClassOf(v)) {
   return Object.prototype.hasOwnProperty.call(c.subWeights, v.ruleSub) ? v.ruleSub : null;
 }
 
-/** 單一類別：有任一處命中觸發字、而且該處前後 VETO_SPAN 字內沒有 veto 字樣 */
-function hitsClass(c, t) {
-  if (!c.veto) return c.trigger.test(t);
+/** 單一類別的第一個有效命中（命中處前後 VETO_SPAN 字內有 veto 字樣的不算）→ { index, text } 或 null */
+function firstHit(c, t) {
   const re = new RegExp(c.trigger.source, c.trigger.flags.includes('g') ? c.trigger.flags : `${c.trigger.flags}g`);
   for (const m of t.matchAll(re)) {
-    const win = t.slice(Math.max(0, m.index - VETO_SPAN), m.index + m[0].length + VETO_SPAN);
-    if (!c.veto.test(win)) return true;
+    if (c.veto) {
+      const win = t.slice(Math.max(0, m.index - VETO_SPAN), m.index + m[0].length + VETO_SPAN);
+      if (c.veto.test(win)) continue;
+    }
+    return { index: m.index, text: m[0] };
   }
-  return false;
+  return null;
+}
+
+/** 單一類別：有任一處命中觸發字、而且該處前後 VETO_SPAN 字內沒有 veto 字樣 */
+function hitsClass(c, t) {
+  return firstHit(c, t) != null;
+}
+
+/** 稽核軌跡（ruleEvidence）用：命中處前後各幾個字 */
+export const TRIGGER_CTX_SPAN = 30;
+
+/**
+ * 文字對某類別的第一個有效命中 → { trig（觸發字）, ctx（命中處前後各 TRIGGER_CTX_SPAN 字，空白壓成一格）} 或 null。
+ * 只供稽核軌跡（ruleEvidence）記錄「為什麼問了這一題」；觸發字仍然不決定方向（新聞技能 §1.2）。
+ */
+export function ruleTriggerHit(code, text, span = TRIGGER_CTX_SPAN) {
+  const c = RULE_CLASS_BY_CODE[code];
+  const t = String(text ?? '');
+  if (!c || !t) return null;
+  const h = firstHit(c, t);
+  if (!h) return null;
+  const ctx = t.slice(Math.max(0, h.index - span), h.index + h.text.length + span).replace(/\s+/g, ' ').trim();
+  return { trig: h.text.slice(0, 16), ctx };
 }
 
 /** 文字命中哪些類別的觸發字（只用來決定「要不要問 AI 事實」；回傳依表內順序、不重複） */
@@ -191,7 +222,8 @@ export function ruleClassesHit(text) {
  * 判別實際讀到的報導 → 各類別的觸發與要給 AI 看的報導（daemon judgeOneStock 用；新聞技能 §1.2 觸發只決定要不要問）。
  * articles：[{ title, content }]（判別實際餵進提示詞的那幾篇）；isMentioned(text)：本檔是否被指名（daemon countMentions）；
  * maxChars：只看內文前幾字（＝主判別提示詞給得到的長度；模型看不到的段落問了也答不出來）。
- * 回 { codes（依表內順序）, byCode: { [code]: [{ title, content }] } }——只收「與本檔同時出現、而且命中該類別」的報導。
+ * 回 { codes（依表內順序）, byCode: { [code]: [{ title, content, at, src, hit }] } }——只收「與本檔同時出現、而且命中該類別」的報導。
+ * at＝發布時刻（ms；C16a 事實題附發布日，讓 AI 把「今日」「昨日」換成日期）；src＝內文來源；hit＝ruleTriggerHit（稽核軌跡用）。
  */
 export function ruleTriggerScan(articles, isMentioned, maxChars = 1200) {
   const byCode = {};
@@ -199,7 +231,11 @@ export function ruleTriggerScan(articles, isMentioned, maxChars = 1200) {
     const content = String(a?.content ?? '').slice(0, maxChars);
     const t = `${a?.title ?? ''} ${content}`;
     if (typeof isMentioned === 'function' && !isMentioned(t)) continue;
-    for (const code of ruleClassesHit(t)) (byCode[code] ||= []).push({ title: String(a?.title ?? ''), content });
+    const at = typeof a?.at === 'number' && Number.isFinite(a.at) ? a.at : null;
+    const src = String(a?.bodyFrom || a?.src || '').trim() || null;
+    for (const code of ruleClassesHit(t)) {
+      (byCode[code] ||= []).push({ title: String(a?.title ?? ''), content, at, src, hit: ruleTriggerHit(code, t) });
+    }
   }
   return { codes: RULE_CLASS_CODES.filter(c => byCode[c]), byCode };
 }
@@ -212,13 +248,47 @@ export function classWeightOf(code, sub = null) {
   return { weight: w, source: `新聞技能 §4.1 ${c.code}${sub && w !== c.weight ? `（${sub}）` : ''}·先驗·未回測` };
 }
 
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** 發布時刻（ms）→ 台北日期 'YYYY-MM-DD'；不是有限數字回 null */
+export function taipeiYmdOfMs(ms) {
+  return typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms + 8 * 3_600_000).toISOString().slice(0, 10) : null;
+}
+
+/**
+ * C16a 事實題（2026-10-07 N1(b)＋N2）：同一題併問「對象是不是本公司」「是不是本次新聞視窗內的新進展」「日期」「逐字引用法律事實句」，
+ * 不另開呼叫。window：{ from, to }（'YYYY-MM-DD'，＝judgeOneStock 的新聞視窗）；每篇附發布日。
+ */
+function legalFactQuestion(c, stock, articles, maxChars, window) {
+  const who = `${stock?.code ?? ''} ${stock?.name ?? ''}`.trim();
+  const body = (Array.isArray(articles) ? articles : []).map(a => {
+    const pub = taipeiYmdOfMs(a?.at);
+    return `【${a?.title ?? ''}】${pub ? `（發布 ${pub}）` : ''}${String(a?.content ?? '').slice(0, maxChars)}`;
+  }).join('\n');
+  const win = window && YMD_RE.test(String(window.from)) && YMD_RE.test(String(window.to))
+    ? `本次新聞視窗：${window.from} ～ ${window.to}。\n` : '';
+  return `以下是 ${who} 的相關報導（每篇附發布日期）。\n${body}\n\n${win}請回答：\n`
+    + `1. ${c.fact.replaceAll('{name}', stock?.name ?? who)}\n`
+    + '2. 這件法律事實是不是在本次新聞視窗內新發生、或有新進展（新的搜索、約談、起訴、羈押、判決、主管機關新處分）？'
+    + '只在背景說明裡帶到的舊案（例如「該公司先前曾遭搜索」）不算新進展。\n'
+    + '3. 這件事（或它的新進展）發生在哪一天？報導寫「今日」「昨日」就以該篇的發布日推算。\n\n'
+    // ⚠ 格式說明不可用「是」開頭（模型照抄範本時會被讀成「是」）：每一行都寫成「只填…」
+    + '照下列格式回答，一行一項：\n'
+    + '回答: 第 1 題只填「是」「否」或「不確定」\n'
+    + '新進展: 第 2 題只填「是」「否」或「不確定」\n'
+    + '日期: 只填 YYYY-MM-DD，讀不出來填「不明」\n'
+    + '引用: 「從上面報導逐字照抄描述這件法律事實的那一句，不可改寫」\n'
+    + '說明: 一句話說明主體是誰、發生了什麼。內文讀不出來就回「不確定」，不要猜。';
+}
+
 /**
  * 事實提問（AI 只答事實；方向與類別由程式規則決定；停損規範 §10A.2-2：每個命中的類別問一次）。
- * articles：[{ title, content }]（呼叫端只挑「與本檔同時出現、命中該類別」的報導）；maxChars：每篇內文最多幾字（預設 400）。
+ * articles：[{ title, content, at? }]（呼叫端只挑「與本檔同時出現、命中該類別」的報導）；maxChars：每篇內文最多幾字（預設 400）。
+ * C16a 另帶 window（新聞視窗），改用 legalFactQuestion 的格式（同一題併問新進展、日期、逐字引用）；其他類別提示詞不變。
  */
-export function ruleFactQuestion(code, stock, articles, { maxChars = 400 } = {}) {
+export function ruleFactQuestion(code, stock, articles, { maxChars = 400, window = null } = {}) {
   const c = RULE_CLASS_BY_CODE[code];
   if (!c) return '';
+  if (c.code === LABEL_OVERRIDE_CLASS) return legalFactQuestion(c, stock, articles, maxChars, window);
   const who = `${stock?.code ?? ''} ${stock?.name ?? ''}`.trim();
   const body = (Array.isArray(articles) ? articles : [])
     .map(a => `【${a?.title ?? ''}】${String(a?.content ?? '').slice(0, maxChars)}`).join('\n');
@@ -232,10 +302,15 @@ const NO_RE = /^(?:否|不是|非(?=$|[\s，,。.、:：;；!！」』"'”’])
 
 /**
  * 事實回答 → { yes:true, sub } ｜ { yes:false, sub:null } ｜ null（未答：空白、「不確定」、「是否…」等其他開頭——不猜）。
- * 只看開頭（Markdown 粗體記號、引號先去掉）；C15a 的「是·贈與信託」⇒ sub 'giftOrTrust'。
+ * 只看開頭（Markdown 粗體記號、「回答:」標籤、引號先去掉；C16a 的多行格式第一行就是「回答: 是／否」）；
+ * C15a 的「是·贈與信託」⇒ sub 'giftOrTrust'。
  */
 export function parseRuleFactAnswer(code, answer) {
-  const a = String(answer ?? '').replace(/\*/g, '').trim().replace(/^[「『"'“]+/, '');
+  const raw = String(answer ?? '').replace(/\*/g, '').trim();
+  // 多行格式（C16a）：「回答:」那一行不一定在第一行（模型偶爾先寫說明）——有就讀那一行
+  const line = raw.match(/(?:^|\n)\s*(?:回答|答案)\s*[:：]\s*([^\n]*)/);
+  const a = (line ? line[1] : raw).trim()
+    .replace(/^(?:答\s*[:：]\s*)?(?:第\s*1\s*題\s*[:：]?\s*|1\s*[.、:：)）]\s*)?/, '').replace(/^[「『"'“]+/, '');
   if (NO_RE.test(a)) return { yes: false, sub: null };
   if (!YES_RE.test(a)) return null;
   if (code === 'C15a' && /^是\s*[·・.、，,]?\s*(?:贈與|信託)/.test(a)) return { yes: true, sub: 'giftOrTrust' };
@@ -277,7 +352,24 @@ function knownCodes(codes) {
   return RULE_CLASS_CODES.filter(c => want.has(c));
 }
 
-const factText = ans => (ans == null ? 'none' : ans.yes ? 'yes' : 'no');
+/**
+ * ruleFacts 的值（2026-10-07 起）：'yes' 是｜'no' 否｜'none' 沒答、不確定、呼叫失敗、C16a 引用比不上｜
+ * 'old' C16a 舊案（事件日期在新聞視窗外、只在背景句出現）＝「涉訟中」事實標籤｜'acc' C16a 其實是工安事故後的相驗／調查（歸 C17）。
+ * 只有 'yes' 算規則類別；'old'、'acc' 也算「已就法律事實問過並得到回答」（ruleFactAnswered）。
+ */
+export const RULE_FACT_STATES = Object.freeze(['yes', 'no', 'none', 'old', 'acc']);
+/** C16a 舊案的事實標籤字樣（戰情、紀錄共用） */
+export const LEGAL_ONGOING_TAG = '涉訟中';
+
+/**
+ * 一題的事實結果 → ruleFacts 的值。新格式帶 state（news-rule-evidence.mjs resolveRuleFact）；
+ * 舊格式只有 parseRuleFactAnswer 的 { yes, sub }（null＝沒答）。
+ */
+export function factStateOf(ans) {
+  if (ans == null || !isObj(ans)) return 'none';
+  if (typeof ans.state === 'string' && RULE_FACT_STATES.includes(ans.state)) return ans.state;
+  return ans.yes === true ? 'yes' : ans.yes === false ? 'no' : 'none';
+}
 const firstClause = s => String(s ?? '').replace(/[。\n].*$/, '').slice(0, 24);
 
 /**
@@ -295,8 +387,10 @@ export function ruleOverrideReason(code, verdict) {
 
 /**
  * 規則類別判定（純函式；新聞技能 §1.5、§1.7，停損規範 SKILL §10A.2 第 3～5 步）：AI 只認定事實，方向與類別由這裡決定。
- * - facts：{ [code]: parseRuleFactAnswer 的結果 }（每個命中的類別另問一次；null＝沒答或呼叫失敗）。
- * - 「是」的類別中取類別權重最高者寫 ruleClass（同權重依表內順序），其餘寫 ruleHits（只記錄）；aiOriginal 記 AI 原判。
+ * - facts：{ [code]: news-rule-evidence.mjs resolveRuleFact 的結果 { yes, sub, state, ev }，或舊格式 parseRuleFactAnswer 的結果 }
+ *   （每個命中的類別另問一次；null＝沒答或呼叫失敗）。ruleFacts 記 factStateOf；有 ev 的記進 ruleEvidence（稽核軌跡）。
+ * - state 'yes' 的類別中取類別權重最高者寫 ruleClass（同權重依表內順序），其餘寫 ruleHits（只記錄）；aiOriginal 記 AI 原判。
+ *   C16a 的 'old'（舊案·涉訟中）與 'acc'（工安事故調查，2026-10-07 N2）不算「是」：不改 label、不寫 ruleClass。
  *   C16a 類別權重 0.90 是表內最高（與 C23 同權重時 C16a 在前），所以「C16a 答是」⇔ ruleClass＝'C16a'。
  * - ruleClass＝C16a 且 AI 原判不是利空 ⇒ label 由程式覆寫為利空（bullish false、信心「低」升「中」、理由與 2026-08-29 版逐字相同）。
  * - 其他類別（C23、C22、C13b、C17、C16b、C15a、C11a、C15c、C20b）**只記規則欄位**，label／bullish／confidence／reason 一律不動
@@ -309,8 +403,10 @@ export function applyRuleFacts(verdict, { facts = {} } = {}) {
   const f = isObj(facts) ? facts : {};
   const asked = knownCodes(Object.keys(f));
   if (!asked.length) return verdict;
-  const yes = asked.filter(c => f[c]?.yes === true);
-  const out = { ...verdict, ruleFacts: Object.fromEntries(asked.map(c => [c, factText(f[c])])) };
+  const yes = asked.filter(c => factStateOf(f[c]) === 'yes');
+  const out = { ...verdict, ruleFacts: Object.fromEntries(asked.map(c => [c, factStateOf(f[c])])) };
+  const evidence = Object.fromEntries(asked.filter(c => isObj(f[c]?.ev)).map(c => [c, f[c].ev]));
+  if (Object.keys(evidence).length) out.ruleEvidence = evidence;
   if (!yes.length) return out;
   const subOf = c => {
     const s = f[c]?.sub ?? null;
@@ -334,8 +430,14 @@ export function applyRuleFacts(verdict, { facts = {} } = {}) {
   return out;
 }
 
-/** newsVerdict 三個寫入端（夜補、盤中、盤後／晨間）都要存的規則欄位 */
-export const RULE_VERDICT_FIELDS = Object.freeze(['ruleClass', 'ruleOverride', 'ruleSub', 'ruleHits', 'aiOriginal', 'ruleFacts']);
+/**
+ * newsVerdict 三個寫入端（夜補、盤中、盤後／晨間）都要存的規則欄位。2026-10-07 加：
+ *   ruleEvidence（每題的稽核軌跡：觸發字、前後文、標題與來源、AI 回答前 60 字、C16a 的引用／日期／是否新進展；news-rule-evidence.mjs）、
+ *   ruleTrail（各類別首次判定「是」的適用日 since，延續判定用）、ruleCont（主類別是延續時＝首次判定的適用日）。
+ */
+export const RULE_VERDICT_FIELDS = Object.freeze([
+  'ruleClass', 'ruleOverride', 'ruleSub', 'ruleHits', 'aiOriginal', 'ruleFacts', 'ruleEvidence', 'ruleTrail', 'ruleCont',
+]);
 
 /** 判別 → 要寫進 newsVerdict 的規則欄位（只回有值的；三個寫入端共用這一支，不各寫一份） */
 export function ruleFieldsOf(v) {
@@ -346,12 +448,12 @@ export function ruleFieldsOf(v) {
 }
 
 /**
- * 這筆判別是否已就該類別問過事實並得到是／否——戰情「可能為法律事件」揭露用。
+ * 這筆判別是否已就該類別問過事實並得到回答（是、否、舊案 'old'、工安事故調查 'acc'）——戰情「可能為法律事件」揭露用。
  * 讀 ruleFacts；ruleFocused 是 2026-10-05 審查前（事實題嵌在主判別時）的 C16a 聚焦提問欄位，只為讀舊資料保留。
  */
 export function ruleFactAnswered(v, code) {
   if (!isObj(v)) return false;
   if (code === 'C16a' && (v.ruleFocused === 'yes' || v.ruleFocused === 'no')) return true;
   const a = isObj(v.ruleFacts) ? v.ruleFacts[code] : null;
-  return a === 'yes' || a === 'no';
+  return a === 'yes' || a === 'no' || a === 'old' || a === 'acc';
 }

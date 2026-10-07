@@ -9,7 +9,7 @@ import {
   RULE_BEAR_CLASSES, RULE_CLASS_BY_CODE, RULE_CLASS_BY_KEY, RULE_CLASS_CODES, RULE_LEGAL_PREFIX, ruleClassOf, ruleSubOf, ruleClassesHit,
   classWeightOf, ruleReasonPrefix, ruleFactQuestion, parseRuleFactAnswer, ruleTriggerScan, ruleOverrideReason, VETO_SPAN,
   CLASS_WEIGHT_CUTS, classWeightBand, ruleClassText, applyRuleFacts,
-  RULE_VERDICT_FIELDS, ruleFieldsOf, ruleFactAnswered, LABEL_OVERRIDE_CLASS,
+  RULE_VERDICT_FIELDS, ruleFieldsOf, ruleFactAnswered, LABEL_OVERRIDE_CLASS, factStateOf,
 } from './news-rule-classes.mjs';
 import { isRuleLegal, RULE_LEGAL_PREFIX as WARROOM_PREFIX } from './warroom-news.mjs';
 import { STOP_PARAMS } from './ai-stoploss-base.mjs';
@@ -332,4 +332,27 @@ test('端到端（2026-10-06 R1）：daemon 判定（AI 判中性、事實 C17 �
   assert.equal(majorBearOf(board.map['2330'], { scope: 'holding', ctx, minAtMs }), null);
   assert.equal(board.map['2454'].rc, null);
   assert.equal(board.map['2454'].pl, false, '法律事實答否 ⇒ 不標「可能為法律事件」');
+});
+
+test('2026-10-07 N1(b)／N2：ruleFacts 新增 old（C16a 舊案·涉訟中）與 acc（工安事故調查）——都不是「是」、不改 label、但算已回答；新欄位走 ruleFieldsOf', () => {
+  assert.equal(factStateOf(null), 'none');
+  assert.equal(factStateOf({ yes: true, sub: null }), 'yes');
+  assert.equal(factStateOf({ yes: false, sub: null }), 'no');
+  assert.equal(factStateOf({ yes: false, sub: null, state: 'old' }), 'old');
+  assert.equal(factStateOf({ yes: true, sub: null, state: 'bogus' }), 'yes', '不認得的 state 退回 yes／no');
+  for (const st of ['old', 'acc']) {
+    const r = applyRuleFacts(AI(), { facts: { C16a: { yes: false, sub: null, state: st, ev: { why: st } }, C17: N } });
+    assert.deepEqual([r.label, r.reason, r.ruleClass, r.ruleFacts], ['中性', AI().reason, undefined, { C16a: st, C17: 'no' }], st);
+    assert.deepEqual(r.ruleEvidence, { C16a: { why: st } });
+    assert.equal(ruleClassOf(r), null);
+    assert.equal(ruleFactAnswered(r, 'C16a'), true);
+    assert.equal(isRuleLegal(r), false);
+  }
+  // 只有 state 'yes' 的 C16a 才覆寫（舊格式 { yes:true } 照舊）
+  assert.equal(applyRuleFacts(AI(), { facts: { C16a: { yes: true, sub: null, state: 'yes' } } }).label, '利空');
+  assert.equal(applyRuleFacts(AI(), { facts: { C16a: { yes: true, sub: null, state: 'old' } } }).label, '中性', 'state 優先於 yes');
+  assert.ok(['ruleEvidence', 'ruleTrail', 'ruleCont'].every(k => RULE_VERDICT_FIELDS.includes(k)));
+  const f = ruleFieldsOf({ ruleFacts: { C16a: 'old' }, ruleEvidence: { C16a: { why: 'notNew' } }, ruleTrail: { C16a: { since: '2026-10-05' } }, ruleCont: '2026-10-05', other: 1 });
+  assert.deepEqual(Object.keys(f).sort(), ['ruleCont', 'ruleEvidence', 'ruleFacts', 'ruleTrail']);
+  assert.ok(RULE_CLASS_BY_CODE.C16a.fact.includes('檢察官相驗') && RULE_CLASS_BY_CODE.C16a.fact.includes('業務過失偵查'));
 });

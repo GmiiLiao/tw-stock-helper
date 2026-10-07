@@ -6,7 +6,8 @@ import {
   ruleBearEvents, eventTierOf, eventLineOf, stepEventOverlay, activeOverlays, eventShadowRows, missShadowRows,
   resolveStop, STOP_PARAMS,
 } from './ai-stoploss.mjs';
-import { newsBoardFromDoc, newsCtxOf, majorBearOf, GATE_D, GATE_E, RULE_LEGAL_PREFIX } from './warroom-news.mjs';
+import { newsBoardFromDoc, newsCtxOf, majorBearOf, stepMajorBear, GATE_D, GATE_E, RULE_LEGAL_PREFIX } from './warroom-news.mjs';
+import { withRuleTrail } from './news-rule-evidence.mjs';
 
 const YMD = '2026-10-05';   // 週一
 const T = (h, m = 0, ymd = YMD) => Date.parse(`${ymd}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+08:00`);
@@ -56,6 +57,51 @@ test('N1 規則類＋挑戰過＋當日 ⇒ 成立；承接、前一日、早於
   assert.deepEqual(ruleBearEvents(docOf({ 2317: V({ ruleClass: 'C22', reason: 'AI 理由' }) }), CTX), []);
   // classes 過濾（關閉收緊的回退路徑）
   assert.deepEqual(ruleBearEvents(docOf({ 3037: V() }), { ...CTX, classes: [] }), []);
+});
+
+test('N1b（2026-10-07 使用者裁定）：C16a 只收新進展——舊案（ruleFacts.C16a old·涉訟中）、工安事故調查（acc）、延續（ruleCont）都不收；2026-10-07 前的舊資料照舊認', () => {
+  const NEW = { label: '利空', ruleClass: 'C16a', ruleOverride: 'legal-event', ruleFacts: { C16a: 'yes' }, ruleEvidence: { C16a: { isNew: true, eventDate: YMD } } };
+  assert.deepEqual(ruleBearEvents(docOf({ 3037: V(NEW) }), CTX).map(e => e.cls), ['C16a']);
+  const none = [
+    V({ label: '中性', reason: 'ABF 需求回溫', ruleFacts: { C16a: 'old' }, ruleEvidence: { C16a: { isNew: false, why: 'notNew', eventDate: '2026-08-25' } } }),
+    V({ label: '利空', reason: '欣興遭檢調搜索（AI 自判）', ruleFacts: { C16a: 'old' } }),
+    V({ label: '中性', reason: '工安意外', ruleFacts: { C16a: 'acc' } }),
+    V({ ...NEW, ruleTrail: { C16a: { since: '2026-10-02' } }, ruleCont: '2026-10-02' }),
+  ];
+  for (const v of none) assert.deepEqual(ruleBearEvents(docOf({ 3037: v }), CTX), [], JSON.stringify(v.ruleFacts) + (v.ruleCont ?? ''));
+  // 工安事故調查歸 C17：主類別 C17 照收（溫和以上才收緊；C17 強）
+  const evs = ruleBearEvents(docOf({ 2367: V({ label: '中性', reason: '工安意外', ruleClass: 'C17', ruleOverride: 'accident', ruleFacts: { C16a: 'acc', C17: 'yes' } }) }), CTX);
+  assert.deepEqual(evs.map(e => [e.code, e.cls, e.tier]), [['2367', 'C17', 'strong']]);
+  // 舊資料（2026-10-07 前，沒有新進展欄位）：照舊認（不改歷史）
+  assert.equal(ruleBearEvents(docOf({ 3037: V() }), CTX).length, 1);
+});
+
+test('N1c（2026-10-07 審查修正）：首日沒收成事件（挑戰失敗、只是次要類別）⇒ 不起算延續，隔日挑戰過照收；戰情 Z2 照發一級', () => {
+  const NEW = { label: '利空', ruleClass: 'C16a', ruleOverride: 'legal-event', ruleFacts: { C16a: 'yes' }, ruleEvidence: { C16a: { isNew: true, eventDate: '2026-10-02' } } };
+  // 首日（10/02 適用）挑戰失敗：ruleBearEvents 不收，也不起算延續
+  const d1 = withRuleTrail(V({ ...NEW, challenged: false }), null, { targetDate: '2026-10-02', contFromYmd: '2026-09-25' });
+  assert.deepEqual(ruleBearEvents(docOf({ 3037: d1 }, { targetDate: '2026-10-02', date: '2026-10-02' }), { applicableYmd: '2026-10-02' }), []);
+  assert.equal(d1.ruleTrail, undefined);
+  // 隔日（10/05 適用）同一事件挑戰過：不是延續 ⇒ 照收
+  const d2 = withRuleTrail(V(NEW), d1.ruleTrail, { targetDate: YMD, contFromYmd: '2026-09-29' });
+  assert.equal(d2.ruleCont, undefined);
+  const evs = ruleBearEvents(docOf({ 3037: d2 }), CTX);
+  assert.deepEqual(evs.map(e => [e.code, e.cls, e.tier]), [['3037', 'C16a', 'strong']]);
+  const board = newsBoardFromDoc(docOf({ 3037: d2 }));
+  const ctx = newsCtxOf(board.meta, YMD);
+  const mb = majorBearOf(board.map['3037'], { scope: 'holding', ctx, minAtMs: PREV_CLOSE });
+  const step = stepMajorBear(null, [{ code: '3037', entry: board.map['3037'], mb }], { targetDate: YMD });
+  assert.deepEqual(step.items.map(i => [i.level, i.cont]), [[1, false]]);
+  // 首日真的收成事件（挑戰過）⇒ 隔日才是延續（不收）
+  const c1 = withRuleTrail(V(NEW), null, { targetDate: '2026-10-02', contFromYmd: '2026-09-25' });
+  const c2 = withRuleTrail(V(NEW), c1.ruleTrail, { targetDate: YMD, contFromYmd: '2026-09-29' });
+  assert.equal(c2.ruleCont, '2026-10-02');
+  assert.deepEqual(ruleBearEvents(docOf({ 3037: c2 }), CTX), []);
+  // C23（不收緊）蓋過 C17：C17 只在 ruleHits、不起算；隔日 C17 當主類別 ⇒ 強級照收
+  const h1 = withRuleTrail(V({ label: '利空', reason: 'AI 理由', ruleClass: 'C23', ruleHits: ['C17'], ruleFacts: { C23: 'yes', C17: 'yes' } }), null, { targetDate: '2026-10-02' });
+  const h2 = withRuleTrail(V({ label: '中性', reason: 'AI 理由', ruleClass: 'C17', ruleFacts: { C17: 'yes' } }), h1.ruleTrail, { targetDate: YMD });
+  assert.equal(h2.ruleCont, undefined);
+  assert.deepEqual(ruleBearEvents(docOf({ 2367: h2 }), CTX).map(e => [e.cls, e.tier]), [['C17', 'strong']]);
 });
 
 test('N2 權重不變式：只改 w 的成分（強度、信心、確定性、新穎、反映）⇒ 事件、收緊線、期限、紀錄分類完全相同', () => {

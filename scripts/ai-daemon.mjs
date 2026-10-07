@@ -65,7 +65,13 @@ import { phase1HoldingStop, standardBuyPoint, phase1HypotheticalStop, measureLlm
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 // 規則類利空事件類別（新聞技能 §1.5／§1.7／§4.1；2026-10-05 第二輪 A4「做skills判定與加權重」）：judgeOneStock 的事實確認與規則判定、
 //   三個 newsVerdict 寫入端的欄位。純資料＋純函式、不 import 任何模組（daemon 靜態 import 鏈不會因此多載入別的檔）。
-import { ruleTriggerScan, applyRuleFacts, ruleFactQuestion, parseRuleFactAnswer, ruleFieldsOf } from './lib/news-rule-classes.mjs';
+import { ruleTriggerScan, applyRuleFacts, ruleFactQuestion, ruleFieldsOf } from './lib/news-rule-classes.mjs';
+// 規則事實題的判定細節（C16a 新進展／日期／逐字引用、N2 工安事故調查）、稽核軌跡 ruleEvidence、延續 ruleCont、當日沿用、計數、
+//   單檔大小（2026-10-07 使用者裁定 N1(b)／N2／其它依建議）。純函式；只 import news-rule-classes.mjs。
+import {
+  resolveRuleFact, ruleFactKey, reuseRuleFact, asReused, reconcileAccident, withRuleTrail, isRuleContinuation, ruleAuditCounts,
+  fitVerdictJson, RULE_CONT_TRADING_DAYS,
+} from './lib/news-rule-evidence.mjs';
 // 開盤感應器 v2.1（影子·只記錄·先驗未校準；design-v2.1，使用者 10/05 S1–S8、10/07 O1–O8）：0 MIS 請求（只吃快線與主迴圈已拿到的報價、t00／o00），
 //   不發 B2／Z2、不推播、不寫 aiMessages。靜態 import 鏈只到 scripts/lib/open-sensor-*.mjs 與 firestore-clean.mjs（不經 official-mirror）。
 import { createOpenSensorRunner } from './lib/open-sensor-runner.mjs';
@@ -6040,6 +6046,9 @@ async function judgeOneStock(it, ctx, opts = {}) {
   })();
   const TWO_D = Math.max(2 * 86400000, now - _winStart);
   const MAX_BACK = 14 * 86400000;
+  // 規則事實題（2026-10-07 N1(b)）：C16a 的「新進展」以這個新聞視窗判定（事件日期要落在視窗內）；視窗＝上面 recent 的範圍
+  const _ruleWindow = { from: new Date(now - TWO_D + 8 * 3600000).toISOString().slice(0, 10), to: isoDate(taipei()) };
+  let _ruleFacts = null;   // 這次實際問到（或沿用）的事實結果；函式尾端寫計數
   let recent = news.filter(n => n.at && now - n.at <= TWO_D);
   // ── 找不到近 2 日就回退到「最近最新的」（使用者 2026-08-26 指定）────────
   //   空手判「資訊不足」對使用者沒有幫助；有舊資料總比沒有好。
@@ -6173,13 +6182,14 @@ async function judgeOneStock(it, ctx, opts = {}) {
     const hasBodyEvidence = _picked.some(x => x.hasBody);
     if (!hasBodyEvidence || mentions === 0) {
       return {
-        verdict: {
+        // 延續軌跡照帶（finishRuleVerdict）：這次沒觸發不代表事件結束，之後在有效期內重複觸發仍是延續
+        verdict: finishRuleVerdict(it.code, {
           label: '資訊不足', bullish: false, confidence: '低', strength: '弱',
           reason: !hasBodyEvidence
             ? '取得的報導均無內文，無法據以判斷'
             : `${_picked.length} 則報導中本檔一次都沒有被指名提及，這些報導不是在講它`,
           basis, n: recent.length, gate: 'D-拒答門檻',
-        },
+        }, null, opts),
         events, stale, ageDays, recent, material, withBody,
         allTitles: news.map(n => n.title).filter(Boolean),
       };
@@ -6560,18 +6570,34 @@ ${body || '（近 2 日無實質新聞）'}
     //     （使用者 2026-10-06 R1「ok 如建議」：label 連動推薦排序、個股評分、做空候選、squeeze-train；停損收緊與戰情讀規則欄位）。
     //     原判已是利空只補欄位；「否」、不確定、逾時 ⇒ 維持 AI 原判，不猜。
     //   · Ollama 呼叫只在觸發字命中時增加（每類一次）；上游請求 0、MIS 0。
+    // 2026-10-07 使用者裁定（「n1 b／n2 依建議／其它依建議」；news-rule-evidence.mjs）：
+    //   · N1(b) C16a 同一題併問「是不是本次新聞視窗內的新進展、日期、逐字引用法律事實句」（不多開呼叫）：引用要能在內文逐字找到
+    //     （沿用上面 E 引用強制的正規化），新進展而且日期在視窗內才記 'yes' 改判利空；舊案（日期在視窗外、只在背景句）記 'old'
+    //     ＝「涉訟中」事實標籤，不改 label、不推播、不收緊停損。3037 欣興 10/05–10/07 就是 8 月舊案背景句被連改三天。
+    //   · N2 工安事故後的檢察官相驗、勞檢、事故調查、業務過失偵查不算 C16a（記 'acc'），歸 C17（2367 燿華）。
+    //   · 每題留稽核軌跡 ruleEvidence（觸發字、前後文、標題與來源、AI 回答前 60 字、C16a 的引用／日期／是否新進展）；
+    //     同一檔同類別同一組報導當日已問過就沿用答案（記憶體＋前一筆判別的 ruleEvidence.key），不重問 ⇒ Ollama 呼叫只會少不會多。
     if (verdict && ruleTrig.codes.length) {
       const facts = {};
       for (const c of ruleTrig.codes) {
+        const arts = ruleTrig.byCode[c].slice(0, 3);
+        const key = ruleFactKey({ code: it.code, cls: c, day: _ruleWindow.to, window: _ruleWindow, articles: arts });
+        const reused = ruleFactMemGet(key) || reuseRuleFact(opts.prevVerdict, c, key);
+        if (reused) { facts[c] = reused; continue; }
+        let a2 = null;
         try {
-          const q = ruleFactQuestion(c, it, ruleTrig.byCode[c].slice(0, 3), { maxChars: 1200 });
-          const a2 = await askOllama(q, { priority: 1, temperature: NEWS_TEMP });
-          facts[c] = a2 ? parseRuleFactAnswer(c, a2) : null;
-        } catch { facts[c] = null; /* 提問失敗就維持原判，不猜 */ }
+          const q = ruleFactQuestion(c, it, arts, { maxChars: 1200, window: _ruleWindow });
+          a2 = await askOllama(q, { priority: 1, temperature: NEWS_TEMP });
+        } catch { a2 = null; /* 提問失敗就維持原判，不猜 */ }
+        facts[c] = resolveRuleFact(c, a2, { articles: arts, window: _ruleWindow, todayYmd: _ruleWindow.to, day: _ruleWindow.to, key });
+        if (facts[c].answered) ruleFactMemSet(key, facts[c]);   // 呼叫失敗不快取（下次再問）
       }
-      verdict = applyRuleFacts(verdict, { facts });
-      const asked = Object.entries(verdict.ruleFacts || {}).map(([k, x]) => `${k}:${x}`).join(' ');
-      log(`  ↳ ${it.code} 規則事實 ${asked}${verdict.ruleClass ? ` ⇒ ${verdict.ruleClass}${verdict.ruleHits ? `（另 ${verdict.ruleHits.join('、')}）` : ''}${verdict.aiOriginal?.label && verdict.aiOriginal.label !== '利空' ? (verdict.ruleClass === 'C16a' ? `（AI 原判${verdict.aiOriginal.label}→規則利空）` : `（label 維持 AI 原判${verdict.aiOriginal.label}，只記規則欄位）`) : ''}` : ''}`);
+      _ruleFacts = reconcileAccident(facts, ruleTrig.byCode);
+      verdict = applyRuleFacts(verdict, { facts: _ruleFacts });
+      const asked = Object.entries(verdict.ruleFacts || {})
+        .map(([k, x]) => `${k}:${x}${_ruleFacts[k]?.ev?.reused ? '(沿用)' : ''}${_ruleFacts[k]?.ev?.why ? `[${_ruleFacts[k].ev.why}]` : ''}`).join(' ');
+      const old16 = verdict.ruleFacts?.C16a === 'old' ? `（C16a 舊案·涉訟中：事件日 ${_ruleFacts.C16a?.ev?.eventDate || '不明'}，不改判）` : '';
+      log(`  ↳ ${it.code} 規則事實 ${asked}${old16}${verdict.ruleClass ? ` ⇒ ${verdict.ruleClass}${verdict.ruleHits ? `（另 ${verdict.ruleHits.join('、')}）` : ''}${verdict.aiOriginal?.label && verdict.aiOriginal.label !== '利空' ? (verdict.ruleClass === 'C16a' ? `（AI 原判${verdict.aiOriginal.label}→規則利空）` : `（label 維持 AI 原判${verdict.aiOriginal.label}，只記規則欄位）`) : ''}` : ''}`);
     }
     } else {
       verdict = { label: '中性', bullish: false, confidence: '低', reason: 'AI 判別未回應，保守視為中性', basis, n: recent.length, nMaterial: material.length };
@@ -6586,7 +6612,70 @@ ${body || '（近 2 日無實質新聞）'}
     const _total = Date.now() - _t0;
     if (_total > 90000) log(`    ⏱ ${it.code} ${it.name || ''} 慢件：總 ${(_total / 1000).toFixed(0)}s（抓取 ${(_tFetch / 1000).toFixed(0)}s、判別 ${((_total - _tFetch) / 1000).toFixed(0)}s）`);
   }
+  verdict = finishRuleVerdict(it.code, verdict, _ruleFacts, opts);
   return { verdict, events, stale, ageDays, recent, material, withBody, allTitles, picked: _pickedOut };
+}
+
+// ── 規則事實題：當日沿用（記憶體）、延續軌跡、計數（2026-10-07 使用者裁定「其它依建議」；news-rule-evidence.mjs） ──
+// 記憶體快取：同一檔同類別同一組報導當日已問過就沿用（鍵含問的日子與新聞視窗，換日自然失效）；重啟後改由前一筆判別的
+//   ruleEvidence.key 沿用（reuseRuleFact）。上限 RULE_FACT_MEM_MAX 筆，超過就清掉最舊的。
+const RULE_FACT_MEM_MAX = 400;
+const _ruleFactMem = new Map();
+function ruleFactMemGet(key) {
+  return _ruleFactMem.has(key) ? asReused(_ruleFactMem.get(key)) : null;
+}
+function ruleFactMemSet(key, fact) {
+  _ruleFactMem.delete(key);
+  _ruleFactMem.set(key, fact);
+  while (_ruleFactMem.size > RULE_FACT_MEM_MAX) _ruleFactMem.delete(_ruleFactMem.keys().next().value);
+}
+
+/**
+ * judgeOneStock 的兩個出口共用：帶上延續軌跡（withRuleTrail：opts.prevVerdict＝同一檔前一筆判別、opts.targetDate＝適用交易日，
+ * 有效期＝適用日往前 RULE_CONT_TRADING_DAYS 個交易日），延續時記一行 log，再把這次事實題的計數累計進 stopSpecAudit。
+ */
+function finishRuleVerdict(code, v, facts, opts = {}) {
+  if (!v) return v;
+  const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.targetDate || '')) ? opts.targetDate : isoDate(taipei());
+  const back = prevTradingIsos(targetDate, RULE_CONT_TRADING_DAYS);
+  const out = withRuleTrail(v, opts.prevVerdict?.ruleTrail, { targetDate, contFromYmd: back[back.length - 1] || null });
+  if (out.ruleCont) log(`  ↳ ${code} 規則 ${out.ruleClass} 延續（${out.ruleCont} 首次判定）：不當新事件、不重複推播、停損不再收`);
+  if (facts) void recordRuleAudit(ruleAuditCounts(facts, out));
+  return out;
+}
+
+/** 計數物件 → Firestore 巢狀 increment（0 不寫） */
+function auditIncrements(counts) {
+  const out = {};
+  for (const [k, v] of Object.entries(counts || {})) {
+    if (v && typeof v === 'object') { const sub = auditIncrements(v); if (Object.keys(sub).length) out[k] = sub; }
+    else if (typeof v === 'number' && Number.isFinite(v) && v !== 0) out[k] = FieldValue.increment(v);
+  }
+  return out;
+}
+
+/**
+ * 規則事實題的題數與答案分布，依資料日累計進 stopSpecAudit/{資料日}.newsRule（公開計數文件；只放計數，不放代號與句子）。
+ * 資料日＝最後一個交易日（非交易日問的記到最後交易日；使用者規則「非交易日一律記為最後交易日」）。寫入失敗只記 log，不擋判別。
+ */
+async function recordRuleAudit(counts) {
+  const inc = auditIncrements(counts);
+  if (!Object.keys(inc).length) return;
+  const today = isoDate(taipei());
+  const ymd = prevTradingIsos(today, 1)[0] || today;
+  try {
+    await db.collection('stopSpecAudit').doc(ymd).set({ date: ymd, updatedAt: Date.now(), newsRule: inc }, { merge: true });
+  } catch (e) { log('  ⚠ 規則事實計數寫入失敗（不影響判別）:', (e.message || '').slice(0, 60)); }
+}
+
+/**
+ * newsVerdict 日文件的 verdictJson（三個寫入端共用）：verdictJson＋seenJson 逼近 1MB 時壓縮規則事實的稽核軌跡
+ * （先去文字欄、仍超過就整個拿掉；判別本身不動）。壓縮時記一行 log。
+ */
+function newsVerdictJsonFit(verdicts, seenJson = '', tag = '') {
+  const r = fitVerdictJson(verdicts, { otherBytes: Buffer.byteLength(seenJson || '') });
+  if (r.level !== 'full') log(`  ⚠ 新聞判別${tag ? `(${tag})` : ''}：文件逼近 1MB（${r.bytes ?? '?'} bytes＋已見標題），規則事實稽核軌跡已壓縮（${r.level === 'text' ? '去文字欄' : '整段拿掉'}）`);
+  return r.json;
 }
 
 // 新聞判別的共用背景：國際盤、事件日曆、官方產業別。
@@ -6876,7 +6965,8 @@ async function pushVerdictDone(pass, { judged = 0, skipped = 0, failed = 0, stop
   const fresh = Object.entries(verdicts).filter(([, v]) => now - (v.at || 0) < 3 * 3600000);
   const dist = {};
   for (const [, v] of fresh) dist[v.label] = (dist[v.label] || 0) + 1;
-  const bear = fresh.filter(([, v]) => v.label === '利空');
+  // 規則類利空的延續（ruleCont）不重複推播（2026-10-07「不當新事件、不重複推播」）；分布 dist 照列
+  const bear = fresh.filter(([, v]) => v.label === '利空' && !isRuleContinuation(v));
   const bull = fresh.filter(([, v]) => v.label === '利多' && (v.strength === '強' || v.strength === '極強'));
   const distTxt = Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}${n}`).join('·') || '無';
   const parts = [`判別 ${judged}`, skipped ? `沿用 ${skipped}` : null, failed ? `失敗 ${failed}` : null,
@@ -6956,7 +7046,7 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
   for (const u of rows) {
     if (taipei().getTime() >= dlTs) { stopped = true; break; }
     try {
-      const r = await withTimeout(judgeOneStock({ code: u.code, name: u.name }, ctx, {}), STOCK_TIMEOUT_MS, `夜補 ${u.code}`);
+      const r = await withTimeout(judgeOneStock({ code: u.code, name: u.name }, ctx, { targetDate: today }), STOCK_TIMEOUT_MS, `夜補 ${u.code}`);
       const v = r?.verdict;
       if (!v) continue;
       if (v.label === '資訊不足') { thin++; }      // 據實記錄，不算失敗
@@ -6976,17 +7066,20 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
       if (judged % 20 === 0) {
-        await ref.set({ verdictJson: JSON.stringify(verdicts), seenJson: JSON.stringify(seenAll), updatedAt: Date.now() }, { merge: true });
+        const seenJson = JSON.stringify(seenAll);
+        await ref.set({ verdictJson: newsVerdictJsonFit(verdicts, seenJson, '夜補'), seenJson, updatedAt: Date.now() }, { merge: true });
       }
     } catch (e) { log(`  ↳ 夜補 ${u.code}: ${(e.message || '').slice(0, 40)}`); }
   }
+  const nightSeenJson = JSON.stringify(seenAll);
+  const nightVerdictJson = newsVerdictJsonFit(verdicts, nightSeenJson, '夜補');
   await ref.set({
     date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(),
-    lastPass: 'night', verdictJson: JSON.stringify(verdicts), seenJson: JSON.stringify(seenAll),
+    lastPass: 'night', verdictJson: nightVerdictJson, seenJson: nightSeenJson,
   }, { merge: true });
   await db.collection('newsVerdict').doc('latest').set({
     date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'night',
-    covered: Object.keys(verdicts).length, verdictJson: JSON.stringify(verdicts),
+    covered: Object.keys(verdicts).length, verdictJson: nightVerdictJson,
   });
   log(`✓ 夜間補判：新增 ${judged} 檔（其中資訊不足 ${thin}）` +
       `${stopped ? '·**因死線停止**' : ''}，總覆蓋 ${Object.keys(verdicts).length} 檔`);
@@ -7165,7 +7258,8 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
   for (const u of hot) {
     if (Date.now() >= deadlineTs) break;
     try {
-      const r = await withTimeout(judgeOneStock({ code: u.code, name: u.name }, ctx, { seenTitles: seenAll[u.code] || [] }), STOCK_TIMEOUT_MS, `盤中判別 ${u.code}`);
+      // prevVerdict／targetDate：規則事實題的當日沿用與延續判定（2026-10-07；news-rule-evidence.mjs）
+      const r = await withTimeout(judgeOneStock({ code: u.code, name: u.name }, ctx, { seenTitles: seenAll[u.code] || [], prevVerdict: verdicts[u.code] || null, targetDate: today }), STOCK_TIMEOUT_MS, `盤中判別 ${u.code}`);
       if (r?.skipped) { skipped++; continue; }
       const v = r?.verdict;
       if (!v) continue;
@@ -7186,18 +7280,21 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
       // 盤中的重點是突發利空——把它們單獨記下來，供前端與告警使用
-      if (v.label === '利空') hit.push(`${u.code}${u.name}(${v.strength})`);
+      //   規則類利空的延續（ruleCont：同一檔同類別有效期內重複觸發）不是突發，不列（2026-10-07「不當新事件、不重複推播」）
+      if (v.label === '利空' && !isRuleContinuation(v)) hit.push(`${u.code}${u.name}(${v.strength})`);
     } catch { /* 單檔失敗不擋整輪 */ }
   }
   if (!judged && !skipped) return true;
+  const intraSeenJson = JSON.stringify(seenAll);
+  const intraVerdictJson = newsVerdictJsonFit(verdicts, intraSeenJson, '盤中');
   await ref.set({
     date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(),
     lastPass: 'intraday', intradayAt: Date.now(),
-    verdictJson: JSON.stringify(verdicts), seenJson: JSON.stringify(seenAll),
+    verdictJson: intraVerdictJson, seenJson: intraSeenJson,
   }, { merge: true });
   await db.collection('newsVerdict').doc('latest').set({
     date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'intraday',
-    covered: Object.keys(verdicts).length, verdictJson: JSON.stringify(verdicts),
+    covered: Object.keys(verdicts).length, verdictJson: intraVerdictJson,
   });
   log(`✓ 盤中新聞判別：新消息 ${hot.length} 檔 → 判別 ${judged}、沿用 ${skipped}` +
       `${hit.length ? `　⚠ 突發利空：${hit.join('、')}` : ''}`);
@@ -7324,6 +7421,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   //   半途中斷等於「使用者今天沒有新聞判別」卻無人知曉。
   //   每 20 檔存一次：中斷時已完成的部分仍然可用，重跑也能從既有進度繼續。
   const flush = async (final) => {
+  const seenJson = JSON.stringify(seenAll);
+  const verdictJson = newsVerdictJsonFit(verdicts, seenJson, pass);   // 逼近 1MB 時壓縮規則事實稽核軌跡（2026-10-07）
   await ref.set({
     date: today,
     // ⚠ dataDate 在本專案的定義是「**資料自身**的日期」（漂移偵測用），
@@ -7340,15 +7439,15 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     universeSize: universe.length,
     universeFrom,                    // news ＝來源監看；turnover-fallback ＝掃描失敗退回
     judged, skipped, failed, stopped,
-    verdictJson: JSON.stringify(verdicts),
-    seenJson: JSON.stringify(seenAll),
+    verdictJson,
+    seenJson,
     note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
   }, { merge: true });
   await db.collection('newsVerdict').doc('latest').set({
     date: today, targetDate: today, generatedOn: isoDate(tw),
     updatedAt: Date.now(), lastPass: pass,
     covered: Object.keys(verdicts).length,
-    verdictJson: JSON.stringify(verdicts),
+    verdictJson,
   });
     if (final) {
       log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
@@ -7374,6 +7473,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         // 只在確實偏向清單式報導時才講——沒事加一句反而是誘導。
         {
           ...(pass === 'morning' ? { seenTitles: seen } : {}),
+          // 規則事實題的當日沿用與延續判定（2026-10-07；news-rule-evidence.mjs）：同一檔前一筆判別（含承接的）與適用交易日
+          prevVerdict: verdicts[code] || null, targetDate: today,
           // ⚠ 使用者 2026-08-29 訂正：**多檔連動是正常的**，不可因此打折。
           //   「蘋果M6先進封裝→台積電/弘塑/均華/長興」本來就是供應鏈連動，
           //   那正是使用者要求加強的產業鏈識讀。我原本叫 AI「可能只是被順帶提及，

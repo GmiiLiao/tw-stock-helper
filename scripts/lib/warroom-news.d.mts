@@ -23,6 +23,11 @@ export const UNCHALLENGED_TAG: string;
 export const UNCHALLENGED_NOTE: string;
 /** 可能為法律事件（未經規則確認）的揭露句 */
 export const POSSIBLE_LEGAL_NOTE: string;
+/** C16a 舊案的事實標籤「涉訟中」與說明句（2026-10-07 N1(b)：不改判利空、不發 Z2、不收緊停損） */
+export const LITIGATION_TAG: '涉訟中';
+export const LITIGATION_NOTE: string;
+/** 規則類利空延續（ruleCont）的說明句 */
+export function continuationNote(rf: string | null | undefined): string;
 export const NEWS_REPEAT_KEEP_DAYS: number;
 
 /**
@@ -52,6 +57,10 @@ export interface NewsEntry {
   rs: string | null;
   /** 規則判定時 AI 的原判（與利空不同時才有，例「中性」） */
   ra: string | null;
+  /** 規則類利空的延續：首次判定的適用日（daemon ruleCont；同一檔同類別有效期內重複觸發——不當新事件、不重複推播、Z2 只列二級） */
+  rf: string | null;
+  /** 涉訟中：C16a 舊案（事件日期在新聞視窗外、只在背景句出現；ruleFacts.C16a==='old'）——事實標籤，不影響 st、不進 Z2 */
+  lt: boolean;
   /** 可能為法律事件（AI 自判利空、未經規則確認：事件類型法律或依據句有檢調／搜索／起訴等字樣）；只揭露、不升級 */
   pl: boolean;
   /** 走過四角色挑戰 */
@@ -103,6 +112,8 @@ export interface NewsLampView {
   legal: boolean;
   /** 規則類利空的類別短字（例「工安停工」「法律事件（法律判定前視為利空）」）；不是規則類利空為 null */
   rule: string | null;
+  /** 涉訟中（C16a 舊案事實標籤；不是利空燈） */
+  litig: boolean;
   title: string;
 }
 

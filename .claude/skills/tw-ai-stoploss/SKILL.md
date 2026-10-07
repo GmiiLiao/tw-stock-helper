@@ -602,6 +602,7 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 - 新聞的規則類重大利空**會暫時收緊停損數字**（第 14 項裁定；第二輪 A4 依類別權重分級）：規則在 §10A。這取代 v1「新聞不改停損數字」的寫法。
 - 新聞影響權重 `w` 不參與（§10B）；LLM 也不得以新聞為由自行調整停損數字，它只能引用收緊後的生效停損。
 - 規則類利空的方向一律由程式規則決定（新聞技能 §1.5、§1.7）：AI 只認定事實（主體是不是本檔、事件是不是屬實），程式記下類別（`ruleClass`、`ruleFacts` 等規則欄位）。**只有法律事件（C16a）**由程式把 `newsVerdict` 的 label 覆寫為利空，沿用既有的 `ruleOverride:'legal-event'` 與「【規則】」前綴；其他類別**不改** label／信心／理由（使用者 2026-10-06 R1），停損收緊與戰情以規則欄位辨識（`ruleClassOf` 不看 label）。`ruleReasonPrefix` 的「【規則·{類別名}】」只留給顯示，戰情的 `isRuleLegal` 不會把它們誤認成法律。
+- **C16a 只認新聞視窗內的新進展**（使用者 2026-10-07 N1(b)，§13.4）：AI 逐字引用的法律事實句要能在內文找到、AI 說是新進展、事件日期落在本次新聞視窗內，才記 `ruleFacts.C16a='yes'` 並覆寫利空；舊案（日期在視窗外、只在背景句出現）記 `'old'`＝「涉訟中」事實標籤，**不改 label、不推播、不收緊停損**。工安事故後的檢察官相驗、勞檢、事故調查、業務過失偵查記 `'acc'`、歸 C17（N2）。同一檔同類別在有效期內重複觸發記 `ruleCont`（延續）：方向照規則，但不當新事件、不重複推播、`ruleBearEvents` 不再收；延續只從「被當成新事件」的那次判別起算（§10A.2-12）。舊案判定連引用句所在子句一起看（§10A.2-8）。
 
 ## 10A. 裁定落實：第 14 項「重大利空收緊停損」＋第二輪 A4「做skills判定與加權重」
 
@@ -617,7 +618,8 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 | B | 判別屬於今日適用交易日（`newsVerdict/latest.targetDate ＝ 今日適用交易日`），沒有 `carriedFrom`，`at ≥ 上一交易日 13:30` | 當日、非承接（第 14 項裁定） |
 | C | 規則類利空（`ruleClassOf`，**不看 label**——非法律類別 daemon 不覆寫 label，使用者 2026-10-06 R1）且 **AI 讀過內文**（同戰情 `isAiRead`：`basis==='content'`、不是 D 拒答、不是「AI 判別未回應」）；E 引用強制未過時，規則類別比照法律規則放行（AI 只認定事實、方向由規則定） | 使用者規則：新聞調分須經 AI 讀內文 |
 | D | `challenged === true`（四角色挑戰只在非舊聞時才跑，當作「非 14 日舊聞回退」的代理） | news-weight §3.6 |
-| E | 判別帶有**程式規則判定**留下的類別（`ruleClassOf`：`ruleClass` 而且該類事實題答「是」〔`ruleFacts[ruleClass]==='yes'`〕；舊資料 C16a 認 `ruleOverride:'legal-event'` 或「【規則】」前綴〔當時一定同時覆寫 label，所以這條仍要 label 利空〕），而且該類別的收緊級別不是 none（§10A.3）。**不看 `w`、強度、信心**；AI 自己的 `eventType`（'法律'、'處分'…）不算類別 | 第 14 項限制＋研究期裁定＋第二輪 A4＋R1 |
+| E | 判別帶有**程式規則判定**留下的類別（`ruleClassOf`：`ruleClass` 而且該類事實題答「是」〔`ruleFacts[ruleClass]==='yes'`〕；舊資料 C16a 認 `ruleOverride:'legal-event'` 或「【規則】」前綴〔當時一定同時覆寫 label，所以這條仍要 label 利空〕），而且該類別的收緊級別不是 none（§10A.3）。**不看 `w`、強度、信心**；AI 自己的 `eventType`（'法律'、'處分'…）不算類別。**C16a 只收新聞視窗內的新進展**（`ruleFacts.C16a='yes'`；舊案 `'old'`＝涉訟中、工安事故調查 `'acc'` 都沒有 `ruleClass＝C16a`，不收；2026-10-07 前的舊資料沒有新進展欄位，照舊認、不改歷史） | 第 14 項限制＋研究期裁定＋第二輪 A4＋R1＋2026-10-07 N1(b)／N2 |
+| F | **不是延續**（`ruleCont`：同一檔同類別在有效期 `RULE_CONT_TRADING_DAYS`＝5 個交易日〔＝`eventHoldDays`〕內重複觸發）。延續只從「被當成新事件」的那次判別起算（`ruleTrailEligible`：主類別、`challenged===true`、非承接、`basis==='content'`、label 利空——與 B–D 同口徑），所以首次判定那天這裡已收過；首次沒收成事件的（四角色挑戰失敗、只是 `ruleHits` 裡的次要類別、label 不是利空）不起算，隔日照新事件收（2026-10-07 審查修正）。之後的同一事件由 §10A.4 的事件身分處理。同一適用日的重判（晨間判到、盤中再判）不是延續，照收 | 2026-10-07「不當新事件、不重複推播」 |
 
 - B–D 沿用戰情同一套（`scripts/lib/warroom-news.mjs` 的 `newsBoardFromDoc`、`newsCtxOf`、`isCurrentEntry`、`isAiRead`），不另寫第二份；C16a 的結果與戰情 `majorBearOf(...).basis==='rule-legal'` 逐檔一致（測試 N3）。
 - `ruleBearEvents` 每檔最多回一件，帶 `cls`、`key=${code}:${cls}`、`tier`、`weight`（類別權重）、`research`（`w`、強度、信心、`eventType`，只記錄）。
@@ -628,7 +630,7 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 
 | 代號 | 類別（`ruleOverride` key） | 範圍（新聞技能 §4.1） | 方向 | **類別權重**（先驗·未回測） | 收緊級別 |
 |---|---|---|---|---|---|
-| **C16a** | 法律事件（`legal-event`） | 檢調搜索、搜查、約談、起訴、羈押、背信、掏空、主管機關調查（對象是本公司、子公司或負責人） | −（規則強制，§1.5） | **0.90** | **強** |
+| **C16a** | 法律事件（`legal-event`） | 檢調搜索、搜查、約談、起訴、羈押、背信、掏空、主管機關調查（對象是本公司、子公司或負責人）；**只算新聞視窗內的新進展**（舊案＝涉訟中標籤；工安事故後的相驗、勞檢、事故調查、業務過失偵查歸 C17——2026-10-07） | −（規則強制，§1.5） | **0.90** | **強** |
 | **C22** | 財務危機（`financial-distress`） | 退票、重整、非無保留意見、延遲申報、背書或資金貸與異常 | −（規則，§1.7） | **0.85** | **強** |
 | **C13b** | 公開收購破局（`tender-failed`） | 本檔是被收購方，公開收購或併購交易破局、終止、撤回 | 破局轉 −（規則） | **0.80** | **強** |
 | **C17** | 工安停工（`accident`） | 本公司工安、火災、停工、天災 | −（規則） | **0.70** | **強** |
@@ -650,6 +652,12 @@ ARCHIVE_FROM        = '2023-07-17'  // chipArchive 起點；買進日更早 ⇒ 
 5. **多類命中**：逐類提問；回答「是」的類別中取類別權重最高者寫 `ruleClass`（同權重依表內順序），其他寫 `ruleHits`（只記錄）。
 6. **三個 `newsVerdict` 寫入端都要存** `ruleClass`、`ruleOverride`、`ruleSub`、`aiOriginal`、`ruleHits`、`ruleFacts`（夜補、盤中、盤後／晨間；`ruleFieldsOf` 共用一支，已實作）。非法律類別的辨識只靠這些欄位（label 不變），所以缺 `ruleFacts` 的 `ruleClass` 不算。
 7. **成本與不變式**：只在觸發字命中時多問（每個命中類別一次本機呼叫，主判別之外）；Ollama 呼叫增加量在影子期量測（daemon log「規則事實」逐檔記；關鍵字代理估計每交易日約 1～2 次，`evidence.md` §11，觸發字收窄前的估計，未實測）；上游請求 0、MIS 0（唯一不變式成立）。
+8. **C16a 新進展判定（使用者 2026-10-07 N1(b)；`news-rule-evidence.mjs` `resolveRuleFact`）**：C16a 的事實題**併在同一題**（不另開呼叫）多問三件事——是不是本次新聞視窗（`judgeOneStock` 的視窗，`from`～今天）內新發生或有新進展、日期（報導寫「今日」「昨日」以發布日推算；每篇附發布日）、**逐字引用**那句法律事實。程式判定：引用要能在給 AI 看的報導裡逐字找到（沿用 E 引用強制的正規化與子字串比對，正規化後 ≥6 字），比不上 ⇒ `'none'`（不算，連涉訟中也不給）；引用句有工安語境明確的字樣（`ACCIDENT_LINK_RE`：相驗、勞檢、工安、職災、火災、氣爆、爆炸事故、意外事故、業務過失、過失致死…；單獨的「事故」「爆炸」「死傷」不在這裡，見第 9 步） ⇒ `'acc'`；AI 說是新進展、日期落在視窗內、引用句自己**以及它在原文所在的子句**（`quoteClauseOf`：往前到上一個子句界、最多 30 字，往後到下一個子句界、最多 20 字）都沒寫視窗外的絕對日期（例「8 月」，有「今日、昨日」這類相對時間字樣時不看）、子句也沒有背景字樣（先前、此前、早前、日前曾、曾遭／曾被…，有相對日子字樣時不看） ⇒ `'yes'`（覆寫利空）；其他（日期在視窗外、讀不出日期、AI 說不是新進展、子句寫視窗外日期或背景字樣） ⇒ `'old'`＝「涉訟中」事實標籤（`LEGAL_ONGOING_TAG`），label、推播、停損都不動。子句只看到逗號為止：「繼 8 月遭搜索後，調查局今再度約談」的新進展不會被同一句前半的舊日期否決。
+9. **N2 同一起事故**（`reconcileAccident`）：C16a 答「是」或舊案、C16a 的引用句出現在 C17 觸發的報導裡，再加上 C17 答「是」（`why 'accidentC17'`），或 C17 沒答「否」而引用句帶較寬的事故字樣（`ACCIDENT_CONTEXT_RE`：事故、爆炸、罹難、死傷、傷亡…；`why 'accident'`） ⇒ C16a 改 `'acc'`，主類別由 C17 擔任（C17 只記欄位、不改 label，R1）。沒有 C17 語境的法律事件（例：搜索金控、偵辦隱匿理專挪用事故）照一般 C16a 判——2026-10-07 審查修正，舊版單獨的「事故」字樣就記 `'acc'`，會讓這類搜索兩邊都不算、違反 2026-08-29「被搜索就是利空」。C16a 的事實題寫明這些不算。
+10. **稽核軌跡 `ruleEvidence`**（每個問過的類別一份；寫入端經 `ruleFieldsOf` 共用）：`key`（同組報導鍵）、`day`（問的日子）、`trig`／`ctx`（觸發字與命中處前後各 30 字）、`title`／`src`／`pub`（第一篇的標題、來源、發布日）、`ans`（AI 回答前 60 字）；C16a 另記 `quote`、`quoteOk`、`newDev`、`dateText`、`eventDate`、`isNew`、`why`（`notNew`／`dateOut`／`dateUnknown`／`quoteDateOut`／`clauseDateOut`／`background`／`quote`／`accident`／`accidentC17`），子句否決時另記 `qctx`（引用句所在子句，80 字內；瘦身時與其他文字欄一起去掉）。答「否」的軌跡也留著（10/07 前會被之後的重判覆蓋、無從稽核）。`newsVerdict` 日文件的 `verdictJson`＋`seenJson` 逼近 1MB（`RULE_DOC_SOFT_MAX`＝900,000 位元組）時先去文字欄、仍超過就整段拿掉（`fitVerdictJson`；判別本身不動），三個寫入端共用 `newsVerdictJsonFit`。
+11. **當日沿用（不重問）**：同一檔同類別同一組報導（標題＋給 AI 看的內文）、同一天、同一新聞視窗 ⇒ 沿用已問過的答案（daemon 記憶體快取，重啟後改看前一筆判別的 `ruleEvidence.key`）；呼叫失敗不快取。Ollama 呼叫只會比 10/07 前少，上限不變。
+12. **延續 `ruleTrail`／`ruleCont`**：主類別在「被當成新事件」的那次判別記適用日 `since`（`ruleTrailEligible`：主類別、挑戰過、非承接、讀過內文、label 利空；`ruleHits` 裡的次要類別與沒收成事件的判別不起算——2026-10-07 審查修正，舊版每個答「是」的類別都起算，首日挑戰失敗或被 C23 蓋過的 C17 隔日會被標延續、從頭到尾沒收緊也沒發 Z2 一級；取捨：首日沒挑戰過卻已在完成訊號列過利空的，隔日會再列一次）；有效期內的舊軌跡照帶，這次沒觸發也保留；主類別的 `since` 早於這次的適用日 ⇒ `ruleCont＝since`。延續的 C16a 仍覆寫利空（規則方向不變），但 daemon 推播（`pushVerdictDone` 的利空清單、盤中「突發利空」）不列、`ruleBearEvents` 不收（§10A.1-F）、戰情 Z2 降二級「延續」。
+13. **計數**：題數與答案分布依資料日（非交易日記最後交易日）累計進 `stopSpecAudit/{資料日}.newsRule`（`asked`、`reused`、`fail`、`ans.{類別}.{yes|no|none|old|acc}`、`quoteFail`、`cont`；只放計數，不放代號與句子）。
 - **連動影響**（要知道，不屬本規範檔）：只有 C16a 的 label 被覆寫為利空，讀 `newsVerdict.label` 的地方（新聞判別顯示、AI 推薦 `src/app/api/twse/ai-recommend/route.ts:70` 的新聞方向加減、個股評分、做空候選、`squeeze-train.mjs:185` 的 `newsLabel`）只會因法律事件看到利空——C16a 自 2026-08-29 起即如此；**其他類別不影響這些地方**（使用者 2026-10-06 R1，取代 A4 原本「擴到全部類別」的做法）。盤後報告的 `rankMediaVerdicts` 同樣讀 AI 原判 label。戰情 `isRuleLegal` 認 `ruleOverride==='legal-event'`，補欄位後「AI 原判利空的法律事件」在戰情 Z2 會由二級（可能為法律事件）變成一級新聞警示——這是修正漏網的必然結果。戰情 v2 對其他規則類別：`verdictState` 不看 label、一律判利空（燈、Z2 依類別權重分級〔R2 已裁定維持〕、B2、A2 第 0 類），AI 原判顯示為「AI 原判…」（`ra`），而且不套 §1.4／§1.6 的價格描述、關注度改判。
 
 ### 10A.3 收到哪裡（`eventTierOf`、`eventLineOf`）
@@ -706,6 +714,13 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 | 非交易日的盤後趟（週末判的、適用下週一） | 週一 08:46 生效 |
 | daemon 重啟 | 疊加層與 `eventSeen` 存在 `stopBooks`；判別從 Firestore `newsVerdict/latest` 讀，不靠記憶體 |
 | 同一判別多類命中 | 只取類別權重最高的一類（§10A.2-5）；同一檔不同天出現不同類別 ⇒ 各自一層 |
+| 報導主體是別的事，只在背景句帶到本公司過去的搜索（3037 欣興 10/05–10/07 型） | C16a 記 `'old'`（涉訟中）：不改 label、不推播、不收緊（§10A.2-8）；AI 把舊案日期誤報成視窗內、而引用句自己寫視窗外日期 ⇒ 仍是 `'old'` |
+| 同上，AI 從背景句挑一段沒有日期的子字串（「遭檢調搜索，公司強調營運正常」）、說是新進展、日期填發布日 | 仍是 `'old'`：引用句所在子句寫「今年8月」⇒ `clauseDateOut`；子句有「先前」「曾遭」等背景字樣而沒有今日／昨日 ⇒ `background`（`qctx` 記子句） |
+| 法律新進展的引用句帶「事故」（例：搜索金控、偵辦隱匿理專挪用事故） | 沒有 C17 語境 ⇒ 照一般 C16a（`'yes'` 改判利空、收緊）；只有引用句出現在 C17 觸發的報導裡、C17 沒答否時才記 `'acc'` |
+| 首日判到規則類利空但沒收成事件（四角色挑戰失敗、只是次要類別、label 不是利空），隔日同一事件挑戰過 | 首日不起算延續，隔日照新事件收（`ruleBearEvents` 收、Z2 照等級發）；首日已收成事件的，隔日才是延續 |
+| 工安事故後的檢察官相驗、勞檢（2367 燿華型） | C16a 記 `'acc'`，C17 為主類別（強級收緊照 C17；label 維持 AI 原判，R1） |
+| 同一事件隔日再被報導、C16a 再答新進展 | 延續（`ruleCont`）：`ruleBearEvents` 不收、不重複推播、Z2 二級；有效期 5 個交易日（自首次判定的適用日起算）過了才算新事件 |
+| C16a 引用句在內文找不到 | `'none'`：不算（不改判、不給涉訟中），計數記 `quoteFail` |
 
 ### 10A.7 影子紀錄：命中與漏網兩份（使用者規則：回測要出命中與漏網）
 
@@ -720,7 +735,7 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 **漏網紀錄**（`missShadowRows`；每日，範圍＝會員持股 ∪ 當日判別宇宙）：
 
 - 條件：官方收盤 ≤ 前收 −2×ATR14，或收在跌停；而且當日與前一交易日都**沒有**合格事件（`eventCodes`）。
-- 每列寫出哪一條沒過（互斥）：`noDoc`／`docMismatch`（判別表不是該日的）／`noVerdict`／`notBear`（label 不是利空、也不是規則類利空——`ruleClassOf` 不看 label，R1）／`notRead`（閘門）／`carried`／`notChallenged`／`beforeMin`／`aiBearLegalNoRule`（AI 原判已是利空、有法律字樣但沒有規則標記——§10A.2-4 修正前的已知缺口）／`bearNotRule`（利空但不是規則類，附 `eventType`、`w`、強度、信心，只記錄）／`belowWeight`（規則類但不收緊）。另記官方重訊（mopsNews）當日有無公告。
+- 每列寫出哪一條沒過（互斥）：`noDoc`／`docMismatch`（判別表不是該日的）／`noVerdict`／`notBear`（label 不是利空、也不是規則類利空——`ruleClassOf` 不看 label，R1）／`notRead`（閘門）／`carried`／`notChallenged`／`beforeMin`／`aiBearLegalNoRule`（AI 原判已是利空、有法律字樣但沒有規則標記——§10A.2-4 修正前的已知缺口）／`bearNotRule`（利空但不是規則類，附 `eventType`、`w`、強度、信心，只記錄）／`belowWeight`（規則類但不收緊）／`legalOngoing`（C16a 舊案·涉訟中，2026-10-07 N1(b) 起不改判；量「舊案不改判」漏掉幾件大跌）／`continuation`（規則類利空的延續，首次判定那天已是事件）。另記官方重訊（mopsNews）當日有無公告。
 - 「AI 原判已是利空」這一類在新聞管線補存規則欄位（§10A.2-6）之前只能用字樣代理（`isPossibleLegalBear`），不能宣稱量得出覆蓋率；補欄位前後的事件**分開統計**。
 - 目的：回答「類別權重的級別切點、AI 的 `eventType`、補上規則標記，各能多抓到幾件、會多誤抓幾件」。這些答案出來之前，`w` 仍然只顯示。
 
@@ -742,6 +757,7 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 - 影子紀錄：命中與漏網兩份欄位齊全、三類互斥、`w` 有記錄但不影響分類；漏網原因與 `ruleBearEvents` 同口徑（事實沒答「是」的 `ruleClass` 兩邊都不算、記 `notBear`；事實答「是」而 label 維持 AI 原判中性的兩邊都算；規則類利空沒挑戰記 `notChallenged`）。
 - 觸發字反例（不觸發）：市調「調查」、組織重整、重整旗鼓、無保留意見、歲修停機、產品停產、爆炸性成長、券商調降評等／目標價、S&P 500；事實回答「是否…」「不確定」⇒ 未答。
 - 類別判定：只認 `ruleClass`＋該類事實「是」，以及舊資料 C16a 的 `ruleOverride`／「【規則】」前綴（須 label 利空）；其他類別的前綴不被戰情 `isRuleLegal` 誤認；觸發字只回類別、事實回答只看開頭「是／否」。
+- **N1(b)／N2（2026-10-07；`news-rule-evidence.test.mjs`、`ai-stoploss-event.test.mjs` N1b、`warroom-news.test.mjs`、`news-rule-daemon-pin.test.mjs`）**：3037 型舊案背景句 ⇒ `'old'`、不改 label、不收、戰情只標涉訟中（燈照 AI 原判、不進 Z2、不標可能為法律事件）；AI 把舊案誤報為視窗內日期、引用句寫「8 月」⇒ 仍 `'old'`；新進展＋日期在視窗內＋引用逐字 ⇒ `'yes'`、理由與 2026-08-29 版逐字相同；引用改寫、拼接、太短 ⇒ `'none'`；2367 型相驗 ⇒ `'acc'`、C17 為主；同一起事故（引用在 C17 報導裡）⇒ `'acc'`、不同報導的法律事件照舊 C16a；延續（隔日再觸發 ⇒ `ruleCont`、同一適用日重判不是、過期 ⇒ 新事件、中間沒觸發軌跡照帶）；同日沿用（鍵相同沿用、換日／換視窗／內文變動重問、呼叫失敗不沿用、沿用不算題數）；`ruleBearEvents` 不收舊案、工安調查、延續；漏網原因 `legalOngoing`、`continuation`；單檔大小壓縮；daemon 原始碼釘住（沿用在送出提問之前、事實題只有一處呼叫、寫入端帶 `prevVerdict`／`targetDate`、延續不進推播）。
 - R1（2026-10-06）：`applyRuleFacts` 只對 C16a 覆寫 label，其他類別 label／bullish／信心／理由逐一維持 AI 原判（`news-rule-classes.test.mjs`）；端到端「AI 判中性、C17 是 → label 維持中性 → 寫入端欄位 → `ruleBearEvents` 與戰情 `majorBearOf` 同一類別；C16a 照舊覆寫」（`news-rule-classes.test.mjs` 末例、`stop-shadow-runner.test.mjs` 盤前收緊例）。
 
 ### 10A.9 對推播數量的預估影響
@@ -887,11 +903,22 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 | **R8** | ETF／興櫃日 K 的供給方式 | daemon **盤前讀本機官方鏡像**（0 次 Firestore 讀寫、0 上游請求）；讀不到 fail-closed 並記錄 | §2A（儲存、驗證前、程式列）；`official-bars.readOfficialBarsAsync`、`stop-shadow-runner`（`loadOfficialBars`、`mirrorInputsOf`）、`stop-shadow-core.officialBarsVerdict`、`ai-stoploss-plan.unverifiedArchiveOf`；daemon `stopShadowLoop`（`STOP_VERIFIED_ARCHIVES` 目前空）。2026-10-06 審查補：鏡像代號的收盤結算移到下一交易日盤前（`mirrorSettle`）、興櫃轉上市櫃改走 chipArchive、前端 `bookStopOf` 與 daemon 共用 `legacyCodeActive`（停損簿文件帶 `verifiedArchives`） |
 | **R9** | `stopBooks` 的 Firestore 規則 | 本人只能讀自己的 `stopBooks/{uid}`（含 daemon 寫的 `shadowDays/{資料日}` 子集合），管理員可讀，任何前端都不可寫 | `firestore.rules`（未部署：要隨部署帶 `firestore:rules`）；§14 |
 
+### 13.4 第四輪：新聞規則 N1(b)／N2／其它（2026-10-07）
+
+使用者原話：「n1 b／n2 依建議／其它依建議」。起因是 10/05–10/07 線上查核：3037 欣興的報導都在講 ABF 載板需求，內文夾帶 8 月「遭檢調搜索」舊背景句，C16a 事實題只問主體不問時間 ⇒ 連三個目標日改判利空、10/05 盤中推了「⚠ 突發利空：3037欣興(強)」；2367 燿華工安事故同時答 C16a 與 C17，C16a 權重高勝出 ⇒ 改判利空；事實題沒留觸發字、前後文與回答，答「否」的被之後重判覆蓋，同一篇報導同日重問。
+
+| # | 已裁定的內容 | 落實位置 |
+|---|---|---|
+| **N1(b)** | C16a 只有新聞視窗內有新進展（新的搜索、約談、起訴、羈押、判決、主管機關新處分，事件日期在本次視窗內）才觸發並改判利空；舊案只標「涉訟中」事實標籤，不改判、不推播、不收緊停損。事實題同時問是否新進展、日期，並要求逐字引用法律事實句（比不上就不算）。同一檔同類別在有效期內重複觸發標「延續」，不當新事件、不重複推播。這是 2026-08-29 硬規定「被搜索就是利空」的細化：新進展＝利空（規則決定方向不變），舊案＝涉訟中 | §10.4、§10A.1-E／F、§10A.2-8／12、§10A.6、§10A.7；`news-rule-evidence.mjs`（`resolveRuleFact`、`withRuleTrail`）、`news-rule-classes.mjs`（C16a 事實題、`ruleFacts` 的 `old`）、`warroom-news.mjs`（`lt`、`rf`）、`ai-stoploss-event.mjs`（`ruleBearEvents` 條件 F、漏網原因）、daemon（推播與突發清單不列延續） |
+| **N2** | 工安事故後的檢察官相驗、勞檢、事故調查、業務過失偵查不算 C16a，歸 C17；同一起事故 C17 與 C16a 同時答是時主類別用 C17（C17 只記欄位、不改 label，R1）；C16a 事實題寫明不算 | §10A.2-9、§10A.6；`ACCIDENT_LINK_RE`（工安語境明確的字樣）、`ACCIDENT_CONTEXT_RE`＋`reconcileAccident`（較寬的事故字樣要有 C17 語境）、C16a `fact` |
+| 其它 | 稽核軌跡 `ruleEvidence`；題數與答案分布依資料日累計（`stopSpecAudit/{資料日}.newsRule`，只放計數）；同一檔同類別同一組報導當日沿用答案（不重問）；`newsVerdict` 單檔逼近上限時壓縮證據 | §10A.2-10／11／13 |
+| 未裁定 | 線上已被誤判的 3037（10/05–10/07 `newsVerdict`）要不要回寫修正：本次**不改歷史資料**，只在程式上線後讓之後的判別依新規則；待使用者裁定 | — |
+
 ## 14. 過渡期與程式位置
 
 - **第一階段·daemon**：推播 `:3251`、紀律 `:9864`、崩盤防禦 `:11151`、論點 `:9333` 照舊算法（行號 HEAD `2fd8ce6`）。推播文字可在 S2b 先改（§8.6；文字由 `ai-stoploss-text.mjs` 的九支函式產生，只換字串、不動判斷）。
 - **第一階段·戰情 v2（超管）**（2026-10-05 本機，未部署）：A1 是 v1.1 前端暫算（`scripts/lib/warroom-mine.mjs` 的 `provisionalStop`＝成本線與持股分析 ATR 帶取高、帶不棘輪；§3.6 最後一列），ATR 帶標「ATR 帶（持股分析·觸發線之一）」；Z2 觸停損一級由前端判定（`TopAlertEngine` 的本機事件表，文字標「單一裝置·暫算」），A7 已裁定維持到切換正式。
-- **規範函式**：`scripts/lib/ai-stoploss.mjs`（集線器）＋`ai-stoploss-{base,lines,core,event,text,llm,plan}.mjs`＋`news-rule-classes.mjs`，型別 `ai-stoploss.d.mts`、`news-rule-classes.d.mts`，測試七個 `*.test.mjs`（§3.8）。每個子模組 <800 行。
+- **規範函式**：`scripts/lib/ai-stoploss.mjs`（集線器）＋`ai-stoploss-{base,lines,core,event,text,llm,plan}.mjs`＋`news-rule-classes.mjs`＋`news-rule-evidence.mjs`（2026-10-07：C16a 新進展判定、稽核軌跡、延續、當日沿用、計數、單檔大小），型別 `ai-stoploss.d.mts`、`news-rule-classes.d.mts`、`news-rule-evidence.d.mts`，測試七個 `*.test.mjs`（§3.8）。每個子模組 <800 行。
 - **狀態文件** `stopBooks/{uid}`：daemon 用 Admin SDK 寫；`firestore.rules` **已加**（R9，2026-10-06，本機、未部署）：本人與管理員唯讀 `stopBooks/{uid}` 與 `stopBooks/{uid}/shadowDays/{資料日}`，任何前端不可寫。`stopEventShadow/{date}`、`stopSpecAudit/{date}` 規劃為只開放管理員讀，**尚未加**（現在預設拒絕；R9 只裁定 `stopBooks`）。規則改動要隨部署帶 `firestore:rules`。新日期欄位 `sourceDate`、`floorSourceDate`、`bandSourceDate` 已登記 `check-field-conventions`。
 - **上線順序**（實作計畫 §7）：S2（共用函式，**已完成**本機驗證）→ S2b（推播文字）→ S3（影子：daemon 每日寫 `stopBooks`、只記錄不推播）→ S4（影子期 ≥20 個交易日、I1–I8 0 違反）→ **使用者核可** → S5（切換）。新聞管線的規則判定（A4，實作計畫 §2.10）與 ETF／興櫃歸檔（A3，§2.11）可與 S3 並行，各自有影子觀察與驗證閘門。
 - **切換條件**：`exright-history.json` 已回補並每日累加、影子期 ≥20 個交易日、I1–I8 在全部會員持股與合成母體上 0 違反，再經使用者核可。ETF／興櫃另需 §2A 驗證閘門全過（可晚於 S5 單獨切換）。
@@ -900,6 +927,7 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 - 步驟、介面、測試清單與遷移風險，見 `warroom/stoploss/v1.1/impl-plan.md`。
 - **待辦（已裁定，2026-10-06）**：R5 問AI（`buildQAContext`）的停損約束——S5 切換時與其他提示詞一起換（§10.1），影子期不改；R7 9 檔 ETF 分割／反分割官方係數——影子期內補進 §7 係數表（§15-9 期限）；R8 閘門 ④⑤ 與 `STOP_VERIFIED_ARCHIVES` 核可（§2A）。
 - **部署先後（R1；2026-10-06 審查）**：戰情 v2 的燈、Z2、B2、A2 由 Next.js **伺服器端**算（`src/lib/warroom/build-news.ts` → `newsBoardFromDoc`），要 web 帶新版 `scripts/lib/warroom-news.mjs`、`news-rule-classes.mjs` 部署後才認得 R1 的資料形狀。目前線上 web 的 `ruleClassOf` 第一行要求 label＝利空；R1 起 daemon 對非法律規則類別（C17、C22、C23…）只記規則欄位、label 維持 AI 原判 ⇒ 舊 web 會把它們顯示成 AI 原判的中性／利多、**不進 Z2**。所以 **hosting 必須先部署，或與 daemon 重啟在同一個窗口完成；web 部署前不要重啟 daemon**。daemon 是 disk 即部署，若 KeepAlive 在 web 部署前已拉起磁碟版本，web 部署前「戰情暫時看不到非法律規則類利空」列為已知缺口（停損影子在 daemon 端執行，不受影響）。反過來先部署 web 是安全的：新版 `ruleClassOf` 第 ② 條仍認舊資料的 C16a（ruleOverride／「【規則】」前綴＋label 利空）。`firestore.rules`（R9）同一次部署帶上。
+- **部署先後（2026-10-07 N1(b)）**：daemon 寫的新欄位（`ruleFacts` 的 `old`／`acc`、`ruleEvidence`、`ruleTrail`、`ruleCont`）舊版 web 都不認得但也不會誤判：舊 web 的 `ruleClassOf` 只認 `ruleFacts[ruleClass]==='yes'`，舊案沒有 `ruleClass`，所以不會顯示成利空；只是**看不到「涉訟中」標籤與「延續」字樣**，而延續的 C16a 在舊 web 的 Z2 仍會發一級（新 web 降二級）。新 web 的 `warroom-news.mjs` 多 import `news-rule-evidence.mjs`，hosting 要帶這個檔一起部署（git add）。停損影子在 daemon 端執行，重啟 daemon 後即依新規則。
 - 改動前要先掃影響面：所有讀 `analyses.stopLoss`、`alerts`、`stopDiscipline`、`newsVerdict`、`_hwm` 的地方。daemon 是 disk 即部署（KeepAlive 隨時拉起磁碟版本）：改完必須 `node --check` 通過、相關測試通過；只在收盤後重啟，重啟前先跑 `node scripts/can-restart-daemon.mjs`。
 
 ## 15. 待核實（事實查證，不需使用者裁定）
@@ -1026,3 +1054,18 @@ eventLine = floorTick( refClose − max(k × ATR14, p% × refClose) )
 - **R9**：`firestore.rules` 加 `stopBooks/{uid}`（含 `shadowDays`）本人與管理員唯讀、前端不可寫（未部署）。
 - **R2、R3、R6**：維持現行實作（§15A 標已裁定、§2A 回補列）；**R5、R7**：已裁定、本次不做（§10.1、§14 待辦、§15-9 期限）。
 - **審查修正（2026-10-06）**：① R1 部署先後寫進 §14（web 先部署或與 daemon 重啟同窗；未部署前 daemon 被拉起＝戰情暫時看不到非法律規則類利空）；② 興櫃轉上市櫃：收盤結算見 chipArchive 當日有這檔就改走 chipArchive（原本永遠沿用興櫃舊日 K）；③ 鏡像代號的收盤補判與事件結算移到下一交易日盤前（`mirrorSettle`，原本觸及事件永遠不結算、不補判；紀律彙總補鏡像前收）；④ 戰情 `bookStopOf` 與 daemon 共用 `legacyCodeActive`，停損簿文件帶 `verifiedArchives`（§2A）。
+
+**2026-10-07（新聞規則 N1(b)／N2／其它依建議落實）**：使用者原話「n1 b／n2 依建議／其它依建議」（§13.4）。
+
+- **C16a 只認新進展**：事實題併問新進展、日期、逐字引用（同一題、不另開呼叫）；`ruleFacts.C16a` 新增 `'old'`（舊案·涉訟中：不改 label、不推播、不收緊）與 `'acc'`（工安事故調查，歸 C17）；引用比不上 ⇒ `'none'`。§10.4、§10A.1-E、§10A.2（C16a 列、第 8～9 步）、§10A.6。
+- **延續**：`ruleTrail`／`ruleCont`（有效期 5 個交易日＝`eventHoldDays`）；`ruleBearEvents` 新增條件 F（延續不收）；daemon 推播利空清單與盤中「突發利空」不列延續；戰情 Z2 延續降二級。§10A.1-F、§10A.2-12。
+- **稽核與成本**：`ruleEvidence`、當日沿用、`stopSpecAudit/{資料日}.newsRule` 計數、`newsVerdict` 單檔逼近 1MB 時壓縮證據。§10A.2-10／11／13。新日期欄位 `eventDate` 已登記 `check-field-conventions`。
+- **漏網原因**新增 `legalOngoing`、`continuation`（§10A.7）；測試見 §10A.8；部署先後見 §14。
+- 線上 3037（10/05–10/07）既有判別**不回寫**（待使用者裁定，§13.4）。非投資建議。
+
+**2026-10-07（審查修正）**：三視角審查（裁定一致性、安全）指出的三項，逐項以實際函式驗證屬實後修正（`news-rule-evidence.mjs`；測試 `news-rule-evidence.test.mjs`「審查修正·…」三組、`ai-stoploss-event.test.mjs` N1c）：
+
+- **延續起算點**（HIGH）：舊版 `withRuleTrail` 只要 `ruleFacts` 答「是」就起算 `since`，不管那筆有沒有收成事件 ⇒ 首日四角色挑戰失敗、只是 `ruleHits` 的次要類別（被 C23 蓋過的 C17）時，隔日真的收成事件反被標延續，條件 F 擋掉、Z2 只列二級，停損從頭到尾沒收緊。改為只有「被當成新事件」的主類別才起算（`ruleTrailEligible`）。§10A.1-F、§10A.2-12、§10A.6。
+- **舊案否決只看 AI 挑的引用句**（MEDIUM）：AI 從舊案背景句挑一段沒有日期的子字串就能過關（3037 型的殘留路徑）。改為連引用句在原文所在的子句（`quoteClauseOf`）一起看視窗外日期與背景字樣（`clauseDateOut`／`background`，`qctx` 記子句）。§10A.2-8／10、§10A.6。
+- **N2 事故字樣太寬**（MEDIUM）：單獨的「事故」「爆炸」「死傷」讓理專挪用事故、資安事故的搜索記 `'acc'`、兩邊都不算。`ACCIDENT_LINK_RE` 只留工安語境明確的字樣，較寬的字樣改由 `reconcileAccident` 在 C17 語境下才認（`ACCIDENT_CONTEXT_RE`）。§10A.2-9、§10A.6、§13.4。
+- Ollama 呼叫數不變（都是程式判定）；`newsVerdict` 多一個可選欄位 `ruleEvidence[類別].qctx`（≤80 字，只在子句否決時記，瘦身時去掉）。非投資建議。

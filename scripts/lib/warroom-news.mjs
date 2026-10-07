@@ -38,11 +38,15 @@
 //        Z2 持股重大利空只看規則類別的**類別權重**（新聞技能 §4.1 baseWeight，先驗·未回測，不是 w）：≥0.7 一級、0.3–0.7 二級、
 //        <0.3 不列 Z2（B2「我的」照列二級）。B2 全市場與「我的」新聞事件、A2 盤前清單的名單與排序都不用 w；
 //        Z2 同日再發只看警示等級上升（二級→一級），不看強弱。w 只用來顯示強弱文字。
+//   2026-10-07 使用者裁定 N1(b)（news-rule-evidence.mjs）：C16a 舊案（事件日期在新聞視窗外、只在背景句出現；ruleFacts.C16a==='old'）
+//        只標「涉訟中」事實標籤（lt）——不當利空燈（燈照 AI 原判）、不進 Z2、不標「可能為法律事件」；規則類利空的延續
+//        （ruleCont：同一檔同類別有效期內重複觸發）照樣是規則利空，但 Z2 一律降二級「延續」（不當新事件），B2 文字標延續。
 // ─────────────────────────────────────────────────────────────────────────────
 import { rankMediaVerdicts } from './after-market-news.mjs';
 import {
   RULE_LEGAL_PREFIX, ruleClassOf, ruleSubOf, classWeightOf, classWeightBand, ruleClassText, ruleFactAnswered,
 } from './news-rule-classes.mjs';
+import { isLegalOngoing, isRuleContinuation } from './news-rule-evidence.mjs';
 import { toEpochMs } from './warroom-freshness.mjs';
 import { taipeiDayStart, taipeiMinuteOfDay, taipeiYmd } from './warroom-session.mjs';
 
@@ -232,6 +236,9 @@ function entryOf(v, w) {
     rc,
     rs: rc ? ruleSubOf(v, rc) : null,
     ra: rc ? aiOriginalOf(v) : null,
+    // 延續（ruleCont，首次判定的適用日）：只給規則類利空；涉訟中（C16a 舊案）：事實標籤，不影響 st
+    rf: rc && isRuleContinuation(v) ? ymdOf(v.ruleCont) : null,
+    lt: isLegalOngoing(v),
     pl: st === 'bear' && isPossibleLegalBear(v),
     ch: v.challenged === true,
     cr: ymdOf(v.carriedFrom),
@@ -320,6 +327,12 @@ function oldTagOf(entry, ctx) {
 /** 沒走四角色挑戰的短標（燈、短字）；說明全文 UNCHALLENGED_NOTE */
 export const UNCHALLENGED_TAG = '未走挑戰（可能舊聞）';
 export const UNCHALLENGED_NOTE = '未走四角色挑戰（可能是 14 日舊聞回退或挑戰失敗）：不列強弱、不計入利空、不發警示';
+/** C16a 舊案的事實標籤（短字）與說明句（燈 tooltip、抽屜）——2026-10-07 N1(b) */
+export const LITIGATION_TAG = '涉訟中';
+export const LITIGATION_NOTE = '涉訟中（舊案）：報導只在背景提到本公司過去的檢調搜索、起訴等法律事件，事件日期不在本次新聞視窗內'
+  + '——只是事實標籤，不改判利空、不發 Z2 警示、不收緊停損（新聞技能 §1.5，使用者 2026-10-07 N1(b)）';
+/** 規則類利空延續的說明句（燈 tooltip、抽屜、Z2／B2） */
+export const continuationNote = (rf) => `延續 ${ymdShort(rf)} 首次判定的同一事件（有效期內重複觸發）：不當新事件、不重複推播、Z2 只列二級`;
 /** 可能為法律事件的揭露句（燈 tooltip、抽屜、B2） */
 export const POSSIBLE_LEGAL_NOTE = '可能為法律事件（未經規則確認：這筆判別沒有法律事實的回答，多為 10/05 規則補問前的判別；只揭露，不發 Z2 警示）';
 
@@ -358,20 +371,22 @@ function judgedText(entry) {
  * tier：只有今日適用、非承接的利多／利空才有（強／中／弱）；其餘 null。title＝tooltip 全文（影響權重附「研究期·只顯示」；規則類利空附類別與類別權重）。rule＝規則類利空的類別短字。
  */
 export function newsLampView(entry, ctx, { universe = true } = {}) {
-  const mk = (tone, label, title, extra = {}) => ({ tone, tier: null, tierLabel: null, label, current: false, old: null, legal: false, rule: null, title, ...extra });
+  const mk = (tone, label, title, extra = {}) => ({ tone, tier: null, tierLabel: null, label, current: false, old: null, legal: false, rule: null, litig: false, title, ...extra });
   if (!universe) return mk('na', '—', '不做個股新聞識讀（ETF、權證等）');
   if (!isObj(entry) || !STATES.has(entry.st)) return mk('none', '未判別', '未判別：AI 尚未讀到這檔可判別的內文（判別範圍未擴大）');
   const st = entry.st;
-  if (st === 'insufficient') return mk('none', '資訊不足', `資訊不足：沒有讀到可判別方向的內文（只有標題、零提及或引文對不上原文）·不判方向、權重 0、不發警示${entry.at != null ? `·${judgedText(entry)}` : ''}`);
+  const lit = entry.lt === true;
+  const litText = lit ? `·${LITIGATION_NOTE}` : '';
+  if (st === 'insufficient') return mk('none', '資訊不足', `資訊不足：沒有讀到可判別方向的內文（只有標題、零提及或引文對不上原文）·不判方向、權重 0、不發警示${entry.at != null ? `·${judgedText(entry)}` : ''}${litText}`, { litig: lit });
   if (st === 'unjudged') return mk('none', '未判別', '未判別：AI 判別未回應（保守不判方向）');
-  if (st === 'excluded') return mk('none', '價格描述', `價格描述（機器速報類，結果不是原因）：不當新聞、不判方向、權重 0（新聞識讀規範 §1.4）·AI 原判 ${entry.ai ?? '—'}`);
+  if (st === 'excluded') return mk('none', '價格描述', `價格描述（機器速報類，結果不是原因）：不當新聞、不判方向、權重 0（新聞識讀規範 §1.4）·AI 原判 ${entry.ai ?? '—'}${litText}`, { litig: lit });
   const current = isCurrentEntry(entry, ctx);
   const old = current ? null : oldTagOf(entry, ctx);
   if (st === 'attention') {
-    return mk('flat', '關注度', `關注度（目標價、評等、概念股、熱門股、ESG 等）不是營運事實：不判方向、權重 0、不發警示（新聞識讀規範 §1.6）·AI 原判 ${entry.ai ?? '—'}·${judgedText(entry)}${old ? `·◆ ${old}` : ''}`, { current, old });
+    return mk('flat', '關注度', `關注度（目標價、評等、概念股、熱門股、ESG 等）不是營運事實：不判方向、權重 0、不發警示（新聞識讀規範 §1.6）·AI 原判 ${entry.ai ?? '—'}·${judgedText(entry)}${old ? `·◆ ${old}` : ''}${litText}`, { current, old, litig: lit });
   }
   if (st === 'neutral') {
-    return mk('flat', '中性', `中性：AI 讀內文判中性·${judgedText(entry)}${old ? `·◆ ${old}` : ''}`, { current, old });
+    return mk('flat', '中性', `中性：AI 讀內文判中性·${judgedText(entry)}${old ? `·◆ ${old}` : ''}${litText}`, { current, old, litig: lit });
   }
   const label = LABEL_OF[st];
   const tone = st === 'bull' ? 'up' : 'dn';
@@ -389,6 +404,8 @@ export function newsLampView(entry, ctx, { universe = true } = {}) {
   }
   const rn = cls ? ruleClassNote(entry) : null;
   if (rn) parts.push(rn);
+  if (cls && entry.rf) parts.push(continuationNote(entry.rf));
+  if (lit) parts.push(LITIGATION_NOTE);
   if (entry.pl) parts.push(POSSIBLE_LEGAL_NOTE);
   parts.push(judgedText(entry));
   if (current && ctx?.targetDate) parts.push(`適用 ${ymdShort(ctx.targetDate)}`);
@@ -396,20 +413,22 @@ export function newsLampView(entry, ctx, { universe = true } = {}) {
   if (entry.r) parts.push(entry.r);
   return {
     tone, tier, tierLabel: tier ? NEWS_TIER_LABEL[tier] : null, label, current, old, legal: cls === 'C16a',
-    rule: cls ? ruleClassText(cls) : null,
+    rule: cls ? ruleClassText(cls) : null, litig: lit,
     title: parts.join('·'),
   };
 }
 
-/** 一行短字：「利空·強·權重 0.75」「利多◆承接 10/02」「未判別」 */
+/** 一行短字：「利空·強·權重 0.75」「利多◆承接 10/02」「未判別」；C16a 舊案加「·涉訟中」、規則利空延續加「·延續 mm/dd」 */
 export function newsShortText(entry, ctx, opts) {
   const v = newsLampView(entry, ctx, opts);
-  if (v.tone === 'na' || v.tone === 'none' || v.label === '關注度') return v.label;
-  if (v.label === '中性') return v.current ? '中性' : `中性◆${v.old}`;
-  if (!v.current) return `${v.label}◆${v.old}`;
-  if (v.legal) return '利空·法律事件（法律判定前視為利空）';
-  if (v.rule) return `利空·${v.rule}（規則判定）`;
-  return `${v.label}·${v.tierLabel ?? '—'}${entry.w != null ? `·權重 ${entry.w.toFixed(2)}` : ''}`;
+  const lit = v.litig ? `·${LITIGATION_TAG}` : '';
+  if (v.tone === 'na' || v.tone === 'none' || v.label === '關注度') return `${v.label}${lit}`;
+  if (v.label === '中性') return `${v.current ? '中性' : `中性◆${v.old}`}${lit}`;
+  if (!v.current) return `${v.label}◆${v.old}${lit}`;
+  const cont = v.rule && entry?.rf ? `·延續 ${ymdShort(entry.rf)}` : '';
+  if (v.legal) return `利空·法律事件（法律判定前視為利空）${cont}`;
+  if (v.rule) return `利空·${v.rule}（規則判定）${cont}`;
+  return `${v.label}·${v.tierLabel ?? '—'}${entry.w != null ? `·權重 ${entry.w.toFixed(2)}` : ''}${lit}`;
 }
 
 /** 抽屜的權重明細（因子用 AI 原標籤列出；數值與盤後報告同一支 rankMediaVerdicts） */
@@ -531,7 +550,8 @@ export function stepMajorBear(prev, cands, { targetDate }) {
     let sent = s.sent[c.code];
     if (!sent) {
       const firstDay = qk ? s.q[qk] : undefined;
-      const cont = !!firstDay && firstDay < t;
+      // 延續：同一關鍵句前一適用日已判過，或 daemon 標了規則類利空延續（ruleCont，2026-10-07「不當新事件」）
+      const cont = (!!firstDay && firstDay < t) || !!c.entry.rf;
       sent = { at: c.entry.at, rank, seq: 1, cont };
       s = { ...s, sent: { ...s.sent, [c.code]: sent }, q: firstDay || !qk ? s.q : { ...s.q, [qk]: t } };
       changed = true;
@@ -554,6 +574,7 @@ export function majorBearText(code, name, item) {
   const cls = item.mb?.cls ?? entryRuleClass(e);
   const what = (cls && ruleClassText(cls)) || '規則類利空';
   if (item.cont) {
+    if (e.rf) return `${who} 規則利空延續（${ymdShort(e.rf)} 首次判定的同一事件，不當新事件）·${what}·${when}`;
     return `${who} 利空持續（同一關鍵句前一適用日已判利空）·${what}·${when}`;
   }
   const head = item.mb.scope === 'watch' ? '自選' : '持股';
@@ -591,7 +612,7 @@ const evId = (code, at) => `s:newsVerdict:${code}:${at}`;
 function dirEventText(entry, ctx) {
   if (entry.st === 'neutral') return '判中性·AI 已讀內文';
   const cls = entry.st === 'bear' ? entryRuleClass(entry) : null;
-  if (cls) return `利空·${ruleClassText(cls)}·規則判定·AI 已讀內文確認事實${entry.ra ? `（AI 原判${entry.ra}）` : ''}`;
+  if (cls) return `利空·${ruleClassText(cls)}·規則判定·AI 已讀內文確認事實${entry.ra ? `（AI 原判${entry.ra}）` : ''}${entry.rf ? `·延續 ${ymdShort(entry.rf)}` : ''}`;
   return `${newsShortText(entry, ctx)}${entry.pl ? '·可能為法律事件（未經規則確認）' : ''}·AI 已讀內文`;
 }
 

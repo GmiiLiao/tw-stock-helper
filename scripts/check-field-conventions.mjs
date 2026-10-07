@@ -153,6 +153,10 @@ export const DATE_ALLOWLIST = new Set([
   //   sourceDate＝生效停損目前那條線被設定的資料日；floorSourceDate／bandSourceDate＝成本／保本／追蹤棘輪與 ATR 帶棘輪各自的設定日。
   //   都是欄位級的領域日期（棘輪來源），不是文件資料日（文件資料日用 dataDate），稽核契約不看它們。
   'sourceDate', 'floorSourceDate', 'bandSourceDate',
+  // eventDate：新聞判別 newsVerdict 各筆的規則事實稽核軌跡 ruleEvidence[類別].eventDate 與延續軌跡 ruleTrail[類別].eventDate
+  //   ＝AI 從內文讀出、程式正規化的「法律事件（或其新進展）發生日」（'YYYY-MM-DD' 或 'YYYY-MM-DD~YYYY-MM-DD' 區間；
+  //   scripts/lib/news-rule-evidence.mjs·2026-10-07 N1(b)）。欄位級的領域日期，不是文件資料日（文件仍看 date／targetDate），稽核契約不看它。
+  'eventDate',
 ]);
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，

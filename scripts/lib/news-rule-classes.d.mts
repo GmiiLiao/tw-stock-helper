@@ -31,14 +31,31 @@ export function ruleReasonPrefix(code: string): string;
 export function ruleClassOf(verdict: unknown): RuleClassCode | null;
 export function ruleSubOf(verdict: unknown, code?: string | null): string | null;
 export function ruleClassesHit(text: string): RuleClassCode[];
+/** 稽核軌跡用：命中處前後各幾個字 */
+export const TRIGGER_CTX_SPAN: number;
+/** 第一個有效命中的觸發字與前後文（只供 ruleEvidence 記錄；不決定方向） */
+export function ruleTriggerHit(code: string, text: string, span?: number): { trig: string; ctx: string } | null;
+export interface RuleTriggerArticle {
+  title: string; content: string;
+  /** 發布時刻（ms）；C16a 事實題附發布日 */
+  at: number | null;
+  /** 內文來源（bodyFrom／src） */
+  src: string | null;
+  hit: { trig: string; ctx: string } | null;
+}
 export function ruleTriggerScan(
-  articles: ReadonlyArray<{ title?: string; content?: string }>,
+  articles: ReadonlyArray<{ title?: string; content?: string; at?: number | null; bodyFrom?: string; src?: string }>,
   isMentioned: ((text: string) => unknown) | null,
   maxChars?: number,
-): { codes: RuleClassCode[]; byCode: Partial<Record<RuleClassCode, Array<{ title: string; content: string }>>> };
+): { codes: RuleClassCode[]; byCode: Partial<Record<RuleClassCode, RuleTriggerArticle[]>> };
+/** 發布時刻（ms）→ 台北日期 YYYY-MM-DD */
+export function taipeiYmdOfMs(ms: unknown): string | null;
 export function classWeightOf(code: string, sub?: string | null): { weight: number; source: string } | null;
+/** C16a 另帶 window（新聞視窗 YYYY-MM-DD），同一題併問新進展、日期、逐字引用（2026-10-07 N1(b)） */
 export function ruleFactQuestion(
-  code: string, stock: { code: string; name?: string } | null, articles: ReadonlyArray<{ title?: string; content?: string }>, opts?: { maxChars?: number },
+  code: string, stock: { code: string; name?: string } | null,
+  articles: ReadonlyArray<{ title?: string; content?: string; at?: number | null }>,
+  opts?: { maxChars?: number; window?: { from: string; to: string } | null },
 ): string;
 /** 只看開頭的是／否；其他開頭（空白、不確定、「是否…」）回 null（未答，不猜） */
 export function parseRuleFactAnswer(code: string, answer: string | null | undefined): RuleFactAnswer | null;
@@ -50,7 +67,22 @@ export function classWeightBand(code: string, sub?: string | null): ClassWeightB
 export function ruleClassText(code: string): string | null;
 export type RuleFactAnswer = { yes: boolean; sub: string | null };
 export function ruleOverrideReason(code: string, verdict: { label?: unknown; reason?: unknown } | null): string;
-export type RuleFactText = 'yes' | 'no' | 'none';
+/** 'old'＝C16a 舊案（涉訟中）、'acc'＝C16a 實為工安事故後的相驗／調查（歸 C17）——2026-10-07 */
+export type RuleFactText = 'yes' | 'no' | 'none' | 'old' | 'acc';
+export const RULE_FACT_STATES: readonly RuleFactText[];
+export const LEGAL_ONGOING_TAG: '涉訟中';
+/** 一題的事實結果（新格式帶 state、ev；舊格式只有 yes、sub）→ ruleFacts 的值 */
+export function factStateOf(ans: unknown): RuleFactText;
+/** 每題的稽核軌跡（news-rule-evidence.mjs resolveRuleFact；欄位都可能缺） */
+export interface RuleEvidence {
+  key?: string; day?: string; trig?: string; ctx?: string; title?: string; src?: string; pub?: string; ans?: string; sub?: string;
+  quote?: string; quoteOk?: boolean; newDev?: 'yes' | 'no'; dateText?: string; eventDate?: string; isNew?: boolean;
+  /** 引用句在原文所在的子句（只在它否決新進展時記：why 'clauseDateOut'／'background'） */
+  qctx?: string;
+  why?: 'noAnswer' | 'unsure' | 'quote' | 'accident' | 'accidentC17' | 'notNew' | 'dateOut' | 'dateUnknown' | 'quoteDateOut' | 'clauseDateOut' | 'background';
+  reused?: boolean;
+}
+export interface RuleFactResult { yes: boolean | null; sub: string | null; state?: RuleFactText; answered?: boolean; ev?: RuleEvidence }
 export interface RuleVerdictFields {
   ruleClass?: RuleClassCode;
   ruleOverride?: string;
@@ -58,10 +90,15 @@ export interface RuleVerdictFields {
   ruleHits?: RuleClassCode[];
   aiOriginal?: { label: string; reason: string };
   ruleFacts?: Partial<Record<RuleClassCode, RuleFactText>>;
+  ruleEvidence?: Partial<Record<RuleClassCode, RuleEvidence>>;
+  /** 各類別首次判定「是」的適用日（延續判定用） */
+  ruleTrail?: Partial<Record<RuleClassCode, { since: string; eventDate?: string }>>;
+  /** 主類別是延續時＝首次判定的適用日 */
+  ruleCont?: string;
 }
 export function applyRuleFacts<T extends Record<string, unknown>>(
   verdict: T,
-  opts?: { facts?: Record<string, RuleFactAnswer | null> },
+  opts?: { facts?: Record<string, RuleFactResult | RuleFactAnswer | null> },
 ): T & RuleVerdictFields;
 export const RULE_VERDICT_FIELDS: readonly (keyof RuleVerdictFields)[];
 export function ruleFieldsOf(verdict: unknown): RuleVerdictFields;

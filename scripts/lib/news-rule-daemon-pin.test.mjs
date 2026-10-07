@@ -28,10 +28,36 @@ test('事實題在主判別定案之後另問：每個命中的類別一次（�
   assert.ok(loop > 0);
   assert.ok(loop > c.indexOf("if (verdict && (verdict.label === '中性' || verdict.label === '資訊不足')) {"), '在中性歸零之後（主判別定案）');
   assert.ok(loop > c.indexOf("gate: 'E-引用強制',"), '在引用強制之後');
-  assert.ok(c.includes('const a2 = await askOllama(q, { priority: 1, temperature: NEWS_TEMP });'));
-  assert.ok(c.includes('facts[c] = a2 ? parseRuleFactAnswer(c, a2) : null;'));
-  assert.ok(c.includes('verdict = applyRuleFacts(verdict, { facts });'));
+  assert.ok(c.includes('a2 = await askOllama(q, { priority: 1, temperature: NEWS_TEMP });'));
+  // 2026-10-07（N1(b)／N2／其它依建議）：C16a 帶新聞視窗；回答交給 resolveRuleFact（引用逐字、新進展、日期、工安）；N2 同一起事故先調和再判定
+  assert.ok(c.includes('const q = ruleFactQuestion(c, it, arts, { maxChars: 1200, window: _ruleWindow });'));
+  assert.ok(c.includes('facts[c] = resolveRuleFact(c, a2, { articles: arts, window: _ruleWindow, todayYmd: _ruleWindow.to, day: _ruleWindow.to, key });'));
+  assert.ok(c.includes('_ruleFacts = reconcileAccident(facts, ruleTrig.byCode);'));
+  assert.ok(c.includes('verdict = applyRuleFacts(verdict, { facts: _ruleFacts });'));
   assert.ok(!c.includes('const LEGAL ='), '不再另寫一份法律字樣');
+});
+
+test('2026-10-07 當日沿用不增加 Ollama 呼叫：沿用（記憶體或前一筆判別的 ruleEvidence.key）在送出提問之前；失敗不快取；兩個出口都帶延續軌跡與計數', () => {
+  const c = code(judge);
+  const reuse = c.indexOf('const reused = ruleFactMemGet(key) || reuseRuleFact(opts.prevVerdict, c, key);');
+  assert.ok(reuse > 0);
+  assert.ok(reuse < c.indexOf('a2 = await askOllama(q, { priority: 1, temperature: NEWS_TEMP });'), '先查沿用再問');
+  assert.ok(c.includes('if (reused) { facts[c] = reused; continue; }'));
+  assert.ok(c.includes('if (facts[c].answered) ruleFactMemSet(key, facts[c]);'));
+  assert.equal((c.match(/askOllama\(q, /g) || []).length, 1, '事實題只有一處呼叫（C16a 的新進展、日期、引用併在同一題）');
+  assert.ok(c.includes('verdict = finishRuleVerdict(it.code, verdict, _ruleFacts, opts);'));
+  assert.ok(c.includes('verdict: finishRuleVerdict(it.code, {'), 'D 拒答出口也帶延續軌跡');
+});
+
+test('2026-10-07 寫入端：盤後／晨間與盤中帶 prevVerdict、targetDate（沿用與延續）；三個寫入端的 verdictJson 都經 newsVerdictJsonFit；延續不進推播與突發清單', () => {
+  const c = code(daemon);
+  assert.ok(c.includes('prevVerdict: verdicts[code] || null, targetDate: today,'));
+  assert.ok(c.includes('prevVerdict: verdicts[u.code] || null, targetDate: today }'));
+  assert.ok(c.includes("judgeOneStock({ code: u.code, name: u.name }, ctx, { targetDate: today })"));
+  assert.equal((c.match(/verdictJson: JSON\.stringify\(verdicts\)/g) || []).length, 0, '不再直接寫未檢查大小的 verdictJson');
+  assert.ok((c.match(/newsVerdictJsonFit\(verdicts, /g) || []).length >= 4);
+  assert.ok(c.includes("const bear = fresh.filter(([, v]) => v.label === '利空' && !isRuleContinuation(v));"));
+  assert.ok(c.includes("if (v.label === '利空' && !isRuleContinuation(v)) hit.push("));
 });
 
 test('規則判定不看 AI 原判 label（漏網修正）：條件只有 verdict 與觸發；舊的 `verdict.label !== \'利空\'` 條件已拿掉', () => {

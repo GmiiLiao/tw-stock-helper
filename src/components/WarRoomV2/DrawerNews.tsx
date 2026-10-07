@@ -5,12 +5,13 @@
 //   DrawerNewsBlock  權重明細：影響權重＝強度×信心×確定性×新穎×已被預期（盤後報告同一支 rankMediaVerdicts；研究期·只顯示，
 //                    不是分數、不當警示門檻）、事件類型、理由、引文（daemon 逐字核對通過的才當引文；AI 摘句另標
 //                    「未逐字核對」，規範 §1.8）、數字未查證、四角色挑戰修正、規則類利空說明（類別＋類別權重，先驗·未回測，
-//                    不是影響權重）、可能為法律事件（未經規則確認）；
+//                    不是影響權重）、可能為法律事件（未經規則確認）、涉訟中（C16a 舊案事實標籤，不當利空）、
+//                    規則利空延續（同一事件有效期內重複觸發，不當新事件）；
 //                    官方重訊（O）另列一行，不併入權重（tw-news-impact-analyst §2）。
 import { useMemo } from 'react';
 import {
   newsLampView, newsShortText, newsWeightText, majorBearOf, majorBearNote, ruleClassNote, isNewsUniverse, isUnchallengedEntry, ymdShort,
-  tpeHhmm, PASS_LABEL, NEWS_WEIGHT_NOTE, UNCHALLENGED_NOTE, POSSIBLE_LEGAL_NOTE,
+  tpeHhmm, PASS_LABEL, NEWS_WEIGHT_NOTE, UNCHALLENGED_NOTE, POSSIBLE_LEGAL_NOTE, LITIGATION_NOTE, continuationNote,
   type NewsCtx, type NewsEntry, type NewsLampView, type MajorBear,
 } from '../../../scripts/lib/warroom-news.mjs';
 import { useMopsIndex, useNewsBoard, useNewsPool } from './NewsModel';
@@ -81,6 +82,8 @@ function EntryLines({ e, view, mb, ctx }: { e: NewsEntry; view: NewsLampView; mb
         </div>
       )}
       {rule && <div className={drawer.line}>{rule}</div>}
+      {rule && e.rf && <div className={drawer.line}><span className={drawer.muted}>{continuationNote(e.rf)}</span></div>}
+      {e.lt && <div className={drawer.line}>{LITIGATION_NOTE}</div>}
       {e.pl && <div className={drawer.line}>{POSSIBLE_LEGAL_NOTE}</div>}
       {(e.st === 'attention' || e.st === 'excluded' || e.st === 'insufficient' || e.st === 'unjudged') && (
         <div className={drawer.line}><span className={drawer.muted}>{view.title}</span></div>

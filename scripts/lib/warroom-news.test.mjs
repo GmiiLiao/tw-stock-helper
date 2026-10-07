@@ -10,7 +10,7 @@ import {
   majorBearEvents, majorBearText, b2MarketNewsEvents, activeNewsCodes, mineNewsEvents, premarketNewsRows, newsHealthOf,
   newsTimeTag, quoteHash, NEWS_WEIGHT_NOTE, RULE_LEGAL_PREFIX, GATE_D, GATE_E,
   isPossibleLegalBear, isUnchallengedEntry, UNCHALLENGED_TAG, UNCHALLENGED_NOTE, POSSIBLE_LEGAL_NOTE,
-  isRuleBear, ruleClassNote, majorBearNote,
+  isRuleBear, ruleClassNote, majorBearNote, LITIGATION_TAG, LITIGATION_NOTE, continuationNote,
 } from './warroom-news.mjs';
 
 const YMD = '2026-10-05';
@@ -601,4 +601,25 @@ test('舊精簡表相容：沒有 rc、只有 lg 的列（前後端部署時間�
   assert.deepEqual(majorBearOf(old, OPT), { level: 1, basis: 'rule-legal', scope: 'holding', cls: 'C16a', band: 'high' });
   assert.ok(ruleClassNote(old).startsWith('規則類利空：法律事件（法律判定前視為利空）'));
   assert.equal(ruleClassNote(board({ 2317: V() }).map['2317']), null);
+});
+
+test('2026-10-07 N1(b)：涉訟中（C16a 舊案）只是事實標籤——不改燈、不進 Z2、不標可能為法律事件；規則利空延續標 rf、B2 文字標延續', () => {
+  const OLD = { ruleFacts: { C16a: 'old' }, eventType: '法律' };
+  const b = board({
+    3037: V({ label: '中性', reason: 'ABF 需求回溫', ...OLD }),
+    3189: V({ label: '資訊不足', basis: 'title', ...OLD }),
+    2330: RC('C16a', { label: '利空', reason: `${RULE_LEGAL_PREFIX}涉檢調搜索，法律判定前視為利空`, ruleCont: '2026-10-02' }),
+    2454: RC('C17', { ruleCont: 'bad-date' }),
+    2603: V({ label: '利空', reason: '一般利空', ruleCont: '2026-10-02' }),
+  });
+  assert.deepEqual([b.map['3037'].st, b.map['3037'].lt, b.map['3037'].pl], ['neutral', true, false]);
+  assert.equal(majorBearOf(b.map['3037'], { ...OPT, scope: 'holding' }), null);
+  assert.deepEqual([b.map['3189'].st, b.map['3189'].lt], ['insufficient', true]);
+  assert.ok(newsLampView(b.map['3189'], CTX).title.endsWith(LITIGATION_NOTE));
+  assert.equal(newsShortText(b.map['3189'], CTX), `資訊不足·${LITIGATION_TAG}`);
+  assert.deepEqual([b.map['2330'].rf, b.map['2454'].rf, b.map['2603'].rf, b.map['2603'].lt], ['2026-10-02', null, null, false], 'rf 只給規則類利空、日期要合法');
+  assert.ok(newsLampView(b.map['2330'], CTX).title.includes(continuationNote('2026-10-02')));
+  const b2 = b2MarketNewsEvents(b, { todayYmd: YMD });
+  assert.match(b2.find(e => e.code === '2330').text, /延續 10\/02$/);
+  assert.ok(!b2.find(e => e.code === '2603').text.includes('延續'));
 });
