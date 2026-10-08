@@ -81,7 +81,8 @@ interface ScoredStock {
   targetPrice: number;
   stopLoss: number;
   stopLossRationale: string;
-  confidence: number;
+  /** legacy（L20 刪除）：舊版寫死公式的「信心度」，2026-10-08 起卡片不再顯示（F15） */
+  confidence?: number;
   buyZones: BuyZone[];
   sellTargets: SellTarget[];
   patterns: PatternSignal[];
@@ -360,8 +361,8 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
           </div>
         </div>
 
-        {/* Score Ring */}
-        <div className={styles.scoreBlock}>
+        {/* Score Ring（排序分數，含處置／注意扣分；不是機率） */}
+        <div className={styles.scoreBlock} title="排序分數（含處置／注意扣分），不是機率">
           <svg viewBox="0 0 36 36" className={styles.scoreRing}>
             <path
               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
@@ -382,13 +383,8 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
           </svg>
         </div>
 
-        {/* Confidence */}
-        <div className={styles.confidence}>
-          <div className={styles.confidenceLabel}>信心度</div>
-          <div className={styles.confidenceValue} style={{ color: gradeColor }}>
-            {view.confidence.toFixed(0)}%
-          </div>
-        </div>
+        {/* 舊版「信心度」格（50＋符合因子數×12…的寫死公式、把處置注意揉進去）已移除（2026-10-08 F15）；
+            個股層的校準信心度在校準表發佈前不顯示 */}
 
         {/* Expand toggle */}
         <div className={`${styles.expandIcon} ${expanded ? styles.expandedIcon : ''}`}>⌄</div>
@@ -397,19 +393,19 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
       {/* Quick Info Bar — buy/sell summary */}
       <div className={styles.quickInfoBar}>
         <div className={styles.quickInfoItem} style={{ borderColor: 'rgba(240,62,62,0.25)' }}>
-          <span className={styles.quickInfoLabel} style={{ color: '#f03e3e' }}>🔴 建議買點</span>
+          <span className={styles.quickInfoLabel} style={{ color: '#f03e3e' }}>🔴 標準買點（規則試算）</span>
           <span className={styles.quickInfoValue} style={{ color: '#f03e3e' }}>
             {bestBuy ? bestBuy.price.toFixed(2) : '--'}
           </span>
         </div>
         <div className={styles.quickInfoItem} style={{ borderColor: 'rgba(47,158,68,0.25)' }}>
-          <span className={styles.quickInfoLabel} style={{ color: '#2f9e44' }}>🟢 第一目標</span>
+          <span className={styles.quickInfoLabel} style={{ color: '#2f9e44' }}>🟢 TP1（規則試算）</span>
           <span className={styles.quickInfoValue} style={{ color: '#2f9e44' }}>
-            {firstTarget ? <>{firstTarget.price.toFixed(2)} <span style={{ color: getChangeColor(firstTarget.gainPercent) }}>(+{firstTarget.gainPercent}%)</span></> : '--'}
+            {firstTarget ? <>{firstTarget.price.toFixed(2)} <span style={{ color: getChangeColor(firstTarget.gainPercent) }} title="以左邊的標準買點為基準，不是距現價">（較買點 +{firstTarget.gainPercent}%）</span></> : '--'}
           </span>
         </div>
         <div className={styles.quickInfoItem} style={{ borderColor: 'rgba(134,142,150,0.2)' }}>
-          <span className={styles.quickInfoLabel} style={{ color: '#868e96' }}>🚫 停損</span>
+          <span className={styles.quickInfoLabel} style={{ color: '#868e96' }}>🚫 參考停損（進場前）</span>
           <span className={styles.quickInfoValue} style={{ color: '#868e96' }}>
             {view.stopLoss.toFixed(2)}
           </span>
@@ -449,13 +445,13 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
               className={`${styles.detailTab} ${detailTab === 'buysell' ? styles.detailTabActiveBuySell : ''}`}
               onClick={() => setDetailTab('buysell')}
             >
-              🎯 買賣點預測
+              🎯 買賣點（規則試算）
             </button>
             <button
               className={`${styles.detailTab} ${detailTab === 'trend' ? styles.detailTabActiveTrend : ''}`}
               onClick={() => setDetailTab('trend')}
             >
-              📰 漲勢分析 & 新聞
+              📰 今日走勢與新聞
             </button>
           </div>
 
@@ -467,8 +463,8 @@ function StockCard({ stock, rank }: { stock: ScoredStock; rank: number }) {
                 <div className={styles.factorBars}>
                   <FactorBar label="動能" value={view.factors.momentum} />
                   <FactorBar label="量能" value={view.factors.volume} />
-                  <FactorBar label="趨勢" value={view.factors.trend} />
-                  <FactorBar label="穩定" value={view.factors.stability} />
+                  <FactorBar label="收盤位置" value={view.factors.trend} />
+                  <FactorBar label="價位效應" value={view.factors.stability} />
                   <FactorBar label="價值" value={view.factors.value} />
                 </div>
               </div>
@@ -980,7 +976,7 @@ export default function AIRecommend() {
         <div className={styles.aiBannerText}>
           <div className={styles.aiBannerTitle}>AI 評分說明</div>
           <div className={styles.aiBannerDesc}>
-            排序鍵 ＝ <strong>五大因子</strong>（動能／量能／收盤位置／股價層級／形態）
+            排序鍵 ＝ <strong>五大因子</strong>（動能／量能／收盤位置／價位效應／價值）
             ＋ 法人與財報加權 ＋ <strong>已驗證訊號 ×3</strong>。
             <br />
             {/* 使用者若比對兩處分數會看到不一致（實測 2330 榜單 81／個股頁 84），
@@ -1009,8 +1005,8 @@ export default function AIRecommend() {
           {[
             { label: '動能', icon: '⚡', desc: '20分' },
             { label: '量能', icon: '📦', desc: '20分' },
-            { label: '趨勢', icon: '📈', desc: '20分' },
-            { label: '穩定', icon: '🛡️', desc: '20分' },
+            { label: '收盤位置', icon: '📈', desc: '20分' },
+            { label: '價位效應', icon: '🛡️', desc: '20分' },
             { label: '價值', icon: '💎', desc: '20分' },
           ].map(f => (
             <div key={f.label} className={styles.factorChip}>

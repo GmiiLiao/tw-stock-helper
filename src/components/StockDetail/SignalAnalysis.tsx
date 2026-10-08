@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { techScoreOf, isRiskScored, TECH_SCORE_TIP } from '@/lib/tech-score';
 
 // ── 訊號分析（用 /api/rating，伺服器端完整歷史→永遠有資料）：波段訊號 + 進場買點
-//    + ATR 停損 + 風險報酬比停利 + 部位大小建議（固定風險法）。 ──
+//    + ATR 停損 + 風險報酬比停利 + 部位大小試算（固定風險法）。 ──
 
 interface Zone { label: string; price: number; type: string }
 interface Target { label: string; price: number; gainPercent: number; type: string; probability?: number; holdDays?: string }
@@ -113,22 +113,28 @@ export default function SignalAnalysis({ code, name, price }: { code: string; na
           ))}
         </div>
         <div style={card}>
-          <div style={h}>⛔ 停損（ATR 波動率）／🎯 停利（風險報酬比）</div>
+          <div style={h}>⛔ 參考停損（進場前）（ATR 波動率）／🎯 停利（風險報酬比）</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(14px * var(--fz))', padding: '3px 0' }}>
-            <span style={{ color: 'var(--color-down)' }}>停損 1R</span><b style={{ color: 'var(--color-down)' }}>{stop.toFixed(2)}</b>
+            <span style={{ color: 'var(--color-down)' }}>參考停損（進場前）1R</span><b style={{ color: 'var(--color-down)' }}>{stop.toFixed(2)}</b>
           </div>
-          {(st.sellTargets ?? []).filter(t => t.type !== 'trailing').map((t, i) => (
-            <div key={t.type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(14px * var(--fz))', padding: '3px 0' }}>
-              <span style={{ color: 'var(--color-up)' }}>{t.label} <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{[1.5, 2.5, 4][i] ? `${[1.5, 2.5, 4][i]}R` : ''}</span></span>
-              <b style={{ color: 'var(--color-up)' }}>{t.price.toFixed(2)} <span style={{ fontSize: 'calc(12.5px * var(--fz))' }}>(+{t.gainPercent}%)</span></b>
-            </div>
-          ))}
+          {(st.sellTargets ?? []).filter(t => t.type !== 'trailing').map(t => {
+            // R 倍數實算（2026-10-08 F17）：(TP − 標準買點) ÷ (標準買點 − 停損)。舊版依陣列索引標 1.5R／2.5R／4R，
+            // 沒有深度化時 TP 其實是固定百分比，標籤不實；買點 ≤ 停損或 R ≤ 0 時不顯示。
+            const stdBuy = (st.buyZones ?? []).find(z => z.type === 'standard')?.price;
+            const rMult = stdBuy != null && stop > 0 && stdBuy > stop ? (t.price - stdBuy) / (stdBuy - stop) : null;
+            return (
+              <div key={t.type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'calc(14px * var(--fz))', padding: '3px 0' }}>
+                <span style={{ color: 'var(--color-up)' }}>{t.label} <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{rMult != null && rMult > 0 ? `${rMult.toFixed(1)}R` : ''}</span></span>
+                <b style={{ color: 'var(--color-up)' }}>{t.price.toFixed(2)} <span style={{ fontSize: 'calc(12.5px * var(--fz))' }} title="以標準買點為基準，不是距現價">(+{t.gainPercent}%)</span></b>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* 部位大小建議 (固定風險法) */}
+      {/* 部位大小試算 (固定風險法)：2026-10-08 起「建議」改「試算」——同站 AI 推薦卡寫明不提供倉位比例，這裡是公式試算 */}
       <div style={{ ...card, borderColor: 'rgba(99,102,241,0.3)' }}>
-        <div style={h}>📐 部位大小建議 <span style={{ fontWeight: 400, fontSize: 'calc(13px * var(--fz))' }}>固定風險法 — 每筆只賭總資金的一小部分</span></div>
+        <div style={h}>📐 部位大小試算 <span style={{ fontWeight: 400, fontSize: 'calc(13px * var(--fz))' }}>固定風險法 — 每筆只賭總資金的一小部分</span></div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
           <label style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>總資金（元）
             <input type="number" className="input" value={capital} min={0} step={100000}
@@ -145,7 +151,7 @@ export default function SignalAnalysis({ code, name, price }: { code: string; na
           sizing.lots > 0 ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px,1fr))', gap: 10 }}>
               {[
-                { l: '建議張數', v: `${sizing.lots} 張`, c: 'var(--accent-purple,#818cf8)' },
+                { l: '試算張數', v: `${sizing.lots} 張`, c: 'var(--accent-purple,#818cf8)' },
                 { l: '投入金額', v: `${fmt(sizing.cost)} 元`, c: 'var(--text-primary)' },
                 { l: '最大虧損', v: `${fmt(sizing.maxLoss)} 元`, c: 'var(--color-down)' },
                 { l: '每張風險', v: `${fmt(sizing.riskPerLot)} 元`, c: 'var(--text-secondary)' },

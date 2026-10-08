@@ -409,7 +409,8 @@ export default function Screener() {
   })));
   const [screenerMode, setScreenerMode] = useState<'filter' | 'compare'>('filter');
   const [filter, setFilter] = useState<ScreenerFilter>(DEFAULT_FILTER);
-  const [sortBy, setSortBy] = useState<keyof StockInfo | 'targetPrice'>('changePercent');
+  // 2026-10-08（F20）：「目標價」欄（評級加成 ×1.01～×1.12 的寫死倍數）已移除，排序鍵也拿掉
+  const [sortBy, setSortBy] = useState<keyof StockInfo>('changePercent');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
   const [showManageGroups, setShowManageGroups] = useState(false);
@@ -714,8 +715,8 @@ export default function Screener() {
 
     // Sort
     stocks.sort((a, b) => {
-      const av = sortBy === 'targetPrice' ? (ratingFor(a.code).targetPrice || a.price) : (a[sortBy] as number);
-      const bv = sortBy === 'targetPrice' ? (ratingFor(b.code).targetPrice || b.price) : (b[sortBy] as number);
+      const av = a[sortBy] as number;
+      const bv = b[sortBy] as number;
       return sortDir === 'desc' ? bv - av : av - bv;
     });
 
@@ -771,12 +772,12 @@ export default function Screener() {
     }
   };
 
-  const handleSort = (col: keyof StockInfo | 'targetPrice') => {
+  const handleSort = (col: keyof StockInfo) => {
     if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     else { setSortBy(col); setSortDir('desc'); }
   };
 
-  const SortIcon = ({ col }: { col: keyof StockInfo | 'targetPrice' }) => {
+  const SortIcon = ({ col }: { col: keyof StockInfo }) => {
     if (sortBy !== col) return <span style={{ opacity: 0.3 }}>↕</span>;
     return <span>{sortDir === 'desc' ? '↓' : '↑'}</span>;
   };
@@ -1147,13 +1148,6 @@ export default function Screener() {
                       現價 <SortIcon col="price" />
                     </th>
                     <th
-                      id="sort-targetPrice"
-                      onClick={() => handleSort('targetPrice')}
-                      style={{ cursor: 'pointer', textAlign: 'right', color: 'var(--accent-orange, #f59e0b)' }}
-                    >
-                      目標價 <SortIcon col="targetPrice" />
-                    </th>
-                    <th
                       id="sort-changePercent"
                       onClick={() => handleSort('changePercent')}
                       style={{ cursor: 'pointer', textAlign: 'right' }}
@@ -1181,7 +1175,7 @@ export default function Screener() {
                 <tbody>
                   {filteredStocks.length === 0 ? (
                     <tr>
-                      <td colSpan={12} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
                         {allStocks.length === 0 ? '資料載入中...' : '沒有符合條件的股票'}
                       </td>
                     </tr>
@@ -1239,9 +1233,6 @@ export default function Screener() {
                           </td>
                           <td style={{ textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
                             {stock.price.toFixed(2)}
-                          </td>
-                          <td style={{ textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, color: 'var(--accent-orange, #f59e0b)' }}>
-                            {(ratingFor(stock.code).targetPrice || stock.price).toFixed(2)}
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <span
@@ -1328,7 +1319,7 @@ export default function Screener() {
                       <div className={styles.mobileCardBody}>
                         <div className={styles.mobileMetaRow}>
                           <span>類股: <strong style={{ color: 'var(--text-secondary)' }}>{industryInfo.emoji} {industryInfo.name}</strong></span>
-                          <span>現價: <strong style={{ color: 'var(--text-primary)' }}>{stock.price.toFixed(2)}</strong> 元 | 目標: <strong style={{ color: 'var(--accent-orange, #f59e0b)' }}>{(ratingFor(stock.code).targetPrice || stock.price).toFixed(2)}</strong> 元</span>
+                          <span>現價: <strong style={{ color: 'var(--text-primary)' }}>{stock.price.toFixed(2)}</strong> 元</span>
                         </div>
                         <div className={styles.mobileMetaRow}>
                           <span>成交量: {formatVolume(stock.volume)}</span>

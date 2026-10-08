@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
-import { shouldPollNow } from '@/lib/market-clock';
+import { shouldPollNow, getSession, isTradingDay } from '@/lib/market-clock';
 import { fmtQty, calcFee } from '@/lib/tw-fee';
 import { useBrokerSettings } from '@/lib/useBrokerSettings';
 import { useAppStore } from '@/lib/store';
@@ -24,7 +24,13 @@ import {
   type StockInfo,
   type TradingSignal,
   marketBadge,
+  tickSize,
 } from '@/lib/twse-api';
+import {
+  todayMoveOf, closePosOf, industryLineOf, limitKindOf, etfTickSize, stopRefCellText, sessionStartMsOf,
+  type Reading, type ReadingKey, type QuotePhase, type TodayMove, type StopRef,
+} from '@/lib/stock-readings';
+import ReadingRow from '@/components/shared/ReadingRow';
 import { format, subMonths, subYears } from 'date-fns';
 import styles from './StockDetail.module.css';
 import SignalAnalysis from './SignalAnalysis';
@@ -48,19 +54,32 @@ import { useShallow } from 'zustand/react/shallow';
 
 // ─── Types ──────────────────────────────────────────────────────
 
+// 2026-10-08（hardcoded-to-real-spec §1.6）：新前端只讀新欄位（readings／todayMove／dataDate／phase／quoteAsOfMs／
+// stopRef／expectedOpeningRange.basis／companyProfile.scale）；新欄位不存在（舊 JSON）一律顯示「暫時無法取得」，
+// 不退回讀 legacy 鍵（legacy 鍵只為舊分頁保留一個部署週期，標為選填）。
 interface TrendApiResponse {
+  dataDate?: string | null;
+  phase?: QuotePhase;
+  quoteAsOfMs?: number | null;
+  /** 「明日」或過期時的明確日期（「10-12 」）；舊 JSON 沒有＝明日 */
+  nextDayWord?: string;
+  generatedAt?: string;
+  todayMove?: TodayMove | null;
+  readings?: Partial<Record<ReadingKey, Reading>>;
   preMarketRecommendation: {
     todayClose: number;
     prevClose: number;
     todayChangePercent: number;
-    expectedOpeningRange: { low: number; high: number };
-    recommendation: 'strong_buy' | 'buy' | 'wait' | 'avoid';
-    recommendationText: string;
-    optimalOrderTime: string;
+    expectedOpeningRange: { low: number; high: number; basis?: string };
+    recommendation?: 'strong_buy' | 'buy' | 'wait' | 'avoid';
+    recommendationText?: string;
+    optimalOrderTime?: string;
     orderLevels: Array<{ label: string; price: number; rationale: string; style: string; riskLevel: string }>;
-    stopLossPrice: number;
-    auctionStrategy: string;
-    dayTradingNote: string;
+    stopLossPrice?: number;
+    stopRef?: StopRef;
+    auctionStrategy?: string;
+    dayTradingNote?: string;
+    riskWarning?: string;
   };
   companyProfile: {
     fullName: string;
@@ -87,26 +106,27 @@ interface TrendApiResponse {
     industryCategory: string;
     mainBusiness: string;
     keyProducts: string[];
-    companyScale: 'large' | 'mid' | 'small';
+    companyScale?: 'large' | 'mid' | 'small';
+    scale?: 'large' | 'mid' | 'small' | null;
+    dataSource?: string;
     ageYears: number;
     listingAgeYears: number;
   };
   pricePrediction: {
-    nextDayHigh: { price: number; basis: string; confidence: number };
-    nextDayLow: { price: number; basis: string; confidence: number };
+    nextDayHigh: { price: number; basis: string; confidence?: number | null };
+    nextDayLow: { price: number; basis: string; confidence?: number | null };
     resistance: Array<{ price: number; label: string; strength: string }>;
     support: Array<{ price: number; label: string; strength: string }>;
     buyZoneHigh: number;
     buyZoneLow: number;
-    targetZoneHigh: number;
-    targetZoneLow: number;
+    targetZoneHigh?: number;
+    targetZoneLow?: number;
     atr: number;
     atrPercent: number;
-    pricePositionScore: number;
+    pricePositionScore: number | null;
     positionDescription: string;
   };
   industry: { code: string; name: string; sector: string; emoji: string; description: string };
-  industryOutlook: { institutionalSentiment: number; consensusRating: string; avgTargetUpside: string };
 }
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -118,18 +138,28 @@ const PERIODS: Array<{ id: string; label: string; months: number }> = [
   { id: '1Y', label: '1年', months: 12 },
 ];
 
-const REC_CONFIG = {
-  strong_buy: { label: '強力買進', bg: 'var(--color-up)', color: '#fff', emoji: '🚀' },
-  buy:        { label: '建議買進', bg: 'rgba(var(--color-up-rgb,220,38,38),0.15)', color: 'var(--color-up)', emoji: '📈' },
-  wait:       { label: '觀望等待', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', emoji: '⏳' },
-  avoid:      { label: '暫緩進場', bg: 'rgba(var(--color-down-rgb,34,197,94),0.15)', color: 'var(--color-down)', emoji: '⚠️' },
+/** 今日走勢的色調（當日事實：紅漲綠跌） */
+const MOVE_TONE_COLOR: Record<TodayMove['tone'], string> = {
+  up: 'var(--color-up)',
+  down: 'var(--color-down)',
+  flat: 'var(--text-muted)',
+};
+const MOVE_TONE_BG: Record<TodayMove['tone'], string> = {
+  up: 'rgba(240,62,62,0.1)',
+  down: 'rgba(47,158,68,0.1)',
+  flat: 'rgba(100,116,139,0.08)',
 };
 
-const STRENGTH_COLOR: Record<string, string> = {
-  strong: 'var(--color-up)',
-  medium: '#f59e0b',
-  weak:   'var(--color-down)',
-};
+/** 新回應形狀（含 readings）才渲染公式與判讀區塊；舊 JSON 顯示「暫時無法取得」（§1.6） */
+const hasReadings = (d: TrendApiResponse): boolean => !!d.readings;
+
+function StaleShapeNote() {
+  return (
+    <div style={{ padding: '14px 16px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
+      暫時無法取得，請重新整理。
+    </div>
+  );
+}
 
 // ─── Main Component ─────────────────────────────────────────────
 
@@ -288,6 +318,10 @@ export default function StockDetail() {
           volume: q.volume || prev.volume }
       : prev);
   }, [liveQuotes, selectedStock]);
+  // 本拍即時報價的來源（'mis_realtime'＝本拍有即時成交；'stock_day_all'＝快照非即時列；沿用上一拍或還沒拿到＝null）。
+  // 當日策略的「今日走勢」據此決定盤中位置能不能算、要不要寫「尚未取得今日成交」（2026-10-08 審查 HIGH）。
+  const liveQ = selectedStock ? liveQuotes[selectedStock] : undefined;
+  const liveSource = liveQ && !liveQ.stale ? liveQ.source : null;
 
   // ── Load trend analysis for company / premarket tabs ─────────
   useEffect(() => {
@@ -568,7 +602,8 @@ export default function StockDetail() {
 
         {/* ── 公司資訊分頁 ───────────────────────────────────── */}
         {activeTab === 'company' && (
-          <CompanyTab trendData={trendData} loading={trendLoading} stockName={stock.name} stockCode={stock.code} />
+          <CompanyTab trendData={trendData} loading={trendLoading} stockName={stock.name} stockCode={stock.code}
+            instFlowNote={verdicts[stock.code] ? '當日籌碼判讀見頁首。' : undefined} />
         )}
 
         {/* ── 當日行情與開盤策略（原本是兩個分頁，2026-08-11 合併）──────
@@ -576,7 +611,7 @@ export default function StockDetail() {
             順序＝先「今天實際發生什麼」（當日行情），再「所以明天怎麼下單」（開盤策略）。 */}
         {activeTab === 'strategy' && (
           <>
-            <PremarketTab trendData={trendData} loading={trendLoading} stockName={stock.name} stock={stock} />
+            <PremarketTab trendData={trendData} loading={trendLoading} stockName={stock.name} stock={stock} liveSource={liveSource} />
             <EarningsCallCard code={stock.code} />
             <StrategyTab trendData={trendData} loading={trendLoading} stockName={stock.name} />
           </>
@@ -651,22 +686,32 @@ export default function StockDetail() {
 
 // ─── SignalBadge ────────────────────────────────────────────────
 
+/** 中性但空方點數較多的文字門檻（與 detectSignal「≥10 觀察」對稱；只改文字、不改判定） */
+const SIGNAL_LEAN_GAP = 10;
+
+// 2026-10-08（F21）：強度是 MA／MACD／RSI／KD／量的點數差，不是機率——不畫進度條、不加「%」，
+// 改顯示多空點數；「買進訊號／賣出警示」改「規則計分偏多／偏空」。
 function SignalBadge({ signal }: { signal: TradingSignal }) {
   const config = {
-    BUY:     { label: '買進訊號', bg: 'var(--color-up-bg)',               color: 'var(--color-up)',   border: 'var(--color-up)' },
-    SELL:    { label: '賣出警示', bg: 'var(--color-down-bg)',             color: 'var(--color-down)', border: 'var(--color-down)' },
-    WATCH:   { label: '觀察中',   bg: 'rgba(245,158,11,0.1)',             color: '#f59e0b',            border: '#f59e0b' },
-    NEUTRAL: { label: '中性',     bg: 'rgba(100,116,139,0.1)',            color: 'var(--text-muted)', border: 'var(--border-primary)' },
+    BUY:     { label: '規則計分偏多', bg: 'var(--color-up-bg)',               color: 'var(--color-up)',   border: 'var(--color-up)' },
+    SELL:    { label: '規則計分偏空', bg: 'var(--color-down-bg)',             color: 'var(--color-down)', border: 'var(--color-down)' },
+    WATCH:   { label: '觀察中',       bg: 'rgba(245,158,11,0.1)',             color: '#f59e0b',            border: '#f59e0b' },
+    NEUTRAL: { label: '中性',         bg: 'rgba(100,116,139,0.1)',            color: 'var(--text-muted)', border: 'var(--border-primary)' },
   };
   const cfg = config[signal.type];
+  const hasScores = typeof signal.bullScore === 'number' && typeof signal.bearScore === 'number';
+  // 判定門檻不對稱（多空差 ≥30 偏多、≤−30 偏空、≥10 觀察，其餘中性；判定不動）：點數攤開後「中性」配上空方明顯占優
+  // 讀起來像矛盾 ⇒ 只改文字，中性且空方多 ≥10 點時寫明（2026-10-08 審查 LOW）
+  const net = hasScores ? (signal.bullScore as number) - (signal.bearScore as number) : 0;
+  const label = signal.type === 'NEUTRAL' && net <= -SIGNAL_LEAN_GAP ? '中性（空方點數較多）' : cfg.label;
   return (
-    <div className={styles.signalBadge} style={{ background: cfg.bg, color: cfg.color, borderColor: cfg.border }}>
+    <div className={styles.signalBadge} style={{ background: cfg.bg, color: cfg.color, borderColor: cfg.border, flexWrap: 'wrap' }}
+      title="規則計分：多空點數差 ≥30 偏多、≤−30 偏空、≥10 觀察中，其餘中性（不是機率）">
       <span>{signal.type === 'BUY' ? '🟢' : signal.type === 'SELL' ? '🔴' : signal.type === 'WATCH' ? '🟡' : '⚪'}</span>
-      <span className={styles.signalBadgeLabel}>{cfg.label}</span>
-      <div className={styles.signalStrengthBar}>
-        <div className={styles.signalStrengthFill} style={{ width: `${signal.strength}%`, background: cfg.color }} />
-      </div>
-      <span className={styles.signalStrengthText}>{signal.strength.toFixed(0)}%</span>
+      <span className={styles.signalBadgeLabel}>{label}</span>
+      {hasScores && (
+        <span className={styles.signalStrengthText}>多 {signal.bullScore}：空 {signal.bearScore}（規則計分，非機率）</span>
+      )}
     </div>
   );
 }
@@ -684,11 +729,13 @@ function LoadingCard() {
 
 // ─── Company Info Tab ───────────────────────────────────────────
 
-function CompanyTab({ trendData, loading, stockName, stockCode }: {
+function CompanyTab({ trendData, loading, stockName, stockCode, instFlowNote }: {
   trendData: TrendApiResponse | null;
   loading: boolean;
   stockName: string;
   stockCode: string;
+  /** 頁首有當日籌碼判讀（VerdictStrip）時才附註「見頁首」 */
+  instFlowNote?: string;
 }) {
   if (loading) return <LoadingCard />;
   if (!trendData) return (
@@ -698,11 +745,13 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
   );
 
   const cp = trendData.companyProfile;
-  const io = trendData.industryOutlook;
   const ind = trendData.industry;
+  const rd = trendData.readings;
 
   const scaleLabel = { large: '大型股', mid: '中型股', small: '小型股' };
   const scaleColor = { large: '#6366f1', mid: '#f59e0b', small: 'var(--text-muted)' };
+  // 規模徽章只依新鍵 scale（沒有資本額時 null＝不顯示；舊 JSON 沒有此鍵也不顯示——不再預設「中型股」，F27）
+  const scale = cp.scale ?? null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px 0' }}>
@@ -740,11 +789,13 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
               {stockCode} · {cp.industryCategory}
             </div>
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
-              <span style={{
-                fontSize: 'calc(13px * var(--fz))', padding: '2px 8px', borderRadius: '999px',
-                background: `${scaleColor[cp.companyScale]}22`,
-                color: scaleColor[cp.companyScale], border: `1px solid ${scaleColor[cp.companyScale]}55`,
-              }}>{scaleLabel[cp.companyScale]}</span>
+              {scale && (
+                <span title="依實收資本額分級（本站規則：≥500 億大型、≥50 億中型）" style={{
+                  fontSize: 'calc(13px * var(--fz))', padding: '2px 8px', borderRadius: '999px',
+                  background: `${scaleColor[scale]}22`,
+                  color: scaleColor[scale], border: `1px solid ${scaleColor[scale]}55`,
+                }}>{scaleLabel[scale]}</span>
+              )}
               {cp.capitalAmount && cp.capitalAmount !== '--' && (
                 <span style={{
                   fontSize: 'calc(13px * var(--fz))', padding: '2px 8px', borderRadius: '999px',
@@ -763,17 +814,15 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
           </div>
         </div>
 
-        {/* Main business */}
-        {cp.mainBusiness && (
-          <div style={{
-            marginTop: '16px', padding: '12px 14px',
-            background: 'rgba(99,102,241,0.06)', borderRadius: '8px',
-            borderLeft: '3px solid #6366f1',
-            fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: 'var(--text-secondary)',
-          }}>
-            {cp.mainBusiness}
-          </div>
-        )}
+        {/* Main business：官方業務欄位第二批接入（L13）；空值據實說明，不套模板（F27） */}
+        <div style={{
+          marginTop: '16px', padding: '12px 14px',
+          background: 'rgba(99,102,241,0.06)', borderRadius: '8px',
+          borderLeft: '3px solid #6366f1',
+          fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: cp.mainBusiness ? 'var(--text-secondary)' : 'var(--text-muted)',
+        }}>
+          {cp.mainBusiness || '主要業務：尚無官方資料（官方公司輪廓第二批上線）'}
+        </div>
 
         {/* Key products */}
         {cp.keyProducts && cp.keyProducts.length > 0 && (
@@ -845,55 +894,30 @@ function CompanyTab({ trendData, loading, stockName, stockCode }: {
         );
       })()}
 
-      {/* Industry description */}
+      {/* 產業別（F14）：只顯示產業別一行；產業說明（舊版夾帶展望、無來源）不顯示，官方產業事實第二批上線 */}
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
         borderRadius: '10px', padding: '14px 16px',
       }}>
-        <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>
-          {ind.emoji} 產業說明
+        <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+          {industryLineOf(ind, cp)}
         </div>
-        <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          {ind.description}
+        <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          產業說明：尚無判讀結果（官方產業事實描述第二批上線）
         </div>
       </div>
 
-      {/* Institutional sentiment bar */}
+      {/* 📊 判讀結果（F1–F3）：舊版「法人看好度／共識評等／目標上漲」是依產業寫死的數字，已移除 */}
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
-        borderRadius: '10px', padding: '14px 16px',
+        borderRadius: '10px', padding: '6px 16px',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)' }}>
-            🏦 法人看好度
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{
-              fontSize: 'calc(13px * var(--fz))', padding: '2px 8px', borderRadius: '999px',
-              background: 'rgba(99,102,241,0.15)', color: '#818cf8',
-            }}>{io.consensusRating}</span>
-            <span style={{ fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#6ee7b7' }}>
-              {io.avgTargetUpside}
-            </span>
-          </div>
+        <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 600, color: 'var(--text-muted)', padding: '8px 0 2px' }}>
+          📊 判讀結果
         </div>
-        <div style={{ height: '10px', borderRadius: '999px', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', width: `${io.institutionalSentiment}%`,
-            borderRadius: '999px',
-            background: io.institutionalSentiment >= 70
-              ? 'linear-gradient(90deg, #6366f1, #a855f7)'
-              : io.institutionalSentiment >= 50
-              ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-              : 'linear-gradient(90deg, #8b9bb8, #94a3b8)',
-            transition: 'width 0.8s ease',
-          }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>
-          <span>偏空</span>
-          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{io.institutionalSentiment}/100</span>
-          <span>偏多</span>
-        </div>
+        <ReadingRow reading={rd?.instFlow} fallbackLabel="法人籌碼動向（描述）" note={instFlowNote} />
+        <ReadingRow reading={rd?.model20} fallbackLabel="模型評等（20 日）" />
+        <ReadingRow reading={rd?.dist20} fallbackLabel="歷史同條件 20 日報酬分布" last />
       </div>
     </div>
   );
@@ -920,11 +944,13 @@ function EarningsCallCard({ code }: { code: string }) {
   );
 }
 
-function PremarketTab({ trendData, loading, stockName, stock }: {
+function PremarketTab({ trendData, loading, stockName, stock, liveSource }: {
   trendData: TrendApiResponse | null;
   loading: boolean;
   stockName: string;
   stock: StockInfo;
+  /** 本拍即時報價來源：'mis_realtime'＝本拍有即時成交、'stock_day_all'＝快照非即時列、null＝沒有本拍資料 */
+  liveSource: string | null;
 }) {
   if (loading) return <LoadingCard />;
   if (!trendData) return (
@@ -935,7 +961,8 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
 
   const pm  = trendData.preMarketRecommendation;
   const pp  = trendData.pricePrediction;
-  const rec = REC_CONFIG[pm.recommendation];
+  const rd  = trendData.readings;
+  const isNew = hasReadings(trendData);
 
   // Use live data — use stock.change directly (same data source as stock.price)
   const price = stock.price;
@@ -952,66 +979,54 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
   const todayHigh = hasOhlc ? stock.high : null;
   const todayLow = hasOhlc ? stock.low : null;
   const amplitude = hasOhlc && prevClose > 0 ? ((stock.high - stock.low) / prevClose) * 100 : null;
-  const closePos = hasOhlc && stock.high > stock.low ? (price - stock.low) / (stock.high - stock.low) : null;
   // 開/高/低依「相對昨收」著色（台股報價慣例）；toFixed(2) 去掉 price−change 的浮點尾差，避免平盤被染色
   const vsPrevColor = (p: number | null) => p == null ? 'var(--text-muted)' : getChangeColor(+(p - prevClose).toFixed(2));
 
-  // Determine today's trend
-  const isUp = changePct > 0.5;
-  const isDown = changePct < -0.5;
-  const isFlat = !isUp && !isDown;
-  const isLimitUp = changePct >= 9.5;
-  const isLimitDown = changePct <= -9.5;
-
-  // Today's analysis text
-  let analysisEmoji = '📊';
-  let analysisLabel = '盤整觀望';
-  let analysisColor = '#f59e0b';
-  let analysisBg = 'rgba(245,158,11,0.1)';
-  let analysisText = '';
-
-  if (isLimitUp) {
-    analysisEmoji = '🔴'; analysisLabel = '漲停鎖板';
-    analysisColor = 'var(--color-up)'; analysisBg = 'rgba(240,62,62,0.1)';
-    analysisText = `${stockName} 今日漲停鎖板，成交量 ${(stock.volume / 1000).toFixed(0)} 張。強勢封板表示買盤力道強勁，短線動能持續。`;
-  } else if (isLimitDown) {
-    analysisEmoji = '🟢'; analysisLabel = '跌停';
-    analysisColor = 'var(--color-down)'; analysisBg = 'rgba(47,158,68,0.1)';
-    analysisText = `${stockName} 今日跌停，成交量 ${(stock.volume / 1000).toFixed(0)} 張。建議觀望等待止跌訊號。`;
-  } else if (changePct >= 5) {
-    analysisEmoji = '🚀'; analysisLabel = '強勢上攻';
-    analysisColor = 'var(--color-up)'; analysisBg = 'rgba(240,62,62,0.1)';
-    analysisText = `${stockName} 今日大漲 ${changePct.toFixed(2)}%，漲幅超過 5%${amplitude == null ? '' : `，盤中振幅 ${amplitude.toFixed(1)}%`}。${closePos == null ? '收盤位置資料不足' : `收盤位置在日內 ${(closePos * 100).toFixed(0)}% 水位`}，${(closePos ?? 0) > 0.7 ? '接近高點收盤，多方力道強勁' : '雖然漲幅大但未站穩高點，需注意回落風險'}。`;
-  } else if (changePct >= 2) {
-    analysisEmoji = '📈'; analysisLabel = '偏多走勢';
-    analysisColor = 'var(--color-up)'; analysisBg = 'rgba(240,62,62,0.08)';
-    analysisText = `${stockName} 今日上漲 ${changePct.toFixed(2)}%，走勢偏多。${(closePos ?? 0) > 0.6 ? '收在日內高位區，明日有機會延續漲勢' : '盤中高點未能守住，需觀察明日能否突破今日高點 ' + (todayHigh ?? price).toFixed(2)}。`;
-  } else if (changePct > 0.5) {
-    analysisEmoji = '↗️'; analysisLabel = '小幅上漲';
-    analysisColor = '#818cf8'; analysisBg = 'rgba(99,102,241,0.08)';
-    analysisText = `${stockName} 今日微漲 ${changePct.toFixed(2)}%${amplitude == null ? '' : `，振幅 ${amplitude.toFixed(1)}%`}，整體走勢平穩。`;
-  } else if (changePct <= -5) {
-    analysisEmoji = '⚠️'; analysisLabel = '大幅下跌';
-    analysisColor = 'var(--color-down)'; analysisBg = 'rgba(47,158,68,0.1)';
-    analysisText = `${stockName} 今日重挫 ${changePct.toFixed(2)}%，跌幅超過 5%。${closePos != null && closePos < 0.3 ? '收在日內低檔，空方完全主導' : '盤中有反彈跡象，但整體弱勢未改'}。建議嚴格遵守停損紀律。`;
-  } else if (changePct <= -2) {
-    analysisEmoji = '📉'; analysisLabel = '偏空走勢';
-    analysisColor = 'var(--color-down)'; analysisBg = 'rgba(47,158,68,0.08)';
-    analysisText = `${stockName} 今日下跌 ${changePct.toFixed(2)}%，走勢偏空。${closePos != null && closePos < 0.3 ? '收在日內低點附近，短線不宜搶反彈' : '盤中有企穩跡象，可觀察明日是否止跌'}。`;
-  } else if (changePct < -0.5) {
-    analysisEmoji = '↘️'; analysisLabel = '小幅下跌';
-    analysisColor = '#f59e0b'; analysisBg = 'rgba(245,158,11,0.08)';
-    analysisText = `${stockName} 今日微跌 ${changePct.toFixed(2)}%${amplitude == null ? '' : `，振幅 ${amplitude.toFixed(1)}%`}，波動不大。`;
-  } else {
-    analysisEmoji = '➡️'; analysisLabel = '平盤整理';
-    analysisColor = 'var(--text-muted)'; analysisBg = 'rgba(100,116,139,0.08)';
-    analysisText = `${stockName} 今日平盤整理，漲跌幅 ${changePct.toFixed(2)}%${amplitude == null ? '' : `，振幅僅 ${amplitude.toFixed(1)}%`}。市場觀望氣氛濃，等待方向選擇。`;
-  }
+  // 今日走勢（描述，F26）：與 trend-analysis 共用同一支純函式 todayMoveOf（分段門檻一致）；
+  // 漲跌停用檔位精確判定（ETF 用 ETF 檔位）、興櫃不判（舊版的固定百分比近似會把興櫃漲 12% 寫成漲停）；
+  // 位置一律經 closePosOf（缺資料寫「資料不足」，不以 0 或 50 代替）。只描述事實，不寫「明日」「建議」。
+  // 2026-10-08 審查 HIGH：個股頁的 stock 只有在本拍拿到即時成交時，開高低才確定是今天的（非即時列的開高低、
+  //   清單上的成交值可能是前一交易日的）⇒ 盤中位置只在本拍即時成交時算、成交值不寫數字（MIS 不給成交金額）；
+  //   收盤後若 trend-analysis 是本交易時段開始後載入的收盤口徑，直接用 server 的 todayMove（開高低與成交值已過資料日閘門）。
+  const isEsb = stock.market === 'esb';
+  const phase: QuotePhase = isEsb ? 'quote' : getSession() === 'regular' ? 'intraday' : 'close';
+  const tick = stock.code.startsWith('00') ? etfTickSize : tickSize;
+  const limit = isEsb ? null : limitKindOf(price, change, tick);
+  const nowMs = Date.now();
+  const sessionStartMs = sessionStartMsOf(nowMs, isTradingDay(new Date(nowMs)));
+  const generatedMs = Date.parse(trendData.generatedAt ?? '');
+  // trendData 每檔只載一次：本交易時段開始前載入的（例 08:45 開頁、13:30 後仍開著），它的資料日已不是畫面數字的日期
+  const trendCurrent = sessionStartMs == null || generatedMs >= sessionStartMs;
+  const serverMove = phase === 'close' && trendData.phase === 'close' && trendCurrent ? trendData.todayMove ?? null : null;
+  const liveTick = liveSource === 'mis_realtime';
+  const noTradeToday = phase === 'intraday' && liveSource === 'stock_day_all';
+  const clientPos = phase === 'quote' || (phase === 'intraday' && liveTick)
+    ? closePosOf(price, stock.high, stock.low, prevClose, limit)
+    : null;
+  const move = serverMove ?? todayMoveOf(changePct, {
+    limit, phase, closePos: clientPos, noTradeToday, quoteAsOfMs: null,
+    // 成交值：盤中只有累計量、沒有可確認是今天的成交金額 ⇒ 不寫數字；興櫃來源本來就沒有
+    tradeValue: null,
+    dataDate: trendCurrent ? trendData.dataDate ?? null : null,
+    todayHead: !trendCurrent,
+  });
+  // 頂條、圖示、文字三者都依 move.tone（|漲跌| ≤0.5% 寫「平盤」就是中性色）
+  const isUp = move.tone === 'up';
+  const isDown = move.tone === 'down';
+  const priceWord = phase === 'intraday' ? '目前價' : phase === 'quote' ? '最新價' : '收盤';
+  // 高低點事實句只在位置是用同一份即時開高低算的時候寫（server 版走勢不配用戶端的開高低，兩者可能不同時點）
+  const hlFact = clientPos != null && todayHigh != null && todayLow != null
+    ? `${priceWord}${price < todayHigh ? `低於今日高點 ${todayHigh.toFixed(2)}` : `等於今日高點 ${todayHigh.toFixed(2)}`}、`
+      + `${price > todayLow ? `高於今日低點 ${todayLow.toFixed(2)}` : `等於今日低點 ${todayLow.toFixed(2)}`}。`
+    : '';
+  const analysisText = `${stockName} ${move.text}${hlFact ? ` ${hlFact}` : ''}`;
+  const anchor = trendData.phase === 'intraday' ? '目前價' : trendData.phase === 'quote' ? '最新價' : '今收';
+  const rangeKnown = rd?.closePos?.value != null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px 0' }}>
 
-      {/* Today's analysis header */}
+      {/* 今日走勢（描述） */}
       <div style={{
         borderRadius: '12px', padding: '18px 20px', position: 'relative', overflow: 'hidden',
         background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
@@ -1022,16 +1037,16 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
             ? 'linear-gradient(90deg, var(--color-up), #f97316)'
             : isDown
             ? 'linear-gradient(90deg, var(--color-down), #4ade80)'
-            : 'linear-gradient(90deg, #f59e0b, #d97706)',
+            : 'linear-gradient(90deg, #94a3b8, #64748b)',
         }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
-          <span style={{ fontSize: 'calc(28px * var(--fz))' }}>{analysisEmoji}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '2px' }}>當日行情評估</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'calc(28px * var(--fz))' }}>{move.tone === 'up' ? '📈' : move.tone === 'down' ? '📉' : '➡️'}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '2px' }}>今日走勢（描述）</div>
             <div style={{
               display: 'inline-block', fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, padding: '4px 14px',
-              borderRadius: '8px', background: analysisBg, color: analysisColor,
-            }}>{analysisLabel}</div>
+              borderRadius: '8px', background: MOVE_TONE_BG[move.tone], color: MOVE_TONE_COLOR[move.tone],
+            }}>{move.label}</div>
           </div>
           <div style={{
             fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800,
@@ -1066,7 +1081,7 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
         ))}
       </div>
 
-      {/* Volume and amplitude analysis */}
+      {/* Volume and amplitude analysis（振幅＝高低差 ÷ 昨收，台股慣例） */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
         <div style={{
           background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)',
@@ -1094,150 +1109,96 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
         </div>
       </div>
 
-      {/* AI order levels (委買策略) - still useful */}
-      {pm.orderLevels.length > 0 && (
-        <div style={{
-          background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
-          borderRadius: '12px', overflow: 'hidden',
-        }}>
-          <div style={{
-            padding: '12px 16px', borderBottom: '1px solid var(--border-primary)',
-            fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
-          }}>
-            📋 關鍵價位參考
-          </div>
-          {pm.orderLevels.map((level, i) => {
-            const st = { standard: { bg: 'rgba(99,102,241,0.1)', color: '#818cf8' }, aggressive: { bg: 'rgba(220,38,38,0.1)', color: 'var(--color-up)' }, conservative: { bg: 'rgba(245,158,11,0.1)', color: '#f59e0b' }, limit: { bg: 'rgba(100,116,139,0.1)', color: 'var(--text-muted)' } }[level.style] || { bg: 'rgba(99,102,241,0.1)', color: '#818cf8' };
-            return (
-              <div key={i} style={{
-                padding: '14px 16px',
-                borderBottom: i < pm.orderLevels.length - 1 ? '1px solid var(--border-primary)' : 'none',
-                display: 'flex', gap: '12px', alignItems: 'flex-start',
-              }}>
-                <div style={{
-                  minWidth: '80px', textAlign: 'center', padding: '4px 8px',
-                  borderRadius: '6px', background: st.bg, color: st.color,
-                  fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, flexShrink: 0,
-                }}>
-                  {level.label}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: st.color, marginBottom: '4px' }}>
-                    {level.price.toFixed(2)} 元
-                  </div>
-                  <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    {level.rationale}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* 以下公式與判讀區塊只讀新回應欄位；舊 JSON（部署切換期間）顯示「暫時無法取得」 */}
+      {!isNew && <StaleShapeNote />}
+
+      {/* 價格參考（公式試算，非買賣建議）：與當日策略分頁同一份 orderLevels */}
+      {isNew && pm.orderLevels.length > 0 && (
+        <OrderLevelsCard levels={pm.orderLevels} />
       )}
 
-      {/* Resistance / Support from AI */}
-      {pp && pp.nextDayHigh.price > 0 && (
+      {/* 價格參考帶（F10）：全部是今收 × 固定倍數或明日漲跌停檔位，不是支撐壓力判讀 */}
+      {isNew && pp && pp.nextDayHigh.price > 0 && (
         <>
           <div style={{
             background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
             borderRadius: '10px', padding: '14px 16px',
           }}>
             <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '10px' }}>
-              📊 技術面支撐 / 壓力位
+              📊 價格參考帶（{anchor} ±%，公式）
             </div>
-            <div style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px' }}>壓力位</div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {pp.resistance.map((r, i) => (
-                  <span key={i} style={{
-                    fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
-                    background: `${STRENGTH_COLOR[r.strength]}18`,
-                    color: STRENGTH_COLOR[r.strength],
-                    border: `1px solid ${STRENGTH_COLOR[r.strength]}44`,
-                    fontWeight: 600,
-                  }}>
-                    {r.label} {r.price.toFixed(2)}
-                  </span>
-                ))}
-              </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {[...pp.resistance, ...pp.support].map((b, i) => (
+                <span key={i} style={{
+                  fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
+                  background: 'rgba(148,163,184,0.1)', color: 'var(--text-secondary)',
+                  border: '1px solid rgba(148,163,184,0.3)', fontWeight: 600,
+                }}>
+                  {b.label} {b.price.toFixed(2)}
+                </span>
+              ))}
             </div>
-            <div>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '6px' }}>支撐位</div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {pp.support.map((s, i) => (
-                  <span key={i} style={{
-                    fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
-                    background: `${STRENGTH_COLOR[s.strength]}18`,
-                    color: STRENGTH_COLOR[s.strength],
-                    border: `1px solid ${STRENGTH_COLOR[s.strength]}44`,
-                    fontWeight: 600,
-                  }}>
-                    {s.label} {s.price.toFixed(2)}
-                  </span>
-                ))}
-              </div>
+            <div style={{ marginTop: '8px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              {trendData.phase === 'intraday'
+                ? '明日漲跌停價：收盤後提供（今收未定）。'
+                : trendData.phase === 'quote'
+                ? '興櫃沒有漲跌幅限制，不列漲跌停價。'
+                : stock.code.startsWith('00')
+                ? '漲跌停價：ETF 不列（部分 ETF 沒有漲跌幅限制，本站未接入名單）。'
+                : '漲跌停價為今收 ×1.1／×0.9 取合法檔位的試算；未計除權息等參考價調整，新上市初期等無漲跌幅限制的標的不適用。'}
             </div>
           </div>
 
-          {/* Buy zone + Target zone + ATR */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+          {/* 參考帶與高低差（舊版的目標價類區塊依裁定 1 不渲染） */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '10px' }}>
             <div style={{
               background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)',
               borderRadius: '10px', padding: '14px',
             }}>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#818cf8', fontWeight: 600, marginBottom: '6px' }}>💰 買入區間</div>
+              <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#818cf8', fontWeight: 600, marginBottom: '6px' }}>💰 {anchor} −2%～0% 參考帶（公式）</div>
               <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: '#a5b4fc' }}>
                 {pp.buyZoneLow.toFixed(2)} – {pp.buyZoneHigh.toFixed(2)}
               </div>
             </div>
             <div style={{
-              background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+              background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.25)',
               borderRadius: '10px', padding: '14px',
             }}>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--color-down)', fontWeight: 600, marginBottom: '6px' }}>🎯 目標區間</div>
-              <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--color-down)' }}>
-                {pp.targetZoneLow.toFixed(2)} – {pp.targetZoneHigh.toFixed(2)}
-              </div>
-            </div>
-            <div style={{
-              background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
-              borderRadius: '10px', padding: '14px',
-            }}>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: '#fbbf24', fontWeight: 600, marginBottom: '6px' }}>📡 ATR 波動率</div>
-              <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: '#fbbf24' }}>
-                {pp.atr.toFixed(2)} <span style={{ fontSize: 'calc(13px * var(--fz))', opacity: 0.8 }}>({pp.atrPercent.toFixed(1)}%)</span>
+              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '6px' }}>📡 高低差（佔{anchor}）</div>
+              <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                {rangeKnown
+                  ? <>{pp.atr.toFixed(2)} <span style={{ fontSize: 'calc(13px * var(--fz))', opacity: 0.8 }}>({pp.atrPercent.toFixed(1)}%)</span></>
+                  : '來源未提供'}
               </div>
             </div>
           </div>
 
-          {/* Price position score */}
+          {/* 收盤位置（描述，F7）：中性色，不把位置讀成多空 */}
           <div style={{
             padding: '12px 16px', borderRadius: '10px',
             background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
-            display: 'flex', gap: '12px', alignItems: 'center',
+            display: 'flex', gap: '12px', alignItems: 'flex-start',
           }}>
-            <div style={{ position: 'relative', width: '48px', height: '48px', flexShrink: 0 }}>
+            <div style={{ position: 'relative', width: '48px', height: '48px', flexShrink: 0, marginTop: '8px' }}>
               <svg width="48" height="48" viewBox="0 0 48 48">
                 <circle cx="24" cy="24" r="20" fill="none" stroke="var(--bg-tertiary)" strokeWidth="4" />
-                <circle
-                  cx="24" cy="24" r="20" fill="none"
-                  stroke={pp.pricePositionScore >= 60 ? 'var(--color-up)' : pp.pricePositionScore >= 40 ? '#f59e0b' : 'var(--color-down)'}
-                  strokeWidth="4" strokeLinecap="round"
-                  strokeDasharray={`${(pp.pricePositionScore / 100) * 125.6} 125.6`}
-                  transform="rotate(-90 24 24)"
-                />
+                {pp.pricePositionScore != null && (
+                  <circle
+                    cx="24" cy="24" r="20" fill="none"
+                    stroke="#94a3b8"
+                    strokeWidth="4" strokeLinecap="round"
+                    strokeDasharray={`${(pp.pricePositionScore / 100) * 125.6} 125.6`}
+                    transform="rotate(-90 24 24)"
+                  />
+                )}
               </svg>
               <div style={{
                 position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 'calc(13px * var(--fz))', fontWeight: 700,
-                color: pp.pricePositionScore >= 60 ? 'var(--color-up)' : pp.pricePositionScore >= 40 ? '#f59e0b' : 'var(--color-down)',
-              }}>{pp.pricePositionScore}</div>
+                fontSize: 'calc(13px * var(--fz))', fontWeight: 700, color: '#94a3b8',
+              }}>{pp.pricePositionScore ?? '—'}</div>
             </div>
-            <div>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '3px' }}>今日價格位置評估</div>
-              <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                {pp.positionDescription}
-              </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ReadingRow reading={rd?.closePos} fallbackLabel="收盤位置（描述）" last />
             </div>
           </div>
         </>
@@ -1246,7 +1207,47 @@ function PremarketTab({ trendData, loading, stockName, stock }: {
   );
 }
 
-// ─── Opening Strategy Tab (Original) ────────────────────────────
+/** 價格參考（公式試算，非買賣建議）——兩個分頁共用；不顯示積極／保守徽章與風險圖示（F11） */
+function OrderLevelsCard({ levels }: { levels: Array<{ label: string; price: number; rationale: string }> }) {
+  return (
+    <div style={{
+      background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
+      borderRadius: '12px', overflow: 'hidden',
+    }}>
+      <div style={{
+        padding: '12px 16px', borderBottom: '1px solid var(--border-primary)',
+        fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
+      }}>
+        📋 價格參考（公式試算，非買賣建議）
+      </div>
+      {levels.map((level, i) => (
+        <div key={i} style={{
+          padding: '14px 16px',
+          borderBottom: i < levels.length - 1 ? '1px solid var(--border-primary)' : 'none',
+          display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap',
+        }}>
+          <div style={{
+            minWidth: '80px', textAlign: 'center', padding: '4px 8px',
+            borderRadius: '6px', background: 'rgba(148,163,184,0.12)', color: 'var(--text-secondary)',
+            fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, flexShrink: 0,
+          }}>
+            {level.label}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
+              {level.price.toFixed(2)} 元
+            </div>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              {level.rationale}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── 當日策略分頁：今日走勢（描述）＋明日方向＋公式價位 ─────────────────────
 
 function StrategyTab({ trendData, loading, stockName }: {
   trendData: TrendApiResponse | null;
@@ -1259,183 +1260,112 @@ function StrategyTab({ trendData, loading, stockName }: {
       無法載入開盤策略，請稍後重試
     </div>
   );
+  // 舊 JSON（部署切換期間）沒有新欄位：不退回讀 legacy 的「明日開盤建議」（§1.6）
+  if (!hasReadings(trendData)) return <StaleShapeNote />;
 
   const pm  = trendData.preMarketRecommendation;
   const pp  = trendData.pricePrediction;
-  const rec = REC_CONFIG[pm.recommendation];
-
-  const styleMap: Record<string, { bg: string; color: string }> = {
-    aggressive:   { bg: 'rgba(220,38,38,0.1)',   color: 'var(--color-up)' },
-    standard:     { bg: 'rgba(99,102,241,0.1)',   color: '#818cf8' },
-    conservative: { bg: 'rgba(245,158,11,0.1)',   color: '#f59e0b' },
-    limit:        { bg: 'rgba(100,116,139,0.1)',  color: 'var(--text-muted)' },
-  };
+  const rd  = trendData.readings;
+  const move = trendData.todayMove ?? null;
+  const tone: TodayMove['tone'] = move?.tone ?? 'flat';
+  const stopRef = pm.stopRef ?? null;
+  // 過期（落後 ≥2 個交易日）時 server 給明確日期（「10-12 」），否則「明日」（§1.1）
+  const dayWord = trendData.nextDayWord ?? '明日';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px 0' }}>
 
-      {/* Recommendation header */}
+      {/* 今日走勢（描述）＋明日方向（F9）：舊版「明日開盤建議」回測 buy 組隔日表現反而低於 avoid 組，已移除 */}
       <div style={{
         borderRadius: '12px', padding: '18px 20px', position: 'relative', overflow: 'hidden',
         background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
       }}>
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
-          background: pm.recommendation === 'strong_buy'
+          background: tone === 'up'
             ? 'linear-gradient(90deg, var(--color-up), #f97316)'
-            : pm.recommendation === 'buy'
-            ? 'linear-gradient(90deg, #f97316, #fbbf24)'
-            : pm.recommendation === 'wait'
-            ? 'linear-gradient(90deg, #f59e0b, #d97706)'
-            : 'linear-gradient(90deg, var(--color-down), #8b9bb8)',
+            : tone === 'down'
+            ? 'linear-gradient(90deg, var(--color-down), #4ade80)'
+            : 'linear-gradient(90deg, #94a3b8, #64748b)',
         }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
-          <span style={{ fontSize: 'calc(28px * var(--fz))' }}>{rec.emoji}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '2px' }}>明日開盤建議</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'calc(28px * var(--fz))' }}>{tone === 'up' ? '📈' : tone === 'down' ? '📉' : '➡️'}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '2px' }}>今日走勢（描述）</div>
             <div style={{
               display: 'inline-block', fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, padding: '4px 14px',
-              borderRadius: '8px', background: rec.bg, color: rec.color,
-            }}>{rec.label}</div>
-          </div>
-          {/* ⚠ 不可 nowrap：optimalOrderTime 是後端組出來的字串，
-              長度不固定（例如「09:05–09:15 分批進場」），nowrap 會直接把整頁推寬。 */}
-          <div style={{
-            fontSize: 'calc(12.5px * var(--fz))', padding: '6px 12px', borderRadius: '999px',
-            background: 'rgba(251,146,60,0.15)', color: '#fb923c',
-            border: '1px solid rgba(251,146,60,0.3)', fontWeight: 600, maxWidth: '100%', lineHeight: 1.5,
-          }}>
-            ⏰ {pm.optimalOrderTime}
+              borderRadius: '8px', background: MOVE_TONE_BG[tone], color: MOVE_TONE_COLOR[tone],
+            }}>{move?.label ?? '暫時無法取得'}</div>
           </div>
         </div>
         <div style={{ marginTop: '12px', fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          {pm.recommendationText}
+          {move ? `${stockName} ${move.text}` : '暫時無法取得當日行情，請重新整理。'}
+        </div>
+        <div style={{ marginTop: '8px' }}>
+          <ReadingRow reading={rd?.nextDayDir} fallbackLabel="明日方向" last />
         </div>
       </div>
 
-      {/* Price boxes
-          ⚠ 原本寫死 repeat(4,1fr)：手機每欄只剩 ~78px，
-            但「預期開盤低點」四個字加上 4 位數價格至少要 ~150px → 撐爆版面。
-            改 auto-fit：手機自然 2×2，桌機仍是一排四欄。 */}
+      {/* 開盤參考區間（公式，F8）與參考停損（進場前，F11） */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '10px' }}>
         {[
-          { label: '預期開盤低點', value: pm.expectedOpeningRange.low.toFixed(2), color: 'var(--color-down)', emoji: '📉' },
-          { label: '預期開盤高點', value: pm.expectedOpeningRange.high.toFixed(2), color: 'var(--color-up)', emoji: '📈' },
-          { label: '昨收',         value: pm.prevClose.toFixed(2),                color: 'var(--text-muted)', emoji: '📌' },
-          { label: '建議停損價',   value: pm.stopLossPrice.toFixed(2),            color: '#f97316', emoji: '🛡️' },
-        ].map(({ label, value, color, emoji }) => (
+          { label: '開盤參考低（公式）', value: pm.expectedOpeningRange.low > 0 ? pm.expectedOpeningRange.low.toFixed(2) : '—', emoji: '📉' },
+          { label: '開盤參考高（公式）', value: pm.expectedOpeningRange.high > 0 ? pm.expectedOpeningRange.high.toFixed(2) : '—', emoji: '📈' },
+          { label: '昨收',               value: pm.prevClose > 0 ? pm.prevClose.toFixed(2) : '—', emoji: '📌' },
+          { label: stopRef?.label ?? '參考停損（進場前）', value: stopRefCellText(stopRef), emoji: '🛡️' },
+        ].map(({ label, value, emoji }) => (
           <div key={label} style={{
             background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
             borderRadius: '10px', padding: '12px', textAlign: 'center',
           }}>
             <div style={{ fontSize: 'calc(16px * var(--fz))', marginBottom: '4px' }}>{emoji}</div>
             <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: '4px', lineHeight: 1.3 }}>{label}</div>
-            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color }}>{value}</div>
+            <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: 'var(--text-secondary)' }}>{value}</div>
           </div>
         ))}
       </div>
-
-      {/* Order levels */}
-      {pm.orderLevels.length > 0 && (
-        <div style={{
-          background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
-          borderRadius: '12px', overflow: 'hidden',
-        }}>
-          <div style={{
-            padding: '12px 16px', borderBottom: '1px solid var(--border-primary)',
-            fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
-          }}>
-            📋 委買掛單策略
-          </div>
-          {pm.orderLevels.map((level, i) => {
-            const st = styleMap[level.style] || styleMap.standard;
-            return (
-              <div key={i} style={{
-                padding: '14px 16px',
-                borderBottom: i < pm.orderLevels.length - 1 ? '1px solid var(--border-primary)' : 'none',
-                display: 'flex', gap: '12px', alignItems: 'flex-start',
-              }}>
-                <div style={{
-                  minWidth: '80px', textAlign: 'center', padding: '4px 8px',
-                  borderRadius: '6px', background: st.bg, color: st.color,
-                  fontSize: 'calc(12.5px * var(--fz))', fontWeight: 600, flexShrink: 0,
-                }}>
-                  {level.label}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 700, color: st.color, marginBottom: '4px' }}>
-                    {level.price.toFixed(2)} 元
-                  </div>
-                  <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    {level.rationale}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', borderRadius: '10px', padding: '6px 16px' }}>
+        <div style={{ padding: '8px 0 4px', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.55, overflowWrap: 'anywhere' }}>
+          開盤參考區間：{pm.expectedOpeningRange.basis ?? '—'}
+          <br />
+          {stopRef?.label ?? '參考停損（進場前）'}：{stopRef?.basis ?? '—'}{stopRef?.note ? `；${stopRef.note}` : ''}
         </div>
-      )}
+        <ReadingRow reading={rd?.openRange} fallbackLabel="歷史落入率" last />
+      </div>
 
-      {/* Auction strategy */}
-      {pm.auctionStrategy && (
-        <div style={{
-          background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)',
-          borderRadius: '10px', padding: '14px 16px',
-          borderLeft: '3px solid #6366f1',
-        }}>
-          <div style={{ fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: '#818cf8', marginBottom: '6px' }}>
-            🔔 競價策略
-          </div>
-          <div style={{ fontSize: 'calc(13.5px * var(--fz))', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            {pm.auctionStrategy}
-          </div>
-        </div>
-      )}
+      {/* 價格參考（公式試算，非買賣建議） */}
+      {pm.orderLevels.length > 0 && <OrderLevelsCard levels={pm.orderLevels} />}
 
-      {/* Price Prediction */}
+      {/* 明日高低點參考（公式試算，F6）：舊版寫死的百分比沒有依據，已移除；觸及率表發佈前不給比例 */}
       {pp && pp.nextDayHigh.price > 0 && (
         <>
           <div style={{
             fontSize: 'calc(14px * var(--fz))', fontWeight: 700, color: 'var(--text-muted)',
-            padding: '4px 0 0',
             borderTop: '1px solid var(--border-primary)', paddingTop: '12px',
           }}>
-            🎯 高低點預測 · AI 計算
+            🎯 {dayWord}高低點參考（公式試算）
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '10px' }}>
             {[
-              {
-                label: '明日預期高點', price: pp.nextDayHigh.price, basis: pp.nextDayHigh.basis,
-                confidence: pp.nextDayHigh.confidence, color: 'var(--color-up)',
-                bg: 'rgba(220,38,38,0.06)', border: 'rgba(220,38,38,0.2)', icon: '📈',
-              },
-              {
-                label: '明日預期低點', price: pp.nextDayLow.price, basis: pp.nextDayLow.basis,
-                confidence: pp.nextDayLow.confidence, color: 'var(--color-down)',
-                bg: 'rgba(34,197,94,0.06)', border: 'rgba(34,197,94,0.2)', icon: '📉',
-              },
-            ].map(({ label, price, basis, confidence, color, bg, border, icon }) => (
+              { label: `${dayWord}高點參考（公式）`, price: pp.nextDayHigh.price, basis: pp.nextDayHigh.basis, reading: rd?.hitHigh, fallback: '歷史觸及率（明日高點參考）', icon: '📈' },
+              { label: `${dayWord}低點參考（公式）`, price: pp.nextDayLow.price, basis: pp.nextDayLow.basis, reading: rd?.hitLow, fallback: '歷史觸及率（明日低點參考）', icon: '📉' },
+            ].map(({ label, price, basis, reading, fallback, icon }) => (
               <div key={label} style={{
-                background: bg, border: `1px solid ${border}`, borderRadius: '10px', padding: '14px',
+                background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', borderRadius: '10px', padding: '14px',
               }}>
                 <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', marginBottom: '8px' }}>{icon} {label}</div>
-                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color, marginBottom: '6px' }}>{price.toFixed(2)}</div>
-                <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: '8px' }}>{basis}</div>
-                <div style={{ height: '4px', borderRadius: '999px', background: 'var(--bg-tertiary)' }}>
-                  <div style={{ height: '100%', width: `${confidence}%`, borderRadius: '999px', background: color }} />
-                </div>
-                <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginTop: '3px' }}>信心度 {confidence}%</div>
+                <div style={{ fontSize: 'calc(14.5px * var(--fz))', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '6px' }}>{price.toFixed(2)}</div>
+                <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: '4px', overflowWrap: 'anywhere' }}>{basis}</div>
+                <ReadingRow reading={reading} fallbackLabel={fallback} last />
               </div>
             ))}
           </div>
-
-          {/* ⚠ 「支撐 / 壓力位」已移除（2026-08-11 使用者指出當日策略有重複卡）：
-              合併分頁時我只是把兩個分頁的內容接起來，沒有比對內容——
-              這一段與上方 PremarketTab 的「📊 技術面支撐 / 壓力位」是**逐行相同的程式碼**，
-              連資料來源 pp.resistance / pp.support 都是同一份，等於同一張卡印兩次。
-              保留 PremarketTab 那份（在「今天實際發生什麼」的段落裡，位置較合理）。 */}
         </>
+      )}
+
+      {pm.riskWarning && (
+        <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.5 }}>{pm.riskWarning}</div>
       )}
     </div>
   );

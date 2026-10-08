@@ -70,7 +70,8 @@ export interface BuyZone {
   priceRange: [number, number];
   rationale: string;
   pattern: string;
-  probability: number;
+  /** 達到率：舊版固定 85／72／45／20 沒有依據，2026-10-08 起為 null（校準表發佈前不給值，F16） */
+  probability: number | null;
   riskReward: number;
   type: 'aggressive' | 'standard' | 'conservative' | 'dip';
 }
@@ -81,7 +82,8 @@ export interface SellTarget {
   gainPercent: number;
   rationale: string;
   type: 'tp1' | 'tp2' | 'tp3' | 'trailing';
-  probability: number;
+  /** 達到率：舊版固定 68／45／28 沒有依據，2026-10-08 起為 null（F17） */
+  probability: number | null;
   holdDays: string;
 }
 
@@ -257,7 +259,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
       name: '強勢長紅K',
       type: 'bullish',
       strength: Math.min(80 + bodyRatio * 20, 95),
-      description: `實體佔比 ${(bodyRatio * 100).toFixed(0)}%，無上影線壓力，買盤完全主導`,
+      description: `實體佔日線 ${(bodyRatio * 100).toFixed(0)}%`,
       actionHint: '今收盤價或次日小拉回即為良好買點',
     });
   }
@@ -269,7 +271,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
       name: '跳空高開強收',
       type: 'bullish',
       strength: 78,
-      description: `跳空 ${gapPct.toFixed(1)}% 高開，且收盤守住漲幅，籌碼鎖定良好`,
+      description: `開盤較昨收高 ${gapPct.toFixed(1)}%，收在日內 ${(s.closePosition * 100).toFixed(0)}%`,
       actionHint: '跳空缺口下緣為強支撐，可在此附近分批布局',
     });
   }
@@ -277,10 +279,11 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   // 3. 爆量漲停
   if (chg >= 9.9 && s.value > 500_000_000) {
     patterns.push({
-      name: '爆量漲停板',
+      // 判定是 chg≥9.9 近似、不是檔位精確漲停 ⇒ 名稱不宣稱漲停（2026-10-08 F29）
+      name: '漲逾 9.9%・大成交值',
       type: 'bullish',
       strength: 90,
-      description: `今日漲停，成交值 ${(s.value / 1e8).toFixed(1)} 億，主力強力護盤`,
+      description: `今日漲 ${chg.toFixed(2)}%，成交值 ${(s.value / 1e8).toFixed(1)} 億元`,
       actionHint: '漲停次日開盤 ±2% 為追蹤觀察點，確認守住再加碼',
     });
   }
@@ -291,7 +294,7 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
       name: '強攻接近漲停',
       type: 'bullish',
       strength: 75,
-      description: `漲幅 ${chg.toFixed(1)}%，收在日高，明日有機會挑戰漲停`,
+      description: `漲幅 ${chg.toFixed(1)}%，收在日高附近`,
       actionHint: '若次日量能持續放大，可小量追進',
     });
   }
@@ -299,10 +302,10 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   // 5. 小量整理
   if (Math.abs(chg) < 1 && s.value < 200_000_000 && s.value > 50_000_000) {
     patterns.push({
-      name: '量縮整理蓄勢',
+      name: '低成交值窄幅整理',
       type: 'neutral',
       strength: 55,
-      description: '成交量明顯縮減，價格窄幅整理，通常為下一波突破前的蓄積',
+      description: `成交值 ${(s.value / 1e8).toFixed(1)} 億元，漲跌幅 ${chg.toFixed(2)}%`,
       actionHint: '等待放量突破前高再介入，避免過早進場',
     });
   }
@@ -310,10 +313,10 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
   // 6. 長下影線
   if (lowerWick > bodySize * 2 && lowerWick > range * 0.4 && chg >= 0) {
     patterns.push({
-      name: '下影支撐買盤強',
+      name: '長下影線',
       type: 'bullish',
       strength: 70,
-      description: `長下影線（佔日線 ${(lowerWick / range * 100).toFixed(0)}%），低點有強力承接`,
+      description: `下影線佔日線 ${(lowerWick / range * 100).toFixed(0)}%`,
       actionHint: '下影線低點為短期重要支撐，可在此附近設定買點',
     });
   }
@@ -324,18 +327,18 @@ export function detectPatterns(s: ParsedStock): PatternSignal[] {
       name: '高開低走警示',
       type: 'bearish',
       strength: 65,
-      description: '高開後未能守住漲幅，賣壓較重，短期需要整理',
+      description: `開盤較昨收高 ${(((s.open / s.prevClose) - 1) * 100).toFixed(1)}%，收在日內 ${(s.closePosition * 100).toFixed(0)}%`,
       actionHint: '建議等待量能縮減、止跌企穩後再考慮進場',
     });
   }
 
-  // 8. 法人資金型態
+  // 8. 大成交值上漲（只看成交值 >20 億，沒有任何法人資料 ⇒ 不推論為法人買盤，2026-10-08 F29）
   if (s.value > 2_000_000_000 && chg > 1 && s.closePosition != null && s.closePosition > 0.6) {
     patterns.push({
-      name: '法人資金推升',
+      name: '大成交值上漲',
       type: 'bullish',
       strength: 82,
-      description: `成交值達 ${(s.value / 1e8).toFixed(0)} 億，大資金持續流入，法人認同度高`,
+      description: `成交值 ${(s.value / 1e8).toFixed(0)} 億元，上漲 ${chg.toFixed(2)}%，收在日內 ${(s.closePosition * 100).toFixed(0)}%`,
       actionHint: '法人買盤結構穩定，可採波段持有策略',
     });
   }
@@ -363,9 +366,9 @@ export function calculateBuyZones(s: ParsedStock, patterns: PatternSignal[]): Bu
       label: '積極追買',
       price: parseFloat(entry.toFixed(2)),
       priceRange: [parseFloat(entry.toFixed(2)), parseFloat(entryMax.toFixed(2))],
-      rationale: `強勢突破型，收在日高附近，趨勢確立中，當日收盤附近可積極介入`,
-      pattern: '強勢突破跟進',
-      probability: 85,
+      rationale: `公式：今收 ${p} ＝ ${parseFloat(entry.toFixed(2))}（區間至今收 × 1.012）`,
+      pattern: '收在日高附近',
+      probability: null,
       riskReward: parseFloat(((chg * 1.5) / 7).toFixed(1)),
       type: 'aggressive',
     });
@@ -378,11 +381,9 @@ export function calculateBuyZones(s: ParsedStock, patterns: PatternSignal[]): Bu
     label: '標準買點',
     price: parseFloat(stdEntry.toFixed(2)),
     priceRange: [parseFloat(stdEntry.toFixed(2)), parseFloat(stdEntryMax.toFixed(2))],
-    rationale: chg > 3
-      ? `等待強勢股次日小幅回測，約 ${(p - stdEntry).toFixed(2)} 元的正常整理回拉，風險控制更佳`
-      : `溫和上漲型，小回測至今日均價附近即可進場`,
-    pattern: chg > 3 ? '強勢回測買點' : '均價附近布局',
-    probability: 72,
+    rationale: `公式：今收 ${p} × ${chg > 3 ? '0.978' : '0.983'} ＝ ${parseFloat(stdEntry.toFixed(2))}`,
+    pattern: chg > 3 ? '今收 −2.2% 參考位' : '今收 −1.7% 參考位',
+    probability: null,
     riskReward: 2.0,
     type: 'standard',
   });
@@ -395,9 +396,9 @@ export function calculateBuyZones(s: ParsedStock, patterns: PatternSignal[]): Bu
     label: '保守買點',
     price: parseFloat(conservEntry.toFixed(2)),
     priceRange: [parseFloat(conservEntry.toFixed(2)), parseFloat(conservEntryMax.toFixed(2))],
-    rationale: `較深回調至今日開盤附近或均線支撐區，適合風險承受度低的投資人，確認守住再進場`,
-    pattern: '開盤支撐區買進',
-    probability: 45,
+    rationale: `公式：max(今日開盤, 低點 + 0.35 × 高低差) 與今收 × 0.955 取低 ＝ ${parseFloat(conservEntry.toFixed(2))}`,
+    pattern: '開盤／日內 35% 位置參考',
+    probability: null,
     riskReward: 2.8,
     type: 'conservative',
   });
@@ -410,9 +411,9 @@ export function calculateBuyZones(s: ParsedStock, patterns: PatternSignal[]): Bu
       label: '逢低佈局',
       price: parseFloat(dipEntry.toFixed(2)),
       priceRange: [parseFloat(dipEntry.toFixed(2)), parseFloat(dipEntryMax.toFixed(2))],
-      rationale: `若股價因市場系統性回落至此區，代表主力明顯洗盤，可視為絕佳長期進場機會`,
-      pattern: '主力洗盤吸籌',
-      probability: 20,
+      rationale: `公式：今收 ${p} × 0.93 ＝ ${parseFloat(dipEntry.toFixed(2))}`,
+      pattern: '回落 7% 參考位',
+      probability: null,
       riskReward: 4.5,
       type: 'dip',
     });
@@ -435,9 +436,9 @@ export function calculateSellTargets(s: ParsedStock, buyZones: BuyZone[]): SellT
     label: `第一目標 TP1`,
     price: tp1,
     gainPercent: tp1Gain,
-    rationale: `短線技術面目標，預計達到前高或整數關卡附近，可先出 30-50% 部位`,
+    rationale: `公式：標準買點 ${standardBuy} × (1 + ${tp1Gain}%) ＝ ${tp1}`,
     type: 'tp1',
-    probability: 68,
+    probability: null,
     holdDays: '3~7 個交易日',
   });
 
@@ -448,9 +449,9 @@ export function calculateSellTargets(s: ParsedStock, buyZones: BuyZone[]): SellT
     label: `第二目標 TP2`,
     price: tp2,
     gainPercent: tp2Gain,
-    rationale: `波段主升段目標，通常對應前波高點或技術壓力區，建議此處再出 30-40%`,
+    rationale: `公式：標準買點 ${standardBuy} × (1 + ${tp2Gain}%) ＝ ${tp2}`,
     type: 'tp2',
-    probability: 45,
+    probability: null,
     holdDays: '2~4 週',
   });
 
@@ -462,21 +463,24 @@ export function calculateSellTargets(s: ParsedStock, buyZones: BuyZone[]): SellT
       label: `強波目標 TP3`,
       price: tp3,
       gainPercent: tp3Gain,
-      rationale: `主升趨勢目標，法人資金持續護盤且基本面支撐下，有機會達到的波段高點`,
+      rationale: `公式：標準買點 ${standardBuy} × (1 + ${tp3Gain}%) ＝ ${tp3}`,
       type: 'tp3',
-      probability: 28,
+      probability: null,
       holdDays: '1~3 個月',
     });
   }
 
   // ── Trailing Stop ──
+  // 2026-10-08（審查 LOW）：舊文案「達到 5% 獲利後停損調到成本+2%（保本）、每漲 3% 上移」是寫死的規則，
+  //   與 tw-ai-stoploss 的保本線／追蹤線（及現行獲利回落線）定義衝突，且 §1 規定命名全站統一 ⇒ 改成引用站上規則的事實句。
+  //   price／gainPercent／type 不動（前端不顯示 trailing 的價格；舊分頁照舊渲染）。
   targets.push({
-    label: '移動停利建議',
+    label: '移動停利（規則說明）',
     price: parseFloat((standardBuy * 1.05).toFixed(2)),
     gainPercent: 5,
-    rationale: `達到 5% 獲利後，可將停損調整至成本+2%（保本），並每漲 3% 向上移動停損點`,
+    rationale: '獲利後的停損上移（獲利回落線等）依本站停損紀律另計，本卡不另訂比例。',
     type: 'trailing',
-    probability: 0,
+    probability: null,
     holdDays: '彈性',
   });
 
@@ -617,8 +621,9 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
 
   // Factor 2: Volume (20)
   let volumeScore = 0;
-  if (val > 5_000_000_000)      { volumeScore = 20; reasons.push('💰 成交值超過 50億，主力大量介入'); }
-  else if (val > 1_000_000_000) { volumeScore = 17; reasons.push('💰 成交值超過 10億，法人資金關注'); }
+  // 只看成交值、沒有法人資料 ⇒ 不推論「主力／法人」（2026-10-08 F29）
+  if (val > 5_000_000_000)      { volumeScore = 20; reasons.push(`💰 成交值 ${(val / 1e8).toFixed(1)} 億元`); }
+  else if (val > 1_000_000_000) { volumeScore = 17; reasons.push(`💰 成交值 ${(val / 1e8).toFixed(1)} 億元`); }
   else if (val > 500_000_000)   { volumeScore = 14; reasons.push('📦 成交值超過 5億，流動性良好'); }
   else if (val > 100_000_000)   { volumeScore = 10; reasons.push('📦 成交值 1-5億，中等流動性'); }
   else if (val > 50_000_000)    { volumeScore = 6; }
@@ -626,7 +631,7 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
 
   if (chg > 1 && val > 500_000_000) {
     volumeScore = Math.min(volumeScore + 3, 20);
-    reasons.push('✅ 量增價漲，多頭確認訊號');
+    reasons.push('📦 成交值 >5 億且上漲 >1%');
   }
 
   // ── Factor 3: 收盤位置（20）── ⚠**四個半窗確認的反向因子** ─────────
@@ -647,11 +652,12 @@ export function scoreStock(s: ParsedStock, _mode: string, riskData: RiskStocksDa
   //   都被指派了一個「四窗實測導出」的分數，而那個實測的前提根本不存在。
   //   無資訊時給中性分是對的，但**必須讓人看得見它沒被量到**。
   if (cp == null) { trendScore = 14; risks.push('ℹ️ 收盤位置無法判定（來源未給高低，或全日僅一個價位且收平盤），此項以中性計'); }
-  else if (cp >= 0.85)      { trendScore = 8;  risks.push('⚠️ 收在日高附近——四窗實測此組隔日最差（淨勝 33%，五組最低）；除非同時突破 20 日新高，否則不是優勢'); }
+  // 2026-10-08（F7）：只寫方向——稽核數字是扣手續費與稅後的淨勝率，與「比對不扣成本」口徑不同，且無基準、無 n
+  else if (cp >= 0.85)      { trendScore = 8;  risks.push('⚠️ 收在日高附近——本站五因子稽核此組隔日表現最差（兩窗同向；扣費稅口徑，數字不列）'); }
   else if (cp >= 0.70) { trendScore = 12; }
   else if (cp >= 0.50) { trendScore = 14; }
   else if (cp >= 0.30) { trendScore = 15; }
-  else                 { trendScore = 16; reasons.push('📉 收在日線下半段——四窗實測此組隔日相對最佳（淨勝 39.8%）'); }
+  else                 { trendScore = 16; reasons.push('📉 收在日線下半段——本站五因子稽核此組隔日表現相對最佳（兩窗同向；扣費稅口徑，數字不列）'); }
 
   // 高開加分：未通過檢定，保留但降為 1 分且不寫成「優點」
   if (s.open > s.prevClose * 1.005 && chg > 1) trendScore = Math.min(trendScore + 1, 20);

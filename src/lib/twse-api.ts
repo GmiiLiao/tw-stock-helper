@@ -387,8 +387,11 @@ export function calculateBollingerBands(
 // Signal Detection
 export interface TradingSignal {
   type: 'BUY' | 'SELL' | 'WATCH' | 'NEUTRAL';
-  strength: number; // 0-100
+  strength: number; // 0-100：|多方點數 − 空方點數|（規則計分差，不是機率；畫面不再畫成百分比）
   reasons: string[];
+  // 2026-10-08（hardcoded-to-real-spec F21）：規則計分的原始點數，畫面顯示「多 X：空 Y（規則計分，非機率）」
+  bullScore?: number;
+  bearScore?: number;
 }
 
 export function detectSignal(
@@ -479,10 +482,10 @@ export function detectSignal(
   const netScore = bullScore - bearScore;
   const strength = Math.min(100, Math.abs(netScore));
 
-  if (netScore >= 30) return { type: 'BUY', strength, reasons };
-  if (netScore <= -30) return { type: 'SELL', strength, reasons };
-  if (netScore >= 10) return { type: 'WATCH', strength, reasons };
-  return { type: 'NEUTRAL', strength, reasons };
+  if (netScore >= 30) return { type: 'BUY', strength, reasons, bullScore, bearScore };
+  if (netScore <= -30) return { type: 'SELL', strength, reasons, bullScore, bearScore };
+  if (netScore >= 10) return { type: 'WATCH', strength, reasons, bullScore, bearScore };
+  return { type: 'NEUTRAL', strength, reasons, bullScore, bearScore };
 }
 
 // ── 布林通道 BBAND（2026-08-06 補·對齊券商「主圖」指標）────────────

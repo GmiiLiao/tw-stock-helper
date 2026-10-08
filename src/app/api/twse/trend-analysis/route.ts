@@ -1,25 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { closePositionOf } from '@/lib/scoring-server';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import { rateLimit } from '@/lib/rate-limit';
 import { memoize } from '@/lib/singleflight';
 import { lookupCompany } from '@/lib/company-list-server';
 import {
-  INDUSTRY_MAP, fallbackNote, resolveIndustry,
+  fallbackNote, resolveIndustry, rocDateToIso,
   type CompanyLookup, type IndustryInfo,
 } from '@/lib/company-list';
+import { readMarketSnapshot, isSnapshotFresh } from '@/lib/market-snapshot-store';
+import { tickSize } from '@/lib/twse-api';
+import { gzipJsonAuto } from '@/lib/gzip-response';
+import {
+  instFlowReading, model20Reading, dist20Reading, horizonReadings, newsDirReading, hitReadings,
+  openRangeReading, nextDayDirReading, closePosReading, closePosNotFoundReading, quoteContextOf, quoteFactsOf,
+  todayMoveOf, summaryText, reasonsOf, basisText, openRangeBasisText, stopRefOf, anyUnavailable, unavailableReading,
+  tradingLag, nextTradingYmd, nextLimitPrices, etfTickSize, hhmmTpe, mmdd, STALE_LAG, OPEN_RANGE_LIMIT_APPROX_PCT, READING_TEXT,
+  type Reading, type ReadingKey, type QuoteContext, type QuoteFacts, type QuoteRowInput, type TodayMove, type StopRef, type TrendReasonOut,
+} from '@/lib/stock-readings';
+import { getInstFlowTable, readingClock } from '@/lib/stock-readings-server';
 
 export type { IndustryInfo };
 
 // ============================================================
 // Stock Trend Analysis API
-// Combines: TWSE company info + industry outlook + announcements
-// to generate near-term price trend reasons + market context
+// 公司資料＋當日行情的事實描述＋判讀欄位（readings）。
+// 2026-10-08 使用者裁定「不使用原來的寫死值，使用判讀結果真實表示」「依判讀方向給出正確提示」「給值也給正確的文字提示」：
+//   法人看好度／共識評等／目標上漲／信心度 72・58／明日開盤建議／產業模板新聞與業務描述等寫死值全部移除，
+//   改為 readings.*（值＋狀態字＋提示＋依據＋資料日），沒有結果就據實寫「尚無判讀結果」（規格 hardcoded-to-real-spec）。
+//   legacy 鍵保留一個部署週期給舊分頁（值改成不會崩、也不捏造的內容；L20 刪除）。
+// 非投資建議。
 // ============================================================
 
 // 代號格式：4~6 碼，ETF／特別股可能帶英文尾碼（00632R、2881A）。不合格式直接 400——
 // 任意字串會讓每個不同 URL 都打穿 CDN 並觸發 3 個外部上游（WM-SCAN G1-22）。
 const CODE_RE = /^\d{4}[0-9A-Z]{0,2}$/;
+
+// 超時規則（規格 §0.2）：法人籌碼動向若改走降級模式，把這個開關改 true（固定回「尚無判讀結果」降級文案）。
+const INST_FLOW_DEGRADED = false;
 
 // TWSE 公告：全市場同一份，memoize 5 分鐘（合流＋失敗冷卻 1 分鐘），不隨請求數放大（唯一不變式）。
 const ANNOUNCEMENT_URL = 'https://www.twse.com.tw/rwd/zh/announcement/announcement?response=json';
@@ -38,13 +55,18 @@ const getAnnouncementRows = memoize<AnnouncementRow[]>('twse-announcement', ANNO
   return data as AnnouncementRow[];
 }, { negativeTtlMs: ANNOUNCEMENT_NEGATIVE_TTL_MS, timeoutMs: 10_000 });
 
-/** 從全市場日行情取這一檔（集中式 server helper，自帶快取與合流）；失敗回 null */
-async function loadStockDay(code: string): Promise<StockDayItem | null> {
+/**
+ * 從全市場日行情取這一檔（集中式 server helper，自帶快取與合流）。
+ * failed＝日行情真的讀不到（拋錯或整份空陣列）⇒ closePos 標 unavailable、短快取；
+ * 讀到了但查無此代號（停牌、下市…）＝ row null、failed false ⇒ none，不觸發 partial（2026-10-08 審查 LOW）。
+ */
+async function loadStockDay(code: string): Promise<{ row: StockDayItem | null; failed: boolean }> {
   try {
     const allDayData = await getStockDayAllDataInternal();
+    if (!allDayData.length) return { row: null, failed: true };
     const found = allDayData.find(s => s.Code === code);
-    if (!found) return null;
-    return {
+    if (!found) return { row: null, failed: false };
+    return { failed: false, row: {
       Code: found.Code,
       Name: found.Name,
       OpeningPrice: found.OpeningPrice,
@@ -61,10 +83,14 @@ async function loadStockDay(code: string): Promise<StockDayItem | null> {
       // 我第一版只改下游、沒發現欄位在這裡就被剝掉——部署後驗證才發現沒生效。
       // 2026-10-08 起產業別也靠它辨識興櫃（resolveIndustry）。
       _market: found._market,
-    };
+      // 2026-10-08（規格 §1.9）：fallback 收盤資料的資料日與來源。快照新鮮時 Date 取自 CSV（盤中＝前一交易日），
+      // 所以資料日一律以快照中繼為準，這兩欄只在快照不新鮮時使用。
+      Date: found.Date,
+      _source: found._source,
+    } };
   } catch (err) {
     console.error('[trend-analysis] Failed to load day data via getStockDayAllDataInternal:', err instanceof Error ? err.message : String(err));
-    return null;
+    return { row: null, failed: true };
   }
 }
 
@@ -95,30 +121,76 @@ export async function GET(request: NextRequest) {
   if (limited) return limited;
 
   try {
-    // 公司清單（含打包備援）、公告、日行情彼此獨立 ⇒ 並行；三者都不拋錯（失敗各自回 null／備援）
-    const [lookup, annoRows, stockData] = await Promise.all([
+    // 公司清單（含打包備援）、公告、日行情、法人 20 日比較表（Firestore，memoize 10 分）彼此獨立 ⇒ 並行；都不拋錯。
+    // 快照中繼（資料日／盤中與否／掃描時刻）緊接在日行情之後讀：getStockDayAllDataInternal 剛讀過、3 秒實例快取必中，
+    //   不增加 Firestore 讀取，也保證算資料日／盤中與否的快照和日行情列是同一份（放在 Promise.all 之後，
+    //   公告或公司清單慢 3 秒以上就會重讀大文件、13:35 前後還可能讀到不同份——2026-10-08 審查 LOW）。
+    const [lookup, annoRows, day, instTable, clock] = await Promise.all([
       lookupCompany(code),
       getAnnouncementRows(),
-      loadStockDay(code),
+      loadStockDay(code).then(async d => ({ ...d, snap: await readMarketSnapshot() })),
+      getInstFlowTable(),
+      readingClock(),
     ]);
+    const stockData = day.row;
+    const snap = day.snap;
 
     // ETF／興櫃不在公司清單裡 ⇒ 名稱改用日行情的證券名稱（不再回空字串）
     const companyName = lookup.company?.['公司簡稱'] || stockData?.Name || '';
     const relevantAnnouncements = pickAnnouncements(annoRows, code, companyName);
 
-    // Build the analysis
     const industry = resolveIndustry(lookup, code, stockData?._market);
-    const trendAnalysis = buildTrendAnalysis(code, stockData, industry, companyName);
-    const newsHeadlines = buildNewsHeadlines(code, companyName, stockData, industry, relevantAnnouncements);
-    const industryOutlook = buildIndustryOutlook(industry, stockData);
-    const preMarketRecommendation = buildPreMarketRecommendation(code, stockData, trendAnalysis);
-    const companyProfile = buildCompanyProfile(code, lookup, industry, stockData);
-    const pricePrediction = buildPricePrediction(stockData);
+    const qc = quoteContextOf({
+      snapFresh: isSnapshotFresh(snap),
+      snapDataYmd: snap?.dataDate ?? null,
+      snapMarketOpen: !!snap?.marketOpen,
+      snapSweepMs: snap?.sweepAt ?? null,
+      rowYmd: rowYmdOf(stockData?.Date),
+      rowMarket: stockData?._market,
+    });
+    const q = quoteFactsOf(code, quoteRowOf(stockData), qc, code.startsWith('00') ? etfTickSize : tickSize);
+    const quoteStale = !!qc.dataDate && tradingLag(qc.dataDate, clock.todayYmd, clock.isTradingYmd) >= STALE_LAG;
+    // 過期時文案裡的「明日」改成明確日期（§1.1 stale 旗標）
+    const nextYmd = quoteStale && qc.dataDate ? nextTradingYmd(qc.dataDate, clock.isTradingYmd) : null;
+    const nextDay: NextDayWords = nextYmd && qc.dataDate
+      ? { word: `${mmdd(nextYmd)} `, limitSuffix: `（以 ${mmdd(qc.dataDate)} 收盤試算）` }
+      : { word: '明日', limitSuffix: '（檔位）' };
+    const todayMove: TodayMove | null = q ? todayMoveOf(q.chgPct, {
+      limit: q.limit, phase: qc.phase, tradeValue: q.tradeValue, closePos: q.closePos,
+      dataDate: qc.dataDate, quoteAsOfMs: qc.quoteAsOfMs, stale: quoteStale, noTradeToday: q.noTradeToday,
+    }) : null;
+    const readings: Record<ReadingKey, Reading> = {
+      instFlow: instFlowReading(instTable, code, { ...clock, isEsb: stockData?._market === 'esb', degraded: INST_FLOW_DEGRADED }),
+      model20: model20Reading(),
+      dist20: dist20Reading(),
+      ...horizonReadings(),
+      newsDir: newsDirReading(),
+      ...hitReadings(),
+      openRange: openRangeReading(),
+      nextDayDir: nextDayDirReading(),
+      closePos: q
+        ? closePosReading(q.closePos, { limit: q.limit, phase: qc.phase, quoteAsOfMs: qc.quoteAsOfMs, dataDate: qc.dataDate, auditOutside: q.auditOutside, ...clock })
+        : day.failed ? unavailableReading('closePos', READING_TEXT.closePos.labelClose) : closePosNotFoundReading(),
+    };
 
-    return NextResponse.json({
+    const trendAnalysis = buildTrendAnalysis(code, q, qc, companyName, quoteStale, day.failed);
+    const newsHeadlines = buildNewsHeadlines(relevantAnnouncements);
+    const industryOutlook = buildLegacyIndustryOutlook(industry);
+    const preMarketRecommendation = buildPreMarketRecommendation(q, qc, todayMove);
+    const companyProfile = buildCompanyProfile(code, lookup, industry, stockData);
+    const pricePrediction = buildPricePrediction(code, q, qc, nextDay);
+
+    const body = {
       code,
       companyName,
       industry,
+      dataDate: qc.dataDate,
+      phase: qc.phase,
+      quoteAsOfMs: qc.quoteAsOfMs,
+      /** 「明日」或過期時的明確日期（「10-12 」）；前端組「{nextDayWord}高點參考」用。舊 JSON 沒有＝明日 */
+      nextDayWord: nextDay.word,
+      todayMove,
+      readings,
       trendAnalysis,
       newsHeadlines,
       industryOutlook,
@@ -126,9 +198,13 @@ export async function GET(request: NextRequest) {
       companyProfile,
       pricePrediction,
       generatedAt: new Date().toISOString(),
-    }, {
-      headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' },
-    });
+    };
+    // 任一判讀讀取失敗 ⇒ 短快取＋X-Data-Status: partial，不把一次故障在 CDN 上釘 6 分鐘（api-cache unavailable() 的規矩）。
+    // 不用 cacheHeader('quote')：收盤後它是 1800 秒的 CLOSED_OVERRIDE。
+    if (anyUnavailable(readings)) {
+      return gzipJsonAuto(body, { 'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=15', 'X-Data-Status': 'partial' });
+    }
+    return gzipJsonAuto(body, { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60' });
 
   } catch (error) {
     console.error('Trend analysis error:', error);
@@ -154,6 +230,10 @@ interface StockDayItem {
   TradeVolume: string;
   TradeValue: string;
   Transaction: string;
+  // 上游原樣欄位（民國 YYYMMDD 等）：快照不新鮮時當資料日；快照新鮮時拿來核對非即時列的開高低／成交值是不是資料日的值
+  //（快照路徑的 Date 取自 STOCK_DAY_ALL CSV，盤中＝前一交易日；快照合成的上櫃後備列與興櫃列是 ''）
+  Date?: string;
+  _source?: string;   // 'mis_live'｜'stock_day_all'｜'esb'（twse-api-server 每列都會標，不會是空的）
 }
 
 interface NewsItem {
@@ -161,426 +241,122 @@ interface NewsItem {
   text: string;
 }
 
-// ─── Trend Analysis Builder ───────────────────────────────────
+/** 「明日」用語：過期（落後 ≥2 個交易日）時改成明確日期（§1.1） */
+interface NextDayWords {
+  word: string;          // '明日'｜'10-12 '
+  limitSuffix: string;   // '（檔位）'｜'（以 10-08 收盤試算）'
+}
+
+/** 日行情列的資料日：民國 YYYMMDD（或 YYMMDD）／西元 YYYYMMDD／YYYY-MM-DD；格式不對回 null（不猜） */
+function rowYmdOf(raw: string | undefined): string | null {
+  const roc = rocDateToIso(raw);
+  if (roc) return roc;
+  const d = String(raw ?? '').replace(/\D/g, '');
+  if (d.length !== 8) return null;
+  const ymd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+  return /^(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(ymd) ? ymd : null;
+}
+
+const num = (v: string | undefined): number => parseFloat(String(v ?? '').replace(/,/g, '')) || 0;
+
+/**
+ * 日行情列 → 純函式 quoteFactsOf 的輸入（開高低原始值、缺就是 0，不以收盤價補）。
+ * 資料日閘門（非即時列的開高低／成交值與資料日不同天就不用）在 quoteFactsOf 裡，有單元測試。
+ */
+function quoteRowOf(stock: StockDayItem | null): QuoteRowInput | null {
+  if (!stock) return null;
+  return {
+    close: num(stock.ClosingPrice),
+    change: num(stock.Change),
+    open: num(stock.OpeningPrice),
+    high: num(stock.HighestPrice),
+    low: num(stock.LowestPrice),
+    tradeValue: num(stock.TradeValue),
+    volume: num(stock.TradeVolume),
+    rowYmd: rowYmdOf(stock.Date),
+    source: stock._source ?? null,
+    market: stock._market ?? null,
+  };
+}
+
+/** 價位用語的錨點：收盤後「今收」、盤中「目前價」、興櫃「最新價」 */
+const anchorWord = (qc: QuoteContext): string => (qc.phase === 'intraday' ? '目前價' : qc.phase === 'quote' ? '最新價' : '今收');
+
+// ─── Trend Analysis Builder（F12：只描述事實，下跌側與上漲側對稱）────────
 
 function buildTrendAnalysis(
   code: string,
-  stock: StockDayItem | null,
-  industry: IndustryInfo,
-  companyName: string
+  q: QuoteFacts | null,
+  qc: QuoteContext,
+  companyName: string,
+  stale: boolean,
+  dayFailed: boolean,
 ): TrendAnalysis {
-  const reasons: TrendReason[] = [];
-  let summaryText = '';
-
-  if (!stock) {
+  if (!q) {
     return {
-      summary: '資料載入中，請稍後再試',
+      summary: dayFailed ? '暫時無法取得當日行情，請稍後重新整理。' : '當日行情清單查無此代號（可能停牌、下市，或代號有誤）。',
       reasons: [],
       momentum: 'neutral',
       momentumScore: 50,
     };
   }
+  const move = {
+    chgPct: q.chgPct, limit: q.limit, phase: qc.phase, tradeValue: q.tradeValue, closePos: q.closePos,
+    dataDate: qc.dataDate, quoteAsOfMs: qc.quoteAsOfMs, stale, noTradeToday: q.noTradeToday, auditOutside: q.auditOutside,
+  };
+  const summary = summaryText({ ...move, companyName, code });
+  const reasons = reasonsOf({ ...move, close: q.close, open: q.open, prevClose: q.prevClose });
 
-  const close = parseFloat(stock.ClosingPrice) || 0;
-  const change = parseFloat(stock.Change) || 0;
-  const prevClose = close - change;
-  const chgPct = prevClose > 0 ? (change / prevClose) * 100 : 0;
-  const high = parseFloat(stock.HighestPrice) || close;
-  const low = parseFloat(stock.LowestPrice) || close;
-  const open = parseFloat(stock.OpeningPrice) || close;
-  const volume = parseInt(stock.TradeVolume?.replace(/,/g, '') || '0');
-  const value = parseInt(stock.TradeValue?.replace(/,/g, '') || '0');
-  const range = high - low;
-  const closePos = closePositionOf(close, high, low, prevClose);
-  const isGap = open > prevClose * 1.01;
-
-  // ── Primary Trend Reason (Momentum) ──
-  if (chgPct >= 9.9) {
-    reasons.push({
-      icon: '🔴',
-      title: '觸及漲停板 — 籌碼強力鎖定',
-      detail: `今日以漲停板 ${close.toFixed(2)} 元作收，顯示市場高度共識做多，主力買盤強勁介入，散戶追價意願強烈。漲停股隔日平均有 62% 機率繼續上漲，為市場最強勢型態。`,
-      strength: 'strong',
-      category: 'price_action',
-    });
-  } else if (chgPct >= 6) {
-    reasons.push({
-      icon: '📈',
-      title: `強力上攻 +${chgPct.toFixed(1)}% — 突破前高壓力`,
-      detail: `今日股價強勢上漲 ${chgPct.toFixed(2)}%，成交量大幅放大，顯示有主動買盤積極進場。此類單日大漲通常伴隨題材催化或法人調升目標價，後續仍有追價空間。`,
-      strength: 'strong',
-      category: 'price_action',
-    });
-  } else if (chgPct >= 3) {
-    reasons.push({
-      icon: '📊',
-      title: `穩健上漲 +${chgPct.toFixed(1)}% — 量價配合良好`,
-      detail: `漲幅 ${chgPct.toFixed(2)}%，屬於健康上升趨勢，並未出現追高過度現象。這種溫和的量價配合型態，代表資金仍在逐步佈局中，後市發展空間相對充裕。`,
-      strength: 'moderate',
-      category: 'price_action',
-    });
-  }
-
-  // ── Volume Analysis ──
-  if (value > 5_000_000_000) {
-    reasons.push({
-      icon: '💰',
-      title: `超大量 ${(value / 1e8).toFixed(0)} 億成交 — 法人主力積極介入`,
-      detail: `今日成交金額高達 ${(value / 1e8).toFixed(1)} 億元，遠超市場平均水準。此規模的交易量通常代表外資或大型投信正在建立部位，是後市看多的重要訊號。`,
-      strength: 'strong',
-      category: 'volume',
-    });
-  } else if (value > 1_000_000_000) {
-    reasons.push({
-      icon: '📦',
-      title: `成交值 ${(value / 1e8).toFixed(0)} 億 — 法人資金持續關注`,
-      detail: `成交金額突破 ${(value / 1e8).toFixed(0)} 億元門檻，顯示有機構投資人在此價位附近積極進場，散戶跟進意願也相對較高。`,
-      strength: 'moderate',
-      category: 'volume',
-    });
-  }
-
-  // ── Intraday Pattern ──
-  if (closePos != null && closePos >= 0.85) {
-    reasons.push({
-      icon: '💪',
-      title: '收盤守高位 — 多頭氣勢完整',
-      detail: `今日股價收在日內高點附近（收盤位置 ${((closePos ?? 0) * 100).toFixed(0)}%），上影線極短，表示盤中雖有獲利回吐賣壓，但均被強力承接。結構性買盤支撐明顯，短線多方佔優。`,
-      strength: 'moderate',
-      category: 'technical',
-    });
-  } else if (closePos != null && closePos <= 0.25) {
-    reasons.push({
-      icon: '⚠️',
-      title: '收盤接近低點 — 注意賣壓風險',
-      detail: `今日雖上漲，但收盤位置偏低（${((closePos ?? 0) * 100).toFixed(0)}%），出現長上影線，尾盤賣壓明顯，短線可能需要震盪整理後才能再攻。`,
-      strength: 'weak',
-      category: 'technical',
-    });
-  }
-
-  // ── Gap Analysis ──
-  if (isGap && chgPct > 1) {
-    const gapPct = ((open / prevClose) - 1) * 100;
-    reasons.push({
-      icon: '⬆️',
-      title: `跳空 ${gapPct.toFixed(1)}% 高開強勢 — 前夜有利多訊息`,
-      detail: `今日開盤即跳空 ${gapPct.toFixed(1)}% 高開，代表隔夜有正面消息刺激或外資盤前調整部位。跳空缺口通常形成有效支撐，後續回測此區域為良好買點。`,
-      strength: 'moderate',
-      category: 'technical',
-    });
-  }
-
-  // ── Industry Tailwind ──
-  if (['24', '25', '28', '30', '31'].includes(industry.code)) {
-    reasons.push({
-      icon: '🤖',
-      title: 'AI 供應鏈受惠 — 產業順風強勁',
-      detail: `${industry.name}族群受益於全球 AI 基礎設施投資熱潮（輝達/微軟/Google 資本支出持續創高），台灣相關供應鏈接單能見度延伸至 2025~2026 年，本益比評價有上調空間。`,
-      strength: 'strong',
-      category: 'industry',
-    });
-  } else if (industry.code === '17') {
-    reasons.push({
-      icon: '🏦',
-      title: '金融股升息循環受益 — 利差擴大',
-      detail: `美台利差政策影響銀行業淨利息收益率（NIM）持續改善，壽險業受惠台股萬點行情提升股票資產未實現收益。金融股股息殖利率仍具吸引力，外資有回補空間。`,
-      strength: 'moderate',
-      category: 'industry',
-    });
-  } else if (industry.code === '22') {
-    reasons.push({
-      icon: '💊',
-      title: 'AI 新藥開發加速 — 生技題材持續發酵',
-      detail: `AI 輔助藥物開發縮短研發週期，台灣生技廠商積極與國際大廠授權合作。委託研究開發（CRO）與委託製造（CDMO）市場擴大，相關概念股評價持續提升。`,
-      strength: 'moderate',
-      category: 'industry',
-    });
-  } else if (industry.code === '15') {
-    reasons.push({
-      icon: '🚢',
-      title: '航運運費回升 — 供需結構改善',
-      detail: `全球航運市場因紅海危機導致繞行增加，歐美航線運費維持高檔。加上貨運需求逐步回升，台灣航運公司營收能見度提升，股利政策維持穩健。`,
-      strength: 'moderate',
-      category: 'industry',
-    });
-  } else {
-    reasons.push({
-      icon: industry.emoji,
-      title: `${industry.name}族群佈局 — ${industry.sector}動能`,
-      detail: `${industry.description}。類股整體表現受大盤情緒與外資動向影響，建議留意同族群是否同步上漲確認買盤廣度。`,
-      strength: 'moderate',
-      category: 'industry',
-    });
-  }
-
-  // ── Determine momentum level ──
+  // legacy（L20 刪除）：舊 TrendPanel 的動能儀表與舊 recommendation 讀它；新前端不讀，數值算法不動
   let momentum: TrendAnalysis['momentum'] = 'neutral';
   let momentumScore = 50;
-  if (chgPct >= 7) { momentum = 'strong_bull'; momentumScore = 90; }
-  else if (chgPct >= 3 && closePos != null && closePos >= 0.7) { momentum = 'bull'; momentumScore = 75; }
-  else if (chgPct >= 1) { momentum = 'mild_bull'; momentumScore = 62; }
-  else if (chgPct >= -1) { momentum = 'neutral'; momentumScore = 50; }
+  if (q.chgPct >= 7) { momentum = 'strong_bull'; momentumScore = 90; }
+  else if (q.chgPct >= 3 && q.closePos != null && q.closePos >= 0.7) { momentum = 'bull'; momentumScore = 75; }
+  else if (q.chgPct >= 1) { momentum = 'mild_bull'; momentumScore = 62; }
+  else if (q.chgPct >= -1) { momentum = 'neutral'; momentumScore = 50; }
   else { momentum = 'bear'; momentumScore = 30; }
 
-  // ── Summary ──
-  const compDesc = companyName ? `${companyName}（${code}）` : code;
-  if (momentum === 'strong_bull') {
-    summaryText = `${compDesc} 今日呈現強勢爆發型走勢，${reasons[0]?.title || '股價大幅上揚'}，配合${value > 1e9 ? '法人大量介入' : '量能放大'}，短線動能強勁，為市場焦點股之一。`;
-  } else if (momentum === 'bull') {
-    summaryText = `${compDesc} 今日走勢健康穩健，${chgPct.toFixed(1)}% 的漲幅伴隨良好量價結構，顯示市場對其後市持正向看法，後續具波段操作價值。`;
-  } else {
-    summaryText = `${compDesc} 今日溫和上漲，配合${industry.name}族群整體向好走勢，基本面具備支撐，可列入觀察。`;
-  }
-
-  return { summary: summaryText, reasons, momentum, momentumScore };
+  return { summary, reasons, momentum, momentumScore };
 }
 
-// ─── News Headlines Builder ───────────────────────────────────
+// ─── News Headlines Builder（F13：只留交易所公告；舊版的產業模板假新聞已刪除）──────
 
-function buildNewsHeadlines(
-  code: string,
-  companyName: string,
-  stock: StockDayItem | null,
-  industry: IndustryInfo,
-  twseAnnouncements: NewsItem[]
-): NewsHeadline[] {
-  const headlines: NewsHeadline[] = [];
-
-  // 1. Actual TWSE announcements (highest priority)
-  for (const anno of twseAnnouncements) {
-    let cleanText = anno.text;
-    // Trim to reasonable length
-    if (cleanText.length > 80) {
-      cleanText = cleanText.substring(0, 78) + '…';
-    }
-    headlines.push({
-      source: '臺灣證交所',
-      headline: cleanText,
-      date: anno.date,
-      type: 'official',
-      sentiment: 'neutral',
-      url: 'https://www.twse.com.tw/rwd/zh/announcement/announcement',
-    });
-  }
-
-  const close = stock ? parseFloat(stock.ClosingPrice) : 0;
-  const chgPct = stock ? (() => {
-    const change = parseFloat(stock.Change) || 0;
-    const prev = close - change;
-    return prev > 0 ? (change / prev) * 100 : 0;
-  })() : 0;
-  const value = stock ? parseInt(stock.TradeValue?.replace(/,/g, '') || '0') : 0;
-
-  // 2. AI-generated contextual headlines based on industry + price action
-  const industryHeadlines = getIndustryHeadlines(industry.code, companyName, code, chgPct, value);
-  headlines.push(...industryHeadlines);
-
-  // 3. Technical pattern headline
-  if (chgPct >= 9.9) {
-    headlines.push({
-      source: 'AI 技術分析',
-      headline: `${companyName || code} 漲停鎖板，籌碼高度集中，明日開盤動向受市場高度關注`,
-      date: new Date().toLocaleDateString('zh-TW'),
-      type: 'analysis',
-      sentiment: 'positive',
-    });
-  } else if (chgPct >= 5) {
-    headlines.push({
-      source: 'AI 技術分析',
-      headline: `${companyName || code} 單日強漲 ${chgPct.toFixed(1)}%，成交量突破近期高點，多頭氣勢持續`,
-      date: new Date().toLocaleDateString('zh-TW'),
-      type: 'analysis',
-      sentiment: 'positive',
-    });
-  }
-
-  return headlines.slice(0, 6);
+function buildNewsHeadlines(twseAnnouncements: NewsItem[]): NewsHeadline[] {
+  return twseAnnouncements.map(anno => ({
+    source: '證交所公告',
+    headline: anno.text.length > 80 ? `${anno.text.substring(0, 78)}…` : anno.text,
+    date: anno.date,
+    type: 'official' as const,
+    sentiment: 'neutral' as const,   // 未判別：公告不等於利多或利空
+    url: 'https://www.twse.com.tw/rwd/zh/announcement/announcement',
+  }));
 }
 
-function getIndustryHeadlines(
-  industryCode: string,
-  companyName: string,
-  code: string,
-  chgPct: number,
-  value: number
-): NewsHeadline[] {
-  const today = new Date().toLocaleDateString('zh-TW');
-  const tag = companyName ? `${companyName}（${code}）` : code;
-
-  const industryNewsMap: Record<string, NewsHeadline[]> = {
-    '24': [
-      { source: '半導體產業快訊', headline: '輝達 GB300 系列出貨加速，台積電/CoWoS 封裝產能滿載至 2026 年', date: today, type: 'industry', sentiment: 'positive' },
-      { source: '科技財經', headline: `AI 伺服器供應鏈強勁，${tag} 受惠訂單能見度高達三季以上`, date: today, type: 'industry', sentiment: 'positive' },
-      { source: '半導體產業', headline: '先進封裝 CoWoS/SoIC 需求爆炸性成長，台廠搶先佈局獲利', date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '25': [
-      { source: 'AI 硬體快訊', headline: 'AI PC 換機潮啟動，微軟 Copilot+ PC 規格帶動供應鏈全面升級', date: today, type: 'industry', sentiment: 'positive' },
-      { source: '伺服器產業', headline: `GB200/B300 液冷伺服器出貨旺季，${tag} 零組件供應商訂單大增`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '28': [
-      { source: '電子零組件', headline: 'AI 伺服器拉貨效應延燒，被動元件/連接器廠商接單創歷史新高', date: today, type: 'industry', sentiment: 'positive' },
-      { source: '法人觀點', headline: `${tag} 受惠 AI 供應鏈爆單，外資連續買超，目標價持續上調`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '30': [
-      { source: '軟體雲端', headline: '生成式 AI 企業導入加速，台灣 IT 服務商雲端轉型訂單爆增', date: today, type: 'industry', sentiment: 'positive' },
-      { source: 'AI 軟體趨勢', headline: `資安 AI 化成趨勢，${tag} 企業級解決方案市佔率持續擴張`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '17': [
-      { source: '金融財經', headline: '台股萬點高檔整理，壽險業股票資產未實現利益仍維持正數', date: today, type: 'industry', sentiment: 'neutral' },
-      { source: '銀行業分析', headline: `${tag} 第二季 EPS 優於預期，法說會後外資調升評等至買進`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '22': [
-      { source: '生技快訊', headline: 'AI 新藥開發平台縮短試驗期程，台灣生技股授權金收入創新高', date: today, type: 'industry', sentiment: 'positive' },
-      { source: '醫療產業', headline: `${tag} 與國際藥廠策略合作消息曝光，法人看好後市佈局機會`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '15': [
-      { source: '航運產業', headline: '紅海危機持續，繞行好望角使航程增加 14 天，運費維持高位支撐', date: today, type: 'industry', sentiment: 'positive' },
-      { source: '海運分析', headline: `${tag} 艦隊更新計畫啟動，節能新船降低成本，毛利率估改善`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '12': [
-      { source: '汽車產業', headline: '純電動車滲透率加速提升，台灣電動車零組件廠商供應鏈話語權增強', date: today, type: 'industry', sentiment: 'positive' },
-      { source: 'EV 趨勢', headline: `${tag} 電動車模組業務佔比突破三成，法人給予較高評價倍數`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '26': [
-      { source: '光電顯示', headline: 'iPhone 下一代 MicroLED 規格確認，台灣面板廠提前搶單佈局', date: today, type: 'industry', sentiment: 'positive' },
-      { source: 'AR/VR 題材', headline: `${tag} Apple Vision Pro 供應鏈身分確認，新品週期拉貨效應啟動`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
-    '27': [
-      { source: '通訊網路', headline: '低軌衛星通訊商用化加速，台廠天線模組廠商拿下 SpaceX 訂單', date: today, type: 'industry', sentiment: 'positive' },
-      { source: '5G 產業', headline: `${tag} 6G 研究合作案簽署，長線題材加持股價持續獲法人青睞`, date: today, type: 'industry', sentiment: 'positive' },
-    ],
+// ─── Industry Outlook（legacy 佔位；F1–F5 改由 readings 提供）────────────────
+// 舊版依產業寫死法人看好度 92／82…55、共識評等 BUY／HOLD、目標上漲 +18%…+5%、短中長期與催化劑／風險——全部移除。
+// 舊分頁（部署前開著的）仍會讀這幾個鍵：回不會崩、也不捏造的值（null／空陣列／狀態字），L20 整段刪除。
+function buildLegacyIndustryOutlook(industry: IndustryInfo): IndustryOutlook {
+  return {
+    industry,
+    shortTerm: '研究中',
+    midTerm: '研究中',
+    longTerm: '尚無判讀結果',
+    catalysts: [],
+    risks: [],
+    consensusRating: '無模型評等',
+    avgTargetUpside: '尚無判讀結果',
+    institutionalSentiment: null,
   };
-
-  // Default headlines for unmatched industries
-  const defaultHeadlines: NewsHeadline[] = [
-    {
-      source: '市場觀察',
-      headline: `${tag} 今日${chgPct > 5 ? '強勢大漲' : '穩健上攻'}，外資買超訊號值得追蹤`,
-      date: today,
-      type: 'analysis',
-      sentiment: chgPct > 0 ? 'positive' : 'neutral',
-    },
-    {
-      source: '產業研究',
-      headline: `${industryMap2Name(industryCode)}族群整體向好，${tag} 基本面與技術面均具備支撐`,
-      date: today,
-      type: 'industry',
-      sentiment: 'positive',
-    },
-  ];
-
-  return (industryNewsMap[industryCode] || defaultHeadlines).slice(0, 3);
-}
-
-function industryMap2Name(code: string): string {
-  return INDUSTRY_MAP[code]?.name || '相關產業';
-}
-
-// ─── Industry Outlook Builder ─────────────────────────────────
-
-function buildIndustryOutlook(industry: IndustryInfo, stock: StockDayItem | null): IndustryOutlook {
-  const outlooks: Record<string, Omit<IndustryOutlook, 'industry'>> = {
-    '24': {
-      shortTerm: '強勢',
-      midTerm: '持續看多',
-      longTerm: '結構性多頭',
-      catalysts: ['輝達下一代 GB300/Rubin 晶片出貨', 'CoWoS 封裝產能持續擴充', 'AI 推論晶片邊緣部署加速', '中國 AI 晶片禁令促台廠受惠'],
-      risks: ['地緣政治 → 晶片出口管制升級', '景氣反轉 → 資本支出縮減', 'AI 應用落地速度低於預期'],
-      consensusRating: 'BUY',
-      avgTargetUpside: '+18%',
-      institutionalSentiment: 92,
-    },
-    '25': {
-      shortTerm: '偏多',
-      midTerm: '看多',
-      longTerm: '換機潮支撐',
-      catalysts: ['AI PC 滲透率快速提升至 30%+', '微軟 Copilot+ 規格強制升級', '液冷伺服器放量出貨'],
-      risks: ['PC 市場整體需求仍偏弱', '匯率波動影響海外收益'],
-      consensusRating: 'BUY',
-      avgTargetUpside: '+14%',
-      institutionalSentiment: 78,
-    },
-    '28': {
-      shortTerm: '強勢',
-      midTerm: '持續看多',
-      longTerm: '結構成長',
-      catalysts: ['AI 伺服器零組件持續拉貨', 'GB300 新平台帶動新規格採用', '資料中心建設高峰期延續'],
-      risks: ['庫存去化若出現轉折', '競爭加劇壓縮毛利'],
-      consensusRating: 'BUY',
-      avgTargetUpside: '+15%',
-      institutionalSentiment: 82,
-    },
-    '17': {
-      shortTerm: '中性偏多',
-      midTerm: '股利支撐',
-      longTerm: '穩健防禦',
-      catalysts: ['股息殖利率相對高吸引保守資金', '升息循環尾聲 NIM 仍優', '呆帳率維持低水準'],
-      risks: ['台股若出現修正衝擊壽險業帳面', '市場轉向時資金移出至科技股'],
-      consensusRating: 'HOLD/BUY',
-      avgTargetUpside: '+8%',
-      institutionalSentiment: 60,
-    },
-    '22': {
-      shortTerm: '題材性偏多',
-      midTerm: '看多',
-      longTerm: '長線佈局',
-      catalysts: ['AI 新藥授權案有望持續曝光', 'FDA 審查通道加速', '細胞基因療法市場擴張'],
-      risks: ['臨床試驗失敗風險高', '燒錢率影響財務', '資金偏愛科技股排擠效應'],
-      consensusRating: 'BUY',
-      avgTargetUpside: '+22%',
-      institutionalSentiment: 68,
-    },
-    '15': {
-      shortTerm: '中性',
-      midTerm: '偏多',
-      longTerm: '週期性觀察',
-      catalysts: ['紅海危機繞行增加運費支撐', '台股市場資金輪動關注', '季配息吸引存股族'],
-      risks: ['紅海局勢若緩和運費下滑', '油價上漲侵蝕獲利', '供給過剩壓力仍存'],
-      consensusRating: 'HOLD',
-      avgTargetUpside: '+6%',
-      institutionalSentiment: 52,
-    },
-    '30': {
-      shortTerm: '偏多',
-      midTerm: '看多',
-      longTerm: '結構成長',
-      catalysts: ['企業 AI 化轉型訂單爆增', '雲端 + 資安整合方案需求', '政府數位建設標案'],
-      risks: ['競爭激烈影響定價能力', '大廠直接進入市場'],
-      consensusRating: 'BUY',
-      avgTargetUpside: '+16%',
-      institutionalSentiment: 72,
-    },
-  };
-
-  const defaultOutlook: Omit<IndustryOutlook, 'industry'> = {
-    shortTerm: '中性',
-    midTerm: '觀察',
-    longTerm: '待確認',
-    catalysts: ['整體大盤氣氛影響', '外資買賣超動向', '景氣循環走向'],
-    risks: ['市場系統性風險', '產業需求波動'],
-    consensusRating: 'HOLD',
-    avgTargetUpside: '+5%',
-    institutionalSentiment: 55,
-  };
-
-  const outlookData = outlooks[industry.code] || defaultOutlook;
-  return { ...outlookData, industry };
 }
 
 // ─── Response Interfaces ──────────────────────────────────────
 
-interface TrendReason {
-  icon: string;
-  title: string;
-  detail: string;
-  strength: 'strong' | 'moderate' | 'weak';
-  category: 'price_action' | 'volume' | 'technical' | 'industry' | 'news';
-}
+type TrendReason = TrendReasonOut;
 
 interface TrendAnalysis {
   summary: string;
   reasons: TrendReason[];
+  /** legacy（L20 刪除）：新前端不讀 */
   momentum: 'strong_bull' | 'bull' | 'mild_bull' | 'neutral' | 'bear';
   momentumScore: number;
 }
@@ -594,6 +370,7 @@ interface NewsHeadline {
   url?: string;
 }
 
+/** legacy（L20 刪除） */
 interface IndustryOutlook {
   industry: IndustryInfo;
   shortTerm: string;
@@ -603,16 +380,16 @@ interface IndustryOutlook {
   risks: string[];
   consensusRating: string;
   avgTargetUpside: string;
-  institutionalSentiment: number; // 0-100
+  institutionalSentiment: number | null;
 }
 
-// ─── Pre-Market Recommendation Builder ────────────────────────
+// ─── Pre-Market（價格參考：公式試算，非買賣建議）────────────────
 
 export interface OrderLevel {
-  label: string;          // e.g. '積極追買'
+  label: string;          // 例「今收 -1.5% 參考價」
   price: number;
   rationale: string;
-  style: 'aggressive' | 'standard' | 'conservative' | 'limit';
+  style: 'aggressive' | 'standard' | 'conservative' | 'limit';   // legacy 鍵值（舊前端需要）；新前端不顯示徽章
   riskLevel: 'high' | 'medium' | 'low';
 }
 
@@ -620,202 +397,104 @@ export interface PreMarketRecommendation {
   todayClose: number;
   prevClose: number;
   todayChangePercent: number;
-  expectedOpeningRange: { low: number; high: number };
+  expectedOpeningRange: { low: number; high: number; basis: string };
+  /** legacy（L20 刪除）：固定 'wait'，舊前端 REC_CONFIG 需要合法鍵 */
   recommendation: 'strong_buy' | 'buy' | 'wait' | 'avoid';
   recommendationText: string;
   optimalOrderTime: string;
   orderLevels: OrderLevel[];
+  /** legacy（L20 刪除）：舊前端 .toFixed；新前端只讀 stopRef */
   stopLossPrice: number;
+  stopRef: StopRef;
   auctionStrategy: string;
   dayTradingNote: string;
   riskWarning: string;
 }
 
-function buildPreMarketRecommendation(
-  code: string,
-  stock: StockDayItem | null,
-  trend: TrendAnalysis
-): PreMarketRecommendation {
-  const defaultResult: PreMarketRecommendation = {
-    todayClose: 0,
-    prevClose: 0,
-    todayChangePercent: 0,
-    expectedOpeningRange: { low: 0, high: 0 },
-    recommendation: 'wait',
-    recommendationText: '資料不足，建議等待開盤後確認方向',
-    optimalOrderTime: '08:30 ~ 08:55',
-    orderLevels: [],
-    stopLossPrice: 0,
-    auctionStrategy: '建議等待開盤後觀察',
-    dayTradingNote: '請確認開盤量能再決定',
-    riskWarning: '市場有風險，投資需謹慎',
+const RISK_WARNING = '以上價位為公式試算（今收或昨收 × 固定倍數），不是預測，也不是買賣建議；判讀欄位依各自來源與資料日顯示。非投資建議。';
+const NEXT_DAY_DIR_TEXT = '明日方向：尚無判讀結果（隔日方向模型研究中，未公開）。';
+
+/** 倍數 → 「今收 -1.5% 參考價」（1.0 → 「今收參考價」） */
+function orderLevel(anchor: string, close: number, mult: number, style: OrderLevel['style'], riskLevel: OrderLevel['riskLevel']): OrderLevel {
+  const price = parseFloat((close * mult).toFixed(2));
+  const pctRaw = parseFloat(((mult - 1) * 100).toFixed(2));
+  const pctText = pctRaw === 0 ? '' : ` ${pctRaw > 0 ? '+' : '-'}${Math.abs(pctRaw)}%`;
+  return {
+    label: `${anchor}${pctText} 參考價`,
+    price,
+    rationale: `公式：${anchor} ${close} × ${mult} = ${price}（固定倍數，非掛單建議）`,
+    style,
+    riskLevel,
   };
+}
 
-  if (!stock) return defaultResult;
-
-  const close = parseFloat(stock.ClosingPrice) || 0;
-  const change = parseFloat(stock.Change) || 0;
-  const prevClose = close - change;
-  if (close <= 0 || prevClose <= 0) return defaultResult;
-
-  const chgPct = (change / prevClose) * 100;
-  const high = parseFloat(stock.HighestPrice) || close;
-  const low  = parseFloat(stock.LowestPrice)  || close;
-  const open = parseFloat(stock.OpeningPrice) || close;
-  const closePos = closePositionOf(close, high, low, prevClose);
-  // ⚠ **興櫃沒有漲跌幅限制**（2026-09-01 使用者回報 7930 威世波）：
-  //   威世波當日 +25.27%，用 chgPct>=9.9 判斷會說它「漲停」——
-  //   但興櫃根本沒有漲停這回事，那是上市櫃才有的制度。
-  //   資料來源已標 _market:'esb'（見 twse-api-server），這裡只是沒有用它。
-  const isEsb = (stock as { _market?: string })._market === 'esb';
-  const isLimitUp = !isEsb && chgPct >= 9.9;
-
-  // Taiwan daily limit is ±10%
-  // 興櫃無漲跌幅限制 ⇒ 不給價格（null），而不是給一個不存在的數字
-  const limitUpPrice   = isEsb ? null : parseFloat((prevClose * 1.1).toFixed(2));
-  const limitDownPrice = isEsb ? null : parseFloat((prevClose * 0.9).toFixed(2));
-
-  // Expected opening range for next day
-  // Momentum continuation: strong days gap up slightly; weak days mean-revert
-  let openLow: number, openHigh: number;
-  if (isLimitUp) {
-    // After limit-up: gap up ~1-3%, possible continuation or profit-taking
-    openLow  = parseFloat((close * 0.99).toFixed(2));
-    openHigh = parseFloat((close * 1.05).toFixed(2));
-  } else if (chgPct >= 5) {
-    openLow  = parseFloat((close * 0.985).toFixed(2));
-    openHigh = parseFloat((close * 1.03).toFixed(2));
-  } else if (chgPct >= 2) {
-    openLow  = parseFloat((close * 0.99).toFixed(2));
-    openHigh = parseFloat((close * 1.02).toFixed(2));
-  } else {
-    openLow  = parseFloat((close * 0.98).toFixed(2));
-    openHigh = parseFloat((close * 1.015).toFixed(2));
+function buildPreMarketRecommendation(q: QuoteFacts | null, qc: QuoteContext, todayMove: TodayMove | null): PreMarketRecommendation {
+  if (!q || !(q.prevClose > 0)) {
+    return {
+      todayClose: q?.close ?? 0,
+      prevClose: q?.prevClose ?? 0,
+      todayChangePercent: 0,
+      expectedOpeningRange: { low: 0, high: 0, basis: '當日行情資料不足，不試算。' },
+      recommendation: 'wait',
+      recommendationText: `${NEXT_DAY_DIR_TEXT}暫時無法取得當日行情。`,
+      optimalOrderTime: '',
+      orderLevels: [],
+      stopLossPrice: 0,
+      stopRef: stopRefOf(0, 0),
+      auctionStrategy: '',
+      dayTradingNote: '',
+      riskWarning: RISK_WARNING,
+    };
   }
+  const { close, prevClose, chgPct } = q;
+  const anchor = anchorWord(qc);
+  // 開盤參考區間（公式，數值不變）：依今日漲幅分段的固定倍數。漲停段沿用舊式 ≥9.9% 近似（公式照算，不改分段）；
+  // 文字寫明「近似漲停」，真漲停但漲幅未達 9.9% 時附註（openRangeBasisText）。
+  const isLimitUpApprox = !q.isEsb && chgPct >= OPEN_RANGE_LIMIT_APPROX_PCT;
+  const [lo, hi] = isLimitUpApprox ? [0.99, 1.05] : chgPct >= 5 ? [0.985, 1.03] : chgPct >= 2 ? [0.99, 1.02] : [0.98, 1.015];
+  const openBasis = openRangeBasisText(lo, hi, {
+    anchor, chgPct, limitUpApprox: isLimitUpApprox, limit: q.limit, phase: qc.phase, quoteAsOfMs: qc.quoteAsOfMs,
+  });
 
-  // Order levels
-  const orderLevels: OrderLevel[] = [];
+  // 價格參考（公式，數值不變；舊版的推薦式標籤與文案已改為倍數說明）
+  const orderLevels: OrderLevel[] = isLimitUpApprox
+    ? [
+      orderLevel(anchor, close, 1.02, 'aggressive', 'high'),
+      orderLevel(anchor, close, 1.0, 'standard', 'medium'),
+      orderLevel(anchor, close, 0.97, 'conservative', 'low'),
+    ]
+    : chgPct >= 3 && q.closePos != null && q.closePos >= 0.7
+    ? [
+      orderLevel(anchor, close, 0.99, 'standard', 'medium'),
+      orderLevel(anchor, close, 0.975, 'conservative', 'low'),
+      orderLevel(anchor, close, 1.005, 'aggressive', 'high'),
+    ]
+    : [
+      orderLevel(anchor, close, 0.985, 'standard', 'medium'),
+      orderLevel(anchor, close, 0.97, 'conservative', 'low'),
+    ];
 
-  if (isLimitUp) {
-    // After limit-up: most people want to chase — provide strategic levels
-    orderLevels.push({
-      label: '開盤追漲（漲停繼板）',
-      price: parseFloat((close * 1.02).toFixed(2)),
-      rationale: `漲停隔日若繼續鎖板，可在開盤前掛 ${(close * 1.02).toFixed(2)} 元委買；若開盤即跌破昨收則立即止損`,
-      style: 'aggressive',
-      riskLevel: 'high',
-    });
-    orderLevels.push({
-      label: '平盤接回（標準策略）',
-      price: parseFloat(close.toFixed(2)),
-      rationale: `若開盤回吐至昨收 ${close.toFixed(2)} 附近，為短線洗盤型態，可少量試探進場`,
-      style: 'standard',
-      riskLevel: 'medium',
-    });
-    orderLevels.push({
-      label: '回測支撐（保守策略）',
-      price: parseFloat((close * 0.97).toFixed(2)),
-      rationale: `回測至 ${(close * 0.97).toFixed(2)} 元（昨收 -3%）為型態較安全介入點，停損可設昨收 -5%`,
-      style: 'conservative',
-      riskLevel: 'low',
-    });
-  } else if (chgPct >= 3 && closePos != null && closePos >= 0.7) {
-    // Strong bull: slight pullback is buying opportunity
-    const stdBuy  = parseFloat((close * 0.99).toFixed(2));
-    const cnsvBuy = parseFloat((close * 0.975).toFixed(2));
-    orderLevels.push({
-      label: '小回接買（標準策略）',
-      price: stdBuy,
-      rationale: `盤前掛 ${stdBuy} 元（小於昨收 1%），等待開盤競價小幅回落後成交，是最常見的量化進場點`,
-      style: 'standard',
-      riskLevel: 'medium',
-    });
-    orderLevels.push({
-      label: '保守低接（風控優先）',
-      price: cnsvBuy,
-      rationale: `掛 ${cnsvBuy} 元（回測 2.5%）等待支撐確認，適合資金量較大、風控優先的操作者`,
-      style: 'conservative',
-      riskLevel: 'low',
-    });
-    orderLevels.push({
-      label: '積極追買（動能策略）',
-      price: parseFloat((close * 1.005).toFixed(2)),
-      rationale: `若動能持續，可設平高盤委買，確保能成交；適合短線動能派`,
-      style: 'aggressive',
-      riskLevel: 'high',
-    });
-  } else {
-    // Mild or neutral: standard entry
-    const midBuy  = parseFloat((close * 0.985).toFixed(2));
-    const lowBuy  = parseFloat((close * 0.97).toFixed(2));
-    orderLevels.push({
-      label: '建議買價（標準）',
-      price: midBuy,
-      rationale: `盤前掛 ${midBuy} 元，等待競價結果，若順利成交再觀察開盤量能決定加碼時機`,
-      style: 'standard',
-      riskLevel: 'medium',
-    });
-    orderLevels.push({
-      label: '理想低接價',
-      price: lowBuy,
-      rationale: `若開盤走弱回到 ${lowBuy} 元，為更佳的風險報酬進場點，建議分批布局`,
-      style: 'conservative',
-      riskLevel: 'low',
-    });
-  }
-
-  // Stop loss
+  // legacy 停損數字（算法不變；舊前端 .toFixed）。新前端讀 stopRef（公式值 ≥ 今收時不提供，F11）
   const stopLossPrice = parseFloat((prevClose * (chgPct >= 5 ? 0.93 : 0.95)).toFixed(2));
-
-  // Recommendation text
-  let rec: PreMarketRecommendation['recommendation'];
-  let recText: string;
-  if (trend.momentum === 'strong_bull' || isLimitUp) {
-    rec = 'strong_buy';
-    recText = isLimitUp
-      ? `漲停型態，明日開盤若繼續鎖板則動能強勁。建議盤前掛接近漲停價委買，停損設昨收 -5% 約 ${stopLossPrice} 元。`
-      : `強勢多頭格局，建議盤前掛略低於收盤價委買，等待競價成交後確認量能再加碼。`;
-  } else if (trend.momentum === 'bull' || chgPct >= 2) {
-    rec = 'buy';
-    recText = `今日走勢良好，建議盤前掛在 ${orderLevels[0]?.price ?? close} 元附近等待競價。若開盤成交量達昨日三成以上，可視為買進訊號確認。`;
-  } else if (trend.momentum === 'neutral') {
-    rec = 'wait';
-    recText = `動能普通，建議等開盤 5 分鐘觀察量能方向後再決定進場，避免盲目追高。`;
-  } else {
-    rec = 'avoid';
-    recText = `今日走勢偏弱，建議暫緩進場，等待均線支撐確認後再評估。`;
-  }
-
-  // Auction strategy
-  let auctionStrategy: string;
-  if (isLimitUp) {
-    auctionStrategy = '08:30 起即可掛漲停板委買，提高競價成交機率。若 08:55 競價完成後仍鎖板，可留單；若開盤即下殺破昨收，立即取消委託。';
-  } else if (chgPct >= 3) {
-    auctionStrategy = `08:40~08:55 之間掛單最佳。建議掛在 ${openLow.toFixed(2)}~${openHigh.toFixed(2)} 元之間的競價區間，過高追買風險大，過低可能無法成交。`;
-  } else {
-    auctionStrategy = `建議 09:00 開盤後觀察 5 分鐘量能再決定是否掛單，避免跌破開盤價後被套。`;
-  }
-
-  // Day trading note
-  const dtNote = chgPct >= 5
-    ? '動能強勁，當日沖銷（當沖）者可在開盤後量能確認時短進，目標設昨日高點或漲停板；停損嚴守昨收 -3%。'
-    : chgPct >= 2
-    ? '若今日開盤後量能持續放大且守住昨收，可做當日波段；若量縮無法放量，建議隔日觀察。'
-    : '動能不足，不建議當沖；持有者可等待量能回升再做決定。';
 
   return {
     todayClose: close,
     prevClose,
     todayChangePercent: parseFloat(chgPct.toFixed(2)),
-    expectedOpeningRange: { low: openLow, high: openHigh },
-    recommendation: rec,
-    recommendationText: recText,
-    optimalOrderTime: isLimitUp ? '08:30 ~ 08:55（競價期間）' : '08:40 ~ 08:55（競價尾聲）',
+    expectedOpeningRange: {
+      low: parseFloat((close * lo).toFixed(2)),
+      high: parseFloat((close * hi).toFixed(2)),
+      basis: openBasis,
+    },
+    recommendation: 'wait',
+    recommendationText: `${NEXT_DAY_DIR_TEXT}${todayMove?.text ?? ''}`,
+    optimalOrderTime: '',
     orderLevels,
     stopLossPrice,
-    auctionStrategy,
-    dayTradingNote: dtNote,
-    riskWarning: '以上為 AI 模型推算，非實際保證。市場瞬息萬變，請務必設定停損並自行承擔風險。',
+    stopRef: stopRefOf(close, prevClose, anchor),
+    auctionStrategy: '',
+    dayTradingNote: '',
+    riskWarning: RISK_WARNING,
   };
 }
 
@@ -846,9 +525,13 @@ export interface CompanyProfile {
   capitalBillion: number; // in 億
   industryCategory: string;
   industryCode: string;
+  /** 官方業務描述尚未接入（L13）：ETF／興櫃／99 為據實說明，其餘為 ''（舊的個股業務資料庫寫錯多檔，已刪） */
   mainBusiness: string;
   keyProducts: string[];
+  /** legacy（L20 刪除）：舊 TrendPanel 以它索引物件，null 會崩；新前端改讀 scale */
   companyScale: 'large' | 'mid' | 'small';
+  /** 依實收資本額分級（本站規則：≥500 億大型、≥50 億中型）；沒有資本額時 null（不顯示徽章） */
+  scale: 'large' | 'mid' | 'small' | null;
   ageYears: number;
   listingAgeYears: number;
   /** live＝上游即時清單；fallback＝打包的官方鏡像快照；none＝公司清單查無（ETF／興櫃／未知） */
@@ -862,9 +545,12 @@ export interface CompanyProfile {
 // 與 company-list.ts 的 z() 同義；buildCompanyProfile 是獨立函式，不共用區塊層變數
 // （CLAUDE.md 記過 dSlash 跨區塊引用被吞成一行警告的教訓）。
 const clean = (v: unknown): string => {
-  const t = String(v ?? '').replace(/[\s\u3000]+/g, ' ').trim();
+  const t = String(v ?? '').replace(/[\s　]+/g, ' ').trim();
   return /^[－—–-]*$/.test(t) ? '' : t;
 };
+
+const SCALE_LARGE_BILLION = 500;
+const SCALE_MID_BILLION = 50;
 
 function buildCompanyProfile(
   code: string,
@@ -904,9 +590,10 @@ function buildCompanyProfile(
     capitalBillion: 0,
     industryCategory,
     industryCode: industry.code,
-    mainBusiness: getMainBusiness(code, industry),
-    keyProducts: getKeyProducts(code, industry),
-    companyScale: 'mid',
+    mainBusiness: getMainBusiness(industry),
+    keyProducts: [],
+    companyScale: 'mid', // legacy L20：舊 TrendPanel 會以它索引物件；新前端讀 scale（此處為 null）
+    scale: null,
     ageYears: 0,
     listingAgeYears: 0,
     dataSource: lookup.source,
@@ -921,9 +608,9 @@ function buildCompanyProfile(
   const capitalNum = parseInt(capitalRaw.replace(/[^0-9]/g, '')) || 0;
   const capitalBillion = parseFloat((capitalNum / 1e8).toFixed(1));
 
-  // Scale by capital
+  // Scale by capital（本站規則：≥500 億大型、≥50 億中型）
   const companyScale: CompanyProfile['companyScale'] =
-    capitalBillion >= 500 ? 'large' : capitalBillion >= 50 ? 'mid' : 'small';
+    capitalBillion >= SCALE_LARGE_BILLION ? 'large' : capitalBillion >= SCALE_MID_BILLION ? 'mid' : 'small';
 
   // Parse dates
   const foundedRaw = raw['成立日期'] || '';
@@ -966,7 +653,6 @@ function buildCompanyProfile(
     spokesperson: raw['發言人'] || '--',
     address: raw['住址'] || '--',
     phone: raw['總機電話'] || '--',
-    // ⚠ 只接受 http(s) 開頭的值：來源偶有「－」或空白佔位，直接丟給 <a href> 會產生壞連結
     // ⚠ 只接受 http(s) 開頭：來源偶有「－」或空白佔位，丟給 <a href> 會產生壞連結
     website: /^https?:\/\//i.test(clean(raw['網址'])) ? clean(raw['網址']) : '',
     email: clean(raw['電子郵件信箱']),
@@ -984,9 +670,10 @@ function buildCompanyProfile(
     capitalBillion,
     industryCategory,
     industryCode: industry.code,
-    mainBusiness: getMainBusiness(code, industry),
-    keyProducts: getKeyProducts(code, industry),
+    mainBusiness: getMainBusiness(industry),
+    keyProducts: [],
     companyScale,
+    scale: capitalBillion > 0 ? companyScale : null,
     ageYears: founded.year > 0 ? currentYear - founded.year : 0,
     listingAgeYears: listed.year > 0 ? currentYear - listed.year : 0,
     dataSource: lookup.source,
@@ -995,92 +682,45 @@ function buildCompanyProfile(
   };
 }
 
-// ─── Business Description Database ────────────────────────────
-// Maps stock codes to known business descriptions; falls back to industry-level
-
-const BUSINESS_DB: Record<string, { business: string; products: string[] }> = {
-  '2330': { business: '全球最大晶圓代工廠，專注先進半導體製程研發與量產，為 NVIDIA、Apple、AMD 等頂尖客戶獨家製造高階晶片', products: ['3nm/2nm 先進製程', 'CoWoS 先進封裝', '特殊製程 (RF/HV/MEMS)', 'SoIC 晶片堆疊技術'] },
-  '2308': { business: '台灣最大電子製造服務（EMS）廠商之一，同時生產電子零組件與連接器，是 AI 伺服器供應鏈核心廠商', products: ['AI 伺服器連接器', '電子製造代工', '汽車電子零組件', '機構件與精密模具'] },
-  '2454': { business: '全球第三大晶圓代工廠，專精成熟製程與特殊應用半導體，IoT/車用/電源管理是核心市場', products: ['8吋/12吋晶圓代工', '矽麥克風 MEMS', '電源管理 IC', '車用半導體'] },
-  '2317': { business: '全球最大電子產品製造商（EMS），蘋果最大代工廠，同時積極佈局機器人與 AI 自動化業務', products: ['iPhone/iPad 代工組裝', '伺服器組裝', 'AI 機器人手臂', '半導體設備'] },
-  '2412': { business: '台灣最大電信公司，提供行動通訊、寬頻、企業解決方案，積極佈局 5G/AI/雲端服務', products: ['5G 行動通訊', '企業雲端服務', '數位轉型解決方案', '媒體與串流平台'] },
-  '2881': { business: '台灣最大金融控股公司之一，旗下富邦人壽、台北富邦銀行等，資產規模逾十兆元', products: ['人壽保險', '商業銀行', '證券承銷', '資產管理'] },
-  '2882': { business: '國泰金控旗下含國泰人壽（全台最大壽險）、國泰世華銀行，深耕海外市場', products: ['壽險保單', '商業銀行存放款', '海外投資佈局', '數位金融服務'] },
-  '2303': { business: '全球前三大 DRAM 製造商，台灣記憶體產業龍頭，積極切入 AI HBM 記憶體市場', products: ['DDR5 DRAM', 'HBM3 高頻寬記憶體', 'LPDDR5X 低功耗記憶體', 'eMMC 儲存晶片'] },
-  '2379': { business: '全球連接器大廠，AI 伺服器高速傳輸連接器主要供應商，客戶涵蓋主要雲端資料中心業者', products: ['高速傳輸連接器', 'PCIe 5.0/6.0 連接器', '電源連接器', '伺服器背板'] },
-  '2313': { business: '全球最大 PCB（印刷電路板）廠之一，同時生產精密連接器，AI 伺服器需求大幅拉動訂單', products: ['高密度 PCB', 'IC 載板', '精密連接器', '汽車電子板'] },
-  '2404': { business: '全球最大 PCB 廠（依營收），涵蓋各類電子產品所需電路板，AI 伺服器板為目前成長亮點', products: ['高速 AI 伺服器 PCB', '5G 基站電路板', 'HDI 高密度板', '軟性電路板 FPC'] },
-};
-
-// 不是一般公司、或公司清單查無的代號：據實說明，不套「從事○○相關業務，為台灣○○代表性廠商」模板
-// （模板對 ETF 會生出「從事ETF相關業務」這種假話）。
+// ─── 主要業務（F27）────────────────────────────────────────────
+// 舊版的個股業務資料庫（寫錯多檔：2454 寫成晶圓代工、2303 寫成 DRAM…）、產業業務模板與產品模板全部刪除；
+// 官方業務欄位由第二批公司輪廓接入（L13）。這裡只留「不是一般公司／查無」的據實說明。
 const NON_COMPANY_BUSINESS: Record<string, string> = {
   ETF: 'ETF 是基金，不是營業公司，沒有主要業務與產品；追蹤指數與成分股請見發行投信的公開說明書。',
   ESB: '興櫃公司：主要業務的官方資料尚未接入本頁（來源未提供）。',
   '99': '主要業務：來源未提供。',
 };
 
-function getMainBusiness(code: string, industry: IndustryInfo): string {
-  if (BUSINESS_DB[code]) return BUSINESS_DB[code].business;
-  if (NON_COMPANY_BUSINESS[industry.code]) return NON_COMPANY_BUSINESS[industry.code];
-  // Fallback: industry-level description
-  const industryBusinessMap: Record<string, string> = {
-    '24': '從事半導體相關製程、設計或封裝測試，為台灣科技產業核心供應鏈成員',
-    '25': '生產電腦週邊及伺服器硬體設備，受惠 AI 換機潮與雲端建設需求',
-    '28': '生產電子零組件如被動元件、連接器、電路板等，為電子產品核心材料供應商',
-    '30': '提供資訊軟體、雲端平台及數位轉型解決方案，助企業 AI 化轉型',
-    '17': '提供銀行、保險、證券等金融服務，為台灣金融市場重要機構',
-    '22': '從事生物技術、新藥研發、醫療器材或 CRO/CDMO 業務',
-    '15': '經營航運物流，包含貨櫃航運、散裝船或貨代業務',
-    '13': '生產電子工業用零組件，涵蓋光電、被動元件、電源等多元品類',
-    '14': '從事建設開發、建材銷售或不動產相關業務',
-    '05': '製造工業機械、自動化設備或精密加工相關設備',
-  };
-  return industryBusinessMap[industry.code] || `從事${industry.name}相關業務，為台灣${industry.sector}代表性廠商`;
+function getMainBusiness(industry: IndustryInfo): string {
+  return NON_COMPANY_BUSINESS[industry.code] ?? '';
 }
 
-function getKeyProducts(code: string, industry: IndustryInfo): string[] {
-  if (BUSINESS_DB[code]) return BUSINESS_DB[code].products;
-  if (NON_COMPANY_BUSINESS[industry.code]) return [];
-  const productMap: Record<string, string[]> = {
-    '24': ['晶圓代工/設計', '先進封裝', 'IC 元件', '半導體設備'],
-    '25': ['伺服器主機板', '電腦周邊設備', '電源供應器', '散熱模組'],
-    '28': ['被動元件', '連接器', '電路板 PCB', '電子材料'],
-    '30': ['ERP/雲端平台', '資安解決方案', '大數據分析', 'AI 應用軟體'],
-    '17': ['保險產品', '銀行存放款', '資產管理', '證券投資'],
-    '22': ['新藥研發', '醫療器材', '生技原料藥', '臨床試驗服務'],
-    '15': ['貨櫃運輸', '散裝貨運', '物流倉儲', '航運代理'],
-    '13': ['電子零組件', '電源模組', '光電元件', '感測器'],
-  };
-  return productMap[industry.code] || [`${industry.name}相關產品`, '技術服務'];
-}
-
-// ─── Price Prediction Builder ──────────────────────────────────
+// ─── Price Prediction（明日高低點參考：公式試算）────────────────────
 
 export interface PricePrediction {
-  // 明日預期日內高低點
-  nextDayHigh: { price: number; basis: string; confidence: number };
-  nextDayLow: { price: number; basis: string; confidence: number };
-  // 波段支撐/壓力
+  // 明日高低點參考（公式）；confidence 舊版寫死 72／58，已移除（null；L20 刪鍵）
+  nextDayHigh: { price: number; basis: string; confidence: number | null };
+  nextDayLow: { price: number; basis: string; confidence: number | null };
+  // 價格參考帶（今收 ±%，公式）；strength 為 legacy 鍵值，新前端不顯示
   resistance: Array<{ price: number; label: string; strength: 'strong' | 'medium' | 'weak' }>;
   support: Array<{ price: number; label: string; strength: 'strong' | 'medium' | 'weak' }>;
-  // 操作區間建議
   buyZoneHigh: number;
   buyZoneLow: number;
+  /** legacy（L20 刪除）：目標價類，新前端不渲染；舊 PremarketTab 未防 null 所以保留數字 */
   targetZoneHigh: number;
   targetZoneLow: number;
-  // ATR（平均真實範圍）
+  // 今日高低差（佔今收）；不是 ATR、也不是振幅（振幅慣例 ÷昨收）
   atr: number;
   atrPercent: number;
-  // 今日位置評估
-  pricePositionScore: number; // 0-100, 100=最強
+  /** 收盤（或目前）位置 0–100；資料不足為 null（不再給 50） */
+  pricePositionScore: number | null;
   positionDescription: string;
 }
 
-function buildPricePrediction(stock: StockDayItem | null): PricePrediction {
+function buildPricePrediction(code: string, q: QuoteFacts | null, qc: QuoteContext, nextDay: NextDayWords): PricePrediction {
   const defaultResult: PricePrediction = {
-    nextDayHigh: { price: 0, basis: '資料不足', confidence: 0 },
-    nextDayLow: { price: 0, basis: '資料不足', confidence: 0 },
+    nextDayHigh: { price: 0, basis: '資料不足', confidence: null },
+    nextDayLow: { price: 0, basis: '資料不足', confidence: null },
     resistance: [],
     support: [],
     buyZoneHigh: 0,
@@ -1089,90 +729,59 @@ function buildPricePrediction(stock: StockDayItem | null): PricePrediction {
     targetZoneLow: 0,
     atr: 0,
     atrPercent: 0,
-    pricePositionScore: 50,
-    positionDescription: '資料不足，無法評估',
+    pricePositionScore: null,
+    positionDescription: '收盤位置資料不足',
   };
+  if (!q) return defaultResult;
+  const { close, high, low } = q;
+  const anchor = anchorWord(qc);
 
-  if (!stock) return defaultResult;
+  // 今日高低差（佔今收）：高低價不可信（closePosOf 回 null）時不得以 0 冒充，改以下限 1.5% 計
+  const rangePct = q.closePos == null ? null : ((high - low) / close) * 100;
+  const atr = rangePct == null ? 0 : parseFloat((high - low).toFixed(2));
+  const atrPct = rangePct == null ? 0 : parseFloat(rangePct.toFixed(2));
+  const effectivePct = Math.max(rangePct ?? 0, 1.5);
+  const nextHigh = parseFloat((close * (1 + effectivePct / 2 / 100)).toFixed(2));
+  const nextLow = parseFloat((close * (1 - effectivePct / 2 / 100)).toFixed(2));
+  const basis = basisText(close, rangePct, { phase: qc.phase, quoteAsOfMs: qc.quoteAsOfMs });
 
-  const close = parseFloat(stock.ClosingPrice) || 0;
-  const high = parseFloat(stock.HighestPrice) || close;
-  const low = parseFloat(stock.LowestPrice) || close;
-  const change = parseFloat(stock.Change) || 0;
-  const prevClose = close - change;
-
-  if (close <= 0) return defaultResult;
-
-  // ATR 估算（日內高低點差，約 1.5%~3%）
-  const atr = parseFloat((high - low).toFixed(2));
-  const atrPct = close > 0 ? parseFloat(((atr / close) * 100).toFixed(2)) : 2.0;
-  // 若今日 atr 極小，用 2% 作為最低估計
-  const effectiveAtrPct = Math.max(atrPct, 1.5);
-
-  // 明日預期高低點
-  const nextHigh = parseFloat((close * (1 + effectiveAtrPct / 2 / 100)).toFixed(2));
-  const nextLow  = parseFloat((close * (1 - effectiveAtrPct / 2 / 100)).toFixed(2));
-
-  // 漲跌停板（台灣 ±10%）
-  // 同上：興櫃無漲跌幅限制
-  const _isEsb2 = (stock as { _market?: string })._market === 'esb';
-  const limitUp   = _isEsb2 ? null : parseFloat((prevClose * 1.1).toFixed(2));
-  const limitDown = _isEsb2 ? null : parseFloat((prevClose * 0.9).toFixed(2));
-
-  // 壓力位
+  // 明日漲跌停價（F10）：今收 ×1.1／×0.9 取合法檔位。不列：興櫃（無漲跌停）、盤中（今收未定）、
+  // ETF（國外成分 ETF 無漲跌幅限制，本站沒有接入名單 ⇒ 來源未知保守不列；2026-10-08 審查）。
+  // 過期時「明日」改成明確日期（nextDay）。
+  const limits = q.isEsb || code.startsWith('00') || qc.phase === 'intraday' ? null : nextLimitPrices(close, tickSize);
   const resistance: PricePrediction['resistance'] = [
-    // 興櫃無漲跌停 ⇒ 不列這一條（下面 filter 掉），而不是列一個不存在的價位
-    { price: limitUp,                                           label: '漲停板',   strength: 'strong' },
-    { price: parseFloat((close * 1.05).toFixed(2)),             label: '+5% 壓力', strength: 'medium' },
-    { price: parseFloat((close * 1.10).toFixed(2)),             label: '+10% 壓力', strength: 'weak'  },
-  ].filter((x): x is { price: number; label: string; strength: 'strong' | 'medium' | 'weak' } => x.price != null);
-
-  // 支撐位
+    { price: parseFloat((close * 1.05).toFixed(2)), label: `${anchor} +5%`, strength: 'medium' as const },
+    ...(limits ? [{ price: limits.up, label: `${nextDay.word}漲停價${nextDay.limitSuffix}`, strength: 'strong' as const }] : []),
+  ];
   const support: PricePrediction['support'] = [
-    { price: parseFloat((close * 0.97).toFixed(2)),  label: '-3% 支撐',  strength: 'strong' },
-    { price: parseFloat((close * 0.95).toFixed(2)),  label: '-5% 支撐',  strength: 'medium' },
-    { price: limitDown,                               label: '跌停板',    strength: 'weak'   },
-  ].filter((x): x is { price: number; label: string; strength: 'strong' | 'medium' | 'weak' } => x.price != null);
+    { price: parseFloat((close * 0.97).toFixed(2)), label: `${anchor} −3%`, strength: 'strong' as const },
+    { price: parseFloat((close * 0.95).toFixed(2)), label: `${anchor} −5%`, strength: 'medium' as const },
+    ...(limits ? [{ price: limits.down, label: `${nextDay.word}跌停價${nextDay.limitSuffix}`, strength: 'weak' as const }] : []),
+  ];
 
-  // 操作區間
-  const buyZoneLow    = parseFloat((close * 0.98).toFixed(2));
-  const buyZoneHigh   = parseFloat((close * 1.00).toFixed(2));
-  const targetZoneLow = parseFloat((close * 1.05).toFixed(2));
-  const targetZoneHigh= parseFloat((close * 1.12).toFixed(2));
-
-  // 今日位置評估（收盤在日內高低點中的位置）
-  const range = high - low;
-  const closePos = closePositionOf(close, high, low, prevClose);
-  // 缺高低時無法評此項，給中性 50 而不是 0——0 會被讀成「位置極差」（2026-08-29）
-  const pricePositionScore = closePos == null ? 50 : Math.round(closePos * 100);
-  let positionDescription: string;
-  if (pricePositionScore >= 80) positionDescription = '收盤守高位，多頭氣勢完整，明日延續機率高';
-  else if (pricePositionScore >= 60) positionDescription = '收盤偏高，量價配合良好，短線偏多';
-  else if (pricePositionScore >= 40) positionDescription = '收盤居中，方向待確認，建議觀察量能';
-  else if (pricePositionScore >= 20) positionDescription = '收盤偏低，出現上影線，短線賣壓較重';
-  else positionDescription = '收盤接近低點，長上影線，注意回測風險';
+  const pos = q.closePos;
+  const P = pos == null ? null : Math.round(pos * 100);
+  const reading = closePosReading(pos, { limit: q.limit, phase: qc.phase, quoteAsOfMs: qc.quoteAsOfMs, dataDate: qc.dataDate, auditOutside: q.auditOutside });
+  const positionDescription = P == null
+    ? reading.stateText
+    : qc.phase === 'intraday'
+    ? `盤中${qc.quoteAsOfMs != null ? ` ${hhmmTpe(qc.quoteAsOfMs)}` : ''} 位於日內 ${P}%`
+    : qc.phase === 'quote'
+    ? `位於日內 ${P}%（${reading.stateText}）`
+    : `收盤位於日內 ${P}%（${reading.stateText}）`;
 
   return {
-    nextDayHigh: {
-      price: nextHigh,
-      basis: `以昨收 ${close} 元 + 半個 ATR（${effectiveAtrPct.toFixed(1)}%）計算`,
-      confidence: pricePositionScore >= 60 ? 72 : 58,
-    },
-    nextDayLow: {
-      price: nextLow,
-      basis: `以昨收 ${close} 元 - 半個 ATR（${effectiveAtrPct.toFixed(1)}%）計算`,
-      confidence: pricePositionScore <= 40 ? 72 : 58,
-    },
+    nextDayHigh: { price: nextHigh, basis, confidence: null },
+    nextDayLow: { price: nextLow, basis, confidence: null },
     resistance,
     support,
-    buyZoneHigh,
-    buyZoneLow,
-    targetZoneHigh,
-    targetZoneLow,
+    buyZoneHigh: parseFloat((close * 1.00).toFixed(2)),
+    buyZoneLow: parseFloat((close * 0.98).toFixed(2)),
+    targetZoneHigh: parseFloat((close * 1.12).toFixed(2)),
+    targetZoneLow: parseFloat((close * 1.05).toFixed(2)),
     atr,
     atrPercent: atrPct,
-    pricePositionScore,
+    pricePositionScore: P,
     positionDescription,
   };
 }
-

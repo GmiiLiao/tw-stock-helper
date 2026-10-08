@@ -6,6 +6,8 @@ import { techScoreOf, isRiskScored, TECH_SCORE_TIP } from '@/lib/tech-score';
 // ── 下單前檢查（記錄持倉時強制看見出場計畫）──
 // 買的當下就把停損/風險金額定好——防止「先買再說」變成深度套牢。
 // stopLoss 由 /api/rating 提供（ATR 波動停損），零前端推估。
+// 2026-10-08（hardcoded-to-real-spec F28、tw-ai-stoploss §2）：這是「進場前參考停損」，統一標「參考停損（進場前）」；
+//   缺值時不再用現價 −8% 冒充（舊版不揭露），改寫「暫時無法取得」，風險金額不算。不改任何停損算法。
 
 interface Resp { stock?: { score: number; baseScore?: number; isDisposition?: boolean; isAttention?: boolean; signal: string; stopLoss?: number; stopLossRationale?: string; buyZones?: { type: string; price: number }[] } }
 
@@ -19,23 +21,29 @@ export default function PreTradeCheck({ code, price, qty }: { code: string; pric
 
   if (!d?.stock || !(price > 0)) return null;
   const s = d.stock;
-  const stop = s.stopLoss && s.stopLoss > 0 ? s.stopLoss : +(price * 0.92).toFixed(2);
+  const stop = s.stopLoss && s.stopLoss > 0 ? s.stopLoss : null;
   const buy = (s.buyZones || []).find(z => z.type === 'standard')?.price;
-  const riskPerLot = Math.max(Math.round((price - stop) * 1000), 0);
-  const totalRisk = qty > 0 ? riskPerLot * qty : null;
+  const riskPerLot = stop != null ? Math.max(Math.round((price - stop) * 1000), 0) : null;
+  const totalRisk = riskPerLot != null && qty > 0 ? riskPerLot * qty : null;
 
   return (
     <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.25)', fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6 }}>
-      <b style={{ fontSize: 'calc(14px * var(--fz))' }}>📋 下單前檢查（AI 出場計畫）</b>
-      <div>· <span title={TECH_SCORE_TIP}>AI 技術評分</span> <b style={{ color: '#fbbf24' }}>{techScoreOf(s)}</b>
+      <b style={{ fontSize: 'calc(14px * var(--fz))' }}>📋 下單前檢查（規則試算）</b>
+      <div>· <span title={TECH_SCORE_TIP}>技術評分（規則）</span> <b style={{ color: '#fbbf24' }}>{techScoreOf(s)}</b>
         {isRiskScored(s) && <span style={{ color: 'var(--text-muted)' }}>（未含扣分；{s.isDisposition ? '處置' : '注意'}是交易風險，不代表走勢弱）</span>}
-        {buy ? <>，建議買點 <b>{buy}</b>{price > buy * 1.03 ? <span style={{ color: '#f59e0b' }}>（你的買價高出 {((price / buy - 1) * 100).toFixed(1)}%，注意追高）</span> : null}</> : null}
+        {buy ? <>，標準買點（規則試算） <b>{buy}</b>{price > buy * 1.03 ? <span style={{ color: '#f59e0b' }}>（你的買價高出 {((price / buy - 1) * 100).toFixed(1)}%，注意追高）</span> : null}</> : null}
       </div>
-      <div>· 建議停損 <b style={{ color: '#ef4444' }}>{stop}</b>（每張風險約 {riskPerLot.toLocaleString()} 元
-        {totalRisk ? <>；此筆 {qty} 張最大虧損約 <b style={{ color: 'var(--color-down)' }}>{totalRisk.toLocaleString()}</b> 元</> : null}）
-      </div>
+      {stop != null ? (
+        <div>· 參考停損（進場前） <b style={{ color: '#ef4444' }}>{stop}</b>（每張風險約 {(riskPerLot ?? 0).toLocaleString()} 元
+          {totalRisk ? <>；此筆 {qty} 張最大虧損約 <b style={{ color: 'var(--color-down)' }}>{totalRisk.toLocaleString()}</b> 元</> : null}）
+        </div>
+      ) : (
+        <div>· 參考停損（進場前）：暫時無法取得（每張風險：—）</div>
+      )}
       {s.stopLossRationale && <div style={{ color: 'var(--text-muted)' }}>· {s.stopLossRationale}</div>}
-      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>記錄後論點卡自動建立；跌破停損將啟動每日紀律追蹤，直到你處理為止。</div>
+      {/* tw-ai-stoploss §0-1、§2：進場前參考停損不是持股停損；第一階段停損紀律＝ATR 帶與成本 −8% 取較高者（legacyDisciplineStop），
+          帶低於成本 −8% 時兩者是不同的數字 ⇒ 不得寫成「跌破（上面這個）停損就啟動紀律追蹤」（2026-10-08 審查 LOW） */}
+      <div style={{ color: 'var(--text-muted)', fontSize: 'calc(13px * var(--fz))' }}>記錄後論點卡自動建立；持股停損依本站停損紀律另計（ATR 帶與成本 −8% 取較高者），不一定等於上方的進場前參考值，跌破持股停損時才啟動每日紀律追蹤。</div>
     </div>
   );
 }

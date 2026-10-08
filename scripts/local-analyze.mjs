@@ -60,14 +60,22 @@ function buildPrompt(code, name, rating, ind, news) {
   const st = rating?.stock;
   const ctx = [];
   ctx.push(`股票：${code} ${name || st?.name || ''}`);
-  if (st) ctx.push(`AI 評分 ${st.score}（${st.grade}）訊號 ${st.signal}；現價 ${st.price}，今日 ${st.changePercent?.toFixed?.(2)}%`);
+  // 走勢強弱用未含處置／注意扣分的 baseScore／baseSignal（CLAUDE.md「扣分≠走勢弱」）；風險另列（2026-10-08 審查 A21）
+  if (st) {
+    const techScore = st.baseScore ?? st.score;
+    const techSignal = st.baseSignal ?? st.signal;
+    const riskFlags = [st.isDisposition ? '處置中' : '', st.isAttention ? '注意中' : ''].filter(Boolean);
+    ctx.push(`技術評分（未含風險扣分）${techScore}，訊號 ${techSignal}；現價 ${st.price}，今日 ${st.changePercent?.toFixed?.(2)}%`
+      + (riskFlags.length ? `；交易風險：${riskFlags.join('、')}（是風險提示，不代表走勢弱）` : ''));
+  }
   if (s) {
     ctx.push(`趨勢：${s.trend}；MA20 ${s.ma?.ma20} / MA60 ${s.ma?.ma60} / MA120 ${s.ma?.ma120} / MA240 ${s.ma?.ma240}`);
     ctx.push(`RSI ${s.rsi}，MACD ${s.macd}，KD ${s.k}/${s.d}；52週高 ${s.week52High} 低 ${s.week52Low}（距高 ${s.distFromHigh}%）`);
     ctx.push(`支撐 ${(s.support || []).join(', ')}；壓力 ${(s.resistance || []).join(', ') || '無（接近高點）'}`);
   }
   if (st?.buyZones?.length) ctx.push(`買點：${st.buyZones.map(z => `${z.label} ${z.price}`).join('；')}`);
-  if (st?.sellTargets?.length) ctx.push(`賣點：${st.sellTargets.filter(t => t.type !== 'trailing').map(t => `${t.label} ${t.price}(+${t.gainPercent}%, 達成率${t.probability}%)`).join('；')}；停損 ${st.stopLoss}`);
+  // 達到率 2026-10-08 起為 null（未校準）⇒ 整段省略，不印「null%」
+  if (st?.sellTargets?.length) ctx.push(`賣點（規則試算）：${st.sellTargets.filter(t => t.type !== 'trailing').map(t => `${t.label} ${t.price}(+${t.gainPercent}%${typeof t.probability === 'number' ? `, 達成率${t.probability}%` : ''})`).join('；')}；參考停損 ${st.stopLoss}`);
   if (f?.valuation) ctx.push(`估值：PER ${f.valuation.pe} / 殖利率 ${f.valuation.dividendYield}% / PBR ${f.valuation.pb}`);
   if (f?.institutional) ctx.push(`三大法人(張)：外資 ${f.institutional.foreignNetLots}、投信 ${f.institutional.trustNetLots}、合計 ${f.institutional.totalNetLots}`);
   if (f?.margin) ctx.push(`融資：餘額 ${f.margin.balance} 張、使用率 ${f.margin.utilization}%`);

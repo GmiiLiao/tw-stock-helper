@@ -7,7 +7,6 @@ import styles from './WatchlistTracker.module.css';
 import StockTrendChart from './StockTrendChart';
 import { startLiveLoop, revealTick, shouldPollNow, isForeground, getSession } from '@/lib/market-clock';
 import StockAIEval from './StockAIEval';
-import { getTargetPrice } from '@/lib/scoring';
 import { MarketPatternBanner } from '@/components/MarketPattern/MarketPatternBanner';
 import PageHelp from '@/components/Help/PageHelp';
 import { useDayTradeStatus } from '@/lib/useDayTradeCodes';
@@ -473,14 +472,7 @@ function StockRow({
   const isLimitUp   = (quote?.changePercent ?? 0) >= 9.9;
   const isLimitDown = (quote?.changePercent ?? 0) <= -9.9;
   
-  const allStocks = useAppStore(s => s.allStocks);
   const navigateTo = useAppStore(s => s.navigateTo);   // 點代號/名稱 → 個股分析頁（2026-08-18）
-  const stockInfo = allStocks.find(s => s.code === stock.code);
-  const targetPrice = stockInfo ? getTargetPrice({
-    ...stockInfo,
-    price: quote?.price || stockInfo.price,
-    changePercent: quote?.changePercent || stockInfo.changePercent
-  }) : null;
   // Flash when price updated by 5s poll
   const priceChanged = quote?.prevPrice !== undefined && quote.prevPrice !== quote.price && (quote?.price ?? 0) > 0;
   const flashClass   = priceChanged
@@ -566,12 +558,6 @@ function StockRow({
                   <span>開 <b style={{ color: '#94a3b8' }}>{quote.open > 0 ? quote.open.toFixed(2) : '—'}</b></span>
                   <span>高 <b style={{ color: vsPrevColor(quote.high, quote.prevClose) }}>{quote.high > 0 ? quote.high.toFixed(2) : '—'}</b></span>
                   <span>低 <b style={{ color: vsPrevColor(quote.low, quote.prevClose) }}>{quote.low > 0 ? quote.low.toFixed(2) : '—'}</b></span>
-                </>
-              )}
-              {targetPrice !== null && targetPrice !== undefined && (
-                <>
-                  {(quote.open > 0 || quote.high > 0) && <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>}
-                  <span style={{ color: 'var(--accent-orange, #f59e0b)' }}>目標 <b style={{ color: 'var(--accent-orange, #f59e0b)' }}>{targetPrice.toFixed(2)}</b></span>
                 </>
               )}
               {rating && (
@@ -832,7 +818,6 @@ function AiGroupPanel({
   expandedCode: string | null;
   onToggleExpand: (code: string) => void;
 }) {
-  const allStocks = useAppStore(s => s.allStocks);
   const strategyLabel: Record<string, string> = {
     momentum: '動能',
     growth: '成長',
@@ -887,12 +872,6 @@ function AiGroupPanel({
         const price = q?.price ?? 0;
         const change = q?.change ?? 0;
 
-        const stockInfo = allStocks.find(st => st.code === ai.code);
-        const targetPrice = stockInfo ? getTargetPrice({
-          ...stockInfo,
-          price: q?.price || stockInfo.price,
-          changePercent: q?.changePercent || stockInfo.changePercent
-        }) : null;
         
         // Flash when price changes between polls
         const priceChanged = q?.prevPrice !== undefined && q.prevPrice !== price && price > 0;
@@ -977,12 +956,6 @@ function AiGroupPanel({
                       <span>開 <span style={{ color: 'var(--text-secondary)' }}>{q.open > 0 ? q.open.toFixed(2) : '—'}</span></span>
                       <span>高 <span style={{ color: vsPrevColor(q.high, q.prevClose) }}>{q.high > 0 ? q.high.toFixed(2) : '—'}</span></span>
                       <span>低 <span style={{ color: vsPrevColor(q.low, q.prevClose) }}>{q.low > 0 ? q.low.toFixed(2) : '—'}</span></span>
-                    </>
-                  )}
-                  {targetPrice !== null && targetPrice !== undefined && (
-                    <>
-                      {q && (q.high > 0 || q.low > 0) && <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>}
-                      <span style={{ color: 'var(--accent-orange, #f59e0b)' }}>目標 <span style={{ color: 'var(--accent-orange, #f59e0b)' }}>{targetPrice.toFixed(2)}</span></span>
                     </>
                   )}
                 </div>
@@ -1289,7 +1262,6 @@ function RapidRisePanel({
   expandedCode: string | null;
   onToggleExpand: (code: string) => void;
 }) {
-  const allStocks = useAppStore(s => s.allStocks);
   const [filter, setFilter] = useState<'all' | 'limit' | 'strong' | 'mid'>('all');
 
   const filtered = stocks.filter(s => {
@@ -1377,12 +1349,6 @@ function RapidRisePanel({
 
       {filtered.map((s, idx) => {
         const isExpanded = expandedCode === s.code;
-        const stockInfo = allStocks.find(st => st.code === s.code);
-        const targetPrice = stockInfo ? getTargetPrice({
-          ...stockInfo,
-          price: s.price || stockInfo.price,
-          changePercent: s.changePercent || stockInfo.changePercent
-        }) : null;
         return (
           <div key={s.code} className={styles.stockRowContainer}>
             <div
@@ -1439,11 +1405,6 @@ function RapidRisePanel({
                     background: 'rgba(220,38,38,0.12)', color: 'var(--color-up)',
                   }}>▲{s.changePercent.toFixed(2)}%</span>
                 </div>
-                {targetPrice !== null && targetPrice !== undefined && (
-                  <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
-                    目標 {targetPrice.toFixed(2)}
-                  </span>
-                )}
               </div>
 
               {/* Volume / ratio */}
@@ -1595,7 +1556,6 @@ function RapidFallPanel({
   expandedCode: string | null;
   onToggleExpand: (code: string) => void;
 }) {
-  const allStocks = useAppStore(s => s.allStocks);
   const [filter, setFilter] = useState<'all' | 'limit' | 'sharp' | 'mid'>('all');
 
   const filtered = stocks.filter(s => {
@@ -1682,12 +1642,6 @@ function RapidFallPanel({
 
       {filtered.map((s, idx) => {
         const isExpanded = expandedCode === s.code;
-        const stockInfo = allStocks.find(st => st.code === s.code);
-        const targetPrice = stockInfo ? getTargetPrice({
-          ...stockInfo,
-          price: s.price || stockInfo.price,
-          changePercent: s.changePercent || stockInfo.changePercent
-        }) : null;
         return (
           <div key={s.code} className={styles.stockRowContainer}>
             <div
@@ -1751,11 +1705,6 @@ function RapidFallPanel({
                     background: 'rgba(34,197,94,0.12)', color: 'var(--color-down)',
                   }}>▼{Math.abs(s.changePercent).toFixed(2)}%</span>
                 </div>
-                {targetPrice !== null && targetPrice !== undefined && (
-                  <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
-                    目標 {targetPrice.toFixed(2)}
-                  </span>
-                )}
               </div>
 
               {/* Volume / ratio */}
@@ -1932,11 +1881,6 @@ function InstitutionalPanel({
       {stocks.map((s, idx) => {
         const isExpanded = expandedCode === s.code;
         const stockInfo = allStocks.find(st => st.code === s.code);
-        const targetPrice = stockInfo ? getTargetPrice({
-          ...stockInfo,
-          price: s.price || stockInfo.price,
-          changePercent: s.changePercent || stockInfo.changePercent
-        }) : null;
         // 現價 fallback：institutional-trading（T86）只有買賣超張數、沒有價格欄位，
         // 直接讀 s.price 整欄全是 "--"。補用 allStocks（stock-day-all 官方收盤）——
         // 本表是「盤後統計」，收盤價正是正確口徑。
@@ -1991,11 +1935,6 @@ function InstitutionalPanel({
                         color: priceColor,
                       }}>{chg > 0 ? '▲' : chg < 0 ? '▼' : ''}{Math.abs(chgPct).toFixed(2)}%</span>
                     </div>
-                    {targetPrice !== null && targetPrice !== undefined && (
-                      <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--accent-orange, #f59e0b)' }}>
-                        目標 {targetPrice.toFixed(2)}
-                      </span>
-                    )}
                   </>
                 ) : (
                   <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>--</span>
