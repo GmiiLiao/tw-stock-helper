@@ -9,6 +9,7 @@ import {
 import { enrichScoredStock } from '@/lib/analysis-enrich';
 import { appendTodayBars, readHistories, type DailyBar } from '@/lib/history-store';
 import { writeMarketReport, type MarketReport, type ReportPick } from '@/lib/report-store';
+import { splitRowsByDate } from '../../../../../scripts/lib/tpex-close-parse.mjs';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // heavy batch job; see firebase.json timeoutSeconds
@@ -72,7 +73,16 @@ export async function POST(request: NextRequest) {
     const isoDate = rocToIso(rocDate) || new Date().toISOString().slice(0, 10);
 
     // ── 2. Base-score the whole market + breadth ──
-    const regular = rawData.filter(isRegularStock);
+    // 只用「資料日＝isoDate」的列（2026-10-08）：上櫃列來自 tpexClose/latest，櫃買晚到或 daemon 尚未取得當日檔時仍是前一日——
+    //   前一日的上櫃列（連同前一日的漲跌）不可算進今天的評分、漲跌家數與精選，也不可寫成今天的 K 棒（審查 MEDIUM）。
+    //   日期不符的列整批排除，報告 meta.otc 與 riskHighlights 明說上櫃沒進來；沒有 Date 或認不得格式的列沿用上市資料日＝舊行為。
+    const { same: regular, off: offDate } = splitRowsByDate(rawData.filter(isRegularStock), isoDate) as { same: typeof rawData; off: typeof rawData };
+    if (offDate.length) console.warn(`[cron/daily-close] ${offDate.length} 列資料日與上市 ${isoDate} 不符（例：${offDate[0].Code} ${offDate[0].Date}），不列入今日評分／家數／K 棒`);
+    const isOtcRow = (d: (typeof rawData)[number]) => (d as { _market?: string })._market === 'otc';
+    const otcSame = regular.filter(isOtcRow).length;
+    const otcOff = offDate.filter(isOtcRow);
+    const otcIso: string | null = otcSame === 0 ? (rocToIso(String(otcOff[0]?.Date ?? '')) || null) : isoDate;
+    const otcMeta = { included: otcSame > 0, dataDate: otcIso, excluded: offDate.length };
     const scored = regular.map(d => scoreStock(parseStock(d), 'daily', riskData));
 
     let up = 0, down = 0, flat = 0;
@@ -144,6 +154,9 @@ export async function POST(request: NextRequest) {
       console.warn('[cron/daily-close] 處置名單殘缺（來源故障），精選名單未能排除處置股');
       riskHighlights.push('⚠️ 處置股名單本次未能完整取得，精選名單可能含處置股，交易前請自行查核');
     }
+    if (!otcMeta.included) riskHighlights.push(otcMeta.dataDate
+      ? `⚠️ 上櫃收盤資料日 ${otcMeta.dataDate} 與上市 ${isoDate} 不同（櫃買晚出或尚未取得），本報告的漲跌家數與精選只含上市`
+      : '⚠️ 上櫃收盤本次未取得，本報告的漲跌家數與精選只含上市');
     if (riskData.disposition.length) riskHighlights.push(`🔴 處置股票 ${riskData.disposition.length} 檔`);
     if (riskData.attention.length) riskHighlights.push(`🟡 注意股票 ${riskData.attention.length} 檔`);
     const overheated = candidates.filter(s => (marginMap[s.code]?.utilization ?? 0) >= 80).length;
@@ -168,6 +181,7 @@ export async function POST(request: NextRequest) {
         enriched: enrichedPicks.filter(e => e.enriched.buyZones).length,
         historyCovered: histories.size,
         dispositionComplete: riskData.dispositionComplete,
+        otc: otcMeta,
       },
     };
 

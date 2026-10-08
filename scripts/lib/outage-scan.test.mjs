@@ -66,3 +66,21 @@ test('outageFamiliesOf：依字樣歸家族', () => {
   assert.deepEqual(outageFamiliesOf('⚠ 上市 STOCK_DAY_ALL（www）重試 3 次仍失敗'), ['twse']);
   assert.deepEqual(outageFamiliesOf('⚠ 不明來源失敗'), ['*']);
 });
+
+// ── 2026-10-08 上櫃收盤改走共用取得層：新日誌字樣的歸類 ──
+//   單純傳輸失敗（停滯／斷線／退避）不再擋重啟——種子改由本機快取供應，重啟不會蒸發；
+//   真的靠記憶體快取／本地備份撐著時，原本的字樣照舊（照擋）；封鎖訊號仍讓鏡像停櫃買家族。
+test('上櫃收盤新字樣：傳輸失敗＝不擋重啟；沿用記憶體快取照擋；HTTP 403＝鏡像停櫃買家族', () => {
+  const now = Date.parse('2026-10-08T12:00:00Z');
+  const transfer = [
+    '2026-10-08T11:58:00.000Z   ⚠ 上櫃收盤檔 20261008 未取得（帶日期端點下載停滯（已收 1,374KB）·退避中（下次 20:02））→ 種子用最近一份已驗證檔 2026-10-07',
+    '2026-10-08T11:58:01.000Z   ⚠ 上櫃帶日期收盤（TPEx dailyQuotes 20260820）未取得（回空）：帶日期端點傳輸中途被切斷（已收 0KB·ECONNRESET）',
+    '2026-10-08T11:58:02.000Z   ⚠ strategyPicks：上櫃收盤檔 20261008 未取得（openapi 下載停滯（已收 3,823KB／4,670KB）），本輪僅上市（16:45 補跑）',
+  ];
+  assert.deepEqual(recentOutageLines(transfer.join('\n'), now), [], '傳輸失敗不擋 can-restart-daemon');
+  const stale = '2026-10-08T11:59:00.000Z   ⚠ 上櫃後備亦失敗 → 沿用上一份快取 901 檔（stale-if-error）';
+  assert.equal(recentOutageLines([...transfer, stale].join('\n'), now).length, 1, '記憶體快取撐著照擋');
+  const blocked = '2026-10-08T11:59:30.000Z   ⚠ 上櫃收盤檔 20261008 未取得（今日櫃買網路已停用：帶日期端點 HTTP 403）→ 種子用最近一份已驗證檔 2026-10-07';
+  const g = mirrorOutageGate([...transfer, blocked].join('\n'), now);
+  assert.deepEqual(Object.keys(g.blocked), ['tpex']);
+});

@@ -31,7 +31,12 @@ export interface MarketReport {
   topPicks: ReportPick[];
   riskHighlights: string[];
   summary: string;
-  meta: { totalAnalyzed: number; enriched: number; historyCovered: number; /** false＝處置名單殘缺，精選未能排除處置股（G2-10） */ dispositionComplete?: boolean };
+  meta: {
+    totalAnalyzed: number; enriched: number; historyCovered: number;
+    /** false＝處置名單殘缺，精選未能排除處置股（G2-10） */ dispositionComplete?: boolean;
+    /** 上櫃有沒有進這份報告（2026-10-08）：included＝有資料日＝date 的上櫃列；dataDate＝上櫃列自報資料日（沒有＝null）；excluded＝因資料日不符被排除的列數 */
+    otc?: { included: boolean; dataDate: string | null; excluded: number };
+  };
 }
 
 const COLLECTION = 'marketReports';

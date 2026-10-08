@@ -2,6 +2,9 @@
 
 import { readMarketSnapshot, isSnapshotFresh, readEmergingQuotes, type SnapQuote } from './market-snapshot-store';
 import { memoize } from './singleflight';
+import { readTpexClose } from './tpex-close-store';
+import { isCloseLagging, toIso as tpexToIso } from '../../scripts/lib/tpex-close-parse.mjs';
+import { isTradingYmd } from './market-clock';
 
 // ============================================================
 // Types
@@ -353,8 +356,8 @@ function parseROCDateTime(dateStr: string, timeStr: string): string {
 // ============================================================
 
 // Memory cache for raw stock lists to bypass rate limiting & geoblocks
+// （2026-10-08：上櫃不再由網站抓，改讀 daemon 寫的 Firestore tpexClose/latest——見 tpex-close-store.ts；這組快取只管上市）
 let cachedRawTse: any[] | null = null;
-let cachedRawOtc: any[] | null = null;
 let lastRawFetchTime = 0;
 const RAW_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL
 // ── cache stampede 防護 (2026-07-30) ──────────────────────────────
@@ -411,31 +414,35 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
 
   // 若已有另一個請求正在抓，等它抓完再吃快取，不要自己也去打上游。
   // 8 秒上限是保險：萬一持有者中途拋錯沒 resolve，也不會把大家卡死。
-  if (!(cachedRawTse && cachedRawOtc && (now - lastRawFetchTime < RAW_CACHE_TTL)) && rawFetchInflight) {
+  if (!(cachedRawTse && (now - lastRawFetchTime < RAW_CACHE_TTL)) && rawFetchInflight) {
     await Promise.race([
       rawFetchInflight.catch(() => undefined),
       new Promise<void>(r => setTimeout(r, 8000)),
     ]);
   }
+  // 上櫃（2026-10-08）：讀 daemon 寫的 tpexClose/latest（memoize 10 分＋stale-if-error；0 TPEx 請求）。
+  //   與上市的快取有效性分開判斷——舊版 cacheValid 要求上市、上櫃兩份都有，上櫃從沒成功過的 instance 快取永遠無效，
+  //   而上市成功時又不設 lastRawFailAt ⇒ 每個打到 origin 的請求都重打 STOCK_DAY_ALL 與 TPEx。
+  const otcPromise = readTpexClose();
   const inFailCooldown = Date.now() - lastRawFailAt < RAW_FAIL_COOLDOWN;
-  const cacheValid = !!(cachedRawTse && cachedRawOtc &&
+  const cacheValid = !!(cachedRawTse &&
     (Date.now() - lastRawFetchTime < RAW_CACHE_TTL || inFailCooldown));
 
   if (cacheValid) {
     console.log('[twse-api-server] Using raw stock data cache. Age:', Math.round((now - lastRawFetchTime)/1000), 's');
     rawTse = cachedRawTse!;
-    rawOtc = cachedRawOtc!;
+  } else if (!cachedRawTse && inFailCooldown) {
+    // 冷啟動且上市剛失敗：30 秒冷卻內不重打（舊版 cacheValid 要求快取存在，冷 instance 的失敗負快取等於沒作用）
+    rawTse = [];
   } else {
     console.log('[twse-api-server] Cache expired or empty. Fetching fresh lists...');
     // 宣告「我正在抓」，讓同時進來的其他請求等待而不是各自打上游
     rawFetchInflight = new Promise<void>(r => { resolveRawFetch = r; });
     
-    // Fetch both lists concurrently
-    const [resTse, resOtc] = await Promise.allSettled([
-      // TSE day data. PRIMARY = www.twse.com.tw after-trading CSV (updates right
-      // after the 13:30 close); FALLBACK = openapi.twse.com.tw JSON (can lag a
-      // full day, so only used when the fresh CSV is unavailable).
-      (async () => {
+    // TSE day data. PRIMARY = www.twse.com.tw after-trading CSV (updates right
+    // after the 13:30 close); FALLBACK = openapi.twse.com.tw JSON (can lag a
+    // full day, so only used when the fresh CSV is unavailable).
+    const freshTse: any[] = await (async () => {
         try {
           const res = await fetch('https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json', {
             headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 'Accept': 'text/csv,application/json,*/*' },
@@ -464,59 +471,40 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
           }
         } catch (e: any) { console.error('[twse-api-server] openapi STOCK_DAY_ALL fallback failed:', e?.message); }
         return [];
-      })(),
-
-      // Fetch TPEx day data
-      fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; TW-Stock-App/1.0)',
-          'Accept': 'application/json',
-        },
-        cache: 'no-store',
-        // G1-04：此 fetch 位於共用 in-flight promise 內，一次 hang 會卡住全部等待者。
-        signal: AbortSignal.timeout(8000),
-      }).then(async r => {
-        if (!r.ok) throw new Error(`TPEx API error status: ${r.status}`);
-        const data = await r.json();
-        if (!Array.isArray(data) || data.length === 0) throw new Error('TPEx returned empty data');
-        return data;
-      }).catch(err => {
-        console.error('[twse-api-server] TPEx fetch failed:', err.message);
-        return [];
-      })
-    ]);
-
-    const freshTse = resTse.status === 'fulfilled' ? resTse.value : [];
-    const freshOtc = resOtc.status === 'fulfilled' ? resOtc.value : [];
+    })().catch(() => []);
 
     // Stale-if-error: if we got empty data but have old cache, reuse it!
     if (freshTse.length > 0) {
       rawTse = freshTse;
       cachedRawTse = freshTse;
+      lastRawFetchTime = Date.now();
+      lastRawFailAt = 0;
     } else if (cachedRawTse) {
       console.warn('[twse-api-server] Fetch failed for TSE, reusing stale cache');
       rawTse = cachedRawTse;
-    }
-
-    if (freshOtc.length > 0) {
-      rawOtc = freshOtc;
-      cachedRawOtc = freshOtc;
-    } else if (cachedRawOtc) {
-      console.warn('[twse-api-server] Fetch failed for TPEx, reusing stale cache');
-      rawOtc = cachedRawOtc;
-    }
-
-    if (rawTse.length > 0 || rawOtc.length > 0) {
-      lastRawFetchTime = Date.now();
-      lastRawFailAt = 0;
+      lastRawFetchTime = Date.now();   // 同舊行為：沿用舊快取時也算一輪（10 分鐘內不重打）
     } else {
-      // 整組失敗 → 記下失敗時間，30 秒內不再重打上游
+      // 失敗也要被快取：30 秒內不再重打上游
       lastRawFailAt = Date.now();
     }
     resolveRawFetch?.();
     rawFetchInflight = null;
     resolveRawFetch = null;
   }
+
+  // 上櫃列：tpexClose/latest（openapi 形狀；Date＝來源自報資料日）。讀不到＝空陣列，下面「上櫃少於 100 檔用快照補」的後備照舊。
+  //   新舊把關（2026-10-08 審查 LOW）：daemon 停寫（掛掉／被封鎖／未重啟）時這份會停在好幾天前——落後上市資料日超過一個交易日
+  //   （兩者之間夾著交易日）就當作讀不到，交給既有的快照後備／「上櫃缺」路徑，不把舊上櫃列混進今天。落後一日＝櫃買晚出，照舊採用。
+  const otcDoc = await otcPromise;
+  const refIso = tpexToIso(String(rawTse[0]?.Date ?? '')) || ymd(taipeiNow());
+  //   交易日判定＝本檔休市表 ∩ market-clock 休市日曆（system/tradingCalendar，含颱風假等臨時休市；這個 instance 有載到才生效，否則只擋週末）
+  const otcLagging = !!otcDoc && isCloseLagging(otcDoc.dataDate, refIso, (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return isTradingDay(new Date(y, m - 1, d, 12)) && isTradingYmd(iso);
+  });
+  rawOtc = otcDoc && !otcLagging ? otcDoc.rows : [];
+  if (!otcDoc) console.warn('[twse-api-server] tpexClose/latest 讀不到（daemon 尚未寫入或 Firestore 失敗）——本次上櫃改走快照後備');
+  else if (otcLagging) console.warn(`[twse-api-server] tpexClose/latest 資料日 ${otcDoc.dataDate} 落後 ${refIso} 超過一個交易日（daemon 可能停寫）——本次不採用，上櫃改走快照後備`);
 
   // Map TPEx data structure to match TWSE STOCK_DAY_ALL
   const mappedOtc = rawOtc.map(item => ({

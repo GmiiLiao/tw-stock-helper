@@ -24,6 +24,8 @@ import { gunzipSync } from 'node:zlib';
 import * as C from './lib/official-mirror.mjs';
 import { mirrorOutageGate } from './lib/outage-scan.mjs';
 import { DATED, resolveFrom } from './official-mirror/adapters-dated.mjs';
+import { createTpexClose } from './lib/tpex-close-quotes.mjs';
+import { downloadStream, reasonText } from './lib/tpex-close-download.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
@@ -157,6 +159,33 @@ const budgetFile = (day = C.taipeiDate()) => join(ROOT, '_budget', `${day}.json`
 function readBudget(day) { try { return JSON.parse(readFileSync(budgetFile(day), 'utf8')).requests || 0; } catch { return 0; } }
 function addBudget(n, day) { mkdirSync(join(ROOT, '_budget'), { recursive: true }); writeFileSync(budgetFile(day), JSON.stringify({ requests: readBudget(day) + n })); }
 
+// ── 上櫃 openapi 收盤大檔（4.7MB 未壓縮）：先從共用快取收養（2026-10-08）────────────────────────
+//   daemon／收件匣已把同一支端點的原始回應存進 second-brain/tpex-close/（scripts/lib/tpex-close-quotes.mjs，已驗證、sha256 算在原始位元組上）。
+//   這輪要的那個月已有 openapi 格式的檔、且資料日不晚於這輪的資料日 ⇒ 用它的原始位元組走同一套驗證／存檔（0 請求，清單列標 adopted）。
+//   沒有才打網路，而且改用串流下載器（停滯 30 秒才中止、總上限 6 分鐘、Accept-Encoding: identity）——舊 httpFetch 的 45 秒總逾時在 15KB/s 時必敗。
+const TPEX_CLOSE_ADOPT = new Set(['tpex_oa_tpex_mainboard_daily_close_quotes']);
+let _tpexClose = null;
+async function adoptFromTpexClose(j, man) {
+  try {
+    _tpexClose ||= createTpexClose({ network: 'never', mirrorRoot: ROOT });
+    const src = _tpexClose.openapiRawFor(j.ctx.dateDash.slice(0, 7));
+    if (!src || src.dataDate > j.ctx.dateDash) return null;   // 比這輪資料日還新的不收（PIT）
+    const out = await C.fetchAndStore(j.ad, { root: ROOT, key: j.key, ctx: j.ctx, man, snapshot: true, final: j.final ?? true, keyByEcho: !!j.keyByEcho,
+      fetchImpl: async () => new Response(src.raw, { status: 200, headers: { 'content-type': 'application/json' } }) });
+    const k = out?.key || j.key; const row = man.rows[k];
+    if (!/^(ok|unchanged)$/.test(row?.status || '') || row.lastTry) return null;
+    man.rows[k] = { ...row, adopted: { from: 'second-brain/tpex-close', dataDate: src.dataDate, source: src.source, fetchedAt: src.fetchedAt, sha256: src.sha256 } };
+    return { key: k, status: row.status, src };
+  } catch (e) { log(`  ${j.ad.id}：共用快取收養失敗（${e.message.slice(0, 60)}），改走網路`); return null; }
+}
+/** fetchAndStore 用的 fetch：串流下載（停滯偵測）；HTTP 錯誤照原狀態碼回給 fetchAndStore 判封鎖／5xx，傳輸失敗丟錯（佇列照舊退避重試一次） */
+async function streamFetch(url, init = {}) {
+  const r = await downloadStream(url, { headers: { ...(init.headers || {}), 'Accept-Encoding': 'identity' } });
+  if (!r.ok && r.reason === 'http') return new Response(null, { status: r.http });
+  if (!r.ok) throw new Error(`串流下載${reasonText(r)}`);
+  return new Response(r.buf, { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
 async function runJobs(jobs, a, { budget = Infinity } = {}) {
   const byFam = new Map(); const mans = new Map(); const stats = {}; let requests = 0;
   for (const j of jobs) { if (j.ad.host === 'mis.twse.com.tw') continue; const f = C.familyOf(j.ad.host); if (!byFam.has(f)) byFam.set(f, []); byFam.get(f).push(j); }
@@ -164,10 +193,16 @@ async function runJobs(jobs, a, { budget = Infinity } = {}) {
   await Promise.all([...byFam.values()].map(async list => {
     for (const j of list) {
       if (requests >= budget) { bump('overBudget'); continue; }
-      const q = C.queueFor(j.ad.host, queueOpts(a)); if (q.stopped) { bump('skipped'); continue; }
       const mk = `${j.ad.host}/${j.ad.id}`; if (!mans.has(mk)) mans.set(mk, C.loadManifest(ROOT, j.ad.host, j.ad.id));
-      const man = mans.get(mk); const prevAttempts = man.rows?.[j.key]?.attempts || 0; const before = q.count;
-      const out = await q.run(() => C.fetchAndStore(j.ad, { root: ROOT, key: j.key, ctx: j.ctx, man, snapshot: !!j.snapshot, final: j.final ?? true, mustHaveRows: !!j.must, keyByEcho: !!j.keyByEcho }));
+      const man = mans.get(mk);
+      if (j.snapshot && TPEX_CLOSE_ADOPT.has(j.ad.id)) {   // 0 請求：從共用快取收養（見上）
+        const ad = await adoptFromTpexClose(j, man);
+        if (ad) { bump(`${ad.status}(收養)`); C.saveManifest(ROOT, man); log(`  ${j.ad.id} ${ad.key}：${ad.status}（收養共用快取 ${ad.src.dataDate}·${ad.src.source}，0 請求）`); continue; }
+      }
+      const q = C.queueFor(j.ad.host, queueOpts(a)); if (q.stopped) { bump('skipped'); continue; }
+      const prevAttempts = man.rows?.[j.key]?.attempts || 0; const before = q.count;
+      const fetchImpl = TPEX_CLOSE_ADOPT.has(j.ad.id) ? streamFetch : undefined;
+      const out = await q.run(() => C.fetchAndStore(j.ad, { root: ROOT, key: j.key, ctx: j.ctx, man, snapshot: !!j.snapshot, final: j.final ?? true, mustHaveRows: !!j.must, keyByEcho: !!j.keyByEcho, fetchImpl }));
       requests += q.count - before;
       if (out?.skipped) { bump('skipped'); continue; }
       const k = out?.key || j.key;   // keyByEcho 時實際寫入的是官方回聲日的鍵

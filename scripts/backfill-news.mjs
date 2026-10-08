@@ -5,6 +5,7 @@
 // 產出 newsDaily/{iso}: { date, titles, mentions: {code: [則數, 正負淨值]} }
 // 冪等：已存在的日期跳過（--force 重寫）。
 import admin from 'firebase-admin';
+import { createTpexClose } from './lib/tpex-close-quotes.mjs';
 process.env.GOOGLE_APPLICATION_CREDENTIALS ||= '/Users/gmii/Documents/GCP_憑證檔案/tw-stock-helper-firebase-adminsdk-fbsvc-1dd050d371.json';
 admin.initializeApp();
 const db = admin.firestore();
@@ -12,17 +13,23 @@ const FORCE = process.argv.includes('--force');
 const DAYS_BACK = 32; // 日曆日（涵蓋 ~22 交易日）
 
 // 股名/代號對照（上市+上櫃）
+// 2026-10-08：上櫃改讀共用取得層最近一份已驗證檔（0 請求；舊版直打 openapi 4.7MB、沒有逾時，失敗時靜默略過——上櫃新聞提及悄悄變 0 照寫 newsDaily）。
+//   股名是慢變數，30 天內的檔都可用。任一市場讀不到就中止：不可用只有一個市場的對照表寫入（--force 會覆蓋舊資料）。
 async function loadNames() {
   const map = {}; // name -> code
   const codes = new Set();
+  let nTse = 0, nOtc = 0;
   try {
-    const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) for (const x of await r.json()) if (/^\d{4}$/.test(x.Code)) { map[x.Name.trim()] = x.Code; codes.add(x.Code); }
-  } catch { /* skip */ }
-  try {
-    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) for (const x of await r.json()) { const c = x.SecuritiesCompanyCode || ''; if (/^\d{4}$/.test(c)) { map[(x.CompanyName || '').trim()] = c; codes.add(c); } }
-  } catch { /* skip */ }
+    const r = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) });
+    if (r.ok) for (const x of await r.json()) if (/^\d{4}$/.test(x.Code)) { map[x.Name.trim()] = x.Code; codes.add(x.Code); nTse++; }
+  } catch (e) { console.error('上市股名讀取失敗：', (e?.message || '').slice(0, 80)); }
+  const lat = await createTpexClose({ network: 'never' }).getLatestTpexClose({ maxAgeDays: 30 });
+  for (const x of lat?.rows || []) { const c = String(x.SecuritiesCompanyCode || '').trim(); if (/^\d{4}$/.test(c)) { map[String(x.CompanyName || '').trim()] = c; codes.add(c); nOtc++; } }
+  if (nTse < 500 || nOtc < 500) {
+    console.error(`✖ 股名對照不完整（上市 ${nTse}／上櫃 ${nOtc}）——中止，不寫 newsDaily。上櫃讀共用快取／官方鏡像本機檔；沒有就先：node scripts/tpex-close-import.mjs <手動下載的上櫃收盤檔>`);
+    process.exit(1);
+  }
+  console.log(`上櫃股名取自 ${lat.dataDate}（${lat.source}）`);
   // 股名≥2字才收（單字股名誤匹配率太高）
   for (const n in map) if (n.length < 2) delete map[n];
   return { map, codes };

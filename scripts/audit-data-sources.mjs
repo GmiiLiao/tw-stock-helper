@@ -125,6 +125,12 @@ const CONTRACTS = [
   // ── 每日收盤後（節奏以日計）──
   { c: 'chipArchive',      kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'closeJson' },
   { c: 'chipDaily',        kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 1500, countField: 'codesJson' },
+  // 上櫃收盤（網站讀；2026-10-08 起網站不再直打 TPEx）：daemon 共用取得層取得新資料日時寫 tpexClose/{latest,日}。
+  //   櫃買出檔 16:07–21:37（09-16～10-08 日誌）⇒ publishHour 22；dataDate＝來源自報；rowsJson＝網站口徑 1,005 列左右（4 碼 ≥800 已在寫入前驗證）。
+  //   launchGraceUntil：daemon 重啟載入新版前此文件不存在——稽核是存檔即生效（daemon 16:10 以子程序跑），產生它的 daemon 要重啟才生效；
+  //   寬限期內「文件不存在」記 OK＋說明（不是資料壞），過了寬限日仍不存在才報 MISSING（2026-10-08 審查 LOW：A 改了、B 先報錯）。
+  //   文件一旦存在就照常套新鮮度／筆數閘門（daemon 停寫會變 STALE），寬限只涵蓋「從未寫過」這一種狀態。
+  { c: 'tpexClose',        kind: 'latest',  maxStale: 30 * HOUR, session: 'daily', publishHour: 22, dateField: 'dataDate', minRecords: 800, countField: 'rowsJson', launchGraceUntil: '2026-10-16' },
   // 尾盤五檔歸檔（委買賣失衡原料·2026-08-02 接上稽核）：舊版 9 個交易日缺 2 天
   // 且沒有任何告警——這種「靜默不累積」的資料要靠三道閘門才抓得到。
   { c: 'bookDepthArchive', kind: 'dated',   maxStale: 30 * HOUR, session: 'daily', minRecords: 300,  countField: 'byCodeJson' },
@@ -621,6 +627,10 @@ async function auditOne(spec, ltd, marketOpen, tradingToday, offHoursMs = 0, max
       data = { __perCode: true };
     }
 
+    if (!data && spec.launchGraceUntil && isoOf(taipeiNow()) <= spec.launchGraceUntil) {
+      out.notes.push(`doc 不存在（${docId || 'n/a'}）——新資料源尚未上線（產生它的程序要重啟才生效），寬限到 ${spec.launchGraceUntil}`);
+      return out;
+    }
     if (!data) { out.status = 'MISSING'; out.notes.push(`doc 不存在（${docId || 'n/a'}）`); return out; }
 
     if (spec.kind !== 'perCode') {

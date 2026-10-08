@@ -6,12 +6,14 @@
 // ⚠股數為當前值（慢變數·增資才變）用於歷史回測＝輕微前視，與產業別同性質，已註記
 // ─────────────────────────────────────────────────────────────────────────
 import { loadDays, buildSamples, report } from './lib/bt-core.mjs';
+import { createTpexClose } from './lib/tpex-close-quotes.mjs';
+import { sharesOf } from './lib/tpex-close-parse.mjs';
 
 // 發行股數（上市 t187ap03_L ＋ 上櫃 Capitals）
 const shares = {};
 for (let t = 0; t < 3; t++) {
   try {
-    const r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
+    const r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
     const txt = await r.text(); if (!txt.startsWith('[')) { await new Promise(s => setTimeout(s, 3000)); continue; }
     for (const x of JSON.parse(txt)) {
       const c = (x['公司代號'] || '').trim();
@@ -21,15 +23,17 @@ for (let t = 0; t < 3; t++) {
     break;
   } catch { await new Promise(s => setTimeout(s, 3000)); }
 }
-try {
-  const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (r.ok) for (const x of await r.json()) {
-    const c = (x.SecuritiesCompanyCode || '').trim();
-    const cap = parseFloat(String(x.Capitals || '').replace(/,/g, ''));   // 上櫃：Capitals＝股數
-    if (/^\d{4}$/.test(c) && cap > 0 && !shares[c]) shares[c] = cap;
-  }
-} catch { /* otc */ }
-console.log(`發行股數對照 ${Object.keys(shares).length} 檔`);
+// 上櫃：Capitals＝股數。2026-10-08 改讀共用取得層最近一份已驗證檔（0 請求；舊版直打 openapi 4.7MB 沒有逾時，失敗時靜默——
+//   上櫃 turn=null 被 `s.turn != null` 濾掉，檢定只剩上市樣本卻不告知）。讀不到就中止。
+const nTse = Object.keys(shares).length;
+const otcLatest = await createTpexClose({ network: 'never' }).getLatestTpexClose({ maxAgeDays: 30 });
+let nOtc = 0;
+for (const [c, n] of Object.entries(sharesOf(otcLatest?.rows))) if (!shares[c]) { shares[c] = n; nOtc++; }
+if (nTse < 500 || nOtc < 500) {
+  console.error(`✖ 發行股數不完整（上市 ${nTse}／上櫃 ${nOtc}）——中止，避免檢定結果只剩一個市場。上櫃讀共用快取／官方鏡像本機檔；沒有就先：node scripts/tpex-close-import.mjs <手動下載的上櫃收盤檔>`);
+  process.exit(1);
+}
+console.log(`發行股數對照 ${Object.keys(shares).length} 檔（上市 ${nTse}／上櫃 ${nOtc}·取自 ${otcLatest.dataDate} ${otcLatest.source}）`);
 
 const days = await loadDays({ days: 720 });
 const samples = buildSamples(days);

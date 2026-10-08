@@ -83,6 +83,11 @@ import { eveningPassDue, eveningPassFailed, eveningPassPending, NV_EVENING_DEADL
 //   不發 B2／Z2、不推播、不寫 aiMessages。靜態 import 鏈只到 scripts/lib/open-sensor-*.mjs 與 firestore-clean.mjs（不經 official-mirror）。
 import { createOpenSensorRunner } from './lib/open-sensor-runner.mjs';
 import { loadSharesLocal, loadExclusionsLocal, writeSharesCache } from './lib/open-sensor-local.mjs';
+// 上櫃收盤檔共用取得層（2026-10-08）：記憶體→本機快取 second-brain/tpex-close/→收件匣（使用者手動下載的檔）→官方鏡像本機檔→網路（帶日期優先、
+//   串流下載＋停滯偵測、退避、每日上限）。靜態 import 鏈只到 tpex-close-{quotes,parse,download}.mjs（只用 node 內建模組）。
+import { createTpexClose } from './lib/tpex-close-quotes.mjs';
+import { seedRowsOf as tpexSeedRows, sharesOf as tpexSharesOf, toIso as tpexIso } from './lib/tpex-close-parse.mjs';
+import { raceWithin, createSharesCache } from './lib/tpex-close-readers.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -1780,32 +1785,55 @@ function _otcFromLocalBackup() {
   } catch (e) { log(`  ⚠ 本地備份上櫃讀取失敗：${(e?.message || '').slice(0, 60)}`); return { mtimeMs: 0, rows: [], date: '' }; }
 }
 
-// TPEx 帶日期端點：openapi 鏡像落後或整個回空時的後備來源。
-// TPEx 只認 YYYY/MM/DD，且**必須回聲驗證**——否則它會靜默忽略日期參數
-// 回最新資料（實案：首輪回填整批變今日快照）。dateYmd 為空時不做回聲比對，
-// 純粹當「拿到一份上櫃清單」用（宇宙缺市場比日期差一天嚴重得多）。
-async function _fetchOtcDated(dateYmd) {
+// ── 上櫃收盤：共用取得層（2026-10-08）──────────────────────────────────────────────
+//   舊版這裡各自 fetch：帶日期端點固定 12 秒總逾時（10-08 有 8 次 timeout／terminated）、openapi 大檔 30 秒（要 ≥160KB/s，實測 15–240KB/s），
+//   同一天的資料每 ~10 分鐘重抓一次，還有三處（策略選股、收盤歸檔、發行股數）直打 openapi 且沒有逾時。
+//   現在全部問 _tpex：同一天只抓一次、慢但在傳不中止（停滯 30 秒才算失敗）、驗證整份檔（列數、單一資料日、與期望日一致）才採用。
+//   使用者手動下載的檔放 second-brain/tpex-close/_inbox/ 或跑 scripts/tpex-close-import.mjs 就會被採用（「本機下載再上傳使用」）。
+const _tpex = createTpexClose({
+  network: 'auto',
+  log: (...a) => log(...a),
+  onAlert: (text, key) => { notifyDeveloper(text, key).catch(() => {}); },
+  isTradingDay: iso => _isTradingDayIso(iso),
+});
+const _ymdOfIso = iso => String(iso || '').replace(/-/g, '');
+/** 等共用取得層最多 ms：慢速下載不中止（背景繼續、完成後寫快取），呼叫端先用最近一份已驗證檔——熱路徑與串行班車都不被大檔卡住 */
+function _tpexWithin(ymd, ms) {
+  const p = _tpex.getTpexClose(ymd).then(r => { if (r?.status === 'ok') _publishTpexClose(r); return r; });
+  return raceWithin(p, ms, () => ({ status: 'slow', rows: null, reason: `下載超過 ${Math.round(ms / 1000)} 秒仍在進行（背景繼續，完成後下一輪讀快取）` }));
+}
+// 網站用的上櫃收盤（Firestore tpexClose/{latest,資料日}）：網站不再打 TPEx，改讀這份（每個 instance 每 10 分鐘最多讀 1 次，與線上人數無關）。
+//   寫入條件：已驗證、資料日不倒退、sha 與已寫的不同（冪等）。格式與 scripts/tpex-close-import.mjs --publish 相同（firestoreDocOf）。
+let _tpexPub = { loaded: false, sha: null, dataDate: null, busy: false };
+async function _publishTpexClose(res) {
+  if (!res?.sha256 || !res.dataDate || !Array.isArray(res.rows) || _tpexPub.busy) return;
+  _tpexPub.busy = true;
   try {
-    const useEcho = /^\d{8}$/.test(dateYmd || '');
-    const slash = useEcho ? `${dateYmd.slice(0, 4)}/${dateYmd.slice(4, 6)}/${dateYmd.slice(6, 8)}` : '';
-    const url = `https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=${encodeURIComponent(slash)}&type=EW&id=&response=json`;
-    const j = await (await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.tpex.org.tw/' }, signal: AbortSignal.timeout(12000) })).json();
-    const tb = useEcho ? (String(j?.date || '') === dateYmd ? j?.tables?.[0] : null) : j?.tables?.[0];
-    const out = [];
-    for (const r2 of (tb?.data || [])) {
-      const code = String(r2[0] || '').trim();
-      if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) {
-        // open/high/low 供歸檔補洞組完整日 K（2026-09-17 加；既有兩個呼叫端只讀 close/change/vol，加欄位不影響）
-        out.push({ code, name: String(r2[1] || '').trim(), market: 'otc', close: _num(r2[2]), change: _num(r2[3]), vol: _num(r2[8]), open: _num(r2[4]), high: _num(r2[5]), low: _num(r2[6]) });
-      }
-    }
-    return out;
-  } catch (e) {
-    // R10（2026-09-12）：以前是靜默 `catch { return [] }`——outage 與「今天沒資料」同值。
-    // 回傳形狀不動（8 個呼叫端多數已以 length===0 棄權），但故障必須留痕。
-    log(`  ⚠ 上櫃帶日期收盤（TPEx dailyQuotes ${dateYmd || '最新'}）抓取失敗（回空）：${(e?.message || '').slice(0, 80)}`);   // 舊標籤誤寫成 STOCK_DAY_ALL（2026-10-02 更正）
-    return [];
-  }
+    if (!_tpexPub.loaded) { const cur = (await db.collection('tpexClose').doc('latest').get()).data(); _tpexPub = { ..._tpexPub, loaded: true, sha: cur?.sha256 || null, dataDate: cur?.dataDate || null }; }
+    if ((_tpexPub.dataDate && res.dataDate < _tpexPub.dataDate) || _tpexPub.sha === res.sha256) return;
+    const doc = _tpex.firestoreDocOf(res);
+    await db.collection('tpexClose').doc(res.dataDate).set(doc);
+    await db.collection('tpexClose').doc('latest').set(doc);
+    _tpexPub = { ..._tpexPub, sha: res.sha256, dataDate: res.dataDate };
+    log(`  ✓ tpexClose/latest → ${res.dataDate}（${doc.rows} 列·4 碼 ${doc.stocks4}·來源 ${res.source}）`);
+  } catch (e) { log(`  ⚠ tpexClose 寫入失敗：${(e?.message || '').slice(0, 60)}`); }
+  finally { _tpexPub.busy = false; }
+}
+
+// 上櫃帶日期收盤（回聲驗證）：舊呼叫端（歸檔補洞 scanArchiveGaps）沿用的形狀——宇宙種子列陣列，拿不到回空陣列。
+//   dateYmd 為空＝「拿一份最近的上櫃清單」（本機最近一份已驗證檔，0 請求）。
+//   歷史日過不了完整性門檻（例：2022 年 4 碼股僅 794～799 檔 < 800）：回聲相符時仍回那天的列（looseRows，舊行為），但不進共用快取。
+//   帶日期時最多等 60 秒（補洞跑在串行班車裡；下載不中止、背景完成後下一輪命中快取；舊版固定 12 秒總逾時）。
+async function _fetchOtcDated(dateYmd) {
+  const useEcho = /^\d{8}$/.test(dateYmd || '');
+  let r;
+  try { r = useEcho ? await _tpexWithin(dateYmd, 60_000) : await _tpex.getLatestTpexClose({ maxAgeDays: 14 }); }
+  catch (e) { r = { status: 'failed', reason: (e?.message || '').slice(0, 80) }; }
+  if (r?.status === 'ok') { if (!useEcho) _publishTpexClose(r); return tpexSeedRows(r.rows); }
+  if (r?.looseRows?.length) return tpexSeedRows(r.looseRows);
+  // R10（2026-09-12）：故障必須留痕；notYet（官方還沒出這一天）是中性結果，不記
+  if (r?.status !== 'notYet') log(`  ⚠ 上櫃帶日期收盤（TPEx dailyQuotes ${dateYmd || '最新'}）未取得（回空）：${String(r?.reason || r?.status || '本機沒有').slice(0, 80)}`);
+  return [];
 }
 async function getAllMarketCodes(force = false) {
   if (!force && _codesCache && Date.now() - _codesAt < 10 * 60000) return _codesCache;
@@ -1853,46 +1881,28 @@ async function _loadMarketCodes() {
     } catch { /* tse */ }
   }
   for (const c of tseRows) codes.push(c);
-  // ── 上櫃種子（2026-08-11 修）────────────────────────────────────────
-  // ⚠ 這個 openapi 鏡像**自帶 Date 欄位（民國 YYYMMDD）**，但舊版從來不讀它。
-  //   上市那半有 closeDate 回音驗證，上櫃這半沒有 —— 於是「上櫃種子是哪一天的」
-  //   系統完全不知道，鏡像落後時就把昨日收盤當今日餵給「即時漲跌」。
-  //   （CLAUDE.md 明文規則：openapi 一律假設是舊的，且必須讀它自報的日期比對。）
-  // 修法：讀鏡像自報日 → 與上市的 closeDate 比對 → 落後就改用**帶日期**的
-  //       afterTrading/dailyQuotes（回聲驗證，回補腳本已實測可靠）重抓。
+  // ── 上櫃種子（2026-08-11 修；2026-10-08 改走共用取得層 _tpex）──────────────────────
+  // 回聲驗證照舊：上櫃種子的資料日一律是檔案自報（openapi 每列 Date／帶日期端點頂層 date），與上市的 closeDate 比對。
+  // 舊版每次載入都打網路（帶日期端點 12 秒、openapi 大檔 30 秒固定總逾時；13:35–15:00 每輪強制重抓），拿回的多半是昨天、已有的資料。
+  // 現在：要的那天（上市資料日）在記憶體／本機快取／收件匣／鏡像本機檔就 0 請求；缺的才打帶日期端點（當日檔 14:45 前不試、出檔窗內 2 分鐘再試、
+  //   16:00 後且傳輸失敗才退 openapi）。官方還沒出（notYet）或抓不到 ⇒ 種子用最近一份已驗證檔、_otcCloseDate 記那一天——
+  //   與舊版「openapi 回前一日」的語意相同。慢速下載最多等 20 秒，之後背景繼續、本輪先用最近一份（熱路徑不被大檔卡住）。
   let otcRows = []; let otcDate = '';
   let otcFromBackup = false; let otcFromPrev = false;
-  // ── 帶日期端點優先（2026-10-08·WP7）──
-  //   上櫃 openapi（tpex_mainboard_daily_close_quotes）是 4.7MB 未壓縮的整包（含約 11,000 檔權證），自 08-30 起在 TPEx 端
-  //   幾乎每次都在傳輸中途被切斷（10-08 實測：HTTP 200、content-length 4,782,386、無壓縮，約 42 秒 ECONNRESET；curl 則
-  //   HTTP/2 INTERNAL_ERROR），daemon 每 ~10 分鐘白打一次才落到帶日期端點，日誌的「鏡像重試 N 次仍失敗」還讓官方鏡像停擺三天。
-  //   帶日期端點 gzip 傳輸、回聲驗證、欄位口徑相同（成交股數含零股；10-02 逐檔比對 903 檔開高低收一致）
-  //   ⇒ 上市已給出收盤資料日時先打它；拿不到（TPEx 當日尚未出表、或被中斷）才退回 openapi 鏡像。同一天不重打第二次。
-  let datedTried = '';
-  if (closeDate) {
-    datedTried = closeDate;
-    const first = await withRetry(() => _fetchOtcDated(closeDate), { attempts: _codesCache ? 1 : 2, isOk: v => v.length > 500 });
-    if (first.ok) { otcRows = first.value; otcDate = closeDate; }
+  const wantOtc = closeDate || _codesCloseDate || await _latestArchiveYmd();
+  const tpx = wantOtc ? await _tpexWithin(wantOtc, 20000) : { status: 'missing', rows: null, reason: '上市資料日與歸檔日都不明' };
+  if (tpx.status === 'ok') { otcRows = tpexSeedRows(tpx.rows); otcDate = _ymdOfIso(tpx.dataDate); }
+  else {
+    let lat = null;
+    try { lat = await _tpex.getLatestTpexClose({ maxAgeDays: 14, before: wantOtc ? tpexIso(wantOtc) : null }); } catch (e) { log(`  ⚠ 上櫃收盤本機快取讀取失敗：${(e?.message || '').slice(0, 60)}`); }
+    if (lat) {
+      otcRows = tpexSeedRows(lat.rows); otcDate = _ymdOfIso(lat.dataDate);
+      _publishTpexClose(lat);
+      if (tpx.status !== 'notYet') log(`  ⚠ 上櫃收盤檔 ${wantOtc} 未取得（${String(tpx.reason || tpx.status).slice(0, 90)}）→ 種子用最近一份已驗證檔 ${lat.dataDate}`);
+    } else log(`  ⚠ 上櫃收盤檔 ${wantOtc || '（日期不明）'} 未取得（${String(tpx.reason || tpx.status).slice(0, 90)}），本機也沒有 14 天內的已驗證檔`);
   }
-  // 上櫃鏡像（帶日期端點沒拿到才打）：被中斷／回空時重新取得（同上市·2026-10-02）
-  const otcMirror = otcRows.length > 0 ? { ok: false, skipped: true } : await withRetry(async () => {
-    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!r.ok) { if (r.status >= 400 && r.status < 500) throw nonRetryable(`HTTP ${r.status}`); return null; }
-    const rows = []; let d = '';
-    for (const x of await r.json()) {
-      const code = x.SecuritiesCompanyCode || x.Code || '';
-      if (!d && x.Date) d = rocToYmd(String(x.Date));
-      if (/^\d{4}$/.test(code) || /^00\d{2,4}$/.test(code)) rows.push({ code, name: x.CompanyName || x.Name || '', market: 'otc', close: _num(x.Close), change: _num(x.Change), vol: _num(x.TradingShares), open: _num(x.Open), high: _num(x.High), low: _num(x.Low) });
-    }
-    return { rows, date: d };
-  }, { attempts: _codesCache ? 1 : 2, isOk: v => v?.rows?.length > 500 });   // 開機時上櫃只多試 1 次：TPEx 慢／限流時重試會加重負擔（2026-10-02 實測回應 14 秒）
-  if (otcMirror.ok) { otcRows = otcMirror.value.rows; otcDate = otcMirror.value.date; }
-  else if (!otcMirror.skipped) log(`  ⚠ 上櫃 openapi 鏡像重試 ${otcMirror.tries} 次仍失敗：${(otcMirror.error?.message || '回空').slice(0, 60)}`);
-  if (closeDate && otcDate && otcDate < closeDate) {
-    const fixed = datedTried === closeDate ? [] : await _fetchOtcDated(closeDate);   // 剛剛已打過同一天且沒拿到 ⇒ 不重打
-    if (fixed.length > 500) { otcRows = fixed; log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，已改用帶日期端點重抓 ${fixed.length} 檔`); otcDate = closeDate; }
-    else log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，帶日期端點只回 ${fixed.length} 檔，維持鏡像值`);
-  }
+  // 交易日到 19:00（或之後的日子）仍沒有已驗證檔 ⇒ 每日一次告警，附手動下載／收件匣說明（_alerts/{日}.json 去重）
+  if (closeDate) { try { const a = _tpex.checkMissing(closeDate); if (a.alert) notifyDeveloper(a.text, `tpex-close-missing-${closeDate}`).catch(() => {}); } catch { /* 告警是加值，不影響宇宙 */ } }
   // ── 整個市場消失的防線（2026-08-19 實案）──────────────────────────────
   // 上面的 TPEx 抓取原本是 `catch { /* otc */ }` 靜默吞掉，且**沒有任何後備**
   //（上市那半有 openapi 後備，上櫃這半沒有）。於是一次暫時性失敗就會讓
@@ -1900,16 +1910,9 @@ async function _loadMarketCodes() {
   // **把「只有上市」的宇宙當成權威寫進快取**，連上一份好的快取都被覆蓋。
   // 後果：全站上櫃股整批消失（快照 2,132→1,229 檔），漲停榜再也不會有上櫃，
   // 而且不會報錯——正是使用者 2026-08-19 回報的現象。
+  // （2026-10-08：帶日期後備已併進 _tpex；這裡只剩本機也沒有已驗證檔時的記憶體快取／本地備份兩道。）
   if (otcRows.length === 0) {
-    const altDate = closeDate || _codesCloseDate || await _latestArchiveYmd();
-    let alt = [];
-    if (datedTried && altDate === datedTried) log(`  ⚠ 上櫃清單抓取失敗（帶日期端點 ${altDate} 與 openapi 鏡像皆未取得）`);   // 帶日期端點本輪已打過同一天（WP7）
-    else {
-      log('  ⚠ 上櫃清單抓取失敗（鏡像回空）→ 改用帶日期端點後備');
-      alt = (await withRetry(() => _fetchOtcDated(altDate), { attempts: _codesCache ? 1 : 2, isOk: v => v.length > 500 })).value || [];   // 被中斷時重新取得（2026-10-02）
-    }
-    if (alt.length > 500) { otcRows = alt; otcDate = closeDate || otcDate; log(`  ✓ 上櫃後備成功 ${alt.length} 檔`); }
-    else {
+    {
       // 最後一道：沿用上一份快取裡的上櫃（stale-if-error）。寧可用舊的上櫃種子，
       // 也不要讓整個市場從站上蒸發——即時價本來就由 MIS 逐輪覆蓋。
       const prevOtc = (_codesCache || []).filter(c => c.market === 'otc');
@@ -11622,12 +11625,12 @@ async function computeStrategyPicks() {
   const rows = [];
   const tseCsv = await fetchCloseCsvFull();
   for (const r of tseCsv) rows.push({ ...r, market: 'tse' });
-  // 上櫃檔必須與上市 CSV 同資料日（TPEx openapi 無日期參數·15:10 常仍昨日檔）：
-  // 不合致則本輪僅上市，16:45 補跑自然補上——寧缺勿錯日混併。
+  // 上櫃檔必須與上市 CSV 同資料日（共用取得層以期望日回聲驗證；15:10 櫃買多半還沒出）：
+  // 拿不到則本輪僅上市，16:45 補跑自然補上——寧缺勿錯日混併。
   const otcArr = tseCsv.dataDate ? await fetchTpexDailyCloseValidated(tseCsv.dataDate) : null;
   if (otcArr) {
     for (const x of otcArr) { const code = x.SecuritiesCompanyCode || ''; if (/^\d{4}$/.test(code)) rows.push({ code, name: x.CompanyName || code, market: 'otc', vol: _num(x.TradingShares), value: _num(x.TransactionAmount), open: _num(x.Open), high: _num(x.High), low: _num(x.Low), close: _num(x.Close), change: _num(String(x.Change || '').trim()) }); }
-  } else log('  ⚠ strategyPicks：上櫃檔與上市資料日不合致，本輪僅上市（16:45 補跑）');
+  } else log(`  ⚠ strategyPicks：${_tpexMissText(tseCsv.dataDate)}，本輪僅上市（16:45 補跑）`);   // 舊文字把網路失敗與日期不合寫成同一句（2026-10-08 分開）
   if (rows.length < 500) return;
   const tickOf = p => (p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5);
   const isLim = (c, ch) => { const pv = c - ch; if (!(pv > 0) || ch <= 0) return false; const raw = pv * 1.1; const t = tickOf(raw); return c >= Math.floor(raw / t + 1e-9) * t - 1e-6; };
@@ -11795,16 +11798,22 @@ async function forecastSectors() {
 // TPEx openapi 上櫃日收盤（⚠無日期參數）：回檔每列含 Date(民國)。期望日檔未發布時
 // 會靜默回前一交易日——必須回聲驗證，否則跨日資料被併進同一文件
 // （2026-07-22 揭發：15:10 歸檔時 TWSE 已出今日檔、TPEx 仍昨日檔 → 上櫃日K整段平移一日）。
+// 2026-10-08：改問共用取得層 _tpex（同一天只抓一次；宇宙或另一個任務抓過就 0 請求；帶日期端點優先、串流下載＋停滯偵測；
+//   舊版直打 openapi 4.7MB 且沒有逾時，job set 串行，一掛住整組等到對方斷線）。回傳契約不變：openapi 形狀的陣列（每列 Date＝期望日）或 null；
+//   null 的原因記在 _tpexLastMiss（notYet＝櫃買尚未出這一天／failed＝傳輸或驗證失敗／slow＝下載中），讓日誌分得開。
+//   最多等 60 秒（審查 LOW：16:45 班車的歸檔與策略選股串行 await，網路一回合最壞約 12.5 分鐘會延後後面的榜單與定版）；
+//   下載不中止、背景完成後寫共用快取，班車照舊 otcPending／本輪僅上市，下一輪 0 請求命中。
+let _tpexLastMiss = null;
 async function fetchTpexDailyCloseValidated(expectYmd8) {
-  try {
-    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!r.ok) return null;
-    const arr = await r.json();
-    const roc = String(parseInt(expectYmd8.slice(0, 4), 10) - 1911) + expectYmd8.slice(4);
-    if (!Array.isArray(arr) || !arr.length || String(arr[0]?.Date || '') !== roc) return null;
-    return arr;
-  } catch { return null; }
+  let r;
+  try { r = await _tpexWithin(expectYmd8, 60_000); } catch (e) { r = { status: 'failed', reason: (e?.message || '').slice(0, 80) }; }
+  if (r?.status === 'ok' && Array.isArray(r.rows)) { _tpexLastMiss = null; return r.rows; }
+  _tpexLastMiss = { ymd: expectYmd8, status: r?.status || 'failed', reason: String(r?.reason || r?.status || '').slice(0, 100) };
+  return null;
 }
+const _tpexMissText = ymd => (_tpexLastMiss?.ymd === ymd
+  ? (_tpexLastMiss.status === 'notYet' ? `櫃買尚未出 ${ymd}` : `上櫃收盤檔 ${ymd} 未取得（${_tpexLastMiss.reason}）`)
+  : `上櫃收盤檔 ${ymd || '（上市資料日不明）'} 未取得`);
 
 // ── 歸檔上櫃補洞（2026-09-17）──
 //   archiveChipDaily 只補「STOCK_DAY_ALL 現在報的那一天」的 otcPending；更早的日子若當天 TPEx 沒出
@@ -15168,31 +15177,30 @@ const TWSE_INDUSTRY = {
   '36': '數位雲端', '37': '運動休閒', '38': '居家生活', '91': '存託憑證',
 };
 // 發行股數（週轉率用·慢變數·每日快取）：上市 t187ap03_L「已發行普通股數」＋上櫃 Capitals
-let _shrMap = { date: '', map: null };
-async function getSharesMap() {
-  const today = isoDate(taipei());
-  if (_shrMap.date === today && _shrMap.map) return _shrMap.map;
-  const map = {};
-  try {
-    const r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
+// 2026-10-08：上櫃改讀共用取得層最近一份已驗證檔（0 請求；舊版在 alertLoop 裡直打 openapi 4.7MB 且沒有逾時，12:45 一慢整條盤中提醒鏈卡住）；
+//   上市加 30 秒逾時。快取閘門改成兩市都到才算當日完整——舊版只看 >500 筆，光上市就約 1,000 檔，上櫃失敗的「只有上市」表被當成
+//   當日完整快取、整天不重試，上櫃週轉率全是 null（規則「無資料不誤殺」⇒ 尾盤榜冷門上櫃股濾網整天悄悄放寬）。
+//   不完整時疊在上一份完整表上回傳（股數是慢變數），10 分鐘後再試。
+//   兩市到齊判定、疊表與 10 分鐘重試在 scripts/lib/tpex-close-readers.mjs createSharesCache（有自動測試）。
+const getSharesMap = createSharesCache({
+  today: () => isoDate(taipei()),
+  log: (...a) => log(...a),
+  fetchTse: async () => {
+    const out = {};
+    const r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
     const txt = await r.text();
     if (txt.startsWith('[')) for (const x of JSON.parse(txt)) {
       const c = (x['公司代號'] || '').trim();
       const n = parseFloat(String(x['已發行普通股數或TDR原股發行股數'] || '').replace(/,/g, ''));
-      if (/^\d{4}$/.test(c) && n > 0) map[c] = n;
+      if (/^\d{4}$/.test(c) && n > 0) out[c] = n;
     }
-  } catch { /* 上市缺→僅上櫃 */ }
-  try {
-    const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) for (const x of await r.json()) {
-      const c = (x.SecuritiesCompanyCode || '').trim();
-      const cap = parseFloat(String(x.Capitals || '').replace(/,/g, ''));
-      if (/^\d{4}$/.test(c) && cap > 0 && !map[c]) map[c] = cap;
-    }
-  } catch { /* 上櫃缺 */ }
-  if (Object.keys(map).length > 500) _shrMap = { date: today, map };
-  return _shrMap.map || map;
-}
+    return out;
+  },
+  fetchOtc: async () => {
+    const lat = await _tpex.getLatestTpexClose({ maxAgeDays: 30 });   // 慢變數：長假後也可用
+    return lat ? tpexSharesOf(lat.rows) : {};
+  },
+});
 
 let _indMap = { date: '', map: null }; // code -> 產業名(官方)
 async function getIndustryMap() {
