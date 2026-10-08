@@ -5,9 +5,10 @@ import { useAppStore } from '@/lib/store';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { getChangeColor } from '@/lib/twse-api';
+import { isCurrentTaifexBasis } from '../../../scripts/lib/taifex-basis.mjs';
 
 // ── 第二大腦衍生洞察（常駐 daemon 計算 → Firestore → GET 端點）──
-// 產業輪動 / 法人連買 / 回測勝率 / RS選股 / 當沖隔日沖 / 外資期貨 / AI盤後總結
+// 產業輪動 / 法人連買 / 回測勝率 / RS選股 / 當沖隔日沖 / 外資台指期未平倉＋選擇權 P/C / AI盤後總結
 
 interface SectorLeader { code: string; name: string; changePercent: number }
 interface Sector { industry: string; avgChangePct: number; up: number; down: number; flat: number; leaders: SectorLeader[] }
@@ -22,7 +23,8 @@ interface MTItem { code: string; name: string }
 interface RisingItem { code: string; ratio: number; change: number }
 interface RSItem { code: string; name: string; rs: number; ret60: number }
 interface TradeItem { code: string; name: string; close: number; changePct: number; amplitude: number; closePos: number }
-interface Taifex { date?: string; foreignTxfNetOI: number | null; putCallRatio: number | null }
+// basisVersion（2026-10-08）：沒有這欄的舊文件，foreignTxfNetOI 其實是外資 23 種期貨「交易」口數淨額合計（錯值）——不顯示，見 scripts/lib/taifex-basis.mjs
+interface Taifex { date?: string; basisVersion?: string; foreignTxfNetOI: number | null; putCallRatio: number | null }
 // date＝產生當天（日曆日）、dataDate＝內容的資料日；畫面標資料日（2026-10-01：凌晨重算的 09-30 總結被標成 10-01）
 interface DailyPost { date?: string; dataDate?: string; post: string; breadth?: { up: number; down: number } }
 interface ScanItem { code: string; name: string; close: number; changePct: number; volX?: number }
@@ -70,7 +72,7 @@ export default function MarketInsights() {
     const load = () => {
       get('/api/ai/institutional-streaks', (d: any) => d && setInst({ foreign: d.foreign || [], trust: d.trust || [], latestDate: d.latestDate }));
       get('/api/ai/backtest', (d: any) => setBt(d));
-      get('/api/ai/taifex', (d: any) => setTaifex(d));
+      get('/api/ai/taifex', (d: any) => setTaifex(d && typeof d === 'object' ? { ...d, foreignTxfNetOI: isCurrentTaifexBasis(d) ? d.foreignTxfNetOI ?? null : null } : null));
       get('/api/ai/daily-post', (d: any) => setPost(d));
       get('/api/ai/major-holders', (d: any) => { if (d) { setMajor({ date: d.date, top: d.top || [] }); setRising(d.rising || []); } });
       get('/api/ai/dividend-calendar', (d: any) => d && setDiv(d.upcoming || []));
@@ -235,7 +237,7 @@ export default function MarketInsights() {
       <div onClick={() => setAdvOpen(o => !o)} style={{ ...card, marginTop: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px' }}>
         <span style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)' }}>{advOpen ? '▾' : '▸'}</span>
         <span style={{ fontWeight: 700, fontSize: 'calc(0.92rem * var(--fz))' }}>📚 進階指標</span>
-        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>月營收 · 軋空 · 千張大戶 · 除權息 · 借券 · 外資期貨 · 回測</span>
+        <span style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>月營收 · 軋空 · 千張大戶 · 除權息 · 借券 · 外資台指期 · 回測</span>
         <span style={{ marginLeft: 'auto', fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-secondary)' }}>{advOpen ? '收合' : '展開'}</span>
       </div>
 
@@ -319,17 +321,17 @@ export default function MarketInsights() {
           </div>
         )}
 
-        {/* 外資期貨 / 選擇權多空 */}
+        {/* 外資台指期未平倉 / 選擇權 P/C（未平倉＝期交所三大法人·臺股期貨×外資及陸資 多方未平倉−空方未平倉，口） */}
         {taifex && (taifex.foreignTxfNetOI != null || taifex.putCallRatio != null) && (
           <div style={card}>
-            <div style={title}>🌐 外資期貨 / 選擇權 <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{taifex.date}</span></div>
+            <div style={title}>🌐 外資台指期 / 選擇權 <span style={{ fontWeight: 400, fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{taifex.date}</span></div>
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1, textAlign: 'center', padding: '12px 4px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>外資期貨淨部位</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>外資台指期淨未平倉</div>
                 <div style={{ fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 800, color: col(taifex.foreignTxfNetOI ?? 0), fontFamily: "'JetBrains Mono', monospace" }}>
                   {taifex.foreignTxfNetOI != null ? `${sign(taifex.foreignTxfNetOI)}${taifex.foreignTxfNetOI.toLocaleString()}` : '—'}
                 </div>
-                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{(taifex.foreignTxfNetOI ?? 0) >= 0 ? '淨多單(口)' : '淨空單(口)'}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{taifex.foreignTxfNetOI == null ? '尚無資料' : taifex.foreignTxfNetOI >= 0 ? '淨多單(口)' : '淨空單(口)'}</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '12px 4px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
                 <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>Put/Call 比</div>

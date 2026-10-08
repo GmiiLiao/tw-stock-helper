@@ -345,3 +345,24 @@ test('網路：帶日期端點回當日空表（stat ok、日期相符、0 列�
   const h2 = make({ fetchImpl: g, network: 'auto', at: tw('2026-10-08', '17:00') });
   assert.equal((await h2.svc.getTpexClose('2026-10-08')).source, 'openapi');
 });
+
+test('第三方後備（3P）存放：與官方分開記（thirdParty）、官方已在就拒寫、官方到了記 supersededBy、與官方同樣保留 60 天', async () => {
+  const h = make({ at: tw('2026-10-08', '21:50') });
+  const rows = synthOpenapi({ roc: '1151008' });
+  const st = await h.svc.storeThirdParty({ iso: '2026-10-08', rows, meta: { source: 'finmind', grade: '3P', volumeBasis: 'tpex-dailyQuotes', missingFields: ['Capitals'], otcFilter: 'prev+warrant+info' } });
+  assert.equal(st.stored, true);
+  const tp = h.svc.getThirdParty('2026-10-08');
+  assert.equal(tp.status, 'ok'); assert.equal(tp.grade, '3P'); assert.equal(tp.source, 'finmind'); assert.equal(tp.rows.length, rows.length);
+  assert.equal(tp.supersededBy, null);
+  assert.equal((await h.svc.getTpexClose('2026-10-08')).status, 'missing', '官方鏈看不到 3P');
+  assert.equal(h.svc.status().days['2026-10-08'], undefined); assert.equal(h.svc.status().thirdParty['2026-10-08'].grade, '3P');
+  // 官方到了
+  await h.svc.importBuffer(Buffer.from(JSON.stringify(rows)), { source: 'openapi', expect: '2026-10-08' });
+  assert.equal(h.svc.getThirdParty('2026-10-08').supersededBy.source, 'openapi');
+  assert.equal((await h.svc.storeThirdParty({ iso: '2026-10-08', rows, meta: {} })).stored, false, '官方已在就不寫 3P');
+  // 61 天後清掉
+  h.set(tw('2026-12-09', '12:00'));
+  await h.svc.importBuffer(Buffer.from(JSON.stringify(synthOpenapi({ roc: '1151208' }))), { source: 'inbox', expect: '2026-12-08' });
+  assert.equal(h.svc.getThirdParty('2026-10-08'), null);
+  assert.equal(readdirSync(h.svc.root).some(n => n.startsWith('2026-10-08.')), false, '檔案一起清掉');
+});

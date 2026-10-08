@@ -13,6 +13,8 @@
 //         ⇒ 14:45 起才試當日檔；14:45–15:30 回聲不符／空表 2 分鐘再試（出檔前多 2～4 個小請求），其餘 10 分鐘。
 //   資料日一律用來源自報（鍵＝資料日）；抓不到就是抓不到（交易日 19:00 仍沒有 ⇒ 寫 _alerts 並回告警文字），不捏造。
 //   存放：{date}.{openapi|dated}.json.gz（官方原始回應位元組 gzip；sha256 算在原始位元組上，與官方鏡像同算法）＋ _manifest.json；保留 60 天。
+//   第三方後備（2026-10-08，scripts/lib/tpex-close-finmind.mjs）：{date}.3p-finmind.json.gz＋清單 thirdParty[date]（grade 3P、supersededBy）——
+//         與官方 days 分開，官方鏈的讀者（getTpexClose／getLatestTpexClose／前一份比對／鏡像收養／19:00 告警）一律看不到；只有 getThirdParty 會回。
 //   實測（2026-10-08 20:00，2 個小請求，記在 WP7 requests.log）：openapi 是 nginx 靜態檔、約每小時重產一次（ETag＝mtime-size，
 //     18:00→20:00 大小不變、ETag 變）⇒ Range＋If-Range（ETag 相同）回 206 已驗；跨重產時 If-Range 不符會回 200 整檔（下載器丟棄前段重收）；
 //     If-None-Match 只在同一小時內可能 304（跨重產必回 200）。Last-Modified 是重產時刻、不是資料日——只拿來排除「資料日之前就沒重產過」的舊檔。
@@ -103,7 +105,9 @@ export function createTpexClose(opts = {}) {
   const loadMan = () => {
     const m = readJson(manPath, null) || {};
     return { v: 1, days: m.days || {}, net: { day: m.net?.day || null, want: m.net?.want || {}, blocked: m.net?.blocked || null, openapi: m.net?.openapi || null, log: m.net?.log || [] },
-      inbox: { rejected: Array.isArray(m.inbox?.rejected) ? m.inbox.rejected : [] } };
+      inbox: { rejected: Array.isArray(m.inbox?.rejected) ? m.inbox.rejected : [] },
+      // 第三方後備（2026-10-08）：與官方 days 分開記——官方鏈（readDay／getLatestTpexClose／prevCodes4／openapiRawFor／checkMissing）一律看不到
+      thirdParty: m.thirdParty && typeof m.thirdParty === 'object' ? m.thirdParty : {} };
   };
   const saveMan = m => writeAtomic(manPath, JSON.stringify(m, null, 1));
 
@@ -195,6 +199,7 @@ export function createTpexClose(opts = {}) {
   async function storeRaw({ iso, raw, sha = sha256(raw), format, source, meta = {} }) {
     const fetchedAt = new Date(now()).toISOString();
     const out = await mutate(m => {
+      markSuperseded(m, iso, { source, format, sha256: sha, at: fetchedAt });   // 官方到了：同日第三方後備記 supersededBy（3P 檔留存供對照）
       const d = m.days[iso];
       const rec = { file: null, sha256: sha, source, format, bytes: raw.length, contentLength: meta.contentLength ?? null, etag: meta.etag ?? null, lastModified: meta.lastModified ?? null, fetchedAt };
       if (d?.status === 'ok' && d.sha256 === sha) return { stored: false, same: true, entry: d };
@@ -224,6 +229,68 @@ export function createTpexClose(opts = {}) {
       delete m.days[k];
     }
     for (const k of Object.keys(m.net.want)) if (dayDiff(today, k) > 10) delete m.net.want[k];
+    for (const [k, d] of Object.entries(m.thirdParty)) {
+      if (dayDiff(today, k) <= pol.retentionDays) continue;
+      try { if (d?.file) unlinkSync(join(root, d.file)); } catch { /* 已不在 */ }
+      delete m.thirdParty[k];
+    }
+  }
+
+  // ── 第三方後備（3P；2026-10-08 使用者：「上櫃收盤以官方優先如果失敗改由第三方來源補上，例如finmind」）──
+  //   只由 scripts/lib/tpex-close-finmind.mjs 的控制器寫入（daemon 21:50／23:30、官方全部來源仍缺時）。
+  //   存在 thirdParty[iso]（不進 days）：官方鏈的每個讀者照舊只看官方；要用 3P 的呼叫端明確呼叫 getThirdParty。
+  //   檔案＝轉成 openapi 形狀的列（JSON 陣列 gzip；sha256 算在這份位元組上——不是任何官方原始回應）。
+  //   官方之後到了（storeRaw）⇒ supersededBy＝{source, format, sha256, at}；官方已在就拒寫。
+  function markSuperseded(m, iso, by) {
+    const tp = m.thirdParty?.[iso];
+    if (tp && !tp.supersededBy) { m.thirdParty[iso] = { ...tp, supersededBy: by }; log(`  ⓘ 上櫃收盤 ${iso} 官方已取得（${by.source}），第三方後備檔標為已被覆蓋`); }
+  }
+  async function storeThirdParty({ iso, rows, meta = {} }) {
+    if (!P.toIso(iso) || !Array.isArray(rows) || !rows.length) return { stored: false, reason: '參數不全' };
+    if (mirrorDay(iso)) return { stored: false, reason: '官方鏡像已有這一天' };
+    const raw = Buffer.from(JSON.stringify(rows));
+    const sha = sha256(raw);
+    const fetchedAt = new Date(now()).toISOString();
+    const source = String(meta.source || 'thirdparty').replace(/[^a-z0-9-]/gi, '').slice(0, 20) || 'thirdparty';
+    const out = await mutate(m => {
+      if (m.days[iso]?.status === 'ok') return { stored: false, reason: '官方已有這一天' };
+      if (m.thirdParty[iso]?.sha256 === sha) return { stored: false, same: true, entry: m.thirdParty[iso] };
+      const file = `${iso}.3p-${source}.json.gz`;
+      writeAtomic(join(root, file), gzipSync(raw));
+      const st = P.statsOf(rows);
+      m.thirdParty[iso] = {
+        status: 'ok', grade: meta.grade || '3P', source, format: 'openapi-shape', volumeBasis: meta.volumeBasis ?? null,
+        missingFields: Array.isArray(meta.missingFields) ? [...meta.missingFields] : [], otcFilter: meta.otcFilter ?? null,
+        prevOfficial: meta.prevOfficial ?? null, note: meta.note ?? null,
+        file, sha256: sha, bytes: raw.length, rows: st.rows, stocks4: st.stocks4, etf00: st.etf00, fetchedAt, supersededBy: null,
+      };
+      prune(m);
+      return { stored: true, entry: m.thirdParty[iso] };
+    });
+    if (out.stored) tpMem = null;
+    return out;
+  }
+  let tpMem = null;   // 最近一次讀的 3P 檔（控制器每輪會問；同一份 sha 不重複解壓）
+  /** D 日第三方後備 → { status:'ok', dataDate, rows, grade:'3P', source, volumeBasis, missingFields, otcFilter, sha256, fetchedAt, supersededBy, stats } 或 null */
+  function getThirdParty(ymd) {
+    const iso = P.toIso(ymd); if (!iso) return null;
+    const d = loadMan().thirdParty[iso];
+    if (d?.status !== 'ok' || !d.file) return null;
+    const meta = { grade: d.grade, source: d.source, volumeBasis: d.volumeBasis ?? null, missingFields: d.missingFields || [], otcFilter: d.otcFilter ?? null, prevOfficial: d.prevOfficial ?? null, sha256: d.sha256, fetchedAt: d.fetchedAt, supersededBy: d.supersededBy || null };
+    if (tpMem?.iso === iso && tpMem.sha === d.sha256) return { ...tpMem.res, ...meta };
+    try {
+      const p = P.parseTpexClose(gunzipSync(readFileSync(join(root, d.file))));
+      if (p.error || p.echo !== iso) { log(`  ⚠ 上櫃第三方後備 ${d.file} 讀取異常：${p.error || `資料日 ${p.echo}`}`); return null; }
+      const res = { status: 'ok', dataDate: iso, rows: p.rows, reason: null, stats: P.statsOf(p.rows), ...meta };
+      tpMem = { iso, sha: d.sha256, res };
+      return res;
+    } catch (e) { log(`  ⚠ 上櫃第三方後備 ${d.file} 讀取失敗：${e.message.slice(0, 60)}`); return null; }
+  }
+  /** 官方來自鏡像本機檔（沒經過 storeRaw）時由控制器補記 supersededBy */
+  async function markThirdPartySuperseded(ymd, by) {
+    const iso = P.toIso(ymd); if (!iso || !loadMan().thirdParty[iso] || loadMan().thirdParty[iso].supersededBy) return false;
+    await mutate(m => markSuperseded(m, iso, { source: by?.source || null, format: by?.format || null, sha256: by?.sha256 || null, at: new Date(now()).toISOString() }));
+    return true;
   }
 
   /** 位元組（任一格式；gzip 也可）→ 驗證 → 存快取。expect 給定時回聲不符＝notYet（結構合格者仍存在它自己的資料日下）。 */
@@ -464,6 +531,15 @@ export function createTpexClose(opts = {}) {
     return task;
   }
 
+  /**
+   * 這個程序是否正在為 ymd 走網路（network:'auto' 的 getTpexClose 還沒結束；慢速下載在呼叫端逾時後會在背景繼續）。
+   *   第三方後備控制器用它避免「官方還在下載就先打第三方／先發佈 3P」（2026-10-08 審查 LOW）。只看本程序；0 請求、不讀檔。
+   */
+  function isFetching(ymd) {
+    const iso = P.toIso(ymd);
+    return !!iso && inflight.has(`${iso}|auto`);
+  }
+
   /** 最近一份（≤ before）已驗證的上櫃收盤（快取或鏡像，0 請求）；比 maxAgeDays 舊就回 null。慢變數（名稱、發行股數）與種子後備用。 */
   async function getLatestTpexClose({ maxAgeDays = 14, before = null } = {}) {
     if (inboxPending().length) await ingestInbox();
@@ -499,7 +575,8 @@ export function createTpexClose(opts = {}) {
     const m = loadMan();
     const scan = inboxScan();
     return { root, days: Object.fromEntries(Object.entries(m.days).sort().map(([k, d]) => [k, { source: d.source, format: d.format, rows: d.rows, stocks4: d.stocks4, sha8: d.sha256?.slice(0, 8), revisions: (d.revisions || []).length, alt: Object.keys(d.alt || {}) }])), net: { day: m.net.day, blocked: m.net.blocked, openapi: m.net.openapi, want: m.net.want },
-      inboxPending: scan.ready, inboxWaiting: scan.waiting, inboxRejected: m.inbox.rejected };
+      inboxPending: scan.ready, inboxWaiting: scan.waiting, inboxRejected: m.inbox.rejected,
+      thirdParty: Object.fromEntries(Object.entries(m.thirdParty).sort().map(([k, d]) => [k, { grade: d.grade, source: d.source, rows: d.rows, stocks4: d.stocks4, sha8: d.sha256?.slice(0, 8), otcFilter: d.otcFilter, supersededBy: d.supersededBy?.source || null }])) };
   }
 
   /** 官方鏡像收養用：某月（YYYY-MM）最新一份 openapi 格式的原始位元組（快取主檔或 alt）；沒有回 null */
@@ -511,5 +588,6 @@ export function createTpexClose(opts = {}) {
     return sha256(raw) === last[1].sha256 ? { dataDate: last[0], raw, sha256: last[1].sha256, fetchedAt: last[1].fetchedAt, source: last[1].source } : null;
   }
 
-  return { getTpexClose, getLatestTpexClose, ingestInbox, flushInboxAlerts, importBuffer, checkMissing, status, openapiRawFor, root, firestoreDocOf: (res, ms = now()) => P.firestoreDocOf(res, ms) };
+  return { getTpexClose, getLatestTpexClose, ingestInbox, flushInboxAlerts, importBuffer, checkMissing, status, openapiRawFor, root, firestoreDocOf: (res, ms = now()) => P.firestoreDocOf(res, ms),
+    storeThirdParty, getThirdParty, markThirdPartySuperseded, isFetching };
 }

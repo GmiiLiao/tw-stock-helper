@@ -97,6 +97,12 @@ import { loadSharesLocal, loadExclusionsLocal, writeSharesCache } from './lib/op
 import { createTpexClose } from './lib/tpex-close-quotes.mjs';
 import { seedRowsOf as tpexSeedRows, sharesOf as tpexSharesOf, toIso as tpexIso } from './lib/tpex-close-parse.mjs';
 import { raceWithin, createSharesCache } from './lib/tpex-close-readers.mjs';
+// 上櫃收盤第三方後備（FinMind；2026-10-08 使用者：「上櫃收盤以官方優先如果失敗改由第三方來源補上，例如finmind」）：
+//   官方全部來源到 21:50 仍缺才打（23:30 再試 1 次、每日最多 2 次請求、402／429 等下一時段、401／403 當日停用）。只用 node 內建模組＋tpex-close-parse.mjs，
+//   不 import scripts/finmind/**。模式 env TPEX_CLOSE_3P（預設 off＝不打任何請求）且須 source-registry 核准範圍（resolveMode），見該檔檔頭。
+import { createTpexThirdParty, resolveMode as resolveTpex3PMode, loadSourceRegistry, startTpexThirdPartyTimer } from './lib/tpex-close-finmind.mjs';
+// 外資台指期未平倉（2026-10-08 修錯值）：期交所三大法人（區分各期貨契約）CSV 解析與文件格式。純函式；只 import 零相依的 taifex-basis.mjs。
+import { futContractsRequest, parseForeignTxfOI, taifexPositionsDoc, mergeTaifexPositionsDoc } from './lib/taifex-positions.mjs';
 
 // ── env (fallback .env.local loader) ──
 if (!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID && !process.env.FIREBASE_PROJECT_ID) {
@@ -1805,6 +1811,24 @@ const _tpex = createTpexClose({
   onAlert: (text, key) => { notifyDeveloper(text, key).catch(() => {}); },
   isTradingDay: iso => _isTradingDayIso(iso),
 });
+// 上櫃收盤第三方後備（2026-10-08）：官方全部來源到 21:50 仍缺 ⇒ FinMind TaiwanStockPrice 單日全市場篩上櫃、同一套完整性驗證、
+//   存本機快取 thirdParty（grade 3P，不進官方鏈：種子、發行股數、歸檔、鏡像收養照舊只看官方）。
+//   由獨立計時器 startTpexThirdPartyTimer（每 3 分鐘，檔尾與其他計時器一起啟動）呼叫 tick——不放在循序的 dailyJobsLoop 裡：
+//   23:00 盤後新聞判別趟常跑到 00:34–01:43，放在迴圈裡 23:30 時段永遠輪不到（2026-10-08 審查 HIGH）。
+//   模式 env TPEX_CLOSE_3P：off（預設）｜local（存本機＋告警，不上站）｜publish（另寫網站 tpexClose，文件 grade 3P；官方到了 set() 整份覆蓋）。
+//   ⚠ 兩種模式都待使用者裁定（FinMind Sponsor 為非商業授權；publish 另涉不得再散布、須標示來源）：resolveMode 要求 scripts/source-registry.json
+//   的 api.finmindtrade.com 條目 legitimacy.scopes 明列 tpex-close-3p-local／tpex-close-3p-publish，沒有就強制 off（開機記一次原因）。
+const _tpex3PResolved = resolveTpex3PMode({ env: process.env, registry: loadSourceRegistry() });
+const _tpex3PMode = _tpex3PResolved.mode;
+if (_tpex3PResolved.reason) log(`⚠ 上櫃第三方後備：TPEX_CLOSE_3P=${_tpex3PResolved.requested} 未生效——${_tpex3PResolved.reason}`);
+const _tpex3P = createTpexThirdParty({
+  tpex: _tpex,
+  mode: _tpex3PMode,
+  log: (...a) => log(...a),
+  onAlert: (text, key) => { notifyDeveloper(text, key).catch(() => {}); },
+  isTradingDay: iso => _isTradingDayIso(iso),
+  onPublish: res => _publishTpexClose(res),
+});
 const _ymdOfIso = iso => String(iso || '').replace(/-/g, '');
 /** 等共用取得層最多 ms：慢速下載不中止（背景繼續、完成後寫快取），呼叫端先用最近一份已驗證檔——熱路徑與串行班車都不被大檔卡住 */
 function _tpexWithin(ymd, ms) {
@@ -1813,19 +1837,26 @@ function _tpexWithin(ymd, ms) {
 }
 // 網站用的上櫃收盤（Firestore tpexClose/{latest,資料日}）：網站不再打 TPEx，改讀這份（每個 instance 每 10 分鐘最多讀 1 次，與線上人數無關）。
 //   寫入條件：已驗證、資料日不倒退、sha 與已寫的不同（冪等）。格式與 scripts/tpex-close-import.mjs --publish 相同（firestoreDocOf）。
-let _tpexPub = { loaded: false, sha: null, dataDate: null, busy: false };
+//   第三方後備（res.grade＝'3P'；2026-10-08）：只有 publish 模式才寫；只補「比網站現有更新」的資料日——同一天網站已有官方（或已寫過 3P）就不蓋；
+//   官方同日到了照常覆蓋 3P（sha 不同、set() 整份，grade 欄隨之消失）。
+let _tpexPub = { loaded: false, sha: null, dataDate: null, grade: null, busy: false };
+//   回傳 false＝這次沒寫成（另一個寫入進行中／Firestore 失敗；第三方後備控制器據此下一輪再試）；其他＝已寫或不需要寫。既有呼叫端不看回傳值。
 async function _publishTpexClose(res) {
-  if (!res?.sha256 || !res.dataDate || !Array.isArray(res.rows) || _tpexPub.busy) return;
+  if (!res?.sha256 || !res.dataDate || !Array.isArray(res.rows)) return;
+  if (_tpexPub.busy) return false;
+  const is3P = res.grade != null && res.grade !== 'official';
+  if (is3P && _tpex3PMode !== 'publish') return;
   _tpexPub.busy = true;
   try {
-    if (!_tpexPub.loaded) { const cur = (await db.collection('tpexClose').doc('latest').get()).data(); _tpexPub = { ..._tpexPub, loaded: true, sha: cur?.sha256 || null, dataDate: cur?.dataDate || null }; }
+    if (!_tpexPub.loaded) { const cur = (await db.collection('tpexClose').doc('latest').get()).data(); _tpexPub = { ..._tpexPub, loaded: true, sha: cur?.sha256 || null, dataDate: cur?.dataDate || null, grade: cur?.grade || 'official' }; }
     if ((_tpexPub.dataDate && res.dataDate < _tpexPub.dataDate) || _tpexPub.sha === res.sha256) return;
+    if (is3P && _tpexPub.dataDate && res.dataDate <= _tpexPub.dataDate) return;
     const doc = _tpex.firestoreDocOf(res);
     await db.collection('tpexClose').doc(res.dataDate).set(doc);
     await db.collection('tpexClose').doc('latest').set(doc);
-    _tpexPub = { ..._tpexPub, sha: res.sha256, dataDate: res.dataDate };
-    log(`  ✓ tpexClose/latest → ${res.dataDate}（${doc.rows} 列·4 碼 ${doc.stocks4}·來源 ${res.source}）`);
-  } catch (e) { log(`  ⚠ tpexClose 寫入失敗：${(e?.message || '').slice(0, 60)}`); }
+    _tpexPub = { ..._tpexPub, sha: res.sha256, dataDate: res.dataDate, grade: is3P ? res.grade : 'official' };
+    log(`  ✓ tpexClose/latest → ${res.dataDate}（${doc.rows} 列·4 碼 ${doc.stocks4}·來源 ${is3P ? `第三方後備（${res.grade}）` : res.source}）`);
+  } catch (e) { log(`  ⚠ tpexClose 寫入失敗：${(e?.message || '').slice(0, 60)}`); return false; }
   finally { _tpexPub.busy = false; }
 }
 
@@ -3725,36 +3756,43 @@ async function computeRS() {
   log(`✓ RS 選股：宇宙 ${rets.length} 檔，最強 ${top[0]?.name}(RS ${top[0]?.rs}, +${top[0]?.ret60}%)`);
 }
 
-// ── 7) 外資期貨 / 選擇權多空 (TAIFEX) ─────────────────────────
-// futContractsDate 回整頁 HTML，內含台指期三大法人未平倉表；抓外資多空淨額口數。
-// 選擇權 Put/Call 比由 pcRatio 頁抓。HTML 解析屬 best-effort，失敗則略過。
-function _stripNum(s) { const n = parseInt(String(s).replace(/[,\s]/g, ''), 10); return isNaN(n) ? null : n; }
+// ── 7) 外資台指期未平倉 / 選擇權 P/C (TAIFEX) ─────────────────────────
+// 2026-10-08 修（sara 資料補齊第 2 項，使用者「外資台指期淨口數錯值要修」）：舊版 POST futContractsDate 拿整頁 HTML、取「最後一個『外資』
+//   後第 5 個數字」——實際是外資及陸資 23 種期貨的「交易」口數淨額合計（10-07 寫 −21,459，正確未平倉 −79,101），卻存成 foreignTxfNetOI。
+//   現在：與官方鏡像同一支 CSV（futContractsDateDown），臺股期貨×外資及陸資 多方未平倉−空方未平倉（scripts/lib/taifex-positions.mjs，
+//   依欄名取值、淨額欄互相核對、CSV 自報日期回聲）；文件加 basisVersion（舊文件沒有＝舊口徑，網站與戰情室不顯示其未平倉）。
+//   兩支請求都帶逾時（舊版沒有）。選擇權 Put/Call 比照舊由 pcRatio 頁抓（解析不變）。
 async function trackTaifex() {
-  const dates = recentTradingDates(1); const qd = dates[0] ? `${dates[0].slice(0, 4)}/${dates[0].slice(4, 6)}/${dates[0].slice(6, 8)}` : '';
-  let foreignNetOI = null, pcRatio = null;
+  const dates = recentTradingDates(1); const expectYmd = dates[0] || '';
+  const expectIso = expectYmd ? `${expectYmd.slice(0, 4)}-${expectYmd.slice(4, 6)}-${expectYmd.slice(6, 8)}` : '';
+  const qd = expectIso.replace(/-/g, '/');
+  let foreign = { status: 'failed', dataDate: null, reason: '上市資料日不明' }, pcRatio = null;
+  if (expectIso) {
+    try {
+      const q = futContractsRequest(expectIso);
+      const r = await fetch(q.url, q.init);
+      foreign = r.ok ? parseForeignTxfOI(Buffer.from(await r.arrayBuffer()), expectIso) : { status: 'failed', dataDate: null, reason: `HTTP ${r.status}` };
+    } catch (e) { foreign = { status: 'failed', dataDate: null, reason: String(e?.cause?.code || e?.name || e?.message || e).slice(0, 60) }; }
+  }
   try {
-    const r = await fetch('https://www.taifex.com.tw/cht/3/futContractsDate', { method: 'POST', headers: { 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded' }, body: `queryType=2&marketCode=0&commodity_id=TXF&queryDate=${encodeURIComponent(qd)}` });
-    const html = await r.text();
-    // 鎖定資料表：外資那列後面數字群，多空淨額未平倉口數通常為第 11 個數字。
-    // 資料表的「外資」列在頁面最後(前面的外資多為篩選下拉選項)，取 lastIndexOf。
-    const tbl = html.slice(html.indexOf('臺股期貨') >= 0 ? html.indexOf('臺股期貨') : 0);
-    const fIdx = tbl.lastIndexOf('外資');
-    if (fIdx >= 0) {
-      const after = tbl.slice(fIdx, fIdx + 2000).replace(/<[^>]+>/g, '|');
-      const nums = (after.match(/-?[\d,]{2,}/g) || []).map(_stripNum).filter(n => n != null);
-      // [多方口數,多方金額,空方口數,空方金額,淨額口數,淨額金額] → 淨額口數 ≈ nums[4]
-      if (nums.length >= 5) foreignNetOI = nums[4];
-    }
-  } catch { /* skip */ }
-  try {
-    const r = await fetch(`https://www.taifex.com.tw/cht/3/pcRatio?queryStartDate=${encodeURIComponent(qd)}&queryEndDate=${encodeURIComponent(qd)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const r = await fetch(`https://www.taifex.com.tw/cht/3/pcRatio?queryStartDate=${encodeURIComponent(qd)}&queryEndDate=${encodeURIComponent(qd)}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20_000) });
     const html = await r.text();
     const mm = html.replace(/<[^>]+>/g, '|').match(/\|(\d{1,3}\.\d{1,2})\|/g);
     if (mm && mm.length) { const v = parseFloat(mm[mm.length - 1].replace(/\|/g, '')); if (v > 0 && v < 500) pcRatio = v; }
   } catch { /* skip */ }
-  if (foreignNetOI == null && pcRatio == null) { log('  ⚠ TAIFEX：解析失敗(略過)'); return; }
-  await db.collection('taifexPositions').doc('latest').set({ updatedAt: Date.now(), date: dates[0] || '', foreignTxfNetOI: foreignNetOI, putCallRatio: pcRatio });
-  log(`✓ 外資期貨/選擇權：外資期貨淨 ${foreignNetOI ?? 'n/a'} 口、P/C ${pcRatio ?? 'n/a'}`);
+  if (foreign.status !== 'ok' && foreign.status !== 'notYet') log(`  ⚠ TAIFEX 外資台指期未平倉 ${expectIso || '?'} 未取得：${foreign.status}（${String(foreign.reason || '').slice(0, 60)}）`);
+  if (foreign.status !== 'ok' && pcRatio == null) { log('  ⚠ TAIFEX：外資未平倉與 P/C 都未取得（略過，不覆寫）'); return; }
+  let doc = taifexPositionsDoc({ expectYmd, foreign, putCallRatio: pcRatio });
+  // 15:10 與 16:30（OFFICIAL_CATCHUP）都會跑：這一輪有一邊沒拿到時，先讀現有文件，保留「同一資料日」已取得的值（mergeTaifexPositionsDoc；
+  //   別天／舊口徑不保留）。讀不到現有文件又缺外資 ⇒ 不寫（寧可不更新 P/C，也不把同日有效未平倉蓋成 null；2026-10-08 審查 LOW）
+  if (foreign.status !== 'ok' || pcRatio == null) {
+    try { doc = mergeTaifexPositionsDoc((await db.collection('taifexPositions').doc('latest').get()).data(), doc); }
+    catch (e) {
+      if (foreign.status !== 'ok') { log(`  ⚠ TAIFEX：讀現有文件失敗（${String(e?.message || '').slice(0, 60)}），外資未平倉也沒取得 ⇒ 這輪不寫`); return; }
+    }
+  }
+  await db.collection('taifexPositions').doc('latest').set(doc);
+  log(`✓ 外資台指期未平倉／選擇權：${doc.date} 外資台指淨未平倉 ${doc.foreignTxfNetOI ?? `n/a（${foreign.status}）`} 口（多 ${doc.foreignTxfLongOI ?? '-'}／空 ${doc.foreignTxfShortOI ?? '-'}${foreign.status !== 'ok' && doc.foreignTxfStatus === 'ok' ? '·沿用同日稍早取得' : ''}）、P/C ${doc.putCallRatio ?? 'n/a'}${pcRatio == null && doc.putCallRatio != null ? '（沿用同日稍早取得）' : ''}`);
 }
 
 // ── 8) 盤後總結貼文 (真實數據套版，零幻覺 — 不經 LLM 生成數字) ──
@@ -16262,6 +16300,7 @@ async function dailyJobsLoop() {
           catch (e) { _marginOk = false; log('✖ 軋空檢討（將重試）:', e.message); }
           if (_marginOk) { _marginDate = today; await markJobDone('margin', today); }
         }
+        // 上櫃收盤第三方後備：改由獨立計時器呼叫（見 startTpexThirdPartyTimer；這個循序迴圈會被 23:00 盤後新聞趟卡到午夜後）
         // 🎯 標靶公式影子（2026-09-30 使用者核可：5 日持有·依多空市況兩組係數，scripts/data/swing-formula-weights.json）
         //   特徵含當日資券與當沖 ⇒ 排在 21:45 資券班車之後；資料未齊時腳本不寫並回報失敗 ⇒ 每 20 分鐘重試、最多 4 次（隔日照常）
         if (mins >= 22 * 60 + 40 && _sfDate !== today && Date.now() - _sfTry.at > 20 * 60000) {
@@ -16399,6 +16438,8 @@ function swingAccountTick() {
     .then(() => refreshMemberAccounts()).catch(e => log('✖ 會員帳戶快照:', (e.message || '').slice(0, 60))).finally(() => { _aiSwingAcctBusy = false; });
 }
 if (!ONESHOT) { setTimeout(swingAccountTick, 30_000); setInterval(swingAccountTick, 60_000); }
+// 上櫃收盤第三方後備計時器（2026-10-08 審查 HIGH）：每 3 分鐘以當下台北日期呼叫控制器（21:50 前／非交易日立即返回；模式 off 不啟動）
+if (!ONESHOT) startTpexThirdPartyTimer({ ctl: _tpex3P, log: (...a) => log(...a) });
 if (!ONESHOT) dailyJobsLoop();
 if (!ONESHOT) openSensorLoop();   // 開盤感應器 v2.1（影子）：放在所有每日狀態宣告之後才啟動（盤後步驟讀 _orderFlowDate）
 if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔斷器狀態、任務耗時 → system/daemonHealth

@@ -3,7 +3,7 @@
 import { readMarketSnapshot, isSnapshotFresh, readEmergingQuotes, type SnapQuote } from './market-snapshot-store';
 import { memoize } from './singleflight';
 import { readTpexClose } from './tpex-close-store';
-import { isCloseLagging, toIso as tpexToIso } from '../../scripts/lib/tpex-close-parse.mjs';
+import { isCloseLagging, toIso as tpexToIso, gradeTagOf } from '../../scripts/lib/tpex-close-parse.mjs';
 import { isTradingYmd } from './market-clock';
 
 // ============================================================
@@ -26,6 +26,7 @@ export interface StockDayData {
   _changePercent?: string;
   _prevClose?: string;
   _market?: string;   // 'tse' 上市 | 'otc' 上櫃
+  _grade?: string;    // 上櫃列來自 daemon 第三方後備（tpexClose grade≠official）時＝'3P'；官方列沒有此欄（2026-10-08）
   _tradeTime?: string;
 }
 
@@ -506,8 +507,12 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
   if (!otcDoc) console.warn('[twse-api-server] tpexClose/latest 讀不到（daemon 尚未寫入或 Firestore 失敗）——本次上櫃改走快照後備');
   else if (otcLagging) console.warn(`[twse-api-server] tpexClose/latest 資料日 ${otcDoc.dataDate} 落後 ${refIso} 超過一個交易日（daemon 可能停寫）——本次不採用，上櫃改走快照後備`);
 
+  // 第三方後備（2026-10-08）：tpexClose 文件 grade≠official ⇒ 每列標 _grade='3P'（不顯示來源字樣）；「只收官方」的下游（daily-close 歷史 K 棒）據此排除
+  const otc3P = !!otcDoc && !otcLagging && otcDoc.grade !== 'official';
+  if (otc3P) console.warn(`[twse-api-server] tpexClose/latest ${otcDoc!.dataDate} 是第三方後備（${otcDoc!.grade}）——列標 _grade，歷史 K 棒不收`);
   // Map TPEx data structure to match TWSE STOCK_DAY_ALL
   const mappedOtc = rawOtc.map(item => ({
+    ...(otc3P ? { _grade: otcDoc!.grade } : {}),
     _market:      'otc',
     Date:         item.Date ?? '',
     Code:         item.SecuritiesCompanyCode ?? '',
@@ -626,6 +631,8 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
         const rawHigh = parseFloat(rq?.HighestPrice ?? '') || 0;
         const rawLow  = parseFloat(rq?.LowestPrice ?? '') || 0;
         return {
+        // 開高低（非即時時）取自 rq；rq 是上櫃第三方後備列時一併帶 _grade（2026-10-08 審查 MEDIUM：舊版這裡重建物件把標記丟掉）
+        ...gradeTagOf(rq),
         Date:         rq?.Date ?? date,
         Code:         q.code,
         Name:         q.name || rq?.Name || q.code,
@@ -648,6 +655,8 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
 
   // Fallback: honest STOCK_DAY_ALL close data (no fake partial realtime).
   const fallback: StockDayData[] = raw.map(item => ({
+    // 上櫃第三方後備列的 _grade 要帶到出口（daily-close 據此不寫歷史 K 棒；2026-10-08 審查 MEDIUM：舊版逐欄重建把它丟掉）
+    ...gradeTagOf(item),
     _market:      (item as { _market?: string })._market ?? 'tse',
     Date:         item.Date,
     Code:         item.Code,

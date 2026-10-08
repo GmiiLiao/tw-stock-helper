@@ -188,8 +188,10 @@ export const WEB_FIELDS = Object.freeze(['SecuritiesCompanyCode', 'CompanyName',
 /**
  * Firestore tpexClose/{latest|date} 文件（daemon 與匯入 CLI 共用同一個寫入格式）：
  *   rowsJson＝isWebSecurity 篩過的列，每列依 fields 排成陣列（1,005 列約 120KB）；dataDate＝來源自報資料日。
+ *   第三方後備（2026-10-08，scripts/lib/tpex-close-finmind.mjs）另帶 grade:'3P'、volumeBasis、missingFields——只在內部標示，
+ *   網站不顯示來源字樣；官方文件不帶這三欄（形狀與既有相同）。官方到了以 set() 整份覆蓋，這三欄隨之消失。
  */
-export function firestoreDocOf({ dataDate, rows, source, sha256, fetchedAt }, nowMs = Date.now()) {
+export function firestoreDocOf({ dataDate, rows, source, sha256, fetchedAt, grade = null, volumeBasis = null, missingFields = null }, nowMs = Date.now()) {
   const keep = rows.filter(r => isWebSecurity(String(r.SecuritiesCompanyCode ?? '').trim()));
   const st = statsOf(rows);
   return {
@@ -197,10 +199,14 @@ export function firestoreDocOf({ dataDate, rows, source, sha256, fetchedAt }, no
     rows: keep.length, stocks4: st.stocks4, etf00: st.etf00, fields: [...WEB_FIELDS],
     rowsJson: JSON.stringify(keep.map(r => WEB_FIELDS.map(f => String(r[f] ?? '')))),
     fetchedAt: fetchedAt || null, updatedAt: nowMs,
+    ...(grade && grade !== 'official' ? { grade, volumeBasis: volumeBasis || null, missingFields: Array.isArray(missingFields) ? [...missingFields] : [] } : {}),
   };
 }
 
-/** 網站讀回用：Firestore tpexClose 文件（firestoreDocOf 的輸出）→ { dataDate, roc, rows(openapi 形狀；每列 Date＝roc), source }；格式不符回 null（不捏造欄位） */
+/**
+ * 網站讀回用：Firestore tpexClose 文件（firestoreDocOf 的輸出）→ { dataDate, roc, rows(openapi 形狀；每列 Date＝roc), source, grade, volumeBasis }；
+ * 格式不符回 null（不捏造欄位）。grade：沒有此欄＝'official'；第三方後備＝'3P'（讀者以 grade !== 'official' 排除「只收官方」的用途）。
+ */
 const DOC_REQUIRED = ['SecuritiesCompanyCode', 'CompanyName', 'Close'];
 export function decodeTpexCloseDoc(d) {
   if (!d || typeof d !== 'object') return null;
@@ -222,7 +228,8 @@ export function decodeTpexCloseDoc(d) {
       Open: o.Open ?? '0', High: o.High ?? '0', Low: o.Low ?? '0', TradingShares: o.TradingShares ?? '0', TransactionAmount: o.TransactionAmount ?? '0', TransactionNumber: o.TransactionNumber ?? '0',
     });
   }
-  return { dataDate, roc, rows, source: typeof d.source === 'string' ? d.source : null };
+  const grade = d.grade == null || d.grade === 'official' ? 'official' : String(d.grade);
+  return { dataDate, roc, rows, source: typeof d.source === 'string' ? d.source : null, grade, volumeBasis: typeof d.volumeBasis === 'string' ? d.volumeBasis : null };
 }
 
 const isoAddDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
@@ -243,4 +250,25 @@ export function splitRowsByDate(rows, iso) {
   const same = [], off = [];
   for (const r of rows || []) ((toIso(r?.Date) || iso) === iso ? same : off).push(r);
   return { same, off };
+}
+
+// ── 第三方後備等級在網站列上的傳遞（2026-10-08 審查 MEDIUM）──
+//   twse-api-server 把 tpexClose 文件的 grade≠official 標在上櫃列 _grade；getStockDayAllDataInternal 的兩個出口（快照、closeOnly fallback）
+//   逐欄重建物件，舊版沒帶 _grade ⇒ daily-close 的「歷史 K 棒不收 3P」形同虛設。出口一律展開 gradeTagOf(來源列)；daily-close 用 officialBarRows。
+/** 列是否來自第三方後備（_grade 有值且不是 'official'） */
+export const isThirdPartyRow = r => { const g = r?._grade; return g != null && g !== '' && g !== 'official'; };
+/** 把來源列的非官方等級帶到新列（官方列回空物件＝形狀不變） */
+export const gradeTagOf = r => (isThirdPartyRow(r) ? { _grade: String(r._grade) } : {});
+/**
+ * daily-close 寫歷史 K 棒前的篩選：列自帶 _grade≠official 排除；第二道防線——tpexClose 文件（readTpexClose）同資料日是 3P 時，
+ *   上櫃列（_market==='otc'）也排除（列上的標記若在中途被丟掉仍擋得住）。上市列不受影響。
+ * @param {any[]} rows
+ * @param {{iso?:string, otcDoc?:{grade?:string|null, dataDate?:string|null}|null, isOtc?:(r:any)=>boolean}} [opts]
+ * @returns {{keep:any[], thirdParty:any[]}}
+ */
+export function officialBarRows(rows, { iso, otcDoc = null, isOtc = r => r?._market === 'otc' } = {}) {
+  const doc3P = !!otcDoc && otcDoc.grade != null && otcDoc.grade !== 'official' && otcDoc.dataDate === iso;
+  const keep = [], thirdParty = [];
+  for (const r of rows || []) ((isThirdPartyRow(r) || (doc3P && isOtc(r))) ? thirdParty : keep).push(r);
+  return { keep, thirdParty };
 }

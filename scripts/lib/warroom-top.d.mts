@@ -40,7 +40,13 @@ export interface TopPulse {
 export interface TopPattern { key: string; label: string; date: string | null; at: number | null }
 export interface TopHeartbeat { lastHeartbeat: number | null; active: boolean | null }
 export interface TopHotLag { at: number | null; p50: number | null; p90: number | null; freshPct: number | null }
-export interface TopTaifex { date: string | null; foreignTxfNetOI: number | null; putCallRatio: number | null; asOf: number | null }
+export interface TopTaifex {
+  date: string | null;
+  /** 外資台指期淨未平倉（口）＝臺股期貨×外資及陸資 多方未平倉−空方未平倉；文件沒有 basisVersion（舊口徑·交易淨額合計）時為 null */
+  foreignTxfNetOI: number | null;
+  putCallRatio: number | null;
+  asOf: number | null;
+}
 
 export interface DangerState {
   ymd: string;

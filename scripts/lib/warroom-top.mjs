@@ -9,7 +9,7 @@
 //   marketPattern/latest   computeMarketPattern（約 12200 行）：live.{date,pattern,at}
 //   system/ai-daemon       heartbeat（約 200 行）：active／lastHeartbeat（不外露 host、model）
 //   system/daemonHealth    writeDaemonHealth（約 636 行，每小時）：hotLag.{at,p50,p90,freshPct}
-//   taifexPositions/latest trackTaifex（約 3566 行）：date(YYYYMMDD)／foreignTxfNetOI／putCallRatio／updatedAt
+//   taifexPositions/latest trackTaifex（約 3730 行）：date(YYYYMMDD)／foreignTxfNetOI（僅 basisVersion＝txf-foreign-oi-v2 才是未平倉）／putCallRatio／updatedAt
 //   users/{uid}/data/alerts daemon 個人警示（觸停損 type 'stop' 約 3250 行）；使用者自設價警示 2026-10-05 起改存 priceAlerts（critique H3 已修，見 alerts-split.mjs）
 // （持股重大利空不在這裡：改由慢層 board.news 精簡表＋前端依使用者持股判定，見 warroom-news.mjs majorBearOf／stepMajorBear；
 //   權重沿用 rankMediaVerdicts、先驗·未校準。pulse 路由不再讀 newsVerdict，省掉每 30 秒解析數百 KB。）
@@ -27,6 +27,7 @@
 import { taipeiMinuteOfDay, taipeiYmd } from './warroom-session.mjs';
 import { aggregatePositions, stopDistance, stopSourceLabel } from './ai-stoploss.mjs';
 import { warStopResOf } from './warroom-mine.mjs';
+import { isCurrentTaifexBasis } from './taifex-basis.mjs';
 
 const M = (h, m) => h * 60 + m;
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
@@ -127,13 +128,17 @@ export function normalizeHotLag(doc) {
   return { at: epochMs(h.at), p50: numOrNull(h.p50), p90: numOrNull(h.p90), freshPct: numOrNull(h.freshPct) };
 }
 
-/** taifexPositions/latest → 外資台指淨未平倉（收盤後資料；date＝資料日 YYYYMMDD） */
+/**
+ * taifexPositions/latest → 外資台指淨未平倉（收盤後資料；date＝資料日 YYYYMMDD）
+ *   2026-10-08：只認 basisVersion＝現行口徑（臺股期貨×外資及陸資 多方未平倉−空方未平倉）的值；沒有 basisVersion 的舊文件，
+ *   foreignTxfNetOI 其實是外資 23 種期貨「交易」口數淨額合計（錯值）⇒ 回 null（畫面顯示「—」），不當未平倉。
+ */
 export function normalizeTaifex(doc) {
   if (!isObj(doc)) return null;
   const date = typeof doc.date === 'string' && /^\d{8}$/.test(doc.date) ? doc.date : null;
   return {
     date,
-    foreignTxfNetOI: numOrNull(doc.foreignTxfNetOI),
+    foreignTxfNetOI: isCurrentTaifexBasis(doc) ? numOrNull(doc.foreignTxfNetOI) : null,
     putCallRatio: posOrNull(doc.putCallRatio),
     asOf: epochMs(doc.updatedAt),
   };

@@ -55,9 +55,14 @@ test('心跳不外露主機名與模型；hotLag 與台指淨未平倉照欄位'
   assert.deepEqual(hb, { lastHeartbeat: T(10, 41, 38), active: true });
   assert.deepEqual(normalizeHotLag({ hotLag: { at: T(10, 0), p50: 24, p90: 57, freshPct: 12 } }), { at: T(10, 0), p50: 24, p90: 57, freshPct: 12 });
   assert.equal(normalizeHotLag({ at: 1 }), null);
-  const tx = normalizeTaifex({ updatedAt: T(16, 30, 0, 2), date: '20261002', foreignTxfNetOI: -18420, putCallRatio: 98.5 });
-  assert.deepEqual(tx, { date: '20261002', foreignTxfNetOI: -18420, putCallRatio: 98.5, asOf: T(16, 30, 0, 2) });
+  const tx = normalizeTaifex({ updatedAt: T(16, 30, 0, 2), date: '20261002', basisVersion: 'txf-foreign-oi-v2', foreignTxfNetOI: -80304, putCallRatio: 98.5 });
+  assert.deepEqual(tx, { date: '20261002', foreignTxfNetOI: -80304, putCallRatio: 98.5, asOf: T(16, 30, 0, 2) });
   assert.equal(normalizeTaifex({ date: 'bad', foreignTxfNetOI: null }).date, null);
+  // 2026-10-08：沒有 basisVersion 的舊文件，foreignTxfNetOI 其實是外資 23 種期貨「交易」口數淨額合計（錯值）⇒ 不當未平倉，回 null；P/C 照舊
+  const old = normalizeTaifex({ updatedAt: T(16, 30, 0, 2), date: '20261002', foreignTxfNetOI: -3862, putCallRatio: 80.84 });
+  assert.equal(old.foreignTxfNetOI, null);
+  assert.equal(old.putCallRatio, 80.84);
+  assert.equal(old.date, '20261002');
 });
 
 test('持股重大利空已移出 pulse（改由 board.news＋warroom-news 判定）：不再匯出 newsTopFromDoc', async () => {

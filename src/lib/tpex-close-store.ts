@@ -10,7 +10,7 @@
 //
 // 文件格式（scripts/lib/tpex-close-parse.mjs firestoreDocOf）：
 //   dataDate（來源自報 YYYY-MM-DD）、roc（民國 YYYMMDD）、fields（欄名陣列）、rowsJson（每列依 fields 排的字串陣列）、
-//   rows（列數）、stocks4、etf00、source、sha256、fetchedAt、updatedAt。
+//   rows（列數）、stocks4、etf00、source、sha256、fetchedAt、updatedAt；第三方後備另有 grade:'3P'、volumeBasis、missingFields（2026-10-08）。
 // ============================================================
 
 import { getAdminDb } from './firebase-admin';
@@ -39,6 +39,13 @@ export interface TpexClose {
   roc: string;
   rows: TpexCloseRow[];
   source: string | null;
+  /**
+   * 'official'＝櫃買官方檔；其他（'3P'）＝daemon 的第三方後備（2026-10-08，scripts/lib/tpex-close-finmind.mjs；只在內部標示，畫面不顯示來源）。
+   * 「只收官方」的用途（歷史 K 棒）以 grade !== 'official' 排除；收盤價等顯示照用（逐位與官方相同，探針三個交易日 100%）。
+   */
+  grade: string;
+  /** 成交量口徑：官方文件為 null（＝櫃買 dailyQuotes 成交股數）；3P 為 'tpex-dailyQuotes'（同口徑：股、含鉅額） */
+  volumeBasis: string | null;
 }
 
 const TTL_MS = 10 * 60_000;

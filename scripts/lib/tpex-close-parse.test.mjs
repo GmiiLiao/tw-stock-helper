@@ -8,7 +8,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import {
   parseTpexClose, validateTpexClose, statsOf, seedRowsOf, sharesOf, firestoreDocOf, toIso, rocOf, codes4Of, LIMITS, datedUrl,
-  decodeTpexCloseDoc, isCloseLagging, splitRowsByDate, WEB_FIELDS,
+  decodeTpexCloseDoc, isCloseLagging, splitRowsByDate, WEB_FIELDS, isThirdPartyRow, gradeTagOf, officialBarRows,
 } from './tpex-close-parse.mjs';
 import { synthOpenapi, realFullFixture, truncatedFixture } from './tpex-close.fixture.mjs';
 
@@ -175,6 +175,19 @@ test('decodeTpexCloseDoc：firestoreDocOf 往返（網站口徑列、Date＝roc�
   assert.equal(decodeTpexCloseDoc({ ...doc, rowsJson: '[[' }), null, '壞 JSON');
 });
 
+test('firestoreDocOf／decodeTpexCloseDoc：第三方後備（grade 3P）帶 grade／volumeBasis／missingFields 往返；官方文件不多欄、讀回 grade=official', () => {
+  const rows = synthOpenapi();
+  const off = firestoreDocOf({ dataDate: '2026-10-08', rows, source: 'dated', sha256: 'a' }, 1);
+  for (const k of ['grade', 'volumeBasis', 'missingFields']) assert.equal(k in off, false, `官方文件不帶 ${k}（形狀與既有相同）`);
+  const offBack = decodeTpexCloseDoc(off);
+  assert.equal(offBack.grade, 'official'); assert.equal(offBack.volumeBasis, null);
+  const tp = firestoreDocOf({ dataDate: '2026-10-08', rows, source: 'finmind', sha256: 'b', grade: '3P', volumeBasis: 'tpex-dailyQuotes', missingFields: ['Capitals', 'Average'] }, 1);
+  assert.equal(tp.grade, '3P'); assert.equal(tp.volumeBasis, 'tpex-dailyQuotes'); assert.deepEqual(tp.missingFields, ['Capitals', 'Average']);
+  const back = decodeTpexCloseDoc(tp);
+  assert.equal(back.grade, '3P'); assert.equal(back.volumeBasis, 'tpex-dailyQuotes'); assert.equal(back.rows.length, off.rows);
+  assert.equal(decodeTpexCloseDoc({ ...tp, grade: 'xyz' }).grade, 'xyz', '不認得的等級照原樣回（讀者以「≠official」排除，不當官方）');
+});
+
 test('isCloseLagging：落後一個交易日照常採用；中間夾著交易日＝落後（週末、休市日不算）', () => {
   assert.equal(isCloseLagging('2026-10-07', '2026-10-08'), false, 'D-1 對 D');
   assert.equal(isCloseLagging('2026-10-08', '2026-10-08'), false);
@@ -214,4 +227,43 @@ test('等價：鏡像 10-02 openapi 檔與帶日期檔轉換後 16 欄 0 差異'
   assert.equal(diff, 0);
   assert.deepEqual(codes4Of(pa.rows), codes4Of(pb.rows));
   assert.deepEqual(seedRowsOf(pa.rows), seedRowsOf(pb.rows), '宇宙種子兩來源完全相同');
+});
+
+test('第三方後備等級：gradeTagOf 只帶非官方（官方列形狀不變）；isThirdPartyRow 認列上 _grade', () => {
+  assert.deepEqual(gradeTagOf({ _grade: '3P' }), { _grade: '3P' });
+  assert.deepEqual(gradeTagOf({ _grade: 'official' }), {});
+  assert.deepEqual(gradeTagOf({}), {}); assert.deepEqual(gradeTagOf(null), {}); assert.deepEqual(gradeTagOf(undefined), {});
+  assert.equal(isThirdPartyRow({ _grade: '3P' }), true);
+  assert.equal(isThirdPartyRow({ _grade: 'official' }), false); assert.equal(isThirdPartyRow({}), false); assert.equal(isThirdPartyRow({ _grade: '' }), false);
+});
+
+test('officialBarRows（daily-close 歷史 K 棒只收官方）：列自帶 3P 排除；防線——tpexClose 文件同資料日是 3P 時上櫃列也排除；上市列不受影響', () => {
+  const rows = [
+    { Code: '2330', _market: 'tse', Date: '1151008' },
+    { Code: '6488', _market: 'otc', Date: '1151008', _grade: '3P' },
+    { Code: '3105', _market: 'otc', Date: '1151008' },
+  ];
+  const a = officialBarRows(rows, { iso: '2026-10-08', otcDoc: null });
+  assert.deepEqual(a.keep.map(r => r.Code), ['2330', '3105']); assert.deepEqual(a.thirdParty.map(r => r.Code), ['6488']);
+  // 列上的標記在中途被丟掉（回歸）時，文件等級仍擋得住
+  const lost = rows.map(({ _grade, ...r }) => r);
+  const b = officialBarRows(lost, { iso: '2026-10-08', otcDoc: { grade: '3P', dataDate: '2026-10-08' } });
+  assert.deepEqual(b.keep.map(r => r.Code), ['2330']); assert.deepEqual(b.thirdParty.map(r => r.Code), ['6488', '3105']);
+  // 文件是官方、或 3P 但是別天 ⇒ 不靠文件排除
+  assert.deepEqual(officialBarRows(lost, { iso: '2026-10-08', otcDoc: { grade: 'official', dataDate: '2026-10-08' } }).thirdParty, []);
+  assert.deepEqual(officialBarRows(lost, { iso: '2026-10-08', otcDoc: { grade: '3P', dataDate: '2026-10-07' } }).thirdParty, []);
+});
+
+test('網站接線：getStockDayAllDataInternal 兩個出口（快照、closeOnly fallback）都帶 _grade；daily-close 用 officialBarRows 排除 3P 寫 K 棒', () => {
+  const src = readFileSync(new URL('../../src/lib/twse-api-server.ts', import.meta.url), 'utf8');
+  const fb = src.slice(src.indexOf('const fallback: StockDayData[] = raw.map('), src.indexOf('return await mergeEmerging(fallback);'));
+  assert.ok(fb.length > 0, '找不到 fallback 出口（改名了？請同步本測試）');
+  assert.match(fb, /\.\.\.gradeTagOf\(item\)/, 'closeOnly fallback 出口要帶 _grade');
+  const snap = src.slice(src.indexOf('if (!closeOnly && isSnapshotFresh(snap))'), src.indexOf('if (data.length > 0) return await mergeEmerging(data);'));
+  assert.ok(snap.length > 0, '找不到快照出口');
+  assert.match(snap, /\.\.\.gradeTagOf\(rq\)/, '快照出口（開高低取自上櫃 3P 列）要帶 _grade');
+  const dc = readFileSync(new URL('../../src/app/api/cron/daily-close/route.ts', import.meta.url), 'utf8');
+  assert.match(dc, /officialBarRows\(regular,/);
+  assert.match(dc, /readTpexClose\(\)/, 'daily-close 以文件等級當第二道防線');
+  assert.doesNotMatch(dc, /下一次跑（或 topup-stock-history）再補/, '註解：daily-close 只寫當次 K 棒，D 日上櫃 K 棒要靠 topup-stock-history');
 });

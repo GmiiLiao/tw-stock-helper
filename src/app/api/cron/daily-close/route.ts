@@ -9,7 +9,8 @@ import {
 import { enrichScoredStock } from '@/lib/analysis-enrich';
 import { appendTodayBars, readHistories, type DailyBar } from '@/lib/history-store';
 import { writeMarketReport, type MarketReport, type ReportPick } from '@/lib/report-store';
-import { splitRowsByDate } from '../../../../../scripts/lib/tpex-close-parse.mjs';
+import { splitRowsByDate, officialBarRows } from '../../../../../scripts/lib/tpex-close-parse.mjs';
+import { readTpexClose } from '@/lib/tpex-close-store';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // heavy batch job; see firebase.json timeoutSeconds
@@ -93,7 +94,15 @@ export async function POST(request: NextRequest) {
     const total = regular.length;
 
     // ── 3. Incremental history append (no-op until backfill seeds docs) ──
-    const barEntries = regular
+    // 歷史 K 棒只收官方收盤（2026-10-08）：上櫃列若來自 daemon 第三方後備，不寫成 K 棒。兩道判斷（officialBarRows）：
+    //   ① 列上的 _grade≠official（twse-api-server 兩個出口都帶，2026-10-08 審查 MEDIUM 補上）；
+    //   ② 防線：tpexClose 文件（memoize，與上面取列同一份快取，通常 0 次額外讀取）同資料日是 3P ⇒ 上櫃列一律排除。
+    //   ⚠ daily-close 只寫「這一次」的 isoDate K 棒：官方之後到了，D 日上櫃 K 棒不會由下一次 daily-close 補（下一次寫的是 D+1），
+    //   要靠 scripts/topup-stock-history.mjs 回補。評分／家數照用 3P（價與官方逐位相同）。
+    const otcDoc = await readTpexClose();
+    const { keep: officialRows, thirdParty: thirdPartyRows } = officialBarRows(regular, { iso: isoDate, otcDoc }) as { keep: typeof rawData; thirdParty: typeof rawData };
+    if (thirdPartyRows.length) console.warn(`[cron/daily-close] ${thirdPartyRows.length} 列上櫃來自第三方後備（grade 3P）——不寫歷史 K 棒（官方到了要跑 topup-stock-history 補）`);
+    const barEntries = officialRows
       .map(d => {
         const bar: DailyBar = {
           d: isoDate,
