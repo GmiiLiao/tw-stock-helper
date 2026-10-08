@@ -14,6 +14,7 @@ import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { storageGet, storageSet } from '@/lib/safe-storage';
 import RiskBadge from '@/components/shared/RiskBadge';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
+import { lookaheadBadge, lookaheadDetail, preOpenBoardOf, type ReviewLookahead, type ReviewBoard } from '@/lib/news-review-board';
 
 interface Item {
   code: string; name: string; price: number; chg: number;
@@ -57,7 +58,8 @@ interface Verdict { label: string; bullish: boolean; confidence?: string; reason
 interface ReasonType { types: string[]; tone: 'green' | 'grey' | 'none' }
 interface ChainLink { anchor?: string | null; anchorText?: string; n?: number; corr?: number | null; upRate?: number | null; upDays?: number; score: number | null; note?: string }
 interface ReviewStat { n: number; mean: number | null; win: number | null }
-interface Review { updatedAt: number; basis: string; days: number; bull: ReviewStat; neutral: ReviewStat; bear: ReviewStat; newsLift: number | null; byConf?: Record<string, ReviewStat>; byReasonType?: Record<string, ReviewStat>; byTone?: Record<string, ReviewStat>; conclusive?: boolean }
+// lookahead／preOpen：daemon 2026-10-08 起（X16）才寫——舊板含盤中前視比例、只收 09:00 前判讀的新板；舊文件沒有這兩欄
+interface Review { updatedAt: number; basis: string; days: number; bull: ReviewStat; neutral: ReviewStat; bear: ReviewStat; newsLift: number | null; byConf?: Record<string, ReviewStat>; byReasonType?: Record<string, ReviewStat>; byTone?: Record<string, ReviewStat>; conclusive?: boolean; boardVersion?: string; lookahead?: ReviewLookahead | null; preOpen?: ReviewBoard | null }
 interface RecItem extends Item { reasonType?: ReasonType; chainLink?: ChainLink | null; newsScore?: number; verdict?: Verdict; primary?: boolean; events?: Array<{ date: string; title: string; type?: string; impact?: string }>; news?: { stale?: boolean; ageDays?: number | null; checked: number; material: number; priceOnly: number; basis: string; top: Array<{ title: string; link: string; at: number; from?: string; generic?: boolean }> } }
 interface Rec {
   ranking?: string;
@@ -330,15 +332,19 @@ export default function SqueezePanel() {
           {review && (() => {
             const f = (st?: ReviewStat) => (st && st.n ? `${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '—');
             const rt = review.byReasonType || {}; const bc = review.byConf || {}; const bt = review.byTone || {};
+            // X16（2026-10-08 審查）：舊板含開盤後才產生的盤中趟判讀（對「今收→明開」屬前視、偏樂觀）——加註比例並並列只收 09:00 前判讀的新板
+            const la = lookaheadBadge(review); const pre = preOpenBoardOf(review);
             return (
               <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
-                <button onClick={() => setShowReview(v => !v)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'inherit' }}>
-                  📊 對答案 {review.days} 日：newsLift <b style={{ color: numColor(review.newsLift) }}>{review.newsLift ?? '—'}</b>（利多 {f(review.bull)}）{showReview ? '▴ 收起' : '▸ 明細'}
+                <button onClick={() => setShowReview(v => !v)} title={lookaheadDetail(review)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 'inherit' }}>
+                  📊 對答案 {review.days} 日：newsLift <b style={{ color: numColor(review.newsLift) }}>{review.newsLift ?? '—'}</b>（利多 {f(review.bull)}）{la && <span style={{ color: '#f59e0b' }}>⚠{la}</span>}{showReview ? '▴ 收起' : '▸ 明細'}
                 </button>
                 {showReview && <div style={{ border: '1px solid var(--border-primary)', borderRadius: 8, padding: '6px 10px', marginTop: 4 }}>
-                <div><b style={{ color: 'var(--text-primary)' }}>📊 對答案（{review.days} 個交易日，今收→明開）</b>：利多 {f(review.bull)}｜中性 {f(review.neutral)}｜利空 {f(review.bear)}｜newsLift <b style={{ color: numColor(review.newsLift) }}>{review.newsLift ?? '—'}</b>{review.conclusive ? '' : '（樣本未達門檻）'}</div>
-                <div>利多×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['利多·' + c])}`).join('｜')}　中性×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['中性·' + c])}`).join('｜')}</div>
-                <div>利多理由類型：{['本業事實', '技術產品', '題材', '法人動作', '價格描述'].map(t => `${t} ${f(rt[t])}`).join('｜')}　色調：<span style={{ color: '#22c55e' }}>綠 {f(bt.green)}</span>｜灰 {f(bt.grey)}</div>
+                <div><b style={{ color: 'var(--text-primary)' }}>📊 對答案·舊板（全部趟次，{review.days} 個交易日，今收→明開）</b>：利多 {f(review.bull)}｜中性 {f(review.neutral)}｜利空 {f(review.bear)}｜newsLift <b style={{ color: numColor(review.newsLift) }}>{review.newsLift ?? '—'}</b>{review.conclusive ? '' : '（樣本未達門檻）'}</div>
+                {la && <div style={{ color: '#f59e0b' }}>⚠ {lookaheadDetail(review)}</div>}
+                <div title="信心分布會在 daemon 重啟（推論連動信心上限「低」、提示詞改版）後改變；40 日滾動窗內新舊口徑混算，分開的數字見 breakdown 的 promptVersion／confCap 分組">（舊板）利多×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['利多·' + c])}`).join('｜')}　中性×信心：{['高', '中', '低'].map(c => `${c} ${f(bc['中性·' + c])}`).join('｜')}</div>
+                <div>（舊板）利多理由類型：{['本業事實', '技術產品', '題材', '法人動作', '價格描述'].map(t => `${t} ${f(rt[t])}`).join('｜')}　色調：<span style={{ color: '#22c55e' }}>綠 {f(bt.green)}</span>｜灰 {f(bt.grey)}</div>
+                {pre && <div><b style={{ color: 'var(--text-primary)' }}>📊 新板（只收適用日 09:00 前判讀，{pre.days} 個交易日）</b>：利多 {f(pre.bull)}｜中性 {f(pre.neutral)}｜利空 {f(pre.bear)}｜newsLift <b style={{ color: numColor(pre.newsLift) }}>{pre.newsLift ?? '—'}</b>{pre.conclusive ? '' : '（樣本未達門檻）'}{pre.boardVersion ? <span style={{ marginLeft: 4 }}>· {pre.boardVersion}</span> : null}</div>}
                 </div>}
               </div>
             );
@@ -382,7 +388,8 @@ export default function SqueezePanel() {
                     {it.reasonType?.types?.length ? it.reasonType.types.map(t => {
                       const green = t === '本業事實' || t === '技術產品';
                       const st = review?.byReasonType?.[t];
-                      const hist = st && st.n ? `對答案 ${review!.days} 日：${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}` : '對答案尚無此類樣本';
+                      const laNote = review ? lookaheadBadge(review) : '';
+                      const hist = st && st.n ? `對答案 ${review!.days} 日：${st.mean != null && st.mean >= 0 ? '+' : ''}${st.mean}%／勝率 ${st.win}%／n=${st.n}${laNote ? `（舊板·${laNote}）` : ''}` : '對答案尚無此類樣本';
                       return <span key={t} title={`${green ? '本業依據（加權 +1）' : '非本業依據（不加分）'}｜${hist}`} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 'calc(12.5px * var(--fz))', fontWeight: 700, background: green ? 'rgba(34,197,94,0.16)' : 'rgba(148,163,184,0.16)', color: green ? '#22c55e' : '#94a3b8' }}>{t}</span>;
                     }) : null}
                     {it.newsScore != null && <span title="新聞加權＝理由類型（本業事實／技術產品 +1，其它 0）＋連動量化（0～1）；只在同一籌碼分級內排序" style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>加權 {it.newsScore >= 0 ? '+' : ''}{it.newsScore}</span>}

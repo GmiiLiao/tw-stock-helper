@@ -15,9 +15,31 @@ import { getStockNews } from '@/lib/news-server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { enrichScoredStock } from '@/lib/analysis-enrich';
 import { readMarketSnapshot } from '@/lib/market-snapshot-store';
+import { memoize } from '@/lib/singleflight';
 import type { NewsLite } from '@/lib/news-sentiment';
 
 export const runtime = 'nodejs';
+
+/** newsVerdict/latest 每檔一筆中，評分路由會讀的欄位（daemon 三個 newsVerdict 寫入端產出） */
+interface LatestVerdictRow {
+  label?: string;
+  confidence?: string;
+  strength?: string;
+  at?: number;
+  reason?: string;
+}
+
+// ── newsVerdict/latest 判別表（X15，2026-10-08）──────────────────────────
+//   舊版每個單檔請求都整份讀一次（100～570 KB）再 JSON.parse；改為 60 秒 TTL＋in-flight 合流＋失敗負快取。
+//   代價：daemon 寫入新判別後，評分最多晚 60 秒看到（判別一天只更新數趟，遠小於它自身的更新週期）。
+//   快取的是解析後的表，呼叫端只讀不改（下方只讀 map[code]，以 news.map 產生新陣列）。
+const getNewsVerdictLatest = memoize('newsVerdictLatest', 60_000, async (): Promise<Record<string, LatestVerdictRow> | null> => {
+  const db = getAdminDb();
+  if (!db) return null;
+  const snap = await db.collection('newsVerdict').doc('latest').get();
+  const vj = verdictJsonOf(snap.data());
+  return vj ? JSON.parse(vj) : null;
+});
 
 // ============================================================
 // /api/rating — single source of truth for stock ratings.
@@ -92,10 +114,7 @@ export async function GET(request: NextRequest) {
       //   查無判別時**什麼都不掛**，下游會據實顯示「未判別」——不捏造中性值。
       if (news && news.length) {
         try {
-          const db = getAdminDb();
-          const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
-          const vj = verdictJsonOf(snap?.data());
-          const map = vj ? JSON.parse(vj) : null;
+          const map = await getNewsVerdictLatest();
           const mine = map?.[code];
           if (mine?.label) {
             // ⚠ 判別是**個股層級**（AI 已經讀完多則內文後才給一個結論），

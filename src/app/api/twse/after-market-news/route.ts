@@ -19,6 +19,15 @@ const iso = (ms: number) => new Date(ms + 8 * 3600e3).toISOString().slice(0, 10)
 
 interface MopsItem { code: string; name: string; subject: string; at: number; body?: string }
 
+// ── 官方欄方向一律「未判讀」（X11，2026-10-08「其它錯誤依建議修正」）────────────
+//   rankOfficial 的方向來自 classifyOfficial 的**公告主旨正則**（未讀內文），已實測誤判
+//   （4927「營運未受淹水影響」被判工安利空、1802、4950、6140），違反新聞技能 §1.2。
+//   只在網站路由層把方向清成 null 並標「未判讀」——**不改共用的 classifyOfficial**：
+//   分析師團隊 pack 也用它篩觀察池與必附風險（scripts/lib/analyst-desk），改共用模組會改到分析師輸出（反證 I10）。
+//   類型與排序權重照舊（顯示順序，非分數）；元件對 dir=null 顯示「需讀內文」。J3 後改由 Jev 讀內文給方向。
+const unjudgedOfficial = <T extends { dir: unknown }>(items: T[]) =>
+  items.map(x => ({ ...x, dir: null, dirStatus: '未判讀' as const }));
+
 const build = memoize('after-market-news', 120_000, async () => {
   const db = getAdminDb();
   if (!db) throw new Error('admin db unavailable');
@@ -50,11 +59,12 @@ const build = memoize('after-market-news', 120_000, async () => {
   try { seenRaw = seenJsonOf(full); } catch { seenRaw = null; }
   const seen: Record<string, string[]> = seenRaw ? JSON.parse(seenRaw) : {};
   media.items = media.items.map(x => ({ ...x, titles: (seen[x.code] ?? []).slice(-6).map(t => String(t).slice(0, 120)) }));
+  const official = rankOfficial([...mops.values()]);
   return {
     dataDate: lastTrading,
     media: { ...media, targetDate: nv?.targetDate ?? null, lastPass: nv?.lastPass ?? null, updatedAt: nv?.updatedAt ?? null, covered: nv?.covered ?? null },
-    official: { ...rankOfficial([...mops.values()]), since: sinceMs },
-    note: '排序＝顯示用先驗權重，不是分數；媒體＝AI 讀完內文判別，官方＝公告主旨比對（未讀內文，方向僅規則類）；兩條管線分開，不加總。非投資建議。',
+    official: { ...official, items: unjudgedOfficial(official.items), since: sinceMs },
+    note: '排序＝顯示用先驗權重，不是分數；媒體＝AI 讀完內文判別，官方＝公告主旨只用來分類（未讀內文，方向一律未判讀）；兩條管線分開，不加總。非投資建議。',
   };
 });
 

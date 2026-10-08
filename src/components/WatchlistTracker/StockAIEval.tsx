@@ -154,7 +154,8 @@ export default function StockAIEval({ code, name }: { code: string; name: string
                 </div>
               )}
 
-              {/* News sentiment (20% weight) — only applied when news obtained */}
+              {/* 新聞面：AI 讀內文判別的參考值。⚠ 2026-09-18 起不計入評分（analysis-enrich.ts 權值稽核 D3）， */}
+              {/* 只有利空顯著時把買進訊號上限調為觀察（風險提示）；舊字樣宣稱計分與權重比例，與實際行為不符（X10）。 */}
               {(() => {
                 const ns = data.newsSentiment;
                 const obtained = !!ns && ns.total > 0;
@@ -165,9 +166,12 @@ export default function StockAIEval({ code, name }: { code: string; name: string
                     <div style={{ marginTop: 10, fontSize: 'calc(12.5px * var(--fz))' }}>
                       <span style={{ fontWeight: 600 }}>📰 新聞情緒：</span>
                       <span style={{ color: c, fontWeight: 700 }}>{ns!.label}</span>
-                      <span style={{ color: 'var(--text-muted)' }}> · {ns!.bull} 利多 / {ns!.bear} 利空 · 影響評分 </span>
-                      <span style={{ color: c, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{pos ? '+' : ''}{ns!.adjustment} 分</span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>（20% 權重，已去重並計入有效期）</span>
+                      <span style={{ color: 'var(--text-muted)' }}> · {ns!.bull} 利多 / {ns!.bear} 利空 · 未計入評分（參考值 </span>
+                      <span style={{ color: c, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{pos ? '+' : ''}{ns!.adjustment}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>，幅度待校準）</span>
+                      {!pos && (
+                        <span style={{ color: 'var(--text-muted)', fontSize: 'calc(12.5px * var(--fz))' }}>；利空顯著時買進訊號上限調為觀察（風險提示）</span>
+                      )}
                     </div>
                   );
                 }

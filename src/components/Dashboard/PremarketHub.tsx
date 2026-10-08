@@ -5,6 +5,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db as fsdb } from '@/lib/firebase';
 import { useAppStore } from '@/lib/store';
 import { getChangeColor } from '@/lib/twse-api';
+import { todayTaipeiIso } from '@/lib/tw-settlement';
 
 // ── 🌅 盤前總覽（2026-08-05 三卡合一）────────────────────────────
 // 合併前是三張獨立卡片，由上而下排：日韓早盤風向 → 盤前晨報 → 國際盤連動。
@@ -42,6 +43,8 @@ interface GMarket { sym: string; name: string; price: number; changePct: number 
 interface Forecast { bullish: { sector: string; reason: string }[]; bearish: { sector: string; reason: string }[]; model: string }
 interface Note { date: string; content: string; forecast?: Forecast | null }
 interface Hit { code: string; name: string; industry: string; side: string }
+// users/{uid}/data/forecastHits：daemon forecastSectors 寫 { date（台北日曆日 YYYY-MM-DD）, updatedAt, hits }
+interface HitsDoc { date: string | null; hits: Hit[] }
 
 const BIAS: Record<string, { t: string; c: string }> = {
   bull: { t: '偏多', c: UP }, bear: { t: '偏空', c: DOWN }, neutral: { t: '中性', c: '#94a3b8' },
@@ -96,7 +99,7 @@ export default function PremarketHub() {
   const [asia, setAsia] = useState<Asia | null>(null);
   const [gm, setGm] = useState<{ markets: GMarket[]; expectation: string } | null>(null);
   const [note, setNote] = useState<Note | null>(null);
-  const [hits, setHits] = useState<Hit[]>([]);
+  const [hitsDoc, setHitsDoc] = useState<HitsDoc | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);   // 散文預設收合（見檔頭）
   const [evOpen, setEvOpen] = useState(false);
   const user = useAppStore(s => s.user);
@@ -119,7 +122,11 @@ export default function PremarketHub() {
   useEffect(() => {
     if (!user?.uid || !fsdb || typeof (fsdb as { type?: unknown }).type === 'undefined') return;
     const unsub = onSnapshot(doc(fsdb, 'users', user.uid, 'data', 'forecastHits'),
-      snap => setHits(snap.exists() ? (snap.data().hits || []) : []), () => {});
+      snap => {
+        if (!snap.exists()) { setHitsDoc(null); return; }
+        const d = snap.data();
+        setHitsDoc({ date: typeof d.date === 'string' ? d.date : null, hits: Array.isArray(d.hits) ? d.hits : [] });
+      }, () => {});
     return () => unsub();
   }, [user?.uid]);
 
@@ -130,6 +137,10 @@ export default function PremarketHub() {
   const b = asia?.bias ? BIAS[asia.bias] : null;
   const stale = asia?.updatedAt ? (Date.now() - asia.updatedAt) / 60000 : 999;
   const fc = note?.forecast;
+  // ⚠ 橫幅寫的是「屬**今日**看跌族群」（X8，2026-10-08）：文件只在 daemon 晨間推測那一趟覆寫，
+  //   停推或某天沒跑時舊文件會一直留著 ⇒ 舊版不看 date，隔天、週末都還在說「今日」。
+  //   只認 date＝今天（台北）的文件；缺 date 或不是今天一律不顯示。每次重繪都重算（跨午夜後 5 分鐘輪詢重繪即消失）。
+  const hits: Hit[] = hitsDoc && hitsDoc.date === todayTaipeiIso() ? hitsDoc.hits : [];
   const bear = hits.filter(h => h.side === 'bear');
   const bull = hits.filter(h => h.side === 'bull');
 

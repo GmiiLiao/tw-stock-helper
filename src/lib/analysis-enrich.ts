@@ -164,7 +164,7 @@ export function enrichScoredStock(
     // 不追高：never present an extended (bias>5%) stock as BUY/STRONG_BUY.
     if (swingSignal.chase) {
       stock.signal = capBuy(stock.signal);
-      stock.baseSignal = capBuy(stock.baseSignal);   // 追高／走勢轉空／強利空的壓制與風險無關 ⇒ 未含風險的訊號同樣套用
+      stock.baseSignal = capBuy(stock.baseSignal);   // 追高／走勢轉空是價量事實、與風險無關 ⇒ 未含風險的訊號同樣套用（新聞利空只壓 signal，見下方 X21）
     }
     // If swing model is clearly bearish, don't show a buy signal.
     if (swingSignal.action === 'SELL' || swingSignal.action === 'STRONG_SELL') {
@@ -198,9 +198,10 @@ export function enrichScoredStock(
           : `📰 新聞面偏空（${newsSentiment.bear} 則利空）· 未計分（風險提示，參考值 ${newsSentiment.adjustment}）`,
         ...stock.risks].slice(0, 9);
       // Strongly negative news caps an over-optimistic buy signal.
+      // ⚠ 只壓 signal、不壓 baseSignal（X21；使用者 2026-10-08 裁定 U6；新聞技能 §3C.5 R1）：baseSignal 描述走勢強弱，
+      //   新聞利空是風險提示（已列在 risks），不改寫技術面——與處置／注意扣分只進 signal 同一口徑（CLAUDE.md「扣分≠走勢弱」）。
       if (newsSentiment.adjustment <= -10) {
         stock.signal = capBuy(stock.signal);
-        stock.baseSignal = capBuy(stock.baseSignal);
       }
     }
   }
