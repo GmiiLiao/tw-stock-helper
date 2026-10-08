@@ -35,7 +35,9 @@ import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } fro
 import { judgePagoda } from './lib/pagoda.mjs';
 import { swingBreadth } from './lib/swing-breadth.mjs';
 import { instIsSameDay } from './lib/inst-same-day.mjs';
-import { DESK_EVIDENCE, DESK_VERSION } from './lib/daytrade-setups.mjs';
+import { DESK_EVIDENCE, DESK_VERSION, DESK_PARAMS } from './lib/daytrade-setups.mjs';
+// 當沖 s6 版本章與工作台新聞快取 TTL（2026-10-08 X1／X7：已反映比對改「是」、快取 30→5 分；兩者都改變 s6 ⇒ 記 s6Version）
+import { S6_VERSION, DESK_NEWS_TTL_MS } from './lib/daytrade-score.mjs';
 import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { createNearDisposalSource, attentionInfoOf } from './lib/attention-risk.mjs';
@@ -79,6 +81,13 @@ import {
 import { verdictsOf, seenOf } from './lib/news-verdict-codec.mjs';
 import { fitNewsVerdictDoc, NV_LEVEL_TEXT } from './lib/news-verdict-write.mjs';
 import { eveningPassDue, eveningPassFailed, eveningPassPending, NV_EVENING_DEADLINE_MIN, NV_EVENING_MAX_TRIES } from './lib/news-verdict-retry.mjs';
+// 2026-10-08 使用者「其它錯誤依建議修正」（jev-score-usage-spec 附錄 B 的 daemon 端獨立修正；釘住測試 news-misc-daemon-pin.test.mjs）：
+//   X2 推論信心上限（三個 newsVerdict 寫入端）、X18 mopsNews 位元組大小保護、X16 對答案盤中前視切分。
+//   （X3 話題選股、X8 晨報風向的 daemon 端已撤回：使用者 2026-10-08「j3 要等jev的結果並使用它」——維持現狀直到 Jev。）
+//   全部純函式；mops-doc-fit 只 import 上面已載入的 news-verdict-write.mjs，其餘不 import 任何模組。
+import { inferenceCapFields } from './lib/news-inference-cap.mjs';
+import { fitMopsDayDoc, skipBodyRefetch } from './lib/mops-doc-fit.mjs';
+import { verdictTiming, lookaheadSummary, REVIEW_BOARD_VERSIONS } from './lib/news-verdict-preopen.mjs';
 // 開盤感應器 v2.1（影子·只記錄·先驗未校準；design-v2.1，使用者 10/05 S1–S8、10/07 O1–O8）：0 MIS 請求（只吃快線與主迴圈已拿到的報價、t00／o00），
 //   不發 B2／Z2、不推播、不寫 aiMessages。靜態 import 鏈只到 scripts/lib/open-sensor-*.mjs 與 firestore-clean.mjs（不經 official-mirror）。
 import { createOpenSensorRunner } from './lib/open-sensor-runner.mjs';
@@ -312,7 +321,7 @@ const LIMITUP_SKILL = `【漲停股預測風向(本站回測實證·非投資建
 連板持續(今日漲停者明日再漲停，基準約22%)：連2板以上28.4%>首板16.3%(首板最易斷)；縮量鎖死(量比<1)29.2%>爆量漲停(量比≥4)18.3%(爆量=有人出貨)。口訣「縮量鎖死連板優於爆量首板」。
 族群輪動：每日漲停冠軍族群(單日≥3板)有連莊慣性；主流退潮後的接棒族群依歷史轉換矩陣統計(樣本約60日·僅供參考)；「升溫中」族群(5日板數≥前5日1.5倍)為輪動候選；盤中30分內密集鎖停的族群＝正在發動。漲停順序流：盤中逐分記錄首次鎖停時間，觀察族群點火順序。
 預測覆盤：每日自動對答案並歸因——預測失敗(強漲未鎖停/上漲乏力/翻黑回檔/族群退潮/市場轉弱)、漏網漲停(突發消息型=模型天生抓不到/排名外/流動性濾網外/訊號弱)。突發消息型漏網是價量模型的天生盲區，誠實承認。
-消息面(newsDaily·鉅亨標題逐日庫，22交易日校準)：當日新聞≥2則→隔日漲停1.57x、正面極性1.64x——訊號存在但弱於價量因子，且有內生性(新聞常在報導已漲停股)；7日邊際驗證未見改善，以0.3阻尼保守納入、scoreboard每日對答案持續評估去留。
+消息面(newsDaily·鉅亨標題逐日庫)：已移除，不納入——標題提及則數與標題關鍵字極性已於2026-09-18自模型拿掉、不進任何分數(站上硬規定：標題關鍵字不得動分數；22交易日校準本身有內生性——新聞常在報導已漲停股)，2026-10-08起newsDaily也停算極性、只記則數(關注度·只顯示)。漲停股的消息面改由AI讀內文的新聞判別另案驗證，尚無結論，不可據以加權。
 漲停前夜解剖(2026-07-20·3個月漲停王20檔·261次漲停事件 vs 同池907其他日)：漲停前一天的共同長相＝當日已大漲(均+4.08% vs 其他日+0.72%)×強尾收位pos≥0.7(55% vs 36%)×破20日高(41% vs 24%)×5日已加速(+12.5% vs +8.6%)×法人5日淨買/均量偏高(0.12 vs 0.07)——與撿尾盤定版濾網(破20日高×強尾×漲3~7%)同一張臉，獨立互證。兩大陷阱：①43%的前夜自己就是漲停鎖死日(連板環節·收盤買不到)，可買者僅56%；②漲停王名單是事後選的(倖存者偏誤)，池內基準漲停率16.4%是後見之明。可買日內最佳條件：大漲3~8.5%×破20日高→明日漲停22.8%(基準16.4x1.4)·開賣淨均+1.16%；加強尾n小但開賣+1.79%。正確用法＝先用炒作型性格+近期漲停頻率圈熱池，池內等「大漲×破高(×強尾)」可買日，隔天開盤賣；不是精準預測漲停(最好也只1/4~1/5命中)，肉在開盤溢價。
 RSI 高檔≠頂點(2026-07-27·1928次訊號)：RSI5>95∧RSI10>90 當日為未來5/10/20日最高點僅 29.9/22.6/17.6%（基準28.8/21.1/15.6%·1.04~1.13x＝幾乎無抓頂能力）；連續天數不使頂點率上升但第4天後前瞻報酬跳升(5日+2.44%/10日+3.75%)＝鈍化為主升段；出場實測 抱1日-0.53%(最差·兩窗同向負)<抱3日-0.11%<抱5日+0.44%<抱10日+1.18%(最佳·兩窗同向)，跌破RSI5<90才賣+0.27%(淨勝僅33.6%)。風險則確實放大：5日內曾跌≥5% 49.9%(基準27.1%)但10日內再漲≥5%亦52.7%(基準41.2%)＝雙向波動。→ 正確操作＝移動停利、勿隔日全出。
 起漲點組合(2026-07-27 網格·7區間×14條件·僅6組過關且全在低檔)：⭐最強「RSI5<20 × 法人t-1買超 × 量比>1.5(今日量÷昨日量)」5日淨均+1.11%[+0.69/+1.38]·淨勝55%·10日內漲≥5% 43.2%（基準-0.17%/43.3%/35%）；次強 RSI5<20×量比>2 (+0.59%)、×法人5日買超/均量>0.05 (+0.56%)、×距60日高<0.85 (+0.45%)。❌中性區「RSI5 50~75∧RSI10 50~70」單獨-0.26%且疊14種條件無一過關（該區佔全市場38%＝日常狀態非特殊狀態）；❌「RSI5−RSI10≥10 短線急拉」-0.36%。
@@ -2006,7 +2015,10 @@ const _lastLive = {};
 const _vwapBook = createVwapBook();
 // 🤖 當沖 AI 實驗（2026-09-24；v4 2026-10-01：每日交易額度制、AI 決定張數、不限筆數）：工作台觸發 → 本機 Ollama 決定做／不做與張數 → 模擬成交 → 盤後凍結＋檢討
 const AI_LAB_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'second-brain', 'daytrade-ai-lab');
-const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE, onTrigger: evt => _aiLab.consider(evt, isoDate(taipei())) });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
+// 引擎參數＝setup 規則參數（不變）＋s6 版本章（2026-10-08 X1／X7）：params 會原樣寫進 daytradeAlerts/live 與 daytradeJournal/{日}，
+//   日誌條目的 score 只挑 total／tier 等欄位、看不到 s6Version ⇒ 由文件層的 params 標明這天的 s6 口徑（新舊分開統計）。scanDesk 只讀自己的鍵。
+const DESK_ENGINE_PARAMS = Object.freeze({ ...DESK_PARAMS, s6Version: S6_VERSION });
+const _dtEngine = createDaytradeEngine({ evidence: DESK_EVIDENCE, params: DESK_ENGINE_PARAMS, onTrigger: evt => _aiLab.consider(evt, isoDate(taipei())) });   // 當沖工作台 v1（scripts/lib/daytrade-setups.mjs）
 // 🧠 AI 交易員經驗庫（2026-09-30）：盤後訓練結果 aiLabLearn/latest 的記憶體快取；交易員決策時同步讀取（讀不到＝無經驗，不擋決策）
 let _learned = null, _learnedAt = 0;
 async function refreshLearned() {
@@ -2307,7 +2319,11 @@ async function refreshDaytradeMonitor() {
 
 // ── 當沖工作台評分情境（Market／Stock 所需）：每分鐘隨監控名單重算，只讀 Firestore／記憶體，零上游請求 ──
 const _deskDaily = { day: '', prev: null, avg20: null, ind: null };
+// 新聞判別快取（2026-10-08 X7）：舊版 30 分鐘 ⇒ 盤中突發新聞（盤中趟每 25 分一趟）最多晚約 55 分才進 s6。
+//   改 DESK_NEWS_TTL_MS（5 分；daytrade-score.mjs 與 s6Version 同處定義），且 daemon 自己寫完 newsVerdict/latest 就讓快取失效（invalidateDeskNews）。
+//   只讀 Firestore、零上游請求。
 const _deskNews = { at: 0, map: null };
+function invalidateDeskNews() { _deskNews.at = 0; }
 async function buildDeskContext(today, live) {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes();
   if (_deskDaily.day !== today) {
@@ -2316,7 +2332,7 @@ async function buildDeskContext(today, live) {
     try { _deskDaily.ind = await getIndustryMap(); } catch { _deskDaily.ind = null; }
     if (_deskDaily.prev) _deskDaily.day = today;   // 昨日 K 沒取到就下一分鐘再試
   }
-  if (Date.now() - _deskNews.at > 30 * 60000) {
+  if (Date.now() - _deskNews.at > DESK_NEWS_TTL_MS) {
     try {
       const nv = (await db.collection('newsVerdict').doc('latest').get()).data();
       const v = verdictsOf(nv);   // 新舊格式都讀（2026-10-08）
@@ -3891,8 +3907,10 @@ async function ingestMops() {
     const fresh = Object.values(byDay[day]).filter(x => !items[x.key]);
     for (const x of fresh) { items[x.key] = x; added++; }
     // 內文：新的先補，額度有剩再補上一輪沒補到的（超過 150 則的日子分幾輪補齊，不會永遠缺）
+    //   bodyTrimmed＝之前因文件大小被清掉的內文（fitMopsDayDoc 標本版裁切章）：同一版下放不下就別再抓（每輪抓了又清只是浪費 MOPS 額度）；
+    //   換裁切方式（壓縮／分片）時改章，舊章的列會重抓（skipBodyRefetch；不是永久旗標）
     const wantBody = [...fresh, ...Object.values(items).filter(x => !x.body && !fresh.includes(x))]
-      .filter(x => !x.body && x.api === 't05st02_detail' && x.market && x.enter && x.serial != null);
+      .filter(x => !x.body && !skipBodyRefetch(x) && x.api === 't05st02_detail' && x.market && x.enter && x.serial != null);
     let bodyTouched = 0;
     for (const x of wantBody) {
       if (budget <= 0) break;
@@ -3906,19 +3924,22 @@ async function ingestMops() {
       await sleep(300);
     }
     if (!fresh.length && !bodyTouched && prev) continue;   // 這天沒有新公告也沒補到內文：不重寫
-    // Firestore 單文件 1MiB：季報／董事會截止日可達上千則，超標就只保留最新 300 則的內文
-    let json = JSON.stringify(items);
-    if (json.length > 900_000) {
-      const keep = new Set(Object.values(items).sort((a, b) => b.at - a.at).slice(0, 300).map(x => x.key));
-      for (const k in items) if (!keep.has(k)) items[k].body = null;
-      json = JSON.stringify(items);
-      log(`  ⚠ MOPS ${day} 超過 900KB，僅保留最新 300 則內文`);
-    }
-    await ref.set({
-      date: day, dataDate: day, n: Object.keys(items).length, updatedAt: Date.now(), fetchedAt: Date.now(),
-      itemsJson: json, source: 'mops.twse.com.tw/mops/api/t05st02',
+    // Firestore 單文件 1,048,576 bytes：季報／董事會截止日可達上千則。2026-10-08 X18：改以**位元組**估整份文件（含 merge 後留著的舊欄位）——
+    //   舊版用字元數比 900_000，中文約 3 bytes／字 ⇒ 位元組先超過上限、裁切來不及觸發（整份寫入失敗）；固定留 300 則內文本身也放不下。
+    //   只在「不清就寫不進去」時（門檻 1,040,000 bytes）保留放得下的最多則最新內文，其餘清成 null 並標 bodyTrimmed（公告本身一則不少；
+    //   格式不變，讀者不用改）。清內文是暫行退路；壓縮／分片（不清內文）要讀者先部署，待使用者裁定。
+    const nowMs = Date.now();
+    const fields = {
+      date: day, dataDate: day, n: Object.keys(items).length, updatedAt: nowMs, fetchedAt: nowMs,
+      source: 'mops.twse.com.tw/mops/api/t05st02',
       note: '公開資訊觀測站當日重大訊息原文（官方第一手·僅抓取去重，未判別、未進評分）。非投資建議。',
-    }, { merge: true });
+    };
+    const fit = fitMopsDayDoc({ docPath: `mopsNews/${day}`, items, fields, keep: prev });
+    if (fit.keptBodies != null) {
+      log(`  ${fit.fits ? '⚠' : '✖'} MOPS ${day} 估計 ${fit.bytes} bytes 超過門檻：保留最新 ${fit.keptBodies} 則內文、清掉 ${fit.clearedBodies} 則`
+        + `${fit.fits ? '' : '（只剩主旨仍超過上限，本次寫入可能失敗）'}`);
+    }
+    await ref.set({ ...fields, itemsJson: fit.json }, { merge: true });
   }
   // latest ＝ 今日那份（清晨無公告時 n=0，稽核 allowEmpty；不拿前一日冒充今日）
   const tDoc = (await db.collection('mopsNews').doc(today).get()).data();
@@ -6239,7 +6260,7 @@ ${wikiBlock ? `${wikiBlock}\n` : ''}${negHits.length ? `· ⚠ 內文中偵測�
 
 嚴格規則：
 1. 「股價上漲/漲停/爆量/急拉/成交量大」這類**價格與行情描述不算利多**——那是結果不是原因。
-2. 只有會改變**這家公司自己**的價值或營運預期的事才算利多：它接到訂單、它擴產、它的產品漲價、它取得認證、它法說優於預期、它併購或得標、它新產品量產。⚠ 主詞很重要：**同業**擴產（供給增加）、**原料**漲價（下游成本上升）、**客戶**轉單給別人，對本檔都是**利空**而不是利多。判斷前先確認這件事的主詞是誰、本檔站在哪一邊。
+2. 只有會改變**這家公司自己**的價值或營運預期的事才算利多：它接到訂單、它擴產、它的產品漲價、它取得認證、它法說優於預期、它併購或得標、它新產品量產。⚠ 主詞很重要：**同業**擴產（供給增加）、**原料**漲價（下游成本上升）、**客戶**轉單給別人，對本檔都是**利空**而不是利多。**例外**：本檔若是供應擴產所需設備或材料的廠商，同業（客戶）擴產是它的需求增加，不適用「同業擴產＝利空」。判斷前先確認這件事的主詞是誰、本檔站在哪一邊。
 3. 若新聞只是重複報導股價表現、或內容與該公司無關，請判為「中性」。
    ⚠ 實測違規案例（2026-08-29）：「被列為熱門零股、市場關注度提升」被判成利多。
    那是**關注度描述**，不是營運事實——這類一律中性。同類還有：入選各種榜單、
@@ -6263,7 +6284,7 @@ ${wikiBlock ? `${wikiBlock}\n` : ''}${negHits.length ? `· ⚠ 內文中偵測�
    增減產 → 油價 → 航運與石化同步受影響；記憶體/晶圓報價 → IC 設計·封測·設備；
    運價 → 貨櫃·散裝；匯率 → 出口電子；費半與美系同業財報 → 台系供應鏈。
    若判斷用到這類傳導，**必須在「連動」欄寫出路徑**（誰的什麼事 → 影響什麼 →
-   為何影響到這一檔），並註明這是**推論**不是已確認事實；推論性的連動信心最高給「中」。
+   為何影響到這一檔），並註明這是**推論**不是已確認事實；推論性的連動信心最高只能給「低」。
 8. **當前市場主旋律要特別敏感**：戰爭與地緣衝突、石油與油價、美國通膨與利率、
    AI 與算力、半導體與先進封裝、光通訊(CPO/矽光子)、記憶體、電力與電網、機器人、
    無人機、太空與低軌衛星；關鍵人物：川普、馬斯克、黃仁勳、蘇姿丰、鮑爾。
@@ -6375,6 +6396,8 @@ ${body || '（近 2 日無實質新聞）'}
           ? ml[1].trim().replace(/\$?\\(?:rightarrow|to|Rightarrow)\$?/g, '→').replace(/\s*->\s*/g, ' → ').replace(/\s+/g, ' ').slice(0, 80)
           : null,   // 國際局勢／產業鏈傳導路徑
         chainAnchor: mla && !/^無/.test(mla[1].trim()) ? mla[1].trim().slice(0, 30) : null,   // 連動來源（代號／公司／產業），供量化連動加權
+        // 主判別提示詞版本（2026-10-08 X17：規則 2 設備材料商例外、規則 7 推論信心最高「低」）；J2 的 Ollama 對照臂依此分開
+        promptVersion: NV_PROMPT_VERSION,
         basis, n: recent.length, nMaterial: material.length,
         stale, ageDays,
       };
@@ -6799,6 +6822,11 @@ function verdictPxFields(ctx, code) {
 // 但遠低於預設 0.8——實測預設溫度會讓同一批新聞的判別在
 // 「中性」與「利多/強」之間跳動（2882 國泰金，三次跑出兩種結果）。
 const NEWS_TEMP = +(process.env.NEWS_TEMP || 0.15);
+// 主判別（judgeOneStock）提示詞版本——改提示詞任何一字都要升版（J2 拿修正後的 Ollama 當對照臂，記分板依此分開）：
+//   nv-prompt-v1（～2026-10-08）：規則 2「同業擴產……對本檔都是利空」漏了設備材料商例外；規則 7「推論性的連動信心最高給中」與規則 9「最高只能給低」矛盾。
+//   nv-prompt-v2-2026-10-08（使用者「其它錯誤依建議修正」；jev-score-usage-spec 附錄 B X17；新聞技能 §3B.10）：規則 2 補例外、規則 7 改「最高只能給低」。
+//   推論信心的上限另由寫入端程式強制（news-inference-cap.mjs，X2）——提示詞與程式兩道，不靠模型自律。
+const NV_PROMPT_VERSION = 'nv-prompt-v2-2026-10-08';
 const NEWS_VERDICT_N = +(process.env.NV_LIMIT || 150);    // 退回用的成交金額宇宙大小
 // 安全上限（防暴走），不是刻意設限：使用者 2026-08-29 明確要求不限前 150 檔。
 // 實測來源掃描一次約 110 檔，400 有充分餘裕；真的爆量時按專屬報導優先截斷。
@@ -7104,7 +7132,9 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
         quoteVerified: v.quoteVerified ?? null, gate: v.gate || null,
         unverifiedNums: v.unverifiedNums || null, revision: v.revision || null,
         srcList: u.srcs.join('／'),
+        promptVersion: v.promptVersion || null,   // 主判別提示詞版本（X17）
         ...ruleFieldsOf(v),   // 規則類利空欄位（news-rule-classes；三個寫入端共用）
+        ...inferenceCapFields(v),   // 推論連動信心最高「低」（X2；AI 原值留 aiOriginal.confidence；三個寫入端共用）
       };
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
@@ -7121,6 +7151,7 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
     verdicts, tag: '夜補',
     meta: { date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'night', covered: Object.keys(verdicts).length },
   }));
+  invalidateDeskNews();   // 當沖工作台下一分鐘就讀新判別（X7）
   log(`✓ 夜間補判：新增 ${judged} 檔（其中資訊不足 ${thin}）` +
       `${stopped ? '·**因死線停止**' : ''}，總覆蓋 ${Object.keys(verdicts).length} 檔`);
   await pushVerdictDone('night', { judged, failed: thin, stopped, verdicts, targetDate: today });
@@ -7147,8 +7178,12 @@ async function computeNewsVerdictReview(days = 40) {
   const snap = await db.collection('newsVerdict')
     .orderBy('targetDate', 'desc').limit(days).get();
 
+  // X16（2026-10-08；反證 S8）：主口徑「昨收→今開」要求判讀在開盤前就存在，但適用日文件混有盤中趟（開盤後產生、還會覆蓋同檔的盤前判讀）。
+  //   舊板（groups）口徑照舊、只加註前視比例；新板（groupsPre）只收適用日 09:00 前產出的判讀（news-verdict-preopen.mjs），兩板分開寫、歷史數字不覆蓋。
   const groups = { 利多: [], 利空: [], 中性: [] };
-  let usedDays = 0;
+  const groupsPre = { 利多: [], 利空: [], 中性: [] };
+  const timings = [];
+  let usedDays = 0, usedDaysPre = 0;
   for (const d of snap.docs) {
     // ⚠ 跳過 latest：它是同一批判別的鏡像（同樣帶 targetDate 與 verdictJson），
     //   不排除的話最近那個交易日會被重複計入一次，樣本數與均值都會偏。
@@ -7159,7 +7194,7 @@ async function computeNewsVerdictReview(days = 40) {
     const day = x.targetDate;
     if (!day || !byDate[day]) continue;          // 該交易日還沒收盤／無存檔 ⇒ 跳過
     const v = verdictsOf(x);   // 新舊格式都讀（2026-10-08）
-    let used = 0;
+    let used = 0, usedPre = 0;
     for (const code in v) {
       const row = byDate[day][code];
       if (!Array.isArray(row)) continue;
@@ -7171,10 +7206,15 @@ async function computeNewsVerdictReview(days = 40) {
       if (!(prevClose > 0)) continue;
       const label = v[code].label;
       if (!groups[label]) continue;
-      groups[label].push({ day, code, ret: (open - prevClose) / prevClose * 100, dt: (close - open) / open * 100, conf: v[code].confidence || '?', rt: classifyReason(v[code]) });
+      const r = { day, code, ret: (open - prevClose) / prevClose * 100, dt: (close - open) / open * 100, conf: v[code].confidence || '?', rt: classifyReason(v[code]) };
+      groups[label].push(r);
       used++;
+      const tm = verdictTiming(v[code], day);   // pre＝09:00 前產出；post＝開盤後（盤中趟）；unknown＝沒有判讀時間
+      timings.push(tm);
+      if (tm === 'pre') { groupsPre[label].push(r); usedPre++; }
     }
     if (used) usedDays++;
+    if (usedPre) usedDaysPre++;
   }
 
   const stat = arr => {
@@ -7183,31 +7223,51 @@ async function computeNewsVerdictReview(days = 40) {
     const win = arr.filter(x => x.ret > 0).length / arr.length * 100;
     return { n: arr.length, mean: +mean.toFixed(3), win: +win.toFixed(1) };
   };
-  const bull = stat(groups.利多), bear = stat(groups.利空), neu = stat(groups.中性);
-  // newsLift ＝ 判利多組相對中性組的超額。中性組是這條策略的對照組。
-  const lift = (bull.mean != null && neu.mean != null) ? +(bull.mean - neu.mean).toFixed(3) : null;
-
-  // 分組：利多×信心、理由類型、色調（2026-09-22）；當沖口徑另存 intraday 供對照
-  const byConf = {}; for (const l of ['利多', '中性']) for (const c of ['高', '中', '低']) byConf[`${l}·${c}`] = stat(groups[l].filter(x => x.conf === c));
-  const byReasonType = {}; for (const t of ['本業事實', '技術產品', '題材', '法人動作', '價格描述']) byReasonType[t] = stat(groups.利多.filter(x => x.rt.types.includes(t)));
-  const byTone = {}; for (const t of ['green', 'grey', 'none']) byTone[t] = stat(groups.利多.filter(x => x.rt.tone === t));
   const dtStat = arr => stat(arr.map(x => ({ ...x, ret: x.dt })));
+  // 一個板的全部統計（舊板、新板同一支，口徑一致；舊板數字與改版前逐欄相同）
+  const boardOf = (g, nDays) => {
+    const bull = stat(g.利多), bear = stat(g.利空), neutral = stat(g.中性);
+    // newsLift ＝ 判利多組相對中性組的超額。中性組是這條策略的對照組。
+    const newsLift = (bull.mean != null && neutral.mean != null) ? +(bull.mean - neutral.mean).toFixed(3) : null;
+    // 分組：利多×信心、理由類型、色調（2026-09-22）；當沖口徑另存 intraday 供對照
+    const byConf = {}; for (const l of ['利多', '中性']) for (const c of ['高', '中', '低']) byConf[`${l}·${c}`] = stat(g[l].filter(x => x.conf === c));
+    const byReasonType = {}; for (const t of ['本業事實', '技術產品', '題材', '法人動作', '價格描述']) byReasonType[t] = stat(g.利多.filter(x => x.rt.types.includes(t)));
+    const byTone = {}; for (const t of ['green', 'grey', 'none']) byTone[t] = stat(g.利多.filter(x => x.rt.tone === t));
+    return {
+      days: nDays, bull, bear, neutral, newsLift, byConf, byReasonType, byTone,
+      intraday: { basis: '適用日開盤→收盤（當沖口徑，僅對照）', bull: dtStat(g.利多), neutral: dtStat(g.中性), bear: dtStat(g.利空) },
+      // ⚠ 樣本不足時**不給結論**，也不要讓下游誤以為已驗證
+      conclusive: !!(bull.n >= 200 && neutral.n >= 200 && nDays >= 15),
+    };
+  };
+  const oldBoard = boardOf(groups, usedDays);
+  const { bull, bear, neutral: neu, newsLift: lift } = oldBoard;
+  const la = lookaheadSummary(timings);
 
   await db.collection('newsVerdictReview').doc('summary').set({
     updatedAt: Date.now(),
     basis: '前一交易日收盤→適用交易日開盤報酬(%)（隔日沖口徑；2026-09-22 起）；判別於開盤前既有，故可據以進場',
-    days: usedDays,
-    bull, bear, neutral: neu,
-    newsLift: lift,
-    byConf, byReasonType, byTone,
-    intraday: { basis: '適用日開盤→收盤（當沖口徑，僅對照）', bull: dtStat(groups.利多), neutral: dtStat(groups.中性), bear: dtStat(groups.利空) },
-    // ⚠ 樣本不足時**不給結論**，也不要讓下游誤以為已驗證
-    conclusive: !!(bull.n >= 200 && neu.n >= 200 && usedDays >= 15),
+    boardVersion: REVIEW_BOARD_VERSIONS.all,
+    ...oldBoard,
+    // 舊板加註（X16）：本板列中開盤後才產生的判讀（盤中趟）比例——這些列對「昨收→今開」是前視，數字偏樂觀；新板見 preOpen
+    lookahead: {
+      ...la,
+      note: la.pct == null ? '無可對答案的列' : `本板含盤中前視 ${la.pct}% 列（${la.postOpen}／${la.rows}：判讀產生於適用日 09:00 之後，對「昨收→今開」等於先看到開盤）；`
+        + `只收 09:00 前判讀的新板見 preOpen（${la.unknownTime ? `另 ${la.unknownTime} 列無判讀時間，新板不收` : '新舊板分開，歷史數字不覆蓋'}）`,
+    },
+    // 新板（X16）：只收適用日台北 09:00 前產出的判讀（盤後、夜補、晨間、承接——承接自前一交易日的盤中列依判讀時間計入；
+    //   適用日當天的盤中趟一律排除）；口徑與舊板相同
+    preOpen: {
+      boardVersion: REVIEW_BOARD_VERSIONS.preOpen,
+      basis: '前一交易日收盤→適用交易日開盤報酬(%)；只收適用日 09:00 前產出的判讀（排除適用日盤中趟與無判讀時間的列；承接自前一交易日的列依判讀時間計入）',
+      ...boardOf(groupsPre, usedDaysPre),
+    },
     note: '樣本未達門檻前不得據此調整係數。非投資建議。',
   });
   log(`✓ 新聞判別對答案：利多 n=${bull.n} 均值 ${bull.mean}%｜中性 n=${neu.n} 均值 ${neu.mean}%｜` +
       `利空 n=${bear.n} 均值 ${bear.mean}%｜newsLift ${lift}％（${usedDays} 個交易日）` +
       `${(bull.n >= 200 && neu.n >= 200 && usedDays >= 15) ? '' : ' ← 樣本不足，尚不能下結論'}`);
+  log(`  · 對答案盤中前視：舊板 ${la.rows} 列中 ${la.postOpen} 列開盤後產生（${la.pct ?? '—'}%）｜新板（09:00 前）利多 n=${groupsPre.利多.length}、中性 n=${groupsPre.中性.length}、利空 n=${groupsPre.利空.length}`);
   // ⚠ 找不到任何可對答案的交易日時**不可回報成功**：
   //   排程是「成功才標記今日已跑」，回 true 等於這天不再重試。
   //   15:30 跑時若當日 chipArchive 還沒寫入（歸檔在 15:10，偶爾延遲），
@@ -7218,6 +7278,8 @@ async function computeNewsVerdictReview(days = 40) {
   //   這裡對同一批判別另算 gap(昨收→今開)／o2c／c2c／d5x(開盤進場→第 5 個交易日收盤，扣同日宇宙等權)，
   //   並依 label×{confidence,strength,priced,basis,pass} 分組，寫 newsVerdictReview/breakdown。
   //   只記錄、不影響任何評分；樣本不足的組 n 照實列，讀的人自己看 n。
+  //   2026-10-08 審查：另依 promptVersion（X17 提示詞版本）與 confCap（X2 推論信心被程式夾到「低」）分組——
+  //   40 日滾動窗在重啟後約 40 個交易日內會混用新舊口徑（信心分布改變），這兩組讓新舊分得開（只多記，既有組不變）。
   try {
     const dates = arch.map(a => a.date).sort();                 // 舊→新
     const idx = Object.fromEntries(dates.map((d, i) => [d, i]));
@@ -7252,7 +7314,7 @@ async function computeNewsVerdictReview(days = 40) {
     const add = (k, r) => (groups[k] ||= []).push(r);
     for (const r of rows) {
       const L = r.v.label || '?'; add(`label=${L}`, r);
-      for (const f of ['confidence', 'strength', 'priced', 'basis', 'pass', 'eventType', 'certainty', 'novelty', 'pxSrc']) add(`label=${L}|${f}=${r.v[f] ?? 'null'}`, r);
+      for (const f of ['confidence', 'strength', 'priced', 'basis', 'pass', 'eventType', 'certainty', 'novelty', 'pxSrc', 'promptVersion', 'confCap']) add(`label=${L}|${f}=${r.v[f] ?? 'null'}`, r);
     }
     const out = {}; for (const k in groups) out[k] = stat(groups[k]);
     await db.collection('newsVerdictReview').doc('breakdown').set({
@@ -7315,7 +7377,9 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
         dirChecked: !!v.dirChecked, strengthChecked: !!v.strengthChecked,
         strengthBasis: v.strengthBasis || null,
         quotes: v.quotes || null, quoteVerified: v.quoteVerified ?? null,
+        promptVersion: v.promptVersion || null,   // 主判別提示詞版本（X17）
         ...ruleFieldsOf(v),   // 規則類利空欄位（news-rule-classes；三個寫入端共用）
+        ...inferenceCapFields(v),   // 推論連動信心最高「低」（X2；AI 原值留 aiOriginal.confidence；三個寫入端共用）
       };
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
@@ -7333,6 +7397,7 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
     verdicts, tag: '盤中',
     meta: { date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'intraday', covered: Object.keys(verdicts).length },
   }));
+  invalidateDeskNews();   // 盤中突發判別下一分鐘就進當沖 s6（X7；舊版最多晚約 55 分）
   log(`✓ 盤中新聞判別：新消息 ${hot.length} 檔 → 判別 ${judged}、沿用 ${skipped}` +
       `${hit.length ? `　⚠ 突發利空：${hit.join('、')}` : ''}`);
   await pushVerdictDone('intraday', { judged, skipped, verdicts, targetDate: today });
@@ -7488,6 +7553,7 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     updatedAt: Date.now(), lastPass: pass,
     covered: Object.keys(verdicts).length,
   } }));
+  invalidateDeskNews();   // 當沖工作台下一分鐘就讀新判別（X7）
     if (final) {
       log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
           `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔` +
@@ -7550,7 +7616,9 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
         // 後續要不要因此降權，等 newsLift 分組看得出差異再決定——現在先留證據。
         articles: (u.articles || []).length || null,
         minCoMentions: (u.articles || []).length ? Math.min(...u.articles.map(a => a.coMentions)) : null,
+        promptVersion: v.promptVersion || null,   // 主判別提示詞版本（X17）
         ...ruleFieldsOf(v),   // 規則類利空欄位（news-rule-classes；三個寫入端共用）
+        ...inferenceCapFields(v),   // 推論連動信心最高「低」（X2；AI 原值留 aiOriginal.confidence；三個寫入端共用）
       };
       // 記下這輪看過的標題，供下一趟（與明日晨間）跳過
       const titles = (r.allTitles || []).slice(0, 60);
@@ -7745,13 +7813,18 @@ async function computeSqueezeNewsVerdict() {
   // getIndustryMap 走官方 t187ap03 且每日快取，不會增加上游請求。
   let indMap = {};
   try { indMap = await getIndustryMap(); } catch { /* 沒有產業別只是少一個錨，不擋 */ }
+  // 台股 wiki 區塊（2026-10-08 X6）：其他判讀路徑經 newsJudgeContext 都帶 wiki，唯獨軋空這條漏了 ⇒ 提示詞少了產業鏈位置的事實錨。
+  //   同 newsJudgeContext 共用 loadWikiStocks（本地檔、依 mtime 快取、零上游）；讀不到或過舊就是 null，判讀退回只有官方產業別。
+  //   會改變 Ollama 對照臂的提示詞內容（每趟 12 檔、提示詞變長）——要在 J2 第 1 日前上線。
+  const wiki = loadWikiStocks(WIKI_STOCKS_FILE, { onWarn: m => log(`⚠ ${m}`) });
 
 
   for (const it of picks.items.slice(0, 12)) {
     const { verdict, events, stale, ageDays, recent, material, withBody } =
-      await judgeOneStock(it, { calMap, gLine, indMap });
+      await judgeOneStock(it, { calMap, gLine, indMap, wiki });
     // 2026-09-22 使用者決策：取消「主力推薦」（利多×信心非低×非舊聞——對答案 60% vs 非主力 60%，信心高反而比信心低差）。
-    //   新聞改為**加權不定序**：newsScore＝理由類型（綠 +1／灰 −0.5／無 0）＋連動量化分（0～1，資料算的；只在判利多時計）。
+    //   新聞改為**加權不定序**：newsScore＝理由類型（綠 +1／灰 0／無 0）＋連動量化分（0～1，資料算的；只在判利多時計）。
+    //   （2026-10-08 X12 更正註解：舊註解寫灰扣 0.5 分，但程式與對外字樣「其它 0」一直是 0；灰扣分屬規則變更候選 U10-d，未採。）
     //   排序：籌碼分級 → newsScore → 券資比 → 漲幅。信心等級不進任何規則。
     const reasonType = classifyReason(verdict);
     const anchorCode = resolveAnchorCode(verdict.chainAnchor, it.code);
@@ -13401,10 +13474,12 @@ const luTick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.
 const luLimitPrice = pc => { const t = luTick(pc); return +(Math.floor(pc * 1.1 / t) * t).toFixed(2); };
 const luIsLimitUp = (c, pc) => pc > 0 && c > 0 && c >= luLimitPrice(pc) - 1e-9;
 
-// ── 每日新聞庫 newsDaily（鉅亨標題→個股提及/極性；漲停預測消息因子＋逐日存檔）──
+// ── 每日新聞庫 newsDaily（鉅亨標題→個股提及則數；逐日存檔）──
 // 歷史回補：scripts/backfill-news.mjs。此函式每日/盤中(15分節流)更新當日文件。
-const LU_POS = /漲停|大漲|飆|急拉|創新高|新高|報喜|樂觀|看好|急單|大單|接單暢旺|營收創|獲利創|上修|調升|買超|加碼|轉盈|旺季|受惠|吃補|噴/;
-const LU_NEG = /跌停|大跌|重挫|急殺|創新低|警示|處置|注意股|下修|調降|賣超|示警|虧損|衰退|轉虧|停工|裁員|利空|降評|砍單|失守/;
+// ⛔ 2026-10-08 停算標題極性（X4；使用者「其它錯誤依建議修正」）：舊版以 LU_POS／LU_NEG 標題關鍵字算「極性」存成 [則數, 極性]。
+//   唯一的線上讀者 newsN 讀錯格式恆為 0、LU_LIFT 的 newsPol 已於 2026-09-18 移除——硬規定「標題關鍵字不得動分數」。
+//   現在 mentionsJson 每檔只存 [則數]（保留陣列形狀：研究腳本 backtest-limitup.mjs 讀 m[0] 照常、m[1] 變 undefined——
+//   新格式日的 newsPol 落不進任何分桶；文件帶 mentionsFormat='count-v2' 供研究腳本區分新舊日）。歷史文件不回溯修改。
 let _newsDailyAt = 0;
 async function computeNewsDaily() {
   if (Date.now() - _newsDailyAt < 15 * 60000) return; // 盤中節流
@@ -13424,17 +13499,18 @@ async function computeNewsDaily() {
       if (iso !== today) continue;
       titles++;
       const title = it.title || '';
-      const pol = (LU_POS.test(title) ? 1 : 0) - (LU_NEG.test(title) ? 1 : 0);
       const hit = new Set();
       for (const m of title.matchAll(/\b(\d{4})\b/g)) if (codesSet.has(m[1])) hit.add(m[1]);
       for (const [name, code] of nameEntries) if (title.includes(name)) hit.add(code);
-      for (const code of hit) { const m = (mentions[code] ||= [0, 0]); m[0]++; m[1] += pol; }
+      for (const code of hit) { const m = (mentions[code] ||= [0]); m[0]++; }   // 只計則數（關注度），不判方向
     }
     if (page >= (j?.items?.last_page || 1)) break;
     await sleep(250);
   }
   if (titles > 0) {
-    await db.collection('newsDaily').doc(today).set({ date: today, at: Date.now(), titles, mentionsJson: JSON.stringify(mentions) });
+    await db.collection('newsDaily').doc(today).set({ date: today, at: Date.now(), titles, mentionsJson: JSON.stringify(mentions),
+      mentionsFormat: 'count-v2',   // 每檔 [則數]；舊格式（無此欄）為 [則數, 標題極性]（2026-10-08 起停算極性，X4）
+      note: '鉅亨台股新聞標題的個股提及則數（關注度，只顯示）；不判方向、不進任何分數。非投資建議。' });
     log(`✓ 新聞庫 ${today}：${titles} 則、提及 ${Object.keys(mentions).length} 檔`);
   }
   _newsDailyAt = Date.now();
@@ -14137,6 +14213,8 @@ async function fetchPunishSet() {
   return out;
 }
 
+// 做空候選的新聞點數來源引擎（X14；目前只讀 Ollama 寫的 newsVerdict）。J3 換引擎時改這裡並讓新舊訓練列分開。
+const NV_ENGINE_OLLAMA = 'ollama';
 async function computeShortCandidates({ canonical = false } = {}) {
   const archRaw = await readArchive(21, 'closeJson');
   if (archRaw.length < 21) { log('  ⚠ 做空候選：chipArchive 不足 21 日'); return !canonical; }
@@ -14174,7 +14252,8 @@ async function computeShortCandidates({ canonical = false } = {}) {
   const distSet = new Set((divgDoc?.distribute || []).map(x => x.code));
   let verdicts = {};
   try { verdicts = verdictsOf(nvDoc); } catch { /* 缺判別→利空加權跳過（新舊格式都讀，2026-10-08） */ }
-  if (!Object.keys(verdicts).length) skipped.push('AI利空判別(無累積判別)');
+  const hasNv = Object.keys(verdicts).length > 0;   // 有判別來源 ⇒ 訓練列的 nvEngine 才有意義（X14）
+  if (!hasNv) skipped.push('AI利空判別(無累積判別)');
   const squeezeSet = new Set((sqDoc?.items || []).map(x => x.code));
   let margin = {};
   try { if (marginArr?.[0]?.marginJson) margin = JSON.parse(marginArr[0].marginJson); } catch { /* 缺資券→券資比濾網跳過 */ }
@@ -14274,9 +14353,11 @@ async function computeShortCandidates({ canonical = false } = {}) {
       }
     }
     const v = verdicts[code];
+    let newsPts = 0;   // 這一列的新聞點數（X14：訓練只用 scoreExNews；新聞點數與引擎另記，J3 換引擎時新舊分開）
     if (v && v.label === '利空') {
       const base = v.strength === '極強' ? 12 : v.strength === '強' ? 10 : v.strength === '中' ? 6 : 3;
       const pts = v.priced === '是' ? Math.round(base / 2) : base;
+      newsPts = pts;
       score += pts; reasons.push(`AI利空(${v.strength}${v.priced === '是' ? '·已反映減半' : ''})`);
     }
     const ind = indMap[code] || null;
@@ -14288,7 +14369,10 @@ async function computeShortCandidates({ canonical = false } = {}) {
       pagoda: pg?.flip === 'down' ? 2 : (pg && pg.above === false ? 1 : 0),
       dist: distSet.has(code) ? 1 : 0, rev: (revHit[code] || []).length,
       lendChgPct, shortRatio: shortRatio == null ? null : +shortRatio.toFixed(1),
-      nv: v && v.label === '利空' ? `${v.strength}${v.priced === '是' ? 'P' : ''}` : null });
+      nv: v && v.label === '利空' ? `${v.strength}${v.priced === '是' ? 'P' : ''}` : null,
+      // X14（2026-10-08；裁定 6：新聞不進訓練特徵）：score 含新聞點數 ⇒ 另存不含新聞的分數、新聞點數、判別引擎（有判別來源時）。
+      //   訓練一律用 scoreExNews；newsPts／nv 只供對照。nvEngine＝這列新聞點數出自哪個引擎（目前只有 Ollama 的 newsVerdict）。
+      scoreExNews: score - newsPts, newsPts, nvEngine: hasNv ? NV_ENGINE_OLLAMA : null });
     if (score < 8 || reasons.length < 2) continue;              // 至少兩訊號共振
     // 支撐/壓力參考（空單的獲利目標與停損）：近月(21日)最低收=支撐、MA20=壓力
     // ⚠ 視窗只有 21 日就誠實叫近月——不寫 60 日（closes 根本沒 60 筆，A 族的表親）
@@ -14362,7 +14446,8 @@ async function recordShortTraining() {
     date: board.dataDate, updatedAt: Date.now(),
     n: rows.length, rowsJson: board.trainJson,
     health: board.health ?? null, mode: board.mode, boardBasis,
-    note: '特徵快照（資格+風控層通過全體·含未入榜）。標籤訓練時從 chipArchive 現算：口徑A=隔日開→收、口徑B=5日最大跌幅。',
+    note: '特徵快照（資格+風控層通過全體·含未入榜）。標籤訓練時從 chipArchive 現算：口徑A=隔日開→收、口徑B=5日最大跌幅。'
+      + 'score 含 AI 新聞點數；訓練請用 scoreExNews（2026-10-08 起每列另有 newsPts、nvEngine；新聞不進特徵，裁定 6）。',
   });
   log(`✓ 做空訓練樣本：${board.dataDate} ${rows.length} 檔特徵入庫（${boardBasis}）`);
   return true;

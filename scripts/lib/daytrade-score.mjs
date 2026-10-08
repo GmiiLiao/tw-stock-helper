@@ -10,6 +10,18 @@
 const item = (key, label, max, score, evidence) => ({ key, label, max, score: score == null ? null : Math.max(0, Math.min(max, Math.round(score))), evidence });
 const pct = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 
+// ── s6「新聞催化品質」版本章（2026-10-08 使用者「其它錯誤依建議修正」；jev-score-usage-spec 附錄 B X1、X7）──
+//   s6-v1（～2026-10-08）：比對 priced === '已反映'，但 daemon 的「已被預期」欄位只寫「是／否／不確定」⇒「已反映降為 3 分」從未生效；
+//     daemon 工作台情境的新聞判別快取 30 分鐘（突發新聞最多晚約 55 分才進 s6）。
+//   s6-v2（2026-10-08 起，daemon 重啟後生效）：「是」（相容舊字「已反映」）⇒ 順向降為 3 分；新聞快取 5 分鐘（DESK_NEWS_TTL_MS），
+//     daemon 自己寫完 newsVerdict/latest 也讓快取失效。兩者都改變 s6 ⇒ 輸出帶 s6Version，新舊分開統計（不扣成本比較另列）。
+export const S6_VERSION = 's6-v2-2026-10-08';
+/** daemon 工作台情境讀 newsVerdict/latest 的快取時效（零上游；只讀 Firestore）。改這個值要升 S6_VERSION。 */
+export const DESK_NEWS_TTL_MS = 5 * 60000;
+/** daemon「已被預期」欄位的「是」（舊字「已反映」一併認）＝已反映 */
+const PRICED_YES = new Set(['是', '已反映']);
+const PRICED_TEXT = { 是: '已反映', 已反映: '已反映', 否: '未反映', 不確定: '是否已反映不確定' };
+
 /**
  * @param {object} x
  *   side: 'long'|'short'
@@ -18,7 +30,7 @@ const pct = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
  *   breadth: { up, down }|null
  *   sector: { name, n, upRatio, avgChg, rank }|null     rank：本檔在同族群依漲幅（空：跌幅）排名
  *   stock: { market, price, chg, valueTwd, bid1, ask1, tick, pace, prevHigh, prevLow }
- *   news: { label, certainty, priced, at }|null
+ *   news: { label, certainty, priced, at }|null   priced＝daemon「已被預期」：是／否／不確定（s6-v2 起「是」才降分）
  *   scan: scanDesk() 結果；bars：1 分 K；vwap：當下 VWAP
  */
 export function scoreDesk(x) {
@@ -93,8 +105,9 @@ export function scoreDesk(x) {
   if (x.news?.label) {
     const n = x.news; const bull = /利多|看多|正面/.test(n.label), bear = /利空|看空|負面/.test(n.label);
     const fav = L ? bull : bear, unfav = L ? bear : bull;
-    s6 = fav ? (n.priced === '已反映' || n.certainty === '傳聞' ? 3 : 5) : unfav ? 0 : 2;
-    s6e = `${n.label}${n.certainty ? `·${n.certainty}` : ''}${n.priced ? `·${n.priced}` : ''}${n.at ? `·${new Date(n.at + 8 * 3600000).toISOString().slice(5, 16).replace('T', ' ')}` : ''}`;
+    s6 = fav ? (PRICED_YES.has(n.priced) || n.certainty === '傳聞' ? 3 : 5) : unfav ? 0 : 2;
+    const pricedText = n.priced ? (PRICED_TEXT[n.priced] || n.priced) : '';
+    s6e = `${n.label}${n.certainty ? `·${n.certainty}` : ''}${pricedText ? `·${pricedText}` : ''}${n.at ? `·${new Date(n.at + 8 * 3600000).toISOString().slice(5, 16).replace('T', ' ')}` : ''}`;
   }
   const stock = [
     item('s1', '族群廣度與領先性', 10, s1, s1e),
@@ -144,7 +157,7 @@ export function scoreDesk(x) {
   const missing = all.filter(i => i.score == null).map(i => i.label);
   const tier = missing.length ? null : total >= 75 ? '優先觀察' : total >= 60 ? '等待' : '低優先';
   const sum = arr => ({ score: arr.filter(i => i.score != null).reduce((a, i) => a + i.score, 0), knownMax: arr.filter(i => i.score != null).reduce((a, i) => a + i.max, 0), max: arr.reduce((a, i) => a + i.max, 0) });
-  return { market, stock, entry, total, knownMax, missing, tier, parts: { market: sum(market), stock: sum(stock), entry: sum(entry) } };
+  return { market, stock, entry, total, knownMax, missing, tier, parts: { market: sum(market), stock: sum(stock), entry: sum(entry) }, s6Version: S6_VERSION };
 }
 
 /** 假突破／轉弱警訊（技巧原文清單中可由 1 分 K 判定者） */

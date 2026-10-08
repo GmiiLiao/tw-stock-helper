@@ -114,13 +114,15 @@ export function createDaytradeEngine({ evidence = null, params = DESK_PARAMS, on
     }
     // ── 日誌：候選（首次評估的分數凍結）、每一筆觸發／否決／假突破（觸發當下的分數凍結，出場另填）──
     const ck = `${side}:${code}`;
-    if (!journal.candidates[ck]) { journal.candidates[ck] = { code, name: row.name, side, firstAt: row.m.at, total: score.total, knownMax: score.knownMax, tier: score.tier, missing: score.missing }; jDirty = true; }
+    // s6Version 逐筆帶（2026-10-08 審查）：日內重啟會以新 params 覆寫當日 journal 文件，文件層版本不保證涵蓋當日全部條目
+    const s6Version = score.s6Version ?? null;
+    if (!journal.candidates[ck]) { journal.candidates[ck] = { code, name: row.name, side, firstAt: row.m.at, total: score.total, knownMax: score.knownMax, tier: score.tier, missing: score.missing, s6Version }; jDirty = true; }
     for (const t of [...scan.trades, ...scan.vetoed]) {
       const id = `${ck}:${t.type}:${t.t}`; const e = journal.entries[id];
       if (!e) {
         journal.entries[id] = { code, name: row.name, side, type: t.type, t: t.t, minute: t.minute, bucket: t.minute < 570 ? '09:00-09:30' : t.minute < 630 ? '09:30-10:30' : t.minute < 750 ? '10:30-12:30' : '12:30-',
           traded: !t.veto.length, veto: t.veto, why: t.why, entry: t.entry, stop: t.stop, d: t.d, costR: t.costR, targets: t.targets,
-          score: { total: score.total, knownMax: score.knownMax, tier: score.tier, parts: score.parts, missing: score.missing }, warnings,
+          score: { total: score.total, knownMax: score.knownMax, tier: score.tier, parts: score.parts, missing: score.missing, s6Version }, warnings,
           sector: ctx.sectorOf?.(code, side)?.name || null, regime: ctx.regime || null, news: ctx.news?.[code]?.label || null, exit: null, netR: null, mfeR: null, hit: null };
         jDirty = true;
       } else if (!e.exit && t.exit) { e.exit = t.exit; e.netR = t.netR; e.mfeR = t.mfeR; e.hit = t.hit; e.fills = (t.fills || []).map(x => ({ k: x.k, px: x.px, at: x.t + 60_000 })); jDirty = true; }   // 分批成交：at＝達標那根 K 收盤

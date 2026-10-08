@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // ── 回補近 20+ 交易日全市場新聞 → newsDaily/{date} ──────────────────────
 // 來源：鉅亨 cnyes tw_stock 新聞標題（startAt/endAt 可翻歷史）。
-// 解讀（確定性，非 LLM）：① 個股提及＝標題含股名或4碼代號 ② 極性＝正/負面詞典。
-// 產出 newsDaily/{iso}: { date, titles, mentions: {code: [則數, 正負淨值]} }
+// 解讀（確定性，非 LLM）：個股提及＝標題含股名或4碼代號（只計則數＝關注度，不判方向）。
+// 產出 newsDaily/{iso}: { date, titles, mentionsJson: {code: [則數]}, mentionsFormat: 'count-v2', note }——與 daemon computeNewsDaily 同格式。
+// ⛔ 2026-10-08 停算標題極性（X4 審查補齊；硬規定「標題關鍵字不得動分數」）：舊版以 POS／NEG 標題詞典算極性存成 [則數, 極性]，
+//   daemon 端已停算；這支回補若照舊寫，會把標題極性寫回同一個 newsDaily 集合（--force 回補到當日還會蓋掉 daemon 文件的 mentionsFormat）。
+//   研究腳本 backtest-limitup.mjs 讀 m[1] 的 newsPol：新格式日為 undefined，混算前依 mentionsFormat==='count-v2' 區分。
 // 冪等：已存在的日期跳過（--force 重寫）。
 import admin from 'firebase-admin';
 import { createTpexClose } from './lib/tpex-close-quotes.mjs';
@@ -35,8 +38,9 @@ async function loadNames() {
   return { map, codes };
 }
 
-const POS = /漲停|大漲|飆|急拉|創新高|新高|報喜|樂觀|看好|急單|大單|接單暢旺|營收創|獲利創|上修|調升|買超|加碼|轉盈|旺季|受惠|吃補|噴/;
-const NEG = /跌停|大跌|重挫|急殺|創新低|警示|處置|注意股|下修|調降|賣超|示警|虧損|衰退|轉虧|停工|裁員|利空|降評|砍單|失守/;
+/** 與 daemon computeNewsDaily 相同的格式章與說明（每檔 [則數]；舊格式＝無此欄、[則數, 標題極性]） */
+const MENTIONS_FORMAT = 'count-v2';
+const NEWS_DAILY_NOTE = '鉅亨台股新聞標題的個股提及則數（關注度，只顯示）；不判方向、不進任何分數。非投資建議。';
 
 // 標題 → 提及股票（先長名優先，避免「台積電」被「台積」搶走；代號直配）
 function matchStocks(title, nameEntries, codes) {
@@ -53,7 +57,7 @@ console.log(`股名對照 ${nameEntries.length} 檔`);
 // 4 天一窗分段抓（單窗頁數 >30 會 422）
 const endAll = Math.floor(Date.now() / 1000);
 const startAll = endAll - DAYS_BACK * 86400;
-const byDate = {}; // iso -> {titles, mentions:{code:[n,pol]}}
+const byDate = {}; // iso -> {titles, mentions:{code:[n]}}
 let fetched = 0;
 const WIN = 4 * 86400;
 for (let ws = startAll; ws < endAll; ws += WIN) {
@@ -70,10 +74,9 @@ for (let ws = startAll; ws < endAll; ws += WIN) {
       const d = (byDate[iso] ||= { titles: 0, mentions: {} });
       d.titles++;
       const title = it.title || '';
-      const pol = (POS.test(title) ? 1 : 0) - (NEG.test(title) ? 1 : 0);
       for (const code of matchStocks(title, nameEntries, codes)) {
-        const m = (d.mentions[code] ||= [0, 0]);
-        m[0]++; m[1] += pol;
+        const m = (d.mentions[code] ||= [0]);
+        m[0]++;   // 只計則數（關注度），不判方向
       }
     }
     fetched += items.length;
@@ -88,13 +91,13 @@ for (const iso of Object.keys(byDate).sort()) {
   const ref = db.collection('newsDaily').doc(iso);
   if (!FORCE && (await ref.get()).exists) { skipped++; continue; }
   const d = byDate[iso];
-  await ref.set({ date: iso, at: Date.now(), titles: d.titles, mentionsJson: JSON.stringify(d.mentions) });
+  await ref.set({ date: iso, at: Date.now(), titles: d.titles, mentionsJson: JSON.stringify(d.mentions), mentionsFormat: MENTIONS_FORMAT, note: NEWS_DAILY_NOTE });
   wrote++;
 }
 console.log(`newsDaily 寫入 ${wrote} 日、跳過(已存在) ${skipped} 日`);
 const sample = Object.entries(byDate).sort().slice(-1)[0];
 if (sample) {
   const top = Object.entries(sample[1].mentions).sort((a, b) => b[1][0] - a[1][0]).slice(0, 8);
-  console.log(`樣本 ${sample[0]}：${sample[1].titles} 則，熱度前8：${top.map(([c, [n, p]]) => `${c}×${n}(極性${p >= 0 ? '+' : ''}${p})`).join(' | ')}`);
+  console.log(`樣本 ${sample[0]}：${sample[1].titles} 則，熱度前8：${top.map(([c, [n]]) => `${c}×${n}`).join(' | ')}`);
 }
 process.exit(0);

@@ -88,7 +88,8 @@ export interface RuleVerdictFields {
   ruleOverride?: string;
   ruleSub?: string;
   ruleHits?: RuleClassCode[];
-  aiOriginal?: { label: string; reason: string };
+  /** confidence：規則改過信心時才有（AI 原信心；2026-10-08） */
+  aiOriginal?: { label: string; reason: string; confidence?: string | null };
   ruleFacts?: Partial<Record<RuleClassCode, RuleFactText>>;
   ruleEvidence?: Partial<Record<RuleClassCode, RuleEvidence>>;
   /** 各類別被當成新事件那次的適用日 since＋事件日期 eventDate（延續判定用）；N4 有效期內事件日期較晚的新進展換新時 renewOf＝被取代的舊事件日期（2026-10-07） */

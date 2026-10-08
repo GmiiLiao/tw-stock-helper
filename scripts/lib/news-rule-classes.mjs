@@ -392,7 +392,8 @@ export function ruleOverrideReason(code, verdict) {
  * - state 'yes' 的類別中取類別權重最高者寫 ruleClass（同權重依表內順序），其餘寫 ruleHits（只記錄）；aiOriginal 記 AI 原判。
  *   C16a 的 'old'（舊案·涉訟中）與 'acc'（工安事故調查，2026-10-07 N2）不算「是」：不改 label、不寫 ruleClass。
  *   C16a 類別權重 0.90 是表內最高（與 C23 同權重時 C16a 在前），所以「C16a 答是」⇔ ruleClass＝'C16a'。
- * - ruleClass＝C16a 且 AI 原判不是利空 ⇒ label 由程式覆寫為利空（bullish false、信心「低」升「中」、理由與 2026-08-29 版逐字相同）。
+ * - ruleClass＝C16a 且 AI 原判不是利空 ⇒ label 由程式覆寫為利空（bullish false、信心「低」升「中」、理由與 2026-08-29 版逐字相同）；
+ *   信心有升時 aiOriginal 另記 AI 原信心 confidence（2026-10-08）。
  * - 其他類別（C23、C22、C13b、C17、C16b、C15a、C11a、C15c、C20b）**只記規則欄位**，label／bullish／confidence／reason 一律不動
  *   （使用者 2026-10-06 R1：label 連動推薦排序、個股評分、做空候選、squeeze-train；停損收緊與戰情由 ruleClassOf 讀規則欄位）。
  * - AI 原判已是利空 ⇒ 只補欄位，理由不改（§10A.2-4 漏網修正）。「否」、沒答 ⇒ 維持 AI 原判，不猜。
@@ -426,6 +427,9 @@ export function applyRuleFacts(verdict, { facts = {} } = {}) {
     out.bullish = false;
     out.confidence = verdict.confidence === '低' ? '中' : verdict.confidence;
     out.reason = ruleOverrideReason(primary, verdict);
+    // 規則改了信心（低→中）⇒ AI 原信心一併記下（2026-10-08 審查：稽核軌跡；下游推論上限不得把規則調整後的值當 AI 原值）。
+    //   aiOriginal.confidence 存在＝程式改過信心；沒改就不加欄位（既有文件形狀不變）。
+    if (out.confidence !== verdict.confidence) out.aiOriginal = { ...out.aiOriginal, confidence: verdict.confidence ?? null };
   }
   return out;
 }

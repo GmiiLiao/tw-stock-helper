@@ -191,11 +191,18 @@ test('applyRuleFacts：C16a「是」、AI 原判不是利空 ⇒ label 由程式
     assert.ok(r.reason.endsWith(`（AI 原判${label}：公司聲明營運正常）`), r.reason);
     assert.equal(r.ruleClass, 'C16a');
     assert.equal(r.ruleOverride, 'legal-event');
-    assert.deepEqual(r.aiOriginal, { label, reason: '公司聲明營運正常' });
+    // 2026-10-08 審查：規則把信心「低」升「中」時，AI 原信心一併記在 aiOriginal.confidence（稽核軌跡；推論上限不得拿調整後的值當 AI 原值）
+    assert.deepEqual(r.aiOriginal, { label, reason: '公司聲明營運正常', confidence: '低' });
     assert.equal(ruleClassOf(r), 'C16a');
     assert.deepEqual(v, AI({ label, bullish: label === '利多' }), '輸入不變');
   }
   assert.equal(LABEL_OVERRIDE_CLASS, 'C16a');
+  // 信心沒被規則改動（原本就是中／高）⇒ aiOriginal 不加 confidence（aiOriginal.confidence 存在＝程式改過信心）
+  for (const confidence of ['中', '高']) {
+    const r = applyRuleFacts(AI({ confidence }), { facts: { C16a: Y } });
+    assert.equal(r.confidence, confidence);
+    assert.deepEqual(r.aiOriginal, { label: '中性', reason: '公司聲明營運正常' }, confidence);
+  }
 });
 
 test('applyRuleFacts：非法律類別「是」（2026-10-06 R1）⇒ 只記規則欄位，label／bullish／confidence／reason 一律維持 AI 原判', () => {

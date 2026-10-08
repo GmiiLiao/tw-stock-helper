@@ -114,7 +114,8 @@ export function createAiDaytradeLab({ db, askOllama, askOllamaEx = null, log, ge
       const m = twMin(now);
       const base = {
         id, side, code, name, type: trade.type, why: trade.why, triggerAt: trade.t, triggerPx: trade.entry, stop: trade.stop, d: trade.d, targets: trade.targets,
-        score: { total: row.score.total, knownMax: row.score.knownMax, tier: row.score.tier, parts: row.score.parts, missing: row.score.missing }, warnings: row.warnings,
+        // s6Version：逐筆記錄帶當沖 s6 口徑版本（2026-10-08 審查；經驗庫只讀逐筆 score，文件層 params 不保證涵蓋當日全部條目）
+        score: { total: row.score.total, knownMax: row.score.knownMax, tier: row.score.tier, parts: row.score.parts, missing: row.score.missing, s6Version: row.score.s6Version ?? null }, warnings: row.warnings,
         askedAt: now, decision: null, confidence: null, reason: null, risk: null, status: 'pending', fillPx: null, lagMs: null,
       };
       // 不送 AI 的觸發也寫一行日誌（2026-10-02 使用者：額度用完後日誌整段無聲，看起來像停機）
