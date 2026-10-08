@@ -10,6 +10,7 @@ import { readHistory } from '@/lib/history-store';
 import { readStockAI } from '@/lib/daemon-store';
 import { fetchDailyHistory, yearsAgoUnix } from '@/lib/history-fetch';
 import { getFundamentalSignals } from '@/lib/fundamentals-server';
+import { verdictJsonOf } from '../../../../scripts/lib/news-verdict-codec.mjs';   // newsVerdict 新舊格式（明文／壓縮 verdictGz，2026-10-08）
 import { getStockNews } from '@/lib/news-server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { enrichScoredStock } from '@/lib/analysis-enrich';
@@ -93,8 +94,8 @@ export async function GET(request: NextRequest) {
         try {
           const db = getAdminDb();
           const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
-          const v = snap?.data();
-          const map = v?.verdictJson ? JSON.parse(v.verdictJson) : null;
+          const vj = verdictJsonOf(snap?.data());
+          const map = vj ? JSON.parse(vj) : null;
           const mine = map?.[code];
           if (mine?.label) {
             // ⚠ 判別是**個股層級**（AI 已經讀完多則內文後才給一個結論），

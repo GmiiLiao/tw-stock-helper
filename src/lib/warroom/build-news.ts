@@ -7,6 +7,8 @@
 import type { WarReader } from './reader';
 import { errSection, guardSection, okSection, type Section } from './section';
 import { newsBoardFromDoc, type NewsBoard, type NewsEntry, type NewsMeta } from '../../../scripts/lib/warroom-news.mjs';
+// newsVerdict 大文件改存壓縮欄位 verdictGz 時先轉成明文（2026-10-08）；只在伺服器端（node:zlib），warroom-news.mjs 是前後端共用模組不 import 它
+import { plainNewsVerdictDoc } from '../../../scripts/lib/news-verdict-codec.mjs';
 
 export type { NewsBoard, NewsEntry, NewsMeta };
 
@@ -19,10 +21,11 @@ let memo: { key: string; value: NewsBoard | null } | null = null;
 /** newsVerdict/latest 文件 → 精簡表（記憶化）；文件不存在或壞掉回 null */
 export function newsBoardOf(doc: Record<string, unknown> | null | undefined): NewsBoard | null {
   if (!doc) return null;
-  const json = doc.verdictJson;
-  const key = `${String(doc.updatedAt ?? '')}|${String(doc.targetDate ?? '')}|${typeof json === 'string' ? json.length : -1}`;
+  const gz = doc.verdictGz;
+  const json = typeof gz === 'string' ? gz : doc.verdictJson;   // 記憶化鍵：壓縮版看壓縮字串長度（同一份不重複解壓）
+  const key = `${String(doc.updatedAt ?? '')}|${String(doc.targetDate ?? '')}|${typeof gz === 'string' ? 'gz' : 'js'}|${typeof json === 'string' ? json.length : -1}`;
   if (memo?.key === key) return memo.value;
-  const value = newsBoardFromDoc(doc);
+  const value = newsBoardFromDoc(plainNewsVerdictDoc(doc));
   memo = { key, value };
   return value;
 }

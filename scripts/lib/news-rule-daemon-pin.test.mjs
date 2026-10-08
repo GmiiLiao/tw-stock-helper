@@ -49,13 +49,24 @@ test('2026-10-07 當日沿用不增加 Ollama 呼叫：沿用（記憶體或前�
   assert.ok(c.includes('verdict: finishRuleVerdict(it.code, {'), 'D 拒答出口也帶延續軌跡');
 });
 
-test('2026-10-07 寫入端：盤後／晨間與盤中帶 prevVerdict、targetDate（沿用與延續）；三個寫入端的 verdictJson 都經 newsVerdictJsonFit；延續不進推播與突發清單', () => {
+test('2026-10-07 寫入端：盤後／晨間與盤中帶 prevVerdict、targetDate（沿用與延續）；三個寫入端的每一次寫入都經 nvDocData 大小保護（2026-10-08）；延續不進推播與突發清單', () => {
   const c = code(daemon);
   assert.ok(c.includes('prevVerdict: verdicts[code] || null, targetDate: today,'));
   assert.ok(c.includes('prevVerdict: verdicts[u.code] || null, targetDate: today }'));
   assert.ok(c.includes("judgeOneStock({ code: u.code, name: u.name }, ctx, { targetDate: today })"));
   assert.equal((c.match(/verdictJson: JSON\.stringify\(verdicts\)/g) || []).length, 0, '不再直接寫未檢查大小的 verdictJson');
-  assert.ok((c.match(/newsVerdictJsonFit\(verdicts, /g) || []).length >= 4);
+  // 2026-10-08：10-07 盤後趟 verdictJson＋seenJson 超過 1MB 整趟失敗 ⇒ 日文件與 latest 的每一次 set 都要經 nvDocData（news-verdict-write.mjs）
+  for (const [fn, next] of [['async function computeNightBackfill(', 'async function computeNewsVerdictReview('],
+    ['async function computeIntradayNewsVerdict(', 'function newsVerdictTargetIso('], ['async function computeNewsVerdictBatch(', 'async function computeLimitUpNewsVerdict(']]) {
+    const body = c.slice(c.indexOf(fn), c.indexOf(next));
+    assert.ok(body.length > 500, fn);
+    const sets = [...body.matchAll(/(?:\bref|\.doc\([^)]*\))\.set\(/g)].map(m => body.slice(m.index + m[0].length, m.index + m[0].length + 10));
+    assert.ok(sets.length >= 2, `${fn} 有日文件與 latest 兩處寫入`);
+    for (const s of sets) assert.ok(s.startsWith('nvDocData('), `${fn} 有未經大小保護的 newsVerdict 寫入：${s}`);
+    assert.ok(!/JSON\.parse\(prev\.(verdictJson|seenJson)\)/.test(body), `${fn} 讀前一份要走 verdictsOf／seenOf（新舊格式）`);
+  }
+  assert.ok((c.match(/nvDocData\(today, \{/g) || []).length >= 4, '夜補分段、夜補最終、盤中、盤後／晨間');
+  assert.ok((c.match(/nvDocData\('latest', \{/g) || []).length >= 3);
   assert.ok(c.includes("const bear = fresh.filter(([, v]) => v.label === '利空' && !isRuleContinuation(v));"));
   assert.ok(c.includes("if (v.label === '利空' && !isRuleContinuation(v)) hit.push("));
 });

@@ -18,6 +18,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { readFileSync } from 'node:fs';
 import { fetchAllGlobalHistory, alignGlobal, buildStockFeatures, buildLabels, GLOBAL_SYMS } from './lib/squeeze-data.mjs';
+import { verdictJsonOf } from './lib/news-verdict-codec.mjs';
 
 function initDb() {
   if (!getApps().length) {
@@ -89,8 +90,9 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
     for (const d of snap.docs) {
       if (d.id === 'latest') continue;          // 摘要文件不是一個交易日（K 族）
       const x = d.data();
-      if (!x?.targetDate || !x.verdictJson) continue;
-      newsByDate[x.targetDate] = JSON.parse(x.verdictJson);
+      const vj = x?.targetDate ? verdictJsonOf(x) : null;   // 新舊格式都讀（壓縮 verdictGz，2026-10-08）
+      if (!vj) continue;
+      newsByDate[x.targetDate] = JSON.parse(vj);
     }
   } catch { /* 讀不到就當作沒有新聞維度，不擋訓練 */ }
   const newsDays = Object.keys(newsByDate).length;

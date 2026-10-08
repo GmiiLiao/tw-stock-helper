@@ -19,6 +19,7 @@ import { dailyFeatures, holdingFeatures, matchLessons, lessonText, sumDailyRet }
 import { riskTiersOf } from './attention-risk.mjs';
 import { validDiscount } from './sim-ledger.mjs';
 import { goalProgress } from './ai-lab-member.mjs';
+import { verdictJsonOf } from './news-verdict-codec.mjs';   // newsVerdict 新舊格式（明文 verdictJson／壓縮 verdictGz，2026-10-08）
 import { askWithOutcome, llmNextStep, isInfraFailure, OLLAMA_KIND_LABEL, isFailureFreeze, twClock, addMinutes } from './ai-lab-guard.mjs';
 
 const MAX_ATTEMPTS = 3;
@@ -184,7 +185,7 @@ export function createAiSwingLab({ db, askOllama, askOllamaEx = null, log, dir, 
       try {
         const nd = await db.collection('newsVerdict').doc('latest').get();
         if (!nd.exists) inputsMissing.push('新聞判讀（newsVerdict/latest 不存在）');
-        else { const nv = nd.data(); const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : null; if (!v) inputsMissing.push('新聞判讀（無判讀內容）'); else for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; }
+        else { const j = verdictJsonOf(nd.data()); const v = j ? JSON.parse(j) : null; if (!v) inputsMissing.push('新聞判讀（無判讀內容）'); else for (const c in v) if (v[c]?.label) news[c] = { label: v[c].label }; }
       } catch (e) { news = {}; readErrors.push(`新聞判讀（${(e?.message || '讀取失敗').slice(0, 40)}）`); }
       let market = null;
       try {

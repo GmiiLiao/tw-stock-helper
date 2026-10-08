@@ -3,6 +3,7 @@ import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { gzipJsonAuto } from '@/lib/gzip-response';
 import { memoize } from '@/lib/singleflight';
 import { rankMediaVerdicts, rankOfficial } from '../../../../../scripts/lib/after-market-news.mjs';
+import { seenJsonOf, verdictJsonOf } from '../../../../../scripts/lib/news-verdict-codec.mjs';   // newsVerdict 新舊格式（2026-10-08）
 
 export const runtime = 'nodejs';
 
@@ -38,12 +39,16 @@ const build = memoize('after-market-news', 120_000, async () => {
   const latestMops = await get('mopsNews', 'latest');
   for (const x of (latestMops?.items ?? []) as MopsItem[]) if (x?.at >= sinceMs) mops.set(`${x.code}|${x.subject}|${x.at}`, x);
 
-  const verdicts = nv?.verdictJson ? JSON.parse(nv.verdictJson as string) : {};
+  const vj = verdictJsonOf(nv);
+  const verdicts = vj ? JSON.parse(vj) : {};
   const media = rankMediaVerdicts(verdicts);
   // 判讀所讀到的新聞標題（newsVerdict/{適用日}.seenJson：代號→標題清單，只有標題沒有連結；連結由前端展開時另查 /api/twse/stock-news）
+  //   2026-10-08 起大文件改存壓縮欄位 seenGz（seenJsonOf 新舊格式都讀）；壓縮壞掉只少了標題，不擋整份報告
   const tDate = typeof nv?.targetDate === 'string' ? nv.targetDate : null;
   const full = tDate ? await get('newsVerdict', tDate) : null;
-  const seen: Record<string, string[]> = full?.seenJson ? JSON.parse(full.seenJson as string) : {};
+  let seenRaw: string | null = null;
+  try { seenRaw = seenJsonOf(full); } catch { seenRaw = null; }
+  const seen: Record<string, string[]> = seenRaw ? JSON.parse(seenRaw) : {};
   media.items = media.items.map(x => ({ ...x, titles: (seen[x.code] ?? []).slice(-6).map(t => String(t).slice(0, 120)) }));
   return {
     dataDate: lastTrading,

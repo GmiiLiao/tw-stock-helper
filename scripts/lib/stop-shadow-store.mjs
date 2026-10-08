@@ -5,7 +5,10 @@
 //   stopEventShadow/{資料日}（全市場事件收緊命中與漏網紀錄）、stopSpecAudit/{資料日}（只放計數）。
 // 讀取：持股、chipArchive（只取 date／closeJson 等欄位）、newsVerdict（latest 先只取 updatedAt，變了才讀整份）、dividendCalendar/latest。
 // 上游請求 0（全部讀 Firestore）。非投資建議。
+// newsVerdict 讀回後一律轉成明文欄位（plainNewsVerdictDoc；2026-10-08 起大文件改存壓縮欄位 verdictGz／seenGz）——
+//   下游 ruleBearEvents（ai-stoploss-event）／newsBoardFromDoc（warroom-news）是前後端共用模組，只認明文 verdictJson。
 // ─────────────────────────────────────────────────────────────────────────────
+import { plainNewsVerdictDoc } from './news-verdict-codec.mjs';
 
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 /** Firestore 拒收 undefined：物件鍵刪除、陣列元素轉 null */
@@ -88,8 +91,8 @@ export function createFirestoreStopStore({ db, FieldValue, FieldPath }) {
     /** 某日歸檔的收盤與法人欄位（archiveDayStatus 判定到齊＋前一交易日官方收盤） */
     getArchiveDay(ymd) { return byId('chipArchive', ymd, ['date', 'closeJson', 'instJson', 'otcPending', 'gapFixSource']); },
     async getNewsLatestUpdatedAt() { return (await byId('newsVerdict', 'latest', ['updatedAt']))?.updatedAt ?? null; },
-    async getNewsLatest() { const s = await db.collection('newsVerdict').doc('latest').get(); return s.exists ? s.data() : null; },
-    async getNewsDay(ymd) { const s = await db.collection('newsVerdict').doc(ymd).get(); return s.exists ? s.data() : null; },
+    async getNewsLatest() { const s = await db.collection('newsVerdict').doc('latest').get(); return s.exists ? plainNewsVerdictDoc(s.data()) : null; },
+    async getNewsDay(ymd) { const s = await db.collection('newsVerdict').doc(ymd).get(); return s.exists ? plainNewsVerdictDoc(s.data()) : null; },
     async getEventShadowRecent(beforeYmd, n) {
       const q = await db.collection(EVENT_COLL).where('date', '<', beforeYmd).orderBy('date', 'desc').limit(n).select('date', 'events').get();
       return q.docs.map(d => d.data());

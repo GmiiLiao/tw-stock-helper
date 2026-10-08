@@ -7,6 +7,7 @@ import { getFinWeights } from '@/lib/fin-server';
 import { getRecommendAdj } from '@/lib/recommend-adj-server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { rateLimit } from '@/lib/rate-limit';
+import { verdictJsonOf } from '../../../../../scripts/lib/news-verdict-codec.mjs';   // newsVerdict 新舊格式（明文／壓縮 verdictGz，2026-10-08）
 
 export const runtime = 'nodejs'; // firebase-admin（法人加權）需 Node runtime
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     try {
       const db = getAdminDb();
       const snap = db ? await db.collection('newsVerdict').doc('latest').get() : null;
-      const j = snap?.data()?.verdictJson;
+      const j = verdictJsonOf(snap?.data());
       if (j) nvMap = JSON.parse(j);
     } catch { /* 判別讀不到就不顯示，不影響榜單 */ }
 

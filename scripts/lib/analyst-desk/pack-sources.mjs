@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { verdictJsonOf } from '../news-verdict-codec.mjs';
 import {
   DS, readManifest, tradingDates as mirrorTradingDates, parseMiIndex, parseTpex, toIsoDate, num, isCommonStock,
 } from '../daily-heatmap/inputs.mjs';
@@ -455,7 +456,7 @@ const maybeJson = v => (typeof v === 'string' ? JSON.parse(v) : v);
 export const readNewsVerdictDoc = (fsGet, day) => fsRead(`newsVerdict:${day}`, fsGet, 'newsVerdict', day, doc => {
   const dd = doc.dataDate ?? doc.date ?? null;
   if (dd !== day && doc.date !== day) return { absent: true, reason: `echo-mismatch(${dd})` };
-  const verdicts = maybeJson(doc.verdictJson) || {};
+  const verdicts = maybeJson(verdictJsonOf(doc) ?? doc.verdictJson) || {};   // 新舊格式都讀（壓縮 verdictGz，2026-10-08）
   return { data: { day, universeSize: doc.universeSize ?? null, judged: doc.judged ?? null, lastPass: doc.lastPass ?? null, verdicts }, echo: doc.date ?? dd };
 });
 

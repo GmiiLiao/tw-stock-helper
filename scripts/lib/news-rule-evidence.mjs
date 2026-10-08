@@ -512,6 +512,8 @@ export function slimRuleEvidence(verdicts, level = 'text') {
 const utf8Bytes = s => new TextEncoder().encode(s).length;
 
 /**
+ * ⚠ 2026-10-08 起 daemon 不再用這支：它只估 verdictJson＋seenJson 的字串、只會拿掉證據，10-07 盤後趟拿掉證據後仍超過 1MB、整趟寫入失敗。
+ *   寫入端改用 news-verdict-write.mjs 的 fitNewsVerdictDoc（整份文件實際位元組、先壓縮後有損，保證放得下）；這支保留給既有測試與參考。
  * 判別表 → 要寫進 Firestore 的 verdictJson：加上 otherBytes（同檔的 seenJson 等）超過 maxBytes 就依序瘦身證據（text → all）。
  * 回 { json, level:'full'|'text'|'all', bytes }。判別本身（label、理由、規則欄位）一律不動；瘦到 all 仍超過也照回（不截判別）。
  */

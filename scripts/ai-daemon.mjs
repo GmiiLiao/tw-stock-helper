@@ -71,8 +71,14 @@ import { ruleTriggerScan, applyRuleFacts, ruleFactQuestion, ruleFieldsOf } from 
 //   純函式；只 import news-rule-classes.mjs。
 import {
   resolveRuleFact, ruleFactKey, reuseRuleFact, asReused, reconcileAccident, withRuleTrail, isRuleContinuation, isRuleRenewal, ruleAuditCounts,
-  fitVerdictJson, RULE_CONT_TRADING_DAYS,
+  RULE_CONT_TRADING_DAYS,
 } from './lib/news-rule-evidence.mjs';
+// newsVerdict 文件大小保護與壓縮格式（2026-10-08：10-07 盤後趟 verdictJson＋seenJson 超過 1MB 整趟寫入失敗）：
+//   寫入端依實際序列化位元組估整份文件、超過門檻依序降級（先壓縮、後有損）；讀取端新舊格式都讀；盤後趟跨午夜重試條件。
+//   純函式；只 import node:zlib 與 news-rule-evidence.mjs（已在上面載入）。
+import { verdictsOf, seenOf } from './lib/news-verdict-codec.mjs';
+import { fitNewsVerdictDoc, NV_LEVEL_TEXT } from './lib/news-verdict-write.mjs';
+import { eveningPassDue, eveningPassFailed, eveningPassPending, NV_EVENING_DEADLINE_MIN, NV_EVENING_MAX_TRIES } from './lib/news-verdict-retry.mjs';
 // 開盤感應器 v2.1（影子·只記錄·先驗未校準；design-v2.1，使用者 10/05 S1–S8、10/07 O1–O8）：0 MIS 請求（只吃快線與主迴圈已拿到的報價、t00／o00），
 //   不發 B2／Z2、不推播、不寫 aiMessages。靜態 import 鏈只到 scripts/lib/open-sensor-*.mjs 與 firestore-clean.mjs（不經 official-mirror）。
 import { createOpenSensorRunner } from './lib/open-sensor-runner.mjs';
@@ -1856,8 +1862,20 @@ async function _loadMarketCodes() {
   //       afterTrading/dailyQuotes（回聲驗證，回補腳本已實測可靠）重抓。
   let otcRows = []; let otcDate = '';
   let otcFromBackup = false; let otcFromPrev = false;
-  // 上櫃鏡像：被中斷／回空時重新取得（同上市·2026-10-02）
-  const otcMirror = await withRetry(async () => {
+  // ── 帶日期端點優先（2026-10-08·WP7）──
+  //   上櫃 openapi（tpex_mainboard_daily_close_quotes）是 4.7MB 未壓縮的整包（含約 11,000 檔權證），自 08-30 起在 TPEx 端
+  //   幾乎每次都在傳輸中途被切斷（10-08 實測：HTTP 200、content-length 4,782,386、無壓縮，約 42 秒 ECONNRESET；curl 則
+  //   HTTP/2 INTERNAL_ERROR），daemon 每 ~10 分鐘白打一次才落到帶日期端點，日誌的「鏡像重試 N 次仍失敗」還讓官方鏡像停擺三天。
+  //   帶日期端點 gzip 傳輸、回聲驗證、欄位口徑相同（成交股數含零股；10-02 逐檔比對 903 檔開高低收一致）
+  //   ⇒ 上市已給出收盤資料日時先打它；拿不到（TPEx 當日尚未出表、或被中斷）才退回 openapi 鏡像。同一天不重打第二次。
+  let datedTried = '';
+  if (closeDate) {
+    datedTried = closeDate;
+    const first = await withRetry(() => _fetchOtcDated(closeDate), { attempts: _codesCache ? 1 : 2, isOk: v => v.length > 500 });
+    if (first.ok) { otcRows = first.value; otcDate = closeDate; }
+  }
+  // 上櫃鏡像（帶日期端點沒拿到才打）：被中斷／回空時重新取得（同上市·2026-10-02）
+  const otcMirror = otcRows.length > 0 ? { ok: false, skipped: true } : await withRetry(async () => {
     const r = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', { signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (!r.ok) { if (r.status >= 400 && r.status < 500) throw nonRetryable(`HTTP ${r.status}`); return null; }
     const rows = []; let d = '';
@@ -1869,9 +1887,9 @@ async function _loadMarketCodes() {
     return { rows, date: d };
   }, { attempts: _codesCache ? 1 : 2, isOk: v => v?.rows?.length > 500 });   // 開機時上櫃只多試 1 次：TPEx 慢／限流時重試會加重負擔（2026-10-02 實測回應 14 秒）
   if (otcMirror.ok) { otcRows = otcMirror.value.rows; otcDate = otcMirror.value.date; }
-  else log(`  ⚠ 上櫃 openapi 鏡像重試 ${otcMirror.tries} 次仍失敗：${(otcMirror.error?.message || '回空').slice(0, 60)}`);
+  else if (!otcMirror.skipped) log(`  ⚠ 上櫃 openapi 鏡像重試 ${otcMirror.tries} 次仍失敗：${(otcMirror.error?.message || '回空').slice(0, 60)}`);
   if (closeDate && otcDate && otcDate < closeDate) {
-    const fixed = await _fetchOtcDated(closeDate);
+    const fixed = datedTried === closeDate ? [] : await _fetchOtcDated(closeDate);   // 剛剛已打過同一天且沒拿到 ⇒ 不重打
     if (fixed.length > 500) { otcRows = fixed; log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，已改用帶日期端點重抓 ${fixed.length} 檔`); otcDate = closeDate; }
     else log(`  ⚠ 上櫃種子落後(${otcDate}<${closeDate})，帶日期端點只回 ${fixed.length} 檔，維持鏡像值`);
   }
@@ -1883,9 +1901,13 @@ async function _loadMarketCodes() {
   // 後果：全站上櫃股整批消失（快照 2,132→1,229 檔），漲停榜再也不會有上櫃，
   // 而且不會報錯——正是使用者 2026-08-19 回報的現象。
   if (otcRows.length === 0) {
-    log('  ⚠ 上櫃清單抓取失敗（鏡像回空）→ 改用帶日期端點後備');
     const altDate = closeDate || _codesCloseDate || await _latestArchiveYmd();
-    const alt = (await withRetry(() => _fetchOtcDated(altDate), { attempts: _codesCache ? 1 : 2, isOk: v => v.length > 500 })).value || [];   // 被中斷時重新取得（2026-10-02）
+    let alt = [];
+    if (datedTried && altDate === datedTried) log(`  ⚠ 上櫃清單抓取失敗（帶日期端點 ${altDate} 與 openapi 鏡像皆未取得）`);   // 帶日期端點本輪已打過同一天（WP7）
+    else {
+      log('  ⚠ 上櫃清單抓取失敗（鏡像回空）→ 改用帶日期端點後備');
+      alt = (await withRetry(() => _fetchOtcDated(altDate), { attempts: _codesCache ? 1 : 2, isOk: v => v.length > 500 })).value || [];   // 被中斷時重新取得（2026-10-02）
+    }
     if (alt.length > 500) { otcRows = alt; otcDate = closeDate || otcDate; log(`  ✓ 上櫃後備成功 ${alt.length} 檔`); }
     else {
       // 最後一道：沿用上一份快取裡的上櫃（stale-if-error）。寧可用舊的上櫃種子，
@@ -2294,7 +2316,7 @@ async function buildDeskContext(today, live) {
   if (Date.now() - _deskNews.at > 30 * 60000) {
     try {
       const nv = (await db.collection('newsVerdict').doc('latest').get()).data();
-      const v = nv?.verdictJson ? JSON.parse(nv.verdictJson) : {};
+      const v = verdictsOf(nv);   // 新舊格式都讀（2026-10-08）
       const map = {}; for (const c in v) { const x = v[c]; if (x?.label) map[c] = { label: x.label, certainty: x.certainty || null, priced: x.priced || null, at: x.at || null }; }
       _deskNews.map = map; _deskNews.at = Date.now();
     } catch { /* 缺就是未知 */ }
@@ -5850,7 +5872,7 @@ async function runNewsCoverageProbe() {
     const freq = new Map();
     for (const iso of days) {
       const d = (await db.collection('newsVerdict').doc(iso).get()).data();
-      const v = d?.verdictJson ? JSON.parse(d.verdictJson) : {};
+      const v = verdictsOf(d);   // 新舊格式都讀（2026-10-08）
       for (const c of Object.keys(v)) freq.set(c, (freq.get(c) || 0) + 1);
     }
     const all = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(x => x[0]);
@@ -6675,13 +6697,25 @@ async function recordRuleAudit(counts) {
 }
 
 /**
- * newsVerdict 日文件的 verdictJson（三個寫入端共用）：verdictJson＋seenJson 逼近 1MB 時壓縮規則事實的稽核軌跡
- * （先去文字欄、仍超過就整個拿掉；判別本身不動）。壓縮時記一行 log。
+ * newsVerdict 文件這次要寫的資料（所有寫入點共用：夜補、盤中、盤後／晨間的分段與最終存檔、latest；2026-10-08）。
+ *   2026-10-07 盤後趟：舊版只估 verdictJson＋seenJson 的字串長度、只會拿掉稽核軌跡 ⇒ 拿掉後仍超過 1MB，整趟寫入失敗。
+ *   現在依實際序列化位元組估整份文件（含 meta、merge 後留著的舊欄位、Firestore 開銷），超過安全門檻依序降級
+ *   （scripts/lib/news-verdict-write.mjs）——不會再因大小寫入失敗：
+ *   日文件（有傳 seen）＝存檔：先壓縮（seenGz／verdictGz）、後有損；latest（不傳 seen）＝顯示副本：相容優先。
+ *   日文件是 merge 寫入 ⇒ 沒寫的大欄位以 FieldValue.delete() 刪掉（否則舊的明文 seenJson 會留在文件裡、照樣超過）。
+ *   降級時記一行 log（壓縮＝「·」、有損＝「⚠」）。讀取端一律走 news-verdict-codec.mjs（新舊格式都讀）。
  */
-function newsVerdictJsonFit(verdicts, seenJson = '', tag = '') {
-  const r = fitVerdictJson(verdicts, { otherBytes: Buffer.byteLength(seenJson || '') });
-  if (r.level !== 'full') log(`  ⚠ 新聞判別${tag ? `(${tag})` : ''}：文件逼近 1MB（${r.bytes ?? '?'} bytes＋已見標題），規則事實稽核軌跡已壓縮（${r.level === 'text' ? '去文字欄' : '整段拿掉'}）`);
-  return r.json;
+function nvDocData(docId, { verdicts, seen = null, meta = {}, keep = null, tag = '' }) {
+  const archive = seen != null;
+  const r = fitNewsVerdictDoc({ docPath: `newsVerdict/${docId}`, verdicts, seen, meta, keep, archive });
+  if (r.level !== 'plain') {
+    const msg = `新聞判別${tag ? `(${tag})` : ''}·newsVerdict/${docId}：估計 ${r.bytes} bytes，大小降級「${NV_LEVEL_TEXT[r.level] || r.level}」`
+      + `${r.dropped ? `，丟掉最舊的判別 ${r.dropped} 筆` : ''}`;
+    log(r.lossy ? `  ⚠ ${msg}` : `  · ${msg}`);
+  }
+  const data = { ...meta, ...r.fields };
+  if (archive) for (const k of r.clear) data[k] = FieldValue.delete();
+  return data;
 }
 
 // 新聞判別的共用背景：國際盤、事件日曆、官方產業別。
@@ -7013,8 +7047,8 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
   const today = newsVerdictTargetIso('evening', tw);
   const ref = db.collection('newsVerdict').doc(today);
   const prev = (await ref.get()).data() || {};
-  const verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
-  const seenAll = prev.seenJson ? JSON.parse(prev.seenJson) : {};
+  const verdicts = verdictsOf(prev);   // 新舊格式都讀（壓縮欄位 verdictGz／seenGz，2026-10-08）
+  const seenAll = seenOf(prev);
 
   // 蒐集「使用者看得到」的股票
   const want = new Map();
@@ -7072,21 +7106,18 @@ async function computeNightBackfill(deadlineMins = 6 * 60 + 30) {
       seenAll[u.code] = [...new Set([...(seenAll[u.code] || []), ...(r.allTitles || [])])].slice(-90);
       judged++;
       if (judged % 20 === 0) {
-        const seenJson = JSON.stringify(seenAll);
-        await ref.set({ verdictJson: newsVerdictJsonFit(verdicts, seenJson, '夜補'), seenJson, updatedAt: Date.now() }, { merge: true });
+        await ref.set(nvDocData(today, { verdicts, seen: seenAll, meta: { updatedAt: Date.now() }, keep: prev, tag: '夜補' }), { merge: true });
       }
     } catch (e) { log(`  ↳ 夜補 ${u.code}: ${(e.message || '').slice(0, 40)}`); }
   }
-  const nightSeenJson = JSON.stringify(seenAll);
-  const nightVerdictJson = newsVerdictJsonFit(verdicts, nightSeenJson, '夜補');
-  await ref.set({
-    date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(),
-    lastPass: 'night', verdictJson: nightVerdictJson, seenJson: nightSeenJson,
-  }, { merge: true });
-  await db.collection('newsVerdict').doc('latest').set({
-    date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'night',
-    covered: Object.keys(verdicts).length, verdictJson: nightVerdictJson,
-  });
+  await ref.set(nvDocData(today, {
+    verdicts, seen: seenAll, keep: prev, tag: '夜補',
+    meta: { date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(), lastPass: 'night' },
+  }), { merge: true });
+  await db.collection('newsVerdict').doc('latest').set(nvDocData('latest', {
+    verdicts, tag: '夜補',
+    meta: { date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'night', covered: Object.keys(verdicts).length },
+  }));
   log(`✓ 夜間補判：新增 ${judged} 檔（其中資訊不足 ${thin}）` +
       `${stopped ? '·**因死線停止**' : ''}，總覆蓋 ${Object.keys(verdicts).length} 檔`);
   await pushVerdictDone('night', { judged, failed: thin, stopped, verdicts, targetDate: today });
@@ -7124,7 +7155,7 @@ async function computeNewsVerdictReview(days = 40) {
     const x = d.data();
     const day = x.targetDate;
     if (!day || !byDate[day]) continue;          // 該交易日還沒收盤／無存檔 ⇒ 跳過
-    const v = x.verdictJson ? JSON.parse(x.verdictJson) : {};
+    const v = verdictsOf(x);   // 新舊格式都讀（2026-10-08）
     let used = 0;
     for (const code in v) {
       const row = byDate[day][code];
@@ -7200,7 +7231,7 @@ async function computeNewsVerdictReview(days = 40) {
       if (d.id === 'latest') continue;
       const x = d.data(); const day = x.targetDate; if (!day || !byDate[day] || idx[day] == null) continue;
       const prevDay = dates[idx[day] - 1], d5Day = dates[idx[day] + 4];
-      const v = x.verdictJson ? JSON.parse(x.verdictJson) : {};
+      const v = verdictsOf(x);   // 新舊格式都讀（2026-10-08）
       for (const code in v) {
         const r = byDate[day][code]; if (!Array.isArray(r) || !(r[0] > 0) || !(r[2] > 0)) continue;
         const p = prevDay ? byDate[prevDay]?.[code]?.[0] : null; const c5 = d5Day ? byDate[d5Day]?.[code]?.[0] : null;
@@ -7249,8 +7280,8 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
   const today = isoDate(tw);
   const ref = db.collection('newsVerdict').doc(today);
   const prev = (await ref.get()).data() || {};
-  const verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
-  const seenAll = prev.seenJson ? JSON.parse(prev.seenJson) : {};
+  const verdicts = verdictsOf(prev);   // 新舊格式都讀（壓縮欄位 verdictGz／seenGz，2026-10-08）
+  const seenAll = seenOf(prev);
 
   const rows = await newsDrivenUniverse();
   const cut = Date.now() - windowMin * 60000;
@@ -7291,17 +7322,14 @@ async function computeIntradayNewsVerdict(windowMin = 45, deadlineMin = 12) {
     } catch { /* 單檔失敗不擋整輪 */ }
   }
   if (!judged && !skipped) return true;
-  const intraSeenJson = JSON.stringify(seenAll);
-  const intraVerdictJson = newsVerdictJsonFit(verdicts, intraSeenJson, '盤中');
-  await ref.set({
-    date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(),
-    lastPass: 'intraday', intradayAt: Date.now(),
-    verdictJson: intraVerdictJson, seenJson: intraSeenJson,
-  }, { merge: true });
-  await db.collection('newsVerdict').doc('latest').set({
-    date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'intraday',
-    covered: Object.keys(verdicts).length, verdictJson: intraVerdictJson,
-  });
+  await ref.set(nvDocData(today, {
+    verdicts, seen: seenAll, keep: prev, tag: '盤中',
+    meta: { date: today, targetDate: today, dataDate: isoDate(tw), updatedAt: Date.now(), lastPass: 'intraday', intradayAt: Date.now() },
+  }), { merge: true });
+  await db.collection('newsVerdict').doc('latest').set(nvDocData('latest', {
+    verdicts, tag: '盤中',
+    meta: { date: today, targetDate: today, updatedAt: Date.now(), lastPass: 'intraday', covered: Object.keys(verdicts).length },
+  }));
   log(`✓ 盤中新聞判別：新消息 ${hot.length} 檔 → 判別 ${judged}、沿用 ${skipped}` +
       `${hit.length ? `　⚠ 突發利空：${hit.join('、')}` : ''}`);
   await pushVerdictDone('intraday', { judged, skipped, verdicts, targetDate: today });
@@ -7343,8 +7371,9 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   const today = newsVerdictTargetIso(pass, tw);   // ＝適用交易日
   const ref = db.collection('newsVerdict').doc(today);
   const prev = (await ref.get()).data() || {};
-  let verdicts = prev.verdictJson ? JSON.parse(prev.verdictJson) : {};
-  let seenAll = prev.seenJson ? JSON.parse(prev.seenJson) : {};
+  let verdicts = verdictsOf(prev);   // 新舊格式都讀（壓縮欄位 verdictGz／seenGz，2026-10-08）
+  let seenAll = seenOf(prev);
+  let carriedFrom = typeof prev.carriedFrom === 'string' ? prev.carriedFrom : null;   // 這份文件已從哪一天承接過（文件層級標記）
 
   // ⚠ **日界問題**（差點漏掉）：晨間那趟在隔日 07:00 跑，doc(today) 是全新的，
   //   seen 為空 ⇒ 什麼都跳不掉，省錢設計整個失效；而且前一晚判過的股票
@@ -7354,12 +7383,16 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   //   這裡只剩「跨交易日」的承接（例如週一早上想跳過上週五就判過的標題）。
   //   只承接**前一個交易日**，再舊的不承接：判別會過期，
   //   拿一週前的判別去影響今天的分數比沒有判別更糟。
-  if (!Object.keys(seenAll).length || !Object.keys(verdicts).length) {
+  // ⚠ 2026-10-08：條件加上「這份文件還沒承接過」（文件層級 carriedFrom）。10-07 盤後趟整趟寫入失敗後，
+  //   夜間補判先建了 10-08 文件（只有 30 檔）⇒ 晨間趟看到「非空」就不承接 ⇒ 10-07 的 373 檔判別全沒接上（10-08 只剩 115 檔）。
+  //   承接本身是冪等的（已有的代號、已見標題不覆寫），所以舊文件（沒有標記）多承接一次不會改動既有判別。
+  if (!Object.keys(seenAll).length || !Object.keys(verdicts).length || !carriedFrom) {
     const yIso = prevTradingIsos(today, 2)[1] || isoDate(new Date(tw.getTime() - 86400000));
     const y = (await db.collection('newsVerdict').doc(yIso).get()).data();
     if (y) {
-      const yv = y.verdictJson ? JSON.parse(y.verdictJson) : {};
-      const ys = y.seenJson ? JSON.parse(y.seenJson) : {};
+      const yv = verdictsOf(y);   // 新舊格式都讀
+      const ys = seenOf(y);
+      carriedFrom = yIso;
       // 承接的判別標記來源日，讓下游看得出它不是今天新判的
       // ⚠ 承接要**設保存期限**：這裡是「今日空就整份複製前一日」，
       //   等於每天繼承前一天的全部 ⇒ 判別單向累積，數月後 latest 會存著
@@ -7427,9 +7460,8 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
   //   半途中斷等於「使用者今天沒有新聞判別」卻無人知曉。
   //   每 20 檔存一次：中斷時已完成的部分仍然可用，重跑也能從既有進度繼續。
   const flush = async (final) => {
-  const seenJson = JSON.stringify(seenAll);
-  const verdictJson = newsVerdictJsonFit(verdicts, seenJson, pass);   // 逼近 1MB 時壓縮規則事實稽核軌跡（2026-10-07）
-  await ref.set({
+  // 大小保護（2026-10-08）：日文件與 latest 各自依實際序列化位元組降級（nvDocData；verdictJson／seenJson 放不下時改存壓縮欄位）
+  await ref.set(nvDocData(today, { verdicts, seen: seenAll, keep: prev, tag: pass, meta: {
     date: today,
     // ⚠ dataDate 在本專案的定義是「**資料自身**的日期」（漂移偵測用），
     //   不是「適用日」。塞未來的適用交易日進去是誤用——今天沒被抓到只是
@@ -7445,16 +7477,14 @@ async function computeNewsVerdictBatch(pass, deadlineMins = null) {
     universeSize: universe.length,
     universeFrom,                    // news ＝來源監看；turnover-fallback ＝掃描失敗退回
     judged, skipped, failed, stopped,
-    verdictJson,
-    seenJson,
+    ...(carriedFrom ? { carriedFrom } : {}),   // 已承接過前一交易日（之後的趟次不再整份承接）
     note: '新聞判別由 AI 讀完內文後給出；僅此來源可影響評分。非投資建議。',
-  }, { merge: true });
-  await db.collection('newsVerdict').doc('latest').set({
+  } }), { merge: true });
+  await db.collection('newsVerdict').doc('latest').set(nvDocData('latest', { verdicts, tag: pass, meta: {
     date: today, targetDate: today, generatedOn: isoDate(tw),
     updatedAt: Date.now(), lastPass: pass,
     covered: Object.keys(verdicts).length,
-    verdictJson,
-  });
+  } }));
     if (final) {
       log(`✓ 新聞判別(${pass})：判別 ${judged}、沿用 ${skipped}、失敗 ${failed}` +
           `${stopped ? '、**因死線提前停止**' : ''}，累計覆蓋 ${Object.keys(verdicts).length} 檔` +
@@ -14134,7 +14164,7 @@ async function computeShortCandidates({ canonical = false } = {}) {
   const pagoda = pagodaDoc?.dailyJson ? JSON.parse(pagodaDoc.dailyJson) : {};
   const distSet = new Set((divgDoc?.distribute || []).map(x => x.code));
   let verdicts = {};
-  try { if (nvDoc?.verdictJson) verdicts = JSON.parse(nvDoc.verdictJson); } catch { /* 缺判別→利空加權跳過 */ }
+  try { verdicts = verdictsOf(nvDoc); } catch { /* 缺判別→利空加權跳過（新舊格式都讀，2026-10-08） */ }
   if (!Object.keys(verdicts).length) skipped.push('AI利空判別(無累積判別)');
   const squeezeSet = new Set((sqDoc?.items || []).map(x => x.code));
   let margin = {};
@@ -15476,12 +15506,14 @@ let _sqRecDate = '';          // 每日 08:00 軋空推薦守衛
 let _dtEligDate = '';   // 當沖資格名單當日是否已抓（盤前 07:30 起）
 let _pulseAt = 0;             // 大盤脈動節流（30 秒）
 let _globalHistDate = '';     // 國際盤歷史每日更新守衛
-let _nvEveDate = '';          // 新聞內文判別·盤後那趟（23:00）
+// 新聞內文判別·盤後那趟（23:00 起、跨午夜到 05:00 死線；完成鍵＝`${適用日}@${這一晚}`，持久化於 daemonJobMarks.nvEvening；news-verdict-retry.mjs）
+let _nvEveDone = '', _nvEveFail = null, _nvEveMarksRead = false, _nvEveGaveUp = '';
 let _nvMornDate = '';         // 新聞內文判別·晨間那趟（07:00，08:00 死線）
 let _nvReviewDate = '';       // 新聞判別對答案（15:30）
 let _nvIntradayAt = 0;        // 盤中新聞判別的上次執行時刻
 let _mopsAt = 0;              // 公開資訊觀測站重大訊息：每 30 分鐘一輪（2026-09-17）
 let _nvNightDate = '';        // 夜間覆蓋率補判（01:15 起，06:30 死線）
+let _nvNightWaitKey = '';     // 夜間補判「等盤後趟」已記過 log 的那一晚（完成鍵；每晚只記一次）
 let _shortCandAt = 0;         // 做空候選：盤中每 10 分鐘一輪（2026-09-03）
 let _squeezeTrainDate = '';   // 軋空模型訓練（每個交易日之後 02:00）冪等守衛；開機時從 squeezeModel/latest.updatedAt 接回，重啟不重訓
 let _squeezeTrainInit = false;
@@ -15495,6 +15527,9 @@ const ASIA_SLOTS = [
 ];
 let _labLearnDate = '', _labLearnFail = { date: '', n: 0, at: 0 };   // 🧠 交易員經驗庫盤後訓練（18:30 起，完成記錄 labLearn）
 let _v3ShadowDate = '', _v3ShadowFail = { date: '', n: 0, at: 0 };
+// 🧠 第二大腦備份（17:00 起、每天含假日）：成功才寫完成記錄 backup、開機讀回；失敗 30 分鐘後重試、當日最多 3 次（2026-10-08 WP0）
+//   _postCloseDate＝同一時段的漲停前夜實驗／使用數據彙總，照舊只記在記憶體（重啟後會再跑一次，兩支皆冪等）
+let _postCloseDate = '', _backupBusy = false, _backupFail = { date: '', n: 0, at: 0 };
 let _sfDate = '', _sfTry = { date: '', n: 0, at: 0 };   // 🎯 標靶公式影子（22:40 起、每 20 分鐘最多 4 次；完成記錄 swingFormula）   // 📐 技術評分 v3 影子（18:45 起，完成記錄 scoringV3；失敗當日最多 3 次）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
@@ -15602,6 +15637,9 @@ async function dailyJobsLoop() {
       if (m >= 16 * 60 + 30 && marks.official !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
       if (m >= 21 * 60 + 45 && marks.margin !== t) log('  · 開機：今日 21:45 資券後班車未完成，照常補跑');
     }
+    // 🧠 第二大腦備份每天都跑（含假日），所以不分交易日讀回：今天已成功備份 ⇒ 重啟不再整輪重跑（2026-10-08 WP0）
+    //   舊版只有記憶體 _backupDate，10-07 重啟 4 次就備份 4 次（約 27,000 次讀取）
+    if ((await readJobMarks()).backup === t) _backupDate = t;
   }
   for (;;) {
     try {
@@ -15643,15 +15681,38 @@ async function dailyJobsLoop() {
       // 盤後那趟 23:00：台灣盤後新聞於 24:00 前陸續出齊。
       //   不放更早：18:00 跑會漏掉晚間才發的重訊與外電。
       //   非交易日也跑——週末的新聞正是週一開盤要用的（使用者 08-28 指示）。
-      if (mins >= 23 * 60 && _nvEveDate !== today) {
+      // ⚠ 2026-10-08 重試條件改為「這一晚的盤後趟（適用日 targetDate）尚未完成」（scripts/lib/news-verdict-retry.mjs）：
+      //   舊條件 `mins >= 23*60 && _nvEveDate !== today` 午夜後不成立 ⇒ 10-07 那趟 01:35 失敗後當晚不再重試、10-08 判別整趟丟失。
+      //   現在跨午夜到 05:00 死線前都會重試（同一晚最多 NV_EVENING_MAX_TRIES 次、間隔 10 分鐘）；完成鍵 `${適用日}@${這一晚}`
+      //   成功才寫進 daemonJobMarks.nvEvening、開機讀回（重啟不會把已完成的那晚再跑一次，中途被中斷的那晚會在死線前補跑）。
+      //   取捨：這一晚的盤後趟還沒完成、也還沒用完重試次數（05:00 死線前，含失敗後等重試間隔的空檔）⇒ 夜間補判先不跑
+      //   （見下方夜間補判的 nvEvePending 閘門）；夜間補判跑完才寫 night-backfill.json，wiki 年報萃取（02:00–06:30）等這個訊號才開始，
+      //   所以兩者都會延後、萃取時間被壓縮（盤後趟重試到 05:00 時，補判跑到 06:30 死線，萃取當晚可能整晚沒有時間）；
+      //   適用日的判別（隔日開盤評分與推薦要用）優先，且萃取不會在盤後趟重試的兩檔之間插隊搶 Ollama。
+      if (!_nvEveMarksRead) { _nvEveMarksRead = true; _nvEveDone = (await readJobMarks()).nvEvening || ''; }
+      const nvEveAt = { mins, today, yesterday: isoDate(new Date(tw.getTime() - 86400000)), target: newsVerdictTargetIso('evening', tw) };
+      const nvEve = eveningPassDue({ ...nvEveAt, done: _nvEveDone, fail: _nvEveFail, now: Date.now() });
+      if (nvEve.exhausted && _nvEveGaveUp !== nvEve.key) {
+        _nvEveGaveUp = nvEve.key;
+        log(`⚠ 新聞判別·盤後 ${nvEve.key}：同一晚已失敗 ${NV_EVENING_MAX_TRIES} 次，今晚不再重試（未寫完成記錄；晨間趟會承接前一交易日的判別）`);
+      }
+      if (nvEve.due) {
         // 成功才標記（與當沖資格同一課：先標記等於這天只嘗試一次）
         // ⚠ 盤後趟也要給死線（05:00）：dailyJobsLoop 是**循序**執行的，
         //   這個 job 實測要 131 分鐘，正常 23:00→01:10 沒問題，
         //   但上游變慢或 AI 變慢時會一路吃掉 06:00 國際盤、07:00 晨間判別、
         //   07:30 當沖資格、08:00 軋空判別——後兩者是使用者盤前要用的。
         //   05:00 留足一小時緩衝，且已完成的部分有分段存檔不會白跑。
-        try { if (await computeNewsVerdictBatch('evening', 5 * 60)) _nvEveDate = today; }
-        catch (e) { log('✖ 新聞判別·盤後（將重試）:', (e.message || '').slice(0, 60)); }
+        try {
+          if (await computeNewsVerdictBatch('evening', NV_EVENING_DEADLINE_MIN)) { _nvEveDone = nvEve.key; await markJobDone('nvEvening', nvEve.key); }
+          else {
+            _nvEveFail = eveningPassFailed(_nvEveFail, nvEve.key, Date.now());
+            log(`✖ 新聞判別·盤後 ${nvEve.key}：沒有任何判別（第 ${_nvEveFail.n} 次；死線前將重試）`);
+          }
+        } catch (e) {
+          _nvEveFail = eveningPassFailed(_nvEveFail, nvEve.key, Date.now());
+          log(`✖ 新聞判別·盤後（第 ${_nvEveFail.n} 次；死線前將重試）:`, (e.message || '').slice(0, 60));
+        }
       }
       // 晨間那趟 07:00：國際與晨間新聞 06:00~07:00 到齊。
       //   **死線 08:00** ——08:00 是軋空/漲停判別的窗口，不能讓這條佔住。
@@ -15665,7 +15726,18 @@ async function dailyJobsLoop() {
       //   之後到 06:40 都閒置 ⇒ 約 4 小時 55 分可用。
       //   只補「使用者看得到」的股票（推薦榜/軋空候選/漲停預測）中尚無判別者。
       // ⚠ 06:30 死線：不能吃到 06:40 行事曆同步與 07:00 晨間判別。
-      if (mins >= 60 + 15 && mins < 6 * 60 + 30 && _nvNightDate !== today) {
+      // ⚠ 2026-10-08 審查：這一晚的盤後趟還沒完成、也還沒用完重試次數（05:00 死線前，含失敗後等重試間隔的空檔）⇒ 先不跑。
+      //   盤後趟在 01:15 之後失敗（10-07 那趟是 01:35）時，舊順序會在等重試間隔的下一輪（重試失敗時則同一輪）先跑夜間補判、跑完寫 night-backfill.json，
+      //   wiki 年報萃取一看到訊號就開始用 Ollama，而它只在每次送出前看 llm.json（daemon 只在每個 LLM 工作開始／結束時寫）
+      //   ⇒ 會在盤後趟重試的兩檔之間插隊，判讀撞 240s 逾時被存成假「中性」，重試也被延後 20～40 分鐘。
+      //   以當下的完成／失敗記錄重算（本輪盤後趟剛成功或剛用完次數就立刻放行；05:00 之後不再等）。
+      const nvEvePending = eveningPassPending({ ...nvEveAt, done: _nvEveDone, fail: _nvEveFail, now: Date.now() });
+      const nvNightWindow = mins >= 60 + 15 && mins < 6 * 60 + 30 && _nvNightDate !== today;
+      if (nvNightWindow && nvEvePending && _nvNightWaitKey !== nvEve.key) {
+        _nvNightWaitKey = nvEve.key;
+        log(`· 夜間補判延後：等盤後趟 ${nvEve.key} 完成、用完 ${NV_EVENING_MAX_TRIES} 次重試或到 05:00 死線（避免 wiki 年報萃取與盤後趟重試搶 Ollama）`);
+      }
+      if (nvNightWindow && !nvEvePending) {
         try {
           const did = await computeNightBackfill();
           if (did) _nvNightDate = today;
@@ -16193,13 +16265,26 @@ async function dailyJobsLoop() {
           }
         }
       }
-      if (mins >= 17 * 60 && _backupDate !== today) {
-        _backupDate = today;
+      if (mins >= 17 * 60 && _postCloseDate !== today) {
+        _postCloseDate = today;
         // 漲停前夜 5 日前瞻實驗（2026-07-20起·對答案+明日預測·冪等·滿5日自動總結後無事可做）
         execScript('prelimit-experiment.mjs', [], '🎯 漲停前夜實驗', 10);
-        execScript('backup-brain.mjs', [], '🧠 brain backup', 10);
         // 17:00+ 使用數據彙總（績效/歸因/站務；在備份前完成寫入會被隔日備份涵蓋）
         execScript('compute-analytics.mjs', [], '📊 analytics', 10);
+      }
+      // 🧠 第二大腦備份（2026-10-08 WP0）：成功才寫完成記錄 backup（開機讀回見 dailyJobsLoop 開頭）；
+      //   失敗（含 execScript 10 分鐘逾時）30 分鐘後重試、當日最多 3 次。不 await：備份要跑數分鐘，不佔住循序迴圈（與舊版相同）；
+      //   _backupBusy 防止同時跑兩份。備份腳本本身已改增量（只讀近 7 天＋每週全量比對），重試的讀取量很小。
+      if (mins >= 17 * 60 && _backupDate !== today && !_backupBusy
+        && !(_backupFail.date === today && (_backupFail.n >= 3 || Date.now() - _backupFail.at < 30 * 60000))) {
+        _backupBusy = true;
+        execScript('backup-brain.mjs', [], '🧠 brain backup', 10).then(async (ok) => {
+          if (ok) { _backupDate = today; await markJobDone('backup', today); return; }
+          _backupFail = { date: today, n: (_backupFail.date === today ? _backupFail.n : 0) + 1, at: Date.now() };
+          log(_backupFail.n >= 3
+            ? `⚠ 第二大腦備份 ${today}：連續 ${_backupFail.n} 次失敗，今日放棄（未寫完成記錄；重啟或明日 17:00 再跑）`
+            : `⚠ 第二大腦備份 ${today}：第 ${_backupFail.n} 次失敗，30 分鐘後重試`);
+        }).finally(() => { _backupBusy = false; });
       }
     } catch (e) { log('✖ daily jobs loop:', e.message); }
     await sleep(300000); // 每 5 分鐘檢查

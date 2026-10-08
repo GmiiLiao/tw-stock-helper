@@ -21,6 +21,7 @@
 
 import admin from 'firebase-admin';
 import { runCheck as checkFieldConventions } from './check-field-conventions.mjs';
+import { verdictJsonOf } from './lib/news-verdict-codec.mjs';   // newsVerdict 大文件改存壓縮欄位 verdictGz（2026-10-08）
 
 process.env.GOOGLE_APPLICATION_CREDENTIALS =
   process.env.GOOGLE_APPLICATION_CREDENTIALS ||
@@ -538,6 +539,10 @@ function pickTimestamp(d, tsField = null) {
 }
 
 function pickCount(d, countField) {
+  // newsVerdict：verdictJson 放不下時改存壓縮欄位 verdictGz（news-verdict-codec.mjs）——兩種都要數得到，否則覆蓋率閘門會誤判 0 筆
+  if (countField === 'verdictJson' && typeof d?.verdictGz === 'string') {
+    try { return Object.keys(JSON.parse(verdictJsonOf(d) || '{}')).length; } catch { return null; }
+  }
   if (countField && d?.[countField]) {
     const raw = d[countField];
     if (typeof raw === 'string') { try { return Object.keys(JSON.parse(raw)).length; } catch { return null; } }
