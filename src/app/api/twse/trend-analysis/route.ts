@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { closePositionOf } from '@/lib/scoring-server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import { rateLimit } from '@/lib/rate-limit';
+import { memoize } from '@/lib/singleflight';
+import { lookupCompany } from '@/lib/company-list-server';
+import {
+  INDUSTRY_MAP, fallbackNote, resolveIndustry,
+  type CompanyLookup, type IndustryInfo,
+} from '@/lib/company-list';
+
+export type { IndustryInfo };
 
 // ============================================================
 // Stock Trend Analysis API
@@ -15,163 +21,98 @@ import { rateLimit } from '@/lib/rate-limit';
 // 任意字串會讓每個不同 URL 都打穿 CDN 並觸發 3 個外部上游（WM-SCAN G1-22）。
 const CODE_RE = /^\d{4}[0-9A-Z]{0,2}$/;
 
+// TWSE 公告：全市場同一份，memoize 5 分鐘（合流＋失敗冷卻 1 分鐘），不隨請求數放大（唯一不變式）。
+const ANNOUNCEMENT_URL = 'https://www.twse.com.tw/rwd/zh/announcement/announcement?response=json';
+const ANNOUNCEMENT_TTL_MS = 5 * 60_000;
+const ANNOUNCEMENT_NEGATIVE_TTL_MS = 60_000;
+const getAnnouncementRows = memoize<AnnouncementRow[]>('twse-announcement', ANNOUNCEMENT_TTL_MS, async () => {
+  const res = await fetch(ANNOUNCEMENT_URL, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    next: { revalidate: 300 },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body: unknown = await res.json();   // HTML 錯誤頁在此拋錯 ⇒ 負快取，不再讓整支 API 500
+  const data = (body as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) throw new Error('announcement: data 不是陣列');
+  return data as AnnouncementRow[];
+}, { negativeTtlMs: ANNOUNCEMENT_NEGATIVE_TTL_MS, timeoutMs: 10_000 });
+
+/** 從全市場日行情取這一檔（集中式 server helper，自帶快取與合流）；失敗回 null */
+async function loadStockDay(code: string): Promise<StockDayItem | null> {
+  try {
+    const allDayData = await getStockDayAllDataInternal();
+    const found = allDayData.find(s => s.Code === code);
+    if (!found) return null;
+    return {
+      Code: found.Code,
+      Name: found.Name,
+      OpeningPrice: found.OpeningPrice,
+      HighestPrice: found.HighestPrice,
+      LowestPrice: found.LowestPrice,
+      ClosingPrice: found.ClosingPrice,
+      Change: found.Change,
+      TradeVolume: found.TradeVolume,
+      TradeValue: found.TradeValue,
+      Transaction: found.Transaction,
+      // ⚠ **市場別必須帶過來**（2026-09-01 使用者回報 7930 威世波漲停錯誤）：
+      // 這裡是逐欄重建，漏掉 _market 就等於把「這是興櫃」這件事丟掉，
+      // 下游的漲跌停判斷因此對興櫃套用了不存在的 ±10% 限制。
+      // 我第一版只改下游、沒發現欄位在這裡就被剝掉——部署後驗證才發現沒生效。
+      // 2026-10-08 起產業別也靠它辨識興櫃（resolveIndustry）。
+      _market: found._market,
+    };
+  } catch (err) {
+    console.error('[trend-analysis] Failed to load day data via getStockDayAllDataInternal:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/** 公告列 → 提到此代號或公司簡稱的前 3 則 */
+function pickAnnouncements(rows: AnnouncementRow[] | null, code: string, companyName: string): NewsItem[] {
+  if (!rows) return [];
+  return rows
+    .filter(row => {
+      const text = (row[3] || '').toString();
+      return text.includes(code) || (companyName && text.includes(companyName));
+    })
+    .slice(0, 3)
+    .map(row => ({
+      date: (row[1] || '').toString().replace('中華民國', '').replace('年', '/').replace('月', '/').replace('日', ''),
+      text: (row[3] || '').toString(),
+    }));
+}
+
 export async function GET(request: NextRequest) {
   const code = (request.nextUrl.searchParams.get('code') || '').trim().toUpperCase();
   if (!CODE_RE.test(code)) {
     return NextResponse.json({ error: 'invalid code' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   }
-  // 專屬限流（G1-22）：每次快取未命中打 3 個外部上游（TWSE／TPEx 公司基本資料、TWSE 公告）。
+  // 專屬限流（G1-22）：快取未命中時最多打 3 個外部上游（TWSE／TPEx 公司基本資料、TWSE 公告），
+  // 三者都經 memoize 合流＋負快取，實際上游次數與請求數脫鉤。
   // 前端只在開個股頁／趨勢面板時打一次 ⇒ 60/分鐘很寬，只擋濫用。限流器故障 fail-open（2026-09-28 裁定）。
   const limited = await rateLimit(request, 'trend-analysis', 60);
   if (limited) return limited;
 
   try {
-    // Fetch in parallel: company info (Listed + OTC), announcements
-    const [companyRes, companyOtcRes, annoRes] = await Promise.allSettled([
-      fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        next: { revalidate: 3600 },
-        signal: AbortSignal.timeout(8000),
-      }),
-      fetch('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O', {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        next: { revalidate: 3600 },
-        signal: AbortSignal.timeout(8000),
-      }),
-      fetch('https://www.twse.com.tw/rwd/zh/announcement/announcement?response=json', {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        next: { revalidate: 300 },
-        signal: AbortSignal.timeout(8000),
-      }),
+    // 公司清單（含打包備援）、公告、日行情彼此獨立 ⇒ 並行；三者都不拋錯（失敗各自回 null／備援）
+    const [lookup, annoRows, stockData] = await Promise.all([
+      lookupCompany(code),
+      getAnnouncementRows(),
+      loadStockDay(code),
     ]);
 
-    // Parse company info → find industry code + full profile (Listed + OTC)
-    let industryCode = '99';
-    let companyName = '';
-    let rawCompany: CompanyInfo | null = null;
-
-    let listedCompanies: CompanyInfo[] = [];
-    if (companyRes.status === 'fulfilled' && companyRes.value.ok) {
-      try {
-        listedCompanies = await companyRes.value.json();
-      } catch (err) {
-        console.warn('[trend-analysis] Failed to parse companyRes JSON:', err);
-      }
-    }
-
-    // Fallback: If listedCompanies is empty (OpenAPI failed/geoblocked), load from local file
-    if (listedCompanies.length === 0) {
-      try {
-        const fallbackPath = path.join(process.cwd(), 'src/lib/t187ap03_L_fallback.json');
-        const fileContent = await fs.readFile(fallbackPath, 'utf-8');
-        listedCompanies = JSON.parse(fileContent);
-        console.log('[trend-analysis] Successfully loaded company fallback JSON. Count:', listedCompanies.length);
-      } catch (err: any) {
-        console.error('[trend-analysis] Failed to load local company fallback JSON:', err.message);
-      }
-    }
-
-    const otcCompaniesRaw: any[] = (companyOtcRes.status === 'fulfilled' && companyOtcRes.value.ok)
-      ? await companyOtcRes.value.json()
-      : [];
-
-    // 來源的「沒有」有三種寫法：空字串、全形破折號「－」、只有空白。統一成 ''。
-    const z = (v: unknown): string => {
-      const t = String(v ?? '').replace(/[\s\u3000]+/g, ' ').trim();
-      return /^[－—–-]*$/.test(t) ? '' : t;
-    };
-
-    const mappedOtcCompanies: CompanyInfo[] = otcCompaniesRaw.map(item => ({
-      '公司代號': item.SecuritiesCompanyCode ?? '',
-      '公司名稱': item.CompanyName ?? '',
-      '公司簡稱': item.CompanyAbbreviation ?? '',
-      '產業別': item.SecuritiesIndustryCode ?? '',
-      '董事長': item.Chairman ?? '',
-      '總經理': item.GeneralManager ?? '',
-      '成立日期': item.DateOfIncorporation ?? '',
-      '上市日期': item.DateOfListing ?? '',
-      '實收資本額': item['Paidin.Capital.NTDollars'] ?? '',
-      '住址': item.Address ?? '',
-      '總機電話': item.Telephone ?? '',
-      '發言人': item.Spokesman ?? '',
-      // ⚠ TPEx 的值尾端常帶**全形空白**（實測 WebAddress、Symbol 都有），
-      //   不 trim 掉會讓 https 網址變成壞連結、英文簡稱多一格。
-      '發言人職稱': z(item.TitleOfSpokesman),
-      '代理發言人': z(item.DeputySpokesperson),
-      '網址': z(item.WebAddress),
-      '電子郵件信箱': z(item.EmailAddress),
-      '傳真機號碼': z(item.Fax),
-      '英文簡稱': z(item.Symbol),
-      '營利事業統一編號': z(item['UnifiedBusinessNo.']),
-      '股票過戶機構': z(item.StockTransferAgent),
-      '過戶電話': z(item.StockTransferAgentTelephone),
-      '簽證會計師事務所': z(item.AccountingFirm),
-    }));
-
-    const allCompanies = [...listedCompanies, ...mappedOtcCompanies];
-    const company = allCompanies.find(c => c['公司代號'] === code);
-    if (company) {
-      industryCode = company['產業別'] || '99';
-      companyName = company['公司簡稱'] || '';
-      rawCompany = company;
-    }
-
-    // Parse announcements → find mentions of this stock code
-    let relevantAnnouncements: NewsItem[] = [];
-    if (annoRes.status === 'fulfilled' && annoRes.value.ok) {
-      const annoData = await annoRes.value.json();
-      if (annoData?.data && Array.isArray(annoData.data)) {
-        // Filter announcements mentioning this company code
-        const allAnnouncements = annoData.data as AnnouncementRow[];
-        const related = allAnnouncements
-          .filter(row => {
-            const text = (row[3] || '').toString();
-            return text.includes(code) || (companyName && text.includes(companyName));
-          })
-          .slice(0, 3)
-          .map(row => ({
-            date: (row[1] || '').toString().replace('中華民國', '').replace('年', '/').replace('月', '/').replace('日', ''),
-            text: (row[3] || '').toString(),
-          }));
-        relevantAnnouncements = related;
-      }
-    }
-
-    // Parse day data for this specific stock (via centralized server helper)
-    let stockData: StockDayItem | null = null;
-    try {
-      const allDayData = await getStockDayAllDataInternal();
-      const found = allDayData.find(s => s.Code === code);
-      if (found) {
-        stockData = {
-          Code: found.Code,
-          Name: found.Name,
-          OpeningPrice: found.OpeningPrice,
-          HighestPrice: found.HighestPrice,
-          LowestPrice: found.LowestPrice,
-          ClosingPrice: found.ClosingPrice,
-          Change: found.Change,
-          TradeVolume: found.TradeVolume,
-          TradeValue: found.TradeValue,
-          Transaction: found.Transaction,
-          // ⚠ **市場別必須帶過來**（2026-09-01 使用者回報 7930 威世波漲停錯誤）：
-          // 這裡是逐欄重建，漏掉 _market 就等於把「這是興櫃」這件事丟掉，
-          // 下游的漲跌停判斷因此對興櫃套用了不存在的 ±10% 限制。
-          // 我第一版只改下游、沒發現欄位在這裡就被剝掉——部署後驗證才發現沒生效。
-          _market: found._market,
-        };
-      }
-    } catch (err: any) {
-      console.error('[trend-analysis] Failed to load day data via getStockDayAllDataInternal:', err.message);
-    }
+    // ETF／興櫃不在公司清單裡 ⇒ 名稱改用日行情的證券名稱（不再回空字串）
+    const companyName = lookup.company?.['公司簡稱'] || stockData?.Name || '';
+    const relevantAnnouncements = pickAnnouncements(annoRows, code, companyName);
 
     // Build the analysis
-    const industry = getIndustryInfo(industryCode);
+    const industry = resolveIndustry(lookup, code, stockData?._market);
     const trendAnalysis = buildTrendAnalysis(code, stockData, industry, companyName);
     const newsHeadlines = buildNewsHeadlines(code, companyName, stockData, industry, relevantAnnouncements);
     const industryOutlook = buildIndustryOutlook(industry, stockData);
     const preMarketRecommendation = buildPreMarketRecommendation(code, stockData, trendAnalysis);
-    const companyProfile = buildCompanyProfile(code, rawCompany, industry, stockData);
+    const companyProfile = buildCompanyProfile(code, lookup, industry, stockData);
     const pricePrediction = buildPricePrediction(stockData);
 
     return NextResponse.json({
@@ -197,33 +138,6 @@ export async function GET(request: NextRequest) {
 
 // ─── Types ───────────────────────────────────────────────────
 
-interface CompanyInfo {
-  '公司代號': string;
-  '公司名稱': string;
-  '公司簡稱': string;
-  '產業別': string;
-  '董事長': string;
-  '總經理': string;
-  '成立日期': string;
-  '上市日期': string;
-  '實收資本額': string;
-  '住址': string;
-  '總機電話': string;
-  '發言人': string;
-  // 以下為 2026-08-27 補齊：t187ap03 兩個市場都有，過去整批被丟掉，
-  // 於是個股頁的「公司資料」長期只有半套（使用者要求處理完整）。
-  '發言人職稱': string;
-  '代理發言人': string;
-  '網址': string;
-  '電子郵件信箱': string;
-  '傳真機號碼': string;
-  '英文簡稱': string;
-  '營利事業統一編號': string;
-  '股票過戶機構': string;
-  '過戶電話': string;
-  '簽證會計師事務所': string;
-}
-
 type AnnouncementRow = (string | number)[];
 
 interface StockDayItem {
@@ -245,54 +159,6 @@ interface StockDayItem {
 interface NewsItem {
   date: string;
   text: string;
-}
-
-export interface IndustryInfo {
-  code: string;
-  name: string;
-  sector: string;
-  emoji: string;
-  description: string;
-}
-
-// ─── Industry Classification ──────────────────────────────────
-
-const INDUSTRY_MAP: Record<string, IndustryInfo> = {
-  '01': { code: '01', name: '水泥工業', sector: '傳統產業', emoji: '🏗️', description: '建材基礎工業，與基建政策高度相關' },
-  '02': { code: '02', name: '食品工業', sector: '民生消費', emoji: '🍜', description: '食品飲料，受通膨與消費力影響' },
-  '03': { code: '03', name: '塑膠工業', sector: '石化材料', emoji: '🔬', description: '石化下游，景氣循環型產業' },
-  '04': { code: '04', name: '紡織纖維', sector: '傳統製造', emoji: '🧵', description: '紡織成衣，東南亞布局加速中' },
-  '05': { code: '05', name: '電機機械', sector: '機械設備', emoji: '⚙️', description: '工業自動化需求持續增長' },
-  '06': { code: '06', name: '電器電纜', sector: '電力設備', emoji: '⚡', description: '電網升級與再生能源帶動需求' },
-  '08': { code: '08', name: '玻璃陶瓷', sector: '傳統產業', emoji: '🏺', description: '建材需求與工業用途' },
-  '09': { code: '09', name: '造紙工業', sector: '原材料', emoji: '📄', description: '環保包材、紙類需求趨勢' },
-  '10': { code: '10', name: '鋼鐵工業', sector: '基礎工業', emoji: '🔩', description: '全球鋼價週期與基建景氣同步' },
-  '11': { code: '11', name: '橡膠工業', sector: '材料工業', emoji: '🔄', description: '汽車零組件與工業用橡膠' },
-  '12': { code: '12', name: '汽車工業', sector: '汽車整車', emoji: '🚗', description: '電動車轉型關鍵期，新能源車滲透率上升' },
-  '13': { code: '13', name: '電子工業', sector: '電子零組件', emoji: '💡', description: '電子零組件，AI 算力需求帶動供應鏈' },
-  '14': { code: '14', name: '建材營造', sector: '房地產', emoji: '🏢', description: '都更與危老重建政策推動需求' },
-  '15': { code: '15', name: '航運業', sector: '交通運輸', emoji: '🚢', description: '運費指數波動，受地緣政治影響' },
-  '16': { code: '16', name: '觀光事業', sector: '服務消費', emoji: '✈️', description: '後疫情觀光復甦，入境旅遊持續回升' },
-  '17': { code: '17', name: '金融保險', sector: '金融業', emoji: '🏦', description: '升息週期受益，壽險與銀行股業績改善' },
-  '18': { code: '18', name: '貿易百貨', sector: '零售通路', emoji: '🛒', description: '零售消費趨勢，電商與實體競合' },
-  '19': { code: '19', name: '綜合', sector: '多角化', emoji: '🔀', description: '多元化集團，各子事業體業績分散' },
-  '20': { code: '20', name: '其他', sector: '特殊產業', emoji: '📊', description: '特殊業務類型，需個別分析' },
-  '21': { code: '21', name: '化學工業', sector: '石化工業', emoji: '⚗️', description: '化工材料，景氣循環與原油價格連動' },
-  '22': { code: '22', name: '生技醫療', sector: '醫療生技', emoji: '💊', description: 'AI 新藥開發、CRO/CDMO 全球化佈局加速' },
-  '23': { code: '23', name: '油電燃氣', sector: '公用事業', emoji: '🔋', description: '能源轉型主題，再生能源佈局受矚目' },
-  '24': { code: '24', name: '半導體', sector: '科技龍頭', emoji: '🔲', description: 'AI 算力需求爆發，先進製程訂單高度滿載' },
-  '25': { code: '25', name: '電腦週邊', sector: '硬體設備', emoji: '💻', description: 'AI PC 換機潮、伺服器市場高速成長' },
-  '26': { code: '26', name: '光電業', sector: '光電顯示', emoji: '🖥️', description: 'OLED/MicroLED 新世代顯示技術驅動換機' },
-  '27': { code: '27', name: '通信網路', sector: '網路通訊', emoji: '📡', description: '5G/6G 基礎建設、衛星通訊快速普及' },
-  '28': { code: '28', name: '電子零組件', sector: '零組件', emoji: '🔌', description: 'AI 伺服器供應鏈、被動元件需求成長' },
-  '29': { code: '29', name: '電子通路', sector: '電子通路', emoji: '📦', description: '半導體零組件通路商，AI 訂單快速拉貨' },
-  '30': { code: '30', name: '資訊服務', sector: '軟體服務', emoji: '☁️', description: '雲端、AI、資安軟體需求高速擴張' },
-  '31': { code: '31', name: '其他電子', sector: '電子製造', emoji: '🔧', description: '各類電子製造，受惠 AI 終端設備普及' },
-  '99': { code: '99', name: '未分類', sector: '其他', emoji: '📋', description: '產業類別待確認' },
-};
-
-function getIndustryInfo(code: string): IndustryInfo {
-  return INDUSTRY_MAP[code] || INDUSTRY_MAP['99'];
 }
 
 // ─── Trend Analysis Builder ───────────────────────────────────
@@ -985,9 +851,15 @@ export interface CompanyProfile {
   companyScale: 'large' | 'mid' | 'small';
   ageYears: number;
   listingAgeYears: number;
+  /** live＝上游即時清單；fallback＝打包的官方鏡像快照；none＝公司清單查無（ETF／興櫃／未知） */
+  dataSource: CompanyLookup['source'];
+  /** 公司資料的來源自報資料日（YYYY-MM-DD）；none 時為 null */
+  dataAsOf: string | null;
+  /** 用備援時的標示（「備援資料日 YYYY-MM-DD」），即時資料為 '' */
+  dataNote: string;
 }
 
-// 與上面的 z() 同義；buildCompanyProfile 是獨立函式，不共用區塊層變數
+// 與 company-list.ts 的 z() 同義；buildCompanyProfile 是獨立函式，不共用區塊層變數
 // （CLAUDE.md 記過 dSlash 跨區塊引用被吞成一行警告的教訓）。
 const clean = (v: unknown): string => {
   const t = String(v ?? '').replace(/[\s\u3000]+/g, ' ').trim();
@@ -996,17 +868,24 @@ const clean = (v: unknown): string => {
 
 function buildCompanyProfile(
   code: string,
-  raw: CompanyInfo | null,
+  lookup: CompanyLookup,
   industry: IndustryInfo,
   stock: StockDayItem | null
 ): CompanyProfile {
+  const raw = lookup.company;
+  const dataNote = fallbackNote(lookup);
+  // 用備援時在產業那一行標「備援資料日」：個股頁公司資訊的標頭是「{代號} · {industryCategory}」。
+  // industry.name 本身不動（NewsTab 拿它組查詢詞）；結構化欄位另見 dataSource／dataAsOf／dataNote。
+  const industryCategory = dataNote ? `${industry.name} · ${dataNote}` : industry.name;
+  // ETF 是基金：沒有董事長／總經理／發言人，給 '--'（頁面不渲染），不要顯示「未知」
+  const notApplicable = industry.code === 'ETF' ? '--' : '未知';
   const defaultProfile: CompanyProfile = {
     code,
     fullName: stock?.Name || code,
     shortName: stock?.Name || code,
-    chairman: '未知',
-    ceo: '未知',
-    spokesperson: '未知',
+    chairman: notApplicable,
+    ceo: notApplicable,
+    spokesperson: notApplicable,
     address: '--',
     phone: '--',
     website: '',
@@ -1023,13 +902,16 @@ function buildCompanyProfile(
     listedDate: '--',
     capitalAmount: '--',
     capitalBillion: 0,
-    industryCategory: industry.name,
+    industryCategory,
     industryCode: industry.code,
     mainBusiness: getMainBusiness(code, industry),
     keyProducts: getKeyProducts(code, industry),
     companyScale: 'mid',
     ageYears: 0,
     listingAgeYears: 0,
+    dataSource: lookup.source,
+    dataAsOf: lookup.asOf,
+    dataNote,
   };
 
   if (!raw) return defaultProfile;
@@ -1100,13 +982,16 @@ function buildCompanyProfile(
     listedDate: listed.display,
     capitalAmount: capitalBillion > 0 ? `${capitalBillion} 億元` : '--',
     capitalBillion,
-    industryCategory: industry.name,
+    industryCategory,
     industryCode: industry.code,
     mainBusiness: getMainBusiness(code, industry),
     keyProducts: getKeyProducts(code, industry),
     companyScale,
     ageYears: founded.year > 0 ? currentYear - founded.year : 0,
     listingAgeYears: listed.year > 0 ? currentYear - listed.year : 0,
+    dataSource: lookup.source,
+    dataAsOf: lookup.asOf,
+    dataNote,
   };
 }
 
@@ -1127,8 +1012,17 @@ const BUSINESS_DB: Record<string, { business: string; products: string[] }> = {
   '2404': { business: '全球最大 PCB 廠（依營收），涵蓋各類電子產品所需電路板，AI 伺服器板為目前成長亮點', products: ['高速 AI 伺服器 PCB', '5G 基站電路板', 'HDI 高密度板', '軟性電路板 FPC'] },
 };
 
+// 不是一般公司、或公司清單查無的代號：據實說明，不套「從事○○相關業務，為台灣○○代表性廠商」模板
+// （模板對 ETF 會生出「從事ETF相關業務」這種假話）。
+const NON_COMPANY_BUSINESS: Record<string, string> = {
+  ETF: 'ETF 是基金，不是營業公司，沒有主要業務與產品；追蹤指數與成分股請見發行投信的公開說明書。',
+  ESB: '興櫃公司：主要業務的官方資料尚未接入本頁（來源未提供）。',
+  '99': '主要業務：來源未提供。',
+};
+
 function getMainBusiness(code: string, industry: IndustryInfo): string {
   if (BUSINESS_DB[code]) return BUSINESS_DB[code].business;
+  if (NON_COMPANY_BUSINESS[industry.code]) return NON_COMPANY_BUSINESS[industry.code];
   // Fallback: industry-level description
   const industryBusinessMap: Record<string, string> = {
     '24': '從事半導體相關製程、設計或封裝測試，為台灣科技產業核心供應鏈成員',
@@ -1147,6 +1041,7 @@ function getMainBusiness(code: string, industry: IndustryInfo): string {
 
 function getKeyProducts(code: string, industry: IndustryInfo): string[] {
   if (BUSINESS_DB[code]) return BUSINESS_DB[code].products;
+  if (NON_COMPANY_BUSINESS[industry.code]) return [];
   const productMap: Record<string, string[]> = {
     '24': ['晶圓代工/設計', '先進封裝', 'IC 元件', '半導體設備'],
     '25': ['伺服器主機板', '電腦周邊設備', '電源供應器', '散熱模組'],

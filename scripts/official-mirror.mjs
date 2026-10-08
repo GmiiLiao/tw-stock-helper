@@ -8,7 +8,9 @@
 //   verify  [--only a,b] [--snapshots]        未驗證端點各打 1 次，通過才排進 daily／backfill
 //   migrate                                   研究快取（.surge-cache/official、MOPS t163sb04）轉存進來，0 請求
 //   status                                    印出各資料集進度、寫 manifest.json（含最新警示）
-// 開跑前檢查（會發請求的指令）：單一程序鎖（原子建立）、研究回補程序仍在跑就不開、daemon 日誌近 30 分鐘有上游故障字樣就不開。
+// 開跑前檢查（會發請求的指令）：單一程序鎖（原子建立）、研究回補程序仍在跑就不開、daemon 日誌近 30 分鐘有封鎖／限流訊號的機構家族本次不跑
+//       （2026-10-08·WP7：舊版任何故障字樣就三個機構全停——上櫃 openapi 大檔傳輸被切斷是常態、不是封鎖，鏡像因此停擺三天；
+//        其餘故障字樣只記為「降級」照跑，交給佇列的封鎖／連續失敗保護）。daily／retry 被擋 ⇒ 照樣寫 _alerts（停擺不可無聲）。
 // 節奏：證交所系／櫃買系／期交所各一條佇列、逐請求 ≥3 秒、平日 07:30～15:30 不跑、封鎖訊號立即停；MIS 一律不打（額度歸 daemon）。
 //       每日 16:25–16:55、21:40–22:35 也不跑（daemon 重任務窗，lib DAEMON_BUSY_WINDOWS；排程改 22:40，2026-10-04·WM-SCAN G4-32）。
 // 定版（2026-10-04·G2-37）：非 must 帶日期表的空表要隔 ≥6 小時再看一次仍空才定版（MI_INDEX 未確認的空＝不當休市）；
@@ -20,7 +22,7 @@ import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import * as C from './lib/official-mirror.mjs';
-import { recentOutageLines } from './lib/outage-scan.mjs';
+import { mirrorOutageGate } from './lib/outage-scan.mjs';
 import { DATED, resolveFrom } from './official-mirror/adapters-dated.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -100,17 +102,33 @@ function tailText(path, bytes) {
   try { readSync(fd, buf, 0, len, st.size - len); } finally { closeSync(fd); }
   return buf.toString('utf8');
 }
+const FAMILY_HOST = { twse: 'www.twse.com.tw', tpex: 'www.tpex.org.tw', taifex: 'www.taifex.com.tw' };
+/** 回傳 { ok, reason }；ok 時 a.gate＝{ blocked: [家族], degraded: [家族] }，被擋的家族佇列已先停（本次該家族全部 skipped）。 */
 function preflight(a) {
+  a.gate = { blocked: [], degraded: [] };
   if (!a.allowConcurrent) {
     let running = '';
     try { running = execFileSync('pgrep', ['-fl', 'surge-lab/official_backfill.mjs|surge-lab/mops_fin_backfill.mjs'], { encoding: 'utf8' }).trim(); } catch { running = ''; }
-    if (running) { log(`研究回補程序仍在跑（${running.split('\n')[0].slice(0, 120)}）——同一出口 IP，不疊加；本次不執行`); return false; }
+    if (running) { const reason = `研究回補程序仍在跑（${running.split('\n')[0].slice(0, 120)}）——同一出口 IP，不疊加`; log(`${reason}；本次不執行`); return { ok: false, reason }; }
   }
   if (!a.ackOutage && existsSync(DAEMON_LOG)) {
-    const lines = recentOutageLines(tailText(DAEMON_LOG, 2 << 20), Date.now(), 30 * 60000);
-    if (lines.length) { log(`daemon 日誌近 30 分鐘有上游故障字樣（${lines.length} 行，例：${lines.at(-1).slice(25, 100)}）——上游可能正在擋，本次不執行（--ack-outage 才放行）`); return false; }
+    const g = mirrorOutageGate(tailText(DAEMON_LOG, 2 << 20), Date.now(), 30 * 60000);
+    for (const [f, ls] of Object.entries(g.degraded)) {
+      a.gate.degraded.push(f);
+      log(`daemon 日誌近 30 分鐘 ${f} 有故障字樣（${ls.length} 行，例：${ls.at(-1).slice(25, 100)}）——不是封鎖／限流訊號，照跑（佇列遇封鎖立即停、連續 3 次失敗停）`);
+    }
+    const fams = Object.keys(g.blocked);
+    if (fams.includes('*')) {
+      const ex = g.blocked['*'].at(-1).slice(25, 100);
+      const reason = `daemon 日誌近 30 分鐘有封鎖／限流訊號且認不出機構（例：${ex}）——全部機構本次不跑（--ack-outage 才放行）`;
+      log(reason); return { ok: false, reason };
+    }
+    for (const f of fams) {
+      a.gate.blocked.push(f);
+      C.queueFor(FAMILY_HOST[f] || f, queueOpts(a)).stop(`daemon 日誌近 30 分鐘有 ${f} 封鎖／限流訊號（例：${g.blocked[f].at(-1).slice(25, 100)}）——此機構本次不跑（--ack-outage 才放行）`);
+    }
   }
-  return true;
+  return { ok: true };
 }
 
 function acquireLock(cmd) {
@@ -133,9 +151,11 @@ function acquireLock(cmd) {
 
 // ── 工作執行：每個機構一條共用佇列 ─────────────────────────────
 const queueOpts = a => ({ quiet: a.forceHours ? () => false : C.blockedReason, log });   // --force-hours 連 daemon 重任務窗也放行（手動除錯用）
-const budgetFile = () => join(ROOT, '_budget', `${C.taipeiDate()}.json`);
-function readBudget() { try { return JSON.parse(readFileSync(budgetFile(), 'utf8')).requests || 0; } catch { return 0; } }
-function addBudget(n) { mkdirSync(join(ROOT, '_budget'), { recursive: true }); writeFileSync(budgetFile(), JSON.stringify({ requests: readBudget() + n })); }
+// 額度記在「這輪開跑的台北日」（2026-10-08·WP7）：舊版收尾時才取日期，23:20 開跑、跨午夜結束的那輪會把 2,500 記到隔天，
+//   隔天晚上的回補一開始就「已達上限」——回補實際上隔一晚才跑一次（_budget/2026-10-08.json＝10-07 那輪的 2,501）。
+const budgetFile = (day = C.taipeiDate()) => join(ROOT, '_budget', `${day}.json`);
+function readBudget(day) { try { return JSON.parse(readFileSync(budgetFile(day), 'utf8')).requests || 0; } catch { return 0; } }
+function addBudget(n, day) { mkdirSync(join(ROOT, '_budget'), { recursive: true }); writeFileSync(budgetFile(day), JSON.stringify({ requests: readBudget(day) + n })); }
 
 async function runJobs(jobs, a, { budget = Infinity } = {}) {
   const byFam = new Map(); const mans = new Map(); const stats = {}; let requests = 0;
@@ -162,10 +182,15 @@ async function runJobs(jobs, a, { budget = Infinity } = {}) {
 }
 const mergeStats = (...ss) => ss.reduce((acc, s) => { for (const [k, v] of Object.entries(s || {})) acc[k] = (acc[k] || 0) + v; return acc; }, {});
 
+/** 近 n 個候選交易日（今天要到 22:00 後才算進來：官方當日表多半要到晚上才齊）。 */
+function recentDays(info, n, today) {
+  const lateEnough = C.taipeiNow().getUTCHours() >= 22;
+  return info.candidates.filter(d => d < today || (d === today && lateEnough)).slice(-n);
+}
 /** 近 N 個交易日的補漏：MI_INDEX 對候選日、其他帶日期表對已確認日；未定版且嘗試未滿 6 次。skip＝本輪已抓過的「id|key」（同一輪重抓不算空表確認，白費請求）。 */
 function catchUpJobs(n, only, today, skip = new Set()) {
-  const info = dayInfo(today); const lateEnough = C.taipeiNow().getUTCHours() >= 22;
-  const recent = info.candidates.filter(d => d < today || (d === today && lateEnough)).slice(-n); const jobs = [];
+  const info = dayInfo(today);
+  const recent = recentDays(info, n, today); const jobs = [];
   for (const ad of activeDated(only)) {
     if (ad.unit !== 'day') continue;
     const man = C.loadManifest(ROOT, ad.host, ad.id);
@@ -179,7 +204,7 @@ function catchUpJobs(n, only, today, skip = new Set()) {
 
 // ── daily ───────────────────────────────────────────────
 async function cmdDaily(a) {
-  const D = a.date || C.taipeiDate(); const today = C.taipeiDate();
+  const D = a.date || C.taipeiDate(); const today = C.taipeiDate(); const runStart = new Date().toISOString();
   log(`daily ${D}（slot ${a.slot}）→ ${ROOT}`);
   const r0 = await runJobs(jobsFor(MI, { day: D }), a);
   const miRow = C.loadManifest(ROOT, MI.host, MI.id).rows?.[D];
@@ -202,7 +227,11 @@ async function cmdDaily(a) {
   const done = new Set([`${MI.id}|${D}`, ...todo.map(j => `${j.ad.id}|${j.key}`)]);
   const cu = catchUpJobs(5, a.only, today, done); const r2 = cu.jobs.length ? await runJobs(cu.jobs, a) : { requests: 0, stats: {} };
   const requests = r0.requests + r1.requests + r2.requests; const stats = mergeStats(r0.stats, r1.stats, r2.stats);
-  writeRunLog(`daily-${D}-${a.slot}`, { date: D, state, requests, catchUpKeys: cu.jobs.length, stats });
+  // 每日快照（只能每日累積）本輪抓到幾個：retry 依此判定停擺日寫 _alerts（WP7）
+  const dailySnapJobs = todo.filter(j => j.snapshot && j.ad.freq === 'daily');
+  const dailySnap = { planned: dailySnapJobs.length, ok: dailySnapJobs.filter(j => C.fetchedOkSince(C.loadManifest(ROOT, j.ad.host, j.ad.id), runStart)).length };
+  // 帶 --only 的手動 daily 另存帶時間戳的檔名，不可覆蓋同日排程那輪的完整紀錄（dailySnapshotGaps 會略過 only 輪次）
+  writeRunLog(a.only?.length ? `daily-${D}-${a.slot}-only-${Date.now()}` : `daily-${D}-${a.slot}`, { date: D, state, requests, catchUpKeys: cu.jobs.length, stats, dailySnap, gate: a.gate, only: a.only });
   cmdStatus({ quiet: true });
   log(`daily 完成：${requests} 個請求`, JSON.stringify(stats));
 }
@@ -250,18 +279,51 @@ async function cmdRetry(a) {
     ? await runJobs(emAds.map(ad => ({ ad, key: lastTd, ctx: C.ctxOf({ day: lastTd }), snapshot: true, keyByEcho: true })), a)
     : { requests: 0, stats: {} };
   const r = { requests: r0.requests + rEm.requests, stats: mergeStats(r0.stats, rEm.stats) };
+  const alerts = gapAlerts(recent, a.only, today);
+  writeAlerts(alerts);
+  // 帶時間戳：同日多輪（06:45 排程＋手動）各留一份請求帳
+  writeRunLog(`retry-${today}-${Date.now()}`, { requests: r.requests, stats: r.stats, alerts: alerts.length, gate: a.gate });
+  cmdStatus({ quiet: true });
+}
+/** 近期交易日的缺口（只讀本機清單與 run log，0 請求）：retry 跑完寫、daily／retry 被開跑閘門擋下時也寫（停擺不可無聲·WP7）。 */
+function gapAlerts(recent, only, today) {
   const info = dayInfo(today); const alerts = [];
   for (const d of recent) if (!info.confirmed.has(d) && !info.closed.has(d)) alerts.push({ id: MI.id, key: d, status: '交易日未確認（MI_INDEX 未取得）' });
-  for (const ad of activeDated(a.only).filter(x => x.priority === 1 && x.unit === 'day' && x.must)) {
+  for (const ad of activeDated(only).filter(x => x.priority === 1 && x.unit === 'day' && x.must)) {
     const man = C.loadManifest(ROOT, ad.host, ad.id);
     for (const d of recent) if (info.confirmed.has(d)) for (const j of jobsFor(ad, { day: d })) if (!C.isFinal(man, j.key)) alerts.push({ id: ad.id, key: j.key, status: man.rows?.[j.key]?.status || '未抓' });
   }
   // 交易日不得有資料缺漏：官方確認的交易日，興櫃兩個快照來源都沒有 ⇒ 警示（之前的日子已無法補抓，只能揭露）
-  if (emAds.length) for (const d of C.snapshotGapDays(emMans(), recent.filter(d => info.confirmed.has(d)))) {
+  const emAds = snapshotAdapters().filter(ad => C.EMERGING_SNAPSHOT_IDS.includes(ad.id) && (!only || only.includes(ad.id)));
+  if (emAds.length) for (const d of C.snapshotGapDays(emAds.map(ad => C.loadManifest(ROOT, ad.host, ad.id)), recent.filter(d => info.confirmed.has(d)))) {
     alerts.push({ id: C.EMERGING_SNAPSHOT_IDS[0], key: d, status: '興櫃每日快照缺（www 與 openapi 兩個來源都沒有；只能每日累積、無法回補）' });
   }
-  writeAlerts(alerts);
-  writeRunLog(`retry-${today}`, { requests: r.requests, stats: r.stats, alerts: alerts.length });
+  // 停擺日：交易日收盤後到下一交易日開盤前沒有一輪 daily 把每日快照抓齊（WP7：10-05 排在禁跑窗、10-06／10-07 被開跑閘門擋，三天都沒有）
+  if (!only) {
+    const runs = readDailyRuns(); const since = runs.map(r => r.date).filter(Boolean).sort()[0] || null;
+    const next = {}; info.candidates.forEach((d, i) => { if (info.candidates[i + 1]) next[d] = info.candidates[i + 1]; });
+    const tw = C.taipeiNow(); const lateToday = tw.getUTCHours() * 60 + tw.getUTCMinutes() >= 23 * 60 + 30;   // 今天的 daily（22:40）跑完之後才檢查今天
+    const nDaily = snapshotAdapters().filter(ad => ad.freq === 'daily').length;
+    for (const g of C.dailySnapshotGaps(recent.filter(d => info.confirmed.has(d) && (d < today || lateToday)), runs, { next, since })) {
+      alerts.push({ id: 'official-mirror.daily', key: g.key, status: g.ran
+        ? `每日快照只取得 ${g.ok ?? '?'}/${g.planned ?? nDaily}（缺的只能每日累積、無法回補）`
+        : `daily 未執行（停擺）：每日快照 0/${nDaily}（只能每日累積、無法回補；帶日期資料由 retry／backfill 補）` });
+    }
+  }
+  return alerts;
+}
+function readDailyRuns() {
+  const dir = join(ROOT, '_runs'); const out = [];
+  if (!existsSync(dir)) return out;
+  for (const f of readdirSync(dir).filter(f => /^daily-\d{4}-\d{2}-\d{2}-/.test(f))) { try { out.push(JSON.parse(readFileSync(join(dir, f), 'utf8'))); } catch { /* 壞檔略過 */ } }
+  return out;
+}
+/** daily／retry 被開跑閘門擋下：記 _runs 並照樣寫 _alerts（含「本次未執行」一列），停擺日不再無聲。 */
+function recordBlocked(a, reason) {
+  const today = C.taipeiDate();
+  writeRunLog(`blocked-${a.cmd}-${today}-${Date.now()}`, { cmd: a.cmd, reason });
+  const alerts = gapAlerts(recentDays(dayInfo(today), a.days || 5, today), a.only, today);
+  writeAlerts([{ id: 'official-mirror', key: today, status: `${a.cmd} 未執行：${reason}` }, ...alerts]);
   cmdStatus({ quiet: true });
 }
 function writeAlerts(alerts) {
@@ -274,7 +336,7 @@ function writeAlerts(alerts) {
 // ── backfill ────────────────────────────────────────────
 async function cmdBackfill(a) {
   cmdMigrate();
-  const today = C.taipeiDate(); const info = dayInfo(today); const left = Math.max(0, a.max - readBudget());
+  const today = C.taipeiDate(); const info = dayInfo(today); const left = Math.max(0, a.max - readBudget(today));
   if (!left) { log(`今日（台北 ${today}）回補已達上限 ${a.max} 個請求`); return; }
   const twh = C.taipeiNow().getUTCHours(); const mopsQuiet = twh === 23 || twh === 0;                         // 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）
   const jobs = [];
@@ -290,7 +352,7 @@ async function cmdBackfill(a) {
   }
   log(`backfill：待抓 ${jobs.length} 個鍵；今日剩餘額度 ${left} 個請求`);
   const r = await runJobs(jobs, a, { budget: left });
-  addBudget(r.requests);
+  addBudget(r.requests, today);
   writeRunLog(`backfill-${today}-${Date.now()}`, { requests: r.requests, pending: jobs.length, stats: r.stats });
   cmdStatus({ quiet: true });
   log(`backfill 結束：${r.requests} 個請求`, JSON.stringify(r.stats));
@@ -377,7 +439,10 @@ async function main() {
   const a = args(process.argv.slice(2)); mkdirSync(ROOT, { recursive: true });
   const net = ['daily', 'retry', 'backfill', 'verify'].includes(a.cmd);
   if ((net || a.cmd === 'migrate') && !acquireLock(a.cmd)) return;
-  if (net && !preflight(a)) return;
+  if (net) {
+    const pf = preflight(a);
+    if (!pf.ok) { if (a.cmd === 'daily' || a.cmd === 'retry') recordBlocked(a, pf.reason); return; }
+  }
   if (a.cmd === 'daily') return cmdDaily(a);
   if (a.cmd === 'retry') return cmdRetry(a);
   if (a.cmd === 'backfill') return cmdBackfill(a);

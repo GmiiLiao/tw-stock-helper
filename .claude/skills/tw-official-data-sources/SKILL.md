@@ -396,7 +396,7 @@ wiki 每筆事實都帶來源等級，由高到低是：官方 > 官方衍生 > 
 - **指令**（主 checkout 執行）：`node scripts/official-mirror.mjs daily|retry|backfill|verify|migrate|status`。新端點先 `verify` 通過（`_verify.json`）才排進 daily／backfill。
 - **排程**（`scripts/official-mirror/launchd/`）：平日 22:15＋週六 10:00 `daily`；週二～六 06:45 `retry`；每晚 23:20＋週末 11:00 `backfill --max 2500`（每個台北日合計上限）。
 - **安全**：同一出口 IP 也是 daemon 的出口——證交所系（www／openapi／mops／mopsov）、櫃買系、期交所各一條佇列、逐請求 ≥3 秒；平日 07:30～15:30 不跑；
-  403／401／30x／429／封鎖安全頁 ⇒ 立即停整個機構；5xx 退避重試一次；連續 3 次失敗停；研究回補程序在跑、或 daemon 日誌近 30 分鐘有上游故障字樣 ⇒ 不開跑；
+  403／401／30x／429／封鎖安全頁 ⇒ 立即停整個機構；5xx 退避重試一次；連續 3 次失敗停；研究回補程序在跑 ⇒ 不開跑；daemon 日誌近 30 分鐘有**封鎖／限流訊號**（HTTP 30x／401／403／429、封鎖頁）的機構家族本次不跑（認不出家族 ⇒ 全停），其餘故障字樣（傳輸中斷、逾時、靠快取撐著）只記「降級」照跑（2026-10-08·WP7：舊規則讓上櫃 openapi 大檔常態被切斷擋掉三個機構、停擺三天）；daily／retry 被擋或每日快照沒抓齊 ⇒ 照寫 `_alerts`（`official-mirror.daily` 停擺日列）；
   MIS 一律不打；回補時 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）。
 - **研究快取轉存**：`migrate`（0 請求）把 `.surge-cache/official/*` 與 MOPS t163sb04 搬進鏡像；`backfill` 開頭自動先跑一次。
 - **ETF／興櫃官方日 K（AI 停損 A3，2026-10-05）**：`scripts/lib/official-bars.mjs` 只讀鏡像（0 請求）組 chipArchive 同格式日 K；`node scripts/official-bars.mjs status|factors` 看覆蓋、閘門與係數涵蓋。

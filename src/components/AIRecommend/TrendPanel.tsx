@@ -196,15 +196,17 @@ export default function TrendPanel({ stockCode, stockName }: { stockCode: string
             <div className={styles.businessText}>{cp.mainBusiness}</div>
           </div>
 
-          {/* Key Products */}
-          <div className={styles.productsSection}>
-            <div className={styles.businessLabel}>🔧 核心產品 / 服務項目</div>
-            <div className={styles.productsList}>
-              {cp.keyProducts.map((p, i) => (
-                <span key={i} className={styles.productTag}>{p}</span>
-              ))}
+          {/* Key Products（ETF／興櫃／查無時為空陣列——不渲染空標題，與 StockDetail 一致） */}
+          {cp.keyProducts.length > 0 && (
+            <div className={styles.productsSection}>
+              <div className={styles.businessLabel}>🔧 核心產品 / 服務項目</div>
+              <div className={styles.productsList}>
+                {cp.keyProducts.map((p, i) => (
+                  <span key={i} className={styles.productTag}>{p}</span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Info Grid */}
           <div className={styles.companyInfoGrid}>

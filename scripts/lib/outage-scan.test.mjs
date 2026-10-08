@@ -16,3 +16,53 @@ test('只回最近窗內、符合故障字樣的行', () => {
   assert.ok(r[0].startsWith('2026-10-03T05:36'));
   assert.deepEqual(recentOutageLines('', now), []);
 });
+
+// ── 官方鏡像開跑閘門（2026-10-08·WP7）：實際 daemon 日誌行 ──
+import { mirrorOutageGate, outageFamiliesOf, OUTAGE_RE } from './outage-scan.mjs';
+
+const MIRROR_NOW = Date.parse('2026-10-07T14:40:00Z');   // 10-07 22:40 台北（鏡像 daily 被擋的那一輪）
+const REAL_TPEX_LINES = [
+  '2026-10-07T14:19:19.239Z   ⚠ 上櫃 openapi 鏡像重試 1 次仍失敗：The operation was aborted due to timeout',
+  '2026-10-07T14:19:19.239Z   ⚠ 上櫃清單抓取失敗（鏡像回空）→ 改用帶日期端點後備',
+  '2026-10-07T14:19:31.243Z   ⚠ 上櫃帶日期收盤（TPEx dailyQuotes 20261007）抓取失敗（回空）：The operation was aborted due to timeout',
+  '2026-10-07T14:19:31.243Z   ⚠ 上櫃後備亦失敗 → 沿用上一份快取 901 檔（stale-if-error）',
+  '2026-10-07T14:30:16.536Z   ⚠ 上櫃 openapi 鏡像重試 1 次仍失敗：terminated',
+  '2026-10-07T14:30:17.000Z   ✓ 上櫃後備成功 901 檔',
+];
+
+test('鏡像閘門：上櫃大檔傳輸中斷／靠快取撐著＝降級（照跑），不是封鎖', () => {
+  const g = mirrorOutageGate(REAL_TPEX_LINES.join('\n'), MIRROR_NOW);
+  assert.deepEqual(Object.keys(g.blocked), [], '舊版這裡會整輪不跑（三個機構一起停）');
+  assert.deepEqual(Object.keys(g.degraded), ['tpex']);
+  assert.equal(g.degraded.tpex.length, 3, '只算 OUTAGE_RE 的行（鏡像重試 ×2、沿用快取 ×1）');
+  // can-restart 的判定不變：同一批行仍擋重啟（記憶體快取蒸發的風險沒有變）
+  assert.equal(recentOutageLines(REAL_TPEX_LINES.join('\n'), MIRROR_NOW, 30 * 60000).length, 3);
+});
+
+test('鏡像閘門：封鎖／限流訊號才擋，且只擋該家族；30 分鐘後自動恢復', () => {
+  const tpex403 = '2026-10-07T14:35:00.000Z   ⚠ 上櫃 openapi 鏡像重試 1 次仍失敗：HTTP 403';
+  const twse307 = '2026-10-07T14:36:00.000Z   ⚠ BWIBBU 改用 openapi 降級（rwd: HTTP 307），資料日 2026-10-06';
+  const g = mirrorOutageGate([...REAL_TPEX_LINES, tpex403, twse307].join('\n'), MIRROR_NOW);
+  assert.deepEqual(Object.keys(g.blocked).sort(), ['tpex', 'twse']);
+  assert.ok(!g.degraded.tpex.includes(tpex403), '封鎖行不重複算進降級');
+  assert.ok(!OUTAGE_RE.test(twse307), '證交所 307 封鎖行不含 OUTAGE_RE 字樣——舊閘門根本看不到它');
+  // 31 分鐘後：窗外 ⇒ 自動恢復
+  const later = mirrorOutageGate([tpex403, twse307].join('\n'), Date.parse('2026-10-07T15:07:00Z'));
+  assert.deepEqual(later.blocked, {});
+});
+
+test('鏡像閘門：認不出機構的封鎖行 ⇒ 全部家族（*）；一般行裡的「封鎖」字樣不算', () => {
+  const g = mirrorOutageGate([
+    '2026-10-07T14:38:00.000Z   ⚠ 某來源：HTTP 429 Too Many Requests',
+    '2026-10-07T14:38:30.000Z ✓ 新聞：美方宣布封鎖某港口',
+  ].join('\n'), MIRROR_NOW);
+  assert.deepEqual(Object.keys(g.blocked), ['*']);
+  assert.equal(g.blocked['*'].length, 1);
+});
+
+test('outageFamiliesOf：依字樣歸家族', () => {
+  assert.deepEqual(outageFamiliesOf('⚠ 上櫃後備亦失敗 → 沿用上一份快取 901 檔（stale-if-error）'), ['tpex']);
+  assert.deepEqual(outageFamiliesOf('⚠ 本輪宇宙殘缺（tse=false otc=true）→ 不覆蓋快取'), ['twse']);
+  assert.deepEqual(outageFamiliesOf('⚠ 上市 STOCK_DAY_ALL（www）重試 3 次仍失敗'), ['twse']);
+  assert.deepEqual(outageFamiliesOf('⚠ 不明來源失敗'), ['*']);
+});

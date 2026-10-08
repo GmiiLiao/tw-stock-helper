@@ -190,6 +190,41 @@ export function hasGood(man, key) { const r = man.rows?.[key]; return !!r && (r.
  */
 export const EMERGING_SNAPSHOT_IDS = Object.freeze(['tpex_emerging_latest', 'tpex_oa_tpex_esb_latest_statistics']);
 
+/** 這個資料集在 sinceIso 之後有沒有抓到好資料（新內容寫入、同內容再確認 recheck、或 unchanged 列；失敗只記 lastTry 的不算）。 */
+export function fetchedOkSince(man, sinceIso) {
+  return Object.values(man?.rows || {}).some(r => /^(ok|unchanged|empty)$/.test(r?.status || '') && ((r.at || '') >= sinceIso || (r.recheck || '') >= sinceIso));
+}
+
+/**
+ * 每日快照的停擺日（2026-10-08·WP7）：每日快照（freq daily）官方只給「最新一份」、無法回補，
+ * 所以交易日 d 收盤後（d 15:30）到下一個交易日開盤前（next 07:30，台北）必須有一輪 daily 把它們抓到。
+ *   days：要檢查的已確認交易日；next：{d: 下一個候選交易日}（沒有 ⇒ 不設上限）；
+ *   runs：_runs/daily-*.json 的內容（{at, requests, dailySnap?:{planned, ok}}）；since：鏡像第一輪 daily 的日期（之前是還沒有鏡像，不算停擺）。
+ *   舊版 run log 沒有 dailySnap ⇒ requests ≥ legacyMinRequests 才當作有跑（10-05 那兩輪 0／3 個請求＝實質停擺）。
+ * 回傳 [{ key: d, ok, planned, ran }]：ran=false＝窗內沒有任何一輪 daily；ok/planned＝窗內最好的一輪（不足 minRatio 才列）。
+ */
+export function dailySnapshotGaps(days, runs, { next = {}, since = null, minRatio = 0.95, legacyMinRequests = 100 } = {}) {
+  const out = [];
+  for (const d of [...new Set(days || [])].sort()) {
+    if (since && d < since) continue;
+    const from = Date.parse(`${d}T15:30:00+08:00`);
+    const to = next[d] ? Date.parse(`${next[d]}T07:30:00+08:00`) : Infinity;
+    let best = null;
+    for (const r of runs || []) {
+      const t = Date.parse(r?.at || '');
+      if (!(t >= from && t < to) || (Array.isArray(r.only) && r.only.length)) continue;   // --only 的手動局部輪不算
+      const s = r.dailySnap;
+      const cur = s && s.planned > 0 ? { ok: s.ok, planned: s.planned, ratio: s.ok / s.planned }
+        : s ? null                                                                              // 只跑帶日期（slot main）：不算快照輪
+          : (r.requests || 0) >= legacyMinRequests ? { ok: null, planned: null, ratio: 1 } : null;   // 舊版 log：請求太少＝實質沒跑
+      if (cur && (!best || cur.ratio > best.ratio)) best = cur;
+    }
+    if (!best) out.push({ key: d, ran: false, ok: 0, planned: null });
+    else if (best.ratio < minRatio) out.push({ key: d, ran: true, ok: best.ok, planned: best.planned });
+  }
+  return out;
+}
+
 /** 這些交易日裡「每個來源都沒有好資料」的日子（mans：各來源的清單；兩個都缺才算缺——任一來源有就能組出當日日 K） */
 export function snapshotGapDays(mans, days) {
   const list = Array.isArray(mans) ? mans : [];

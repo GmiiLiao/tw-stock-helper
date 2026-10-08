@@ -80,3 +80,34 @@ test('快照鍵用官方回聲日：落後一日的內容存成回聲日；同�
     assert.equal(r5.key, '2026-10-08', '沒有回聲日 ⇒ 用執行鍵');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+// ── 停擺日進 _alerts（2026-10-08·WP7）──
+test('dailySnapshotGaps：交易日收盤後到下一交易日開盤前沒有 daily 抓齊每日快照 ⇒ 列出（實案 10-05～10-07）', () => {
+  const runs = [
+    { date: '2026-10-05', requests: 0, stats: { skipped: 216 }, at: '2026-10-05T14:15:04.734Z' },          // 22:15 落在禁跑窗：0 請求
+    { date: '2026-10-05', requests: 3, stats: { ok: 3 }, at: '2026-10-05T14:38:26.283Z' },                 // 手動補 3 個快照：不算抓齊
+    { date: '2026-10-08', requests: 400, dailySnap: { planned: 104, ok: 104 }, at: '2026-10-08T15:30:00Z' }, // 10-08 23:30 正常
+  ];
+  const next = { '2026-10-02': '2026-10-05', '2026-10-05': '2026-10-06', '2026-10-06': '2026-10-07', '2026-10-07': '2026-10-08' };
+  const g = C.dailySnapshotGaps(['2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08'], runs, { next, since: '2026-10-05' });
+  assert.deepEqual(g.map(x => [x.key, x.ran]), [['2026-10-05', false], ['2026-10-06', false], ['2026-10-07', false]], '10-02 早於鏡像第一輪 daily，不算停擺；10-05 兩輪舊 log 共 3 個請求＝實質沒跑');
+  // 部分抓到（例：櫃買家族中途停）⇒ 列出比例；--only 的局部輪不算；只跑帶日期（planned 0）不算快照輪
+  const g2 = C.dailySnapshotGaps(['2026-10-08'], [
+    { date: '2026-10-08', dailySnap: { planned: 104, ok: 60 }, at: '2026-10-08T15:30:00Z' },
+    { date: '2026-10-08', dailySnap: { planned: 2, ok: 2 }, only: ['x', 'y'], at: '2026-10-08T15:40:00Z' },
+    { date: '2026-10-08', dailySnap: { planned: 0, ok: 0 }, at: '2026-10-08T15:50:00Z' },
+  ], { next: { '2026-10-08': '2026-10-09' } });
+  assert.deepEqual(g2, [{ key: '2026-10-08', ran: true, ok: 60, planned: 104 }]);
+  // 窗外（下一交易日 07:30 之後才跑）抓到的已是下一天的快照 ⇒ 不算
+  const g3 = C.dailySnapshotGaps(['2026-10-07'], [{ date: '2026-10-07', dailySnap: { planned: 104, ok: 104 }, at: '2026-10-08T09:00:00Z' }], { next: { '2026-10-07': '2026-10-08' } });
+  assert.equal(g3.length, 1);
+});
+
+test('fetchedOkSince：本輪寫入／再確認／unchanged 才算；失敗只記 lastTry 的不算', () => {
+  const since = '2026-10-08T14:40:00.000Z';
+  assert.ok(C.fetchedOkSince({ rows: { '2026-10-08': { status: 'ok', at: '2026-10-08T14:41:00.000Z' } } }, since));
+  assert.ok(C.fetchedOkSince({ rows: { '2026-10-07': { status: 'ok', at: '2026-10-07T14:41:00.000Z', recheck: '2026-10-08T14:42:00.000Z' } } }, since));
+  assert.ok(!C.fetchedOkSince({ rows: { '2026-10-07': { status: 'ok', at: '2026-10-07T14:41:00.000Z', lastTry: { status: 'fail', at: '2026-10-08T14:42:00.000Z' } } } }, since));
+  assert.ok(!C.fetchedOkSince({ rows: { '2026-10-08': { status: 'fail', at: '2026-10-08T14:42:00.000Z' } } }, since));
+  assert.ok(!C.fetchedOkSince(null, since));
+});
