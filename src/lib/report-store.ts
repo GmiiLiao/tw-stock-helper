@@ -34,8 +34,9 @@ export interface MarketReport {
   meta: {
     totalAnalyzed: number; enriched: number; historyCovered: number;
     /** false＝處置名單殘缺，精選未能排除處置股（G2-10） */ dispositionComplete?: boolean;
-    /** 上櫃有沒有進這份報告（2026-10-08）：included＝有資料日＝date 的上櫃列；dataDate＝上櫃列自報資料日（沒有＝null）；excluded＝因資料日不符被排除的列數 */
-    otc?: { included: boolean; dataDate: string | null; excluded: number };
+    /** 上櫃有沒有進這份報告（2026-10-08）：included＝有資料日＝date 的上櫃列；dataDate＝上櫃列自報資料日（沒有＝null）；excluded＝因資料日不符被排除的列數；
+     *  grade＝進報告的上櫃列來自第三方後備時的等級（'3P'；官方時沒有這個鍵·2026-10-09，畫面據此加來源註記） */
+    otc?: { included: boolean; dataDate: string | null; excluded: number; grade?: string };
   };
 }
 

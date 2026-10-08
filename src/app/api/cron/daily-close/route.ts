@@ -102,6 +102,10 @@ export async function POST(request: NextRequest) {
     const otcDoc = await readTpexClose();
     const { keep: officialRows, thirdParty: thirdPartyRows } = officialBarRows(regular, { iso: isoDate, otcDoc }) as { keep: typeof rawData; thirdParty: typeof rawData };
     if (thirdPartyRows.length) console.warn(`[cron/daily-close] ${thirdPartyRows.length} 列上櫃來自第三方後備（grade 3P）——不寫歷史 K 棒（官方到了要跑 topup-stock-history 補）`);
+    // 上櫃第三方後備來源註記（2026-10-09 使用者裁定 A）：這些列雖不寫 K 棒，但已進了上面的評分／家數（regular）⇒ 報告 meta.otc 標 grade，
+    //   盤勢報告畫面據此加註；官方時不加鍵（報告形狀不變）。重跑 daily-close（官方已到）會整份覆蓋，旗標隨之消失。
+    const otcGrade = thirdPartyRows.length ? (thirdPartyRows[0]._grade || otcDoc?.grade || null) : null;
+    const otcReportMeta = otcGrade ? { ...otcMeta, grade: otcGrade } : otcMeta;
     const barEntries = officialRows
       .map(d => {
         const bar: DailyBar = {
@@ -190,7 +194,7 @@ export async function POST(request: NextRequest) {
         enriched: enrichedPicks.filter(e => e.enriched.buyZones).length,
         historyCovered: histories.size,
         dispositionComplete: riskData.dispositionComplete,
-        otc: otcMeta,
+        otc: otcReportMeta,
       },
     };
 

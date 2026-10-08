@@ -507,7 +507,8 @@ export async function getStockDayAllDataInternal(opts?: { closeOnly?: boolean })
   if (!otcDoc) console.warn('[twse-api-server] tpexClose/latest 讀不到（daemon 尚未寫入或 Firestore 失敗）——本次上櫃改走快照後備');
   else if (otcLagging) console.warn(`[twse-api-server] tpexClose/latest 資料日 ${otcDoc.dataDate} 落後 ${refIso} 超過一個交易日（daemon 可能停寫）——本次不採用，上櫃改走快照後備`);
 
-  // 第三方後備（2026-10-08）：tpexClose 文件 grade≠official ⇒ 每列標 _grade='3P'（不顯示來源字樣）；「只收官方」的下游（daily-close 歷史 K 棒）據此排除
+  // 第三方後備（2026-10-08）：tpexClose 文件 grade≠official ⇒ 每列標 _grade='3P'；「只收官方」的下游（daily-close 歷史 K 棒）據此排除。
+  //   2026-10-09 起各 API 也據列上的 _grade 算來源註記旗標 otcSource（src/lib/otc-source.ts；只在用到後備時出現）
   const otc3P = !!otcDoc && !otcLagging && otcDoc.grade !== 'official';
   if (otc3P) console.warn(`[twse-api-server] tpexClose/latest ${otcDoc!.dataDate} 是第三方後備（${otcDoc!.grade}）——列標 _grade，歷史 K 棒不收`);
   // Map TPEx data structure to match TWSE STOCK_DAY_ALL

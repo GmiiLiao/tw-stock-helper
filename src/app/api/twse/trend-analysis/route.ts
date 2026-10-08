@@ -18,6 +18,7 @@ import {
   type Reading, type ReadingKey, type QuoteContext, type QuoteFacts, type QuoteRowInput, type TodayMove, type StopRef, type TrendReasonOut,
 } from '@/lib/stock-readings';
 import { getInstFlowTable, readingClock } from '@/lib/stock-readings-server';
+import { otcSourceField, type OtcSource } from '@/lib/otc-source';
 
 export type { IndustryInfo };
 
@@ -60,7 +61,7 @@ const getAnnouncementRows = memoize<AnnouncementRow[]>('twse-announcement', ANNO
  * failed＝日行情真的讀不到（拋錯或整份空陣列）⇒ closePos 標 unavailable、短快取；
  * 讀到了但查無此代號（停牌、下市…）＝ row null、failed false ⇒ none，不觸發 partial（2026-10-08 審查 LOW）。
  */
-async function loadStockDay(code: string): Promise<{ row: StockDayItem | null; failed: boolean }> {
+async function loadStockDay(code: string): Promise<{ row: StockDayItem | null; failed: boolean; otcSource?: OtcSource }> {
   try {
     const allDayData = await getStockDayAllDataInternal();
     if (!allDayData.length) return { row: null, failed: true };
@@ -87,7 +88,9 @@ async function loadStockDay(code: string): Promise<{ row: StockDayItem | null; f
       // 所以資料日一律以快照中繼為準，這兩欄只在快照不新鮮時使用。
       Date: found.Date,
       _source: found._source,
-    } };
+    },
+    // 上櫃第三方後備來源註記（2026-10-09 使用者裁定 A）：這一檔的列是後備列才帶（與上面的開高低收同一列）
+    ...otcSourceField([found]) };
   } catch (err) {
     console.error('[trend-analysis] Failed to load day data via getStockDayAllDataInternal:', err instanceof Error ? err.message : String(err));
     return { row: null, failed: true };
@@ -198,6 +201,7 @@ export async function GET(request: NextRequest) {
       companyProfile,
       pricePrediction,
       generatedAt: new Date().toISOString(),
+      ...(day.otcSource ? { otcSource: day.otcSource } : {}),
     };
     // 任一判讀讀取失敗 ⇒ 短快取＋X-Data-Status: partial，不把一次故障在 CDN 上釘 6 分鐘（api-cache unavailable() 的規矩）。
     // 不用 cacheHeader('quote')：收盤後它是 1800 秒的 CLOSED_OVERRIDE。

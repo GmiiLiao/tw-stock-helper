@@ -44,6 +44,8 @@ import TechnicalChart from './TechnicalChart';
 import StockTrendChart from '../WatchlistTracker/StockTrendChart';
 import StockAsk from './StockAsk';
 import RiskBadge from '@/components/shared/RiskBadge';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { otcSourceOfStocks, readOtcSource, type OtcSource } from '@/lib/otc-source';
 import DayTradeBadge from '@/components/shared/DayTradeBadge';
 import { useChipVerdicts, VerdictStrip } from '@/components/shared/ChipVerdict';
 import MarginSignals from '@/components/shared/MarginSignals';
@@ -66,6 +68,8 @@ interface TrendApiResponse {
   generatedAt?: string;
   todayMove?: TodayMove | null;
   readings?: Partial<Record<ReadingKey, Reading>>;
+  /** 上櫃第三方後備來源註記（2026-10-09）：這一檔用到後備列才有 */
+  otcSource?: OtcSource;
   preMarketRecommendation: {
     todayClose: number;
     prevClose: number;
@@ -469,6 +473,8 @@ export default function StockDetail() {
           放進去會被壓成一個窄欄（手機實測只剩 180px → 格子只能排 1 欄、位階條被壓扁）。
           搬出來拿到整行寬度後，手機 2 欄、桌機一次排完。 */}
       <QuoteGrid stock={stock} allTimeHigh={allTimeHigh} rsi={rsiPair} book={book} />
+      {/* 上櫃第三方後備來源註記（只在這一檔用到後備時出現）：報價取自 allStocks 那一列（otcGrade 隨 stock 一起存），判讀取自 trend-analysis */}
+      <ThirdPartyNote source={otcSourceOfStocks([stock]) ?? readOtcSource(trendData)} />
 
       {/* 三條判讀併排（買進訊號／籌碼判讀／模型判讀）
           ——原本各佔一列，桌機上吃掉約 130px 高度，把下方 K 線圖擠到要捲動才看得全。

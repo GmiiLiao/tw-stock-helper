@@ -9,6 +9,8 @@ import styles from './Screener.module.css';
 import { useShallow } from 'zustand/react/shallow';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { otcSourceOfStocks, readOtcSource, type OtcSource } from '@/lib/otc-source';
 
 interface ScreenerFilter {
   changePercentMin: number | '';
@@ -418,11 +420,13 @@ export default function Screener() {
   // AI ratings keyed by code — fetched once from the backend single source of
   // truth (/api/rating) so grades/signals match the AI recommendation page.
   const [ratings, setRatings] = useState<Record<string, StockRatingLite>>({});
+  // 上櫃第三方後備來源註記（2026-10-09）：與 ratings 同一次回應、同一次 set，不會與評級錯開
+  const [ratingOtcSource, setRatingOtcSource] = useState<OtcSource | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch('/api/rating')
       .then(r => (r.ok ? r.json() : null))
-      .then(data => { if (!cancelled && data?.ratings) setRatings(data.ratings); })
+      .then(data => { if (!cancelled && data?.ratings) { setRatings(data.ratings); setRatingOtcSource(readOtcSource(data)); } })
       .catch(() => { /* ratings stay empty; UI falls back to DEFAULT_RATING */ });
     return () => { cancelled = true; };
   }, []);
@@ -1352,6 +1356,8 @@ export default function Screener() {
                 })
               )}
             </div>
+            {/* 上櫃第三方後備來源註記（只在用到後備時出現）：行情取自 allStocks、評級取自 /api/rating，兩者任一用到即加註 */}
+            <ThirdPartyNote source={otcSourceOfStocks(allStocks) ?? ratingOtcSource} />
           </div>
         </>
       ) : (

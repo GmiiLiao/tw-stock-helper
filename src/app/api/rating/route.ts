@@ -17,6 +17,7 @@ import { enrichScoredStock } from '@/lib/analysis-enrich';
 import { readMarketSnapshot } from '@/lib/market-snapshot-store';
 import { memoize } from '@/lib/singleflight';
 import type { NewsLite } from '@/lib/news-sentiment';
+import { otcSourceField } from '@/lib/otc-source';
 
 export const runtime = 'nodejs';
 
@@ -148,8 +149,9 @@ export async function GET(request: NextRequest) {
       } catch { /* 快照缺就用昨收 */ }
       const { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched } =
         enrichScoredStock(base, bars, fund, news, livePrice);
+      // 上櫃第三方後備來源註記（2026-10-09 使用者裁定 A）：只看這一檔的列；官方列＝{}（回應不多鍵）
       return NextResponse.json(
-        { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched, dataDate, generatedAt: new Date().toISOString(), dispositionComplete: riskData.dispositionComplete },
+        { stock, indicators, fundamentals, swingSignal, newsSentiment, enriched, dataDate, generatedAt: new Date().toISOString(), dispositionComplete: riskData.dispositionComplete, ...otcSourceField([row]) },
         { headers: { 'Cache-Control': riskData.dispositionComplete ? 'public, s-maxage=60, stale-while-revalidate=30' : 'public, s-maxage=15' } },
       );
     }
@@ -163,7 +165,8 @@ export async function GET(request: NextRequest) {
     }
 
     // G2-10：dispositionComplete=false 時 risk:null 不代表確認非處置股（signal 已壓成 WATCH）
-    const payload = { ratings, dataDate, generatedAt: new Date().toISOString(), count: Object.keys(ratings).length, dispositionComplete: riskData.dispositionComplete };
+    // 上櫃第三方後備來源註記（2026-10-09）：評分宇宙用到後備列才帶 otcSource（與 ratings 同一個 body ⇒ 同一份 CDN 快取）
+    const payload = { ratings, dataDate, generatedAt: new Date().toISOString(), count: Object.keys(ratings).length, dispositionComplete: riskData.dispositionComplete, ...otcSourceField(rawData.filter(isRegularStock)) };
     const headers: Record<string, string> = { 'Cache-Control': riskData.dispositionComplete ? 'public, s-maxage=60, stale-while-revalidate=30' : 'public, s-maxage=15' };
     // 全市場評分包較大且被 Screener/自選/NL 選股高頻取用 → gzip 省 ~80% 流量
     if ((request.headers.get('accept-encoding') || '').includes('gzip')) {

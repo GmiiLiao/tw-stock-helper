@@ -40,7 +40,8 @@ export interface TpexClose {
   rows: TpexCloseRow[];
   source: string | null;
   /**
-   * 'official'＝櫃買官方檔；其他（'3P'）＝daemon 的第三方後備（2026-10-08，scripts/lib/tpex-close-finmind.mjs；只在內部標示，畫面不顯示來源）。
+   * 'official'＝櫃買官方檔；其他（'3P'）＝daemon 的第三方後備（2026-10-08，scripts/lib/tpex-close-finmind.mjs）。
+   * 2026-10-09 使用者裁定 A：只在用到後備時，畫面於上櫃相關數據旁加來源註記（src/lib/otc-source.ts＋shared/ThirdPartyNote.tsx）；官方時不顯示。
    * 「只收官方」的用途（歷史 K 棒）以 grade !== 'official' 排除；收盤價等顯示照用（逐位與官方相同，探針三個交易日 100%）。
    */
   grade: string;

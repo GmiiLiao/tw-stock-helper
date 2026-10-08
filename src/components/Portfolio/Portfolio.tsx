@@ -31,6 +31,8 @@ import DefenseBanner from './DefenseBanner';
 import { useModalDismiss } from './useModalDismiss';
 import DividendTaxCalc from './DividendTaxCalc';
 import RiskBadge from '@/components/shared/RiskBadge';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { otcSourceOfFallbackRows } from '@/lib/otc-source';
 import { useDataUid, useIsSimulating } from '@/lib/view-as';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -733,6 +735,8 @@ function AnalyticsPanel({ ledger }: { ledger: Ledger }) {
           </div>
         ))}
       </div>
+      {/* 上櫃第三方後備來源註記（只在用到後備時出現）：未實現損益只在沒有即時價、改用 allStocks 收盤的部位看後備列（與上方 px 同一個條件） */}
+      <ThirdPartyNote source={otcSourceOfFallbackRows(openCodes, code => liveQuotes[code]?.price != null, allStocks)} />
 
       {/* ⚡ 當沖損益分析：獨立口徑（同日同碼配對·當日買均為成本），詳 src/lib/daytrade-calc.ts */}
       <CardBoundary name="當沖損益分析"><DayTradeAnalysis /></CardBoundary>
@@ -1320,6 +1324,8 @@ export default function Portfolio() {
             </span>
           )}
         </p>
+        {/* 上櫃第三方後備來源註記（只在用到後備時出現）：只看沒有即時價、現價改用 allStocks 收盤的持股（與 enriched 同一個條件） */}
+        <ThirdPartyNote source={otcSourceOfFallbackRows(holdingCodes, code => liveQuotes[code]?.price != null, allStocks)} />
       </div>
 
       {/* Tabs */}

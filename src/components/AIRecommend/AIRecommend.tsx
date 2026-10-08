@@ -8,6 +8,8 @@ import BuySellPanel from './BuySellPanel';
 import TrendPanel from './TrendPanel';
 import RiskBadge from '@/components/shared/RiskBadge';
 import CostReference from '@/components/shared/CostReference';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { readOtcSource, readReportOtcSource, type OtcSource } from '@/lib/otc-source';
 import { useShallow } from 'zustand/react/shallow';
 import DayTradeBadge from '@/components/shared/DayTradeBadge';
 import { getChangeColor } from '@/lib/twse-api';
@@ -115,6 +117,8 @@ interface AIResponse {
   mktChg?: number | null;
   excludedLimitUp?: number;
   generatedAt: string;
+  /** 上櫃第三方後備來源註記（2026-10-09）：評分宇宙用到後備列才有 */
+  otcSource?: OtcSource;
 }
 
 const STRATEGY_TABS = [
@@ -715,7 +719,7 @@ interface MarketReportData {
   topPicks: Array<{ code: string; name: string; score: number; grade: string; signal: string; price: number; changePercent: number; buy: number | null; target: number | null; stopLoss: number | null; reasons: string[] }>;
   riskHighlights: string[];
   summary: string;
-  meta: { totalAnalyzed: number; enriched: number; historyCovered: number };
+  meta: { totalAnalyzed: number; enriched: number; historyCovered: number; otc?: { included: boolean; dataDate: string | null; excluded: number; grade?: string } };
 }
 
 /** After-close 盤勢分析 banner — reads the latest report written by the daily cron. */
@@ -789,6 +793,8 @@ function MarketReportBanner() {
           </div>
         </div>
       )}
+      {/* 上櫃第三方後備來源註記（只在報告用到後備時出現；收合時摘要的家數也含上櫃，故放在收合區外） */}
+      <ThirdPartyNote source={readReportOtcSource(report)} />
     </div>
   );
 }
@@ -800,7 +806,7 @@ export default function AIRecommend() {
   const activeTab = useAppStore(s => s.recommendTab);
   const setActiveTab = useAppStore(s => s.setRecommendTab);
   const [error, setError] = useState('');
-  const [intraday, setIntraday] = useState<{ picks: ScoredStock[]; marketOpen: boolean; universe: number } | null>(null);
+  const [intraday, setIntraday] = useState<{ picks: ScoredStock[]; marketOpen: boolean; universe: number; otcSource: OtcSource | null } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -826,7 +832,7 @@ export default function AIRecommend() {
     let live = true;
     const load = () => fetch('/api/twse/intraday-picks')
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (live && d?.picks) setIntraday({ picks: d.picks, marketOpen: d.marketOpen, universe: d.universe }); })
+      .then(d => { if (live && d?.picks) setIntraday({ picks: d.picks, marketOpen: d.marketOpen, universe: d.universe, otcSource: readOtcSource(d) }); })
       .catch(() => {});
     load();
     const id = setInterval(load, 60_000);
@@ -1062,6 +1068,8 @@ export default function AIRecommend() {
                   <StockCard key={stock.code} stock={stock} rank={i + 1} />
                 ))
               )}
+              {/* 上櫃第三方後備來源註記（只在這張榜用到後備時出現）：旗標與榜單同一次回應 */}
+              <ThirdPartyNote source={activeTab === 'intraday' ? intraday?.otcSource ?? null : readOtcSource(data)} />
             </div>
           )}
         </div>

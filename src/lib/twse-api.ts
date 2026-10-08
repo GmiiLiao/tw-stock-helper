@@ -40,6 +40,9 @@ export interface StockInfo {
   value: number;
   transactions: number;
   market?: 'tse' | 'otc' | 'esb';   // 上市(tse) / 上櫃(otc) / 興櫃(esb)
+  // 上櫃收盤第三方後備列的等級原樣（API 列 _grade；只有後備列有，官方列沒有這個鍵·2026-10-09）。
+  //   畫面註記由 otc-source.ts otcSourceOfStocks 判斷，與這份清單同源（Header 每次整份換掉 ⇒ 官方覆蓋後不殘留）
+  otcGrade?: string;
 }
 
 // ── 市場別標籤：上市 / 上櫃 / ETF（00 開頭 4-6 碼為 ETF）──
@@ -118,7 +121,7 @@ export async function fetchAllStocksDayData(): Promise<StockInfo[]> {
   }
 }
 
-export function parseStockDayData(d: StockDayData & { _changePercent?: string; _prevClose?: string; _source?: string; _market?: string }): StockInfo {
+export function parseStockDayData(d: StockDayData & { _changePercent?: string; _prevClose?: string; _source?: string; _market?: string; _grade?: string }): StockInfo {
   const close = parseFloat(d.ClosingPrice) || 0;
   const change = parseFloat(d.Change) || 0;
   const open = parseFloat(d.OpeningPrice) || 0;
@@ -144,6 +147,8 @@ export function parseStockDayData(d: StockDayData & { _changePercent?: string; _
     // ⚠ 2026-09-18 實案（7947 補丁科）：這裡原本只認 tse/otc，興櫃的 esb 被丟成 undefined，
     //   於是個股頁沒有「興」徽章、isExchangeListed 也認不出它沒有漲跌停。API 已回 _market=esb，照傳。
     market: d._market === 'otc' ? 'otc' : d._market === 'tse' ? 'tse' : d._market === 'esb' ? 'esb' : undefined,
+    // 第三方後備列才有 _grade（server 只在後備時標）；原樣帶過來，官方列不多出鍵
+    ...(typeof d._grade === 'string' && d._grade ? { otcGrade: d._grade } : {}),
   };
 }
 

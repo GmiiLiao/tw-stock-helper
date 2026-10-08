@@ -7,6 +7,7 @@ import { getFinWeights } from '@/lib/fin-server';
 import { getRecommendAdj } from '@/lib/recommend-adj-server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { rateLimit } from '@/lib/rate-limit';
+import { otcSourceField } from '@/lib/otc-source';
 import { verdictJsonOf } from '../../../../../scripts/lib/news-verdict-codec.mjs';   // newsVerdict 新舊格式（明文／壓縮 verdictGz，2026-10-08）
 
 export const runtime = 'nodejs'; // firebase-admin（法人加權）需 Node runtime
@@ -78,7 +79,8 @@ export async function GET(request: NextRequest) {
       return +(dir * conf * str * decay * NEWS_W).toFixed(2);
     };
 
-    const stocks = rawData.filter(isRegularStock).map(d => parseStock(d));
+    const regularRows = rawData.filter(isRegularStock);
+    const stocks = regularRows.map(d => parseStock(d));
     // 每檔附 instW/finW（透明呈現）；排序鍵 = 技術評分 + (法人加權+財報加權)×1.5
     const scored = stocks.map(s => {
       const r = scoreStock(s, mode, riskData);
@@ -169,6 +171,8 @@ export async function GET(request: NextRequest) {
         // G2-10：false＝處置名單殘缺，榜上「非處置」未經確認、買進訊號已壓成 WATCH
         dispositionComplete: riskData.dispositionComplete,
       },
+      // 上櫃第三方後備來源註記（2026-10-09 使用者裁定 A）：評分宇宙用到後備列才有這個鍵（與榜單同一個 body）
+      ...otcSourceField(regularRows),
     }, {
       // 殘缺結果只讓 CDN 留 15 秒（來源層 30 秒負快取後就會重試），不要把一次故障釘 60 秒
       'Cache-Control': riskData.dispositionComplete

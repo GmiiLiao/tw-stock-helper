@@ -6,6 +6,7 @@ import { parseStock, scoreStock, fetchRiskStocks, isRegularStock } from '@/lib/s
 import { getAdminDb } from '@/lib/firebase-admin';
 import { getInstWeights } from '@/lib/inst-weight-server';
 import { rateLimit } from '@/lib/rate-limit';
+import { otcSourceField, readOtcSource } from '@/lib/otc-source';
 
 export const runtime = 'nodejs';
 
@@ -40,9 +41,11 @@ export async function GET(request: Request) {
     let squeezeSet: Record<string, number> = {};
     try { squeezeSet = sqDoc?.codesJson ? JSON.parse(sqDoc.codesJson as string) : {}; } catch { squeezeSet = {}; }
     const baseBy: Record<string, { value: number; score: number }> = {};
+    const baseRowBy: Record<string, (typeof base)[number]> = {};   // 來源註記用：候選股用到的昨日收盤列
     for (const d of base) {
       if (!isRegularStock(d)) continue;
       baseBy[d.Code] = { value: parseFloat(d.TradeValue) || 0, score: 0 };
+      baseRowBy[d.Code] = d;
     }
 
     // 盤中時間進度（09:00–13:30 共 270 分鐘），非交易時段視為 1（全日量）。
@@ -117,18 +120,23 @@ export async function GET(request: Request) {
       .sort((a, b) => (b.score + b.instW * 1.5) - (a.score + a.instW * 1.5))
       .slice(0, 20);
 
+    // 上櫃第三方後備來源註記（2026-10-09 使用者裁定 A）：候選宇宙（即時列＋昨日收盤列）用到後備列才帶 otcSource。
+    //   存檔時連旗標一起存（整份 set 覆蓋），收盤後回放存檔就用存檔自己的旗標——與回放的榜單同源，不拿現在的資料去標舊榜。
+    const otcField = otcSourceField([...candidates, ...candidates.map(d => baseRowBy[d.Code])]);
+
     const db = getAdminDb();
     // 盤中有結果 → 持久化；收盤後/尚無候選 → 回當日最後一次盤中榜單
     if (marketOpen && picks.length > 0 && db) {
       db.collection('intradayPicks').doc('latest')
-        .set({ picks: JSON.stringify(picks), universe: candidates.length, savedAt: Date.now() })
+        .set({ picks: JSON.stringify(picks), universe: candidates.length, savedAt: Date.now(), ...otcField })
         .catch(() => {});
     } else if (picks.length === 0 && db) {
       try {
         const saved = (await db.collection('intradayPicks').doc('latest').get()).data();
         if (saved?.picks) {
+          const savedOtc = readOtcSource(saved);
           return gzipJsonAuto(
-            { picks: JSON.parse(saved.picks), marketOpen, universe: saved.universe, stale: true, savedAt: saved.savedAt, generatedAt: new Date().toISOString() },
+            { picks: JSON.parse(saved.picks), marketOpen, universe: saved.universe, stale: true, savedAt: saved.savedAt, generatedAt: new Date().toISOString(), ...(savedOtc ? { otcSource: savedOtc } : {}) },
             { 'Cache-Control': 'public, s-maxage=300' },
           );
         }
@@ -136,7 +144,7 @@ export async function GET(request: Request) {
     }
 
     return gzipJsonAuto(   // 2026-09-18：58KB 未壓縮 → gzip
-      { picks, marketOpen, universe: candidates.length, progress: +progress.toFixed(2), generatedAt: new Date().toISOString(), dispositionComplete: riskData.dispositionComplete },
+      { picks, marketOpen, universe: candidates.length, progress: +progress.toFixed(2), generatedAt: new Date().toISOString(), dispositionComplete: riskData.dispositionComplete, ...otcField },
       { 'Cache-Control': !riskData.dispositionComplete ? 'public, s-maxage=15' : marketOpen ? 'public, s-maxage=30' : 'public, s-maxage=300' },
     );
   } catch (e) {

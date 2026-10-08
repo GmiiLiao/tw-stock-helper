@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { WatchlistGroup, WatchlistItem, AppNotification } from '@/lib/store';
 import styles from './WatchlistTracker.module.css';
@@ -16,6 +16,8 @@ import { MaChipFor, SeqBarsFor } from '@/components/shared/SeqIndicators';
 import { useRiskCodes, isDispositionPending, taipeiToday } from '@/lib/useRiskCodes';
 import { TECH_SCORE_TIP } from '@/lib/tech-score';
 import { getChangeColor } from '@/lib/twse-api';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { isThirdPartyGrade, otcSourceIfShowsOtc, otcSourceOfFallbackRows, otcSourceOfStocks, readOtcSource, type OtcSource } from '@/lib/otc-source';
 
 // ─── Shared status badges (漲跌停 / 注意 / 處置) ───────────────────────────────
 // 注意/處置名單改用全站共用 hook（2026-09-18：此處原有一份複本，處置「尚未生效」的判斷只修共用版就會漏這裡）。
@@ -81,6 +83,8 @@ interface LiveQuote {
   source: 'mis_realtime' | 'stock_day_all' | 'snapshot' | 'unknown';
   prevPrice?: number; // previous fetched price for flash detection
   revealAt?: number | null;   // MIS 揭示時戳（R7）；null＝來源未提供
+  // 收盤後備（stock-day-all）報價列的上櫃第三方後備等級原樣（只有後備列有這個鍵·2026-10-09）；即時報價沒有
+  otcGrade?: string;
 }
 
 interface AiRecommendation {
@@ -603,6 +607,7 @@ function GroupPanel({
   isActive,
   quotes,
   ratingsMap,
+  ratingOtc,
   aiPickCodes,
   alertCodes,
   onRemoveStock,
@@ -615,6 +620,8 @@ function GroupPanel({
   isActive: boolean;
   quotes: Record<string, LiveQuote>;
   ratingsMap: Record<string, { score: number; signal: string }>;
+  /** /api/rating 全市場回應的上櫃第三方後備旗標（與 ratingsMap 同一次 set） */
+  ratingOtc: OtcSource | null;
   aiPickCodes: Set<string>;
   alertCodes: Set<string>;
   onRemoveStock: (groupId: string, code: string) => void;
@@ -627,6 +634,10 @@ function GroupPanel({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [activeDragCode, setActiveDragCode] = useState<string | null>(null);
   const reorderGroupStocks = useAppStore(s => s.reorderGroupStocks);
+  // 上櫃第三方後備註記用：只拿市場別（靜態屬性）判斷分組裡有沒有上櫃股；旗標本身取自評分回應／報價列
+  const allStocks = useAppStore(s => s.allStocks);
+  const otcCodes = useMemo(() => new Set(allStocks.filter(s => s.market === 'otc').map(s => s.code)), [allStocks]);
+  const isOtc = (code: string) => otcCodes.has(code);
 
   if (!isActive) return null;
 
@@ -728,6 +739,10 @@ function GroupPanel({
         })
       )}
 
+      {/* 上櫃第三方後備來源註記（只在用到後備時出現）：報價看逐列（收盤後備報價才有 otcGrade）；
+          評分看 /api/rating 同一次回應的旗標，且只在這個分組有顯示評分的上櫃股時才加註 */}
+      <ThirdPartyNote source={otcSourceOfStocks(group.stocks.map(s => quotes[s.code])) ?? otcSourceIfShowsOtc(ratingOtc, group.stocks.map(s => s.code).filter(code => ratingsMap[code]), isOtc)} />
+
       {/* Add stock search */}
       <AddStockBar groupId={group.id} onAdd={onAddStock} />
 
@@ -805,6 +820,7 @@ function NotificationsPanel() {
 
 function AiGroupPanel({
   aiStocks,
+  aiOtc,
   quotes,
   loading,
   onViewStock,
@@ -812,6 +828,8 @@ function AiGroupPanel({
   onToggleExpand,
 }: {
   aiStocks: AiRecommendation[];
+  /** /api/twse/ai-recommend 回應的上櫃第三方後備旗標（與 aiStocks 同一次 set） */
+  aiOtc: OtcSource | null;
   quotes: Record<string, LiveQuote>;
   loading: boolean;
   onViewStock: (code: string, name: string) => void;
@@ -1019,6 +1037,8 @@ function AiGroupPanel({
           暫無 AI 推薦股票
         </div>
       )}
+      {/* 上櫃第三方後備來源註記（只在用到後備時出現）：榜單旗標（評分宇宙，與 AI 推薦頁同口徑）或報價逐列 */}
+      <ThirdPartyNote source={aiOtc ?? otcSourceOfStocks(aiStocks.map(a => quotes[a.code]))} />
     </div>
   );
 }
@@ -1853,6 +1873,9 @@ function InstitutionalPanel({
     );
   }
 
+  // 現價欄：法人資料自帶價格的列不看 allStocks；其餘改用 allStocks 收盤列（下方逐列 ?? 的同一個條件）
+  const ownPrice = new Set(stocks.filter(s => s.price != null && s.change != null && s.changePercent != null).map(s => s.code));
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Header info bar */}
@@ -1994,6 +2017,8 @@ function InstitutionalPanel({
           </div>
         );
       })}
+      {/* 上櫃第三方後備來源註記（只在現價欄用到後備列時出現） */}
+      <ThirdPartyNote source={otcSourceOfFallbackRows(stocks.map(s => s.code), code => ownPrice.has(code), allStocks)} />
     </div>
   );
 }
@@ -2059,6 +2084,8 @@ export default function WatchlistTracker() {
 
   // 全市場 AI 評分/訊號表（code → score/signal）供各分頁(含我的自選)每列顯示。
   const [ratingsMap, setRatingsMap] = useState<Record<string, { score: number; signal: string }>>({});
+  // 上櫃第三方後備來源註記（2026-10-09）：與 ratingsMap 同一次回應、同一次 set ⇒ 官方覆蓋後跟評分一起換掉
+  const [ratingOtc, setRatingOtc] = useState<OtcSource | null>(null);
   useEffect(() => {
     let alive = true;
     const load = () => { if (!isForeground()) return; return fetch('/api/rating')
@@ -2068,7 +2095,7 @@ export default function WatchlistTracker() {
         const m: Record<string, { score: number; signal: string }> = {};
         // 顯示技術評分（未含處置／注意扣分）；風險由列上的處置／注意徽章另列（見 lib/tech-score）
         for (const c in d.ratings) m[c] = { score: d.ratings[c].baseScore ?? d.ratings[c].score, signal: d.ratings[c].signal };
-        setRatingsMap(m);
+        setRatingsMap(m); setRatingOtc(readOtcSource(d));
       })
       .catch(() => {}); };
     load();
@@ -2078,6 +2105,8 @@ export default function WatchlistTracker() {
   }, []);
 
   const [aiStocks, setAiStocks] = useState<AiRecommendation[]>([]);
+  // 上櫃第三方後備來源註記：與 aiStocks 同一次回應、同一次 set
+  const [aiOtc, setAiOtc] = useState<OtcSource | null>(null);
   const aiStocksRef = useRef<AiRecommendation[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   // Institutional trading data
@@ -2179,6 +2208,8 @@ export default function WatchlistTracker() {
               prevClose: prev, change, changePercent: pct,
               volume: parseInt(item.TradeVolume?.replace(/,/g, '') || '0', 10),
               tradeTime: '', source: 'stock_day_all',
+              // 上櫃第三方後備列才有 _grade（server 只在後備時標）：原樣帶進報價，註記逐列判斷；官方列不多出鍵
+              ...(isThirdPartyGrade(item._grade) ? { otcGrade: String(item._grade) } : {}),
             };
           }
         }
@@ -2227,7 +2258,7 @@ export default function WatchlistTracker() {
           riskLevel: r.riskLevel ?? 'low',
           riskWarnings: r.riskWarnings ?? [],
         }));
-        setAiStocks(parsed);
+        setAiStocks(parsed); setAiOtc(readOtcSource(data));
       }
     } catch (_err) {
       // ignore
@@ -2487,9 +2518,9 @@ export default function WatchlistTracker() {
             ) : isForeignSellTab ? (
               <InstitutionalPanel stocks={instData.foreignSell} mode="foreign-sell" loading={instLoading} dataDate={instData.dataDate} onViewStock={handleViewStock} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
             ) : isAiTab ? (
-              <AiGroupPanel aiStocks={aiStocks} quotes={quotes} loading={aiLoading} onViewStock={handleViewStock} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
+              <AiGroupPanel aiStocks={aiStocks} aiOtc={aiOtc} quotes={quotes} loading={aiLoading} onViewStock={handleViewStock} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
             ) : activeGroup ? (
-              <GroupPanel group={activeGroup} isActive={true} quotes={quotes} ratingsMap={ratingsMap} aiPickCodes={aiPickCodes} alertCodes={alertCodes} onRemoveStock={removeFromGroup} onAddStock={addToGroup} onDeleteGroup={handleDeleteGroup} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
+              <GroupPanel group={activeGroup} isActive={true} quotes={quotes} ratingsMap={ratingsMap} ratingOtc={ratingOtc} aiPickCodes={aiPickCodes} alertCodes={alertCodes} onRemoveStock={removeFromGroup} onAddStock={addToGroup} onDeleteGroup={handleDeleteGroup} expandedCode={expandedCode} onToggleExpand={toggleExpand} />
             ) : null}
           </div>
 

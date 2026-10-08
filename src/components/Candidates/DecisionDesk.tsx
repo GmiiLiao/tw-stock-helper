@@ -27,6 +27,8 @@ import { calcFee } from '@/lib/tw-fee';
 import { requestWarZoom } from '@/components/WarRoomV2/pendingZoom';
 import { openPrepTab } from '@/components/PrepRoom/prepTabs';
 import { useWarV2Layout } from '@/components/WarRoomV2/parts/useWarAccess';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { otcSourceOfFallbackRows } from '@/lib/otc-source';
 
 interface CharRow { label?: string; spec?: number; corr?: number; f20?: number; t20?: number; d20?: number; fStreak?: number; tStreak?: number; dStreak?: number }
 
@@ -538,6 +540,8 @@ export default function DecisionDesk() {
               );
             })}
           </div>
+          {/* 上櫃第三方後備來源註記（只在用到後備時出現）：只看沒有即時報價、價格／高低改用 allStocks 的候選（與 cards 同一個條件 lq ?? s） */}
+          <ThirdPartyNote source={otcSourceOfFallbackRows(codes, code => !!liveQ[code], allStocks)} />
 
           <div style={{ marginTop: 12, fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
             ⚠ 策略傾向由「回測背書的籌碼判讀（前一交易日 EOD）＋勝率雷達」綜合，非即時保證；勝率為歷史估計。

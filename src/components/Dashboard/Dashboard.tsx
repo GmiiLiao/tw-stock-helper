@@ -11,6 +11,8 @@ import IndexAnalysis from '@/components/IndexNews/IndexAnalysis';
 import DailyNews from '@/components/IndexNews/DailyNews';
 import TradingRules from '@/components/TradingRules/TradingRules';
 import RiskBadge from '@/components/shared/RiskBadge';
+import ThirdPartyNote from '@/components/shared/ThirdPartyNote';
+import { otcSourceOfStocks } from '@/lib/otc-source';
 import WindHub from '@/components/WindHub/WindHub';
 import WashoutBanner from './WashoutBanner';
 import ChipSignals from '@/components/ChipSignals/ChipSignals';
@@ -395,6 +397,8 @@ export default function Dashboard() {
           icon="⚖️"
         />
       </div>
+      {/* 上櫃第三方後備來源註記（只在用到後備時出現）：下方家數／漲跌停／熱力／排行都取自同一份 validStocks */}
+      <ThirdPartyNote source={otcSourceOfStocks(validStocks)} />
 
       {/* 第二大腦洞察：產業輪動 / 法人連續買超 / 策略回測勝率 */}
       {/* 漲停/跌停全列表（熱力圖模式，全數顯示） */}
