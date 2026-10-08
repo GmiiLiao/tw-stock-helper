@@ -1,12 +1,12 @@
 // ── second-brain/finmind 的 README 與 _manifest.json ──────────────────────────────
-// 每份輸出都標「來源 FinMind（第三方轉載官方）·研究用·不上站」；授權限制照 FinMind 方案表寫明。
+// 每份輸出都標「來源 FinMind・研究用」（使用者 2026-10-08 裁定）；授權限制照 FinMind 方案表寫明。
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { SOURCE_LABEL, MAIN_START, DATASETS } from './datasets.mjs';
 import { datasetDir, readJson, writeJsonAtomic } from './store.mjs';
 
 export const LICENSE_NOTE = 'FinMind Sponsor 方案：只限個人／學術／web／app 開發等非商業用途；即時資料不得呈現於對外介面；使用時須標示資料來源「FinMind」。';
-export const USAGE_NOTE = '台股助手有付費會員 ⇒ 本目錄資料只進第二大腦做內部研究：不寫 Firestore、不上站、不進正式訓練或計分（tw-official-data-sources：正式只用官方；第三方等同 Yahoo，只能研究）。';
+export const USAGE_NOTE = '使用者 2026-10-08／10-09 裁定：網站目前未收費、屬非商業用途（Sponsor 授權涵蓋）。本目錄資料進第二大腦做研究，經實驗解析後才使用；網站只用處理後的衍生結果，不再散佈原始資料、不顯示即時資料；不進正式訓練或計分（tw-official-data-sources）。本機與 Firestore 雙向備份（後端限定）。「來源 FinMind・研究用」只標在內部，網站不顯示（上櫃收盤後備那天的加註除外）。網站開始收費前須升級 Sponsor Pro 或取得 FinMind 書面同意。';
 const MAX_RUNS = 30;
 // 人工／試抓者寫的「實測筆記」區塊：--refresh-docs 重產 README 時原樣保留（2026-10-08 試抓者加）
 export const FIELD_NOTES_START = '<!-- field-notes:start -->';

@@ -7,10 +7,11 @@
 //   range       dataset＋start_date～end_date，一次拿區間內全市場（chunkMonths＝依月切段）
 //   table       只帶 dataset（整張表，存成當天快照）
 //   week        先以 data_id＝2330 查區間取得週資料日，再逐週全市場（集保持股分級）
-// 研究用口徑（tw-official-data-sources）：FinMind 是第三方轉載官方 ⇒ 只進第二大腦做內部研究，不寫 Firestore、不上站、不進正式訓練或計分。
+// 研究用口徑（tw-official-data-sources）：FinMind 是第三方轉載官方 ⇒ 進第二大腦做研究，經實驗解析後才使用，不進正式訓練或計分；
+//   原始資料不再散佈、即時資料不上站；本機與 Firestore 雙向備份（後端限定）。使用者 2026-10-08／10-09 裁定。
 
 export const MAIN_START = '2023-01-01';
-export const SOURCE_LABEL = '來源 FinMind（第三方轉載官方）·研究用·不上站';
+export const SOURCE_LABEL = '來源 FinMind・研究用';   // 使用者 2026-10-08 裁定的標示字樣（只標在內部檔案，網站不顯示）
 export const DAILY_REPORT_EP = 'taiwan_stock_trading_daily_report';
 export const SAMPLE_STOCKS = ['2330', '6129', '2603'];   // 上市權值／上櫃小型（目錄員抽樣用過）／上市航運
 

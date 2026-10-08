@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ── FinMind 回補 CLI（second-brain/finmind，研究用·不上站）──────────────────────────────
+// ── FinMind 回補 CLI（second-brain/finmind，來源 FinMind・研究用）──────────────────────────────
 // 使用者 2026-10-08：「可下載的資料先下載2023-2026的部份，先驗證，其它的再找空閒時間下載」
 //   ① 每個資料集先 --sample（小樣本）→ validate.mjs 與官方比對通過（_validation.json=pass）才允許大量下載（> 60 請求）。
 //   ② 主佇列 2023-01-01 起；平日 08:30–13:45 每小時 ≤1,500、其餘 ≤5,000（timewin）；每秒 ≤2。

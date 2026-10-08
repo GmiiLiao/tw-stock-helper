@@ -58,7 +58,7 @@ test('端對端：全市場單日＋分 K 兩檔，全部成功 → 正式檔、
   assert.equal(cov.groups['2026-10-07'].status, 'complete');
   assert.equal(cov.summary.complete, 3);
   assert.deepEqual(cov.cols, ['date', 'stock_id', 'v']);
-  assert.match(cov.source, /FinMind（第三方轉載官方）·研究用·不上站/);
+  assert.match(cov.source, /來源 FinMind・研究用/);
   assert.equal(plan(root, ['TaiwanStockMarginMaintenance', 'TaiwanStockKBar']).length, 0, '再規劃一次：全部完成、沒有要抓的');
 });
 
