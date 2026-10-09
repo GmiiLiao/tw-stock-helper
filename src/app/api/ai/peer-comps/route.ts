@@ -3,7 +3,7 @@ import { cacheHeader, unavailable } from '@/lib/api-cache';
 import { getAdminDb } from '@/lib/firebase-admin';
 export const runtime = 'nodejs';
 
-interface Peer { code: string; name: string; price: number | null; changePct: number | null; pe: number | null; pb: number | null; yield: number | null; revYoY: number; score: number | null; signal: string | null; rs: number | null }
+interface Peer { code: string; name: string; price: number | null; changePct: number | null; pe: number | null; pb: number | null; yield: number | null; revYoY: number | null; score: number | null; signal: string | null; rs: number | null }
 
 // 同業比較：?code=2330 → 該股所屬產業的同業表 + 產業中位數。
 export async function GET(request: NextRequest) {

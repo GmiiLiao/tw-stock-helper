@@ -40,7 +40,9 @@ async function main() {
   const leaders = [];
   for (const [ind, members] of Object.entries(industries)) {
     const ranked = (members || [])
-      .filter(m => /^\d{4}$/.test(m.code) && (cnt[m.code] || 0) >= 40)
+      // 只取上市（2026-10-09 移植 MOPS 月營收口徑：peerComps 起含上櫃、每列帶 mkt）：名單由 build-model-core 等模型使用，
+      //   納入上櫃＝名單定義改變，要改先問使用者（同 swing-formula-shadow／squeeze-train）
+      .filter(m => /^\d{4}$/.test(m.code) && (m.mkt ?? '上市') === '上市' && (cnt[m.code] || 0) >= 40)
       .map(m => ({ code: m.code, name: m.name, industry: ind, avgValueE8: +((sumVal[m.code] / cnt[m.code]) / 1e8).toFixed(2) }))
       .sort((a, b) => b.avgValueE8 - a.avgValueE8);
     for (const m of ranked.slice(0, 2)) leaders.push(m);

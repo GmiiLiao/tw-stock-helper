@@ -9,7 +9,7 @@ import RiskBadge from '@/components/shared/RiskBadge';
 // ── 同業比較（financial-services comps-analysis 台股化）──
 // daemon 每日算好 peerComps/latest；此處只呈現：同產業 PE/PB/殖利率/營收YoY/評分/RS。
 
-interface Peer { code: string; name: string; price: number | null; changePct: number | null; pe: number | null; pb: number | null; yield: number | null; revYoY: number; score: number | null; signal: string | null; rs: number | null }
+interface Peer { code: string; name: string; price: number | null; changePct: number | null; pe: number | null; pb: number | null; yield: number | null; revYoY: number | null; score: number | null; signal: string | null; rs: number | null }
 interface Median { count: number; medPe: number | null; medPb: number | null; medYield: number | null; medRevYoY: number | null }
 interface Resp { updatedAt: number; month: string; industry: string | null; median: Median | null; peers: Peer[] }
 
@@ -36,7 +36,7 @@ export default function PeerComps({ code }: { code: string }) {
   }, [code]);
 
   if (loading) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>載入同業比較中…</div>;
-  if (!data || !data.industry || !data.peers.length) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>暫無同業比較資料（每日收盤後更新，僅涵蓋上市公司）。</div>;
+  if (!data || !data.industry || !data.peers.length) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>暫無同業比較資料（每日收盤後更新，涵蓋上市櫃公司；當月營收未公布或產業別未知者不列）。</div>;
 
   const m = data.median;
   const me = data.peers.find(p => p.code === code);
@@ -102,7 +102,7 @@ export default function PeerComps({ code }: { code: string }) {
                   <td style={{ textAlign: 'right', padding: '7px 8px' }}>{num(p.pe)}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px' }}>{num(p.pb, 2)}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px' }}>{num(p.yield)}</td>
-                  <td style={{ textAlign: 'right', padding: '7px 8px', color: p.revYoY > 0 ? 'var(--color-up)' : p.revYoY < 0 ? 'var(--color-down)' : undefined }}>{num(p.revYoY)}</td>
+                  <td style={{ textAlign: 'right', padding: '7px 8px', color: p.revYoY == null ? undefined : p.revYoY > 0 ? 'var(--color-up)' : p.revYoY < 0 ? 'var(--color-down)' : undefined }}>{num(p.revYoY)}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', fontWeight: 700, color: '#fbbf24' }}>{p.score ?? '—'}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', color: '#fbbf24' }}>{p.rs ?? '—'}</td>
                   <td style={{ textAlign: 'right', padding: '7px 8px', fontWeight: 700, color: p.signal ? (SIG[p.signal] || SIG.NEUTRAL).c : 'var(--text-muted)' }}>{p.signal ? (SIG[p.signal] || SIG.NEUTRAL).t : '—'}</td>

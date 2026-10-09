@@ -67,7 +67,8 @@ async function fetchIndustry(db) {
   try {
     const pc = (await db.collection('peerComps').doc('latest').get()).data();
     const ind = pc?.industriesJson ? JSON.parse(pc.industriesJson) : {};
-    for (const g in ind) for (const it of ind[g] || []) if (/^\d{4}$/.test(it?.code || '') && !map[it.code]) map[it.code] = g;
+    // 只取上市（2026-10-04 peerComps 起含上櫃、每列帶 mkt）：與影子模式同一口徑；要納入上櫃需整套重研究＋使用者核可
+    for (const g in ind) for (const it of ind[g] || []) if (/^\d{4}$/.test(it?.code || '') && (it.mkt ?? '上市') === '上市' && !map[it.code]) map[it.code] = g;
   } catch (e) { console.log('⚠ peerComps 產業分群讀取失敗:', (e.message || '').slice(0, 60)); }
   if (Object.keys(map).length >= 1000) return map;
   for (const ep of ['t187ap03_L', 't187ap03_O']) {
