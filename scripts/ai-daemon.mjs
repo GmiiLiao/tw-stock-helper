@@ -66,6 +66,8 @@ import {
 } from './lib/ai-stoploss-text.mjs';
 import { isEtfCode as stopIsEtfCode } from './lib/ai-stoploss-base.mjs';
 import { phase1HoldingStop, standardBuyPoint, phase1HypotheticalStop, measureLlmStop } from './lib/stop-phase1.mjs';
+import { toIsoDate, archiveBefore, leadingOnOrAfter, tailBaselines, olderThanCurrent } from './lib/archive-window.mjs';
+import { createIntradayRestorer, INTRADAY_MAX_PTS } from './lib/intraday-restore.mjs';
 import { createVwapBook, accVwap, vwapOf, serializeVwap, restoreVwap, createDaytradeEngine, pickShortMonitor, limitPrices as dtLimitPrices, DT_MONITOR_EACH } from './lib/daytrade-engine.mjs';
 // 規則類利空事件類別（新聞技能 §1.5／§1.7／§4.1；2026-10-05 第二輪 A4「做skills判定與加權重」）：judgeOneStock 的事實確認與規則判定、
 //   三個 newsVerdict 寫入端的欄位。純資料＋純函式、不 import 任何模組（daemon 靜態 import 鏈不會因此多載入別的檔）。
@@ -2588,7 +2590,7 @@ function recordIntraday(quotes, trackedSet) {
     const last = s.pts[s.pts.length - 1];
     if (last && Math.floor(last[0] / 60) === minute) { last[0] = tsSec; last[1] = q.price; last[2] = q.volume || 0; } // 同分鐘覆蓋為最新
     else s.pts.push([tsSec, q.price, q.volume || 0]);
-    if (s.pts.length > 400) s.pts.splice(0, s.pts.length - 400); // 全日270分＋早盤回補＋即時，留餘裕
+    if (s.pts.length > INTRADAY_MAX_PTS) s.pts.splice(0, s.pts.length - INTRADAY_MAX_PTS); // 全日270分＋早盤回補＋即時，留餘裕
   }
 }
 // 壓縮格式（2026-10-02；lib/intraday-codec.mjs）：舊版單一欄位 seriesJson 追蹤檔數多時下午即超過 1MB 上限、整筆寫入失敗
@@ -2636,6 +2638,14 @@ async function writeIntraday() {
   }
   catch (e) { log('✖ writeIntraday:', (e.message || '').slice(0, 200)); }   // 不再截在 80 字（舊版看不到超出多少）
 }
+// 重啟接回今日序列（2026-10-03；lib/intraday-restore.mjs）：_intraday 是純記憶體，重啟後第一次 writeIntraday 會用稀疏序列
+//   整份覆蓋文件（10-02 15:51/15:53/16:07 三次重啟後只剩 31 檔／682 點）。盤中迴圈第一次記錄前先讀回今日文件併回記憶體；
+//   讀取失敗或今日分片代不一致時本輪不回補、不寫入（記錄照常累積在記憶體），下一輪重試；連續 3 次失敗才放棄、照常寫入
+//   （失敗路徑最多晚 2 輪≈1.5 分才寫；寧可殘缺也不讓走勢一直停更）。成功路徑同一輪就寫，首寫時間不變。
+//   只在 marketSnapshotLoop 呼叫 ⇒ ONESHOT 不還原（也不寫）。
+const restoreIntraday = createIntradayRestorer({
+  readDoc: () => readIntradayDoc(), getState: () => _intraday, setState: s => { _intraday = s; }, log, maxTries: 3,
+});
 
 // 早盤回補：daemon 只從「被檢視當下」才記錄，故被檢視前的早盤缺一段。
 // 每輪回補一檔(限流)，用 Yahoo 1m 補上首筆之前的早盤，讓即時走勢圖從 09:00 起完整、
@@ -2705,7 +2715,7 @@ async function backfillIntradayMorning(trackedSet, byCode) {
   const morning = bars.filter(b => b[0] < firstTs && _taipeiMinOf(b[0]) >= 9 * 60 && _taipeiMinOf(b[0]) < 13 * 60 + 35);
   if (!morning.length) return;                               // 沒補到＝退避後再試（Yahoo 資料未出）
   if (!s) { _intraday.series[target] = { prev: +(bars[0][1]).toFixed(2), pts: morning }; }
-  else { s.pts = [...morning, ...s.pts]; if (s.pts.length > 400) s.pts.splice(400); }
+  else { s.pts = [...morning, ...s.pts]; if (s.pts.length > INTRADAY_MAX_PTS) s.pts.splice(INTRADAY_MAX_PTS); }
   _ibBackfilled.set(target, 'done');
   log(`  ⏮ 早盤回補 ${target} +${morning.length} 筆`);
 }
@@ -3369,9 +3379,12 @@ async function marketSnapshotLoop() {
         // 記錄使用者關注個股的分時序列(即時走勢圖用，不依賴延遲的 Yahoo)。
         try {
           const tracked = await getTrackedCodes(new Set(codes.map(c => c.code)));
+          const restored = await restoreIntraday(isoDate(taipei()));   // 重啟後首輪先接回今日序列再記錄；接回前不回補、不寫入（防殘缺版覆蓋）
           recordIntraday(quotes, tracked);
-          await backfillIntradayMorning(tracked, byCode); // 每輪回補一檔早盤缺口
-          await writeIntraday();
+          if (restored) {
+            await backfillIntradayMorning(tracked, byCode); // 每輪回補一檔早盤缺口
+            await writeIntraday();
+          }
           await checkAnomalies(quotes, tracked); // 爆量急拉/急殺偵測
         } catch (e) { log('✖ intraday:', (e.message || '').slice(0, 80)); }
         log(`✓ snapshot: ${liveN}/${prio.length} live (priority), ${codes.length} total · ${Math.round((Date.now() - now) / 1000)}s`);
@@ -3412,7 +3425,7 @@ async function readSnapshotQuotes() {
   try {
     const s = (await db.collection('marketSnapshot').doc('latest').get()).data();
     if (!s) return null;
-    return { quotes: JSON.parse(s.quotesJson || '{}'), marketOpen: !!s.marketOpen, sweepAt: s.sweepAt };
+    return { quotes: JSON.parse(s.quotesJson || '{}'), marketOpen: !!s.marketOpen, sweepAt: s.sweepAt, dataDate: s.dataDate || null };
   } catch { return null; }
 }
 
@@ -12762,34 +12775,37 @@ async function computeTailEndPicks() {
   const closedToday = trading && mins >= 14 * 60;                            // 收盤後(STOCK_DAY_ALL 已更新)
   if (!liveWindow && !closedToday && trading) return;                        // 盤中前段不算(位置未定)
 
-  // 近日高 + 均量(張)：chipArchive closeJson {code:[收盤,量張]}；instJson {code:[外資,投信]}
-  const arch = await readArchive(23);   // 21+2；濾空殼後 maps 不會出現 {} 位移
-  if (!arch.length) return;
-  const maps = arch.map(a => JSON.parse(a.closeJson));
-  const instMaps = arch.map(a => a.instJson ? JSON.parse(a.instJson) : {});
-  // 外資連續買超天數(由最近往回；實測：有買超為關鍵、連6日+略優)
-  const foreignStreak = code => { let s = 0; for (let k = 0; k < instMaps.length; k++) { const f = instMaps[k]?.[code]?.[0]; if (f > 0) s++; else break; } return s; };
-  const hi20 = {}, avgVol = {}, prevClose = {};
-  const allCodes = new Set(); for (const m of maps) for (const k in m) allCodes.add(k);
-  for (const code of allCodes) {
-    let h = 0, vs = 0, vn = 0;
-    for (let k = 0; k < 20; k++) { const row = maps[k]?.[code]; if (!row) continue; if (row[0] > h) h = row[0]; if (k < 5 && row[1] > 0) { vs += row[1]; vn++; } }
-    hi20[code] = h; avgVol[code] = vn ? vs / vn : 0; prevClose[code] = maps[0]?.[code]?.[0] || 0;
-  }
-
-  // 今日 OHLCV：盤中用快照、收盤後用 STOCK_DAY_ALL
-  let rows = []; let source = 'close';
+  // 今日 OHLCV：盤中用快照、收盤後用 STOCK_DAY_ALL。rowsDate＝這批列**自報**的資料日，下方歸檔基準要對齊它
+  let rows = []; let source = 'close'; let rowsDate = null;
   if (liveWindow) {
     const snap = await readSnapshotQuotes(); const q = snap?.quotes || {};
     for (const code in q) { const x = q[code]; if (!x.live || !(x.price > 0) || !(x.high > 0)) continue; rows.push({ code, name: x.name, market: x.market, o: x.open, h: x.high, l: x.low, c: x.price, lots: Math.round((x.volume || 0) / 1000) }); }
     source = 'live';
+    rowsDate = snap?.dataDate || today;   // 只收 x.live（今日真成交）⇒ 盤中列就是今天；快照自報優先
   } else {
     const csv = await fetchCloseCsvFull();
     // R10（2026-09-12）：CSV 空（含抓取失敗）就棄權——原本會拿 0 檔算盤型並覆寫 marketPattern/latest，
     // 上一份好的撿尾盤榜被「今天沒有」蓋掉，而那其實是 TWSE 一次暫時性失敗。
     if (csv.length === 0) { log('  ⚠ 撿尾盤/盤型：STOCK_DAY_ALL 回空，本輪棄權（保留上一份 latest）'); return; }
+    rowsDate = toIsoDate(csv.dataDate);
+    if (!rowsDate) { log('  ⚠ 撿尾盤：STOCK_DAY_ALL 缺自報資料日，無法對齊歸檔，本輪棄權（保留上一份 latest）'); return; }
+    // 14:00 起的開機重跑若遇 CSV 尚未換日，算出來的是昨天的榜——不可蓋掉今天的盤中榜
+    const cur = (await db.collection('marketPattern').doc('latest').get()).data()?.tailPicks;
+    if (olderThanCurrent(cur, rowsDate)) { log(`  ⚠ 撿尾盤：STOCK_DAY_ALL 資料日 ${rowsDate} 早於現存榜 ${cur.dataDate || cur.date}，本輪棄權（保留較新的榜）`); return; }
     for (const r of csv) rows.push({ code: r.code, name: r.name, market: 'tse', o: r.open, h: r.high, l: r.low, c: r.close, lots: r.vol / 1000 });
   }
+
+  // 近日高 + 均量(張)：chipArchive closeJson {code:[收盤,量張]}；instJson {code:[外資,投信]}
+  // ⚠ 只取資料日 rowsDate **之前**的歸檔（lib/archive-window.mjs，2026-10-03）：readArchive 不排除當日，
+  //   15:10 收盤歸檔後第一筆就是今天 ⇒ 昨收＝今收（漲幅 0）、20 日高含今天 ⇒ close 版 07-17 起每輪 0 檔。
+  //   盤中歸檔還沒有今天，濾了也不變。外資連買（instMaps）同步對齊 t-1 以前＝PIT-safe 回測口徑。
+  const arch = archiveBefore(await readArchive(23), rowsDate);   // 21+2（收盤模式丟掉當日後仍 ≥20）；濾空殼後 maps 不會出現 {} 位移
+  if (!arch.length) return;
+  const maps = arch.map(a => JSON.parse(a.closeJson));
+  const instMaps = arch.map(a => a.instJson ? JSON.parse(a.instJson) : {});
+  // 外資連續買超天數(由最近往回；實測：有買超為關鍵、連6日+略優)
+  const foreignStreak = code => { let s = 0; for (let k = 0; k < instMaps.length; k++) { const f = instMaps[k]?.[code]?.[0]; if (f > 0) s++; else break; } return s; };
+  const { hi20, avgVol, prevClose } = tailBaselines(maps);
 
   // AI 評分(全市場批次)：與策略卡同源 /api/rating
   const ratingMap = (await getJSON('/api/rating'))?.ratings || {};
@@ -12847,9 +12863,9 @@ async function computeTailEndPicks() {
   locked.sort((a, b) => strength(b) - strength(a));
 
   await db.collection('marketPattern').doc('latest').set({
-    tailPicks: { updatedAt: Date.now(), date: today, source, instDate, buyable: buyable.slice(0, 60), locked: locked.slice(0, 30), buyableTotal: buyable.length },
+    tailPicks: { updatedAt: Date.now(), date: today, dataDate: rowsDate, source, instDate, buyable: buyable.slice(0, 60), locked: locked.slice(0, 30), buyableTotal: buyable.length },
   }, { merge: true });
-  log(`  🪣 撿尾盤 ${source} buyable=${buyable.length} locked=${locked.length}`);
+  log(`  🪣 撿尾盤 ${source} buyable=${buyable.length} locked=${locked.length} 資料日=${rowsDate}`);
 }
 
 // ── 60) 三大法人累計籌碼庫 chipCumulative（證交所 T86 逐日累加）──
@@ -13301,7 +13317,10 @@ async function computeChipPicks() {
   const win = snap.docs.map(d => { const x = d.data(); return { date: x.date, map: x.codesJson ? JSON.parse(x.codesJson) : {} }; });
   if (!win.length) { log('  ⚠ 法人籌碼推選：chipDaily 尚無資料'); return; }
   const dataDate = win[0].date, latest = win[0].map;
-  const quo = (await readSnapshotQuotes())?.quotes || {};
+  const snapQ = await readSnapshotQuotes();
+  const quo = snapQ?.quotes || {};
+  // 報價代表哪一天：快照自報 dataDate（盤中與 13:30 後＝今天、其餘＝最近歸檔日）；舊快照缺欄位才退回日曆日
+  const priceDate = snapQ?.dataDate || isoDate(taipei());
 
   // 資券借券（t-1 vs t-2）＋前 20 日高＋昨量：實證訊號 setup 與綜合評分素材
   let mgY = {}, mgY2 = {}, lnY = {}, lnY2 = {}, hi20 = {}, yVol = {}, c5map = {}, kdMap = {}, bm5Map = {}, vol20Map = {}, rsiMap = {};
@@ -13316,7 +13335,6 @@ async function computeChipPicks() {
     if (lnDays[0]) lnY = JSON.parse(lnDays[0].lendingJson);
     if (lnDays[1]) lnY2 = JSON.parse(lnDays[1].lendingJson);
     const maps = arch.map(a => (a.closeJson ? JSON.parse(a.closeJson) : {}));
-    c5map = maps[4] || {};   // t-5 收盤（過熱懲罰 ret5 用：今日價/t-5收-1）
     const codes = new Set(); for (const m of maps) for (const k in m) codes.add(k);
     // ── hi20 必須是「**今天以前**的 20 日高」（2026-08-26 使用者截圖查出）──
     // 舊版從 k=0 起算，而 15:10 收盤歸檔後 maps[0] 就是**今天**，於是
@@ -13325,11 +13343,15 @@ async function computeChipPicks() {
     //    同一檔股票憑空少 4 分，而且只在**收盤後**發作（盤中 maps[0] 還是昨天，
     //    所以白天看是對的、晚上規劃隔日單時是錯的，最難察覺的一種）。
     //    實案：台虹 8039 收 320.5 創高，hi20 也被算成 320.5 → 顯示 💪強尾。
-    const archIsToday = arch[0]?.date === isoDate(taipei());
-    const hiFrom = archIsToday ? 1 : 0;          // 歸檔已含今日 → 從 t-1 起算
+    // 2026-10-03：「今天」改以報價自報的資料日判斷（lib/archive-window.mjs），不用日曆日——週末／盤前開機時
+    //   快照是上一交易日收盤、arch[0] 也是那天，用日曆日比對會判成「未含」而重蹈上面的覆轍。
+    const hiFrom = leadingOnOrAfter(arch, priceDate);   // 歸檔已含報價當日 → 從前一交易日起算
+    // t-5 收盤（過熱懲罰 ret5＝報價/t-5收−1；回測 bt-core 口徑 close(t)/close(t-5)）——與 hi20 同一起點。
+    //   舊版固定 maps[4]：盤中 maps[0]=t-1 → t-5 正確，收盤歸檔後 maps[0]=t → t-4，ret5 變成 4 日漲幅。
+    c5map = maps[hiFrom + 4] || {};
     for (const c of codes) {
       let h = 0; for (let k = hiFrom; k < Math.min(20 + hiFrom, maps.length); k++) { const v = maps[k]?.[c]?.[0]; if (v > h) h = v; }
-      hi20[c] = h; yVol[c] = maps[0]?.[c]?.[1] || 0;
+      hi20[c] = h; yVol[c] = maps[hiFrom]?.[c]?.[1] || 0;   // 昨量也從 hiFrom 起算（審查 M1：maps[0] 收盤歸檔後是今量）
     }
     // KD(9) 全市場——K>90 極度超買為實證避開訊號（screen-kd 三輪檢定，見 composite-score.ts）。
     // 口徑與 src/lib/twse-api.ts calculateKD 一致：RSV=(C−L9)/(H9−L9)×100，
@@ -16464,7 +16486,8 @@ async function dailyJobsLoop() {
             else {
               const mp = (await db.collection('marketPattern').doc('latest').get()).data();
               const tp = mp?.tailPicks;
-              if (tp?.date === today && tp.source === 'live') {
+              // dataDate（2026-10-09 起撿尾盤榜帶自報資料日）也要是今天：盤中重啟首輪讀到昨天快照時，live 列不可被存成今天的追蹤單
+              if (tp?.date === today && tp.source === 'live' && (tp.dataDate ?? tp.date) === today) {
                 if ((tp.buyable || []).length) {
                   const items = tp.buyable.slice(0, 10).map(x => ({ code: x.code, name: x.name, price: x.price, chg: x.chg, char: x.char || null }));
                   await db.collection('tailTrack').doc(today).set({ date: today, items, n: items.length, evaluated: false, at: Date.now() });
@@ -16997,6 +17020,7 @@ if (ONESHOT) {
     },
     asia: () => computeAsiaPremarket({ lateCatchup: process.argv.includes('--late') }),
     chipPicks: () => computeChipPicks(),
+    tailEndPicks: () => computeTailEndPicks(),   // 撿尾盤榜（12:45–13:35 尾盤即時；14:00 後／非交易日用 STOCK_DAY_ALL 收盤版）
     alerts: () => checkAlerts(),
     swingPicks: () => computeSwingPicks(),
     strengthPicks: () => computeStrengthPicks(),

@@ -83,6 +83,20 @@ grep -rn "chipArchive').orderBy" scripts/ src/     # 應只有 readArchive 內�
 grep -nE "arch\[L ?- ?1\]|arch\[arch\.length ?- ?2\]" scripts/ai-daemon.mjs
 ```
 
+**C2. `readArchive` 不排除當日（2026-10-03 補入）**：`arch[0]` 盤中＝昨天、15:10 收盤歸檔後＝今天。
+把 `maps[0]` 當「昨收」、`maps[0..N]` 當「前 N 日」的程式只在盤中正確，收盤後／開機／週末多算進一天
+（昨收＝今收 ⇒ 漲幅 0%、前 20 日高含今天 ⇒ 突破恆不成立、t-5 變 t-4）。特徵：白天看是對的、晚上是錯的。
+
+```bash
+grep -n "readArchive(" scripts/ai-daemon.mjs | grep -v archiveBefore   # 逐一看：maps[0]/arch[0] 是否當「昨日」用，且會在收盤後執行
+grep -rn "撿尾盤 close" ~/Library/Logs/twstock-ai-daemon/ai-daemon.out.log | tail   # buyable=0 locked=0 連續多日＝此族復發
+```
+
+**2026-10-03 結果**：撿尾盤 `computeTailEndPicks`（修：`archiveBefore(arch, CSV 自報資料日)`）、籌碼推選 `c5map = maps[4]`
+（修：與 hi20 同用 `leadingOnOrAfter(arch, 快照 dataDate)` 起算）。`getWindCtx`／`loadVolAvg` 的 5／20 日均量以日曆日
+快取、盤中首次建立正確、若首次於 15:10 後建立會含今日量（未改，列此備查）；其餘呼叫端以日期鍵對齊或刻意以
+`arch[0]` 為資料日（有註解）。對齊基準一律用列資料**自報**日期（`scripts/lib/archive-window.mjs`），不用日曆日。
+
 ### D. 張→股 ×1000 漏掉
 
 比值會自己相消所以看不出來，**只有顯示成絕對金額時才會少 1000 倍**。
