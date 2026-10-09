@@ -9855,6 +9855,9 @@ async function updateTheses() {
           // 每日檢核：以現時數據重評各支柱
           const t = cur[code];
           const byKey = Object.fromEntries(results.map(r => [r.key, r.ok]));
+          // 月營收來源降級（非 MOPS 歸檔或名冊未完整，例如 openapi 先出新月份、只有上市）時不重評營收支柱、沿用舊值（總審查 M1）：
+          //   否則上櫃／KY 持股的營收支柱會被暫時判否 ⇒ 逐檔誤推「論點轉弱」（單向噪音，歸檔追上後翻回也不會推）
+          if (!rebaseOk) delete byKey.revGrowth;
           t.pillars = (t.pillars || []).map(p => ({ ...p, label: labelOf[p.key] ?? p.label, ok: byKey[p.key] ?? p.ok }));
           const okN = t.pillars.filter(p => p.ok).length;
           const wasIntact = t.intact !== false;
@@ -13654,21 +13657,26 @@ async function computeChipPicks() {
 // 2026-09-18 權值稽核 D5：lift 表以 2022-08-15～2026-08-19 全期重訓（scripts/backtest-limitup.mjs，訓練 131 萬檔日、基準漲停率 1.73%），
 //   後 20 日 walk-forward Top10 18.5%／Top20 17.8%。舊表（2026-07 訓練 92 日）記分板 45 日 Top10 已衰退至 13.6%。
 //   桶界不變，只換 lift；版本章 LU_VERSION 寫進 limitUpForecast doc，記分板按版本分開看。
-const LU_VERSION = { version: '2026-09-18.v2', labelRule: 1, trainedFrom: '2022-08-15', trainedThrough: '2026-08-19', wf20: { top10: 18.5, top20: 17.8, top30: 15.3 }, prev: { version: '2026-07', top10bt: 20.5, top10live45d: 13.6 } };
-const LU_LIFT = { // [label, predicate(升冪短路), lift]（來源：回測訓練集 2022-08-15～2026-08-19）
-  chg0:   [['<0', v => v < 0, 0.78], ['0~3', v => v < 3, 0.61], ['3~7', v => v < 7, 1.89], ['7~9.5', v => v < 9.5, 3.08], ['已漲停', () => true, 11.23]],
-  ret5:   [['5日<-3%', v => v < -3, 1.08], ['5日平淡', v => v < 3, 0.45], ['5日+3~10%', v => v < 10, 1.28], ['5日≥+10%', () => true, 4.73]],
-  ret20:  [['20日跌', v => v < 0, 0.65], ['20日+0~10%', v => v < 10, 0.61], ['20日+10~25%', v => v < 25, 1.81], ['20日≥+25%', () => true, 4.81]],
-  volX:   [['量縮', v => v < 1, 0.66], ['量平', v => v < 2, 1.16], ['量增2-4x', v => v < 4, 2.46], ['爆量≥4x', () => true, 3.83]],
-  nearHi: [['距高>10%', v => v < -10, 1.31], ['距高2~10%', v => v < -2, 0.61], ['貼近前高', v => v < 0, 0.61], ['創20日新高', () => true, 2.57]],
-  luCnt5: [['5日無板', v => v === 0, 0.68], ['5日1板', v => v === 1, 4.11], ['5日≥2板', () => true, 8.66]],
-  fShare: [['外資賣超', v => v < 0, 1.59], ['外資小買', v => v < 5, 0.93], ['外資佔量5-15%', v => v < 15, 2.30], ['外資重倉', () => true, 1.39]],
-  t0:     [['投信未買', v => v <= 0, 0.98], ['投信買超', () => true, 2.80]],
+// 2026-10-09（使用者裁定漲停價統一交易所口徑並重算）：backtest-limitup --rule 2 重訓（docs/LIMITUP-LIFT-2026-10-09-rule2.txt）；
+//   同日 --rule 1 重現舊表逐格相近（rule1.txt，差異來自訓練窗多 3 週）。舊表留在 prev.lift 供對照。桶界不變。
+const LU_VERSION = { version: '2026-10-09.v3', labelRule: 2, trainedFrom: '2022-08-15', trainedThrough: '2026-09-07', wf20: { top10: 27.5, top20: 23.5, top30: 20.3 },
+  prev: { version: '2026-09-18.v2', labelRule: 1, trainedThrough: '2026-08-19', wf20: { top10: 18.5, top20: 17.8, top30: 15.3 },
+    lift: { chg0: [0.78, 0.61, 1.89, 3.08, 11.23], ret5: [1.08, 0.45, 1.28, 4.73], ret20: [0.65, 0.61, 1.81, 4.81], volX: [0.66, 1.16, 2.46, 3.83], nearHi: [1.31, 0.61, 0.61, 2.57],
+      luCnt5: [0.68, 4.11, 8.66], fShare: [1.59, 0.93, 2.30, 1.39], t0: [0.98, 2.80], luCnt60: [0.37, 1.14, 2.69, 5.01], indLU5: [0.97, 0.71, 1.24, 2.68], indHot: [0.93, 1.45] } } };
+const LU_LIFT = { // [label, predicate(升冪短路), lift]（來源：回測訓練集 2022-08-15～2026-09-07·漲停口徑 v2）
+  chg0:   [['<0', v => v < 0, 0.78], ['0~3', v => v < 3, 0.61], ['3~7', v => v < 7, 1.90], ['7~9.5', v => v < 9.5, 3.11], ['已漲停', () => true, 11.19]],
+  ret5:   [['5日<-3%', v => v < -3, 1.07], ['5日平淡', v => v < 3, 0.45], ['5日+3~10%', v => v < 10, 1.29], ['5日≥+10%', () => true, 4.73]],
+  ret20:  [['20日跌', v => v < 0, 0.65], ['20日+0~10%', v => v < 10, 0.61], ['20日+10~25%', v => v < 25, 1.80], ['20日≥+25%', () => true, 4.79]],
+  volX:   [['量縮', v => v < 1, 0.66], ['量平', v => v < 2, 1.17], ['量增2-4x', v => v < 4, 2.46], ['爆量≥4x', () => true, 3.83]],
+  nearHi: [['距高>10%', v => v < -10, 1.30], ['距高2~10%', v => v < -2, 0.61], ['貼近前高', v => v < 0, 0.62], ['創20日新高', () => true, 2.58]],
+  luCnt5: [['5日無板', v => v === 0, 0.67], ['5日1板', v => v === 1, 4.00], ['5日≥2板', () => true, 8.63]],
+  fShare: [['外資賣超', v => v < 0, 1.51], ['外資小買', v => v < 5, 0.93], ['外資佔量5-15%', v => v < 15, 2.20], ['外資重倉', () => true, 1.33]],
+  t0:     [['投信未買', v => v <= 0, 0.98], ['投信買超', () => true, 2.66]],
   // 3個月漲停/族群風向因子（2026-07 變體回測：三因子×0.3 阻尼 → Top10 20.5%→21.5%(8.0x)；
   // 阻尼抑制與 luCnt5/ret20 的相關重複計分，全權重反而 Top10 降）
-  luCnt60: [['3月無板', v => v === 0, 0.37], ['3月1-2板', v => v <= 2, 1.14], ['3月3-5板', v => v <= 5, 2.69], ['3月≥6板', () => true, 5.01]],
-  indLU5:  [['族群冷', v => v === 0, 0.97], ['族群1-4板', v => v < 5, 0.71], ['族群5-14板', v => v < 15, 1.24], ['族群≥15板', () => true, 2.68]],
-  indHot:  [['非熱門族群', v => v === 0, 0.93], ['top3熱門族群', () => true, 1.45]],
+  luCnt60: [['3月無板', v => v === 0, 0.36], ['3月1-2板', v => v <= 2, 1.09], ['3月3-5板', v => v <= 5, 2.59], ['3月≥6板', () => true, 4.90]],
+  indLU5:  [['族群冷', v => v === 0, 0.97], ['族群1-4板', v => v < 5, 0.71], ['族群5-14板', v => v < 15, 1.20], ['族群≥15板', () => true, 2.61]],
+  indHot:  [['非熱門族群', v => v === 0, 0.93], ['top3熱門族群', () => true, 1.47]],
   // ⛔ newsN／newsPol（標題關鍵字極性，0.3 阻尼）已於 2026-09-18 移除（權值稽核 D4）：
   //   站上硬規定「標題關鍵字不得動分數」（feedback_news_score_requires_ai_content），阻尼不是豁免；
   //   且 22 日校準自承內生性（新聞多在報導已漲停股）。消息面改由 newsVerdict／mopsNews 覆蓋數另案驗證後才回來。
@@ -14642,6 +14650,11 @@ async function computeShortCandidates({ canonical = false } = {}) {
   let canon = null;
   if (latest.date && canonical) {
     if (!punish.size || !dtMap) { canon = 'skip-eligibility'; log(`  ⚠ 做空候選·事前存檔 ${latest.date}：資格層缺資料（${!punish.size ? '處置名單' : ''}${!punish.size && !dtMap ? '、' : ''}${!dtMap ? '當沖先賣資格' : ''}），不定版（下一輪重試）`); }
+    // 除權息還原不完整（來源讀取失敗或未涵蓋資料日）：除權息日的假跌幅會翻成「當日跌／空頭排列／破低」而被定版凍結（總審查 H1）。
+    //   23:00 前不定版、讓班車下一輪重試；23:00 後（含跨午夜續跑）照常定版並在文件揭露 exrightOk:false——整晚抓不到時寧可有揭露的存檔，也不要當日完全沒有事前存檔。
+    else if ((adj.errors.length || !adj.exrightOk) && (() => { const t = taipei(); return t.getHours() >= 6 && t.getHours() < 23; })()) {
+      canon = 'skip-eligibility'; log(`  ⚠ 做空候選·事前存檔 ${latest.date}：除權息還原不完整（${adj.errors.join('；') || `只涵蓋到 ${adj.exrightTo || '無'}`}），23:00 前不定版（下一輪重試）`);
+    }
     else canon = await writeCanonical(db.collection('shortCandidates').doc(latest.date), doc, { date: latest.date, label: '做空候選·事前存檔' });
   }
   log(`✓ 做空候選：${items.length} 檔過濾後入榜 ${Math.min(20, items.length)} 檔（${mode}·健康度${health ?? '?'}）`
