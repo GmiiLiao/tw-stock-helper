@@ -7,7 +7,7 @@
 // 流程：建檔（閘門全過才寫）→ 發佈 Firestore（dailyHeatmap/latest）。資料缺：先呼叫官方鏡像 retry 補漏（每次執行最多一次、
 //   鏡像自己有靜默窗／鎖／封鎖即停），再重試；到下一交易日 08:30 仍缺 ⇒ daily-heatmap.mjs 自己寫 _alerts（不推播）。
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,15 +44,24 @@ function mirrorDailyDone(day) {
   return readdirSync(dir).some(f => (f.startsWith(`daily-${day}-`) && !f.includes('-only-')) || f.startsWith(`blocked-daily-${day}-`));
 }
 
-/** 補建近 N 個交易日缺的熱力檔（rebuilt:true、不動 latest）並發佈各自的 dailyHeatmap/{日}。 */
+/** 補建近 N 個交易日缺的熱力檔（rebuilt:true、不動 latest）並發佈各自的 dailyHeatmap/{日}。
+ *  發佈失敗的日子記在 _unpublished.json，下一次執行（poll 或 retry）會再發，不會因「檔已存在」而永遠漏發。 */
 function backfillMissing() {
-  const before = new Set(readdirSync(OUT).filter(f => /^\d{4}-\d{2}-\d{2}\.json\.gz$/.test(f)));
+  const UNPUB = join(OUT, '_unpublished.json');
+  const dayFiles = () => readdirSync(OUT).filter(f => /^\d{4}-\d{2}-\d{2}\.json\.gz$/.test(f));
+  const before = new Set(dayFiles());
   run('daily-heatmap.mjs', ['--backfill', String(BACKFILL_DAYS)]);
-  const added = readdirSync(OUT).filter(f => /^\d{4}-\d{2}-\d{2}\.json\.gz$/.test(f) && !before.has(f)).map(f => f.slice(0, 10)).sort();
-  for (const d of added) {
+  let pending = [];
+  try { pending = JSON.parse(readFileSync(UNPUB, 'utf8')); } catch { pending = []; }
+  const added = dayFiles().filter(f => !before.has(f)).map(f => f.slice(0, 10));
+  const todo = [...new Set([...pending, ...added])].sort();
+  const still = [];
+  for (const d of todo) {
     const p = run('publish-daily-heatmap.mjs', ['--date', d]);
     console.log(`${ts()} ${p === 0 ? '✓' : '⚠'} 回補 ${d}${p === 0 ? '' : `（發佈 exit ${p}，下次再試）`}`);
+    if (p !== 0) still.push(d);
   }
+  if (still.length || pending.length) writeFileSync(UNPUB, JSON.stringify(still));
 }
 
 let mirrorRetried = false;

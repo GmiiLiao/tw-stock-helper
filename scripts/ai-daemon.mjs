@@ -5262,14 +5262,16 @@ async function flushWriterVersions() {
 
 // 跑舊碼自動換碼（2026-10-09 使用者裁定「跑舊碼就修正它」；判定見 lib/drift-heal.mjs）：每 10 分鐘比對磁碟碼，
 //   五道條件都成立才自行結束、由 launchd KeepAlive 拉起磁碟上的新碼。結束前先 flush 寫入端版本並記錄原因。
-let _driftSince = null, _driftLastReason = '';
+let _driftSince = null, _driftDiskHash = null, _driftLastReason = '';
 async function driftHealTick() {
   try {
     if (!_daemonCodeHash) return;
     const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
     const disk = daemonCodeHash(fileURLToPath(import.meta.url));
     const nowMs = Date.now();
-    if (disk.hash === _daemonCodeHash) { if (_driftSince) log('✓ 磁碟碼與執行中一致（落後解除）'); _driftSince = null; _driftLastReason = ''; return; }
+    if (disk.hash === _daemonCodeHash) { if (_driftSince) log('✓ 磁碟碼與執行中一致（落後解除）'); _driftSince = null; _driftDiskHash = null; _driftLastReason = ''; return; }
+    // 磁碟又換了一版（A→B→C）：穩定期從頭算，不讓剛落地的新版本沿用舊的落後時長
+    if (_driftDiskHash !== disk.hash) { _driftSince = null; _driftDiskHash = disk.hash; }
     if (_driftSince == null) { _driftSince = nowMs; log(`⚠ daemon 跑舊碼：執行中 ${_daemonCodeHash}、磁碟 ${disk.hash}；落後滿 ${DRIFT_SETTLE_MIN} 分後於安全時段自動換碼`); }
     const tw = taipei();
     const base = {
@@ -5283,13 +5285,16 @@ async function driftHealTick() {
       const st = gitWriterStamp(join(dirname(fileURLToPath(import.meta.url)), '..'), disk.files);
       const clean = st.dirty === null ? null : !st.dirty;
       const canRestart = clean ? await execScript('can-restart-daemon.mjs', ['--quiet'], '自動換碼·can-restart', 2) : null;
-      v = driftHealVerdict({ ...base, clean, canRestart });
+      // 等 can-restart 的這段時間可能有新工作開始：用「現在」的進行中數與時刻重判（TOCTOU）
+      const tw2 = taipei();
+      v = driftHealVerdict({ ...base, nowMs: Date.now(), inflight: _inflightJobs, mins: tw2.getHours() * 60 + tw2.getMinutes(), isTradingDay: isTradingDay(tw2), clean, canRestart });
     }
     if (!v.restart) { if (v.reason !== _driftLastReason) { log(`  自動換碼暫緩：${v.reason}`); _driftLastReason = v.reason; } return; }
     log(`🔄 自動換碼：執行中 ${_daemonCodeHash} → 磁碟 ${disk.hash}（${v.reason}）；結束程序交由 launchd 拉起新碼`);
     await flushWriterVersions();
     await db.collection('system').doc('daemonBuild').set({ selfRestart: { at: nowMs, from: _daemonCodeHash, to: disk.hash, reason: v.reason } }, { merge: true }).catch(() => {});
-    process.exit(0);
+    // 走既有 SIGTERM 處理：先寫出通知去重暫存（最多 3 秒）再以 143 結束；KeepAlive=true 照常拉起新碼
+    process.kill(process.pid, 'SIGTERM');
   } catch (e) { log('⚠ 自動換碼檢查失敗:', (e.message || '').slice(0, 80)); }
 }
 if (!ONESHOT) {
