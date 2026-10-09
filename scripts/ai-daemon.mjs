@@ -44,6 +44,7 @@ import { createAiDaytradeLab } from './lib/ai-daytrade-runner.mjs';
 import { createAiSwingLab } from './lib/ai-swing-runner.mjs';
 import { createNearDisposalSource, attentionInfoOf } from './lib/attention-risk.mjs';
 import { fetchExright, exFactorLookup } from './lib/exright-source.mjs';
+import { createExrightCover, adjustItemsFor } from './lib/exright-cover.mjs';
 import { archiveDayStatus, archiveCloseReady, canonicalDecision, beforeNextOpen, neverThinner } from './lib/canonical-gate.mjs';
 import { expectedSwingDataDate, nextOpenOf, swingFreezeGate, priceFactorsFromDoc, createBudget } from './lib/ai-lab-guard.mjs';   // AI 實驗鏈重覆執行／凍結防呆（2026-10-04）
 import { classifyLabMembers } from './lib/ai-lab-member.mjs';
@@ -12308,15 +12309,34 @@ async function mopsParValueChanges(fromIso) {
 //   張數不動（成交額請用原始 days 算）。沒有係數的事件不動（只在事件表上看得到）。不改動傳入物件。
 async function loadPriceFactors() {
   // G2-26（2026-10-04）：文件不存在／沒有 items 陣列＝讀取失敗（丟錯）——舊版回 {} 不丟錯，AI 波段結算會以未還原價寫死。
-  //   呼叫端：loadPriceFactorsOrWarn（榜單，catch 後以未還原價算並留 log）、AI 波段 loadDays／loadSwingDaysCached（拋出 ⇒ 稍後重試）、getExFactorOf（catch）。
+  //   呼叫端：loadAdjustFactorsOrWarn（榜單，catch 後以可用的部分算並留 log）、AI 波段 loadDays／loadSwingDaysCached（拋出 ⇒ 稍後重試）、getExFactorOf（catch）。
   return priceFactorsFromDoc((await db.collection('priceEvents').doc('latest').get()).data());
 }
-// 每日／每 10 分鐘重算的榜單用：讀失敗仍以未還原價算（下一輪自癒），但要留 log，不再靜默（G2-06）。
-// 寫一次就不改的結算（AI 波段）不可用這支——直接 loadPriceFactors() 讓錯誤拋出。
-async function loadPriceFactorsOrWarn() {
-  try { return await loadPriceFactors(); }
-  catch (e) { log('⚠ 價格結構事件讀取失敗，本輪用未還原價:', (e.message || '').slice(0, 60)); return {}; }
+// 每日／每 10 分鐘重算的榜單用 loadAdjustFactorsOrWarn（下方）：讀失敗仍以可用的部分算（下一輪自癒），但要留 log，不再靜默（G2-06）。
+// 寫一次就不改的結算（AI 波段）不可用它——直接 loadPriceFactors() 讓錯誤拋出。
+// ── 榜單還原係數＝官方除權息＋priceEvents（減資／面額變更）（2026-10-09 移植 claude/exright-consumers ad5a3be）──
+//   priceEvents 只收 ±20% 結構事件，一般除權息（1~6%）在各榜呈假跌幅——近一年量測：做空候選 1,682 檔日價格旗標被翻、
+//   dailySeq 平均每日 105 檔顯示假跌幅、波段持有 60 日窗漲幅少算 3.35pp（docs/EXRIGHT-IMPACT-2026-09-30.md）。
+//   來源重用既有：exright-history.json＋檔尾之後到 asOf 的官方區間（lib/exright-cover.mjs，與停損影子同一套 exItemsMerge），
+//   不寫 Firestore；上游＝每個資料日成功一次（上市＋上櫃各 1），與人數無關。from／asOf＝這段日線第一日／最後一日，
+//   只收事件日 ≤ asOf（官方前一晚就公布隔日除權息，乘進去會把最新收盤改成參考價）。
+//   任一來源取不到 ⇒ 以可用的部分還原、留 log、doc 帶 exrightOk:false 揭露（下一輪自癒）。寫一次就不改的 AI 波段帳戶不走這裡。
+const EXRIGHT_HISTORY_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'exright-history.json');   // 停損影子共用（原在檔尾，移上來避免 TDZ）
+const _exrightCover = createExrightCover({ readHistory: () => JSON.parse(readFileSync(EXRIGHT_HISTORY_FILE, 'utf8')), fetchExright, log });
+async function loadAdjustFactorsOrWarn(from, asOf, tag = '') {
+  let pf = null, peErr = null;
+  try { pf = await loadPriceFactors(); } catch (e) { peErr = (e.message || '').slice(0, 60); }
+  const src = await _exrightCover.sourcesFor(asOf);
+  const { items, meta } = adjustItemsFor({ ...src, priceFactors: pf, from, asOf });
+  const errors = [peErr && `priceEvents：${peErr}`, src.error && `除權息：${src.error}`].filter(Boolean);
+  if (errors.length) log(`⚠ ${tag}還原係數讀取失敗（${errors.join('；')}），本輪以可用的部分還原`);
+  else if (!meta.exrightOk) log(`⚠ ${tag}官方除權息未涵蓋 ${from}~${asOf}（涵蓋到 ${meta.exrightTo || '無'}），最近的除權息日可能仍呈假跌幅`);
+  return { factors: factorsFromItems(items), meta: { ...meta, priceEvents: Object.keys(pf || {}).length, errors } };
 }
+// 給 doc 的揭露字串（榜單 caveats 用）；正常時回 null
+const adjustCaveat = (meta, asOf) => (meta.errors.length || !meta.exrightOk
+  ? `還原係數不完整（${meta.errors.length ? `讀取失敗：${meta.errors.join('；')}` : `官方除權息只涵蓋到 ${meta.exrightTo || '無'}、資料日 ${asOf}`}），最近的除權息／減資日可能仍呈假跌幅，下一輪自動補正。`
+  : null);
 // applyPriceFactors 已抽到 ./lib/price-factors.mjs（2026-09-30，邏輯不變；AI 交易員經驗庫訓練腳本共用）
 // 代號→名稱（自快照；失敗回空表，呼叫端自行 catch）
 async function nameIndexMap() {
@@ -14355,7 +14375,9 @@ async function computeShortCandidates({ canonical = false } = {}) {
   // readArchive 回 raw doc（closeJson 是字串）——先 parse 成 {date, map}
   // 價格結構事件還原（2026-09-17 第二批接入）：減資股事件前價格偏低會被誤判「弱勢」、面額變更股反之；
   //   只用收盤序列判弱勢，張數不動。沒有係數的事件不動。
-  const factors = await loadPriceFactorsOrWarn();
+  // 2026-10-09 加官方除權息（ad5a3be 移植）：除權息後 20 日內原本會被假跌幅翻成「當日跌／空頭排列／破 20 日低」（近一年 1,682 檔日）。
+  //   使用者裁定併入、不分版本：shortTraining 樣本口徑自本版起直接換（doc 帶 exrightApplied／exrightOk 可追）。
+  const { factors, meta: adj } = await loadAdjustFactorsOrWarn(archRaw[archRaw.length - 1].date, archRaw[0].date, '做空候選：');
   const arch = applyPriceFactors(archRaw.map(d => ({ date: d.date, m: JSON.parse(d.closeJson) })), factors).map(d => ({ date: d.date, map: d.m }));
   const asc = arch.slice().reverse();                          // 舊→新
   const latest = arch[0];
@@ -14530,9 +14552,10 @@ async function computeShortCandidates({ canonical = false } = {}) {
     updatedAt: Date.now(), dataDate: latest.date || null, mode,
     health: health ?? null,
     items: items.slice(0, 20), totalPassed: items.length,
-    priceEventsApplied: Object.keys(factors).length,            // 價格結構事件還原（2026-09-17）
+    priceEventsApplied: adj.priceEvents,                        // 價格結構事件還原（2026-09-17）
+    exrightApplied: adj.exright, exrightOk: adj.exrightOk,      // 官方除權息還原（2026-10-09）：窗內有除權息的檔數／是否涵蓋到資料日
     trainJson: JSON.stringify(trainRows),                       // 全部通過股的特徵快照（訓練用·含未入榜）
-    skippedFilters: skipped,
+    skippedFilters: adjustCaveat(adj, latest.date) ? [...skipped, '除權息／減資還原（係數不完整）'] : skipped,
     note: '做空風控候選。⚠ 歷史回測(2026-09-03·EXPERIMENTS⑦·399天)：機械因子版'
       + '隔日c2c勝率僅48%未過安慰劑、**o2c(開盤進收盤出=當沖空口徑)54-55%兩窗穩定**、'
       + '5日留倉OOT反彈+0.41% ⇒ 定位=當沖空參考·嚴禁波段留倉依據。'
@@ -14659,13 +14682,15 @@ async function computeDailySeq({ force = false } = {}) {
   const arch = await readArchive(70, 'closeJson');
   if (arch.length < 11) { log('  ⚠ dailySeq：chipArchive 不足 11 日'); return false; }
   // 價格結構事件還原（2026-09-17 第一批接入）：事件日前的價格乘係數，張數不動；沒有係數的事件不動
-  const factors = await loadPriceFactorsOrWarn();
+  // 2026-10-09 加官方除權息（ad5a3be 移植）：除權息日的漲跌改為對參考價（＝官方漲跌口徑），三線位置不再被除息缺口拉到線下
+  const { factors, meta: adj } = await loadAdjustFactorsOrWarn(arch[arch.length - 1].date, arch[0].date, 'dailySeq：');
   const days = applyPriceFactors(arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) })), factors);
   const latest = days[days.length - 1];
   const cur = (await db.collection('dailySeq').doc('latest').get()).data();
   // 冪等以「資料日相同且宇宙沒變大」為準：15:10 歸檔只有上市、16:45 才補上櫃——只看資料日會讓上櫃永遠補不進來（09-17 實案 1,089 檔）
   const uniN = Object.keys(latest.m).filter(c => /^\d{4,6}$/.test(c)).length;
-  if (!force && cur?.dataDate === latest.date && (cur.n ?? 0) >= uniN * 0.95) { log(`  · dailySeq：${latest.date} 已產出（${cur.n} 檔），略過`); return true; }
+  //   上一版是在除權息未涵蓋時算的（exrightOk:false）⇒ 不算已產出，下次呼叫重算
+  if (!force && cur?.dataDate === latest.date && (cur.n ?? 0) >= uniN * 0.95 && cur.exrightOk !== false) { log(`  · dailySeq：${latest.date} 已產出（${cur.n} 檔），略過`); return true; }
   const out = {};
   for (const code of Object.keys(latest.m)) {
     if (!/^\d{4,6}$/.test(code)) continue;
@@ -14683,7 +14708,7 @@ async function computeDailySeq({ force = false } = {}) {
     if (!seq.length) continue;
     out[code] = [ma(5), ma(20), ma(60), ...seq];
   }
-  const doc = { updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date, n: Object.keys(out).length, byCodeJson: JSON.stringify(out), priceEventsApplied: Object.keys(factors).length };
+  const doc = { updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date, n: Object.keys(out).length, byCodeJson: JSON.stringify(out), priceEventsApplied: adj.priceEvents, exrightApplied: adj.exright, exrightOk: adj.exrightOk };
   await db.collection('dailySeq').doc('latest').set(doc);
   log(`✓ dailySeq ${latest.date}：${doc.n} 檔（${Math.round(doc.byCodeJson.length / 1024)}KB）`);
   return true;
@@ -14700,13 +14725,15 @@ async function computeSwingHold({ force = false } = {}) {
   if (arch.length < 61) { log('  ⚠ 波段持有：chipArchive 不足 61 日'); return false; }
   const daysRaw = arch.slice().reverse().map(a => ({ date: a.date, m: JSON.parse(a.closeJson) }));   // 舊→新（原始，算成交額用）
   // 價格結構事件還原（2026-09-17 第一批接入）：漲幅／連漲／回檔／均線都用還原後價格；成交額用原始價×原始張數
-  const factors = await loadPriceFactorsOrWarn();
+  // 2026-10-09 加官方除權息（ad5a3be 移植）：原本窗內跨除權息的檔漲幅少算（60 日窗 25% 的檔日、平均 3.35pp）
+  const { factors, meta: adj } = await loadAdjustFactorsOrWarn(daysRaw[0].date, daysRaw[daysRaw.length - 1].date, '波段持有：');
   const days = applyPriceFactors(daysRaw, factors);
   const latest = days[days.length - 1];
   const cur = (await db.collection('swingHold').doc('latest').get()).data();
   // 冪等以「資料日相同且宇宙沒變大」為準（見 computeDailySeq 同註）：上櫃 16:45 才進歸檔，不能只看資料日
   const uniNow = Object.keys(latest.m).filter(c => /^\d{4}$/.test(c)).length;
-  if (!force && cur?.dataDate === latest.date && (cur.universeAll ?? 0) >= uniNow * 0.95) { log(`  · 波段持有：${latest.date} 已產出（宇宙 ${cur.universeAll} 檔），略過`); return true; }
+  //   上一版是在除權息未涵蓋時算的（exrightOk:false）⇒ 不算已產出
+  if (!force && cur?.dataDate === latest.date && (cur.universeAll ?? 0) >= uniNow * 0.95 && cur.exrightOk !== false) { log(`  · 波段持有：${latest.date} 已產出（宇宙 ${cur.universeAll} 檔），略過`); return true; }
   // 名稱：宇宙清單優先，缺的用快照
   const names = {};
   for (const c of (_codesCache || [])) names[c.code] = { name: c.name, market: c.market };
@@ -14769,7 +14796,7 @@ async function computeSwingHold({ force = false } = {}) {
   // ── 🚪 離榜清單（2026-09-22 使用者：提醒下車）──
   //   與「上一個資料日」的定版比：昨天在榜（漲幅榜或淨額榜前 25）、今天不在 ⇒ 列出，附今日區間漲幅／現名次／自昨收的變動與離榜原因。
   //   不做交易建議，只是「你追的那檔已經不在榜上」的事實；沒有上一日定版（首日或歷史缺口）就明說 prevDate=null。
-  const dropped = { prevDate: null, windows: {}, combo: [], note: '離榜＝上一資料日在該榜前 25、本資料日不在；原因：區間漲幅翻負／跌出前 25（附現名次）／只剩一榜。回顧不是進場或出場訊號。' };
+  const dropped = { prevDate: null, windows: {}, combo: [], note: '離榜＝上一資料日在該榜前 25、本資料日不在；原因：區間漲幅翻負／跌出前 25（附現名次）／只剩一榜。「昨收」遇除權息／減資為還原後（參考價）口徑，與官方漲跌一致。回顧不是進場或出場訊號。' };
   try {
     // ⚠ limit 不能是 1（2026-10-01 使用者「離榜名單各頁都沒有資料」）：swingHold/latest 帶著與上一個日期檔相同的 dataDate，
     //   同值時降冪排序 'latest' 排在 '2026-…' 前面 ⇒ limit(1) 只拿到 latest、又被排除 ⇒ prevDate 永遠 null（09-18～09-30 多數日子離榜清單全空）
@@ -14777,6 +14804,9 @@ async function computeSwingHold({ force = false } = {}) {
     const prev = pq.docs.find(d => d.id !== 'latest')?.data() || null;
     if (prev?.boards) {
       dropped.prevDate = prev.dataDate;
+      // 昨收：上一資料日在窗內就取還原後收盤（除權息日＝參考價，配息不會被算成跌幅、排到「跌最多」最前面）；不在窗內才退回上一版定版價
+      const pIdx = days.findIndex(d => d.date === prev.dataDate);
+      const prevCloseOf = (code, stored) => (pIdx >= 0 && days[pIdx].m[code]?.[0] > 0 ? days[pIdx].m[code][0] : stored);
       for (const N of SWING_HOLD_WINDOWS) {
         const k = 'd' + N; const pb = prev.boards[k]; if (!pb) continue;
         const curGain = new Set(boards[k].items.map(i => i.code)), curAmt = new Set(boards[k].byAmt.map(i => i.code));
@@ -14791,10 +14821,11 @@ async function computeSwingHold({ force = false } = {}) {
           const c0 = win[0].m[it.code]?.[0], c = latest.m[it.code]?.[0];
           const nowGain = c0 > 0 && c > 0 ? +((c / c0 - 1) * 100).toFixed(1) : null;
           const idx = rowsByWin[k].findIndex(r => r.code === it.code); const nowRank = idx >= 0 ? idx + 1 : null;
-          const chgSincePrev = it.price > 0 && c > 0 ? +((c / it.price - 1) * 100).toFixed(1) : null;
+          const pc = prevCloseOf(it.code, it.price);
+          const chgSincePrev = pc > 0 && c > 0 ? +((c / pc - 1) * 100).toFixed(1) : null;
           const partial = (wasGain && stillGain) || (wasAmt && stillAmt);
           const reason = partial ? '只剩一榜' : nowGain == null ? '本日無收盤資料' : nowGain <= 0 ? '區間漲幅翻負' : `跌出前 ${SWING_HOLD_TOP}（現 #${nowRank ?? '—'}）`;
-          out.push({ code: it.code, name: it.name, market: it.market || '', prevRank: prevGainRank.get(it.code) ?? null, prevAmtRank: prevAmtRank.get(it.code) ?? null, prevGain: it.gain, prevPrice: it.price, price: c ?? null, nowGain, nowRank, chgSincePrev, stillGain, stillAmt, reason });
+          out.push({ code: it.code, name: it.name, market: it.market || '', prevRank: prevGainRank.get(it.code) ?? null, prevAmtRank: prevAmtRank.get(it.code) ?? null, prevGain: it.gain, prevPrice: pc, price: c ?? null, nowGain, nowRank, chgSincePrev, stillGain, stillAmt, reason });
         }
         out.sort((a, b) => (a.chgSincePrev ?? 0) - (b.chgSincePrev ?? 0));   // 跌最多的排前面＝最需要看的
         dropped.windows[k] = out;
@@ -14805,8 +14836,8 @@ async function computeSwingHold({ force = false } = {}) {
       for (const it of [...(prev.combo?.items || []), ...(prev.combo?.byAmt || [])]) {
         if (seenC.has(it.code)) continue; seenC.add(it.code);
         if (curCombo.has(it.code) || curComboAmt.has(it.code)) continue;
-        const c = latest.m[it.code]?.[0]; const nowBoards = onNow(it.code);
-        dropped.combo.push({ code: it.code, name: it.name, market: it.market || '', prevRank: it.rank, prevBoards: it.boards, nowBoards, prevPrice: it.price, price: c ?? null, chgSincePrev: it.price > 0 && c > 0 ? +((c / it.price - 1) * 100).toFixed(1) : null, reason: nowBoards === 0 ? '四窗全離榜' : `上榜數 ${it.boards}→${nowBoards}，掉出整合榜前 ${SWING_HOLD_TOP}` });
+        const c = latest.m[it.code]?.[0]; const nowBoards = onNow(it.code); const pc = prevCloseOf(it.code, it.price);
+        dropped.combo.push({ code: it.code, name: it.name, market: it.market || '', prevRank: it.rank, prevBoards: it.boards, nowBoards, prevPrice: pc, price: c ?? null, chgSincePrev: pc > 0 && c > 0 ? +((c / pc - 1) * 100).toFixed(1) : null, reason: nowBoards === 0 ? '四窗全離榜' : `上榜數 ${it.boards}→${nowBoards}，掉出整合榜前 ${SWING_HOLD_TOP}` });
       }
       dropped.combo.sort((a, b) => (a.chgSincePrev ?? 0) - (b.chgSincePrev ?? 0));
     }
@@ -14815,8 +14846,10 @@ async function computeSwingHold({ force = false } = {}) {
     updatedAt: Date.now(), date: isoDate(tw), dataDate: latest.date,
     universe: universe.length, universeAll: uniNow, liquidityGate: '20 日均成交額 ≥ 5,000 萬', windows: SWING_HOLD_WINDOWS, top: SWING_HOLD_TOP,
     method: '漲幅＝N 個交易日前收盤→最新收盤；上漲日／最長連漲／目前連漲（平盤不算漲也不中斷）＋期間最大回檔；穩健＝上漲日≥60% 且回檔≤8%，劇烈＝回檔>12%。整合榜＝四榜聯集，分數 Σ(26−名次)，先比上榜數再比分數。',
-    caveats: [`漲幅是收盤對收盤，不含盤中高低；減資／面額變更／除權息以 priceEvents 係數還原（本次 ${Object.keys(factors).length} 檔），沒有係數的事件股仍會失真。`, '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
-    priceEventsApplied: Object.keys(factors).length,
+    caveats: [`漲幅是收盤對收盤，不含盤中高低；除權息以官方除權除息計算結果還原（窗內 ${adj.exright} 檔；漲幅含配息配股，同參考價口徑）、減資／面額變更以 priceEvents 係數還原（${adj.priceEvents} 檔），沒有係數的事件股仍會失真。`,
+      ...(adjustCaveat(adj, latest.date) ? [adjustCaveat(adj, latest.date)] : []),
+      '這是動能排行不是進場訊號：本站尚未對「連續成長榜」做持有期回測，勝率／期望值未知，請與波段起漲榜（有回測）分開看。', '每交易日 16:45 上櫃檔補跑後定版；當日盤中看到的是前一交易日收盤的排行。'],
+    priceEventsApplied: adj.priceEvents, exrightApplied: adj.exright, exrightOk: adj.exrightOk,
     amtMethod: '每張淨額＝(最新收盤−起點收盤)×1000，未扣手續費與證交稅（請依自己的費率換算）；連漲天數只當標記；高價股天生佔優，看「一張賺多少」不看報酬率',
     boards, combo: { items: comboItems, byAmt: comboAmtItems }, dropped,
   };
@@ -16820,7 +16853,6 @@ if (!ONESHOT) daemonHealthLoop();   // 開機＋每小時：Ollama 探測、熔�
 //   目前空（尚未核可）：影子期照算這類持股（閘門 ⑥），live 時舊分支照跑、v1.1 不發警示；runner 每次寫停損簿一併寫進
 //   stopBooks/{uid}.verifiedArchives（戰情 bookStopOf 讀同一份）。這類持股的收盤補判與事件結算在下一交易日盤前讀到鏡像時補跑
 //   （鏡像 22:40 才有當日資料；2026-10-06 審查）。⚠ R1 部署先後：web 要先部署（或與本程序重啟同窗），見 SKILL §14。
-const EXRIGHT_HISTORY_FILE = join(dirname(fileURLToPath(import.meta.url)), 'data', 'exright-history.json');
 const STOP_VERIFIED_ARCHIVES = Object.freeze([]);
 async function stopShadowLoop() {
   let loadOfficialBars = null;
@@ -16834,7 +16866,7 @@ async function stopShadowLoop() {
     ]);
     _stopShadow = createStopShadow({
       store: createFirestoreStopStore({ db, FieldValue, FieldPath }), log, getPremiumUsers, isTradingDayIso: _isTradingDayIso,
-      trainDone: ymd => _otcFixDate === ymd, fetchExright, loadPriceFactors,
+      trainDone: ymd => _otcFixDate === ymd, fetchExright: _exrightCover.fetch, loadPriceFactors,   // 記憶化：與榜單還原同區間時不重打上游（2026-10-09）
       readExHistory: () => JSON.parse(readFileSync(EXRIGHT_HISTORY_FILE, 'utf8')), fetchRiskSets, readJobMarks, markJobDone,
       loadOfficialBars, verifiedArchives: STOP_VERIFIED_ARCHIVES,
     });
