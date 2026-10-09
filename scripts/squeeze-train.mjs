@@ -126,7 +126,8 @@ export async function buildSamples(db, { days: nDays = 250, minPrice = 10, minAv
   const groupOf = {};
   try {
     const pc = (await db.collection('peerComps').doc('latest').get()).data();
-    if (pc?.industriesJson) { const ind = JSON.parse(pc.industriesJson); for (const g in ind) for (const it of ind[g]) if (it?.code) groupOf[it.code] = g; }
+    // 只取上市（2026-10-04 peerComps 起含上櫃、每列帶 mkt）：族群因子至今以上市分群驗證，納入上櫃＝因子定義改變，重訓前先問使用者
+    if (pc?.industriesJson) { const ind = JSON.parse(pc.industriesJson); for (const g in ind) for (const it of ind[g]) if (it?.code && (it.mkt ?? '上市') === '上市') groupOf[it.code] = g; }
   } catch { /* 沒有族群表就沒有族群因子（欄位留 null） */ }
   const sectorStatsOf = (t) => {
     const acc = {};

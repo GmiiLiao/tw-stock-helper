@@ -67,7 +67,8 @@ const ind = {};
 try {
   const pc = (await db.collection('peerComps').doc('latest').get()).data();
   const g = pc?.industriesJson ? JSON.parse(pc.industriesJson) : {};
-  for (const k in g) for (const it of g[k] || []) if (/^\d{4}$/.test(it?.code || '') && !ind[it.code]) ind[it.code] = k;
+  // 只取上市（2026-10-04 peerComps 起含上櫃、每列帶 mkt）：係數是用上市分群研究出來的，重訓前維持同一口徑
+  for (const k in g) for (const it of g[k] || []) if (/^\d{4}$/.test(it?.code || '') && (it.mkt ?? '上市') === '上市' && !ind[it.code]) ind[it.code] = k;
 } catch (e) { fail(`產業分群讀取失敗：${(e.message || '').slice(0, 60)}`); }
 if (Object.keys(ind).length < MIN.industry) fail(`產業分群只有 ${Object.keys(ind).length} 檔`);
 

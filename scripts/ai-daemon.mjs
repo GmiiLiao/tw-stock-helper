@@ -32,6 +32,8 @@ import { scoreboardDoc, recentPicks } from './lib/picks-scoreboard.mjs';
 import { baseScoreOf, percentileOf, techScoreText, riskNoteText, riskTypeOf, thesisSupport } from './lib/risk-score.mjs';
 import { dropUndefined } from './lib/firestore-clean.mjs';
 import { backfillMopsRevenue } from './backfill-mops-revenue.mjs';
+import { OPENAPI_REVENUE_EP, parseOpenapiRevenue, archiveRevenueRows, pickArchiveMonth, monthIdToRoc, makeIndustryLookup, buildPeerComps, peerCompsWriteDecision } from './lib/revenue-source.mjs';
+import { THESIS_BASIS, draftPillars, draftThesisText, needsRebase, rebaseReady, rebuildThesis, rebaseSummaryMessage } from './lib/thesis-rebase.mjs';
 import { replayLedger, statRows } from './lib/ledger-replay.mjs';
 import { buildStrategySeries, buildStrategyWindows, computeHoldingStrategy } from './lib/holding-strategy.mjs';
 import { judgePagoda } from './lib/pagoda.mjs';
@@ -4306,17 +4308,18 @@ const _f = v => { const n = parseFloat(String(v).replace(/[,\s]/g, '')); return 
 
 // ── 11) 月營收追蹤（YoY / MoM）──────────────────────────────────
 async function computeRevenue() {
-  const rows = await fetchMonthlyRevenueAll(); // t187ap05_L+_P 合併（原僅 _P 漏台積電等 1082 檔一般業）
+  // openapi t187ap05_L（上市；2026-10-04 起不再併 _P 未上市公開發行公司）。列已正規化：4 碼、營收 > 0、增減 % 留白＝null。
+  const api = await fetchOpenapiRevenue();
+  const rows = api.rows;
   if (!rows.length) return;
-  const items = rows.filter(x => /^\d{4}$/.test(x['公司代號'] || '')).map(x => ({
-    code: x['公司代號'], name: x['公司名稱'], industry: x['產業別'] || '',
-    revenue: Math.round(_f(x['營業收入-當月營收'])),
-    last: Math.round(_f(x['營業收入-去年當月營收'])),
-    prevRev: Math.round(_f(x['營業收入-上月營收'])),
-    yoy: +_f(x['營業收入-去年同月增減(%)']).toFixed(1),
-    mom: +_f(x['營業收入-上月比較增減(%)']).toFixed(1),
-  })).filter(x => x.revenue > 0);
-  const month = rows[0]?.['資料年月'] || '';
+  // 產業別：上市取 openapi、上櫃取 wiki（MOPS t05st03）——只影響顯示
+  const indOf = makeIndustryLookup({ openapiRows: rows, wikiStocks: loadWikiStocks(WIKI_STOCKS_FILE) });
+  const r1 = v => (Number.isFinite(v) ? +v.toFixed(1) : null);
+  const items = rows.map(x => ({
+    code: x.c, name: x.n, industry: indOf(x.c)?.ind || '',
+    revenue: x.rev, last: x.last, prevRev: x.prev, yoy: r1(x.yoy), mom: r1(x.mom),
+  }));
+  const month = monthIdToRoc(api.monthId);
   // ⚠ 排行必須設**分母下限**（2026-08-11）：YoY = 當月/去年同月 - 1，
   //   去年同月趨近於零時會噴出天文數字。實測 2026-07 未設限時榜首是
   //   聯上 +1,096,391%、富旺 +316,265% —— 數學上沒錯，但當排行完全沒有意義，
@@ -4328,8 +4331,11 @@ async function computeRevenue() {
   const BASE_FLOOR = 10000;
   const yoyOk = x => (x.last ?? 0) >= BASE_FLOOR;
   const momOk = x => (x.prevRev ?? x.prev ?? 0) >= BASE_FLOOR;
-  let topYoY = items.filter(yoyOk).sort((a, b) => b.yoy - a.yoy).slice(0, 20);
-  let topMoM = items.filter(momOk).sort((a, b) => b.mom - a.mom).slice(0, 20);
+  // 增減 % 留白（基期為 0）＝null，不進排行（舊版讀成 0% 是捏造）
+  const rankYoY = list => list.filter(x => yoyOk(x) && Number.isFinite(x.yoy)).sort((a, b) => b.yoy - a.yoy).slice(0, 20);
+  const rankMoM = list => list.filter(x => momOk(x) && Number.isFinite(x.mom)).sort((a, b) => b.mom - a.mom).slice(0, 20);
+  let topYoY = rankYoY(items);
+  let topMoM = rankMoM(items);
   let outMonth = month, src = 'openapi';
 
   // ── 取新：若 revenueArchive 已有更新的月份，改用它 ──────────────────────
@@ -4354,17 +4360,15 @@ async function computeRevenue() {
       const a = (await db.collection('revenueArchive').doc(archId).get()).data() || {};
       const ar = a.rowsJson ? JSON.parse(a.rowsJson) : null;
       const list = Array.isArray(ar) ? ar : Object.values(ar || {});
-      // 產業別只有 openapi 有，用代號補回去（缺了不影響排行，只影響顯示）
-      const indBy = {};
-      for (const x of rows) { const c = x['公司代號']; if (c) indBy[c] = x['產業別'] || ''; }
+      // 產業別（歸檔沒有）用代號補：上市 openapi、上櫃 wiki（缺了不影響排行，只影響顯示）
       const built = list
         .filter(x => x && /^\d{4}$/.test(String(x.c)) && x.rev > 0 && Number.isFinite(x.yoy))
-        .map(x => ({ code: String(x.c), name: x.n || String(x.c), industry: indBy[String(x.c)] || '',
+        .map(x => ({ code: String(x.c), name: x.n || String(x.c), industry: indOf(String(x.c))?.ind || '',
           revenue: Math.round(x.rev), last: Math.round(x.last ?? 0), prevRev: Math.round(x.prev ?? 0),
-          yoy: +Number(x.yoy).toFixed(1), mom: +Number(x.mom ?? 0).toFixed(1) }));
+          yoy: +Number(x.yoy).toFixed(1), mom: x.mom == null ? null : r1(Number(x.mom)) }));
       if (built.length >= 800) {
-        topYoY = built.filter(yoyOk).sort((a2, b2) => b2.yoy - a2.yoy).slice(0, 20);
-        topMoM = built.filter(momOk).sort((a2, b2) => b2.mom - a2.mom).slice(0, 20);
+        topYoY = rankYoY(built);
+        topMoM = rankMoM(built);
         outMonth = `${archId.slice(0, 4) - 1911}${archId.slice(5, 7)}`;   // 回填成民國格式，維持既有介面
         src = `archive:${archId}`;
         log(`  ℹ 月營收改用歸檔 ${archId}（${built.length} 檔）——${archId > apiId ? `openapi 仍停在 ${apiId || '?'}` : '同月以 MOPS 歸檔為準（含上櫃與 KY、不含未上市 _P）'}`);
@@ -4393,15 +4397,8 @@ async function computeRevenue() {
     const yr = parseInt(m.slice(0, m.length - 2), 10) + 1911;
     const mo = m.slice(-2);
     const id = `${yr}-${mo}`;
-    const arch = rows.filter(x => /^\d{4}$/.test(x['公司代號'] || '')).map(x => ({
-      c: x['公司代號'], n: x['公司名稱'],
-      rev: Math.round(_f(x['營業收入-當月營收'])),
-      prev: Math.round(_f(x['營業收入-上月營收'])),
-      last: Math.round(_f(x['營業收入-去年當月營收'])),
-      mom: +_f(x['營業收入-上月比較增減(%)']).toFixed(2),
-      yoy: +_f(x['營業收入-去年同月增減(%)']).toFixed(2),
-      cum: Math.round(_f(x['累計營業收入-當月累計營收'])),
-    })).filter(x => x.rev > 0);
+    // 列形狀同 MOPS 歸檔 {c,n,rev,prev,last,mom,yoy,cum}；增減 % 留白＝null（2026-10-04 前寫成 0）
+    const arch = rows.map(x => ({ c: x.c, n: x.n, rev: x.rev, prev: x.prev, last: x.last, mom: x.mom, yoy: x.yoy, cum: x.cum }));
     // ⚠**防退化覆蓋**（2026-08-10 當場踩到）：這裡的來源是 openapi t187ap05，
     //   實測 2026-06 只涵蓋 1,347 檔，而 MOPS 彙總表（scripts/backfill-mops-revenue.mjs）
     //   同月有 1,847 檔——openapi 少了 500 檔，而且還落後一個月。
@@ -4815,7 +4812,7 @@ async function computeMultiTimeframe() {
 
 // ── 24) 籌碼集中度週變化（千張大戶占比 週 vs 週）────────────
 // ── 月營收歸檔「加厚」（2026-08-10）──────────────────────────────────
-// computeRevenue 走 openapi t187ap05，實測只涵蓋 ~1,350 檔且落後一個月。
+// computeRevenue 的 openapi t187ap05_L 只有上市（~1,080 檔，2026-10-04 起不再併未上市 _P）且落後一個月。
 // MOPS 彙總表（靜態 HTML）_0 本國＋_1 外國（KY）同月約 1,970 檔，所以每天回頭把最近 2 個月補厚。
 // 合併依代號聯集、只准加厚不准變薄；月份定版看資料（4 頁皆成功＋上月有申報的代號本月缺 ≤5＋
 // 次月 11 日起出表日期相隔 ≥3 日兩次觀測筆數沒增加），定版後就不再打 MOPS（4 頁×2 月、間隔 ≥3 秒）。重複跑是冪等的。
@@ -8805,53 +8802,63 @@ if (!ONESHOT) sectorLoop();
 // 數字全 deterministic、零 LLM（docs/financial-services-整合架構說明書.md）
 // ════════════════════════════════════════════════════════════
 
-// 月營收 openapi 來源：t187ap05_L(上市一般業 1082 檔，含半導體) + t187ap05_P 合併。
-// ⚠ 2026-10-04 實測更正：_P 是**公開發行（未上市）**公司（273 家，1111 欣欣水泥、1237 台糖…，與上市櫃代號零重疊），
-//   不是「金融證券等」；這兩支都沒有上櫃、也落後約一個月。排行已改以 MOPS 歸檔為準（computeRevenue 同月 >=）；
-//   同業比較／論點支柱仍走這裡（另案）。
-async function fetchMonthlyRevenueAll() {
-  const out = []; const seen = new Set();
-  for (const ep of ['t187ap05_L', 't187ap05_P']) {
-    try {
-      const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${ep}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (!r.ok) continue;
-      for (const x of await r.json()) { const c = x['公司代號']; if (c && !seen.has(c)) { seen.add(c); out.push(x); } }
-    } catch { /* skip */ }
-  }
-  return out;
+// 月營收 openapi：只抓 t187ap05_L（上市；與上櫃無關、落後約一個月）。增減 % 留白＝null（lib/revenue-source.mjs）。
+// ⚠ 2026-10-04：_P 是**公開發行（未上市）**公司（273 家，1111 欣欣水泥、1237 台糖、7859 翰可能源…，與上市櫃代號零重疊），
+//   不是「金融證券等」——已不收。openapi 現在只當兩件事：歸檔比它舊時的後備、上市公司的官方產業別。
+async function fetchOpenapiRevenue() {
+  try {
+    const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${OPENAPI_REVENUE_EP}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) });
+    if (!r.ok) { log(`  ⚠ 月營收 openapi ${OPENAPI_REVENUE_EP} HTTP ${r.status}`); return { monthId: null, rows: [] }; }
+    return parseOpenapiRevenue(await r.json());
+  } catch (e) { log(`  ⚠ 月營收 openapi ${OPENAPI_REVENUE_EP} 失敗：${e.message}`); return { monthId: null, rows: [] }; }
+}
+
+// 同業比較／論點支柱的月營收（2026-10-04 改以 MOPS 歸檔為準）：revenueArchive 取「名冊完整」的最新 v2 月份
+//   （申報期內只有部分公司的新月份不用——見 pickArchiveMonth），openapi 只在歸檔比它舊時後備（上市限定）。
+//   回傳 { source, monthId, complete, rows:[{c,n,rev,prev,last,mom,yoy,cum}], api }；rows 的 yoy／mom 留白＝null。
+async function loadMonthlyRevenue() {
+  const api = await fetchOpenapiRevenue();
+  try {
+    const metas = (await db.collection('revenueArchive').select('n', 'v', 'missingVsPrev').get()).docs
+      .map(d => { const x = d.data(); return { id: d.id, v: x.v, n: x.n, missingN: x.missingVsPrev?.n ?? null }; });
+    const pick = pickArchiveMonth(metas, api.monthId);
+    if (pick) {
+      const rows = archiveRevenueRows((await db.collection('revenueArchive').doc(pick.id).get()).data());
+      if (rows.length) return { source: `archive:${pick.id}`, monthId: pick.id, complete: pick.complete, rows, api };
+    }
+    log(`  ⚠ 月營收歸檔沒有 ≥ openapi（${api.monthId || '?'}）的 v2 月份，改用 openapi（上市限定、無上櫃）`);
+  } catch (e) { log('  ⚠ 月營收歸檔讀取失敗，改用 openapi（上市限定、無上櫃）:', e.message); }
+  return { source: api.monthId ? `openapi:${api.monthId}` : 'none', monthId: api.monthId, complete: false, rows: api.rows, api };
 }
 
 // ── 27) 同業比較（comps-analysis 台股化）───────────────────────
-// 官方產業別(月營收彙總表) 分群，比 PE/PB/殖利率/月營收YoY/評分/RS，含產業中位數。
+// 官方產業別分群，比 PE/PB/殖利率/月營收YoY/評分/RS，含產業中位數。
+// 2026-10-04 起：月營收＝MOPS 歸檔（上市＋上櫃、本國＋KY，不含未上市 _P）；產業別＝證交所 t187ap05_L（上市）＞
+//   wiki stocks.json（MOPS t05st03，上櫃）＞上一份同業表。每列帶 mkt（上市／上櫃）——用上市表訓練的模型
+//   （波段標靶影子、軋空訓練）以 mkt 篩回上市口徑，重訓前不變。
 async function computePeerComps() {
-  const rev = await fetchMonthlyRevenueAll();
+  const src = await loadMonthlyRevenue();
+  if (!src.rows.length) { log('⚠ 同業比較：月營收歸檔與 openapi 都沒有資料，不寫入'); return; }
   const bw = (await fetchBwibbu()).rows;
-  if (!rev.length) return;
   const rating = (await getJSON('/api/rating'))?.ratings || {};
   const rs = Object.fromEntries((((await db.collection('rsRanking').doc('latest').get()).data())?.top || []).map(x => [x.code, x.rs]));
   const snap = await readSnapshotQuotes(); const q = snap?.quotes || {};
   const bwMap = {}; for (const x of bw) bwMap[x.Code] = { pe: _f(x.PEratio), pb: _f(x.PBratio), yld: _f(x.DividendYield) };
-  const industries = {};
-  for (const x of rev) {
-    const code = x['公司代號']; if (!/^\d{4}$/.test(code)) continue;
-    const ind = (x['產業別'] || '').trim() || '其他';
-    const b = bwMap[code] || {}; const r = rating[code] || {};
-    (industries[ind] ??= []).push({
-      code, name: x['公司名稱'], price: q[code]?.price ?? null, changePct: q[code]?.changePercent ?? null,
-      pe: b.pe > 0 ? b.pe : null, pb: b.pb > 0 ? b.pb : null, yield: b.yld > 0 ? b.yld : null,
-      revYoY: +_f(x['營業收入-去年同月增減(%)']).toFixed(1),
-      // 評分＝未含風險扣分的技術評分（同業比強弱）；處置／注意另列 risk（2026-09-30）；訊號是行動訊號，維持含風險
-      score: r.baseScore ?? r.score ?? null, risk: r.risk ?? null, signal: r.signal ?? null, rs: rs[code] ?? null,
-    });
-  }
-  const med = arr => { const v = arr.filter(n => n != null && isFinite(n)).sort((a, b) => a - b); return v.length ? +v[Math.floor(v.length / 2)].toFixed(2) : null; };
-  const summary = {};
-  for (const ind in industries) {
-    const list = industries[ind]; list.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    summary[ind] = { count: list.length, medPe: med(list.map(s => s.pe)), medPb: med(list.map(s => s.pb)), medYield: med(list.map(s => s.yield)), medRevYoY: med(list.map(s => s.revYoY)) };
-  }
-  await db.collection('peerComps').doc('latest').set({ updatedAt: Date.now(), month: rev[0]?.['資料年月'] || '', industriesJson: JSON.stringify(industries), summaryJson: JSON.stringify(summary) });
-  log(`✓ 同業比較：${Object.keys(industries).length} 產業 / ${rev.length} 檔`);
+  const prev = (await db.collection('peerComps').doc('latest').get()).data() || null;
+  let prevIndustries = null;
+  try { prevIndustries = prev?.industriesJson ? JSON.parse(prev.industriesJson) : null; } catch { /* 舊表壞掉只是少一層後備 */ }
+  const wiki = loadWikiStocks(WIKI_STOCKS_FILE);
+  if (!wiki) log('  ⚠ 同業比較：wiki stocks.json 讀不到，上櫃產業別只能沿用上一份同業表');
+  const lookup = makeIndustryLookup({ openapiRows: src.api.rows, wikiStocks: wiki, prevIndustries });
+  const { industries, summary, coverage } = buildPeerComps({ rows: src.rows, lookup, bw: bwMap, rating, rs, quotes: q });
+  const decision = peerCompsWriteDecision(coverage, prev?.coverage);
+  const covText = `上市 ${coverage.listed}、上櫃 ${coverage.otc}（其中當月無營收列 ${coverage.noRevenue}）、無產業別 ${coverage.noIndustry}${coverage.noIndustry ? `（${coverage.noIndustryCodes.slice(0, 8).join(',')}${coverage.noIndustry > 8 ? '…' : ''}）` : ''}`;
+  if (!decision.write) { log(`⚠ 同業比較 ${src.source}：${decision.reason}——${covText}`); return; }
+  await db.collection('peerComps').doc('latest').set({
+    updatedAt: Date.now(), month: monthIdToRoc(src.monthId), dataMonth: src.monthId || null, source: src.source, monthComplete: src.complete,
+    coverage, industriesJson: JSON.stringify(industries), summaryJson: JSON.stringify(summary),
+  });
+  log(`✓ 同業比較（${src.source}${src.complete ? '' : '·名冊未完整'}）：${Object.keys(industries).length} 產業 / ${covText}${decision.complete ? '' : `｜${decision.reason}`}`);
 }
 
 // ── 28) 催化劑事件日曆（catalyst-calendar 台股化）──────────────
@@ -9767,7 +9774,11 @@ const THESIS_PILLARS = [
 async function _thesisData() {
   const rating = (await getJSON('/api/rating'))?.ratings || {};
   const inst = new Set((((await db.collection('institutionalStreaks').doc('latest').get()).data())?.foreign || []).map(x => x.code));
-  const rev = {}; for (const x of await fetchMonthlyRevenueAll()) rev[x['公司代號']] = _f(x['營業收入-去年同月增減(%)']);
+  // 月營收 YoY：MOPS 歸檔（含上櫃與 KY；2026-10-04 前只有上市 openapi ⇒ 上櫃持股這根支柱恆為 ✗）。
+  //   官方留白（去年同月為 0）＝null ⇒ 判不成立（無法證實為正），與「查無資料」同；不再把留白讀成 0%。
+  const revSrc = await loadMonthlyRevenue();
+  const rev = {}; for (const x of revSrc.rows) rev[x.c] = x.yoy;
+  const revMeta = { source: revSrc.source, monthId: revSrc.monthId, complete: revSrc.complete };   // 論點口徑切換的資料閘門用（rebaseReady）
   const rs = Object.fromEntries((((await db.collection('rsRanking').doc('latest').get()).data())?.top || []).map(x => [x.code, x.rs]));
   const bw = (await fetchBwibbu()).rows;
   const yld = {}; for (const x of bw) yld[x.Code] = _f(x.DividendYield);
@@ -9778,7 +9789,7 @@ async function _thesisData() {
   const base = c => baseScoreOf(rating[c], risk(c));
   const allBase = Object.keys(rating).map(base).filter(Number.isFinite).sort((a, b) => a - b);
   const pct = v => percentileOf(allBase, v);
-  return { rating, inst, rev, rs, yld, risk, base, pct };
+  return { rating, inst, rev, rs, yld, risk, base, pct, revMeta };
 }
 // 持股已全部出清（holdings 文件在、陣列為空）：清掉舊的論點／汰弱留強，否則畫面永遠停在最後一次有持股時的內容
 // （2026-10-01 實例：一位會員的兩份文件停在 08-18）。holdings 文件不存在時不動——那可能是讀取異常，不是出清。
@@ -9788,9 +9799,17 @@ async function clearIfSoldOut(uid, hd, docId, field, empty) {
   const v = (await ref.get()).data()?.[field];
   if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) { await ref.set({ ...empty, updatedAt: Date.now() }); log(`  · ${docId}：持股已出清，清除舊內容`); }
 }
+// 月營收口徑切換的一次性重測（2026-10-09 使用者裁定；細節與資料歸屬見 lib/thesis-rebase.mjs）：
+//   既有論點文件的 basis ≠ THESIS_BASIS ⇒ 以修正後資料重建支柱／風險／成立與否（使用者寫的論點文字與信心度保留），
+//   basis 與重建內容同一次寫入（逐使用者原子；重啟不重做），再推一則彙總通知（alertDedup 固定 scope＝口徑代號，持久去重）。
+//   資料閘門：月營收須為 MOPS 歸檔且名冊完整，否則本輪照舊檢核、重測延到下一輪。
+const _thesisRebaseAlerted = alertDedup('thesisRebase', { autoFlush: false });
 async function updateTheses() {
   const data = await _thesisData();
   const premium = await getPremiumUsers();
+  const rebaseOk = rebaseReady(data.revMeta);
+  if (rebaseOk) await _thesisRebaseAlerted.ensure(THESIS_BASIS, isoDate(taipei()));
+  let rebasedUsers = 0, rebasePending = 0;
   for (const u of premium) {
     const uid = u.id;
     try {
@@ -9799,26 +9818,35 @@ async function updateTheses() {
       for (const h of (hd?.holdings || [])) { const g = (byCode[h.code] ??= { qty: 0, cost: 0, name: h.name }); g.qty += h.quantity; g.cost += h.buyPrice * h.quantity; if (h.note && !g.note) g.note = h.note; }
       const codes = Object.keys(byCode); if (!codes.length) { await clearIfSoldOut(uid, hd, 'theses', 'theses', { theses: {} }); continue; }
       const ref = db.collection('users').doc(uid).collection('data').doc('theses');
-      const cur = (await ref.get()).data()?.theses || {};
+      const curDoc = (await ref.get()).data() || null;
+      const cur = { ...(curDoc?.theses || {}) };
+      const pendingRebase = needsRebase(curDoc);
+      const rebaseNow = pendingRebase && rebaseOk;
+      if (pendingRebase && !rebaseOk) rebasePending++;
+      // 口徑章：重測完成或本來就沒有舊論點（新建的草稿已是新口徑）才蓋；等待重測的文件不蓋，下一輪再做
+      const basis = rebaseNow || (!pendingRebase && rebaseOk) ? THESIS_BASIS : (curDoc?.basis ?? null);
       const pa = (await db.collection('users').doc(uid).collection('data').doc('portfolioAnalysis').get()).data()?.analyses || {};
       const newAlerts = [];
       const labelOf = Object.fromEntries(THESIS_PILLARS.map(p => [p.key, p.label]));   // 舊論點的支柱標籤依 key 更新成現行文字
       for (const code of codes) {
         const results = THESIS_PILLARS.map(p => ({ key: p.key, label: p.label, ok: p.test(data, code) }));
         if (!cur[code]) {
-          // AI 依當時數據預填草稿：成立的支柱=買進依據；不成立的=風險
-          const pillars = results.filter(r => r.ok);
-          const risks = results.filter(r => !r.ok).slice(0, 3).map(r => `${r.label}：目前不成立`);
+          // AI 依當時數據預填草稿：成立的支柱=買進依據；不成立的=風險（選取規則與口徑重測共用 draftPillars）
+          const { pillars, risks, aiText } = draftPillars(results);
           const avg = byCode[code].qty ? byCode[code].cost / byCode[code].qty : 0;
           const a = pa[code] || {};
           cur[code] = {
             name: byCode[code].name, status: 'draft', conviction: 'medium',
-            thesis: (byCode[code].note ? `${byCode[code].note}｜` : '') + (pillars.length ? `（AI 依據）${pillars.map(p => p.label).join('、')}。` : '（草稿）目前無明確多方數據依據，請補充你的買進理由。'),
-            pillars: (pillars.length ? pillars : results.slice(0, 3)).map(r => ({ key: r.key, label: r.label, ok: r.ok })),
+            thesis: draftThesisText(byCode[code].note, aiText),
+            pillars,
             risks, targetPrice: a.targetPrice?.low > 0 ? a.targetPrice.low : +(avg * 1.2).toFixed(2),
             stopLoss: a.stopLoss > 0 ? a.stopLoss : +(avg * 0.92).toFixed(2),
             createdAt: Date.now(), updatedAt: Date.now(), intact: true,
           };
+        } else if (rebaseNow) {
+          // 口徑重測：只重置系統計算的支柱／風險／成立與否（草稿文字隨之重生；使用者改過的論點文字與信心度保留）；
+          //   不逐檔發「轉弱」——彙總通知在迴圈後一次發
+          cur[code] = rebuildThesis(cur[code], results, { note: byCode[code].note, name: byCode[code].name });
         } else {
           // 每日檢核：以現時數據重評各支柱
           const t = cur[code];
@@ -9846,7 +9874,32 @@ async function updateTheses() {
         t.risk = data.risk(code);
       }
       for (const code in cur) if (!byCode[code]) delete cur[code]; // 已出清的持股移除論點
-      await ref.set({ updatedAt: Date.now(), theses: cur });
+      // 彙總通知先於論點文件寫入：通知文件寫入失敗就撤回去重記錄、本輪也不蓋口徑章（下一輪重測並重發）；
+      //   通知成功而論點文件寫入失敗 ⇒ 下一輪重測，但去重已記錄、不會再推第二次
+      let docBasis = basis;
+      if (rebaseNow && !_thesisRebaseAlerted.has(uid)) {
+        const _tok = _thesisRebaseAlerted.mark();
+        try {
+          _thesisRebaseAlerted.add(uid);
+          const rows = codes.filter(c => cur[c]).map(c => ({ code: c, name: cur[c].name, intact: cur[c].intact }));
+          // 只有重測後確實有轉弱的論點才推播（使用者 10-09：重測後再推；沒有轉弱就不打擾，口徑章照蓋）
+          if (rows.some(r => r.intact === false)) {
+            const al = { id: `thesisRebase-${THESIS_BASIS}`, code: null, name: '投資論點', type: 'thesis', message: rebaseSummaryMessage(rows), at: Date.now() };
+            const aref = db.collection('users').doc(uid).collection('data').doc('alerts');
+            const prev = (await aref.get()).data()?.alerts || [];
+            await aref.set({ updatedAt: Date.now(), alerts: [al, ...prev].slice(0, 40) });
+            await _thesisRebaseAlerted.flush();
+            pushAlerts(uid, [al]).catch(() => {});
+            log(`  🔔 ${uid} ${al.message}`);
+          } else { await _thesisRebaseAlerted.flush(); log(`  · ${uid} 論點口徑重測：${rows.length} 檔皆未轉弱，不推播`); }
+        } catch (e) {
+          _thesisRebaseAlerted.rollback(_tok);
+          docBasis = curDoc?.basis ?? null;
+          log('  ✖ theses 口徑重測通知', uid, e.message);
+        }
+      }
+      if (rebaseNow && docBasis === THESIS_BASIS) rebasedUsers++;
+      await ref.set({ updatedAt: Date.now(), theses: cur, ...(docBasis ? { basis: docBasis } : {}) });
       if (newAlerts.length) {
         const aref = db.collection('users').doc(uid).collection('data').doc('alerts');
         const prev = (await aref.get()).data()?.alerts || [];
@@ -9856,7 +9909,10 @@ async function updateTheses() {
       }
     } catch (e) { log('  ✖ theses', uid, e.message); }
   }
-  log('✓ 論點追蹤：檢核完成');
+  if (rebaseOk) await _thesisRebaseAlerted.flush();
+  const rebaseText = rebasedUsers ? `；月營收口徑重測 ${rebasedUsers} 位（${data.revMeta.source}）` : '';
+  const pendText = rebasePending ? `；口徑重測等待中 ${rebasePending} 位（月營收來源 ${data.revMeta?.source || '?'}${data.revMeta?.complete ? '' : '·名冊未完整'}，需 MOPS 歸檔且名冊完整）` : '';
+  log(`✓ 論點追蹤：檢核完成${rebaseText}${pendText}`);
 }
 
 // ── 31) 配置漂移再平衡（portfolio-rebalance 台股化）─────────────

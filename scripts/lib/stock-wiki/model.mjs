@@ -17,7 +17,7 @@ export const SOURCES = {
   'twse-t187ap02': { label: '證交所 持股逾10%大股東', tier: '官方' },
   'twse-t187ap11': { label: '證交所 董監事持股明細', tier: '官方' },
   'twse-t187ap47': { label: '證交所 基金(ETF)基本資料', tier: '官方' },
-  peerComps: { label: '站內同業表（官方月營收產業別）', tier: '官方衍生' },
+  peerComps: { label: '站內同業表（MOPS 月營收；官方產業別）', tier: '官方衍生' },
   finSummary: { label: '站內財報摘要（MOPS 財報彙總）', tier: '官方衍生' },
   themeMap: { label: '站內主題產業鏈（人工維護 seed）', tier: '站內整理' },
   groups: { label: '關係企業群（由法人董監／大股東推導）', tier: '站內推導' },

@@ -49,7 +49,15 @@ write('revenue.json', JSON.stringify(rev));
 console.log(`revenueArchive ${Object.keys(rev).length} 個月`);
 
 const pc = (await db.collection('peerComps').doc('latest').get()).data();
-write('peerComps_industries.json', JSON.stringify(JSON.parse(pc.industriesJson)));
+// 只取上市、並拿掉 mkt 欄（2026-10-09 移植 MOPS 月營收口徑：peerComps 起含上櫃、每列帶 mkt）：
+//   起漲研究／影子（build.py industry_matrix 的產業共振特徵）是用上市分群訓練與驗證的，納入上櫃＝特徵定義改變；
+//   維持舊檔格式（{產業: [列]}，沒有 mkt）。要納入上櫃需整套重研究＋使用者核可（同 swing-formula-shadow／squeeze-train）。
+const pcListed = {};
+for (const [g, list] of Object.entries(JSON.parse(pc.industriesJson))) {
+  const rows = (Array.isArray(list) ? list : []).filter(it => (it?.mkt ?? '上市') === '上市').map(it => ({ ...it, mkt: undefined }));   // undefined 欄位 JSON.stringify 不輸出
+  if (rows.length) pcListed[g] = rows;
+}
+write('peerComps_industries.json', JSON.stringify(pcListed));
 console.log('peerComps 產業分類已匯出');
 
 const of = (await db.collection('orderFlowArchive').get()).docs.map(d => ({ id: d.id, ...d.data() }));
