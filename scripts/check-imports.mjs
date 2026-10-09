@@ -43,7 +43,8 @@ export function checkSpec(root, file, spec, exists = isFile) {
   else if (isSrc && spec.startsWith('@/')) base = join(root, 'src', spec.slice(2));
   else return null;
   if (!isSrc) {
-    if (!/\.(mjs|js|cjs|json)$/.test(spec)) return `「${spec}」沒寫副檔名（Node ESM 不補全）`;
+    // .ts／.mts：Node ≥22.18／23.6 內建型別剝除可直接載入（例：scripts/verify-surge-v2-format.mjs 測 src/lib 的純函式）——有寫明副檔名就照樣驗存在
+    if (!/\.(mjs|js|cjs|json|ts|mts)$/.test(spec)) return `「${spec}」沒寫副檔名（Node ESM 不補全）`;
     return exists(base) ? null : `「${spec}」找不到 ${relative(root, base)}`;
   }
   const cands = [base, `${base}.ts`, `${base}.tsx`, `${base}.d.ts`, `${base}.js`, `${base}.mjs`, `${base}.json`, join(base, 'index.ts'), join(base, 'index.tsx')];
@@ -81,8 +82,9 @@ function selftest() {
   const ok = specs.join() === './lib/a.mjs,./lib/b.mjs,./lib/c,node:fs,./lib/a.mjs'
     && miss.length === 2 && miss.some(m => m.includes('b.mjs')) && miss.some(m => m.includes('副檔名'))
     && checkSpec('/r', '/r/src/app/p.tsx', '@/lib/x', ex) === null && checkSpec('/r', '/r/src/app/p.tsx', '../c', ex) === null
-    && checkSpec('/r', '/r/src/app/p.tsx', '@/lib/missing', ex) !== null && checkSpec('/r', '/r/scripts/m.mjs', './data/d.json', ex) === null;
-  console.log(ok ? '✓ selftest 通過（缺檔、缺副檔名、註解不算、@/ 與 index 解析）' : `✖ selftest 失敗 ${JSON.stringify({ specs, miss })}`);
+    && checkSpec('/r', '/r/src/app/p.tsx', '@/lib/missing', ex) !== null && checkSpec('/r', '/r/scripts/m.mjs', './data/d.json', ex) === null
+    && checkSpec('/r', '/r/scripts/m.mjs', '../src/lib/x.ts', ex) === null && /找不到/.test(checkSpec('/r', '/r/scripts/m.mjs', '../src/lib/y.ts', ex) || '');
+  console.log(ok ? '✓ selftest 通過（缺檔、缺副檔名、註解不算、@/ 與 index 解析、scripts 明寫 .ts）' : `✖ selftest 失敗 ${JSON.stringify({ specs, miss })}`);
   process.exit(ok ? 0 : 1);
 }
 
