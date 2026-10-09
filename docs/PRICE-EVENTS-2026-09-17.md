@@ -76,4 +76,12 @@ multiTimeframe、gapLimitUp、limitUpForecast、swingPicks、reversalSignals、c
 **上櫃補洞的 Yahoo 後備**（使用者指示）：TPEx 帶日期端點沒資料時，用快照的上櫃代號逐檔打 Yahoo 日 K，每根 bar 的日期必須回聲等於目標日才收
 （Yahoo 逐檔會漏日 K，見 8d7d980），缺的檔就缺。實測 08-20 四檔 Yahoo 都有當日 bar；本次因 TPEx 已有資料，Yahoo 路徑**未實際觸發**。
 
+## 6. 2026-10-09 更正：一般除權息從未還原 ⇒ 三個榜改接官方除權息（移植 claude/exright-consumers ad5a3be）
+
+- 「Yahoo 已涵蓋除權息，暫不需要」只對已進事件表（相鄰收盤超出 ±20%）的那幾件成立；一般除權息從不進 priceEvents。量測見 `docs/EXRIGHT-IMPACT-2026-09-30.md`。
+- 已改接：shortCandidates、dailySeq、swingHold（含離榜清單的昨收）——`loadAdjustFactorsOrWarn`，各 doc 另帶 `exrightApplied`／`exrightOk`；
+  未涵蓋時照算並揭露（swingHold caveats、shortCandidates skippedFilters），冪等只在 `exrightOk` 非 false 時略過。
+- 來源與分支不同：不建 `exrightEvents/latest`，改重用 main 既有的 `exright-history.json`＋近期官方區間（`lib/exright-cover.mjs` → 停損影子的 `exItemsMerge`）。
+- 沒改：AI 波段帳戶／成交／研究結算、經驗庫（ai-lab-learn）、squeeze-train 的事件剔除；**priceEvents/latest 的語意（±20%、90 個交易日窗）不動。**
+
 非投資建議。

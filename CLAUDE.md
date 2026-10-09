@@ -202,6 +202,15 @@ import { getSession, isMarketOpen, pollInterval } from '@/lib/market-clock';
 而「市場無交易，僅辦理結算交割作業」字面有「交易」兩字卻**是休市**。
 分類規則是 `/開始交易|最後交易/` 才排除 —— 已用自家歸檔全量對帳，2026 年 27 筆 100% 相符。
 
+**價格還原不要只乘 priceEvents（2026-10-09）**
+
+`priceEvents/latest` 只有相鄰收盤 ±20% 的結構事件，一般除權息（1~6%）**不在裡面**——只乘它，除權息日就是假跌幅
+（近一年 2,819 件，量測見 `docs/EXRIGHT-IMPACT-2026-09-30.md`）。daemon 榜單（做空候選／dailySeq／波段持有）用
+`loadAdjustFactorsOrWarn(from, asOf)`：官方除權息＝`scripts/data/exright-history.json`＋檔尾之後到資料日的官方區間（`scripts/lib/exright-cover.mjs`，
+與停損影子同一套 `exItemsMerge`，不寫 Firestore、每資料日 2 個上游請求、與人數無關）＋priceEvents。`asOf` 必帶：官方前一晚就公布隔日的除權息，
+未來事件乘進去會把最新收盤改成參考價。不要再寫第三份除權息來源或合併函式。
+例外（未改）：AI 波段帳戶的成交／市值／結算、AI 交易員經驗庫（ai-lab-learn 訓練與即時比對）仍是 priceEvents 口徑。
+
 **即時報價的雙軌（2026-08-14 起）**
 
 - **5 秒快線** `hotQuoteLoop`：自選/持股/瀏覽中/策略榜前 120 檔（`buildPriorityCodes`），
