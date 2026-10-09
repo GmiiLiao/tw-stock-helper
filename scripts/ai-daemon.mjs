@@ -688,13 +688,16 @@ async function probeOllama() {
 }
 const _jobTimings = {};   // name → { ms, at, tag }（F14：08:30 前完成的硬要求需要量測每段耗時）
 let _inflightJobs = 0;   // 進行中的 timedJob／execScript 數（自動換碼只在 0 時動手，lib/drift-heal.mjs）
+// 回傳 true＝沒有拋例外（2026-10-09：舊版回傳耗時、無呼叫端使用；改回報成敗，供 15:10／16:30 班車只重試失敗項）
+//   ⚠ 多數工作在內部自己 catch 並 log，那類失敗這裡看不到——只能抓到「拋出來的」例外。
 async function timedJob(name, fn, tag = '') {
   const t0 = Date.now();
+  let ok = true;
   _inflightJobs++;
-  try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } finally { _inflightJobs--; }
-  const ms = Date.now() - t0; _jobTimings[name] = { ms, at: Date.now(), tag };
+  try { await fn(); } catch (e) { ok = false; log(`✖ ${name}${tag}:`, e.message); } finally { _inflightJobs--; }
+  const ms = Date.now() - t0; _jobTimings[name] = { ms, at: Date.now(), tag, ok };
   if (ms > 60_000) log(`⏱ ${name}${tag} 耗時 ${(ms / 1000).toFixed(0)}s`);
-  return ms;
+  return ok;
 }
 function slowestJobs(n = 5) { return Object.entries(_jobTimings).sort((a, b) => b[1].ms - a[1].ms).slice(0, n).map(([k, v]) => `${k} ${(v.ms / 1000).toFixed(0)}s`).join('、'); }
 let _hotStats = null;   // 快線揭示落後統計（5 分鐘一筆，見 hotQuoteLoop）
@@ -5206,11 +5209,13 @@ await heartbeat({ note: 'starting' });
 // 全部來自 daemon（停機實測 400→20/5min），但靜態分析對不上，只能逐呼叫點計數。
 // 平常關閉零成本；打開時每 5 分鐘輸出 Top15 呼叫點（行號×讀取數）。
 if (process.env.READ_TRACE === '1') {
-  const fsMod = await import('@google-cloud/firestore');
+  const fsMod = await import('firebase-admin/firestore');   // 2026-10-09：改用正式依賴重新匯出的同一組類別（@google-cloud/firestore 不在 package.json，靠遞移依賴）
   const tally = new Map();
   // ⚠第一版的教訓：stack 第一個 ai-daemon.mjs frame 是 wrapper 自己那一行，
   //   全部歸因到 L2074 毫無意義。改抓「wrapper 區段之外」的第一個 frame。
-  const TRACE_LO = 2040, TRACE_HI = 2100;   // 本儀表區塊的行號範圍
+  // 本儀表區塊的行號範圍：由執行時堆疊取得（舊版寫死 2040–2100，檔案增長後早已對不上）
+  const _here = +(((new Error().stack || '').split('\n')[1] || '').match(/ai-daemon\.mjs:(\d+)/)?.[1] || 0);
+  const TRACE_LO = _here - 10, TRACE_HI = _here + 40;
   const rec = (kind, n) => {
     const st = (new Error().stack || '').split('\n');
     let line = null;
@@ -8409,7 +8414,7 @@ async function computeSqueezeReview({ backfillDays = 0 } = {}) {
 // 為什麼是漲停股：軋空的觀察對象就是「已經軋起來的那些」，把它們的前一日長相
 // 存下來，才能回答「什麼樣的前一日會導致隔日軋空」。同時存一組**對照樣本**
 // （當日漲 3~5% 但沒漲停）——只存正例的資料集訓練不出判別力。
-async function recordSqueezeTraining() {
+async function recordSqueezeTraining({ date: wantDate = null } = {}) {   // date：補指定交易日（21:45 班車回補近 3 日缺口，2026-10-09）
   const { buildStockFeatures, buildLabels } = await import('./lib/squeeze-data.mjs');
   const arch = await readArchive(30, 'closeJson');
   if (arch.length < 25) return;
@@ -8421,7 +8426,7 @@ async function recordSqueezeTraining() {
     lend: a.lendingJson ? JSON.parse(a.lendingJson) : null,
   }));
   // SQ_TRAIN_DATE=YYYY-MM-DD：回補指定交易日（2026-09-29：09-24 班車被重啟跳過）。特徵只用該日（含）以前的歸檔，不偷看之後
-  const want = process.env.SQ_TRAIN_DATE || null;
+  const want = wantDate || process.env.SQ_TRAIN_DATE || null;
   const t = want ? days.findIndex(d => d.date === want) : days.length - 1;   // 預設＝今日（已含資券）
   if (t < 1) { log(`  ⚠ 軋空訓練資料：歸檔找不到 ${want}，略過`); return; }
   if (want && !days[t].margin) { log(`  ⚠ 軋空訓練資料：${want} 無資券歸檔，不補`); return; }
@@ -8466,6 +8471,7 @@ async function recordSqueezeTraining() {
     schema: 'v1: rows[].t=當日特徵, rows[].y=前一日特徵, cls=1漲停/0對照(漲3~5%)',
   });
   log(`✓ 軋空訓練資料 ${today}：漲停 ${nLU} 檔 + 對照 ${rows.length - nLU} 檔（國際盤 ${Object.keys(global).length} 項）`);
+  return true;
 }
 
 // MACD(12,26,9) 狀態（2026-09-22 使用者要求「0 線上且向上翻紅」）：只做**揭露＋可選過濾**，不當硬閘門——
@@ -10547,9 +10553,10 @@ async function writePicksScoreboard(docsIn = null) {
 // canonical：當日各榜名單只在「當日收盤歸檔兩市都到齊」後由資料到齊班車（或 --run trackPicks --force）定版寫一次
 //   （2026-10-02：舊版每次執行都 merge 覆蓋——15:10 寫上市版、重啟再寫一次較晚／殘缺的版本，波段起漲榜 2 檔被蓋成 0 檔）。
 //   非定版呼叫（15:10 排程、開機）只做到期評估與記分板。
-async function trackPicks({ canonical = false } = {}) {
-  const tw = taipei(); if (!isTradingDay(tw)) return;
-  const date = isoDate(tw);
+async function trackPicks({ canonical = false, date: forDate = null } = {}) {
+  // forDate（2026-10-09）：資料到齊班車跨午夜續跑前一交易日用；省略時與舊版相同（日曆今天、非交易日不跑）
+  const tw = taipei(); if (!forDate && !isTradingDay(tw)) return;
+  const date = forDate || isoDate(tw);
   const snap = await readSnapshotQuotes(); const q = snap?.quotes || {};
   const rec = await getJSON('/api/twse/ai-recommend');
 
@@ -14535,9 +14542,9 @@ async function computeShortCandidates({ canonical = false } = {}) {
 // 標籤（隔日開→收、5日最大跌幅兩種口徑）**訓練時**從 chipArchive 現算
 // ——不逐日回填，PIT 安全且不會有回填斷檔。累積 ~200 交易日後
 // 複用 squeeze-train 框架訓練（OOT 70/30＋安慰劑同規）。
-async function recordShortTraining() {
+async function recordShortTraining({ date: wantDate = null } = {}) {   // date：補指定交易日（21:45 班車回補近 3 日缺口，2026-10-09）
   // SHORT_TRAIN_DATE=YYYY-MM-DD：以該日事前存檔 shortCandidates/{日} 回補（2026-09-29：09-24 班車被重啟跳過）
-  const want = process.env.SHORT_TRAIN_DATE || null;
+  const want = wantDate || process.env.SHORT_TRAIN_DATE || null;
   const today = want || isoDate(taipei());
   // 優先用當日定版事前存檔（2026-10-02：latest 會被開機重跑以殘缺宇宙改寫；定版只在收盤資料兩市到齊後寫一次）
   const canon = (await db.collection('shortCandidates').doc(today).get()).data();
@@ -15680,23 +15687,99 @@ async function checkOpenSell() {
 // 法人連續買超 + 回測：開機跑一次，之後每交易日收盤後(15:10)各跑一次。
 async function runDailyJobs(boot = false) {
   const tag = boot ? '(boot)' : '';
+  const failed = [];   // 拋例外的工作 [name, fn]（回傳給 15:10 班車決定是否重試）
   // finReports 是全量掃描（~2,000 docs）且為季頻資料——每日 15:10 跑就夠，
   // 開機重跑純浪費（2026-08-01 稽查：一天內多次重啟 × 2k ＝ 數萬次白讀）。
   const BOOT_SKIP = new Set(['finReports']);
   for (const [name, fn] of [['institutional', trackInstitutional], ['tradeSignals', computeTradeSignals], ['RS', computeRS], ['scanner', computeScanner], ['taifex', trackTaifex], ['globalMarkets', computeGlobalMarkets], ['sectorSpot', computeSectorSpot], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['margin', computeMargin], ['majorHolders', computeMajorHoldersChange], ['multiTimeframe', computeMultiTimeframe], ['dividend', computeDividendCalendar], ['lending', computeLending], ['dividendStocks', computeDividendStocks], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['morningNote', publishMorningNote], ['dayTradeEligible', computeDayTradeEligible], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['priceEvents', computePriceEvents], ['otcIndex', archiveOtcIndex], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['recommendAdj', computeRecommendAdj], ['reversalSignals', computeReversalSignals], ['shortCandidates', computeShortCandidates], ['shortReview', computeShortReview], ['gapLimitUp', computeGapLimitUp], ['gapLimitUpReview', computeGapLimitUpReview], ['picksTracker', trackPicks], ['exDiv', adviseExDiv], ['dcaHint', hintDca], ['adrPremium', computeAdrPremium], ['stressTest', computeStressTest], ['theses', updateTheses], ['rebalance', checkAllocationDrift], ['stopDiscipline', trackStopDiscipline], ['snipeList', buildSnipeList], ['rotation', computeRotation], ['peBands', computePeBands], ['monthlyReports', publishMonthlyReports], ['userRisk', computeUserRisk], ['marketPattern', computeMarketPattern], ['tailEndPicks', computeTailEndPicks], ['shadowAccount', analyzeShadowAccount], ['earningsCalls', previewEarningsCalls], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['chipPicks', computeChipPicks], ['newsDaily', computeNewsDaily], ['limitUpForecast', computeLimitUpForecast], ['finReports', computeFinReports], ['washoutMonitor', computeWashoutMonitor], ['backtest', runBacktest], ['dailyPost', publishDailyPost], ['userSummaries', publishUserSummaries], ['tradeReviews', publishTradeReviews]]) {
     if (boot && BOOT_SKIP.has(name)) { log(`  ↷ ${name}(boot 跳過·每日 15:10 排程涵蓋)`); continue; }
-    await timedJob(name, fn, tag);
+    if (!(await timedJob(name, fn, tag))) failed.push([name, fn]);
   }
   const total = Object.values(_jobTimings).filter(v => v.tag === tag).reduce((s, v) => s + v.ms, 0);
   log(`⏱ dailyJobs${tag} 總耗時 ${(total / 60000).toFixed(1)} 分；最慢：${slowestJobs(5)}`);
   writeDaemonHealth();
+  return failed;
 }
 // 官方盤後資料公布時間不同，光靠 15:10 一次會抓到前一日：T86 三大法人約 16:00、
 // 期交所/集保/除權息/借券/月營收約 16:30 前、融資融券約 21:30 才出。故加兩個補抓時段。
 const OFFICIAL_CATCHUP = [['institutional', trackInstitutional], ['taifex', trackTaifex], ['majorHolders', computeMajorHoldersChange], ['dividend', computeDividendCalendar], ['lending', computeLending], ['revenue', computeRevenue], ['revenueThicken', thickenRevenueArchive], ['marketHealth', computeMarketHealth], ['peerComps', computePeerComps], ['catalystCalendar', buildCatalystCalendar], ['dayTradeRatio', computeDayTradeRatio], ['chipArchive', archiveChipDaily], ['gapLimitUp', computeGapLimitUp], ['swingHold', computeSwingHold], ['dailySeq', computeDailySeq], ['chipCumulative', computeChipCumulative], ['chipSignals', computeChipSignals], ['chipDaily', computeChipDaily], ['chipWind', computeChipWind], ['chipDivergence', computeChipDivergence], ['etfInfluence', computeEtfInfluence], ['strategyPicks', computeStrategyPicks], ['etfPremium', computeEtfPremium], ['dailyPost', publishDailyPost]];   // gapLimitUp 排在 chipArchive 之後：15:10 版歸檔上櫃可能未併入（2026-09-07 實案 34→12 檔），16:30 併入後重算
 const MARGIN_CATCHUP = [['margin', computeMargin], ['sbl', archiveSblBalance], ['etfPremium', computeEtfPremium], ['chipArchive', archiveChipDaily], ['chipSignals', computeChipSignals], ['dailyPost', publishDailyPost]];
 async function runJobSet(jobs, tag) {
-  for (const [name, fn] of jobs) await timedJob(name, fn, tag);
+  const failed = [];
+  for (const [name, fn] of jobs) if (!(await timedJob(name, fn, tag))) failed.push([name, fn]);
+  return failed;   // 拋例外的工作 [name, fn]
+}
+// ── 15:10 每日工作／16:30 官方補抓：只重試失敗項（2026-10-09 使用者裁定全修·同類缺口掃描 A 類）──────────────
+//   舊版整批跑完就標完成，單項拋例外（借券、除權息、期貨…）當日不再重試、開機也不補 ⇒ 當日缺。
+//   會推播給使用者的工作重跑可能重推（部分推播只有記憶體去重或沒有去重）⇒ 不自動重試，只通知管理員。
+//   清單由 ai-daemon.mjs 靜態分析得出（呼叫 pushAlerts／pushAgentMsg／pushReversalAlerts／notifyDeveloper／webpush／Telegram 的工作，含間接呼叫）；
+//   新增會推播的每日工作時要加進來。完成記錄在「可重試項都成功」時寫（推播項失敗已通知、不重跑，與舊版「開機不重跑」一致）。
+const PUSHING_JOBS = new Set(['catalystCalendar', 'dayTradeRatio', 'etfPremium', 'reversalSignals', 'shortCandidates', 'gapLimitUp', 'picksTracker',
+  'exDiv', 'dcaHint', 'adrPremium', 'theses', 'stopDiscipline', 'shadowAccount', 'newsDaily', 'limitUpForecast', 'finReports', 'washoutMonitor']);
+const JOB_RETRY_GAP_MS = 15 * 60000, JOB_RETRY_MAX = 4, JOB_RETRY_DEADLINE_MIN = 21 * 60 + 30;   // 21:30 前（21:40 起 daemon 重任務窗）
+const _jobRetry = {};   // key → { date, items: [[name, fn]], n, at, markKeys, downstream: [[name, fn]]|null, downstreamDone }
+// 重試狀態寫進 daemonJobMarks.retry_<key>（審查 M1）：重啟後讀回，不會「重試中途重啟就整批遺失、也不再告警」。
+const saveRetryState = (key, v) => db.collection('system').doc('daemonJobMarks').set({ [`retry_${key}`]: v, updatedAt: Date.now() }, { merge: true })
+  .catch(e => log(`⚠ 寫入重試狀態 ${key} 失敗:`, (e.message || '').slice(0, 60)));
+// downstreamOf（官方補抓用·審查 M3）：清單有先後依賴（法人 → 籌碼累積／訊號／風向 → 選股 → 每日貼文），前段失敗時後段已用缺日資料算完；
+//   失敗項重試成功後，連帶重跑排在第一個失敗項之後、不推播的工作一次。15:10 每日工作 64 項、含逐人 LLM 摘要，不做連帶重跑（只記 log）。
+const downstreamOf = (jobs, failedNames) => {
+  if (!jobs) return null;
+  const first = jobs.findIndex(([n]) => failedNames.includes(n));
+  return first < 0 ? null : jobs.slice(first + 1).filter(([n]) => !failedNames.includes(n) && !PUSHING_JOBS.has(n));
+};
+async function settleJobSet(key, today, failed, markKeys, jobs = null) {
+  const retry = failed.filter(([n]) => !PUSHING_JOBS.has(n));
+  const noRetry = failed.filter(([n]) => PUSHING_JOBS.has(n)).map(([n]) => n);
+  if (noRetry.length) {
+    log(`  ⚠ ${key} ${today}：${noRetry.join('、')} 失敗——會推播給使用者，不自動重試（避免重推），已通知管理員`);
+    await notifyDeveloper(`⚠ 每日工作 ${key} ${today}：${noRetry.join('、')} 拋出例外。這幾項會推播給使用者，不自動重試以免重推；請查 daemon 日誌，必要時以 --run 手動補跑。`, `jobfail-${key}-${today}`);
+  }
+  if (!retry.length) {
+    _jobRetry[key] = null;
+    await saveRetryState(key, { date: today, names: [], state: 'done' });
+    for (const k of markKeys) await markJobDone(k, today);
+    return;
+  }
+  const names = retry.map(([n]) => n);
+  const downstream = downstreamOf(jobs, names);
+  _jobRetry[key] = { date: today, items: retry, n: 0, at: Date.now(), markKeys, downstream, downstreamDone: !downstream?.length };
+  await saveRetryState(key, { date: today, names, state: 'pending', n: 0 });
+  log(`  ⏳ ${key} ${today}：${names.join('、')} 失敗——${JOB_RETRY_GAP_MS / 60000} 分鐘後只重試這幾項（最多 ${JOB_RETRY_MAX} 輪、21:30 前）`
+    + (downstream?.length ? `；成功後連帶重跑下游 ${downstream.length} 項` : (jobs ? '' : '；⚠ 已用缺項資料算完的後續工作不會重跑')));
+}
+async function retryJobSetTick(key, today, mins) {
+  const r = _jobRetry[key];
+  if (!r || r.date !== today || Date.now() - r.at < JOB_RETRY_GAP_MS) return;
+  if (r.n >= JOB_RETRY_MAX || mins >= JOB_RETRY_DEADLINE_MIN) {
+    _jobRetry[key] = null;
+    const names = r.items.map(([n]) => n).join('、');
+    await saveRetryState(key, { date: today, names: r.items.map(([n]) => n), state: 'gaveUp', n: r.n });
+    log(`  ⚠ ${key} ${today}：${names} 重試 ${r.n} 輪仍失敗，今日放棄（未寫完成記錄）`);
+    await notifyDeveloper(`⚠ 每日工作 ${key} ${today}：${names} 重試 ${r.n} 輪仍失敗，今日放棄。當日這幾項資料缺漏，請查 daemon 日誌。`, `jobgiveup-${key}-${today}`);
+    return;
+  }
+  r.n++; r.at = Date.now();
+  const still = await runJobSet(r.items, `(${key}·重試 ${r.n})`);
+  if (still.length) { r.items = still; await saveRetryState(key, { date: today, names: still.map(([n]) => n), state: 'pending', n: r.n }); return; }
+  if (!r.downstreamDone) {
+    r.downstreamDone = true;
+    log(`  ↻ ${key} ${today}：失敗項已補上，連帶重跑下游 ${r.downstream.length} 項（${r.downstream.map(([n]) => n).join('、')}）`);
+    const dsFail = await runJobSet(r.downstream, `(${key}·下游重算)`);
+    if (dsFail.length) { r.items = dsFail; await saveRetryState(key, { date: today, names: dsFail.map(([n]) => n), state: 'pending', n: r.n }); return; }
+  }
+  log(`  ✓ ${key} ${today}：失敗項重試成功（第 ${r.n} 輪）`);
+  _jobRetry[key] = null;
+  await saveRetryState(key, { date: today, names: [], state: 'done' });
+  for (const k of r.markKeys) await markJobDone(k, today);
+}
+// 開機讀回重試狀態（審查 M1）：pending ⇒ 接著重試（第一輪在 5 分鐘內）；gaveUp／done ⇒ 視為今日已處理、不整批重跑
+function restoreRetryState(key, rec, today, jobs, markKeys) {
+  if (!rec || rec.date !== today || rec.state !== 'pending' || !Array.isArray(rec.names) || !rec.names.length) return;
+  const items = rec.names.map(n => jobs.find(([x]) => x === n)).filter(Boolean);
+  if (!items.length) return;
+  _jobRetry[key] = { date: today, items, n: rec.n || 0, at: 0, markKeys, downstream: downstreamOf(key === 'official' ? jobs : null, rec.names), downstreamDone: key !== 'official' };
+  log(`  · 開機：${key} 有待重試項 ${rec.names.join('、')}，接著重試`);
 }
 let _intradayDate = '';   // 個股5分K歸檔每日一次
 let _asiaAt = 0, _asiaCatchupDate = '';   // 日韓早盤節流與補跑守衛（見 computeAsiaPremarket）
@@ -15729,6 +15812,20 @@ let _v3ShadowDate = '', _v3ShadowFail = { date: '', n: 0, at: 0 };
 //   _postCloseDate＝同一時段的漲停前夜實驗／使用數據彙總，照舊只記在記憶體（重啟後會再跑一次，兩支皆冪等）
 let _postCloseDate = '', _backupBusy = false, _backupFail = { date: '', n: 0, at: 0 };
 let _sfDate = '', _sfTry = { date: '', n: 0, at: 0 };   // 🎯 標靶公式影子（22:40 起、每 20 分鐘最多 4 次；完成記錄 swingFormula）   // 📐 技術評分 v3 影子（18:45 起，完成記錄 scoringV3；失敗當日最多 3 次）
+let _marginTry = { date: '', n: 0, at: 0 };
+let _loopDay = '';   // 主迴圈上一輪的日曆日（換日偵測·2026-10-09）
+async function notifyUnfinishedOnRollover(prev) {
+  const left = [];
+  if (_marginTry.date === prev && _marginDate !== prev) { left.push('21:45 資券班車'); _marginDate = prev; }
+  if (_sfTry.date === prev && _sfDate !== prev) { left.push('標靶公式影子'); _sfDate = prev; }
+  if (_v3ShadowFail.date === prev && _v3ShadowDate !== prev) { left.push('技術評分 v3 影子'); _v3ShadowDate = prev; }
+  if (!left.length) return;
+  log(`⚠ ${prev} 跨日時仍未完成：${left.join('、')}（未寫完成記錄）`);
+  await notifyDeveloper(`⚠ ${prev} 跨日時仍未完成：${left.join('、')}。當日這幾項缺，請查 daemon 日誌（資券可於下一交易日開盤前以 --run 補跑）。`, `rollover-${prev}`);
+}   // 21:45 資券班車重試節流（2026-10-09）
+let _weeklyTry = { date: '', n: 0, at: 0 }, _characterTry = { date: '', n: 0, at: 0 };   // 週報／籌碼性格重試節流（2026-10-09）
+let _dailyCloseTry = { date: '', n: 0, at: 0 };   // 18:05 收盤盤勢分析重試節流（2026-10-09）
+let _morningTry = { date: '', n: 0, at: 0, done: new Set() };   // 07:50 晨報逐步完成記錄與重試節流（2026-10-09）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
 let _otcReadyNextAt = 0, _canonLateWarned = '';   // 資料到齊班車：未到齊時下次重試時刻、當日是否已發 21:45 警示
@@ -15814,16 +15911,95 @@ async function evalTailTrack() {
   });
 }
 
+// 資券班車的資料到齊檢查（2026-10-09）：與 archiveChipDaily 的 hasOtcMargin 同一組上櫃樣本；上市用 canonical-gate 的權值樣本
+async function marginDayMissing(day) {
+  let d = {};
+  try { d = (await db.collection('chipArchive').doc(day).get()).data() || {}; } catch (e) { return [`歸檔讀取失敗 ${(e.message || '').slice(0, 30)}`]; }
+  let m = null; try { m = d.marginJson ? JSON.parse(d.marginJson) : null; } catch { m = null; }
+  const missing = [];
+  if (!m || !['2330', '2317', '2454', '2882'].some(c => m[c])) missing.push('上市資券');
+  if (!m || !['6274', '8069', '5483'].some(c => m[c])) missing.push('上櫃資券');
+  if (!((d.sblN ?? 0) >= 500)) missing.push('借券餘額');
+  return missing;
+}
+// 近 3 個「已有資券歸檔」的交易日（不含今日——今日由班車本身寫）缺訓練資料就補：
+//   軋空訓練資料只用該日（含）以前的歸檔（recordSqueezeTraining 的 date 參數，不偷看之後）；
+//   做空訓練樣本只認該日的定版事前存檔（canonicalAt），沒有定版就不補（不拿 latest 冒充）。
+async function backfillTrainingGaps(today) {
+  const days = (await readArchive(5, 'marginJson')).map(a => a.date).filter(d => d && d < today).slice(0, 3);
+  for (const d of days) {
+    try {
+      if (!(await db.collection('squeezeTraining').doc(d).get()).exists) { log(`  ↻ 軋空訓練資料 ${d} 缺，回補`); await recordSqueezeTraining({ date: d }); }
+    } catch (e) { log(`  ✖ 軋空訓練資料回補 ${d}:`, (e.message || '').slice(0, 60)); }
+    try {
+      if (!(await db.collection('shortTraining').doc(d).get()).exists && (await db.collection('shortCandidates').doc(d).get()).data()?.canonicalAt) {
+        log(`  ↻ 做空訓練樣本 ${d} 缺，以定版事前存檔回補`); await recordShortTraining({ date: d });
+      }
+    } catch (e) { log(`  ✖ 做空訓練樣本回補 ${d}:`, (e.message || '').slice(0, 60)); }
+  }
+}
+let _canonCarry = { day: '', state: 'unknown', nextTryMs: 0, set: new Set(), warned: false };
+async function canonCarryTick(today, mins) {
+  const P = prevTradingIsos(today, 3).find(d => d < today);
+  if (!P) return;
+  if (_canonCarry.day !== P) _canonCarry = { day: P, state: 'unknown', nextTryMs: 0, set: new Set(), warned: false };
+  const c = _canonCarry;
+  if (c.state === 'done' || c.state === 'abandoned' || Date.now() < c.nextTryMs) return;
+  if (c.state === 'unknown') {
+    // 看資料不看標記：daemonJobMarks.otcFix 只存最後一天（週末非交易日那輪會蓋掉週五），改直接查三份定版文件
+    if (_otcFixDate === P) { c.state = 'done'; return; }
+    const refs = [db.collection('limitUpForecast').doc(`pred-${P}`), db.collection('shortCandidates').doc(P), db.collection('picksHistory').doc(P)];
+    const READ_FAIL = Symbol('readFail');
+    const docs = await Promise.all(refs.map(r => r.get().then(x => x.data() ?? null).catch(() => READ_FAIL)));
+    if (docs.includes(READ_FAIL)) { c.nextTryMs = Date.now() + 15 * 60000; return; }   // 讀取失敗：稍後再判，不貿然續跑（文件不存在＝null，不是失敗）
+    if (docs.every(d => d?.canonicalAt)) { c.state = 'done'; return; }
+    c.state = 'pending';
+    log(`  ↻ 資料到齊班車 ${P}：前一交易日定版未完成，跨午夜續跑（至 06:30）`);
+  }
+  c.nextTryMs = Date.now() + 15 * 60000;
+  const lastClose = (await readArchive(1, 'closeJson'))[0]?.date;
+  if (lastClose !== P) {
+    c.state = 'abandoned';
+    log(`⚠ 資料到齊班車跨午夜續跑 ${P}：最新收盤歸檔是 ${lastClose || '無'}（不是 ${P}），不續跑以免寫到別天`);
+    await notifyDeveloper(`⚠ 資料到齊班車 ${P} 未定版；跨午夜續跑因最新收盤歸檔為 ${lastClose || '無'} 而中止，該日定版記錄缺。`, `canoncarry-${P}`);
+    return;
+  }
+  const gate = await archiveDayReady(P); const uniOk = await universeComplete();
+  if (!gate.ready || !uniOk) {
+    log(`  ⏳ 資料到齊班車 ${P}（跨午夜）：尚缺 ${[...gate.missing, ...(uniOk ? [] : ['宇宙缺市場'])].join('、')}——15 分鐘後重試`);
+  } else {
+    for (const [name, fn] of [['漲停預測存檔', () => computeLimitUpForecast({ canonical: true })], ['做空事前存檔', () => computeShortCandidates({ canonical: true })],
+      ['推薦成績名單', () => trackPicks({ canonical: true, date: P })]]) {
+      if (c.set.has(name)) continue;
+      try { if (await fn()) c.set.add(name); } catch (e) { log(`✖ 跨午夜續跑 ${P} ${name}:`, (e.message || '').slice(0, 60)); }
+    }
+    if (c.set.has('做空事前存檔') && !c.set.has('做空對答案')) { try { await computeShortReview(); c.set.add('做空對答案'); } catch (e) { log(`✖ 跨午夜續跑 ${P} 做空對答案:`, (e.message || '').slice(0, 60)); } }
+    if (['漲停預測存檔', '做空事前存檔', '推薦成績名單'].every(n => c.set.has(n))) {
+      c.state = 'done';
+      try { await db.collection('system').doc('canonicalGate').set({ date: P, ready: true, missing: [], finishedAt: Date.now(), carriedOver: true, updatedAt: Date.now() }, { merge: true }); } catch { /* 狀態記錄失敗不影響 */ }
+      await markJobDone('otcFix', P);
+      log(`✓ 資料到齊班車 ${P}（跨午夜續跑）：定版記錄完成`);
+      return;
+    }
+  }
+  if (mins >= 6 * 60 + 15 && !c.warned) {
+    c.warned = true;
+    await notifyDeveloper(`⚠ 資料到齊班車 ${P}：跨午夜續跑至 06:15 仍未完成（${gate.ready && uniOk ? `未定版：${['漲停預測存檔', '做空事前存檔', '推薦成績名單'].filter(n => !c.set.has(n)).join('、')}` : `資料缺 ${gate.missing.join('、')}`}），06:30 後停止。`, `canoncarry-late-${P}`);
+  }
+}
 async function dailyJobsLoop() {
   await refreshLearned();   // 🧠 經驗庫先載入，交易員決策立即可用
-  await runDailyJobs(true); // 開機先跑一輪，資料即時可用
+  const _bootFailed = await runDailyJobs(true); // 開機先跑一輪，資料即時可用
   { // 開機時已過的時段：只有「完成記錄」證實今天跑完的才標記，否則照常補跑
     const tw = taipei(); const t = isoDate(tw); const m = tw.getHours() * 60 + tw.getMinutes();
     if (isTradingDay(tw)) {
       const marks = await readJobMarks();
       // 15:10 每日工作：開機輪已涵蓋（除 finReports）⇒ 標記；finReports 今天沒跑過就補跑一次
+      //   開機輪本身的失敗項交給同一套重試（審查 M1：舊做法重啟就把 15:10 的待重試項整批遺失）
       if (m >= 15 * 60 + 10) {
         _dailyJobsDate = t;
+        if (marks.retry_daily?.date === t && marks.retry_daily.state === 'gaveUp') log('  · 開機：今日 15:10 每日工作已放棄重試，不再重試');
+        else await settleJobSet('daily', t, _bootFailed.filter(([n]) => n !== 'finReports'), ['daily']);
         if (marks.finReports !== t) { await timedJob('finReports', computeFinReports, '(boot 補跑·今日未跑)'); await markJobDone('finReports', t); }
       }
       if (marks.morning === t) _morningDate = t;     // 07:50 晨報段今日已完成 ⇒ 不重跑 LLM、不重推族群預警（2026-10-02）
@@ -15833,8 +16009,12 @@ async function dailyJobsLoop() {
       if (marks.scoringV3 === t) _v3ShadowDate = t;
       if (marks.swingFormula === t) _sfDate = t;
       if (m >= 16 * 60 + 30 && marks.official === t) _officialDate = t;
+      // 官方補抓：重試中或已放棄 ⇒ 不整批重跑（審查 M1）；pending 的接著重試
+      else if (m >= 16 * 60 + 30 && marks.retry_official?.date === t && ['pending', 'gaveUp'].includes(marks.retry_official.state)) {
+        _officialDate = t; restoreRetryState('official', marks.retry_official, t, OFFICIAL_CATCHUP, ['official']);
+      }
       if (m >= 21 * 60 + 45 && marks.margin === t) _marginDate = t;
-      if (m >= 16 * 60 + 30 && marks.official !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
+      if (m >= 16 * 60 + 30 && marks.official !== t && _officialDate !== t) log('  · 開機：今日 16:30 官方補抓未完成，照常補跑');
       if (m >= 21 * 60 + 45 && marks.margin !== t) log('  · 開機：今日 21:45 資券後班車未完成，照常補跑');
     }
     // 🧠 第二大腦備份每天都跑（含假日），所以不分交易日讀回：今天已成功備份 ⇒ 重啟不再整輪重跑（2026-10-08 WP0）
@@ -15852,6 +16032,9 @@ async function dailyJobsLoop() {
         await runDailyJobs(true);
       }
       const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
+      // 換日時補發前一日「未完成、也沒發過放棄通知」的班車（審查 M2：23:00 新聞趟把迴圈卡到午夜後時，放棄分支根本輪不到）
+      if (_loopDay && _loopDay !== today) await notifyUnfinishedOnRollover(_loopDay);
+      _loopDay = today;
       // 開盤前 1 小時（08:00）核對新聞內容並由 AI 判別（使用者指定）
       // 當沖資格名單盤前就發布，而它必須在 09:00 開盤前到位（使用者要靠它避免違規），
       // 所以不能只靠 15:10 的每日 job——那是收盤後，整個交易日都拿昨天的名單。
@@ -16038,9 +16221,14 @@ async function dailyJobsLoop() {
         else log('✖ 軋空模型訓練失敗，將於下一輪重試');
       }
       // 週六 10:00 週末復盤週報
-      if (tw.getDay() === 6 && mins >= 10 * 60 && _weeklyDate !== today) {
-        try { await publishWeeklyReviews(); } catch (e) { log('✖ weekly:', e.message); }
-        _weeklyDate = today;
+      // 2026-10-09：失敗不佔位（30 分鐘後重試、最多 3 次）；週報逐人寫入、各自 try，整段拋錯才算失敗
+      if (tw.getDay() === 6 && mins >= 10 * 60 && _weeklyDate !== today && !(_weeklyTry.date === today && Date.now() - _weeklyTry.at < 30 * 60000)) {
+        _weeklyTry = { date: today, n: (_weeklyTry.date === today ? _weeklyTry.n : 0) + 1, at: Date.now() };
+        try { await publishWeeklyReviews(); _weeklyDate = today; }
+        catch (e) {
+          log(`✖ weekly（第 ${_weeklyTry.n} 次）:`, e.message);
+          if (_weeklyTry.n >= 3) { _weeklyDate = today; log(`⚠ 週報 ${today}：3 次仍失敗，本週放棄`); }
+        }
       }
       // 每日新聞（使用者定案 2026-07-29：要「當日最新」而非早上那一版）：
       // 07:00 首發，之後 07:00~23:00 每滿 3 小時刷新。
@@ -16099,10 +16287,24 @@ async function dailyJobsLoop() {
         }
         // 08:00 盤前晨報（事件日曆先更新，晨報才有今日事件）
         // 07:50（開盤前 70 分）盤前晨報：日曆→ADR→新聞風向→晨報
-        if (mins >= 7 * 60 + 50 && _morningDate !== today) {
+        if (mins >= 7 * 60 + 50 && _morningDate !== today && !(_morningTry.date === today && Date.now() - _morningTry.at < 10 * 60000)) {
           // 成功才寫持久完成記錄（2026-10-02）：舊版只記在記憶體，07:50 後任何重啟都會重跑——族群預警再呼叫一次 LLM、再推一次「今日偏空族群」
-          try { await buildCatalystCalendar(); await computeAdrPremium(); await forecastSectors(); await publishMorningNote(); await markJobDone('morning', today); } catch (e) { log('✖ morning note:', e.message); }
-          _morningDate = today;
+          // 2026-10-09：失敗不佔位——逐步記錄已完成的步驟，10 分鐘後只重跑沒完成的（族群預警已推過就不再推），08:50 或 3 輪後放棄並留 log
+          if (_morningTry.date !== today) _morningTry = { date: today, n: 0, at: 0, done: new Set() };
+          _morningTry.n++; _morningTry.at = Date.now();
+          try {
+            for (const [name, fn] of [['catalystCalendar', buildCatalystCalendar], ['adrPremium', computeAdrPremium], ['forecastSectors', forecastSectors], ['morningNote', publishMorningNote]]) {
+              if (_morningTry.done.has(name)) continue;
+              // 族群預警會呼叫 Ollama：08:00 起盤前判別（約 46 分鐘、要在 09:00 前就緒）占用同一個模型，重試不可擠進去
+              if (name === 'forecastSectors' && _morningTry.n > 1 && mins >= 8 * 60) { log('  ↷ 晨報重試：族群預警（LLM）08:00 後不重跑，避免拖慢盤前判別'); _morningTry.done.add(name); continue; }
+              await fn(); _morningTry.done.add(name);
+            }
+            await markJobDone('morning', today);
+            _morningDate = today;
+          } catch (e) {
+            log(`✖ morning note（第 ${_morningTry.n} 輪）:`, e.message);
+            if (_morningTry.n >= 3 || mins >= 8 * 60 + 50) { _morningDate = today; log(`⚠ 晨報 ${today}：${_morningTry.n} 輪仍未完成（已完成：${[..._morningTry.done].join('、') || '無'}），今日放棄（未寫完成記錄）`); }
+          }
         }
         // 每月 13 日存「營收出表日期」快照（月營收10日截止後·事件研究的事件日來源，數季後解鎖）
         if (tw.getDate() >= 13 && _revDatesMonth !== today.slice(0, 7)) {
@@ -16192,14 +16394,22 @@ async function dailyJobsLoop() {
         // 直連網址（region 遷移後已死）＋query-string secret（安全加固後被拒）——
         // 「收盤盤勢分析」自 7/29 起停更，使用者看著崩盤日的舊寬度做判斷。
         // 觸發權收回 daemon（架構鐵律：排程屬 daemon），該 scheduler job 已暫停。
-        if (mins >= 18 * 60 + 5 && _dailyCloseDate !== today && isTradingDay(tw) && process.env.CRON_SECRET) {
+        // 2026-10-09：HTTP 非 2xx 舊版仍記 ✓ 且不重試 ⇒ 改為非 2xx／拋錯都不佔位，10 分鐘後重試、當日最多 4 次（舊版拋錯時每 5 分鐘重打、無上限）
+        if (mins >= 18 * 60 + 5 && _dailyCloseDate !== today && isTradingDay(tw) && process.env.CRON_SECRET
+            && !(_dailyCloseTry.date === today && (_dailyCloseTry.n >= 4 || Date.now() - _dailyCloseTry.at < 10 * 60000))) {
           _dailyCloseDate = today;
+          _dailyCloseTry = { date: today, n: (_dailyCloseTry.date === today ? _dailyCloseTry.n : 0) + 1, at: Date.now() };
           try {
             const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 240000);
             const r = await fetch(`${CRON_BASE}/api/cron/daily-close`, { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET }, signal: ctl.signal }).finally(() => clearTimeout(tm));
             const j = await r.json().catch(() => null);
+            if (!r.ok) throw new Error(`HTTP ${r.status}${j?.error ? `：${String(j.error).slice(0, 40)}` : ''}`);
             log(`✓ 收盤盤勢分析：${j?.date || r.status}·寬度 ${j?.breadth?.advancePct ?? '?'}%`);
-          } catch (e) { _dailyCloseDate = null; log('✖ 收盤盤勢分析:', (e.message || '').slice(0, 60)); }   // 失敗不佔位·下輪重試
+          } catch (e) {
+            _dailyCloseDate = null;   // 失敗不佔位
+            log(`✖ 收盤盤勢分析（第 ${_dailyCloseTry.n} 次）:`, (e.message || '').slice(0, 60));
+            if (_dailyCloseTry.n >= 4) { log(`⚠ 收盤盤勢分析 ${today}：4 次仍失敗，今日放棄`); await notifyDeveloper(`⚠ 收盤盤勢分析 ${today} 4 次失敗（最後：${(e.message || '').slice(0, 60)}），首頁收盤寬度停在前一日`, `dailyclose-${today}`); }
+          }
         }
         // 每日 06:40 同步休市日曆（早於 07:00 新聞與 08:45 盤前快報，
         // 確保當天所有 isTradingDay() 判斷都吃到最新的表；颱風假當天才補得上）
@@ -16215,8 +16425,15 @@ async function dailyJobsLoop() {
           setTimeout(() => { refreshModelCore(today).catch(e => log('✖ model-core refresh:', (e?.message || '').slice(0, 80))); }, 120000);
         }
         // 09:31~09:59 前30分快照歸檔（三關法 Gate1/Gate2 的未來回測原料＋當日問AI即時檢核）
-        if (mins >= 9 * 60 + 31 && mins < 10 * 60 && _snap0930Date !== today) {
-          _snap0930Date = today;
+        // 2026-10-09：成功寫入（或今日已有完整快照）才標記；報價不足或拋錯時窗內每輪（5 分鐘）重試，09:55 後仍無則記一次警示。
+        //   舊版先標記再執行，09:31 那一輪失敗就當日永久缺（即時快照事後補不回來）。重啟後不覆蓋已存的較早快照。
+        if (mins >= 9 * 60 + 31 && mins < 9 * 60 + 46 && _snap0930Date !== today) {
+          try {
+            const exist = (await db.collection('snap0930Archive').doc(today).get()).data();
+            if (exist && (exist.n ?? 0) > 200) { _snap0930Date = today; log(`  ℹ 0930快照 ${today} 已歸檔（${exist.n} 檔），不覆蓋`); }
+          } catch { /* 讀不到就照常嘗試寫 */ }
+        }
+        if (mins >= 9 * 60 + 31 && mins < 9 * 60 + 46 && _snap0930Date !== today) {   // 窗口縮到 09:45（審查 M4：太晚的快照不能當「前 30 分」，下游不讀 srcMins）
           try {
             const sq = await readSnapshotQuotes();
             const idx = (await db.collection('marketIndex').doc('latest').get()).data();
@@ -16232,21 +16449,32 @@ async function dailyJobsLoop() {
                 idxChgPct: idx?.weightedChangePercent ?? null, srcMins: mins, at: Date.now(),
               });
               log(`✓ 0930快照歸檔 ${today}（${Object.keys(by).length} 檔·擷取於 ${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}）`);
-            }
-          } catch (e) { log('✖ 0930快照歸檔:', e.message); }
+              _snap0930Date = today;
+            } else log(`  ⏳ 0930快照 ${today}：即時報價僅 ${Object.keys(by).length} 檔（需 >200），下一輪重試`);
+          } catch (e) { log('✖ 0930快照歸檔（下一輪重試）:', e.message); }
+          if (_snap0930Date !== today && mins >= 9 * 60 + 41) log(`⚠ 0930快照 ${today}：09:41 仍未歸檔，09:45 窗口結束後當日缺`);
         }
         // 13:50 撿尾盤榜快照存證（實盤前追蹤·使用者13:25實際可見的live版；14:00後會被close版覆蓋故先存）
+        // 2026-10-09：只有「已存證」或「確認今日 live 榜無可買標的」才標記；榜還不是今日 live 版或拋錯時每輪（5 分鐘）重試到 14:30，
+        //   之後仍沒有就記一次警示。舊版先標記，13:50 那輪榜未就緒就當日沒有追蹤單。重啟後不覆蓋已存證的那份。
         if (mins >= 13 * 60 + 50 && mins < 14 * 60 + 30 && _tailTrackDate !== today) {
-          _tailTrackDate = today;
           try {
-            const mp = (await db.collection('marketPattern').doc('latest').get()).data();
-            const tp = mp?.tailPicks;
-            if (tp?.date === today && tp.source === 'live' && (tp.buyable || []).length) {
-              const items = tp.buyable.slice(0, 10).map(x => ({ code: x.code, name: x.name, price: x.price, chg: x.chg, char: x.char || null }));
-              await db.collection('tailTrack').doc(today).set({ date: today, items, n: items.length, evaluated: false, at: Date.now() });
-              log(`✓ 撿尾盤追蹤存證 ${today}（${items.length} 檔）`);
+            const exist = (await db.collection('tailTrack').doc(today).get()).data();
+            if (exist?.items?.length) { _tailTrackDate = today; log(`  ℹ 撿尾盤追蹤 ${today} 已存證（${exist.items.length} 檔），不覆蓋`); }
+            else {
+              const mp = (await db.collection('marketPattern').doc('latest').get()).data();
+              const tp = mp?.tailPicks;
+              if (tp?.date === today && tp.source === 'live') {
+                if ((tp.buyable || []).length) {
+                  const items = tp.buyable.slice(0, 10).map(x => ({ code: x.code, name: x.name, price: x.price, chg: x.chg, char: x.char || null }));
+                  await db.collection('tailTrack').doc(today).set({ date: today, items, n: items.length, evaluated: false, at: Date.now() });
+                  log(`✓ 撿尾盤追蹤存證 ${today}（${items.length} 檔）`);
+                } else log(`  · 撿尾盤追蹤 ${today}：今日 live 榜無可買標的，不存證`);
+                _tailTrackDate = today;
+              } else log(`  ⏳ 撿尾盤追蹤 ${today}：榜尚非今日 live 版（${tp?.date || '無'}／${tp?.source || '無'}），下一輪重試`);
             }
-          } catch (e) { log('✖ 撿尾盤追蹤存證:', e.message); }
+          } catch (e) { log('✖ 撿尾盤追蹤存證（下一輪重試）:', e.message); }
+          if (_tailTrackDate !== today && mins >= 14 * 60 + 25) log(`⚠ 撿尾盤追蹤 ${today}：14:25 仍未取得今日 live 榜，14:30 窗口結束後當日沒有追蹤單`);
         }
         // 16:55 對答案：以 chipArchive 次交易日開/收盤評估 pending 的撿尾盤追蹤（滾動統計→tailTrack/summary）
         if (mins >= 16 * 60 + 55 && _tailEvalDate !== today) {
@@ -16323,8 +16551,17 @@ async function dailyJobsLoop() {
             _depthWin = { date: '', data: {} };   // 釋放記憶體
           } catch (e) { log('✖ 尾盤五檔歸檔:', e.message); }
         }
-        if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) { await runDailyJobs(); _dailyJobsDate = today; await markJobDone('daily', today); await markJobDone('finReports', today); }
-        if (mins >= 16 * 60 + 30 && _officialDate !== today) { await runJobSet(OFFICIAL_CATCHUP, '(official)'); _officialDate = today; await markJobDone('official', today); }
+        if (mins >= 15 * 60 + 10 && _dailyJobsDate !== today) {
+          const failed = await runDailyJobs(); _dailyJobsDate = today;
+          await markJobDone('finReports', today);   // 照舊：跑過就記（finReports 會推播、失敗不重試；不記的話每次重啟都重掃全量 ~2k 筆·審查 M1）
+          await settleJobSet('daily', today, failed, ['daily']);
+        }
+        await retryJobSetTick('daily', today, mins);
+        if (mins >= 16 * 60 + 30 && _officialDate !== today) {
+          const failed = await runJobSet(OFFICIAL_CATCHUP, '(official)'); _officialDate = today;
+          await settleJobSet('official', today, failed, ['official'], OFFICIAL_CATCHUP);
+        }
+        await retryJobSetTick('official', today, mins);
         // 🧠 AI 交易員經驗庫盤後訓練（2026-09-30 使用者）：當沖 13:40 凍結、波段 17:00 結算後的空檔；獨立行程（純計算、不呼叫 LLM）
         // 失敗≠完成（2026-10-04）：舊版失敗一次就當日放棄。改為 30 分鐘後重試、當日最多 3 次（訓練較重）；仍失敗才放棄並留 log（完成記錄只在成功時寫）
         if (mins >= 18 * 60 + 30 && _labLearnDate !== today && !(_labLearnFail.date === today && Date.now() - _labLearnFail.at < 30 * 60000)) {
@@ -16343,17 +16580,27 @@ async function dailyJobsLoop() {
           if (await execScript('scoring-v3-shadow.mjs', [], '📐 技術評分 v3 影子', 10)) { _v3ShadowDate = today; await markJobDone('scoringV3', today); }
           else {
             _v3ShadowFail = { date: today, n: (_v3ShadowFail.date === today ? _v3ShadowFail.n : 0) + 1, at: Date.now() };
-            if (mins >= 23 * 60 + 30) { _v3ShadowDate = today; log(`⚠ v3 影子 ${today}：重試 ${_v3ShadowFail.n} 次至 23:30 仍未成功，今日放棄（未寫完成記錄）`); }
+            if (mins >= 23 * 60 + 30) {
+              _v3ShadowDate = today; log(`⚠ v3 影子 ${today}：重試 ${_v3ShadowFail.n} 次至 23:30 仍未成功，今日放棄（未寫完成記錄）`);
+              // 不事後補跑：v3 影子對照的是當日 v2 Top20，事後重算拿不到當時的榜（非時點正確）——缺口要明說（2026-10-09）
+              await notifyDeveloper(`⚠ 技術評分 v3 影子 ${today}：至 23:30 仍未成功，當日影子記錄缺（不可事後補：需當日 v2 榜）。`, `v3shadow-${today}`);
+            }
           }
         }
         if (Date.now() - _learnedAt > 3600_000) await refreshLearned();
-        if (mins >= 21 * 60 + 45 && _marginDate !== today) {
+        // 2026-10-09：重試改為 15 分鐘一輪（舊版每 5 分鐘整段重跑、會重打上游）；23:50 仍未完成通知管理員並放棄（未寫完成記錄）
+        if (mins >= 21 * 60 + 45 && _marginDate !== today && !(_marginTry.date === today && Date.now() - _marginTry.at < 15 * 60000)) {
+          _marginTry = { date: today, n: (_marginTry.date === today ? _marginTry.n : 0) + 1, at: Date.now() };
           // ⚠ **成功才標記**（今天第二次踩到同一個反模式）：
           //   原本 _marginDate = today 寫在這裡，後面的訓練資料與檢討報表
           //   任何一步失敗就整天不再重試，而使用者會看到報表停在幾天前
           //   卻沒有任何告警——與早上訓練排程那個是同一課。
           await runJobSet(MARGIN_CATCHUP, '(margin)');
           let _marginOk = true;
+          // 看資料不看函式有沒有拋錯（2026-10-09）：computeMargin／archiveSblBalance 抓不到時只記 log 就返回，舊版照樣標完成。
+          //   當日 chipArchive 要有上市與上櫃資券、借券餘額 ≥500 檔才算這班車的資料到齊。
+          const marginMissing = await marginDayMissing(today);
+          if (marginMissing.length) { _marginOk = false; log(`  ⏳ 資券班車 ${today}：當日歸檔尚缺 ${marginMissing.join('、')}（將重試）`); }
           try { await computeChipPicks(); }
           catch (e) { _marginOk = false; log('✖ 資券後重算 chipPicks（將重試）:', e.message); }  // 讓晚間資券立刻進榜單/評分
           // 軋空訓練資料（使用者需求 2026-08-26）：把當日漲停股的**當日與前一日**
@@ -16367,20 +16614,41 @@ async function dailyJobsLoop() {
           // 逐日對答案＋漏網診斷（使用者要求逐日修正）
           try { await computeSqueezeReview({ backfillDays: 3 }); }
           catch (e) { _marginOk = false; log('✖ 軋空檢討（將重試）:', e.message); }
+          // 近 3 個交易日的軋空訓練資料／做空訓練樣本缺口回補（2026-10-09：舊版某天失敗只能手動設 SQ_TRAIN_DATE／SHORT_TRAIN_DATE）
+          try { await backfillTrainingGaps(today); } catch (e) { log('✖ 訓練資料缺口回補:', (e.message || '').slice(0, 60)); }
           if (_marginOk) { _marginDate = today; await markJobDone('margin', today); }
+          else if (mins + 15 >= 24 * 60 - 5) {   // 下一輪（15 分鐘後）排不進今天就現在放棄並通知（審查 M2：舊條件 23:50 可能永遠輪不到）
+            _marginDate = today;
+            log(`⚠ 資券班車 ${today}：重試 ${_marginTry.n} 輪至 23:50 仍未完成，今日放棄（未寫完成記錄）`);
+            await notifyDeveloper(`⚠ 資券班車 ${today}：至 23:50 仍未完成${marginMissing.length ? `（當日歸檔缺 ${marginMissing.join('、')}）` : ''}，軋空訓練／檢討可能缺當日。若資料於午夜後才公布，可手動 --run 補跑。`, `margin-${today}`);
+          }
         }
         // 上櫃收盤第三方後備：改由獨立計時器呼叫（見 startTpexThirdPartyTimer；這個循序迴圈會被 23:00 盤後新聞趟卡到午夜後）
         // 🎯 標靶公式影子（2026-09-30 使用者核可：5 日持有·依多空市況兩組係數，scripts/data/swing-formula-weights.json）
         //   特徵含當日資券與當沖 ⇒ 排在 21:45 資券班車之後；資料未齊時腳本不寫並回報失敗 ⇒ 每 20 分鐘重試、最多 4 次（隔日照常）
+        // 2026-10-09：最多 4 次（約 1 小時）就放棄 ⇒ 改為每 20 分鐘重試到 23:50，放棄時通知管理員。
+        //   不事後補跑：--date 模式的處置名單與產業分群取「目前」的（腳本註明非時點正確、只供測試）。
         if (mins >= 22 * 60 + 40 && _sfDate !== today && Date.now() - _sfTry.at > 20 * 60000) {
           _sfTry = { date: today, n: (_sfTry.date === today ? _sfTry.n : 0) + 1, at: Date.now() };
           if (await execScript('swing-formula-shadow.mjs', [], '🎯 標靶公式影子', 10)) { _sfDate = today; await markJobDone('swingFormula', today); }
-          else if (_sfTry.n >= 4) _sfDate = today;
+          else if (mins + 20 >= 24 * 60 - 5) {   // 下一輪（20 分鐘後）排不進今天就現在放棄並通知（審查 M2）
+            _sfDate = today; log(`⚠ 標靶公式影子 ${today}：重試 ${_sfTry.n} 次至 23:50 仍未成功，今日放棄（未寫完成記錄）`);
+            await notifyDeveloper(`⚠ 標靶公式影子 ${today}：至 23:50 仍未成功，當日影子記錄缺（不可事後補：處置名單無逐日歸檔）。`, `sfshadow-${today}`);
+          }
         }
         // 16:45 籌碼性格分類（炒作/長期核心，3 年 chipArchive；官方補抓寫完當日 archive 後）
-        if (mins >= 16 * 60 + 45 && _characterDate !== today) {
-          _characterDate = today;
-          execScript('analyze-chip-character.mjs', ['--write'], '🧬 chip character', 15);
+        // 2026-10-09：成功才標記（舊版先標記、不等結果）；失敗 30 分鐘後重試、當日最多 3 次
+        if (mins >= 16 * 60 + 45 && _characterDate !== today && !(_characterTry.date === today && Date.now() - _characterTry.at < 30 * 60000)) {
+          // ⚠ 不 await：子程序最長 15 分鐘，舊版就是背景執行；await 會卡住循序迴圈、延誤 16:45 資料到齊班車（修A壞B）
+          //   執行期間把 at 設為未來（不會再觸發），結束時依成敗更新
+          const n = (_characterTry.date === today ? _characterTry.n : 0) + 1;
+          _characterTry = { date: today, n, at: Date.now() + 24 * 3600e3 };
+          execScript('analyze-chip-character.mjs', ['--write'], '🧬 chip character', 15).then(ok => {
+            if (ok) { _characterDate = today; return; }
+            _characterTry.at = Date.now();   // 30 分鐘後重試
+            if (n >= 3) { _characterDate = today; log(`⚠ 籌碼性格分類 ${today}：3 次仍失敗，今日放棄`); }
+            else log(`  ⏳ 籌碼性格分類 ${today}：第 ${n} 次失敗，30 分鐘後重試`);
+          });
         }
       }
       // 17:00 第二大腦備份（每日、不分交易日——帳號/持倉隨時會變）。子程序執行不佔 daemon 記憶體。
@@ -16390,6 +16658,11 @@ async function dailyJobsLoop() {
       //   重算一輪就標記完成，21:37 上櫃到了也不再重算。改為：交易日要等收盤歸檔兩市收盤＋法人都到齊（寫入端已回聲驗證日期）
       //   且宇宙兩市都在，才重算依賴收盤的榜單並寫定版記錄（推薦成績當日名單、做空事前存檔、漲停預測存檔）；
       //   未到齊每 10 分鐘重試，21:45 仍缺記一次警示（system/canonicalGate）。非交易日照舊跑一次（無當日資料可等）。
+      // 跨午夜續跑（2026-10-09 使用者裁定全修·同類缺口 C 類）：前一交易日的資料到齊班車到午夜仍未定版（例：上櫃 21:37 後才到、
+      //   23:00 新聞趟卡住迴圈），舊版跨日後 today 換新日期 ⇒ 前一交易日的漲停預測／做空事前存檔／推薦成績名單永久缺。
+      //   00:00–06:30 繼續以「前一交易日」為鍵補定版（writeCanonical 本身只允許到下一交易日開盤前、未到齊不寫）；
+      //   只跑三個定版步驟（不重算榜單）；最新收盤歸檔必須正好是該日，否則不續跑（三個函式取「最新歸檔日」當資料日，避免寫到別天）。
+      if (mins < 6 * 60 + 30) await canonCarryTick(today, mins);
       if (mins >= 16 * 60 + 45 && _otcFixDate !== today && Date.now() >= _otcReadyNextAt) {
         const tradingDay = isTradingDay(tw);
         if (_canonDone.date !== today) _canonDone = { date: today, set: new Set(), passed: false, boards: false };

@@ -81,6 +81,41 @@ test('evaluateRunGates：P1 熱力未定版＝硬失敗；已定版通過；P2 �
   assert.ok(g2.soft.some(s => /^P2/.test(s)));
 });
 
+test('evaluateRunGates pinned（指定日期補跑舊日）：latest 指向更新的日子也照過，只看 manifest rows[day].status＝final（2026-10-09）', () => {
+  const root = tmp();
+  const dir = join(root, 'daily-heatmap'); mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${DAY}.json.gz`), gzipSync('{}'));
+  writeFileSync(join(dir, '_manifest.json'), JSON.stringify({ rows: { [DAY]: { status: 'final', file: `${DAY}.json.gz` }, '2026-10-05': { status: 'final', file: '2026-10-05.json.gz' } } }));
+  writeFileSync(join(dir, 'latest.json'), JSON.stringify({ dataDate: '2026-10-05' }));
+  // 不指定日期：舊行為（latest ≠ DAY ⇒ P1 硬失敗）
+  const g0 = evaluateRunGates({ root, day: DAY, tradingDays: TRADING_DAYS, holidays: HOLIDAYS });
+  assert.equal(g0.pass, false); assert.match(g0.hard[0], /^P1 熱力尚未定版/);
+  // 指定日期：manifest 該日 final＋檔在 ⇒ 過
+  assert.equal(evaluateRunGates({ root, day: DAY, tradingDays: TRADING_DAYS, holidays: HOLIDAYS, pinned: true }).pass, true);
+  // 指定日期但 manifest 非 final ⇒ 硬失敗
+  writeFileSync(join(dir, '_manifest.json'), JSON.stringify({ rows: { [DAY]: { status: 'draft', file: `${DAY}.json.gz` } } }));
+  const g2 = evaluateRunGates({ root, day: DAY, tradingDays: TRADING_DAYS, holidays: HOLIDAYS, pinned: true });
+  assert.equal(g2.pass, false); assert.match(g2.hard[0], /非 final/);
+  // 指定日期、manifest 沒有該日 ⇒ 硬失敗
+  writeFileSync(join(dir, '_manifest.json'), JSON.stringify({ rows: {} }));
+  assert.equal(evaluateRunGates({ root, day: DAY, tradingDays: TRADING_DAYS, holidays: HOLIDAYS, pinned: true }).pass, false);
+  // 指定日期、final 但檔案不見 ⇒ 硬失敗
+  writeFileSync(join(dir, '_manifest.json'), JSON.stringify({ rows: { [DAY]: { status: 'final', file: 'gone.json.gz' } } }));
+  assert.match(evaluateRunGates({ root, day: DAY, tradingDays: TRADING_DAYS, holidays: HOLIDAYS, pinned: true }).hard[0], /定版檔不存在/);
+});
+
+test('runOnce 帶 day（--date 補跑）：latest 已是更新的日子仍能組包定版', async () => {
+  const root = tmp(); putHeatmap(root, '2026-10-01'); putHeatmap(root, DAY);
+  // 補跑 10/01：manifest 補上 10/01 final，latest 指向 DAY
+  const dir = join(root, 'daily-heatmap');
+  writeFileSync(join(dir, '_manifest.json'), JSON.stringify({ rows: { '2026-10-01': { status: 'final', file: '2026-10-01.json.gz' }, [DAY]: { status: 'final', file: `${DAY}.json.gz` } } }));
+  const { deps, calls } = mkDeps();
+  const r = await runOnce({ ...base(root), edition: 'evening', nowMs: EVE, day: '2026-10-01', deps });
+  assert.notEqual(r.status, 'pending', JSON.stringify(r.reasons));
+  assert.equal(r.day, '2026-10-01');
+  assert.equal(calls.loadPack, 1);
+});
+
 test('runOnce：已定版直接結束（不組包、不呼叫模型），只補確認發佈', async () => {
   const root = tmp(); putHeatmap(root, DAY);
   writeIssue({ root, issue: makeIssue(DAY, 'evening'), pack: makePack(), transcript: [], edition: 'evening', dataDate: DAY, now: EVE });

@@ -12,12 +12,13 @@
 //   status                                    印出各資料集進度、寫 manifest.json（含最新警示）
 // 開跑前檢查（會發請求的指令）：單一程序鎖（原子建立）、研究回補程序仍在跑就不開、daemon 日誌近 30 分鐘有封鎖／限流訊號的機構家族本次不跑
 //       （2026-10-08·WP7：舊版任何故障字樣就三個機構全停——上櫃 openapi 大檔傳輸被切斷是常態、不是封鎖，鏡像因此停擺三天；
-//        其餘故障字樣只記為「降級」照跑，交給佇列的封鎖／連續失敗保護）。daily／retry 被擋 ⇒ 照樣寫 _alerts（停擺不可無聲）。
+//        其餘故障字樣只記為「降級」照跑，交給佇列的封鎖／連續失敗保護）。daily／retry 被擋 ⇒ 照樣寫 _alerts（停擺不可無聲），
+//       並自動重試（daily 每 30 分鐘×5、retry 每 15 分鐘×3，遇禁跑窗停）；daily／retry 拿不到鏡像鎖也寫 _alerts、每 5 分鐘等鎖（2026-10-09）。
 // 節奏：證交所系／櫃買系／期交所各一條佇列、逐請求 ≥3 秒、平日 07:30～15:30 不跑、封鎖訊號立即停；MIS 一律不打（額度歸 daemon）。
 //       每日 16:25–16:55、21:40–22:35 也不跑（daemon 重任務窗，lib DAEMON_BUSY_WINDOWS；排程改 22:40，2026-10-04·WM-SCAN G4-32）。
 // 定版（2026-10-04·G2-37）：非 must 帶日期表的空表要隔 ≥6 小時再看一次仍空才定版（MI_INDEX 未確認的空＝不當休市）；
 //       每日快照以官方回聲日為鍵（keyByEcho）；_alerts 經 audit-data-sources 的 officialMirror(本機) 列進 dataHealth。
-import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, mkdirSync, openSync, closeSync, unlinkSync, readSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, mkdirSync, openSync, closeSync, unlinkSync, readSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -29,6 +30,7 @@ import { DATED, resolveFrom } from './official-mirror/adapters-dated.mjs';
 import { TICKS, runTicks, verifyTicks, migrateTicks, ticksGapAlerts, ticksClosedFrom } from './official-mirror/taifex-ticks.mjs';
 import { createTpexClose } from './lib/tpex-close-quotes.mjs';
 import { downloadStream, reasonText } from './lib/tpex-close-download.mjs';
+import { GATE_RETRY, LOCK_WAIT, LOCK_YIELD_CMDS, retryWhileBlocked, lockWaitRounds } from './lib/official-mirror-retry.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
@@ -140,21 +142,45 @@ function preflight(a) {
   return { ok: true };
 }
 
+/** 回傳 { ok, reason }：ok＝已持有鏡像鎖（程序結束自動釋放）；拿不到時 reason 說明誰在跑（呼叫端決定讓路或等鎖）。 */
 function acquireLock(cmd) {
   const p = join(ROOT, '_lock.json');
   for (let i = 0; i < 2; i++) {
     try {
       const fd = openSync(p, 'wx'); writeFileSync(fd, JSON.stringify({ pid: process.pid, cmd, at: new Date().toISOString() })); closeSync(fd);
       process.on('exit', () => { try { if (JSON.parse(readFileSync(p, 'utf8')).pid === process.pid) unlinkSync(p); } catch { /* 忽略 */ } });
-      return true;
+      return { ok: true };
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
       let cur = {}; try { cur = JSON.parse(readFileSync(p, 'utf8')); } catch { cur = {}; }
       let alive = false; try { if (cur.pid) { process.kill(cur.pid, 0); alive = true; } } catch { alive = false; }
-      if (alive) { log(`另一個 ${cur.cmd}（pid ${cur.pid}，${cur.at} 開始）還在跑——本次 ${cmd} 不執行`); return false; }
+      if (alive) return { ok: false, reason: `另一個 ${cur.cmd}（pid ${cur.pid}，${cur.at} 開始）還在跑` };
       try { unlinkSync(p); } catch { /* 被別人清掉了 */ }
     }
   }
+  return { ok: false, reason: '鎖檔競爭（連續兩次建立都失敗）' };
+}
+/** 拿鏡像鎖（2026-10-09 全站掃描第 1(b) 項）：backfill／ticks／verify／migrate 拿不到就讓路（只記 log）；
+ *  daily／retry 拿不到 ⇒ 寫 _alerts（停擺不可無聲），每 5 分鐘再試，最多到 LOCK_WAIT 的上限或進入禁跑窗；
+ *  等待期間不持有鎖、也不發任何請求，拿到鎖才往下走（不疊加併發）。 */
+async function acquireLockOrWait(a) {
+  let last = acquireLock(a.cmd);
+  if (last.ok) return true;
+  const wait = LOCK_WAIT[a.cmd];
+  if (!wait || LOCK_YIELD_CMDS.includes(a.cmd)) { log(`${last.reason}——本次 ${a.cmd} 讓路、不執行`); return false; }
+  const rounds = lockWaitRounds(wait); const gapMin = wait.gapMs / 60000;
+  log(`${last.reason}——本次 ${a.cmd} 每 ${gapMin} 分鐘再試拿鎖（最多 ${rounds} 輪）`);
+  // 等鎖中只記 lockwait-（2026-10-09 審查 M1）：每日熱力把 blocked-daily-<日>-* 當成「鏡像 daily 已跑完」，等鎖時寫 blocked- 會讓熱力提早開跑；
+  //   _alerts 留給放棄時寫（等鎖中另一個程序正持鎖執行，不搶寫共用檔）
+  writeRunLog(`lockwait-${a.cmd}-${C.taipeiDate()}-${Date.now()}`, { cmd: a.cmd, reason: `拿不到鏡像鎖：${last.reason}（每 ${gapMin} 分鐘再試、最多 ${rounds} 輪）` });
+  const r = await retryWhileBlocked({
+    attempt: round => round > 0 && (last = acquireLock(a.cmd)).ok,
+    gapMs: wait.gapMs, maxRounds: rounds, stopReason: () => (a.forceHours ? null : C.blockedReason()),
+  });
+  if (r.done) { log(`拿到鏡像鎖（等了 ${r.attempts - 1} 輪）`); return true; }
+  const why = r.stopped === 'max' ? `已等滿 ${rounds} 輪` : `進入禁跑窗（${r.stopped}）`;
+  log(`${a.cmd} 放棄等鎖：${why}`);
+  recordBlocked(a, `拿不到鏡像鎖、已放棄：${last.reason}（${why}）`, { status: false });
   return false;
 }
 
@@ -246,7 +272,8 @@ function catchUpJobs(n, only, today, skip = new Set()) {
 
 // ── daily ───────────────────────────────────────────────
 async function cmdDaily(a) {
-  const D = a.date || C.taipeiDate(); const today = C.taipeiDate(); const runStart = new Date().toISOString();
+  // a.runDate：排程那輪開跑時的台北日（main 釘住）——當晚重試／等鎖跨午夜後仍抓同一天，不會改抓尚未開盤的隔日（2026-10-09）
+  const D = a.date || a.runDate || C.taipeiDate(); const today = C.taipeiDate(); const runStart = new Date().toISOString();
   log(`daily ${D}（slot ${a.slot}）→ ${ROOT}`);
   const r0 = await runJobs(jobsFor(MI, { day: D }), a);
   const miRow = C.loadManifest(ROOT, MI.host, MI.id).rows?.[D];
@@ -368,12 +395,13 @@ function readDailyRuns() {
   return out;
 }
 /** daily／retry 被開跑閘門擋下：記 _runs 並照樣寫 _alerts（含「本次未執行」一列），停擺日不再無聲。 */
-function recordBlocked(a, reason) {
+/** status:false＝呼叫端沒持有鏡像鎖（等鎖中），不重寫 manifest.json（持鎖的程序會寫，避免兩個程序同時寫同一檔）。 */
+function recordBlocked(a, reason, { status = true } = {}) {
   const today = C.taipeiDate();
   writeRunLog(`blocked-${a.cmd}-${today}-${Date.now()}`, { cmd: a.cmd, reason });
   const alerts = gapAlerts(recentDays(dayInfo(today), a.days || 5, today), a.only, today);
   writeAlerts([{ id: 'official-mirror', key: today, status: `${a.cmd} 未執行：${reason}` }, ...alerts]);
-  cmdStatus({ quiet: true });
+  if (status) cmdStatus({ quiet: true });
 }
 /** ticks 用：警示內容跟 LATEST.json 一樣就不重寫——LATEST 的 at 是稽核判斷 retry 排程有沒有在跑的心跳，不可被每日 ticks 蓋掉（審查 L2）。 */
 function writeAlertsIfChanged(alerts) {
@@ -384,8 +412,10 @@ function writeAlertsIfChanged(alerts) {
 function writeAlerts(alerts) {
   mkdirSync(join(ROOT, '_alerts'), { recursive: true });
   const body = JSON.stringify({ rule: '交易日不得有資料缺漏（補不到要出警示）', at: new Date().toISOString(), missing: alerts }, null, 1);
-  writeFileSync(join(ROOT, '_alerts', 'LATEST.json'), body);
-  if (alerts.length) { writeFileSync(join(ROOT, '_alerts', `${C.taipeiDate()}.json`), body); log(`⚠ 仍缺 ${alerts.length} 筆 → _alerts/`); }
+  // 原子寫入（暫存檔＋rename；2026-10-09 審查 M2）：等鎖中的程序與持鎖程序可能同時寫，稽核不可讀到半截檔
+  const atomic = (f, b) => { const tmp = `${f}.tmp${process.pid}`; writeFileSync(tmp, b); renameSync(tmp, f); };
+  atomic(join(ROOT, '_alerts', 'LATEST.json'), body);
+  if (alerts.length) { atomic(join(ROOT, '_alerts', `${C.taipeiDate()}.json`), body); log(`⚠ 仍缺 ${alerts.length} 筆 → _alerts/`); }
 }
 
 // ── ticks（期交所 30 日逐筆 zip；平日 17:10，排程窗 17:00–21:30）────────────────────
@@ -524,28 +554,32 @@ function cmdStatus({ quiet = false } = {}) {
   }
 }
 
-// daily 被開跑閘門擋下（整批或某機構）、或跑到一半遇封鎖／限流訊號停掉時，當晚自動再試（2026-10-09 使用者追問：
-//   10-06、10-07 daily 被擋後要等隔天 06:45 retry，而 retry 也被擋 ⇒ 兩天整晚沒抓）。
-//   每 NIGHT_RETRY_GAP_MS 再試一次、最多 NIGHT_RETRY_ROUNDS 輪；進入禁跑窗（平日 07:30–15:30、daemon 重任務窗）就停。
-//   重試期間持有鏡像鎖（同晚的 backfill 會讓路——當日資料優先於歷史回補）；每輪重新判斷閘門、重置家族佇列。
-const NIGHT_RETRY_GAP_MS = 30 * 60 * 1000;
-const NIGHT_RETRY_ROUNDS = 5;
+// daily／retry 被開跑閘門擋下（整批或某機構）、或跑到一半遇封鎖／限流訊號停掉時自動再試（2026-10-09 使用者追問：
+//   10-06、10-07 daily 被擋後要等隔天 06:45 retry，而 retry 也被擋 ⇒ 兩天整晚沒抓；全站掃描第 1(a) 項：retry 被擋後當天不再試）。
+//   daily：每 30 分鐘、最多 5 輪；retry：每 15 分鐘、最多 3 輪（lib/official-mirror-retry.mjs GATE_RETRY）。進入禁跑窗（平日 07:30–15:30、
+//   daemon 重任務窗）就停。重試期間持有鏡像鎖（backfill 會讓路——當日資料優先於歷史回補）；每輪重新判斷閘門、重置家族佇列。
+//   手動帶 --date 的 daily 不重試（維持舊行為）。
 const FAMILY_HOSTS = ['www.twse.com.tw', 'www.tpex.org.tw', 'www.taifex.com.tw'];
 const hitBlockSignal = a => FAMILY_HOSTS.some(h => { const q = C.queueFor(h, queueOpts(a)); return q.stopped && /封鎖|限流/.test(q.stopReason || ''); });
-async function dailyWithNightRetry(a) {
-  for (let round = 0; ; round++) {
-    const pf = preflight(a);
-    if (!pf.ok) recordBlocked(a, pf.reason);
-    else await cmdDaily(a);
-    const blocked = !pf.ok || a.gate.blocked.length > 0 || hitBlockSignal(a);
-    if (!blocked) return;
-    if (a.date || round >= NIGHT_RETRY_ROUNDS) { log(`daily 仍有機構被擋，已達當晚重試上限（${round} 輪）——交給 06:45 retry／下次 daily 的 5 日補漏`); return; }
-    log(`daily 有機構被擋（${pf.ok ? (a.gate.blocked.join('、') || '執行中遇封鎖／限流') : '整批'}）——${NIGHT_RETRY_GAP_MS / 60000} 分鐘後當晚重試（第 ${round + 1}/${NIGHT_RETRY_ROUNDS} 輪）`);
-    await new Promise(r => setTimeout(r, NIGHT_RETRY_GAP_MS));
-    const quiet = C.blockedReason();
-    if (quiet) { log(`當晚重試停止：進入禁跑窗（${typeof quiet === 'string' ? quiet : '禁跑窗'}）`); return; }
-    C.resetQueues();
-  }
+async function runWithGateRetry(a, run) {
+  const { gapMs, maxRounds } = GATE_RETRY[a.cmd];
+  const noRetry = a.cmd === 'daily' && !!a.date;
+  let pf = { ok: true };
+  const r = await retryWhileBlocked({
+    gapMs, maxRounds: noRetry ? 0 : maxRounds,
+    attempt: async () => {
+      pf = preflight(a);
+      if (!pf.ok) recordBlocked(a, pf.reason);
+      else await run(a);
+      return !(!pf.ok || a.gate.blocked.length > 0 || hitBlockSignal(a));
+    },
+    stopReason: () => C.blockedReason(),
+    beforeRetry: round => { log(`${a.cmd} 第 ${round}/${maxRounds} 輪重試`); C.resetQueues(); },
+    sleep: ms => { log(`${a.cmd} 有機構被擋（${pf.ok ? (a.gate.blocked.join('、') || '執行中遇封鎖／限流') : '整批'}）——${ms / 60000} 分鐘後重試`); return new Promise(res => setTimeout(res, ms)); },
+  });
+  if (r.done) return;
+  if (r.stopped === 'max') log(`${a.cmd} 仍有機構被擋，已達重試上限（${r.attempts - 1} 輪）——交給下一個排程（retry／下次 daily 的 5 日補漏）`);
+  else log(`${a.cmd} 重試停止：進入禁跑窗（${r.stopped}）`);
 }
 
 function writeRunLog(name, obj) { mkdirSync(join(ROOT, '_runs'), { recursive: true }); writeFileSync(join(ROOT, '_runs', `${name}.json`), JSON.stringify({ ...obj, at: new Date().toISOString() }, null, 1)); }
@@ -553,13 +587,14 @@ function writeRunLog(name, obj) { mkdirSync(join(ROOT, '_runs'), { recursive: tr
 async function main() {
   const a = args(process.argv.slice(2)); mkdirSync(ROOT, { recursive: true });
   const net = ['daily', 'retry', 'backfill', 'verify', 'ticks'].includes(a.cmd);
-  if ((net || a.cmd === 'migrate') && !acquireLock(a.cmd)) return;
-  if (a.cmd === 'daily') return dailyWithNightRetry(a);
+  if (a.cmd === 'daily') a.runDate = C.taipeiDate();   // 釘住排程那輪的台北日（等鎖／當晚重試跨午夜仍抓同一天）
+  if ((net || a.cmd === 'migrate') && !(await acquireLockOrWait(a))) return;
+  if (a.cmd === 'daily') return runWithGateRetry(a, cmdDaily);
+  if (a.cmd === 'retry') return runWithGateRetry(a, cmdRetry);
   if (net) {
     const pf = preflight(a);
-    if (!pf.ok) { if (['daily', 'retry', 'ticks'].includes(a.cmd)) recordBlocked(a, pf.reason); return; }
+    if (!pf.ok) { if (a.cmd === 'ticks') recordBlocked(a, pf.reason); return; }
   }
-  if (a.cmd === 'retry') return cmdRetry(a);
   if (a.cmd === 'backfill') return cmdBackfill(a);
   if (a.cmd === 'verify') return cmdVerify(a);
   if (a.cmd === 'migrate') return cmdMigrate();

@@ -96,12 +96,16 @@ export function resolveSession({ edition, nowMs, tradingDays, holidays }) {
 /** 前一交易日（清單內 < day 的最後一天）。 */
 export const prevTradingDate = (tradingDays, day) => [...tradingDays].filter(d => d < day).pop() || null;
 
-export function evaluateRunGates({ root, day, tradingDays, holidays }) {
+/**
+ * pinned＝呼叫端指定了資料日（--date／ctx.day 補跑舊日）：latest.json 只指向最新一日，回補的舊日永遠對不上 ⇒
+ * 改只看 _manifest.json 的 rows[day].status==='final'＋定版檔存在（2026-10-09 全站掃描第 2 項）。不指定日期時行為不變。
+ */
+export function evaluateRunGates({ root, day, tradingDays, holidays, pinned = false }) {
   const hard = [], soft = [];
   const hm = join(root, 'daily-heatmap');
-  const latest = readJson(join(hm, 'latest.json'));
+  const latest = pinned ? null : readJson(join(hm, 'latest.json'));
   const row = readJson(join(hm, '_manifest.json'))?.rows?.[day];
-  if (!latest || latest.dataDate !== day) hard.push(`P1 熱力尚未定版：latest.dataDate=${latest?.dataDate ?? '無'} ≠ ${day}`);
+  if (!pinned && (!latest || latest.dataDate !== day)) hard.push(`P1 熱力尚未定版：latest.dataDate=${latest?.dataDate ?? '無'} ≠ ${day}`);
   else if (!row || row.status !== 'final') hard.push(`P1 熱力 manifest ${day} 非 final`);
   else if (!existsSync(join(hm, row.file))) hard.push(`P1 熱力定版檔不存在：${row.file}`);
   const prev = prevTradingDate(tradingDays, day);
@@ -137,7 +141,7 @@ export async function runOnce(ctx) {
     return { status: ok ? 'already-final' : 'final-unpublished', day };
   }
 
-  const gates = evaluateRunGates({ root, day, tradingDays, holidays });
+  const gates = evaluateRunGates({ root, day, tradingDays, holidays, pinned: !!ctx.day });
   let extraHard = [];
   if (deps.packGates) { try { const g = await deps.packGates({ date: day, edition, root, nowMs }); if (g && g.pass === false) extraHard = (g.hard || []).map(String); } catch (e) { extraHard = [`pack 閘門檢查失敗：${e.message}`]; } }
   const hard = [...gates.hard, ...extraHard];

@@ -47,6 +47,15 @@ const rows = (await q.limit(LOAD_DAYS).select('date', 'closeJson', 'instJson', '
 const D = buildArrays(rows);
 if (D.N < 70) fail(`歸檔只有 ${D.N} 日`);
 const t = D.N - 1, date = D.dates[t];
+// 2026-10-09（同類缺口 B 類）：正式執行（無 --date）時，最新歸檔必須是今天（台北）。
+//   舊版取 chipArchive 最新一天、不檢查日期：當日歸檔不存在時會用前一日資料「成功」跑完，daemon 隨即把今天標成完成。
+//   例外：台北 09:00 前（下一交易日開盤前）手動補跑前一交易日（--run swingFormula）仍允許——歸檔日在 4 個日曆日內（涵蓋週末）。
+if (!AS_OF) {
+  const nowTw = new Date(Date.now() + 8 * 3600e3);
+  const todayTw = nowTw.toISOString().slice(0, 10);
+  const preOpen = nowTw.getUTCHours() < 9 && date < todayTw && (Date.parse(todayTw) - Date.parse(date)) <= 4 * 86400e3;
+  if (date !== todayTw && !preOpen) fail(`最新收盤歸檔是 ${date}，不是今天 ${todayTw}（當日歸檔未到）`);
+}
 const lastRow = rows.find(r => r.date === date) || {};
 const cnt = j => { try { return Object.keys(JSON.parse(j || '{}')).length; } catch { return 0; } };
 const have = { inst: cnt(lastRow.instJson), margin: cnt(lastRow.marginJson), dayTrade: cnt(lastRow.dayTradeJson) };

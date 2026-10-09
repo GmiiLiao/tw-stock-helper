@@ -933,6 +933,27 @@ async function auditOfficialMirror() {
   return out;
 }
 
+// ── 飆股模型 v2 影子管線（second-brain/news-scores/pipeline，gitignored 的 launchd 程序）本機告警列（2026-10-09 審查 M3）──
+//   panel 逾時未更新時管線不發佈（舊 panel 不冒充當日），只寫 pipeline/_alerts/LATEST.json；成功發佈會寫空清單。
+//   沒有這一列的話，後台 surgeShadow/surge-v2 會停在舊報告而沒有人知道。研究用影子：只告警、不擋任何東西。
+const NEWS_SHADOW_ALERT_FRESH_MS = 3 * DAY;   // 週二～週六 00:20 執行；連假時舊告警不再算數
+async function auditNewsShadow() {
+  const out = { collection: 'newsShadow(本機)', status: 'OK', notes: [] };
+  try {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const f = process.env.NEWS_SHADOW_ALERTS || fileURLToPath(new URL('../second-brain/news-scores/pipeline/_alerts/LATEST.json', import.meta.url));
+    if (!existsSync(f)) { out.notes.push('尚無 _alerts/LATEST.json（管線未曾寫過告警）'); return out; }
+    const al = JSON.parse(readFileSync(f, 'utf8'));
+    const at = Date.parse(al.at);
+    const list = Array.isArray(al.alerts) ? al.alerts : [];
+    if (list.length && Number.isFinite(at) && Date.now() - at <= NEWS_SHADOW_ALERT_FRESH_MS) {
+      out.status = 'ALERT'; out.notes.push(`飆股模型 v2 影子未發佈：${String(list[0]?.status || '').slice(0, 80)}（${al.at}）`);
+    }
+  } catch (e) { out.status = 'ERROR'; out.notes.push((e.message || '').slice(0, 60)); }
+  return out;
+}
+
 async function main() {
   const ltd = await lastTradingDay();
   const t = taipeiNow();
@@ -978,6 +999,7 @@ async function main() {
   })();
   for (const s of specs) results.push(await auditOne(s, ltd, marketOpen, tradingToday, offHoursMs, maxDataDate));
   if (!ONLY || ONLY === 'officialMirror') results.push(await auditOfficialMirror());
+  if (!ONLY || ONLY === 'newsShadow') results.push(await auditNewsShadow());
 
   const external = NO_EXT ? [] : await probeExternal(ltd);
   const fresh = NO_EXT ? [] : await probeFresh(ltd);

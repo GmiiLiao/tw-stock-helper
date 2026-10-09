@@ -39,7 +39,7 @@ import { gunzipSync } from 'node:zlib';
 import { archiveCloseReady } from '../lib/canonical-gate.mjs';
 import {
   envLeak, makeCalendar, isTradingDay, nextTradingDay, tradingDaysBetween, taipeiNow, deadlineOf, planDays, scorePlan,
-  exrightPlan, parsePs, foreignResearchProcs, lockVerdict, mergeMissed, addDaysIso, pruneNonTrading, effectiveTarget, PIPELINE_START, LOOKBACK_DOCS,
+  exrightPlan, parsePs, foreignResearchProcs, researchWaitUntil, RESEARCH_WAIT, lockVerdict, mergeMissed, addDaysIso, pruneNonTrading, effectiveTarget, PIPELINE_START, LOOKBACK_DOCS,
 } from '../lib/surge-shadow-daily.mjs';
 import { basisOf } from './a35_shadow_meta.mjs';
 import {
@@ -368,7 +368,7 @@ async function main() {
   if (a.out) { OUT = a.out; STATUS_PATH = join(OUT, 'a35_shadow_daily_status.json'); }
   if (a.rehearsal) { mkdirSync(OUT, { recursive: true }); log(`演練模式：快取 ${a.cache}、輸出 ${OUT}（不發佈；正式 out/ 不動）`); }
   const cache = a.cache || join(HERE, '.surge-cache');
-  const nowTw = a.now || taipeiNow();
+  let nowTw = a.now || taipeiNow();
   const prev = readJson(STATUS_PATH) || {};
   const st = { schema: 'a35.shadowDaily.v1', lastRunAt: new Date().toISOString(), nowTw, dryRun: a.dryRun, rehearsal: a.rehearsal, cache, out: OUT, D: null, nextTD: null, deadline: null,
     plan: null, steps: [], produced: [], scored: [], missed: prev.missed || [], suspectedClosures: prev.suspectedClosures || [], targetShifts: [],
@@ -387,7 +387,19 @@ async function main() {
   const onSignal = sig => { if (current) killGroup(current, 'SIGTERM'); if (!a.dryRun) releaseLock(lockDir); console.error(`收到 ${sig}，中止`); process.exit(143); };
   process.on('SIGTERM', onSignal); process.on('SIGINT', onSignal);
   try {
-    const foreign = foreignResearchProcs(parsePs(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })), process.pid);
+    const scanForeign = () => foreignResearchProcs(parsePs(execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })), process.pid);
+    let foreign = scanForeign();
+    // 期限前最後一輪（07:05）遇研究程序在跑：等它結束（每 2 分鐘檢查、最多到 08:45）再照常凍結；其他時段維持略過（2026-10-09）
+    const waitUntil = foreign.length ? researchWaitUntil(nowTw) : null;
+    // --now 演練（指定時刻）不真的等：迴圈比的是真實時鐘，未來的 --now 會一直睡並持鎖（審查 M4）
+    if (waitUntil && (a.dryRun || a.now)) log(`（dry-run）期限前最後一輪：研究程序在跑，正式執行會每 ${RESEARCH_WAIT.pollMs / 60000} 分鐘檢查、最多等到 ${waitUntil}（台北）`);
+    else if (waitUntil) {
+      const t0 = Date.now();
+      log(`期限前最後一輪：研究程序在跑，每 ${RESEARCH_WAIT.pollMs / 60000} 分鐘檢查、最多等到 ${waitUntil}（台北）：${foreign.map(f => f.pid).join(', ')}`);
+      while (foreign.length && taipeiNow() < waitUntil) { await sleep(RESEARCH_WAIT.pollMs); foreign = scanForeign(); }
+      st.steps.push({ name: 'preflight-wait', ok: !foreign.length, ms: Date.now() - t0, ...(foreign.length ? { err: `等到 ${waitUntil} 研究程序仍在跑` } : {}) });
+      if (!foreign.length) { nowTw = taipeiNow(); st.nowTw = nowTw; log(`研究程序已結束（等了 ${Math.round((Date.now() - t0) / 60000)} 分鐘），照常凍結；現在 ${nowTw}`); }
+    }
     if (foreign.length) {
       const msg = `研究程序正在使用共用快取，本輪不做：${foreign.map(f => `${f.pid} ${f.command.slice(0, 120)}`).join(' | ')}`;
       log(msg); st.steps.push({ name: 'preflight', ok: false, ms: 0, err: msg });

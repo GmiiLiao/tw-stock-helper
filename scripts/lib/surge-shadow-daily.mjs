@@ -106,6 +106,20 @@ export const taipeiNow = (ms = Date.now()) => new Date(ms + 8 * 3600_000).toISOS
 export const deadlineOf = (nextTD, hhmm = DEADLINE_HHMM) => `${nextTD}T${hhmm}`;
 
 /**
+ * 期限前最後一輪（排程 07:05 那輪；下一交易日 09:00 前最後一個時段）遇研究程序在跑：改為等它結束，不再略過（2026-10-09 全站掃描第 4 項：
+ * 一天 6 個時段都被研究程序擋掉就缺凍結）。台北 06:00～08:45 開跑的那輪才等，每 2 分鐘檢查一次、最多等到當天 08:45（DEADLINE_HHMM）；
+ * 其他時段回 null（維持「略過、記入 preflightBlocks」的舊行為）。
+ * 最晚只等到 08:30（審查 M4）：研究程序 08:44 才結束時，凍結流程只剩十幾分鐘，可能跨過 09:00 期限；留 30 分鐘給凍結。
+ */
+export const RESEARCH_WAIT = Object.freeze({ fromHHMM: '06:00', untilHHMM: '08:30', pollMs: 2 * 60_000 });
+export function researchWaitUntil(nowTw) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(nowTw || ''))) return null;
+  const hhmm = nowTw.slice(11, 16);
+  if (hhmm < RESEARCH_WAIT.fromHHMM || hhmm >= RESEARCH_WAIT.untilHHMM) return null;
+  return `${nowTw.slice(0, 10)}T${RESEARCH_WAIT.untilHHMM}`;
+}
+
+/**
  * 每個候選打分日的處置（升冪處理）：
  *   done＝out/shadow_{日}.json 已存在；missed＝已過下一交易日 08:45 仍沒有名單（已記過的不重記）；
  *   produce＝期限前、收盤＋法人到齊（archiveDayStatus.ready）、站上 pred 已定版（canonicalAt）且模型輸入到齊（inputsReady）；

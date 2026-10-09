@@ -244,3 +244,13 @@ test('協調器參數：--cache 正式執行必須 --no-publish；演練輸出�
   r = run('--out', '/tmp/x');
   assert.equal(r.status, 1); assert.match(r.stderr, /--out 只能搭配 --dry-run 或演練/);
 });
+
+test('researchWaitUntil：只有 06:00～08:30 開跑的那輪（07:05）遇研究程序才等，等到當天 08:30；其他時段不等（2026-10-09）', async () => {
+  const { researchWaitUntil, RESEARCH_WAIT } = await import('./surge-shadow-daily.mjs');
+  assert.equal(researchWaitUntil('2026-10-10T07:05'), '2026-10-10T08:30');
+  assert.equal(researchWaitUntil('2026-10-10T06:00'), '2026-10-10T08:30');
+  assert.equal(researchWaitUntil('2026-10-10T08:29'), '2026-10-10T08:30');
+  for (const t of ['2026-10-10T08:30', '2026-10-10T08:45', '2026-10-10T05:59', '2026-10-09T17:30', '2026-10-09T19:30', '2026-10-09T21:00', '2026-10-09T23:10', '2026-10-09T23:50']) assert.equal(researchWaitUntil(t), null, t);
+  for (const bad of [null, undefined, '', '07:05', 'x']) assert.equal(researchWaitUntil(bad), null);
+  assert.equal(RESEARCH_WAIT.pollMs, 120000);
+});
