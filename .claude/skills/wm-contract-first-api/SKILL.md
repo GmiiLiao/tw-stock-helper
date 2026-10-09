@@ -4,7 +4,7 @@ description: 契約優先 API——proto/OpenAPI 生成、allowlist 例外要有
 ---
 # wm-contract-first-api｜契約優先 API
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`proto/**`（313 檔）、`api/api-route-exceptions.json`（888 行 allowlist）、`scripts/enforce-sebuf-api-contract.mjs`、`docs/adding-endpoints.mdx`。**適用度：部分（無 proto，取契約精神）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`proto/**`（313 檔）、`api/api-route-exceptions.json`（888 行 allowlist）、`scripts/enforce-sebuf-api-contract.mjs`、`docs/adding-endpoints.mdx`。**適用度：部分（無 proto，取契約精神）**。
 
 ## 原則
 - 契約是唯一真相：路徑／動詞／驗證約束寫在 proto，四輸出（client／server／OpenAPI／bundle）由 `make generate` 生成；**不得手改生成物**。
@@ -35,3 +35,8 @@ description: 契約優先 API——proto/OpenAPI 生成、allowlist 例外要有
 
 - **`api/api-route-exceptions.json`**（依據：該檔新增 7 條 `api/mcp/registry/*.ts`、1 條 `api/mcp/ui/news-dashboard-app.ts`）：**不匯出 HTTP route 的模組只要放在 `api/` 底下也要登記例外**（四欄：category／reason／owner／removal_issue），reason 寫明「不是 route、讀哪些既有 RPC」。即「目錄＝契約範圍」，不靠「它其實不是 route」的口頭豁免。同時清掉了檔內空行（格式由工具維持）。
 - 台股助手對應：`scripts/audit-routes.mjs` 以 `src/app/api/**/route.ts` 為普查單位；`src/app/api` 底下若有非 route 的輔助檔（`_*.ts`、`lib.ts`），應明列在普查的「非 route 清單」而非被略過。實況見本週掃描。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **非 JSON 的轉接 route 也要登記理由**（依據：`api/api-route-exceptions.json` 新增 `api/miit-news.js`（category `non-json`：把官方日期新聞清單轉成 RSS/XML 給既有的 feed 讀取器）與 `api/mcp/panel-requests.ts`（category `internal-helper`：不輸出 HTTP route 的模組））：例外清單同時記錄「為什麼不走契約」與「這個檔其實不是 route」，延續 10-02 增補。
+- 台股助手對應規則：沿用 10-02 的規則；本站若新增回傳非 JSON（CSV、RSS、圖片）的 route，在 `audit-routes.mjs` 普查裡應有明確分類，不讓它落在「JSON route 該有的快取與限流檢查」之外。

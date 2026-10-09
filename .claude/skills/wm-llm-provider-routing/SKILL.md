@@ -4,7 +4,7 @@ description: LLM 供應商路由——每個 provider 宣告 fallback 鏈、無 
 ---
 # wm-llm-provider-routing｜LLM 供應商路由
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`src/services/runtime-config.ts`（Ollama/LM Studio → Groq → OpenRouter → 瀏覽器本地模型；每項寫 `fallback` 文字；「只有 provider 明確回 401/403 才算 key 失效」）、`src/services/settings-manager.ts`。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`src/services/runtime-config.ts`（Ollama/LM Studio → Groq → OpenRouter → 瀏覽器本地模型；每項寫 `fallback` 文字；「只有 provider 明確回 401/403 才算 key 失效」）、`src/services/settings-manager.ts`。**適用度：部分**。
 
 ## 原則
 - 供應商鏈以資料宣告，每層寫明失敗降到哪；UI 顯示 disabled/limited state 而非假結果。
@@ -22,3 +22,8 @@ description: LLM 供應商路由——每個 provider 宣告 fallback 鏈、無 
 
 ## 掃描探針
 - 反向：`rg -n "11434" src/app/api`（web 層直打本機）；正向：`rg -n "ollama.*health|/api/tags" scripts/ai-daemon.mjs`
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **移除一個供應商要整條鏈一起改**（依據：`src/services/runtime-config.ts` 移除 Groq：秘密鍵型別、功能開關、預設值、自己那一項，以及**上一項的 fallback 說明文字**「Falls back to Groq, then OpenRouter…」改成「Falls back to OpenRouter…」；OpenRouter 的描述從「Secondary」改為主要；`_seed-utils.mjs` 註解裡的供應商名也改成泛稱）：只刪設定、不改其他項目的 fallback 文字，設定頁就會描述一條不存在的備援路徑。
+- 台股助手對應規則：本站 AI 鏈（daemon Ollama、分析師團隊 claude -p、Jev／typesafe 影子）更換或移除任何一個引擎時，同一個 commit 要一併改：呼叫端的備援順序、失敗時顯示給使用者的文字（如「改用 xxx」）、技能與 CLAUDE.md 排程表的描述、source-registry 登錄；改完 grep 舊引擎名確認沒有殘留的說明文字。

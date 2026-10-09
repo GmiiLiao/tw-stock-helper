@@ -4,7 +4,7 @@ description: MCP 與 Agent 可發現面——MCP server（OAuth+HMAC grant、bil
 ---
 # wm-mcp-agent-surface｜MCP／Agent 產品面（參考·不適用）
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`api/mcp.ts`、`api/mcp-proxy`、`skills/*/SKILL.md`（frontmatter name/description/…）、`public/.well-known/agent-skills/index.json`、`agent-card.json`、`llms.txt`、`cli/`、`sdk/{python,ruby,go}`、`mcp-live-smoke.yml`。**適用度：不適用（保留作技能格式與 discovery 的參考）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`api/mcp.ts`、`api/mcp-proxy`、`skills/*/SKILL.md`（frontmatter name/description/…）、`public/.well-known/agent-skills/index.json`、`agent-card.json`、`llms.txt`、`cli/`、`sdk/{python,ruby,go}`、`mcp-live-smoke.yml`。**適用度：不適用（保留作技能格式與 discovery 的參考）**。
 
 ## 原則（可借的部分）
 - 公開 discovery methods 與認證 data methods 分層；discovery 有 digest 防漂移。
@@ -28,3 +28,7 @@ description: MCP 與 Agent 可發現面——MCP server（OAuth+HMAC grant、bil
 
 - **上游 agent-skills 新增 `research-stocks`、`compare-macro-history`；`fetch-country-brief` 改為優先開嵌入式 UI**（依據：`public/.well-known/agent-skills/index.json`；另有 5 條既有技能內容變更、digest 隨之更新）。兩條新技能的描述都把「**保留模型與模擬的限制**」「保留日期、來源定義與缺漏讀數」寫進觸發說明——對外暴露分析能力時，限制聲明是契約的一部分。
 - 參考·不適用（本站不對外提供 MCP）；但「回測／研究輸出必附模型限制與資料日」與本站「交易相關輸出一律附非投資建議」「比對不扣成本、成本另列」同族。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- `public/.well-known/agent-skills/index.json`：`check-forecast-signals` 的 digest 改變——內容隨 #8967 移除 `projections` 而改寫，索引裡的 sha256 必須跟著更新，否則客戶端驗證會失敗（技能內容與索引摘要同 commit 更新）。本站無對應介面，維持「參考·不適用」。

@@ -4,7 +4,7 @@ description: 降級可觀測性——marker header、錯誤分級與 fingerprint
 ---
 # wm-observability-degradation｜可觀測的降級
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`api/_rate-limit.js`（`RATE_LIMIT_DEGRADED_HEADERS`、`rateLimitErrorLevel`、`rateLimitFingerprintStage`）、`api/_sentry-edge.js`、`scripts/check-sentry-coverage.mjs`、`scripts/check-analytics-collector.mjs`（「不要相信 deployment status」）。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`api/_rate-limit.js`（`RATE_LIMIT_DEGRADED_HEADERS`、`rateLimitErrorLevel`、`rateLimitFingerprintStage`）、`api/_sentry-edge.js`、`scripts/check-sentry-coverage.mjs`、`scripts/check-analytics-collector.mjs`（「不要相信 deployment status」）。**適用度：部分**。
 
 ## 原則
 - 每條降級路徑回 **marker**（header 或欄位），前端能分辨「拿到的是降級資料」。

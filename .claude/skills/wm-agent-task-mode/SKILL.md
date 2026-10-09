@@ -4,7 +4,7 @@ description: AI 協作工程規範——任務模式與授權分離、終端狀�
 ---
 # wm-agent-task-mode｜任務模式、授權與終端狀態
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`AGENTS.md`（Task Mode and Authority／Start Here／Verification／PR Delivery）、`scripts/agent-preflight.mjs`、`compound-engineering.local.md`（五個 review agents）。**適用度：★★★ 建議內化（零程式碼）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`AGENTS.md`（Task Mode and Authority／Start Here／Verification／PR Delivery）、`scripts/agent-preflight.mjs`、`compound-engineering.local.md`（五個 review agents）。**適用度：★★★ 建議內化（零程式碼）**。
 
 ## 原則
 - **任務模式決定權限**：review／explain／report／diagnose ＝ 唯讀，不改檔、不推、不改外部狀態；implement／fix／ship 才改碼、驗證、交付。

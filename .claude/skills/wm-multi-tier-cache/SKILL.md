@@ -4,7 +4,7 @@ description: 多層快取——四層瀑布、single-flight 合流、leader/foll
 ---
 # wm-multi-tier-cache｜多層快取
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`ARCHITECTURE.md` §9（Bootstrap seed→in-memory→Upstash Redis `cachedFetchJson`→upstream）、`server/_shared/redis.ts`、`server/gateway.ts`（FNV-1a ETag）、`CONCEPTS.md`（Seed-Owned Key／One-Shot Hydration／The Lever Test／Bootstrap View Key）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`ARCHITECTURE.md` §9（Bootstrap seed→in-memory→Upstash Redis `cachedFetchJson`→upstream）、`server/_shared/redis.ts`、`server/gateway.ts`（FNV-1a ETag）、`CONCEPTS.md`（Seed-Owned Key／One-Shot Hydration／The Lever Test／Bootstrap View Key）。**適用度：深度內化**。
 
 ## 原則
 - 讀取順序固定；miss 合流（N 併發只打 1 次），leader 做副作用、follower 只等；fetcher 硬逾時防 in-flight map 永久毒化。

@@ -4,7 +4,7 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 ---
 # wm-security-model｜安全模型
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`api/_api-key.js`（session／user／enterprise 三種 kind；Origin/Referer 不可信 #3541）、`api/_rate-limit.js`＋`server/_shared/rate-limit.ts`（sliding window、failClosed、IETF RateLimit headers、`X-RateLimit-Mode: degraded`）、`scripts/enforce-rate-limit-policies.mjs`（政策 key 必須對得上真 route）、`api/_cors.js`。**適用度：部分內化**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`api/_api-key.js`（session／user／enterprise 三種 kind；Origin/Referer 不可信 #3541）、`api/_rate-limit.js`＋`server/_shared/rate-limit.ts`（sliding window、failClosed、IETF RateLimit headers、`X-RateLimit-Mode: degraded`）、`scripts/enforce-rate-limit-policies.mjs`（政策 key 必須對得上真 route）、`api/_cors.js`。**適用度：部分內化**。
 
 ## 原則
 - **Origin／Referer／Sec-Fetch-Site／X-Forwarded-For 都是 client 可寫**：不可當「真瀏覽器」或身分證明；rate-limit 的 identifier 要取**受信 proxy 附加的那一跳**，不是最左邊。
@@ -63,3 +63,12 @@ description: 多層安全模型——client-controlled headers 一律可偽造�
 - 台股助手對應規則：
   1. **LLM 決定讀什麼時不得用管理員權限**：daemon 的 AI 交易員／AI 分析若讓模型選擇查詢目標（代號、collection、帳戶），實際讀取應限縮在「該任務本來就能讀的範圍」（固定白名單或該會員自己的文件），不能直接把 Admin SDK 交給模型驅動的讀取。本週新增的**會員專屬 AI 帳戶**（`3ea47f7`、`1ec8c34`）是首要檢查對象：會員目標 prompt 是使用者輸入，不可影響讀寫哪個帳戶。
   2. 本站限流故障政策仍為 **fail-open（2026-09-28 使用者裁定）**——上游 fail-closed 只作參考，此條不變；但「打外部上游的 route 必須有專屬限流條目」與 fail-open 不衝突，可吸收。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **依賴套件的安全補丁可以「自帶」，但要有回歸測試與移除條件**（依據：新頂層目錄 `vendor/`（`braces`、`stream-json`、`http-cache-semantics`）＋`vendor/README.md`；`package.json` 用 `file:vendor/*` 加 npm `$` overrides 讓所有遞移依賴都用補丁版）：
+  ①從上游已發布版本出發、只改有漏洞的那一段（braces 限制巢狀深度 100；stream-json 讓 `__proto__` 變成自有屬性；http-cache-semantics 先套 private／no-store 等限制才允許 stale 重用），並引用上游修正 PR；
+  ②私有版本號標明是本專案的補丁（`-worldmonitor.1`），不冒充上游版本；移除安裝腳本；
+  ③附回歸測試（敵意輸入、原型污染鍵），**寫明何時移除**：上游發布相容修正就換回、刪 overrides、跑回歸；**不要用「忽略告警」代替修補**。
+- 判定：這是既有安全技術族（依賴安全）的做法，**不另立新技能**；是否要在本站建立同樣機制列入週報由使用者決定。
+- 台股助手對應規則：`npm audit` 有高風險、而上游尚未修時，優先升級；無法升級才考慮 overrides 指到補丁版，並同時寫明來源、改動範圍、回歸測試與移除條件；禁止只在 audit 設定裡把告警關掉。

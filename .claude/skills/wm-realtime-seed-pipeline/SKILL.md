@@ -4,7 +4,7 @@ description: 即時資料種子管線——runSeed 生命週期（lock→fetch�
 ---
 # wm-realtime-seed-pipeline｜種子管線
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`scripts/_seed-utils.mjs`（2,886 行：acquireLock SET NX PX、atomicPublish、writeFreshnessMetadataSafely、PERMANENT_4XX、allSettledWithConcurrency）、195 個 `seed-*.mjs`、`scripts/ais-relay.cjs`、`CONCEPTS.md` Seed Bundle Orchestration（wall budget／section deferral／graceful skip／starved tick／chunked sweep）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`scripts/_seed-utils.mjs`（2,886 行：acquireLock SET NX PX、atomicPublish、writeFreshnessMetadataSafely、PERMANENT_4XX、allSettledWithConcurrency）、195 個 `seed-*.mjs`、`scripts/ais-relay.cjs`、`CONCEPTS.md` Seed Bundle Orchestration（wall budget／section deferral／graceful skip／starved tick／chunked sweep）。**適用度：深度內化**。
 
 ## 原則
 - 完整生命週期：lock → fetch → validate → publish（staging→canonical）→ seed-meta → release；每步失敗有明確語意。
@@ -36,3 +36,8 @@ description: 即時資料種子管線——runSeed 生命週期（lock→fetch�
 - **記錄鍵不可等於資料鍵，設定期就擋**（`_seed-utils.mjs` `resolveSeedMetaKey`、runSeed 設定期檢查 extraKeys #8424）：上游有 seeder 把 meta 寫到自己的資料鍵，每跑一次就用 44 bytes 心跳蓋掉資料，健康端點卻讀 OK 六個月。台股助手對應：**不同寫者不可用非 merge 的 `.set()` 寫同一份 doc**（心跳／帳戶快照／資料各自一份），衝突要在任何抓取前報錯，而不是寫完才發現。
 - **發布要驗所有權（fenced publish）**（`api/health.js` owner publish script、`CONCEPTS.md` Verdict Snapshot）：暫停後醒來的舊 owner 不得用較舊的結果覆寫繼任者已發布的較新結果。台股助手已有 forward-only guard（09-05）擋 latest 被舊資料覆蓋；同理適用於非 await 的並行寫入（例：`_aiSwing.writeAccount()` 每小時一次與 `pick()` 後各呼叫一次，兩者都是讀舊 history→整份 `.set()`）。
 - **大 key 讀取逾時要可調**（`_seed-utils.mjs` `readSeedSnapshot({ timeoutMs })`）：固定 5s 對多 MB payload 不夠，逾時會被當成讀失敗。本站大 doc（`marketSnapshot/latest` quotesJson）讀取端同理。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **寫入端標記自己的部署版本**（依據：`scripts/_seed-utils.mjs` 新增 `getDeployRevision()`：依序取 Railway → Vercel → GitHub Actions 的 commit sha）：每個 seeder 把「自己是從哪個 commit 部署的」寫進 metadata，讀取端與健康檢查才分得出「寫入端還沒換新碼」與「資料壞了」（配合 [[wm-freshness-health-monitoring]] 本週的升版過渡窗）。同檔把註解裡的特定供應商名（groq）改成泛稱，因為該供應商已從路由移除。
+- 台股助手對應規則：daemon 已有 codeHash（漂移看門狗用），但寫進 Firestore 的資料文件多半**不帶**寫入端版本。新增或改版 daemon 產出的文件時，建議在文件 meta 帶 `writerCommit`／`codeHash`（取自 `scripts/lib/daemon-code-hash.mjs` 的同一來源），讓網站與稽核能對照；既有文件是否回補屬程式變更，列入掃描報告由使用者決定。

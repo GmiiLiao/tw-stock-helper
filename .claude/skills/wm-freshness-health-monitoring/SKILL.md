@@ -4,7 +4,7 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
 ---
 # wm-freshness-health-monitoring｜新鮮度與健康
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`api/health.js`（3,919 行；每 key `maxStaleMin`＝cron 2–3×、`minRecordCount`、STALE_CONTENT_GRACE 3h）、`scripts/check-seed-freshness.mjs`、`CONCEPTS.md`（Content-Age Contract／Activation Marker／Read Outcome）、`.github/workflows/seed-freshness-monitor.yml`（每 15 分）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`api/health.js`（3,919 行；每 key `maxStaleMin`＝cron 2–3×、`minRecordCount`、STALE_CONTENT_GRACE 3h）、`scripts/check-seed-freshness.mjs`、`CONCEPTS.md`（Content-Age Contract／Activation Marker／Read Outcome）、`.github/workflows/seed-freshness-monitor.yml`（每 15 分）。**適用度：深度內化**。
 
 ## 原則
 - 每次資料寫入同時寫 `seed-meta:{fetchedAt, recordCount, sourceVersion}`；健康端點只讀 meta，不讀大 payload。
@@ -63,3 +63,16 @@ description: 資料新鮮度與健康監控——seed-meta 契約、maxStale 2�
   1. **日期輪替鍵的午夜假警報**：`scripts/audit-data-sources.mjs` 的 dated 契約若直接讀「今天」的文件（例如 `xxx/{YYYY-MM-DD}`），00:00 到當日第一次寫入之間必然讀到缺漏；應讀「最近一份＋其自報資料日」，再由資料日漂移閘判斷（09-28 已加休市日不誤報，午夜窗是否涵蓋需實測）。
   2. **歸檔與即時並寫的不對稱**：daemon 有多處「即時寫 latest、旁路寫歸檔」（chipArchive、bookDepthArchive、aiDaytradeLab 凍結檔）——稽核要能看出「latest 新鮮但歸檔停了」，不能只看 latest。
   3. **改排程節奏時同步改 `maxStale`**：本站 CONTRACTS 的 maxStale 多為寫死分鐘數，改 daemon 時段的 commit 應同時檢查對應契約（本週 `d915839` 波段帳戶快照改獨立排程即一例）。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **版本化資料鍵的升版過渡窗**（依據：`api/health.js` 新增 `keyVersionRolloutCandidates`／`writerKeyVersionBehind`，#9044 實案）：讀取端隨 PR 合併立即部署，寫入端要等**下一次排程**才換新碼；10-08 把 `resilienceIntervals` v11→v12 後，健康檢查在「寫入端 seed-meta 很新」旁邊把新鍵讀成 EMPTY（crit）三小時。上游的判定：
+  ①寫入端在 metadata 裡標 `sourceVersion`（含它寫的鍵家族與版本），**新鮮的 metadata 卻指向舊版本**＝「升版尚未輪到寫入端」，不是資料壞了 ⇒ 判 `ROLLOUT_PENDING`（warn）；
+  ②過渡窗＝該鍵的 maxStale，**上限一天**，每個「鍵＋版本」只能申請一次（SET NX、名字含版本，下次升版開新窗）；寫入端一直不換版就回到 EMPTY——寬限期不能變成永久黃燈；
+  ③申請或讀取失敗**不給窗**，維持嚴格判定（fail-closed）。
+- **品質資訊不等於故障**（依據：`forecastFunnel` 改為「漏斗塌縮只記錄、不設 status:'error'」#8990）：產出端把「資料品質偏低」寫成 error，會讓健康頁把一個正在正常運作的寫入端顯示成壞掉；品質訊號另列欄位，只有新鮮度能讓它降級。
+- **minRecordCount 用實測脈衝定**（依據：`chokepointTransits` 加 `minRecordCount: 5`，註解「9 月 9 日那次脈衝只有 5/13」）：門檻取歷史上**合法的最低值**並把出處寫進註解，不是拍腦袋。
+- 台股助手對應規則：
+  1. **daemon 是「讀取端先部署、寫入端晚換碼」的同形**：網站部署後立即讀新欄位／新文件路徑，daemon 要等重啟（且 08:30–10:05、13:20–13:40 不能重啟，can-restart 也可能擋）才寫。改 Firestore 文件路徑或欄位版本時，讀取端要能**分辨「daemon 還是舊碼」**（daemon 心跳的 codeHash／commit ≠ 網站 commit）與「資料真的缺」，前者標「等 daemon 換碼」並設上限，而不是讓稽核和頁面直接紅燈或顯示空白。
+  2. `audit-data-sources.mjs` 的 CONTRACTS 若要支援這件事，前提是 daemon 寫入的文件帶寫入端版本（見 [[wm-realtime-seed-pipeline]] 本週增補）；目前沒有就列為掃描項，不在本技能內自行實作。
+  3. 「實驗中／品質偏低」的提示（如數字校驗標示、Jev 影子期）**不得**寫成稽核的 ERROR；ERROR 留給新鮮度、筆數、資料日、市場組成四道閘門。

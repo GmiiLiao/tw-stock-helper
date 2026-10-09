@@ -4,7 +4,7 @@ description: CI 防護網與抗漂移——分層 pre-push（狀態依賴／樹�
 ---
 # wm-ci-guardrails｜CI 防護網
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`.husky/pre-commit`（合併/關閉 PR 分支拒 commit＋unicode 安全）、`.husky/pre-push`＋`scripts/prepush-attest.sh`（tiered gate、green-tree cache、identity gate）、`scripts/lint-boundaries.mjs`（types→config→services→components→app 單向）、`scripts/enforce-*.mjs`（rate-limit-policies／panel-content-writes／safe-html／api-contract／premium-fetch）、`scripts/check-sentry-coverage.mjs`、`check-inventory-count-contracts.mjs`、`CONCEPTS.md` Test & Guard Verification、43 條 workflow。**適用度：部分內化（09-04 起有 hooks）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`.husky/pre-commit`（合併/關閉 PR 分支拒 commit＋unicode 安全）、`.husky/pre-push`＋`scripts/prepush-attest.sh`（tiered gate、green-tree cache、identity gate）、`scripts/lint-boundaries.mjs`（types→config→services→components→app 單向）、`scripts/enforce-*.mjs`（rate-limit-policies／panel-content-writes／safe-html／api-contract／premium-fetch）、`scripts/check-sentry-coverage.mjs`、`check-inventory-count-contracts.mjs`、`CONCEPTS.md` Test & Guard Verification、43 條 workflow。**適用度：部分內化（09-04 起有 hooks）**。
 
 ## 原則
 - **架構不變式要可執行**：邊界 lint 是「executable authority」，文件只是說明。

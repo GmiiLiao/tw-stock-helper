@@ -4,7 +4,7 @@ description: 面板資料生命週期——錯誤絕不覆蓋既有好資料、s
 ---
 # wm-panel-data-lifecycle｜面板資料生命週期
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`src/components/Panel.ts`（1,715 行：`_hasData` 防錯誤覆蓋、`clearErrorState` 單一擁有者、`withRetryBackoffPreserved`、#6557 cii/strategic-risk 生產事故）、`scripts/enforce-panel-content-writes.mjs`（lint 抓自己 replaceChildren 繞過清錯的面板）。**適用度：部分**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`src/components/Panel.ts`（1,715 行：`_hasData` 防錯誤覆蓋、`clearErrorState` 單一擁有者、`withRetryBackoffPreserved`、#6557 cii/strategic-risk 生產事故）、`scripts/enforce-panel-content-writes.mjs`（lint 抓自己 replaceChildren 繞過清錯的面板）。**適用度：部分**。
 
 ## 原則
 - **一次 transient 失敗不得清掉正確資料**：錯誤只加徽章，內容保留；有資料時錯誤是附註，沒資料時錯誤才是主畫面。
@@ -39,3 +39,11 @@ description: 面板資料生命週期——錯誤絕不覆蓋既有好資料、s
 - **失敗後的 fallback 也要有年齡上限**（`src/utils/circuit-breaker.ts` `maxServeAgeMs`，見 wm-resilience-circuit-breaker 本週增補）：「錯誤不覆蓋好資料」的前提是那份資料**還算好**；保留 last-good 要附資料時刻，超過上限要標示或撤下，不能無限期假裝新鮮。
 - 既有條文校正（不刪原文）：「useLiveQuotes：失敗保留上一拍報價」只對 throw／非 2xx 成立；`src/lib/useLiveQuotes.ts:46-55` 在 2xx 但 `quotes` 缺檔或為空時整張 map 覆蓋 ⇒ 缺席的代號回退顯示。是否改成逐檔合併待決定（列於 2026-09-27 週掃描）。
 - 掃描探針（新增）：`rg -n "catch[^{]*\{[^}]*setData\(\{[^}]*error" src/components`（catch 以錯誤物件整片取代既有資料）；`rg -n "defaultValue=" src/components` 後逐一確認祖先有以資料身分為 key。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **新鮮度徽章由基底類別擁有，但子類別要能重新觸發**（依據：`src/components/Panel.ts` 的 `updateFreshnessBadge` 由 private 改為 protected）：子面板用自己的路徑更新資料（不經基底的 setContent）時，原本無法刷新「資料多舊」的徽章，畫面會顯示過期的年齡。
+- **點選只用已載入的資料身分，不因選取再抓資料**（依據：`ARCHITECTURE.md` 新增「Loaded news selection」：點地圖新聞時把已載入的 article {link,title,source} 與顯示標題傳出去；舊標記沒有 article 也合法；不追蹤彈窗可見性、不在選取時抓更多資料）。
+- 台股助手對應規則：
+  1. 各頁的「資料時間／資料日」標示要跟著**實際顯示的那份資料**更新——元件若有第二條更新路徑（例如快線 hot 覆蓋、手動重新整理），那條路徑也要更新標示，不能只在初次載入時算。
+  2. 點選股票、新聞、榜單列時，優先使用清單已載入的欄位顯示；需要更多資料時走既有快取 route，**不要每次點選都打一次非快取的 API**（唯一不變式：上游請求不可隨使用者操作次數增加）。

@@ -4,7 +4,7 @@ description: 部署漂移看門狗——「線上跑的是不是 main 的 head�
 ---
 # wm-deploy-drift-watchdog｜部署漂移
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`scripts/check-railway-deploy-drift.mjs`（每服務問一題：跑的是 head 嗎？非肯定即回報；lag p50 0h／p90 19h／max 62.6h 實測）、`scripts/check-postmerge-deploys.mjs`、workflows `railway-deploy-drift／trigger-watchdog／reconcile-manual-recovery／postmerge-deploy-monitor`。**適用度：部分（單機 daemon＋App Hosting）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`scripts/check-railway-deploy-drift.mjs`（每服務問一題：跑的是 head 嗎？非肯定即回報；lag p50 0h／p90 19h／max 62.6h 實測）、`scripts/check-postmerge-deploys.mjs`、workflows `railway-deploy-drift／trigger-watchdog／reconcile-manual-recovery／postmerge-deploy-monitor`。**適用度：部分（單機 daemon＋App Hosting）**。
 
 ## 原則
 - 所有 repo 閘門綠燈時服務仍可能跑舊 image（watch-path 拒推、整合掉訊息、合併後 build 失敗）；舊碼上的容器會發布「看起來很新」的資料，健康檢查看不出來。

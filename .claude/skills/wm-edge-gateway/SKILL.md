@@ -4,7 +4,7 @@ description: Edge 閘道請求管線——先便宜後昂貴的固定順序（or
 ---
 # wm-edge-gateway｜閘道管線
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`server/gateway.ts`（2,421 行 `createDomainGateway`）、`api/_cors.js`（雙 profile allowlist）、`api/_api-key.js`、`api/_relay.js`。**適用度：部分（Next.js route 各自為政）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`server/gateway.ts`（2,421 行 `createDomainGateway`）、`api/_cors.js`（雙 profile allowlist）、`api/_api-key.js`、`api/_relay.js`。**適用度：部分（Next.js route 各自為政）**。
 
 ## 原則
 - 管線順序固定且**先便宜後昂貴**：拒絕的 origin 不帶 CORS header；CORS 產生失敗即 fail-closed。
@@ -49,3 +49,9 @@ description: Edge 閘道請求管線——先便宜後昂貴的固定順序（or
 - **快取層級依資料本質而非 route 性質**（依據：`server/gateway.ts` L303 新增 `'/api/market/v1/get-price-history': 'static'`；同檔 country-stock-index 為 `slow`）：每日收盤歷史＝過去的日子不會變 ⇒ `static`；同一個「市場」族的即時指數則是 `slow`。新 route 進場時一定要在層級表登記，不登記就落到預設層。
 - 同一變更也在 rate-limit 表登記（見 [[wm-security-model]] 本週增補）——**新 route 要同時進「快取層級表」與「限流政策表」兩張表**，上游以 lint 強制。
 - 台股助手對應：本站 `cacheHeader` 層級（tick/quote/intraday/daily/static/private）沒有「route→層級」的集中表，各 route 自選；`/api/twse/stock-history`、`/api/twse/candles` 這類「過去日 K 不變、只有今天那根會變」的資料應分段：歷史部分 `static`／`daily`、含今日那根時才 `intraday`。是否已如此見本週掃描。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **以物件為鍵的旁路通道，要從「實際交給處理器的那個物件」取**（依據：`server/gateway.ts` 把 `drainResponseHeaders`／`drainRetryableResponse`／`drainSuccessStatusOverride` 的參數從 `request` 改為 `requestForHandler`）：閘道替已驗證的呼叫者「蓋上身分」時會**複製**一份 Request；處理器把額外標頭、可重試標記、狀態碼覆寫寫在複本上，閘道卻從原本那份去取 ⇒ **只有已登入的呼叫者**會安靜地失去這些標頭（匿名者正常，所以測試很難發現）。
+- 新 route 同時登記快取層級（`get-internal-displacement` → `daily`），與 10-02 增補一致。
+- 台股助手對應規則：Next.js route 若用 `WeakMap<Request, …>` 或把資料掛在 request 物件上傳遞（限流狀態、降級標頭、管理員身分），只要中途 `new Request(req, …)`／`req.clone()` 就會斷線。寫或審這類程式時確認讀取端用的是同一個物件；並且**分別用匿名與已登入身分**驗證回應標頭。

@@ -4,7 +4,7 @@ description: 上游平台棧參考——Convex 即時後端＋Dodo 計費＋Cler
 ---
 # wm-platform-stack-reference｜平台棧參考（不適用）
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`convex/`（141 檔：billing/entitlements、API keys、broadcast、company monitoring、向量記憶）、`src-tauri/`（69 檔）＋`local-api-server.mjs` sidecar、`locales/`＋`translate-locales.mjs`（@anthropic-ai/sdk）、`deploy/`、`docker/`（Umami）、`workers/`（Cloudflare×2）、`consumer-prices-core/`（Playwright 爬蟲）、`CONCEPTS.md` Billing & Entitlements（Affirmative Denial／Covering Subscription）。**適用度：不適用（單人使用、Firebase 全家桶）**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`convex/`（141 檔：billing/entitlements、API keys、broadcast、company monitoring、向量記憶）、`src-tauri/`（69 檔）＋`local-api-server.mjs` sidecar、`locales/`＋`translate-locales.mjs`（@anthropic-ai/sdk）、`deploy/`、`docker/`（Umami）、`workers/`（Cloudflare×2）、`consumer-prices-core/`（Playwright 爬蟲）、`CONCEPTS.md` Billing & Entitlements（Affirmative Denial／Covering Subscription）。**適用度：不適用（單人使用、Firebase 全家桶）**。
 
 ## 為何列在技能庫
 - 使用者規則：上游**增刪技術棧本地技能也要增刪**——本條是「不適用族」的容器，每週同步腳本的 dep/dir/ci 增刪若落在此族，在此更新而不新開技能。

@@ -4,7 +4,7 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 ---
 # wm-data-accuracy｜資料正確性
 
-**上游依據**（基線 v2.10.0 · c34156d · 2026-10-02（第二大腦 second-brain/worldmonitor/））：`scripts/_pipeline-dedup.mjs`、`scripts/_seed-utils.mjs`（atomicPublish）、`CONCEPTS.md`（Read Outcome／Content Clock／Content-Age Contract）。**適用度：深度內化**。
+**上游依據**（基線 v2.10.0 · 739f9ea · 2026-10-09（第二大腦 second-brain/worldmonitor/））：`scripts/_pipeline-dedup.mjs`、`scripts/_seed-utils.mjs`（atomicPublish）、`CONCEPTS.md`（Read Outcome／Content Clock／Content-Age Contract）。**適用度：深度內化**。
 
 ## 原則（上游提煉）
 - **Read Outcome 三態**：讀取結果必須區分 hit／miss／failure。「讀不到」與「真的沒有」是相反的行動：miss 可回空、failure 必須棄權（跳過本輪、保留 last-good、回報未完成），絕不把 outage 變成自信的空答案。
@@ -53,3 +53,14 @@ description: 資料清洗、去重、驗證與時戳誠實——WorldMonitor 工
 - 台股助手對應規則：
   1. 本站 AI 新聞識讀的「AI 引文逐句驗證」（G4-09，≤3 句×60 字）是同族作法（引文必須在原文中找得到）；但**數值**（目標價、營收年增率、EPS）是否被來源支持目前沒有第二道比對——AI 摘要裡的數字若進入評分或推播，應比照 Source Check 加「數值必須出現在來源內」的驗證。
   2. 失敗方向切換規則可直接套用：AI 判讀的第一次失敗（API 掛）可退回「未經 AI 判讀」並標示；但**一旦驗證抓到捏造**，不可再靜默退回原輸出（同 [[feedback-news-score-requires-ai-content]]）。
+
+## 2026-10-09 週更增補（上游 c34156d→739f9ea）
+
+- **證據覆蓋證明（Evidence Coverage Proof）**（依據：`CONCEPTS.md` 新詞條）：拿歸檔去「判定」一件事之前，要先有一份記錄證明**這個時間窗的歸檔可信**；沒有證明就把歸檔視為不完整、**不呼叫判定**，即使歸檔本身看起來健康。證明分兩種強度：
+  ①**擷取證明（capture proof）**：來自完整回補，主張「窗內每一筆都寫進了歸檔」——**只有這種可以授權刪除舊的累積來源**；
+  ②**連續性證明（continuity attestation）**：由歸檔自身記錄重建，只主張「這段期間歸檔以宣告的粒度持續在寫」，不主張每筆都抓到——**只能用於判定**，而且遇到比粒度長的發布空窗就失效。
+- **未經評分、違反機率定律的數字不要對外給**（依據：`CHANGELOG.md` 2026-10-07 #8967 移除 forecast `projections`）：h24／d7／d30 三個值是編輯性曲線、沒有被評分，五個領域有四個出現「30 天機率低於 24 小時機率」；上游決定立即停止回傳、不給過渡期，欄位保留為 deprecated 但不再填值，評分用的內部歷史照留。
+- 台股助手對應規則：
+  1. **回測、結算、檢討讀歸檔前先確認覆蓋**：`chipArchive`、`news-scores/`、`intraday-yahoo/`、官方鏡像都可能有空洞；評估「某段期間的命中率」前，先用該來源的覆蓋記錄（`_coverage.json`、鏡像 verify、交易日曆對帳）證明窗內無缺口——有缺口就標「不完整、不判定」，**不要把缺口當成「沒有訊號」**（同 [[feedback-no-gaps-on-trading-days]]）。
+  2. **刪除或輪替備份只能憑擷取證明**：second-brain 備份輪替（只留最舊 25 份）、鏡像清理、舊累積檔刪除前，要有「新來源已完整涵蓋同一窗」的證明；「新來源最近都有在寫」只是連續性證明，不足以授權刪除。
+  3. **對外顯示的機率／信心值要有評分**：AI 推薦信心、預測機率等若沒有對應的校準紀錄，或同一事件跨期限的數值互相矛盾，就不要以「機率」呈現；保留內部計算、停止對外顯示。
