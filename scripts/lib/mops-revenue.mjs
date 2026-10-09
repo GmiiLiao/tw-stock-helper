@@ -115,6 +115,114 @@ export function echoOk(html, mkt, roc, month, page = null) {
   return e.kind === String(page) && e.kindMarket === mkt;
 }
 
+// ── 官方「另存CSV」（2026-10-04）：server-java/FileDownLoad 的 t21sc03_{民國年}_{月}.csv ─────────────
+// 為什麼：MOPS 端 2026-03 上市 _0／_1 靜態頁回 HTTP 200、0 bytes（重試多次），鏡像缺頁 ⇒ 該月無法補上市 KY。
+//   同站「另存CSV」是同一份資料（頁面註明「檔案內容包含國內及國外公司」）：UTF-8（BOM）、CRLF、每欄雙引號、14 欄；
+//   本國與外國在同一檔、沒有市場欄；% 欄是全精度（HTML 是向零截斷到 2 位）。
+//   研究端 revenue_official.py 實測 2026-02 上市與 _0＋_1 兩頁逐格相同（1,082 列、0 差異）。
+export const T21_CSV_HEADER = Object.freeze(['出表日期', '資料年月', '公司代號', '公司名稱', '產業別',
+  '營業收入-當月營收', '營業收入-上月營收', '營業收入-去年當月營收', '營業收入-上月比較增減(%)', '營業收入-去年同月增減(%)',
+  '累計營業收入-當月累計營收', '累計營業收入-去年累計營收', '累計營業收入-前期比較增減(%)', '備註']);
+
+/** RFC 4180：逗號分欄、雙引號包欄（內含逗號／換行）、"" 跳脫；CRLF／LF 皆可；開頭 BOM 去掉、空行略過。引號未閉合丟錯。 */
+export function parseCsv(text) {
+  const s = String(text ?? '').replace(/^﻿/, '');
+  const rows = []; let row = []; let f = ''; let q = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) {
+      if (ch !== '"') f += ch;
+      else if (s[i + 1] === '"') { f += '"'; i++; }
+      else q = false;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(f); f = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && s[i + 1] === '\n') i++;
+      row.push(f); rows.push(row); row = []; f = '';
+    } else f += ch;
+  }
+  if (q) throw new Error('CSV 引號未閉合');
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => !(r.length === 1 && r[0] === ''));
+}
+
+/**
+ * CSV 的增減 % 是全精度（Java double 字串，可能是 5.0E-4 這種科學記號）；HTML 版是「向零截斷到 2 位」。
+ * 用十進位字串移位截斷，不經浮點乘除（1.15*100 會變 114.999…）。留白、- 等非數字回 null（不補 0）。
+ */
+export function truncPct2(v) {
+  const m = String(v ?? '').replace(/,/g, '').trim().match(/^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/);
+  if (!m || !(m[2] || m[3])) return null;
+  const digits = `${m[2]}${m[3] ?? ''}`; const point = m[2].length + Number(m[4] ?? 0);
+  const intPart = point <= 0 ? '0' : digits.slice(0, point).padEnd(point, '0');
+  const frac = point <= 0 ? `${'0'.repeat(-point)}${digits}` : digits.slice(point);
+  const n = Number(`${m[1]}${intPart || '0'}.${`${frac}00`.slice(0, 2)}`);
+  return Number.isFinite(n) ? n + 0 : null;              // + 0：-0 → 0
+}
+
+/** CSV 不分本國／外國：名稱含 KY（含「-KY創」）或 91xx 存託憑證＝外國發行人（_1 表）。與研究端 revenue_official.py is_foreign 同一條。 */
+export function isForeignIssuer(code, name) { return String(name ?? '').includes('KY') || String(code ?? '').startsWith('91'); }
+
+/** 民國日期「115/10/04」→ 台北當日 00:00 的 epoch ms；認不得回 null。 */
+function rocDayMs(s) {
+  const m = String(s ?? '').trim().match(/^(\d{2,3})\/(\d{1,2})\/(\d{1,2})$/);
+  if (!m) return null;
+  const t = Date.parse(`${+m[1] + 1911}-${pad2(m[2])}-${pad2(m[3])}T00:00:00+08:00`);
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * 解析官方 CSV（已解碼的文字）→ { gen, dom: {rows, codes}, fgn: {rows, codes} }；格式或回音不符丟錯（呼叫端不可用這份檔）。
+ * 回音：表頭 14 欄逐欄相符；每一列「資料年月」＝`${roc}/${month}`（月不補零）且欄數 14；出表日期全檔同一天（gen＝台北當日 00:00）。
+ * 列的篩法與 parseT21sc03 相同（4 碼代號、當月營收 > 0 才收；名冊 codes 含營收 ≤0 的列）；% 向零截斷 2 位＝HTML 呈現。
+ */
+export function parseT21Csv(text, { roc, month }) {
+  const all = parseCsv(text);
+  const hdr = (all[0] || []).map(h => h.trim());
+  if (hdr.length !== T21_CSV_HEADER.length || hdr.some((h, i) => h !== T21_CSV_HEADER[i])) throw new Error(`CSV 表頭不符：${hdr.slice(0, 4).join(',')}`);
+  const body = all.slice(1);
+  if (!body.length) throw new Error('CSV 沒有資料列');
+  const want = `${Number(roc)}/${Number(month)}`;
+  const days = new Set(body.map(r => String(r[0] ?? '').trim()));
+  const bad = body.find(r => r.length !== T21_CSV_HEADER.length || r[1].trim() !== want);
+  if (bad) throw new Error(bad.length !== T21_CSV_HEADER.length ? `CSV 欄數不符（${bad.length}）：${bad.slice(0, 4).join(',')}` : `CSV 回音不符：資料年月 ${bad[1]} ≠ ${want}`);
+  if (days.size !== 1) throw new Error(`CSV 出表日期不一致：${[...days].slice(0, 3).join(',')}`);
+  const gen = rocDayMs([...days][0]);
+  if (gen == null) throw new Error(`CSV 出表日期認不得：${[...days][0]}`);
+  const listed = body.map(r => ({ r, c: r[2].trim(), n: r[3].trim() })).filter(x => /^\d{4}$/.test(x.c));
+  const side = foreign => {
+    const mine = listed.filter(x => isForeignIssuer(x.c, x.n) === foreign);
+    const rows = mine.filter(x => num(x.r[5]) > 0).map(({ r, c, n }) => ({     // 營收 ≤0 不收：同 parseT21sc03 的 ⚠
+      c, n, rev: Math.round(num(r[5])), prev: Math.round(num(r[6])), last: Math.round(num(r[7])),
+      mom: truncPct2(r[8]), yoy: truncPct2(r[9]), cum: Math.round(num(r[10])),
+    }));
+    return { rows, codes: mine.map(x => x.c) };
+  };
+  return { gen, dom: side(false), fgn: side(true) };
+}
+
+/** CSV 列出的全部 4 碼代號（鏡像內容穩定定版的名冊）；不做回音、解析失敗回 []（名冊缺 ⇒ 不定版，不丟錯）。 */
+export function t21CsvCodes(text) {
+  try { return parseCsv(text).slice(1).map(r => String(r[2] ?? '').trim()).filter(c => /^\d{4}$/.test(c)); } catch { return []; }
+}
+
+/**
+ * CSV 沒有市場欄、也不分表 ⇒ 兩道核對都拿同市場「參照頁」（鏡像相鄰月份的 _0／_1 HTML 頁，它們有自己的市場與表別回音）：
+ *   ① 市場：CSV 代號落在參照名冊（_0∪_1）的比例 ≥ minShare（上市與上櫃代號不相交，拿錯市場的檔比例≈0）；
+ *   ② 分類：參照 _0 的代號在 CSV 被判成外國、或參照 _1 的代號被判成本國 ⇒ 分類規則失效（isForeignIssuer），不可用。
+ * ref：{ dom: 參照 _0 代號, fgn: 參照 _1 代號 }；沒有參照回 ok:false（無法證明）。
+ */
+export function csvRefCheck(parsed, ref, { minShare = 0.9 } = {}) {
+  if (!ref || !ref.dom?.length || !ref.fgn?.length) return { ok: false, note: '沒有同市場參照頁可核對市場與本國／外國分類' };
+  const refDom = new Set(ref.dom.map(String)); const refFgn = new Set(ref.fgn.map(String));
+  const codes = [...parsed.dom.codes, ...parsed.fgn.codes];
+  const share = codes.length ? codes.filter(c => refDom.has(c) || refFgn.has(c)).length / codes.length : 0;
+  const misDom = parsed.fgn.codes.filter(c => refDom.has(c)); const misFgn = parsed.dom.codes.filter(c => refFgn.has(c));
+  if (share < minShare) return { ok: false, share, note: `市場回音不符：CSV 代號在參照名冊的比例 ${(share * 100).toFixed(1)}% < ${minShare * 100}%` };
+  if (misDom.length || misFgn.length) return { ok: false, share, note: `本國／外國分類與參照頁不符：判外國但在 _0 [${misDom.slice(0, 8)}]、判本國但在 _1 [${misFgn.slice(0, 8)}]` };
+  return { ok: true, share };
+}
+
 /** 把成功的各頁併成一份：同一代號只取第一次出現（4 頁實測零重疊；重疊會記在 dup）。srcOf：代號→頁 label。 */
 export function combinePages(pages) {
   const rows = []; const srcOf = new Map(); const dup = [];

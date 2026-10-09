@@ -111,3 +111,17 @@ test('fetchedOkSince：本輪寫入／再確認／unchanged 才算；失敗只�
   assert.ok(!C.fetchedOkSince({ rows: { '2026-10-08': { status: 'fail', at: '2026-10-08T14:42:00.000Z' } } }, since));
   assert.ok(!C.fetchedOkSince(null, since));
 });
+
+// ── official-mirror backfill --keys（2026-10-09 移植自 claude/mops-t21sc03-csv）：只有 backfill 看這個參數，其他指令帶了要直接拒絕 ──
+test('CLI --keys 只用於 backfill：daily／verify 帶 --keys 在解析參數時就拒絕（不建目錄、不拿鎖、0 請求）', async () => {
+  const { spawnSync } = await import('node:child_process'); const { fileURLToPath } = await import('node:url');
+  const cli = fileURLToPath(new URL('../official-mirror.mjs', import.meta.url));   // 路徑含中文：不可直接用 .pathname（會是百分比編碼）
+  const base = mkdtempSync(join(tmpdir(), 'om-keys-')); const root = join(base, 'official');
+  try {
+    for (const cmd of ['daily', 'verify', 'retry']) {
+      const r = spawnSync(process.execPath, [cli, cmd, '--keys', '2026-03.sii'], { env: { ...process.env, OFFICIAL_ROOT: root }, encoding: 'utf8', timeout: 20000 });
+      assert.equal(r.status, 1, cmd); assert.match(r.stderr, /--keys 只用於 backfill/, cmd);
+    }
+    assert.equal(existsSync(root), false, '參數錯誤在建鏡像根目錄之前就停');
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});

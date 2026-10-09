@@ -310,14 +310,20 @@ function prevStable(root, ad, prev) {
     return { stableSha: stableShaOf(text, ad.stable), gen: genOf(text, ad.stable) };
   } catch { return {}; }
 }
-/** 名冊比對：上一期同鍵頁面（本機檔）列出的代號，本頁沒有的 ⇒ 陣列；上一期沒有可讀的頁 ⇒ null（無法證明完整）。 */
+/**
+ * 名冊比對：上一期同鍵頁面（本機檔）列出的代號，本頁沒有的 ⇒ 陣列；上一期沒有可讀的頁、或讀出 0 個代號（解析失敗）⇒ null（無法證明完整）。
+ * 資料集的第一期（上一期早於 ad.from）沒有參照可比 ⇒ []：否則它永遠不定版、每輪回補都重抓（2026-10-04 審查：CSV 2022-06）。
+ */
 function rosterMissing(root, ad, man, ctx, text) {
   if (!ad.stable?.roster) return null;
-  const pr = man.rows?.[prevPeriodKey(ctx)];
+  const pk = prevPeriodKey(ctx);
+  if (/^\d{4}-\d{2}/.test(String(ad.from ?? '')) && pk.slice(0, 7) < String(ad.from).slice(0, 7)) return [];
+  const pr = man.rows?.[pk];
   if (pr?.status === 'empty') return [];
   if (!pr?.file || !(pr.status === 'ok' || pr.status === 'unchanged')) return null;
   let ref;
   try { ref = ad.stable.roster(decodeBody(readEntry(root, ad.host, ad.id, pr.file), ad.encoding)); } catch { return null; }
+  if (!ref?.length) return null;
   const have = new Set(ad.stable.roster(text));
   return [...new Set(ref)].filter(c => !have.has(c)).sort();
 }

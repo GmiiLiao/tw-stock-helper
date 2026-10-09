@@ -2,7 +2,7 @@
 // 來源：docs/OFFICIAL-DATA-INVENTORY-2026-10-04.md（plan＝backfill+daily 的 46 筆）。unit：day＝每交易日一檔、month＝每月一檔。
 // verified：2026-10-04 前已實測過端點與回聲（研究回補或盤點探針）；false 的要先跑 `official-mirror verify` 通過才會排進每日與回補。
 // 請求樣板變數見 scripts/lib/official-mirror.mjs ctxOf()。
-import { t21Codes } from '../lib/mops-revenue.mjs';
+import { t21Codes, t21CsvCodes } from '../lib/mops-revenue.mjs';
 
 const TWSE = 'www.twse.com.tw', TPEX = 'www.tpex.org.tw', MOPS = 'mopsov.twse.com.tw', TAIFEX = 'www.taifex.com.tw';
 const get = url => ctx => ({ url: url.replace(/\{(\w+)\}/g, (_, k) => ctx[k]) });
@@ -20,6 +20,13 @@ const T21_STABLE = Object.freeze({
   afterDay: 11, minGapDays: 3, maxMissing: 3, legacyTrustBefore: '2026-09', roster: t21Codes,
   strip: '出表日期[：:][^<]*(?:<!--[^>]*-->)?',
   genRe: '出表日期[：:]\\s*(\\d{2,3})/(\\d{1,2})/(\\d{1,2})\\s*(?:<!--\\s*(\\d{1,2}):(\\d{2}):(\\d{2})\\s*-->)?',
+});
+// 同一份月營收的官方「另存CSV」：定版規則同上（看資料）。出表日期是每列第 1 欄（只有日期；伺服器快取檔的產生日），雜湊前去掉；
+//   觀測時刻取第一列的出表日期。名冊＝CSV 全部 4 碼代號——一檔含本國＋外國 ⇒ 容許缺 6（_0／_1 兩頁各 3）。
+const T21_CSV_STABLE = Object.freeze({
+  afterDay: 11, minGapDays: 3, maxMissing: 6, roster: t21CsvCodes,
+  strip: '(?<=^|\\n)"\\d{2,3}/\\d{1,2}/\\d{1,2}",',
+  genRe: '\\n"(\\d{2,3})/(\\d{1,2})/(\\d{1,2})",',
 });
 
 export const DATED = [
@@ -67,13 +74,24 @@ export const DATED = [
   tpex('tpex_index_st41', '/web/stock/aftertrading/daily_trading_index/st41_result.php?l=zh-tw&d={rocYear}/{month2}', 2, { unit: 'month', validator: 'tpexMonth', verified: false }),
 
   // ── 公開資訊觀測站（mopsov，月）──
-  { id: 'mops_t21sc03', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,
+  // lagMonths:1＝最新一期是上個月（M 月營收 M+1 月才申報）⇒ daily 不抓當月：那一期還不存在，每晚必失敗，
+  //   而且排在一起的失敗會湊滿家族佇列「連續 3 次失敗」，把同家族後面的 openapi 快照與補漏整批停掉。
+  { id: 'mops_t21sc03', host: MOPS, unit: 'month', lagMonths: 1, variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,
     request: ctx => ({ url: `https://mopsov.twse.com.tw/nas/t21/${ctx.market}/t21sc03_${ctx.rocYear}_${ctx.month}_0.html` }),
     spec: { mustContain: ['{rocYear}年{month}月'], emptyRe: '查無|無資料', minLen: 5000 }, stable: T21_STABLE },
   // 外國公司（-KY）月營收在 _1 表，_0 只有本國公司（2026-10-04 漏網分析：73 檔 KY 測試期月營收 100% 缺值）
-  { id: 'mops_t21sc03_ky', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,  // 2026-10-04 實抓 115/8 上市＋上櫃 _1 表通過 spec、錯月會擋
+  { id: 'mops_t21sc03_ky', host: MOPS, unit: 'month', lagMonths: 1, variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'big5', priority: 1, from: '2022-06-01', verified: true,  // 2026-10-04 實抓 115/8 上市＋上櫃 _1 表通過 spec、錯月會擋
     request: ctx => ({ url: `https://mopsov.twse.com.tw/nas/t21/${ctx.market}/t21sc03_${ctx.rocYear}_${ctx.month}_1.html` }),
     spec: { mustContain: ['{rocYear}年{month}月', '-KY'], emptyRe: '查無|無資料', minLen: 2000 }, stable: T21_STABLE },
+  // 同一份月營收的官方「另存CSV」（本國＋外國同一檔）：2026-03 上市 _0／_1 靜態頁 MOPS 端回 0 bytes 時的官方替代
+  //   （研究端 2026-02 上市實測與兩頁逐格相同）。月份不補零；UTF-8（BOM）、CRLF、每欄雙引號。
+  //   回音：開頭是表頭（含「資料年月」）＋「"{民國年}/{月}"」整欄（帶引號：1 月不會配到 10～12 月）；逐列回音與市場核對在讀取端（backfill-revenue-from-mirror）。
+  //   沒有 emptyRe：「備註」欄是自由文字，可能含「無資料」字樣。
+  //   2026-10-05 01:01 實抓通過（verify 115/9 上市 32 檔；探針 111/6 上市 926＋79、115/3 上市 991＋92，後者與研究端檔 sha256 相同）。
+  //   出表日期是伺服器快取檔的產生日（非請求日：111/6 回 115/10/03、115/3 回 115/10/04），所以兩次觀測要等快取重產才會拉開間隔。
+  { id: 'mops_t21sc03_csv', host: MOPS, unit: 'month', lagMonths: 1, variants: ['sii', 'otc'], kind: 'text', ext: 'csv', encoding: 'utf-8', priority: 1, from: '2022-06-01', verified: true,
+    request: post('https://mopsov.twse.com.tw/server-java/FileDownLoad', 'step=9&functionName=show_file2&filePath=/t21/{market}/&fileName=t21sc03_{rocYear}_{month}.csv'),
+    spec: { mustMatch: ['^\\uFEFF?出表日期,資料年月,公司代號,公司名稱,'], mustContain: ['資料年月', '"{rocYear}/{month}"'], minLen: 2000 }, stable: T21_CSV_STABLE },
   { id: 'mops_t100sb02_1', host: MOPS, unit: 'month', variants: ['sii', 'otc'], kind: 'text', ext: 'html', encoding: 'utf-8', priority: 2, from: '2022-07-01', verified: true,
     request: post('https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1', 'encodeURIComponent=1&step=1&firstin=1&off=1&TYPEK={market}&year={rocYear}&month={month2}'),
     spec: { mustContain: ['公司代號'], emptyRe: '查無|無資料', minLen: 500 } },

@@ -5,6 +5,8 @@ import { mkdtempSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as C from './official-mirror.mjs';
+import { DATED } from '../official-mirror/adapters-dated.mjs';
+import { T21_CSV_HEADER } from './mops-revenue.mjs';
 
 const jsonRes = (obj, status = 200) => async () => ({ status, headers: { get: () => 'application/json' }, arrayBuffer: async () => Buffer.from(JSON.stringify(obj)) });
 const textRes = (txt, status = 200) => async () => ({ status, headers: { get: () => 'text/html' }, arrayBuffer: async () => Buffer.from(txt) });
@@ -271,4 +273,66 @@ test('興櫃每日快照缺日（retry 補抓與 _alerts）：兩個來源都沒
   assert.deepEqual(C.snapshotGapDays([www, oa], ['2026-10-05', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05']), ['2026-09-30', '2026-10-05']);
   assert.deepEqual(C.snapshotGapDays([], ['2026-10-05']), ['2026-10-05']);
   assert.deepEqual(C.snapshotGapDays([www], null), []);
+});
+
+// ── 月營收官方 CSV（mops_t21sc03_csv·2026-10-04）：用正式 adapter 設定測，不打網路 ──
+const csvAd = DATED.find(x => x.id === 'mops_t21sc03_csv');
+const csvLine = (day, ym, c, n) => [day, ym, c, n, '水泥工業', '1000', '900', '800', '11.111', '25.0', '9000', '8000', '12.5', '-'].map(v => `"${v}"`).join(',');
+const t21Csv = (day, codes = BASE, ym = '115/8') => `${T21_CSV_HEADER.join(',')}\r\n${codes.map(c => csvLine(day, ym, c, `公司${c}`)).join('\r\n')}\r\n`.padEnd(2100, '\r\n');
+
+test('月營收 CSV adapter：POST 樣板（月不補零）、只排上月以前（lagMonths）、嚴格 spec（表頭＋"民國年/月" 整欄回音＋minLen）', () => {
+  const mar = C.ctxOf({ year: 2026, month: 3, market: 'sii' });
+  assert.deepEqual(csvAd.request(mar), { url: 'https://mopsov.twse.com.tw/server-java/FileDownLoad', method: 'POST', body: 'step=9&functionName=show_file2&filePath=/t21/sii/&fileName=t21sc03_115_3.csv' });
+  assert.deepEqual([csvAd.unit, csvAd.priority, csvAd.from, csvAd.variants, csvAd.ext, csvAd.encoding], ['month', 1, '2022-06-01', ['sii', 'otc'], 'csv', 'utf-8']);
+  for (const id of ['mops_t21sc03', 'mops_t21sc03_ky', 'mops_t21sc03_csv']) assert.equal(DATED.find(x => x.id === id).lagMonths, 1, `${id}：當月營收還不存在`);
+  assert.equal(DATED.find(x => x.id === 'mops_t100sb02_1').lagMonths, undefined, '法說會當月表照抓');
+  const ok = t21Csv('115/10/05', BASE, '115/3');
+  assert.equal(C.VALIDATORS.contains(ok, mar, csvAd.spec).status, 'ok');
+  assert.equal(C.VALIDATORS.contains(`﻿${ok}`, mar, csvAd.spec).status, 'ok', '解碼器沒去掉 BOM 也認得');
+  assert.equal(C.VALIDATORS.contains(t21Csv('115/10/05', BASE, '115/11'), C.ctxOf({ year: 2026, month: 1, market: 'sii' }), csvAd.spec).status, 'mismatch', '"115/1" 不配 "115/11"');
+  assert.equal(C.VALIDATORS.contains('', mar, csvAd.spec).status, 'bad', '0 bytes（MOPS 空頁）');
+  assert.equal(C.VALIDATORS.contains(`<html>資料年月 "115/3"</html>${'x'.repeat(3000)}`, mar, csvAd.spec).status, 'mismatch', '不是 CSV 表頭（錯誤頁）');
+  const remark = t21Csv('115/10/05', BASE, '115/3').replace('"-"', '"上月查無資料可比"');
+  assert.ok(remark.includes('查無資料')); assert.equal(C.VALIDATORS.contains(remark, mar, csvAd.spec).status, 'ok', '沒有 emptyRe：備註欄的字不會讓整檔變空表');
+});
+
+test('月營收 CSV 定版：逐列出表日期雜湊前去掉、觀測時刻取出表日期；次月 11 日起相隔 ≥3 日內容相同＋名冊完整才定版', async () => {
+  const st = csvAd.stable;
+  assert.equal(C.stableShaOf(t21Csv('115/10/05'), st), C.stableShaOf(t21Csv('115/10/09'), st));
+  assert.notEqual(C.stableShaOf(t21Csv('115/10/05'), st), C.stableShaOf(t21Csv('115/10/05', [...BASE, '2880']), st));
+  assert.equal(C.genOf(t21Csv('115/10/05'), st), '2026-10-04T16:00:00.000Z', '台北 10-05 00:00');
+  assert.deepEqual(st.roster(t21Csv('115/10/05')), BASE);
+  const root = tmp();
+  try {
+    const man = { id: csvAd.id, host: csvAd.host, rows: {} }; const k = '2026-08.sii';
+    const jul = C.writeEntry(root, csvAd.host, csvAd.id, '2026-07.sii', { kind: 'text', ext: 'csv', buffer: Buffer.from(t21Csv('115/08/20', [...BASE, '9901'], '115/7')) });
+    man.rows['2026-07.sii'] = { status: 'ok', file: jul, at: '2026-08-20T01:00:00.000Z', final: true };
+    const go = (iso, text) => C.fetchAndStore(csvAd, { root, key: k, ctx: aug, man, now: new Date(iso), fetchImpl: textRes(text) });
+    let r = await go('2026-09-10T12:00:00Z', t21Csv('115/09/10'));
+    assert.equal(r.row.status, 'ok'); assert.equal(r.row.file, '2026-08.sii.csv.gz'); assert.equal(r.row.final, false, '申報期內');
+    r = await go('2026-09-11T12:00:00Z', t21Csv('115/09/11'));
+    assert.equal(r.row.final, false); assert.deepEqual(r.row.missingVsPrev, { n: 1, codes: ['9901'] });
+    r = await go('2026-09-14T12:00:00Z', t21Csv('115/09/14'));
+    assert.equal(r.row.final, true, '缺 1（≤6）、相隔 3 日內容相同'); assert.equal(r.row.finalBy, 'stable');
+    assert.equal(C.readEntry(root, csvAd.host, csvAd.id, r.row.file).toString('utf8'), t21Csv('115/09/14'), '原始位元組原樣存');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('月營收 CSV 定版邊界：資料集第一期（上一期早於 from）沒有參照也可定版；上一期檔讀出 0 個代號＝無法證明完整、不定版', async () => {
+  const root = tmp();
+  try {
+    const jun = C.ctxOf({ year: 2022, month: 6, market: 'sii' });
+    const man = { id: csvAd.id, host: csvAd.host, rows: {} };
+    const go = (k, ctx, iso, text) => C.fetchAndStore(csvAd, { root, key: k, ctx, man, now: new Date(iso), fetchImpl: textRes(text) });
+    await go('2022-06.sii', jun, '2026-10-05T12:00:00Z', t21Csv('115/10/05', BASE, '111/6'));
+    let r = await go('2022-06.sii', jun, '2026-10-10T03:00:00Z', t21Csv('115/10/10', BASE, '111/6'));
+    assert.deepEqual(r.row.missingVsPrev, { n: 0, codes: [] }); assert.equal(r.row.final, true, '2022-05 早於 from 2022-06');
+    // 上一期是 ok 但內容解析不出代號（壞檔）：不可當成「名冊完整」
+    const jul = C.ctxOf({ year: 2022, month: 7, market: 'sii' });
+    const junk = C.writeEntry(root, csvAd.host, csvAd.id, '2022-06.sii', { kind: 'text', ext: 'csv', buffer: Buffer.from('"壞'.padEnd(2100, 'x')) });
+    man.rows['2022-06.sii'] = { ...man.rows['2022-06.sii'], file: junk };
+    await go('2022-07.sii', jul, '2026-10-05T12:00:00Z', t21Csv('115/10/05', BASE, '111/7'));
+    r = await go('2022-07.sii', jul, '2026-10-10T03:00:00Z', t21Csv('115/10/10', BASE, '111/7'));
+    assert.equal(r.row.missingVsPrev, null); assert.equal(r.row.final, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
