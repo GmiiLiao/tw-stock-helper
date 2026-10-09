@@ -95,7 +95,8 @@ import { verdictTiming, lookaheadSummary, REVIEW_BOARD_VERSIONS } from './lib/ne
 // 開盤感應器 v2.1（影子·只記錄·先驗未校準；design-v2.1，使用者 10/05 S1–S8、10/07 O1–O8）：0 MIS 請求（只吃快線與主迴圈已拿到的報價、t00／o00），
 //   不發 B2／Z2、不推播、不寫 aiMessages。靜態 import 鏈只到 scripts/lib/open-sensor-*.mjs 與 firestore-clean.mjs（不經 official-mirror）。
 import { createOpenSensorRunner } from './lib/open-sensor-runner.mjs';
-import { loadSharesLocal, loadExclusionsLocal, writeSharesCache } from './lib/open-sensor-local.mjs';
+import { loadSharesLocal, loadExclusionsLocal, writeSharesCache, readMirrorLatest, MIRROR_IDS } from './lib/open-sensor-local.mjs';
+import { parseTwseCompanyRows, parseTpexCompanyRows, mergeIndustryMaps, nextIndustryCache, isIndustryCacheFresh, industryMapHealth, mirrorVerifiedIso, daysBetween, INDUSTRY_MIN_PER_MARKET } from './lib/industry-map.mjs';
 // 上櫃收盤檔共用取得層（2026-10-08）：記憶體→本機快取 second-brain/tpex-close/→收件匣（使用者手動下載的檔）→官方鏡像本機檔→網路（帶日期優先、
 //   串流下載＋停滯偵測、退避、每日上限）。靜態 import 鏈只到 tpex-close-{quotes,parse,download}.mjs（只用 node 內建模組）。
 import { createTpexClose } from './lib/tpex-close-quotes.mjs';
@@ -708,6 +709,7 @@ async function writeDaemonHealth() {
     await db.collection('system').doc('daemonHealth').set({
       at: Date.now(), pid: process.pid, ollama: _ollamaHealth, breakers: breakerSnapshot(),
       jobTimings: _jobTimings, slowest: slowestJobs(8), hotLag: _hotStats,
+      industryMap: _indMap.health || null,   // 產業別對照兩市覆蓋數／來源／鏡像天數／problems（loadIndustryMap·2026-10-09）；缺半個市場線上看得見
     });
   } catch (e) { log('⚠ daemonHealth 寫入失敗:', e.message); }
 }
@@ -9620,7 +9622,7 @@ async function computeTopicPicks() {
     const _snap = await readSnapshotQuotes();
     const quo = _snap?.quotes || {};
     const marketOpen = !!_snap?.marketOpen;
-    const indMap = await getIndustryMap();
+    const indMap = await getIndustryMap({ listedOnly: true });   // 回測 screen-triple-leaders 的產業表只有上市——重驗前維持同口徑（見 getIndustryMap 註解）
     const tw = taipei();
     const liveDay = boardLiveBar(tw, arch);
     // 話題層①：族群5日板數 Top3（與回測同口徑）
@@ -13823,8 +13825,10 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
   const instWin = await loadChipWindow(8);
   const inst = instWin[0]?.map || {};
   const streakOf = c => { let s = 0; for (const w of instWin) { if ((w.map[c]?.[0] || 0) > 0) s++; else break; } return s; };
+  // 只用上市（使用者裁定）：LU_LIFT 的 indLU5／indHot 是用只有上市的產業表訓練的（backtest-limitup）。
+  //   換全市場表＝族群板數變多、上櫃從「無產業」跳進族群桶，等於未驗證就換模型；要納入上櫃請先重訓並升 LU_VERSION。
   let indMap = {};
-  try { indMap = await getIndustryMap(); } catch { /* 族群因子可缺 */ }
+  try { indMap = await getIndustryMap({ listedOnly: true }); } catch { /* 族群因子可缺 */ }
   // （2026-09-18 權值稽核 D4／D6：sectorForecast 看漲 +0.5 與 newsDaily 標題極性因子已移除，見 LU_LIFT 註解）
   // 每日漲停集合（3個月統計/族群風向因子，全部 ≤t，PIT 安全）
   const luSets = [null]; // k 對 k-1
@@ -14421,9 +14425,11 @@ async function computeShortCandidates({ canonical = false } = {}) {
     if (lendArr?.[1]?.lendingJson) lendPrev = JSON.parse(lendArr[1].lendingJson);
   } catch { /* 缺借券→該因子跳過 */ }
   if (!Object.keys(lendMap).length) skipped.push('借券餘額(無歸檔)');
-  // 產業標示＋弱勢產業集合（sectorWind 尾 3 名）
+  // 產業標示＋弱勢產業集合（sectorWind 尾 3 名）。只用上市表（使用者裁定 2026-10-03）：shortTraining 樣本自 2026-09-03 起
+  //   以「上櫃 ind 一律 null」累積，「弱勢產業 +2」只落在上市股；中途讓上櫃也觸發＝評分定義改變。要納入上櫃須依部署日切分樣本。
+  //   殘餘差異：weakSectors 來自 sectorWind，該榜 2026-10-09 起各產業桶含上櫃 ⇒ 尾 3 名組成可能變（上櫃獨有的文化創意／農業科技不會對到上市股）。
   let indMap = {};
-  try { indMap = await getIndustryMap(); } catch { /* 缺產業只是少標示 */ }
+  try { indMap = await getIndustryMap({ listedOnly: true }); } catch { /* 缺產業只是少標示 */ }
   const weakSectors = new Set((windDoc?.sectors || []).slice(-3).map(x => x.industry));
   // NEW 標記：比對前一版榜單
   const prevSet = new Set((prevBoard?.items || []).map(x => x.code));
@@ -15387,14 +15393,7 @@ ${evid}`;
 // 官方 33 產業分類(代碼制) + 每日加權分(漲跌×家數廣度×籌碼×量能) +
 // 對比昨日分數 → 加碼(資金流入)/減碼(流出)輪動；歷史存第二大腦 sectorWind/{date}。
 // 新類別自動出現(官方新增代碼→未對映則顯示代碼，不漏)。
-const TWSE_INDUSTRY = {
-  '01': '水泥', '02': '食品', '03': '塑膠', '04': '紡織纖維', '05': '電機機械', '06': '電器電纜',
-  '08': '玻璃陶瓷', '09': '造紙', '10': '鋼鐵', '11': '橡膠', '12': '汽車', '14': '建材營造',
-  '15': '航運', '16': '觀光餐旅', '17': '金融保險', '18': '貿易百貨', '20': '其他', '21': '化學',
-  '22': '生技醫療', '23': '油電燃氣', '24': '半導體', '25': '電腦及週邊', '26': '光電', '27': '通信網路',
-  '28': '電子零組件', '29': '電子通路', '30': '資訊服務', '31': '其他電子', '35': '綠能環保',
-  '36': '數位雲端', '37': '運動休閒', '38': '居家生活', '91': '存託憑證',
-};
+//   代碼表、兩市解析與完整性閘門在 ./lib/industry-map.mjs（2026-10-09 起上櫃也走同一張代碼表）。
 // 發行股數（週轉率用·慢變數·每日快取）：上市 t187ap03_L「已發行普通股數」＋上櫃 Capitals
 // 2026-10-08：上櫃改讀共用取得層最近一份已驗證檔（0 請求；舊版在 alertLoop 裡直打 openapi 4.7MB 且沒有逾時，12:45 一慢整條盤中提醒鏈卡住）；
 //   上市加 30 秒逾時。快取閘門改成兩市都到才算當日完整——舊版只看 >500 筆，光上市就約 1,000 檔，上櫃失敗的「只有上市」表被當成
@@ -15421,34 +15420,92 @@ const getSharesMap = createSharesCache({
   },
 });
 
-let _indMap = { date: '', map: null }; // code -> 產業名(官方)
-async function getIndustryMap() {
+// 產業別對照（code → TWSE 短名）。來源與 2026-10-09「上櫃整批沒有產業別」修正見 ./lib/industry-map.mjs 開頭。
+//   getIndustryMap()                     ＝上市＋上櫃：產業輪動、sectorWind、籌碼風向、新聞判別產業錨、軋空新聞、當沖族群、AI 波段、法說覆盤
+//   getIndustryMap({ listedOnly: true }) ＝只有上市（使用者裁定 2026-10-03，重訓／依部署日切分樣本前維持原口徑）：
+//     · 漲停預測 LU_LIFT 的 indLU5／indHot（backtest-limitup 的產業表一直只有上市——t187ap03_O 在 openapi.twse 不存在）
+//     · 話題選股族群板數（回測 screen-triple-leaders 同上，只有上市）
+//     · 做空候選「弱勢產業 +2」（shortTraining 樣本自 2026-09-03 起以上市口徑累積）
+//   來源：上市 openapi t187ap03_L（30 秒逾時）→ 失敗退本機官方鏡像 t187ap03_L；上櫃本機官方鏡像 tpex_oa_mopsfin_t187ap03_O
+//     （0 上游請求）→ 鏡像缺／壞退 repo 內打包快照 src/lib/t187ap03_O_fallback.json；兩市都不足才用 peerComps（只有上市）。
+//   健康：system/daemonHealth.industryMap（兩市覆蓋數、來源、鏡像天數、problems），不完整時 log 每日一次。
+const INDUSTRY_OTC_BUNDLED = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'lib', 't187ap03_O_fallback.json');
+const INDUSTRY_RETRY_MS = 30 * 60000;     // 缺上市或上櫃時的重試冷卻
+const INDUSTRY_MIRROR_STALE_DAYS = 10;    // 鏡像最後驗證距今超過幾天要警示（平日 22:40＋週六收；長假約 9 天）
+let _indMap = { date: '', map: null, listed: null, complete: false, nextTryMs: 0, inflight: null, warnDay: '', health: null };
+async function getIndustryMap({ listedOnly = false } = {}) {
+  // 契約：永遠回物件（呼叫端多半直接 indMap[code]，try 只包 getIndustryMap 本身）
+  const pick = () => (listedOnly ? _indMap.listed : _indMap.map) || {};
   const today = isoDate(taipei());
-  if (_indMap.date === today && _indMap.map) return _indMap.map;
-  const map = {};
-  for (const ep of ['t187ap03_L', 't187ap03_O']) {
+  if (isIndustryCacheFresh(_indMap, { today, now: Date.now() })) return pick();
+  // 多個迴圈同時要，只載一次；失敗只記錄，背景 promise 不可變成未處理的 rejection
+  _indMap.inflight ??= loadIndustryMap(today)
+    .catch(e => log('  ⚠ 產業別對照載入失敗:', (e?.message || '').slice(0, 80)))
+    .finally(() => { _indMap.inflight = null; });
+  if (_indMap.map) return pick();   // 有舊表就先用、背景更新（慢變數；熱路徑不等網路）
+  await _indMap.inflight;
+  return pick();
+}
+function readIndustryMirror(id, parse) {
+  const [host, ds] = id;
+  const m = readMirrorLatest(OS_MIRROR_ROOT, host, ds);
+  if (!m?.payload) return null;
+  let man = null;
+  try { man = JSON.parse(readFileSync(join(OS_MIRROR_ROOT, host, ds, '_manifest.json'), 'utf8')); } catch { /* 無 manifest ⇒ 用檔名日 */ }
+  const { map, feedIso } = parse(m.payload);
+  return { map, feedIso: feedIso || m.fileIso, verifiedIso: mirrorVerifiedIso(man, m.fileIso) };
+}
+async function loadIndustryMap(today) {
+  // 上市：openapi（每日、權威）→ 本機官方鏡像
+  let listed = {}, listedSrc = null;
+  try {
+    const r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap03_L', { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
+    if (r.ok) { const txt = await r.text(); if (txt.startsWith('[')) listed = parseTwseCompanyRows(JSON.parse(txt)).map; }
+  } catch (e) { log(`  ⚠ 產業別：openapi t187ap03_L 取不到（${(e?.message || '').slice(0, 60)}），改讀官方鏡像`); }
+  if (Object.keys(listed).length >= INDUSTRY_MIN_PER_MARKET) listedSrc = 'openapi';
+  else {
     try {
-      const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${ep}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (!r.ok) continue;
-      for (const x of await r.json()) {
-        const code = (x['公司代號'] || '').trim(); const ind = (x['產業別'] || '').trim();
-        if (/^\d{4}$/.test(code) && ind) map[code] = TWSE_INDUSTRY[ind] || `類別${ind}`; // 未知代碼保留(新類別不漏)
-      }
-    } catch { /* skip */ }
-    await sleep(300);
+      const m = readIndustryMirror(MIRROR_IDS.sharesTse, parseTwseCompanyRows);
+      if (m && Object.keys(m.map).length >= INDUSTRY_MIN_PER_MARKET) { listed = m.map; listedSrc = 'mirror'; }
+    } catch (e) { log(`  ⚠ 產業別：上市官方鏡像讀取失敗（${(e?.message || '').slice(0, 60)}）`); }
   }
-  // 2026-09-22：openapi 兩支都失敗時 map 是空的，連動量化的產業籃就整天對不到（佳大「半導體產業」實案）。
-  //   後備：peerComps/latest 的 industriesJson（站上自家分群，37 群），名稱與 TWSE 產業別同一套字。
-  if (Object.keys(map).length < 300) {
+  // 上櫃：本機官方鏡像 → repo 內打包快照（同一官方來源；新上櫃股會缺）
+  let otc = {}, otcSrc = null, feedIso = null, mirrorAgeDays = null;
+  try {
+    const m = readIndustryMirror(MIRROR_IDS.sharesOtc, parseTpexCompanyRows);
+    if (m && Object.keys(m.map).length >= INDUSTRY_MIN_PER_MARKET) {
+      otc = m.map; otcSrc = 'mirror'; feedIso = m.feedIso; mirrorAgeDays = daysBetween(m.verifiedIso, today);
+    }
+  } catch (e) { log(`  ⚠ 產業別：上櫃官方鏡像讀取失敗（${(e?.message || '').slice(0, 60)}）`); }
+  if (!otcSrc) {
     try {
-      const pc = (await db.collection('peerComps').doc('latest').get()).data();
-      const ind = pc?.industriesJson ? JSON.parse(pc.industriesJson) : {};
-      for (const g in ind) for (const it of ind[g]) if (it?.code && !map[it.code]) map[it.code] = g;
-      if (Object.keys(map).length >= 300) log(`  · 產業別改用 peerComps 後備（${Object.keys(map).length} 檔）`);
+      const b = parseTpexCompanyRows(JSON.parse(readFileSync(INDUSTRY_OTC_BUNDLED, 'utf8')));
+      if (Object.keys(b.map).length >= INDUSTRY_MIN_PER_MARKET) { otc = b.map; otcSrc = 'bundled'; feedIso = b.feedIso; }
+    } catch (e) { log(`  ⚠ 產業別：上櫃打包快照讀取失敗（${(e?.message || '').slice(0, 60)}）`); }
+  }
+  // 最後後備 peerComps（上市月營收分群）：只在上市兩個來源都不足時用（2026-09-22 佳大實案：openapi 失敗時產業籃整天對不到）
+  let peer = {};
+  if (!listedSrc) {
+    try {
+      const pc = (await withTimeout(db.collection('peerComps').doc('latest').get(), 10000, 'peerComps 產業後備')).data();
+      peer = pc?.industriesJson ? JSON.parse(pc.industriesJson) : {};
+      if (Object.keys(peer).length) listedSrc = 'peerComps';
     } catch { /* 沒有後備就維持空，下游會明說對不到 */ }
   }
-  if (Object.keys(map).length > 300) _indMap = { date: today, map };
-  return _indMap.map || map;
+  const merged = mergeIndustryMaps({ listed, otc, peer });
+  const prev = _indMap;
+  // 殘缺的新表不覆蓋較完整的舊表（stale-if-error），冷卻後重試——規則與測試在 ./lib/industry-map.mjs
+  const { next, complete, better } = nextIndustryCache(prev, merged, { today, now: Date.now(), retryMs: INDUSTRY_RETRY_MS });
+  const health = industryMapHealth({ counts: merged.counts, complete, usingIso: next.date || null, stale: !better, today,
+    listedSrc, otcSrc, feedIso, mirrorAgeDays, staleDays: INDUSTRY_MIRROR_STALE_DAYS });
+  _indMap = { ...next, health };
+  const c = merged.counts;
+  const src = `上市 ${c.listed}（${listedSrc || '無來源'}）、上櫃 ${c.otc}（${otcSrc || '無來源'}${feedIso ? `·出表 ${feedIso}` : ''}${mirrorAgeDays != null ? `·鏡像 ${mirrorAgeDays} 天前驗證` : ''}）`;
+  if (health.ok) log(`  · 產業別對照：${src}`);
+  else if (prev.warnDay !== today) {   // 不完整或有警示：每日 log 一次；daemonHealth 每小時都看得到
+    _indMap = { ..._indMap, warnDay: today };
+    log(`  ⚠ 產業別對照${complete ? '' : '不完整'}：${src}；${health.problems.join('；')}${complete ? '' : `；${INDUSTRY_RETRY_MS / 60000} 分鐘後重試`}`);
+  }
 }
 async function computeSectorWind() {
   const tw = taipei(); const today = isoDate(tw);
@@ -15850,7 +15907,7 @@ let _dailyCloseTry = { date: '', n: 0, at: 0 };   // 18:05 收盤盤勢分析重
 let _morningTry = { date: '', n: 0, at: 0, done: new Set() };   // 07:50 晨報逐步完成記錄與重試節流（2026-10-09）
 let _dailyJobsDate = '', _officialDate = '', _marginDate = '', _morningDate = '', _weeklyDate = '', _backupDate = '', _characterDate = '', _otcFixDate = '', _newsDigestDate = ''; let _depthArchDate = null; let _orderFlowDate = ''; let _snap0930Date = null; let _revDatesMonth = null; let _leadersMonth = null;
 let _calSyncDate = null; let _dailyCloseDate = null; let _histTopupDate = null; let _healthAuditDate = null; let _tailTrackDate = null; let _tailEvalDate = null;
-let _otcReadyNextAt = 0, _canonLateWarned = '';   // 資料到齊班車：未到齊時下次重試時刻、當日是否已發 21:45 警示
+let _otcReadyNextAt = 0, _canonLateWarned = '', _shuttleRolloverLogged = '';   // 資料到齊班車：未到齊時下次重試時刻、當日是否已發 21:45 警示
 let _canonDone = { date: '', set: new Set(), passed: false, boards: false };   // 資料到齊班車當日進度：已完成的定版步驟、是否跑過首輪／榜單重算
 // 子程序執行 scripts/ 內腳本（記憶體隔離；邏輯不重複進 daemon）
 // ⚠ **必須 return**（2026-08-31 差點釀成無窮迴圈）：
@@ -15961,7 +16018,12 @@ async function backfillTrainingGaps(today) {
   }
 }
 let _canonCarry = { day: '', state: 'unknown', nextTryMs: 0, set: new Set(), warned: false };
-async function canonCarryTick(today, mins) {
+const CANON_CARRY_END_MIN = 6 * 60 + 30;   // 跨午夜續跑視窗 00:00–06:30
+async function canonCarryTick(loopToday) {
+  // 時刻在這裡重取（2026-10-09）：呼叫端傳的是循序迴圈開頭的 today／mins，前面的晨間工作可能已把迴圈拖過 06:30——
+  //   仍用舊 mins 會在 06:30 後（甚至盤前保護窗）才跑重運算的定版步驟。迴圈開頭與現在不同日（理論上不會：本函式只在 mins<06:30 呼叫）也不跑。
+  const tw = taipei(); const today = isoDate(tw); const mins = tw.getHours() * 60 + tw.getMinutes();
+  if (today !== loopToday || mins >= CANON_CARRY_END_MIN) return;
   const P = prevTradingIsos(today, 3).find(d => d < today);
   if (!P) return;
   if (_canonCarry.day !== P) _canonCarry = { day: P, state: 'unknown', nextTryMs: 0, set: new Set(), warned: false };
@@ -16685,8 +16747,16 @@ async function dailyJobsLoop() {
       //   23:00 新聞趟卡住迴圈），舊版跨日後 today 換新日期 ⇒ 前一交易日的漲停預測／做空事前存檔／推薦成績名單永久缺。
       //   00:00–06:30 繼續以「前一交易日」為鍵補定版（writeCanonical 本身只允許到下一交易日開盤前、未到齊不寫）；
       //   只跑三個定版步驟（不重算榜單）；最新收盤歸檔必須正好是該日，否則不續跑（三個函式取「最新歸檔日」當資料日，避免寫到別天）。
-      if (mins < 6 * 60 + 30) await canonCarryTick(today, mins);
-      if (mins >= 16 * 60 + 45 && _otcFixDate !== today && Date.now() >= _otcReadyNextAt) {
+      if (mins < CANON_CARRY_END_MIN) await canonCarryTick(today);
+      // 跨日即中止本輪班車（2026-10-09）：today／mins 是迴圈開頭取的；23:00 盤後新聞趟常把迴圈拖到午夜後才走到這裡，
+      //   舊版會以「前一天」的 today 進班車，而 trackPicks({ canonical }) 未帶日期時取日曆今天 ⇒ 前一交易日的榜單被定版成「新的一天」
+      //   的推薦成績名單（寫一次、之後無法更正）。跨日後前一交易日的未完成定版一律交給 canonCarryTick（以前一交易日為鍵、帶 date）。
+      const _shuttleNowIso = isoDate(taipei());
+      if (_shuttleNowIso !== today && mins >= 16 * 60 + 45 && _otcFixDate !== today && _shuttleRolloverLogged !== today) {
+        _shuttleRolloverLogged = today;
+        log(`  ↻ 資料到齊班車 ${today}：迴圈走到這裡已跨日（${_shuttleNowIso}），本輪不跑；未完成的定版由跨午夜續跑（00:00–06:30）接手`);
+      }
+      if (mins >= 16 * 60 + 45 && _otcFixDate !== today && _shuttleNowIso === today && Date.now() >= _otcReadyNextAt) {
         const tradingDay = isTradingDay(tw);
         if (_canonDone.date !== today) _canonDone = { date: today, set: new Set(), passed: false, boards: false };
         const firstPass = !_canonDone.passed; _canonDone.passed = true;
@@ -16749,7 +16819,7 @@ async function dailyJobsLoop() {
             if (_canonDone.set.has('做空事前存檔') && !_canonDone.set.has('做空對答案')) {   // 今收兩市到齊後重對（冪等：同日一筆取代）
               try { await computeShortReview(); _canonDone.set.add('做空對答案'); } catch (e) { log('✖ 到齊班車 做空對答案:', (e.message || '').slice(0, 60)); }
             }
-            await step('推薦成績名單', () => trackPicks({ canonical: true }));
+            await step('推薦成績名單', () => trackPicks({ canonical: true, date: today }));   // 帶日期：班車本體跑到跨午夜時也記在「今天」（班車只在交易日呼叫，與省略 date 時同義）
           }
           if (pending.length) {
             _otcReadyNextAt = Date.now() + 10 * 60000;

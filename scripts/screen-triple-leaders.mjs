@@ -13,9 +13,11 @@ const leadInd = Object.fromEntries(LEAD.map(l => [l.code, l.industry]));
 
 const days = await loadDays({ days: 720 });
 const samples = buildSamples(days);
-// 產業對照（全市場·用於族群熱度）
+// 產業對照（只有上市·用於族群熱度）：openapi.twse 沒有 t187ap03_O（302 到 404.html，HTML 不以 '[' 開頭 ⇒ 舊版白白重試 3 次）。
+//   話題選股的回測因此一直只算上市族群；daemon computeTopicPicks 用 getIndustryMap({ listedOnly: true }) 維持同口徑。
+//   要納入上櫃：改讀官方鏡像 tpex_oa_mopsfin_t187ap03_O（scripts/lib/industry-map.mjs）重驗，daemon 端同步拿掉 listedOnly。
 const indMap = {};
-for (const ep of ['t187ap03_L', 't187ap03_O']) {
+for (const ep of ['t187ap03_L']) {
   for (let t = 0; t < 3; t++) {
     try { const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${ep}`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
       const txt = await r.text(); if (!txt.startsWith('[')) { await new Promise(s=>setTimeout(s,3000)); continue; }

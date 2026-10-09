@@ -34,9 +34,13 @@ const instByDate = {}; // date -> {code:[f,t,d]}
 for (const d of cdSnap.docs) { const x = d.data(); if (x.codesJson) instByDate[x.date] = JSON.parse(x.codesJson); }
 console.log(`  法人庫 ${Object.keys(instByDate).length} 日`);
 
-console.log('載入產業對照（t187ap03 上市+上櫃）…');
+// 產業對照＝只有上市（刻意）。openapi.twse 沒有 t187ap03_O（302 到 404.html；2026-10-03 查證），所以 LU_LIFT 的 indLU5／indHot
+//   從頭就是用「上櫃一律無產業別」訓練的；daemon 端 getIndustryMap({ listedOnly: true }) 同口徑（2026-10-09 起 daemon 全市場表已含上櫃）。
+//   要把上櫃納入族群因子 ⇒ 這裡改讀官方鏡像 tpex_oa_mopsfin_t187ap03_O（scripts/lib/industry-map.mjs parseTpexCompanyRows）重訓並升 LU_VERSION，
+//   且 daemon computeLimitUpForecast 拿掉 listedOnly——兩邊要一起換，不可只換一邊。
+console.log('載入產業對照（t187ap03_L 上市；與 daemon listedOnly 同口徑）…');
 const indMap = {};
-for (const ep of ['t187ap03_L', 't187ap03_O']) {
+for (const ep of ['t187ap03_L']) {
   try {
     const r = await fetch(`https://openapi.twse.com.tw/v1/opendata/${ep}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (r.ok) for (const x of await r.json()) { const c = (x['公司代號'] || '').trim(), ind = (x['產業別'] || '').trim(); if (/^\d{4}$/.test(c) && ind) indMap[c] = ind; }
