@@ -9,6 +9,7 @@
 
 import { isTradingDay } from './twse-api-server';
 import { memoize } from './singleflight';
+import { taipeiToday } from './market-clock';
 
 export interface Valuation { pe: number | null; dividendYield: number | null; pb: number | null; }
 export interface Margin {
@@ -106,8 +107,7 @@ const _valuation = memoize('fund:valuation', TTL, async () => {
   let date: string | null = null;
 
   // PRIMARY：rwd（當日）。欄序 [股票代號, 股票名稱, 本益比, 殖利率(%), 股價淨值比]
-  const today = new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000)
-    .toISOString().slice(0, 10).replace(/-/g, '');
+  const today = taipeiToday().replace(/-/g, '');   // 舊式（偏移＋480 分再 toISOString）只在 UTC 主機正確，非 UTC 主機會變回 UTC 日期
   const rwd = await fetchJSON(`https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_ALL?date=${today}&response=json`);
   if (rwd?.stat === 'OK' && Array.isArray(rwd.data) && rwd.data.length > 500) {
     for (const row of rwd.data) {

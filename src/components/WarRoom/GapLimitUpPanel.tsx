@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useLiveQuotes } from '@/lib/useLiveQuotes';
 import { isLimitUp, getChangeColor } from '@/lib/twse-api';
-import { getSession, isForeground, isTwTradingHours, startLiveLoop } from '@/lib/market-clock';
+import { getSession, isForeground, isTwTradingHours, startLiveLoop, taipeiToday } from '@/lib/market-clock';
 import { prepFetchJson, fetchErrorText } from '@/components/PrepRoom/prepFetch';
 import StockTrendChart from '@/components/WatchlistTracker/StockTrendChart';
 import CostReference from '@/components/shared/CostReference';
@@ -64,7 +64,7 @@ export default function GapLimitUpPanel() {
 
   if (!data) return <div style={{ padding: 20, color: 'var(--text-muted)' }}>{err === NO_DOC ? '跳空漲停尚無資料（常駐服務下一週期產生）。' : err ? `載入失敗：${err}，稍後自動重試。` : '載入中…'}</div>;
   const inMarket = getSession() === 'regular';
-  const isEventToday = data.date === new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })).toISOString().slice(0, 10);
+  const isEventToday = data.date === taipeiToday();   // 舊寫法 toLocaleString→Date→toISOString 在台灣瀏覽器等於 UTC 日期
 
   return (
     <div style={{ padding: '10px 4px' }}>

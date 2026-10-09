@@ -25,6 +25,7 @@
 
 import type { TradeRecord } from './store';
 import { sharesOf } from './tw-fee';
+import { taipeiToday } from './market-clock';
 
 export interface ClosedTrade {
   id: string;
@@ -279,7 +280,7 @@ function sumWindow(closed: ClosedTrade[], fromIso: string): PeriodReturn {
 }
 
 export function periodReturns(closed: ClosedTrade[], todayIso?: string): PeriodReturns {
-  const today = todayIso || new Date().toISOString().split('T')[0];
+  const today = todayIso || taipeiToday();   // 台北日曆日：UTC 在 00:00–08:00 是前一天，月初／季初會把上月算成「本月」
   const y = +today.slice(0, 4), m = +today.slice(5, 7);
   const monthStart = `${today.slice(0, 7)}-01`;
   const qStartMonth = m - ((m - 1) % 3);

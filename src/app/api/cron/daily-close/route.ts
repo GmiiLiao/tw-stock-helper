@@ -10,6 +10,7 @@ import { enrichScoredStock } from '@/lib/analysis-enrich';
 import { appendTodayBars, readHistories, type DailyBar } from '@/lib/history-store';
 import { writeMarketReport, type MarketReport, type ReportPick } from '@/lib/report-store';
 import { splitRowsByDate, officialBarRows } from '../../../../../scripts/lib/tpex-close-parse.mjs';
+import { lastTradingYmd } from '@/lib/market-clock';
 import { readTpexClose } from '@/lib/tpex-close-store';
 
 export const runtime = 'nodejs';
@@ -71,7 +72,9 @@ export async function POST(request: NextRequest) {
     ]);
     const instMap = instRes.map;
     const rocDate = rawData[0]?.Date ?? '';
-    const isoDate = rocToIso(rocDate) || new Date().toISOString().slice(0, 10);
+    // 來源未帶資料日時的後備：台北「最後交易日」（UTC 在台北 00:00–08:00 是前一天；force=1 於非交易日觸發時不寫成假日日期）。
+    // daemon 於 18:05 收盤後觸發，此時今日＝資料日；收盤前手動觸發則任何「今日」都不是資料日。
+    const isoDate = rocToIso(rocDate) || lastTradingYmd();
 
     // ── 2. Base-score the whole market + breadth ──
     // 只用「資料日＝isoDate」的列（2026-10-08）：上櫃列來自 tpexClose/latest，櫃買晚到或 daemon 尚未取得當日檔時仍是前一日——
