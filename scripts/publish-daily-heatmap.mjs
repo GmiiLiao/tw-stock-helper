@@ -2,13 +2,14 @@
 // 把本機定版的每日熱力（second-brain/daily-heatmap/latest.json 指向的那天）發佈到 Firestore，供站上「最後交易日報告頁」讀取。
 //   dailyHeatmap/latest ＋ dailyHeatmap/{資料日}；同一份定版（canonicalAt 相同）不重寫。
 //   Firestore 不允許巢狀陣列 ⇒ 不發佈緊湊陣列 stocks（只留在本機檔）。只發官方資料衍生的描述，不含任何分數欄位。
-//   node scripts/publish-daily-heatmap.mjs [--dry-run] [--force] [--root <second-brain>]
+//   node scripts/publish-daily-heatmap.mjs [--dry-run] [--force] [--date YYYY-MM-DD] [--root <second-brain>]
 import admin from 'firebase-admin';
 import { existsSync, readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join, dirname } from 'node:path';
 import { buildReport } from './lib/daily-heatmap/narrative.mjs';
 import { fileURLToPath } from 'node:url';
+import { stampAfterPublish } from './lib/writer-version.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -18,10 +19,17 @@ const ri = argv.indexOf('--root');
 const ROOT = ri >= 0 ? argv[ri + 1] : join(HERE, '..', 'second-brain');
 const DIR = join(ROOT, 'daily-heatmap');
 
+// --date YYYY-MM-DD：只發佈該日的 dailyHeatmap/{日}（回補缺漏日用），不動 latest
+const di = argv.indexOf('--date');
+const ONLY_DATE = di >= 0 ? argv[di + 1] : null;
+if (ONLY_DATE && !/^\d{4}-\d{2}-\d{2}$/.test(ONLY_DATE)) { console.error('--date 格式須為 YYYY-MM-DD'); process.exit(2); }
+const manRows = JSON.parse(readFileSync(join(DIR, '_manifest.json'), 'utf8')).rows;
 const latestF = join(DIR, 'latest.json');
-if (!existsSync(latestF)) { console.error('無 latest.json：尚無定版，不發佈'); process.exit(2); }
-const latest = JSON.parse(readFileSync(latestF, 'utf8'));
-const man = JSON.parse(readFileSync(join(DIR, '_manifest.json'), 'utf8')).rows[latest.dataDate];
+if (!ONLY_DATE && !existsSync(latestF)) { console.error('無 latest.json：尚無定版，不發佈'); process.exit(2); }
+const latest = ONLY_DATE
+  ? { dataDate: ONLY_DATE, canonicalAt: manRows[ONLY_DATE]?.canonicalAt, usableForNextDayBrief: !manRows[ONLY_DATE]?.lateBuilt }
+  : JSON.parse(readFileSync(latestF, 'utf8'));
+const man = manRows[latest.dataDate];
 if (!man || man.status !== 'final') { console.error(`${latest.dataDate} manifest 非 final，不發佈`); process.exit(2); }
 
 const payload = JSON.parse(gunzipSync(readFileSync(join(DIR, man.file))).toString('utf8'));
@@ -41,6 +49,14 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS = process.env.GOOGLE_APPLICATION_CRED
   || '/Users/gmii/Documents/GCP_憑證檔案/tw-stock-helper-firebase-adminsdk-fbsvc-1dd050d371.json';
 admin.initializeApp();
 const db = admin.firestore();
+if (ONLY_DATE) {
+  const dcur = await db.collection('dailyHeatmap').doc(ONLY_DATE).get();
+  if (!FORCE && dcur.exists && dcur.data().canonicalAt === doc.canonicalAt) { console.log(`skip：${ONLY_DATE}（canonicalAt 相同）已發佈`); process.exit(0); }
+  await db.collection('dailyHeatmap').doc(ONLY_DATE).set(doc);
+  await stampAfterPublish(db, 'dailyHeatmap', 'publish-daily-heatmap', join(HERE, '..'), ['scripts/publish-daily-heatmap.mjs', 'scripts/daily-heatmap.mjs', 'scripts/lib/daily-heatmap']);
+  console.log(`✓ 已發佈 dailyHeatmap/${ONLY_DATE}（回補，不動 latest；${(bytes / 1024).toFixed(0)}KB）`);
+  process.exit(0);
+}
 const cur = await db.collection('dailyHeatmap').doc('latest').get();
 if (!FORCE && cur.exists && cur.data().canonicalAt === doc.canonicalAt && cur.data().dataDate === doc.dataDate) {
   console.log(`skip：${doc.dataDate}（canonicalAt 相同）已發佈`); process.exit(0);
@@ -49,4 +65,5 @@ if (!FORCE && cur.exists && cur.data().canonicalAt === doc.canonicalAt && cur.da
 if (cur.exists && cur.data().dataDate > doc.dataDate) { console.error(`latest 已是較新的 ${cur.data().dataDate}，不覆蓋`); process.exit(2); }
 await db.collection('dailyHeatmap').doc(doc.dataDate).set(doc);
 await db.collection('dailyHeatmap').doc('latest').set(doc);
+await stampAfterPublish(db, 'dailyHeatmap', 'publish-daily-heatmap', join(HERE, '..'), ['scripts/publish-daily-heatmap.mjs', 'scripts/daily-heatmap.mjs', 'scripts/lib/daily-heatmap']);
 console.log(`✓ 已發佈 dailyHeatmap/latest、dailyHeatmap/${doc.dataDate}（${(bytes / 1024).toFixed(0)}KB）`);

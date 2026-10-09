@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # 安裝每日熱力排程（兩個 LaunchAgent，跑完即結束，與 ai-daemon 完全分開）
-#   com.gmii.twstock.daily-heatmap-poll   週一～五 22:30 起輪詢（官方鏡像 daily 22:15 之後）
+#   com.gmii.twstock.daily-heatmap-poll   週一～五 22:45 起：先等官方鏡像 daily（22:40）跑完再輪詢（避開 daemon 21:40–22:35 窗）
 #   com.gmii.twstock.daily-heatmap-retry  週二～六 06:50 補班（接鏡像 retry 06:45）
 #   bash scripts/install-daily-heatmap-schedule.sh             # 安裝
 #   bash scripts/install-daily-heatmap-schedule.sh --uninstall # 移除
@@ -47,6 +47,6 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     launchctl unload "$HOME/Library/LaunchAgents/$l.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/$l.plist"; echo "  ✓ 移除 $l"
   done; exit 0
 fi
-write_plist com.gmii.twstock.daily-heatmap-poll  poll  "$(cal 22 30 1 2 3 4 5)"
+write_plist com.gmii.twstock.daily-heatmap-poll  poll  "$(cal 22 45 1 2 3 4 5)"
 write_plist com.gmii.twstock.daily-heatmap-retry retry "$(cal 6 50 2 3 4 5 6)"
 echo "日誌：$LOG_DIR"
