@@ -6,7 +6,9 @@
 //                                             或興櫃兩個快照來源都缺 ⇒ 寫 _alerts
 //   backfill [--max 2500] [--only a,b]        先轉存研究快取（0 請求），再回補帶日期資料的歷史（P1→P3）；每個台北日上限 --max 個請求
 //   verify  [--only a,b] [--snapshots]        未驗證端點各打 1 次，通過才排進 daily／backfill
-//   migrate                                   研究快取（.surge-cache/official、MOPS t163sb04）轉存進來，0 請求
+//   migrate                                   研究快取（.surge-cache/official、MOPS t163sb04）與期交所 30 日逐筆一次性回補轉存進來，0 請求
+//   ticks   [--max-files 5] [--refetch D,…]   期交所 30 日逐筆 zip 每日歸檔（平日 17:10）：交易日表到最後收盤日都已歸檔 ⇒ 0 請求；
+//                                             否則清單 1＋待抓日檔（平常 1）。清單上更晚的日檔只有夜盤、略過。見 official-mirror/taifex-ticks.mjs
 //   status                                    印出各資料集進度、寫 manifest.json（含最新警示）
 // 開跑前檢查（會發請求的指令）：單一程序鎖（原子建立）、研究回補程序仍在跑就不開、daemon 日誌近 30 分鐘有封鎖／限流訊號的機構家族本次不跑
 //       （2026-10-08·WP7：舊版任何故障字樣就三個機構全停——上櫃 openapi 大檔傳輸被切斷是常態、不是封鎖，鏡像因此停擺三天；
@@ -24,6 +26,7 @@ import { gunzipSync } from 'node:zlib';
 import * as C from './lib/official-mirror.mjs';
 import { mirrorOutageGate } from './lib/outage-scan.mjs';
 import { DATED, resolveFrom } from './official-mirror/adapters-dated.mjs';
+import { TICKS, runTicks, verifyTicks, migrateTicks, ticksGapAlerts, ticksClosedFrom } from './official-mirror/taifex-ticks.mjs';
 import { createTpexClose } from './lib/tpex-close-quotes.mjs';
 import { downloadStream, reasonText } from './lib/tpex-close-download.mjs';
 
@@ -31,18 +34,22 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
 const ROOT = process.env.OFFICIAL_ROOT || join(REPO, 'second-brain', 'official');
 const SURGE = process.env.SURGE_CACHE || join(REPO, 'scripts', 'surge-lab', '.surge-cache');
+const TICKS_SRC = process.env.TICKS_SRC || join(REPO, 'second-brain', 'sara-lab', 'taifex', 'ticks-30d');   // 2026-10-09 一次性回補（migrate 轉存）
 const DAEMON_LOG = process.env.DAEMON_LOG || join(homedir(), 'Library', 'Logs', 'twstock-ai-daemon', 'ai-daemon.out.log');
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const MI = DATED.find(x => x.id === 'twse_mi_index');
 
 function args(argv) {
-  const a = { cmd: argv[0], date: null, slot: 'all', max: 2500, only: null, days: 5, snapshots: false, forceHours: false, allowConcurrent: false, ackOutage: false };
+  const a = { cmd: argv[0], date: null, slot: 'all', max: 2500, only: null, days: 5, snapshots: false, forceHours: false, allowConcurrent: false, ackOutage: false,
+    maxFiles: TICKS.maxFilesPerRun, refetch: [], forceList: false };
   for (let i = 1; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--date') a.date = argv[++i]; else if (k === '--slot') a.slot = argv[++i]; else if (k === '--max') a.max = Number(argv[++i]);
     else if (k === '--only') a.only = argv[++i].split(','); else if (k === '--days') a.days = Number(argv[++i]);
     else if (k === '--snapshots') a.snapshots = true; else if (k === '--force-hours') a.forceHours = true;
     else if (k === '--allow-concurrent') a.allowConcurrent = true; else if (k === '--ack-outage') a.ackOutage = true;
+    else if (k === '--max-files') a.maxFiles = Number(argv[++i]); else if (k === '--refetch') a.refetch = argv[++i].split(',');
+    else if (k === '--force-list') a.forceList = true;
     else throw new Error(`未知參數：${k}`);
   }
   return a;
@@ -333,6 +340,13 @@ function gapAlerts(recent, only, today) {
   if (emAds.length) for (const d of C.snapshotGapDays(emAds.map(ad => C.loadManifest(ROOT, ad.host, ad.id)), recent.filter(d => info.confirmed.has(d)))) {
     alerts.push({ id: C.EMERGING_SNAPSHOT_IDS[0], key: d, status: '興櫃每日快照缺（www 與 openapi 兩個來源都沒有；只能每日累積、無法回補）' });
   }
+  // 期交所 30 日逐筆（2026-10-09）：滾動窗、只能每日歸檔——verify 通過後，最近 30 個確認交易日沒歸檔／已滾出清單（永久缺）／同名檔異版 ⇒ 警示；
+  //   已在歸檔（清單有列）卻 verify 未通過 ⇒ ticks 每輪 0 請求空轉，也要警示（停擺不可無聲，審查 M1）
+  if (!only || only.includes(TICKS.id)) {
+    const tv = readVerify()[TICKS.id]; const tman = C.loadManifest(ROOT, TICKS.host, TICKS.id);
+    if (tv?.ok) alerts.push(...ticksGapAlerts({ man: tman, confirmed: info.confirmed, lastClosed: lastClosedDay(info, today) }));
+    else if (Object.keys(tman.rows || {}).length) alerts.push({ id: TICKS.id, key: today, status: `30 日逐筆歸檔停擺：verify 未通過（${tv?.status || '未驗證'}${tv?.note ? `·${tv.note}` : ''}）——ticks 每輪 0 請求，約 29 個交易日後永久缺；跑 verify --only ${TICKS.id}` });
+  }
   // 停擺日：交易日收盤後到下一交易日開盤前沒有一輪 daily 把每日快照抓齊（WP7：10-05 排在禁跑窗、10-06／10-07 被開跑閘門擋，三天都沒有）
   if (!only) {
     const runs = readDailyRuns(); const since = runs.map(r => r.date).filter(Boolean).sort()[0] || null;
@@ -361,11 +375,50 @@ function recordBlocked(a, reason) {
   writeAlerts([{ id: 'official-mirror', key: today, status: `${a.cmd} 未執行：${reason}` }, ...alerts]);
   cmdStatus({ quiet: true });
 }
+/** ticks 用：警示內容跟 LATEST.json 一樣就不重寫——LATEST 的 at 是稽核判斷 retry 排程有沒有在跑的心跳，不可被每日 ticks 蓋掉（審查 L2）。 */
+function writeAlertsIfChanged(alerts) {
+  let cur = null; try { cur = JSON.parse(readFileSync(join(ROOT, '_alerts', 'LATEST.json'), 'utf8')).missing; } catch { cur = null; }
+  if (cur && JSON.stringify(cur) === JSON.stringify(alerts)) return false;
+  writeAlerts(alerts); return true;
+}
 function writeAlerts(alerts) {
   mkdirSync(join(ROOT, '_alerts'), { recursive: true });
   const body = JSON.stringify({ rule: '交易日不得有資料缺漏（補不到要出警示）', at: new Date().toISOString(), missing: alerts }, null, 1);
   writeFileSync(join(ROOT, '_alerts', 'LATEST.json'), body);
   if (alerts.length) { writeFileSync(join(ROOT, '_alerts', `${C.taipeiDate()}.json`), body); log(`⚠ 仍缺 ${alerts.length} 筆 → _alerts/`); }
+}
+
+// ── ticks（期交所 30 日逐筆 zip；平日 17:10，排程窗 17:00–21:30）────────────────────
+// 「該日已收盤歸檔」＝交易日表的確認日（研究面板日 ∪ MI_INDEX 回聲 ok）；今天若是候選交易日（平日、不在官方休市表、未確認休市）
+//   且已過 16:50（日檔 16:37–16:46 上架）也算——今天的 MI_INDEX 要到 22:40 daily 才確認。清單上更晚的日檔（休市日先上架的
+//   下一交易日檔）只有夜盤、略過；檔案完不完整最後由回聲（最晚成交日＝檔名日、有日盤成交）把關。
+const lastClosedDay = (info, today) => [...info.confirmed].filter(d => d <= today).sort().at(-1) || null;
+const ticksClosed = today => { const info = dayInfo(today); return ticksClosedFrom({ confirmed: info.confirmed, candidates: info.candidates, today }); };
+/** 一次性回補轉存（0 請求、冪等）：例外只記 log，不拖垮呼叫端（每晚 backfill 開頭也會跑，審查 L1）。 */
+function migrateTicksSafe() {
+  try { return migrateTicks({ root: ROOT, src: TICKS_SRC, log }); } catch (e) { log(`${TICKS.id} 轉存失敗（${String(e.message).slice(0, 80)}），略過`); return 0; }
+}
+async function cmdTicks(a) {
+  const today = C.taipeiDate();
+  if (!Number.isInteger(a.maxFiles) || a.maxFiles < 0) throw new Error(`--max-files 要是 ≥0 的整數：${a.maxFiles}`);
+  for (const d of a.refetch) if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`--refetch 日期要是 YYYY-MM-DD：${d}`);
+  if (!readVerify()[TICKS.id]?.ok) {   // 新端點先 verify 通過才進每日（鏡像既有規則）；停擺照寫 _alerts（gapAlerts 會列）
+    log(`${TICKS.id} 尚未 verify 通過（先跑 verify --only ${TICKS.id}）——本次 0 請求`);
+    writeRunLog(`ticks-${today}-${Date.now()}`, { requests: 0, skipped: '未 verify' });
+    writeAlertsIfChanged(gapAlerts(recentDays(dayInfo(today), a.days, today), null, today));
+    return;
+  }
+  const migrated = migrateTicksSafe();   // 先把一次性回補轉進來，免得第一輪把本機已有的檔重抓一遍（審查 M4）
+  if (migrated) log(`${TICKS.id}：轉存一次性回補 ${migrated} 檔（0 請求）`);
+  const { closed, lastClosed } = ticksClosed(today);
+  log(`ticks ${today}：交易日表最後收盤日 ${lastClosed} → ${ROOT}`);
+  const r = await runTicks({ root: ROOT, confirmed: closed, lastClosed, q: C.queueFor(TICKS.host, queueOpts(a)), log,
+    maxFiles: a.maxFiles, refetch: a.refetch, forceList: a.forceList });
+  const alerts = gapAlerts(recentDays(dayInfo(today), a.days, today), null, today);
+  const wrote = writeAlertsIfChanged(alerts);
+  writeRunLog(`ticks-${today}-${Date.now()}`, { requests: r.requests, stats: r.stats, lastClosed, plan: r.plan || null, list: r.list || null, alerts: alerts.length, alertsWritten: wrote, gate: a.gate });
+  cmdStatus({ quiet: true });
+  log(`ticks 完成：${r.requests} 個請求`, JSON.stringify(r.stats));
 }
 
 // ── backfill ────────────────────────────────────────────
@@ -407,7 +460,8 @@ async function cmdVerify(a) {
     if (Object.keys(C.loadManifest(ROOT, ad.host, ad.id).rows || {}).length) continue;
     jobs.push(...(ad.unit === 'quarter' ? jobsFor(ad, { y: 2026, q: 2 }, { final: quarterFinal(2026, 2, today) }).slice(0, 1) : [{ ad, key: last, ctx: C.ctxOf({ day: last }), snapshot: true }]));
   }
-  log(`verify：${jobs.length} 個端點（各 1 次）`);
+  const doTicks = a.only ? a.only.includes(TICKS.id) : !ver[TICKS.id]?.ok;   // 期交所 30 日逐筆：清單＋最新收盤日檔（本機已有就重下載比對 sha256）
+  log(`verify：${jobs.length} 個端點（各 1 次）${doTicks ? `＋${TICKS.id}（清單＋日檔 2 次）` : ''}`);
   await runJobs(jobs, a);
   for (const j of jobs) {
     const r = C.loadManifest(ROOT, j.ad.host, j.ad.id).rows?.[j.key];
@@ -415,6 +469,7 @@ async function cmdVerify(a) {
     const pass = j.snapshot ? /^(ok|empty|unchanged)$/.test(r?.status || '') : r?.status === 'ok';
     ver[j.ad.id] = { ok: pass, status: r?.status || '未抓', note: r?.note || null, rows: r?.rows ?? null, echo: r?.echo ?? null, at: new Date().toISOString() };
   }
+  if (doTicks) ver[TICKS.id] = await verifyTicks({ root: ROOT, lastClosed: ticksClosed(today).lastClosed, q: C.queueFor(TICKS.host, queueOpts(a)) });
   writeFileSync(verifyFile(), JSON.stringify(ver, null, 1));
   const bad = Object.entries(ver).filter(([, v]) => !v.ok);
   log(`verify 完成：通過 ${Object.values(ver).filter(v => v.ok).length}、未過 ${bad.length}`); for (const [k, v] of bad) log(`  ✖ ${k}：${v.status}${v.note ? `（${v.note}）` : ''}`);
@@ -446,6 +501,7 @@ function cmdMigrate() {
     }
     C.saveManifest(ROOT, man);
   }
+  n += migrateTicksSafe();   // 期交所 30 日逐筆一次性回補（sha256 對來源清單）
   log(`migrate：轉存 ${n} 檔（0 網路請求）`);
 }
 
@@ -472,11 +528,11 @@ function writeRunLog(name, obj) { mkdirSync(join(ROOT, '_runs'), { recursive: tr
 
 async function main() {
   const a = args(process.argv.slice(2)); mkdirSync(ROOT, { recursive: true });
-  const net = ['daily', 'retry', 'backfill', 'verify'].includes(a.cmd);
+  const net = ['daily', 'retry', 'backfill', 'verify', 'ticks'].includes(a.cmd);
   if ((net || a.cmd === 'migrate') && !acquireLock(a.cmd)) return;
   if (net) {
     const pf = preflight(a);
-    if (!pf.ok) { if (a.cmd === 'daily' || a.cmd === 'retry') recordBlocked(a, pf.reason); return; }
+    if (!pf.ok) { if (['daily', 'retry', 'ticks'].includes(a.cmd)) recordBlocked(a, pf.reason); return; }
   }
   if (a.cmd === 'daily') return cmdDaily(a);
   if (a.cmd === 'retry') return cmdRetry(a);
@@ -484,7 +540,8 @@ async function main() {
   if (a.cmd === 'verify') return cmdVerify(a);
   if (a.cmd === 'migrate') return cmdMigrate();
   if (a.cmd === 'status') return cmdStatus();
-  throw new Error('用法：official-mirror.mjs daily|retry|backfill|verify|migrate|status');
+  if (a.cmd === 'ticks') return cmdTicks(a);
+  throw new Error('用法：official-mirror.mjs daily|retry|backfill|verify|migrate|ticks|status');
 }
 
 main().then(() => process.exit(0), e => { console.error('✖', e.stack || e.message); process.exit(1); });

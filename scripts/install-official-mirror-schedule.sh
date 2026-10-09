@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================
-# 安裝／更新第二大腦官方鏡像排程（三個 LaunchAgent，跑完即結束、非常駐）
+# 安裝／更新第二大腦官方鏡像排程（四個 LaunchAgent，跑完即結束、非常駐）
 #   com.gmii.twstock.official-mirror.daily     平日 22:40＋週六 10:00（2026-10-04 由 22:15 改，避開 daemon 21:40–22:35 窗）
 #   com.gmii.twstock.official-mirror.retry     週二～週六 06:45
 #   com.gmii.twstock.official-mirror.backfill  每晚 23:20＋週末 11:00
+#   com.gmii.twstock.official-mirror.ticks     平日 17:10（期交所 30 日逐筆 zip；2026-10-09 新增）
 # 範本在 scripts/official-mirror/launchd/*.plist（版控的唯一來源）；本腳本把範本的 WorkingDirectory／node 路徑換成
 # 本機實際值後寫進 ~/Library/LaunchAgents，再 unload＋load。與 ai-daemon 完全分開：不重啟、不修改 daemon。
 #
@@ -18,7 +19,7 @@ SRC_DIR="$PROJECT_DIR/scripts/official-mirror/launchd"
 LA_DIR="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 LOG_DIR="$HOME/Library/Logs/twstock-official-mirror"   # 不放 ~/Documents（launchd TCC，見 install-ai-daemon.sh）
 NODE_BIN="$(command -v node)"
-LABELS=(com.gmii.twstock.official-mirror.daily com.gmii.twstock.official-mirror.retry com.gmii.twstock.official-mirror.backfill)
+LABELS=(com.gmii.twstock.official-mirror.daily com.gmii.twstock.official-mirror.retry com.gmii.twstock.official-mirror.backfill com.gmii.twstock.official-mirror.ticks)
 MODE="install"; LOAD=1; ALLOW_WT=0
 for a in "$@"; do
   case "$a" in

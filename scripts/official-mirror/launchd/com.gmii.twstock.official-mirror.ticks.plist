@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 第二大腦官方鏡像·期交所 30 日逐筆 zip 每日歸檔：平日 17:10（排程窗 17:00–21:30；檔案約 16:37–16:46 上架；避開 daemon 16:25–16:55／21:40–22:35 窗，也避開 17:30 起漲影子與 18:10 Yahoo 分K 收集）。交易日表到最後收盤日都已歸檔 ⇒ 0 請求；平常清單 1＋日檔 1。安裝：bash scripts/install-official-mirror-schedule.sh -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.gmii.twstock.official-mirror.ticks</string>
+  <key>ProgramArguments</key>
+  <array><string>/opt/homebrew/bin/node</string><string>scripts/official-mirror.mjs</string><string>ticks</string></array>
+  <key>WorkingDirectory</key><string>/Users/gmii/Documents/股票助手app/tw-stock-app</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>10</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/gmii/Library/Logs/twstock-official-mirror/ticks.log</string>
+  <key>StandardErrorPath</key><string>/Users/gmii/Library/Logs/twstock-official-mirror/ticks.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+</dict>
+</plist>

@@ -224,3 +224,14 @@ second-brain/official/
   - `www.twse.com.tw/rwd/zh/afterTrading/BFIAMU?date=20230105` → 200，stat=OK，date 與 title 回聲正確
   - `www.taifex.com.tw/cht/7/vixMinNew` → 200，取得 `getVixData?filesname=` 與「前 3 個月」選單
 - 初稿備份：`inv_probe/official_inventory.before.json`、`.before.md`；修訂腳本 `inv_probe/apply_review.py`。
+
+## 後續變更（2026-10-09）：期交所 30 日逐筆 `taifex_ticks_30d` 由 skip 改為每日歸檔
+
+> 上方「一、總覽」各表的計數是 2026-10-04 版（skip 71 筆含這一筆），未重算；機器可讀清單的這一筆已改 `plan: rolling-daily`（`changedBy` 有記），`build-registry.mjs` 不讀這個值、快照註冊表不受影響。
+
+- **緣由**：使用者 2026-10-08 裁定「依建議進行」——sara 型態回測要台指期盤中分 K；官方只有前 30 個交易日逐筆檔、沒有更早歷史。原 skip 理由「每日數百 MB」實測不成立：每檔 zip 1.3–2.3MB（CSV 解壓 30–45MB、55–87 萬筆）。
+- **端點**：清單 `GET https://www.taifex.com.tw/cht/3/dlFutPrevious30DaysSalesData`（解析 `DailydownloadCSV/Daily_YYYY_MM_DD.zip`）；檔 `GET https://www.taifex.com.tw/file/taifex/Dailydownload/DailydownloadCSV/Daily_YYYY_MM_DD.zip`。選擇權清單（dlOpt…）沒有收。
+- **上架與滾動**：交易日 16:37–16:46 上架（zip 內時間戳）。休市日清單會先出現「下一交易日」的檔、只有休市前一晚夜盤（10-09 補假時已有 `Daily_2026_10_12.zip`），佔掉一個位置，最舊的一天提前滾出（08-26 在 10-09 滾出、日盤永久缺）。
+- **排程與請求量**：`official-mirror.mjs ticks` 平日 17:10（排程窗 17:00–21:30，避開 daemon 窗、17:30 起漲影子與 18:10 Yahoo 分K）。交易日表到最後收盤日都已歸檔 ⇒ 0 請求；平常清單 1＋日檔 1＝**每日 2 個**；漏跑後補件單輪最多清單 1＋日檔 5。`verify` 2 個（清單＋最新收盤日檔，本機已有就比對 sha256）。不進 `backfill`（沒有歷史可回補）。
+- **回聲與同名更新、缺口、存放**：見技能 `tw-official-data-sources` §10。
+- **一次性回補**：2026-10-09 已抓 08-27～10-08 共 29 檔到 `second-brain/sara-lab/taifex/ticks-30d/`（sha256 在 `_manifest.json`），`migrate` 0 請求轉入鏡像。

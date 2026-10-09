@@ -154,6 +154,7 @@ description: 台股起漲或選股模型的訓練／研究資料只用官方來�
 | 尾盤五檔 bookDepthArchive | daemon 13:20–13:35 窗口，13:36 歸檔（ai-daemon.mjs:15532-15598） | 2026-07-20 起，可用約從 08-04 起 | 13:36 | 時間戳要落在窗內 | 可用 | accumulate-only（已測無效） |
 | 開盤 30 分快照 snap0930Archive | daemon 09:31–09:59（ai-daemon.mjs:15490-15510） | 2026-07-20 起約 52 日 | 09:31 後 | 沒有比對 MIS `d` | 屬於 s+1 的資料，只能用來驗證或標籤 | accumulate-only |
 | 官方逐檔盤中歷史（逐筆、分 K） | 無公開端點（逐筆是付費訂閱） | — | — | — | — | unavailable |
+| 期貨逐筆成交（不含鉅額，前 30 個交易日） | 清單 `www.taifex.com.tw/cht/3/dlFutPrevious30DaysSalesData`；檔 `/file/taifex/Dailydownload/DailydownloadCSV/Daily_YYYY_MM_DD.zip`（cp950 CSV） | 只有滾動 30 檔；鏡像自 2026-08-27 起（08-26 已滾出） | 交易日 16:37–16:46 上架 | zip 完整＋檔內最晚成交日＝檔名日＋檔名日有 08:45 後成交 | 檔名日＝交易日 s，含 s−1 日 15:00 起夜盤（成交日期記日曆日），夜盤只能當 s 日盤前資訊 | accumulate-only（鏡像 `ticks` 每日歸檔，§10） |
 | 上市每 5 秒委託成交統計 | `www.twse.com.tw/rwd/zh/afterTrading/MI_5MINS?date=YYYYMMDD&response=json` | ≥2022-07-18（實測 3,241 列）；orderFlowArchive 從 2023-07-31 起 | daemon 15:25 抓 | `stat`、`date`、title 民國日期（backfill-orderflow.mjs:52-56）；遇 307 退避重試 | 可用 | backfillable（市場層，已測無效） |
 | 上市每 5 秒指數 | `rwd/zh/TAIEX/MI_5MINS_INDEX?date=YYYYMMDD`（路徑未驗證） | 未驗證 | 未驗證 | 未驗證 | 未驗證 | backfillable（未驗證） |
 | 加權指數日 OHLC | `rwd/zh/TAIEX/MI_5MINS_HIST?date=YYYYMM01`（以月為單位） | ≥2022-07（已快取 52 個月） | 盤後 | `stat`、`date`、title 年月、每列日期在月內（a34_market_fetch.mjs:37-52） | 可用 | backfillable（已快取） |
@@ -328,7 +329,7 @@ description: 台股起漲或選股模型的訓練／研究資料只用官方來�
 | 資料 | 原因 | 因應 |
 |---|---|---|
 | 集保股權分散 | openapi 不吃 date；官網 qryStock 只留 51 週、要逐檔查約 10 萬次，而且 `www.tdcc.com.tw` 沒有登錄，有沒有驗證碼未驗證 | 從 2026-08-07 起每週歸檔，**斷一週就永久缺那一週**。要做外樣本檢定需累積 12～18 個月；在那之前不進主模型 |
-| 官方逐檔盤中歷史（逐筆、分 K） | 公開端點沒有，逐筆是付費訂閱 | 禁用 Yahoo intradayArchive。日內型態先用日線近似（收盤位置、上影線）。真要用，就由 MIS 自建分段快照，先算 MIS 頻寬（快線＋主迴圈已約 2.7 req/5s） |
+| 官方逐檔盤中歷史（逐筆、分 K） | 公開端點沒有，逐筆是付費訂閱（期貨例外：期交所公開前 30 個交易日逐筆 zip，鏡像每日歸檔，§10） | 禁用 Yahoo intradayArchive。日內型態先用日線近似（收盤位置、上影線）。真要用，就由 MIS 自建分段快照，先算 MIS 頻寬（快線＋主迴圈已約 2.7 req/5s） |
 | 盤前試撮 08:30–09:00 | MIS 只有即時值 | 只輪詢影子名單、自建歸檔；只能用在兩段式的第二段 |
 | 分點券商進出 | 上市買賣日報表查詢頁一般有驗證碼（未實測）；上櫃未驗證；第三方付費資料未核准 | **不可自動化**，不繞過。注意股第 5 款（券商集中）只能當間接指標 |
 | 可能達處置名單歷史 | openapi 只有當日；rwd 能否查歷史未驗證 | 研究用 a29 官方規則模擬，同時從今天起每日歸檔，用來校驗模擬結果 |
@@ -394,11 +395,21 @@ wiki 每筆事實都帶來源等級，由高到低是：官方 > 官方衍生 > 
   已有好資料時，之後的失敗／空表／不符**不覆蓋**（只記 lastTry）。
 - **交易日**：確認＝研究面板日 ∪ MI_INDEX 回聲 ok；候選＝之後的平日扣官方休市表（「開始／最後交易日」是交易日）。漏跑的交易日由 daily 的補漏、retry、backfill 補；P1 必有表仍缺或交易日未確認 ⇒ `_alerts`。
 - **指令**（主 checkout 執行）：`node scripts/official-mirror.mjs daily|retry|backfill|verify|migrate|status`。新端點先 `verify` 通過（`_verify.json`）才排進 daily／backfill。
-- **排程**（`scripts/official-mirror/launchd/`）：平日 22:15＋週六 10:00 `daily`；週二～六 06:45 `retry`；每晚 23:20＋週末 11:00 `backfill --max 2500`（每個台北日合計上限）。
+- **排程**（`scripts/official-mirror/launchd/`）：平日 22:40＋週六 10:00 `daily`；週二～六 06:45 `retry`；每晚 23:20＋週末 11:00 `backfill --max 2500`（每個台北日合計上限）；平日 17:10 `ticks`（期交所 30 日逐筆，見下）。
 - **安全**：同一出口 IP 也是 daemon 的出口——證交所系（www／openapi／mops／mopsov）、櫃買系、期交所各一條佇列、逐請求 ≥3 秒；平日 07:30～15:30 不跑；
   403／401／30x／429／封鎖安全頁 ⇒ 立即停整個機構；5xx 退避重試一次；連續 3 次失敗停；研究回補程序在跑 ⇒ 不開跑；daemon 日誌近 30 分鐘有**封鎖／限流訊號**（HTTP 30x／401／403／429、封鎖頁）的機構家族本次不跑（認不出家族 ⇒ 全停），其餘故障字樣（傳輸中斷、逾時、靠快取撐著）只記「降級」照跑（2026-10-08·WP7：舊規則讓上櫃 openapi 大檔常態被切斷擋掉三個機構、停擺三天）；daily／retry 被擋或每日快照沒抓齊 ⇒ 照寫 `_alerts`（`official-mirror.daily` 停擺日列）；
   MIS 一律不打；回補時 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）。
 - **研究快取轉存**：`migrate`（0 請求）把 `.surge-cache/official/*` 與 MOPS t163sb04 搬進鏡像；`backfill` 開頭自動先跑一次。
+- **期交所 30 日逐筆（`taifex_ticks_30d`，2026-10-09；使用者 10-08「依建議進行」）**：程式 `scripts/official-mirror/taifex-ticks.mjs`，指令 `ticks`（平日 17:10，排程窗 17:00–21:30）。
+  官方只公開「前 30 個交易日期貨每筆成交（不含鉅額）」，**不每天歸檔約 29 個交易日後每天永久少一天**。
+  - **流程**：交易日表到「最後收盤日」都已歸檔 ⇒ 0 請求；否則清單頁 1 個＋待抓日檔（平常 1 個；漏跑補件單輪上限 `--max-files 5`）。最後收盤日＝交易日表確認日（研究面板日 ∪ MI_INDEX 回聲 ok），今天是候選交易日且過 16:50 也算。
+  - **夜盤未來檔**：休市日清單會先出現「下一交易日」的檔、只有休市前一晚夜盤（10-09 補假實測 `Daily_2026_10_12.zip`）。晚於最後收盤日的一律略過、不請求；該日收盤後同名檔再抓。清單每列的「時間」欄＝官方上架時刻（與 zip 內時間差 ≤4 秒；10-12 那檔是 10-09 05:11）：早於檔名日 13:45 ⇒ 只有夜盤版，也略過。它佔掉 30 個位置之一，最舊的一天會**提前滾出**（08-26 在 10-09 滾出、日盤永久缺）——**不可用時鐘算死線**，以清單首檔判定：已確認交易日早於清單首檔且沒歸檔 ⇒ `status: lost`。
+  - **回聲**：zip 完整（中央目錄、CRC32、長度）＋檔內最晚成交日＝檔名日＋檔名日有 08:45 以後的成交（擋「跨午夜夜盤日曆日恰好＝檔名日」的只有夜盤版本）。不符不寫檔；zip 完整的拒收檔原樣隔離到 `_rejected/{日}.{sha12}.zip.gz`（滾出窗後仍有證據）。CSV 認不得的列 ≤ max(3 列, 0.01%) 容忍（檔尾 EOF、零星註記，記 `badRows`），更多才拒收。同一上架版本判定過內容就不重抓；zip 壞（截斷／CRC）同一版本最多重抓 3 次。日檔回 200 但不是 zip 算失敗（連 3 次停整個期交所佇列）。
+  - **同名更新**：已歸檔的日子清單時間變新（重新上架）才重抓，偵測本身 0 個額外請求；轉存檔沒有清單時間，zip 內時間與清單差 ≤10 分 ⇒ 直接記上。同一上架版本判定不符／只有夜盤後，時間沒變不重抓。再下載同名檔 sha256 相同只記 `recheck`；不同且變大 ⇒ 新版覆蓋、舊版改名留存（`{日}.v-{sha12}.zip.gz`，列在 `versions`）；不同但沒變大 ⇒ 保留舊版、`lastTry.status=differs`、進 `_alerts`。`--refetch D` 手動重抓。
+  - **存放**：`www.taifex.com.tw/taifex_ticks_30d/{YYYY-MM-DD}.zip.gz`（zip 原始位元組再 gzip，sha256 算在 zip 上；讀法 gunzip → zip）；清單頁每次另存 `_list/{台北日}.html.gz`，`_manifest.json` 的 `list` 記首末日與檔數。
+  - **缺口**：`retry`／`ticks` 寫 `_alerts`——最近 30 個確認交易日裡未歸檔（最後確認日寬限一輪）、已滾出（永久缺）、同名異版；已在歸檔卻 verify 未通過（ticks 空轉）也列。`ticks` 只在警示內容有變時才重寫 `LATEST.json`（它的 `at` 是稽核判斷 retry 有沒有在跑的心跳）。`ticks` 開跑先做一次 0 請求轉存。
+  - **一次性回補轉存**：`second-brain/sara-lab/taifex/ticks-30d/`（10-09 回補 29 檔＋`_manifest.json`）由 `migrate` 0 請求轉入：位元組與 sha256 都對上來源清單、回聲 ok 才收；來源 `missing`（08-26）記成 `lost`——早於歸檔起點 08-27（`TICKS.from`），不列警示，免得已知缺口讓官方鏡像健康列整月 ALERT、蓋掉新缺口。來源目錄不動（研究端 `taifex_tx_bars.py` 之後可改讀鏡像）。
+  - **口徑**：檔名日＝交易日 s，含 s−1 日 15:00 起夜盤（成交日期是日曆日）；量不含鉅額（與官方日行情 OHLC 全等、量略少）。PIT：夜盤只能當 s 日盤前資訊。
 - **ETF／興櫃官方日 K（AI 停損 A3，2026-10-05）**：`scripts/lib/official-bars.mjs` 只讀鏡像（0 請求）組 chipArchive 同格式日 K；`node scripts/official-bars.mjs status|factors` 看覆蓋、閘門與係數涵蓋。
   2026-10-06 R8（使用者「ok 如建議」）：daemon 停損影子在**盤前刷新**直接讀本機鏡像（`readOfficialBarsAsync`，分段讀、0 次 Firestore 讀寫、0 上游請求），不建 Firestore 歸檔；讀不到或閘門 ①②③ 沒過 ⇒ fail-closed（停損規範 §2A）。
   興櫃每日快照主要在 `daily` 22:40 抓；`retry`（隔日 06:45）在最後一個已確認交易日兩個來源（www `tpex_emerging_latest`、openapi `tpex_oa_tpex_esb_latest_statistics`）都缺時補抓一次（≤2 個請求，回聲日定鍵），

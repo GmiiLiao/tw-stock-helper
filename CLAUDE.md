@@ -46,6 +46,7 @@ Next.js on Firebase App Hosting（us-central1）
 | 官方鏡像 `official-mirror.daily` | 平日 22:40＋週六 10:00（2026-10-05 已依範本重裝；起漲影子 23:10 那輪接著用當日 TWT84U） | `scripts/official-mirror.mjs`；範本 `scripts/official-mirror/launchd/`；安裝 `scripts/install-official-mirror-schedule.sh` |
 | 官方鏡像 `official-mirror.retry` | 週二～週六 06:45 | 同上（`_alerts` 經稽核的 `officialMirror(本機)` 列進 dataHealth） |
 | 官方鏡像 `official-mirror.backfill` | 每晚 23:20＋週末 11:00（每日上限 2,500 請求） | 同上 |
+| 官方鏡像 `official-mirror.ticks` | 平日 17:10（2026-10-09 新增；**範本已寫、尚未安裝**） | 同上 `official-mirror.mjs ticks`：期交所前 30 個交易日逐筆 zip 每日歸檔（30 日滾動窗，漏抓約 29 個交易日後永久缺）；平常清單 1＋日檔 1 個請求、都歸檔了 0；verify 通過才跑；缺日進 `_alerts`（技能 tw-official-data-sources §10） |
 | wiki `wiki-nightly` | 每晚 23:40 | `scripts/stock-wiki-nightly.mjs`／`scripts/install-stock-wiki-schedule.sh` |
 | wiki `wiki-monthly` | 每月 1 日 20:30 | 同上 |
 | 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:30／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
