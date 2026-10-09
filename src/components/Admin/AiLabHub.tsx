@@ -1,15 +1,16 @@
 'use client';
 
-// 🤖 AI 實驗（超級管理員）：當沖（盤中 Ollama 審核工作台觸發）／波段持有（盤後 Ollama 從波段榜選股）／起漲影子名單（研究模型盤後凍結）
+// 🤖 AI 實驗（超級管理員）：當沖（盤中 Ollama 審核工作台觸發）／波段持有（盤後 Ollama 從波段榜選股）／起漲影子名單（研究模型盤後凍結）／飆股模型 v2（影子實驗報告，不進任何分數）
 import { useState } from 'react';
 import AiDaytradeLab from './AiDaytradeLab';
 import AiSwingLab from './AiSwingLab';
 import AiLabTargets from './AiLabTargets';
 import AiLabLearn from './AiLabLearn';
 import SurgeShadow from './SurgeShadow';
+import SurgeV2 from './SurgeV2';
 
-type Kind = 'daytrade' | 'swing' | 'surge';
-const KINDS: ReadonlyArray<readonly [Kind, string]> = [['daytrade', '⏳ 當沖'], ['swing', '🌊 波段持有'], ['surge', '🚀 起漲影子']];
+type Kind = 'daytrade' | 'swing' | 'surge' | 'v2';
+const KINDS: ReadonlyArray<readonly [Kind, string]> = [['daytrade', '⏳ 當沖'], ['swing', '🌊 波段持有'], ['surge', '🚀 起漲影子'], ['v2', '🧪 飆股模型v2']];
 
 function Tabs({ kind, setKind }: { kind: Kind; setKind: (k: Kind) => void }) {
   return (
@@ -26,6 +27,8 @@ export default function AiLabHub() {
   const [kind, setKind] = useState<Kind>('daytrade');
   // 起漲影子名單是研究模型的獨立實驗，不套 AI 實驗的目標追蹤與學習面板
   if (kind === 'surge') return <div><Tabs kind={kind} setKind={setKind} /><SurgeShadow /></div>;
+  // 飆股模型 v2 同為研究影子實驗：只讀 /api/admin/surge-v2、不輪詢，同樣不套目標追蹤與學習面板
+  if (kind === 'v2') return <div><Tabs kind={kind} setKind={setKind} /><SurgeV2 /></div>;
   return (
     <div>
       <AiLabTargets />
