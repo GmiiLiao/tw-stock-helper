@@ -6,15 +6,22 @@
 // 模型：分桶 lift（該桶漲停率÷基準率）→ log2 加權分。前段訓練、後 20 日驗證。
 // 兩標籤：A 全市場明日漲停  B 今日漲停者明日連板。
 import admin from 'firebase-admin';
+import { isLimitUpByRule, TW_LIMIT_RULE_VERSION } from './lib/tw-limit-price.mjs';
 
 process.env.GOOGLE_APPLICATION_CREDENTIALS ||= '/Users/gmii/Documents/GCP_憑證檔案/tw-stock-helper-firebase-adminsdk-fbsvc-1dd050d371.json';
 admin.initializeApp();
 const db = admin.firestore();
 
-// 台股 tick 與漲停判定（收盤價 ≥ 漲停價-半tick 視為鎖住/貼停）
-const tick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
-const limitUpPrice = pc => { const t = tick(pc); return +(Math.floor(pc * 1.1 / t) * t).toFixed(2); };
-const isLimitUp = (c, pc) => pc > 0 && c > 0 && c >= limitUpPrice(pc) - 1e-9;
+// 漲停判定口徑（2026-10-09 使用者裁定統一成交易所口徑，唯一實作 scripts/lib/tw-limit-price.mjs）：
+//   --rule 2（預設）＝交易所口徑：升降單位取漲停價本身所在級距、ETF 走 ETF 檔位表；
+//   --rule 1＝舊口徑（前收的級距、個股表），只供重現 2026-09-18 定版 LU_LIFT 的舊數字作對照。
+//   輸出第一行印口徑；存檔請帶口徑後綴（docs/EXPERIMENTS.md 2026-10-09 段）。
+const RULE_ARG = process.argv.indexOf('--rule');
+const LIMIT_RULE = RULE_ARG > 0 ? Number(process.argv[RULE_ARG + 1]) : TW_LIMIT_RULE_VERSION;
+if (LIMIT_RULE !== 1 && LIMIT_RULE !== 2) { console.error(`--rule 只接受 1 或 2（收到 ${process.argv[RULE_ARG + 1]}）`); process.exit(2); }
+const isEtfCode = c => /^00\d{2,4}$/.test(String(c || ''));   // 同 daemon _isEtfCode
+const isLimitUp = (c, pc, code) => isLimitUpByRule(LIMIT_RULE, c, pc, LIMIT_RULE === 2 && isEtfCode(code));
+console.log(`漲停判定口徑 v${LIMIT_RULE}${LIMIT_RULE === 1 ? '（舊·前收級距，對照用）' : '（交易所口徑）'}`);
 
 console.log('載入 chipArchive（收盤價+量）…');
 const archSnap = await db.collection('chipArchive').orderBy('date', 'asc').get();
@@ -60,7 +67,7 @@ for (let i = 1; i < days.length; i++) {
   const set = new Set();
   for (const code in days[i].close) {
     const pc = days[i - 1].close[code]?.[0];
-    if (pc && isLimitUp(days[i].close[code][0], pc)) set.add(code);
+    if (pc && isLimitUp(days[i].close[code][0], pc, code)) set.add(code);
   }
   luSetByDay[i] = set; marketLU[i] = set.size;
 }
@@ -95,7 +102,7 @@ for (let i = LOOKBACK; i < days.length - 1; i++) {
     // 近5日已漲停次數（含今日）
     for (let k = i - 4; k <= i; k++) {
       const p = days[k - 1]?.close[code]?.[0], c = days[k]?.close[code]?.[0];
-      if (p && c && isLimitUp(c, p)) luCnt5++;
+      if (p && c && isLimitUp(c, p, code)) luCnt5++;
     }
     const c20 = days[i - LOOKBACK].close[code]?.[0], c5 = days[i - 5].close[code]?.[0];
     const ret20 = c20 > 0 ? (c0 - c20) / c20 * 100 : null;
@@ -109,7 +116,7 @@ for (let i = LOOKBACK; i < days.length - 1; i++) {
     let streak = 0; for (let k = i; k >= 0; k--) { const r = instByDate[days[k].date]?.[code]; if ((r?.[0] || 0) > 0) streak++; else break; }
     let f5 = 0; for (let k = Math.max(0, i - 4); k <= i; k++) f5 += instByDate[days[k].date]?.[code]?.[0] || 0;
     const fShare = v0 > 0 ? f0 / v0 * 100 : 0; // 外資當日佔量%
-    const cont = isLimitUp(c0, pc);
+    const cont = isLimitUp(c0, pc, code);
     // 3個月(≤60交易日)漲停次數（含今日；早期樣本以可得窗計）
     let luCnt60 = 0;
     for (let k = Math.max(1, i - 59); k <= i; k++) if (luSetByDay[k]?.has(code)) luCnt60++;
@@ -119,7 +126,7 @@ for (let i = LOOKBACK; i < days.length - 1; i++) {
     const indHot = ind ? (indHeatByDay[i].top3.has(ind) ? 1 : 0) : 0;
     const pcT = c0; const cT = tomorrow.close[code]?.[0];
     if (!(cT > 0)) continue;
-    const y = isLimitUp(cT, pcT) ? 1 : 0;
+    const y = isLimitUp(cT, pcT, code) ? 1 : 0;
     samples.push({ i, date: today.date, code, y, cont, feats: { ret20, ret5, chg0, volX, nearHi, luCnt5, luCnt60, indLU5, indHot, f0, t0, d0, streak, f5, fShare, mktLU: marketLU[i] } });
   }
 }
