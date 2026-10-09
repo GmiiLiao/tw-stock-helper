@@ -43,6 +43,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useDayTradeCodes, statusOf } from '@/lib/useDayTradeCodes';
 import { DayTradeMark } from '@/components/shared/DayTradeBadge';
 import { taipeiToday } from '@/lib/useRiskCodes';
+import { lastTradingYmd } from '@/lib/market-clock';
 import { useAiLabAccess } from '@/lib/useAiLabAccess';
 
 const COLORS = ['#3d8ef8', '#22c55e', '#f59e0b', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
@@ -980,7 +981,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
   }, [holdings, ledger]);
 
   const rebuild = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const fallbackBuyDate = lastTradingYmd();   // 僅 lastBuyDate 缺漏時用：買進日必為交易日——非交易日取最後交易日（專案規則），且用台北日（UTC 在 00:00–08:00 是前一天）
     // ⚠ 必須寫 avgPrice（成交均價）而**不是** avgCost（含買進費）：
     //   總覽算「扣費稅後淨利」時會用 buyPrice 再估一次買進手續費，
     //   若這裡塞含費價，同一筆買進費就被扣兩次
@@ -989,7 +990,7 @@ function OverviewLedgerBridge({ ledger, onGoTab }: { ledger: Ledger; onGoTab: (t
       code: p.code, name: p.name,
       buyPrice: +p.avgPrice.toFixed(2),      // 每股加權成交均價（不含買進費）
       quantity: p.lots,
-      buyDate: p.lastBuyDate || today,
+      buyDate: p.lastBuyDate || fallbackBuyDate,
       note: '依交易紀錄重建',
     }));
     const summary = items.length

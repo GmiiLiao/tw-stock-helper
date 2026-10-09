@@ -2,6 +2,7 @@
 
 // ── 全站共用：注意/處置股名單（一次抓取、模組級快取，供任何元件標注） ──
 import { useEffect, useState } from 'react';
+import { taipeiToday } from './market-clock';
 
 export type RiskInfo = {
   attention: Set<string>;
@@ -17,8 +18,10 @@ export type RiskInfo = {
 
 const emptyRisk = (): RiskInfo => ({ attention: new Set(), disposition: new Set(), dispEnd: new Map(), dispStart: new Map(), attEnd: new Map(), loaded: false, complete: false });
 
-/** 台北日曆日 YYYY-MM-DD */
-export const taipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+/** 台北日曆日 YYYY-MM-DD——實作在 market-clock；此處只為既有 client 呼叫端轉出。
+ *  ⚠ server 端（route、*-server.ts）一律從 '@/lib/market-clock' import：本檔是 'use client'，
+ *  Next 會把這裡的每個 export 換成 client reference，server 呼叫會在執行期拋錯（tsc 抓不到）。 */
+export { taipeiToday };
 
 /** 處置已公告但尚未生效（startDate 在今天之後）——3441 實案：公告日當天還只是注意股，不能掛「處置中」。 */
 export function isDispositionPending(r: RiskInfo, code: string, today = taipeiToday()): boolean {

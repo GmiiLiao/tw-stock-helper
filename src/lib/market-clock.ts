@@ -32,6 +32,13 @@ function taipei(now: Date) {
   };
 }
 
+/** 台北日曆日 YYYY-MM-DD（client／server 共用，不受 server TZ／使用者時區影響；與 isTradingDay 同一份 taipei() 換算）。
+ *  ⚠ 不要用 `new Date().toISOString().slice(0, 10)`：那是 UTC 日期，台北 00:00–08:00 會拿到前一天。
+ *  「今天」語意才用這支；資料日請用來源自報日期或既有的資料日來源（boardDataDate 等）。 */
+export function taipeiToday(now: Date = new Date()): string {
+  return taipei(now).ymd;
+}
+
 const M = (h: number, m: number) => h * 60 + m;
 
 /**
@@ -59,6 +66,20 @@ export function isTradingYmd(ymd: string): boolean {
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   if (dow === 0 || dow === 6) return false;
   return !holidays.has(ymd);
+}
+
+const MAX_TRADING_LOOKBACK_DAYS = 15;   // 最長連假（春節）＋週末仍遠小於此
+
+/** 最後一個交易日（含今天）YYYY-MM-DD：今天是交易日＝今天，否則往前找。
+ *  依專案規則「非交易日新建／修改資料的使用與記錄時間＝最後一個交易日」，非交易日要寫進資料的日期用這支。
+ *  日曆未載入時只擋週末（與 isTradingYmd 同為 fail-open）。 */
+export function lastTradingYmd(now: Date = new Date()): string {
+  let ymd = taipeiToday(now);
+  for (let i = 0; i < MAX_TRADING_LOOKBACK_DAYS && !isTradingYmd(ymd); i++) {
+    const [y, m, d] = ymd.split('-').map(Number);
+    ymd = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);   // 純日期運算（UTC 午夜），與時區無關
+  }
+  return ymd;
 }
 
 export function isTradingDay(now: Date = new Date()): boolean {
