@@ -49,10 +49,12 @@ Next.js on Firebase App Hosting（us-central1）
 | 官方鏡像 `official-mirror.ticks` | 平日 17:10（2026-10-09 新增；**範本已寫、尚未安裝**） | 同上 `official-mirror.mjs ticks`：期交所前 30 個交易日逐筆 zip 每日歸檔（30 日滾動窗，漏抓約 29 個交易日後永久缺）；平常清單 1＋日檔 1 個請求、都歸檔了 0；verify 通過才跑；缺日進 `_alerts`（技能 tw-official-data-sources §10） |
 | wiki `wiki-nightly` | 每晚 23:40 | `scripts/stock-wiki-nightly.mjs`／`scripts/install-stock-wiki-schedule.sh` |
 | wiki `wiki-monthly` | 每月 1 日 20:30 | 同上 |
-| 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:30／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
-| 分析師團隊 `daily-analyst-evening` | 週一～五 23:20 起跑（腳本內每 10 分鐘輪詢「熱力定版＋資料到齊」，硬死線 00:30） | `scripts/analyst-desk-run.mjs evening`／`scripts/install-daily-analyst-schedule.sh`（技能 `tw-analyst-desk`）；claude -p 雲端引擎不碰 Ollama；定版寫 `second-brain/daily-analyst/`，發佈 Firestore `dailyAnalyst/*`（公開）＋`dailyAnalystFocus/*`（管理員）；範本已寫、**尚未安裝** |
+| 每日熱力 `daily-heatmap-poll`／`daily-heatmap-retry` | 平日 22:45（先等官方鏡像當晚 daily 跑完再建檔；建完自動補建近 5 個交易日缺檔並發佈 `dailyHeatmap/{日}`·2026-10-09 WM-SCAN G4-37）／06:50 | `scripts/daily-heatmap-run.mjs`／`scripts/install-daily-heatmap-schedule.sh`（`ec4fa09` 進版控；寫 Firestore `dailyHeatmap/latest`，盤後報告頁讀） |
+| 分析師團隊 `daily-analyst-evening` | 週一～五 23:20 起跑（腳本內每 10 分鐘輪詢「熱力定版＋資料到齊」，硬死線 00:30） | `scripts/analyst-desk-run.mjs evening`／`scripts/install-daily-analyst-schedule.sh`（技能 `tw-analyst-desk`）；claude -p 雲端引擎不碰 Ollama；定版寫 `second-brain/daily-analyst/`，發佈 Firestore `dailyAnalyst/*`（公開）＋`dailyAnalystFocus/*`（管理員）；已安裝（2026-10-09 launchctl 實查） |
 | 分析師團隊 `daily-analyst-morning` | 週二～六 06:10 起跑（同上輪詢，硬死線 07:30；07:00 daemon 晨間新聞趟占 Ollama 不影響主引擎） | 同上 `analyst-desk-run.mjs morning`；晨間定版優先於盤後版；未定版至死線寫 `_alerts`、頁面退回模板版 |
 | 起漲影子 `surge-shadow` | 平日 17:30／19:30／21:00／23:10／23:50＋週二～週六 07:05 | `scripts/surge-lab/a35_shadow_daily.mjs`；範本 `scripts/surge-lab/launchd/com.gmii.twstock.surge-shadow.plist`（2026-10-04 使用者核可安裝）。資料到齊（收盤＋法人＋站上 pred 定版＋資券/借券/當沖）才凍結、下一交易日 09:00 前；研究程序在跑會略過；網路只有除權息 2 請求；寫 Firestore `surgeShadow/*`；日誌 `~/Library/Logs/twstock-surge-shadow/` |
+| 飆股模型 v2 影子 `news-shadow` | 週二～六 00:20（前一晚收盤資料到齊後；等 panel 更新最多 1 小時；Nice 10） | `second-brain/news-scores/pipeline/run_daily.mjs`→`run_daily.sh`（2026-10-08 改由 node 起程序：launchd 直接起 bash 無法存取 ~/Documents，10-08 00:20 首輪因此失敗；日誌 `~/Library/Logs/twstock-news-shadow/`）；plist `pipeline/com.gmii.twstock.news-shadow.plist`（2026-10-07 使用者核可安裝）。鉅亨新聞增量→Jev 識讀（api.typesafe.ai，尚未登錄 source-registry，研究用）→重建特徵→報告→寫 Firestore `surgeShadow/surge-v2`（超管後台「🧪 飆股模型v2」）；不進任何分數；日誌 `pipeline/logs/` |
+| 分K收集 `intraday-yahoo` | 平日 18:10（無資料時自動回補：1m 30日／5m 60交易日／60m 730交易日，約 50 分） | `scripts/intraday-yahoo/collect.mjs`（+`universe.py`）；plist 同目錄（2026-10-08 使用者核可安裝）。Yahoo 1／5／60 分K 原始棒存 `second-brain/intraday-yahoo/`（非官方·研究用·不得進正式訓練）；2 工作線×250ms、429 熔斷；平日 07:30–14:00 拒跑；`_coverage.json`／`_alerts.json` 看缺口；日誌 `~/Library/Logs/twstock-intraday-yahoo/` |
 
 鏡像與 daemon 共用出口：鏡像程式避開平日 07:30–15:30 與 daemon 重任務窗 16:25–16:55、21:40–22:35（`scripts/lib/official-mirror.mjs` 的 `DAEMON_BUSY_WINDOWS`）。
 新增排程時把它加進這張表，並確認不落在上述窗內。
@@ -287,6 +289,12 @@ const poll = async () => {
     重啟＝整窗直接蒸發，fallback 只能寫殘缺版。要重啟就等日誌出現
     「✓ 尾盤五檔歸檔」再動手；本輪重啟造成的資料代價已經是第三次
     （bookDepthArchive 當日資料、chipArchive 空殼、即時價失憶）。
+- **以為「daemon 跑舊碼」只能等人重啟** —— 2026-10-09 起（使用者裁定「要標上，跑舊碼就修正它」）：
+  daemon 每 10 分鐘比對磁碟碼雜湊，落後滿 30 分鐘、雜湊涵蓋的檔案在 git 皆已 commit、`can-restart-daemon` 放行、無進行中工作、
+  且在安全時段（交易日 10:10–13:15、14:00–15:00；非交易日 12:00–16:00）才自行結束、由 launchd 拉起新碼（`scripts/lib/drift-heal.mjs`，
+  原因寫進 `system/daemonBuild.selfRestart`）。⇒ **daemon 相關檔不要長時間留著未 commit 的修改**：dirty 時不會自動換碼。
+  寫入端版本：daemon 各頂層 collection「最後由哪個 codeHash／commit 寫入」與發佈程式（熱力、分析師、起漲影子）彙整在
+  `system/writerVersions`（`scripts/lib/writer-version.mjs`；不動資料文件本身）。
 - **上游故障中重啟 daemon** —— 部分後備是**程序記憶體**的 stale-if-error 快取（例：上櫃清單「沿用上一份快取」），
   重啟＝快取蒸發。2026-10-03 實案：本機 DNS 解析不到 `www.tpex.org.tw`（07:00 起），13:50 為部署 wiki 整合重啟，
   `can-restart-daemon` 因週六放行 ⇒ 全站上櫃整批消失約 30 分鐘。
