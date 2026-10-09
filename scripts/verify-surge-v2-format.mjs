@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  num, str, parsePick, parseReport, isWarnPick, ledgerStatusLabel, barWidths, signTone, ciTone,
+  num, str, parsePick, parseReport, parseSwing10, isWarnPick, ledgerStatusLabel, swingStatusLabel, barWidths, signTone, ciTone,
   fmtNum, fmtCount, fmtRatio, fmtPercent, fmtRate, fmtInterval, fmtDateTime, fmtText, fmtFlag, DAY_RE,
 } from '../src/lib/surge-v2-format.ts';
 
@@ -133,6 +133,36 @@ test('輸出可被 JSON 序列化（Firestore 單文件 ≤900KB 的下游）：
   assert.ok(!s.includes('NaN')); assert.ok(!s.includes('undefined'));
 });
 
+const SWING = {
+  schema: 'swing10/1', asOfDay: '2026-10-08', entryDay: '2026-10-09', builtTime: '2026-10-09T23:00:00+08:00', target: '到第10日 10日累積超額≥50%',
+  model: { kind: 'HistGBDT(200,3,0.05)', feats: 78, trainedOn: '2026-10-08', trainedThrough: '2026-10-01', rows: 19567, positives: 1264 },
+  validation: { lines: ['新−舊 +0.43pp'] },
+  picks: [{ rank: 1, code: '2466', name: '冠西電', boardRank: 1, prob: 0.72, g5: 0.54, g5x: 0.53, need: -0.02, boards: '5/10/20/60', ma5gap: 0.17, boardAge: 4, luToday: 1, luRun: 1, attRun: 5, dispDay: 1, dispLu: 1, yoy3: 34, lu60: 6 }],
+  ledger: { summary: { days: 2, closedDays: 1, topRetx: 0.0513, boardRetx: 0.0002, diff: 0.0512, upShare: 1, hitA: 1, note: '策略說明' },
+    rows: [{ pickDay: '2026-09-25', dataDay: '2026-09-24', code: '2221', name: '', prob: 0.1, pick: true, buyable: true, status: 'closed', day: 5, ret: 0.1006, retx: 0.0729, hitA: true },
+           { pickDay: '2026-10-09', dataDay: '2026-10-08', code: '2466', name: '冠西電', prob: 0.72, pick: null, status: '待進場' }] },
+  notes: [],
+};
+
+test('swing10：完整輸入逐欄保留；舊報告沒有 swing10 → null', () => {
+  const r = parseReport({ ...FULL, swing10: SWING });
+  assert.equal(r.swing10.picks[0].prob, 0.72); assert.equal(r.swing10.picks[0].boards, '5/10/20/60'); assert.equal(r.swing10.model.rows, 19567);
+  assert.equal(r.swing10.ledger.summary.closedDays, 1); assert.equal(r.swing10.ledger.rows[0].hitA, true); assert.equal(r.swing10.ledger.rows[1].pick, null);
+  assert.deepEqual(r.swing10.validation, ['新−舊 +0.43pp']);
+  assert.equal(parseReport(FULL).swing10, null);
+  for (const b of [null, undefined, 5, 'x', [], [1]]) assert.equal(parseSwing10(b), null);
+});
+
+test('swing10：壞值與缺欄不丟例外、數值為 null、壞列被丟', () => {
+  for (const key of Object.keys(SWING)) for (const b of BAD) assert.doesNotThrow(() => parseSwing10({ ...SWING, [key]: b }), `${key}=${String(b)}`);
+  const s = parseSwing10({ picks: [null, 3, { prob: NaN, code: 5, g5: '0.5' }], ledger: { summary: 'x', rows: [null, { ret: Infinity, pick: 'yes', hitA: 1 }] }, validation: { lines: [1, '', 'ok'] }, model: [] });
+  assert.equal(s.picks.length, 1); assert.equal(s.picks[0].prob, null); assert.equal(s.picks[0].code, '—'); assert.equal(s.picks[0].g5, null);
+  assert.equal(s.ledger.summary.diff, null); assert.equal(s.ledger.rows.length, 1); assert.equal(s.ledger.rows[0].ret, null);
+  assert.equal(s.ledger.rows[0].pick, null); assert.equal(s.ledger.rows[0].hitA, null); assert.deepEqual(s.validation, ['ok']); assert.equal(s.model.rows, null);
+  assert.equal(swingStatusLabel('closed'), '已結算'); assert.equal(swingStatusLabel('open'), '持有中'); assert.equal(swingStatusLabel('待進場'), '待進場'); assert.equal(swingStatusLabel(null), '—');
+  assert.ok(!JSON.stringify(parseReport({ ...FULL, swing10: SWING })).includes('NaN'));
+});
+
 // ── 外部 fixture（真實內容）：只驗「不丟例外＋結構不變式」，不驗內容值 ──
 const fixturePath = process.argv.find(a => a.endsWith('.json'));
 if (fixturePath) {
@@ -149,6 +179,7 @@ if (fixturePath) {
     for (const x of r.validation.rows) { fmtPercent(x.top); fmtInterval(x.diffLo, x.diffHi); }
     for (const x of r.ledger.rows) { fmtRatio(x.ret); ledgerStatusLabel(x.status); }
     fmtDateTime(r.builtTime);
-    console.log(`# fixture 摘要：asOf=${r.asOfDay} 起漲${r.picks.start.length} 續漲${r.picks.cont.length} 驗證列${r.validation.rows.length} 處置模態${r.disposal.modes.length} 今日處置${r.disposal.today.length} 換股建議${r.swaps.today.length} 帳本${r.ledger.rows.length} 步驟${r.pipeline.steps.length}`);
+    if (r.swing10) { for (const p of r.swing10.picks) { fmtRatio(p.prob); fmtPercent(p.yoy3); } for (const x of r.swing10.ledger.rows) { fmtRatio(x.retx); swingStatusLabel(x.status); } }
+    console.log(`# fixture 摘要：asOf=${r.asOfDay} 起漲${r.picks.start.length} 續漲${r.picks.cont.length} 驗證列${r.validation.rows.length} 處置模態${r.disposal.modes.length} 今日處置${r.disposal.today.length} 換股建議${r.swaps.today.length} 帳本${r.ledger.rows.length} 步驟${r.pipeline.steps.length} swing10=${r.swing10 ? `${r.swing10.picks.length}檔/帳本${r.swing10.ledger.rows.length}` : '無'}`);
   });
 }

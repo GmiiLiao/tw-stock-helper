@@ -8,6 +8,7 @@
 //   小數比例（0.31＝31%）：Pick 的 score／winProb／past20／news.bull0／bear0、tp／sl、處置模態的 pre20／during／post20／reach25、前向帳本 ret／meanRet
 //   已是百分數（6.18＝6.18%）：validation 與 swaps.validation 各欄、hitRows 各欄、importance.pp
 //   前向帳本 summary.win：兩種寫法都可能（0.43 或 43）→ fmtRate 以 ≤1 視為比例（唯一的啟發式，限勝率）
+//   swing10（5日榜→10日模型A，2026-10-09 接入）：prob／g5／g5x／need／ma5gap／ret／retx／summary 各報酬與比例＝小數比例；yoy3＝已是百分數
 
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DASH = '—';
@@ -138,6 +139,24 @@ export interface V2Report {
     rows: Array<{ pickDay: string | null; code: string; name: string; phase: string | null; status: string | null; ret: Num; exitDay: string | null }>;
   };
   pipeline: { lastRun: string | null; steps: Array<{ name: string; ok: boolean | null; note: string | null }>; dataNotes: string[] };
+  swing10: V2Swing10 | null;
+}
+
+/** 5 日榜 → 到第 10 日 10 日累積超額≥50%（模型 A＋均線／多榜特徵；管線 lib/swing10.py）。 */
+export interface V2SwingPick {
+  rank: Num; code: string; name: string; boardRank: Num; prob: Num; g5: Num; g5x: Num; need: Num; boards: string | null;
+  ma5gap: Num; boardAge: Num; luToday: Num; luRun: Num; attRun: Num; dispDay: Num; dispLu: Num; yoy3: Num; lu60: Num;
+}
+export interface V2Swing10 {
+  asOfDay: string | null; entryDay: string | null; builtTime: string | null; target: string | null;
+  model: { kind: string | null; feats: Num; trainedOn: string | null; trainedThrough: string | null; rows: Num; positives: Num };
+  validation: string[];
+  picks: V2SwingPick[];
+  ledger: {
+    summary: { days: Num; closedDays: Num; topRetx: Num; boardRetx: Num; diff: Num; upShare: Num; hitA: Num; note: string | null };
+    rows: Array<{ pickDay: string | null; dataDay: string | null; code: string; name: string; prob: Num; pick: boolean | null; status: string | null; day: Num; ret: Num; retx: Num; hitA: boolean | null }>;
+  };
+  notes: string[];
 }
 
 const STATE_KEYS: ReadonlyArray<keyof V2State> = ['luClose20', 'luOpen20', 'luLock20', 'luBroken20', 'luSmall20', 'luBig20', 'streak', 'vr', 'attn20', 'disp', 'otc'];
@@ -161,6 +180,39 @@ export function parsePick(raw: unknown): V2Pick | null {
   };
 }
 const picks = (v: unknown): V2Pick[] => arr(v).map(parsePick).filter((p): p is V2Pick => p !== null);
+
+/** swing10 區塊：不是物件（含舊報告沒有這個欄位）回 null＝元件不顯示該區塊。 */
+export function parseSwing10(raw: unknown): V2Swing10 | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = rec(raw); const md = rec(o.model); const val = rec(o.validation); const lg = rec(o.ledger); const ls = rec(lg.summary);
+  return {
+    asOfDay: str(o.asOfDay), entryDay: str(o.entryDay), builtTime: str(o.builtTime), target: str(o.target),
+    model: { kind: str(md.kind), feats: num(md.feats), trainedOn: str(md.trainedOn), trainedThrough: str(md.trainedThrough), rows: num(md.rows), positives: num(md.positives) },
+    validation: strs(val.lines),
+    picks: objs(o.picks).map(r => ({
+      rank: num(r.rank), code: str(r.code) ?? DASH, name: str(r.name) ?? '', boardRank: num(r.boardRank), prob: num(r.prob), g5: num(r.g5), g5x: num(r.g5x), need: num(r.need),
+      boards: str(r.boards), ma5gap: num(r.ma5gap), boardAge: num(r.boardAge), luToday: num(r.luToday), luRun: num(r.luRun), attRun: num(r.attRun),
+      dispDay: num(r.dispDay), dispLu: num(r.dispLu), yoy3: num(r.yoy3), lu60: num(r.lu60),
+    })),
+    ledger: {
+      summary: { days: num(ls.days), closedDays: num(ls.closedDays), topRetx: num(ls.topRetx), boardRetx: num(ls.boardRetx), diff: num(ls.diff), upShare: num(ls.upShare), hitA: num(ls.hitA), note: str(ls.note) },
+      rows: objs(lg.rows).map(r => ({
+        pickDay: str(r.pickDay), dataDay: str(r.dataDay), code: str(r.code) ?? DASH, name: str(r.name) ?? '', prob: num(r.prob), pick: bool(r.pick),
+        status: str(r.status), day: num(r.day), ret: num(r.ret), retx: num(r.retx), hitA: bool(r.hitA),
+      })),
+    },
+    notes: strs(o.notes),
+  };
+}
+/** swing10 帳本 status → 中文；未知狀態原樣顯示。 */
+export function swingStatusLabel(s: string | null): string {
+  if (s === null) return DASH;
+  switch (s) {
+    case 'closed': return '已結算';
+    case 'open': return '持有中';
+    default: return s;
+  }
+}
 
 /** 整份報告。輸入不是物件（含 null、陣列、字串）回 null＝呼叫端顯示「格式不符」。 */
 export function parseReport(raw: unknown): V2Report | null {
@@ -198,6 +250,7 @@ export function parseReport(raw: unknown): V2Report | null {
       steps: objs(pl.steps).map(r => ({ name: str(r.name) ?? DASH, ok: bool(r.ok), note: str(r.note) })),
       dataNotes: strs(pl.dataNotes),
     },
+    swing10: parseSwing10(o.swing10),
   };
 }
 

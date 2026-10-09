@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { auth } from '@/lib/firebase';
 import {
-  parseReport, rec, isWarnPick, ledgerStatusLabel, barWidths, signTone, ciTone,
+  parseReport, rec, isWarnPick, ledgerStatusLabel, swingStatusLabel, barWidths, signTone, ciTone,
   fmtNum, fmtCount, fmtRatio, fmtPercent, fmtRate, fmtInterval, fmtDateTime, fmtText, fmtFlag,
-  type V2Report, type V2Pick, type Tone,
+  type V2Report, type V2Pick, type V2Swing10, type Tone,
 } from '@/lib/surge-v2-format';
 import { LAB_FOOT } from './surgeLabFetch';
 
@@ -13,6 +13,7 @@ import { LAB_FOOT } from './surgeLabFetch';
 // 研究管線每晚產出的影子實驗報告（未通過驗證、不進任何分數、不影響站上功能）。
 // 資料：Mac 管線 → Firestore surgeShadow/surge-v2 → /api/admin/surge-v2。欄位全部可能缺：由 parseReport 收斂、缺值顯示「—」。
 // 不輪詢：載入時讀一次＋手動「重新整理」（資料每晚才變一次）。
+// 2026-10-09：加「5日榜→10日（模型A）」區塊（report.swing10；舊報告沒有這欄就不顯示）。
 
 const FETCH_TIMEOUT_MS = 8000;
 const LIST_BASE = 30;   // 名單／帳本預設顯示列數（不一次渲染全部）
@@ -278,6 +279,70 @@ function Swaps({ s }: { s: V2Report['swaps'] }) {
   );
 }
 
+// ───────── 5 日榜 → 10 日（模型 A）─────────
+const SWING_TOP = 5;     // 每晚凍結前 5 名
+const SWING_STRAT = 3;   // 策略＝前 5 名中隔日開盤非漲停的前 3 檔
+const SWING_HEADS = ['名次', '代號名稱', '模型機率', '5日漲幅', '已有5日超額', '還需約', '所在榜', '距5日線', '上榜第幾天', '今日漲停', '連板', '連續注意', '處置第N日', '本次處置漲停', '營收3月年增', '60日漲停'];
+
+function Swing10({ s }: { s: V2Swing10 }) {
+  const m = s.model; const ls = s.ledger.summary;
+  return (
+    <Section title="🎯 5日榜→10日（模型A·影子）" hint={s.target ?? undefined}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        <Badge label="資料日" value={fmtText(s.asOfDay)} />
+        <Badge label="假設進場日" value={fmtText(s.entryDay)} />
+        <Badge label="訓練資料到" value={fmtText(m.trainedThrough)} />
+        <Badge label="訓練列／正例" value={`${fmtCount(m.rows)}／${fmtCount(m.positives)}`} />
+      </div>
+      {s.validation.length > 0 && <ul style={{ margin: '0 0 8px', paddingLeft: 20, wordBreak: 'break-word' }}>{s.validation.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+      <Note>藍底＝每晚凍結的前 {SWING_TOP} 名（只寫一次，事後對答案）；策略取其中隔日開盤非漲停的前 {SWING_STRAT} 檔。「還需約」假設之後 5 日大盤持平。</Note>
+      {s.picks.length === 0 ? <Empty text="今日沒有 5 日榜名單" /> : (
+        <Limited rows={s.picks} render={visible => (
+          <Table heads={SWING_HEADS} left={[1, 6]}>
+            {visible.map((p, i) => {
+              const top = (p.rank ?? i + 1) <= SWING_TOP;
+              return (
+                <tr key={`${p.code}#${i}`} style={{ borderBottom: LINE, background: top ? 'rgba(59,130,246,0.08)' : undefined }}>
+                  {cell(fmtCount(p.rank ?? i + 1))}{cellL(<><b>{p.code}</b> {p.name}</>)}
+                  {cell(fmtRatio(p.prob, 1), undefined, { fontWeight: 700 })}
+                  {cell(fmtRatio(p.g5, 0, true), signTone(p.g5))}{cell(fmtRatio(p.g5x, 0, true), signTone(p.g5x))}{cell(fmtRatio(p.need, 0, true))}
+                  {cellL(fmtText(p.boards))}{cell(fmtRatio(p.ma5gap, 0, true), signTone(p.ma5gap))}{cell(fmtCount(p.boardAge))}
+                  {cell(fmtFlag(p.luToday, '是', ''))}{cell(fmtCount(p.luRun))}{cell(fmtCount(p.attRun))}
+                  {cell((p.dispDay ?? 0) > 0 ? fmtCount(p.dispDay) : '', undefined, { color: (p.dispDay ?? 0) > 0 ? AMBER : undefined })}
+                  {cell((p.dispDay ?? 0) > 0 ? fmtCount(p.dispLu) : '')}
+                  {cell(fmtPercent(p.yoy3, 0))}{cell(fmtCount(p.lu60))}
+                </tr>
+              );
+            })}
+          </Table>
+        )} />
+      )}
+      <div style={{ marginTop: 10 }}><b>前向帳本</b></div>
+      <Note>
+        累計 {fmtCount(ls.days)} 個資料日、已結算 {fmtCount(ls.closedDays)} 日｜策略可實現超額 <b style={{ color: toneColor(signTone(ls.topRetx)) }}>{fmtRatio(ls.topRetx, 2, true)}</b>｜同日全榜 {fmtRatio(ls.boardRetx, 2, true)}｜差 <b style={{ color: toneColor(signTone(ls.diff)) }}>{fmtRatio(ls.diff, 2, true)}</b>｜上漲比例 {fmtRatio(ls.upShare, 0)}｜達 A 標 {fmtRatio(ls.hitA, 0)}
+        {(ls.closedDays ?? 0) < 20 && <span style={{ color: AMBER }}>　⚠ 已結算不到 20 日，還不能下結論</span>}
+        {ls.note && <div>{ls.note}</div>}
+      </Note>
+      {s.ledger.rows.length === 0 ? <Empty text="帳本尚無逐筆紀錄（第一份凍結名單要等隔日開盤才進場）" /> : (
+        <Limited rows={s.ledger.rows} render={visible => (
+          <Table heads={['進場日', '資料日', '代號名稱', '模型機率', '策略', '狀態', '持有日', '報酬', '超額', '達A標']} left={[0, 1, 2, 4, 5]}>
+            {visible.map((x, i) => (
+              <tr key={i} style={{ borderBottom: LINE }}>
+                {cellL(fmtText(x.pickDay))}{cellL(fmtText(x.dataDay))}{cellL(<><b>{x.code}</b> {x.name}</>)}
+                {cell(fmtRatio(x.prob, 1))}{cellL(x.pick === true ? '✓ 買進' : x.pick === false ? '略過' : '—')}
+                {cellL(swingStatusLabel(x.status))}{cell(fmtCount(x.day))}
+                {cell(fmtRatio(x.ret, 2, true), signTone(x.ret))}{cell(fmtRatio(x.retx, 2, true), signTone(x.retx))}
+                {cell(x.hitA === null ? '—' : x.hitA ? '是' : '否')}
+              </tr>
+            ))}
+          </Table>
+        )} />
+      )}
+      {s.notes.length > 0 && <ul style={{ margin: '6px 0 0', paddingLeft: 20, color: AMBER, wordBreak: 'break-word' }}>{s.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+    </Section>
+  );
+}
+
 // ───────── 前向帳本 ─────────
 function Ledger({ l }: { l: V2Report['ledger'] }) {
   const s = l.summary;
@@ -380,6 +445,7 @@ export default function SurgeV2() {
       <Header r={r} updatedAt={data.updatedAt} />
       <Validation v={r.validation} />
       <Picks p={r.picks} />
+      {r.swing10 && <Swing10 s={r.swing10} />}
       <Disposal d={r.disposal} />
       <Swaps s={r.swaps} />
       <Ledger l={r.ledger} />
