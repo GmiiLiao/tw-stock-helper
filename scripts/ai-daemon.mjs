@@ -25,6 +25,7 @@ import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue, FieldPath, DocumentReference, WriteBatch, Transaction } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
+import { limitUpPrice as twLimitUpPrice, isLimitUpAt as twIsLimitUpAt, TW_LIMIT_RULE_VERSION } from './lib/tw-limit-price.mjs';
 import { createWriterRegistry, installWriteRecorder, gitWriterStamp, WRITER_DOC } from './lib/writer-version.mjs';
 import { driftHealVerdict, DRIFT_SETTLE_MIN } from './lib/drift-heal.mjs';
 import { loadWikiStocks, wikiPromptBlock } from './lib/wiki-facts.mjs';
@@ -9626,7 +9627,7 @@ async function computeTopicPicks() {
     // 話題層①：族群5日板數 Top3（與回測同口徑）
     const cnt = {};
     for (let k = Math.max(1, arch.length - 5); k < arch.length; k++) {
-      for (const c in arch[k].close) { const p = arch[k - 1].close?.[c]?.[0]; if (p && luIsLimitUp(arch[k].close[c][0], p) && indMap[c]) cnt[indMap[c]] = (cnt[indMap[c]] || 0) + 1; }
+      for (const c in arch[k].close) { const p = arch[k - 1].close?.[c]?.[0]; if (p && luIsLimitUp(arch[k].close[c][0], p, c) && indMap[c]) cnt[indMap[c]] = (cnt[indMap[c]] || 0) + 1; }
     }
     const hotSectors = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 3).filter(([, n]) => n >= 5).map(([ind, n]) => ({ ind, n }));
     const hotSet = new Set(hotSectors.map(h => h.ind));
@@ -12765,8 +12766,8 @@ async function computeMarketPattern() {
 // 實測最佳尾盤型態「收最高＋破5日高」(55%/+1.55%/PF2.02)：漲≥1%、收盤位置≥0.9、
 // 收盤突破前5日高。分兩類：buyable(未鎖漲停＝尾盤買得到)、locked(鎖漲停＝漲停鎖死排隊)。
 // 盤中(12:45–13:35)用即時快照 OHLC；收盤後用 STOCK_DAY_ALL。近5日高/均量取自 chipArchive。
-const _teTick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
-const _teIsLimitUp = (c, pc) => { if (!(pc > 0)) return false; const t = _teTick(pc); const lim = Math.floor(pc * 1.1 / t) * t; return c >= lim - 1e-9; };
+// 漲停口徑 v2（2026-10-09）：同 luIsLimitUp，交易所規則（tw-limit-price.mjs）；呼叫端只有 4 碼非 00 個股
+const _teIsLimitUp = (c, pc) => twIsLimitUpAt(c, pc);
 async function computeTailEndPicks() {
   const tw = taipei(); const mins = tw.getHours() * 60 + tw.getMinutes(); const today = isoDate(tw);
   const trading = isTradingDay(tw);
@@ -13556,7 +13557,7 @@ async function computeChipPicks() {
       const dumpRisk = Math.max(riseProg, volProg);
       const stage = dumpRisk >= 80 ? '後期(接近實證倒貨點)' : dumpRisk >= 50 ? '中期' : '初期';
       // 3月板數（資訊·非因果）
-      let lu60c = 0; for (let k = 1; k < arch60.length; k++) { const a = arch60[k].close[code]?.[0], b = arch60[k - 1].close[code]?.[0]; if (a > 0 && b > 0 && luIsLimitUp(a, b)) lu60c++; }
+      let lu60c = 0; for (let k = 1; k < arch60.length; k++) { const a = arch60[k].close[code]?.[0], b = arch60[k - 1].close[code]?.[0]; if (a > 0 && b > 0 && luIsLimitUp(a, b, code)) lu60c++; }
       accum.push({ code, name, market: q3?.market || 'tse', price: +(+p1).toFixed(2), added: Math.round(added), addedXVol: avgV > 0 ? +(added / avgV).toFixed(1) : null, valueE8, buyDays, days, rise: +rise.toFixed(1), dumpRisk, stage, lu60: lu60c });
     }
     accum.sort((a, b) => b.added - a.added);
@@ -13575,7 +13576,7 @@ async function computeChipPicks() {
 // 2026-09-18 權值稽核 D5：lift 表以 2022-08-15～2026-08-19 全期重訓（scripts/backtest-limitup.mjs，訓練 131 萬檔日、基準漲停率 1.73%），
 //   後 20 日 walk-forward Top10 18.5%／Top20 17.8%。舊表（2026-07 訓練 92 日）記分板 45 日 Top10 已衰退至 13.6%。
 //   桶界不變，只換 lift；版本章 LU_VERSION 寫進 limitUpForecast doc，記分板按版本分開看。
-const LU_VERSION = { version: '2026-09-18.v2', trainedFrom: '2022-08-15', trainedThrough: '2026-08-19', wf20: { top10: 18.5, top20: 17.8, top30: 15.3 }, prev: { version: '2026-07', top10bt: 20.5, top10live45d: 13.6 } };
+const LU_VERSION = { version: '2026-09-18.v2', labelRule: 1, trainedFrom: '2022-08-15', trainedThrough: '2026-08-19', wf20: { top10: 18.5, top20: 17.8, top30: 15.3 }, prev: { version: '2026-07', top10bt: 20.5, top10live45d: 13.6 } };
 const LU_LIFT = { // [label, predicate(升冪短路), lift]（來源：回測訓練集 2022-08-15～2026-08-19）
   chg0:   [['<0', v => v < 0, 0.78], ['0~3', v => v < 3, 0.61], ['3~7', v => v < 7, 1.89], ['7~9.5', v => v < 9.5, 3.08], ['已漲停', () => true, 11.23]],
   ret5:   [['5日<-3%', v => v < -3, 1.08], ['5日平淡', v => v < 3, 0.45], ['5日+3~10%', v => v < 10, 1.28], ['5日≥+10%', () => true, 4.73]],
@@ -13604,9 +13605,12 @@ const LU_CONT = {
   streak: v => v === 0 ? 1.25 : v <= 2 ? 0.91 : 0.88,
 };
 const luBucket = (k, v) => { if (v == null) return null; for (const [label, fn, lift] of LU_LIFT[k]) if (fn(v)) return { label, lift }; return null; };
-const luTick = p => p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
-const luLimitPrice = pc => { const t = luTick(pc); return +(Math.floor(pc * 1.1 / t) * t).toFixed(2); };
-const luIsLimitUp = (c, pc) => pc > 0 && c > 0 && c >= luLimitPrice(pc) - 1e-9;
+// 漲停判定口徑 v2（2026-10-09 使用者裁定統一成交易所口徑）：升降單位取「漲停價本身」所在級距、ETF 走 ETF 檔位表
+//   （scripts/lib/tw-limit-price.mjs 唯一實作）。舊 v1 用前收的級距，前收 9.09–10、45.45–50、90.9–100、454.5–500、909–1000
+//   時漲停價高一檔以上 ⇒ 鎖在交易所漲停價的個股被判「未漲停」（個股只會漏判；ETF 改用 ETF 檔位後 2025-04-10 0053／0055 由是轉否）。code 給了才分 ETF；未給＝個股表。
+//   ⚠ LU_LIFT 仍是 v1 標籤訓練的表，重算前後的數字見 docs/EXPERIMENTS.md 2026-10-09 段。
+const luLimitPrice = (pc, code) => twLimitUpPrice(pc, _isEtfCode(code));
+const luIsLimitUp = (c, pc, code) => twIsLimitUpAt(c, pc, _isEtfCode(code));
 
 // ── 每日新聞庫 newsDaily（鉅亨標題→個股提及則數；逐日存檔）──
 // 歷史回補：scripts/backfill-news.mjs。此函式每日/盤中(15分節流)更新當日文件。
@@ -13830,7 +13834,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
   const luSets = [null]; // k 對 k-1
   for (let k = 1; k < n; k++) {
     const set = new Set();
-    for (const c in series[k].close) { const p = series[k - 1].close[c]?.[0]; if (p && luIsLimitUp(series[k].close[c][0], p)) set.add(c); }
+    for (const c in series[k].close) { const p = series[k - 1].close[c]?.[0]; if (p && luIsLimitUp(series[k].close[c][0], p, c)) set.add(c); }
     luSets.push(set);
   }
   const mktLU = luSets[t]?.size || 0; // 今日市場漲停家數
@@ -13878,7 +13882,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
       const q = quo[c];
       const prevC = prev.close[c]?.[0];
       if (q && prevC > 0) {
-        const raw = prevC * 1.1, tk = luTick(raw), limitP = Math.floor(raw / tk + 1e-9) * tk;
+        const limitP = luLimitPrice(prevC, c);   // 同 luSets 口徑（含 ETF 檔位）
         const hi = q.high || 0;
         if (!(hi > 0 && hi >= limitP - 1e-6)) continue;   // 今日最高沒到過漲停 → 不記
       }
@@ -13908,7 +13912,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
     const avgV = vN >= 10 ? vSum / vN : 0;
     if (avgV < 100) continue; // 流動性濾網
     let luCnt5 = 0;
-    for (let k = t - 4; k <= t; k++) { const p = series[k - 1]?.close[code]?.[0], c = series[k]?.close[code]?.[0]; if (p && c && luIsLimitUp(c, p)) luCnt5++; }
+    for (let k = t - 4; k <= t; k++) { const p = series[k - 1]?.close[code]?.[0], c = series[k]?.close[code]?.[0]; if (p && c && luIsLimitUp(c, p, code)) luCnt5++; }
     const c20 = series[t - 20]?.close[code]?.[0], c5 = series[t - 5]?.close[code]?.[0];
     const row = inst[code];
     const ind = indMap[code] || null;
@@ -13942,11 +13946,11 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
       prevClose: +pc.toFixed(2),
       prevChg: (() => { const pp = series[t - 2]?.close[code]?.[0]; return pp > 0 ? +((pc / pp - 1) * 100).toFixed(2) : null; })(),
       score: +score.toFixed(2), reasons: reasons.slice(0, 5), newsBonus,
-      volX: +feats.volX.toFixed(1), luCnt5, limitPrice: luLimitPrice(c0),
+      volX: +feats.volX.toFixed(1), luCnt5, limitPrice: luLimitPrice(c0, code),
     };
     aList.push(item);
     // B 榜：今日(即時)已漲停 → 連板持續評估
-    if (luIsLimitUp(c0, pc)) {
+    if (luIsLimitUp(c0, pc, code)) {
       const streak = streakOf(code);
       let est = LU_CONT_BASE;
       for (const k in LU_CONT) est *= LU_CONT[k](k === 'streak' ? streak : feats[k]);
@@ -13977,6 +13981,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
     if (canonical) luCanon = await writeCanonical(predRef, {
       dataDate, at: Date.now(), codes: top.map(x => x.code), bCodes: bList.map(x => ({ code: x.code, est: x.est })),
       ranks: Object.fromEntries(aList.slice(0, 120).map((x, i) => [x.code, i + 1])), // 覆盤用：前120名排名
+      limitRule: TW_LIMIT_RULE_VERSION,   // 漲停判定口徑（2026-10-09 起 2＝交易所口徑；舊存檔無此欄＝1）
     }, { date: dataDate, label: '漲停預測·預測存檔' });
     else log(`  · 漲停預測：預測存檔 pred-${dataDate} 待收盤資料兩市到齊後定版`);
     if (canonicalDone(luCanon)) {   // 審查 M-b：存檔已寫、對答案失敗時，重試要能補對（scoreboard.history 同日一筆已保證冪等）
@@ -13988,7 +13993,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
       if (pd0 && !pd) log(`  ⚠ 漲停預測：缺 ${prev.date} 的預測檔（最近一份是 ${pd0.dataDate}），${dataDate} 不對答案`);
       if (pd && !(scoreboard.history || []).some(h => h.date === dataDate)) {
         const actual = new Set();
-        for (const c in today.close) { const p = prev.close[c]?.[0]; if (p && luIsLimitUp(today.close[c][0], p)) actual.add(c); }
+        for (const c in today.close) { const p = prev.close[c]?.[0]; if (p && luIsLimitUp(today.close[c][0], p, c)) actual.add(c); }
         const hit = k => pd.codes.slice(0, k).filter(c => actual.has(c)).length;
         const bHit = (pd.bCodes || []).filter(x => actual.has(x.code)).length;
         // ── 覆盤：預測失敗原因＋漏網漲停原因（全部確定性標注）──
@@ -14058,7 +14063,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
         };
         await db.collection('limitUpForecast').doc(`review-${dataDate}`).set(review);
         scoreboard.lastReview = review;
-        scoreboard.history = [{ date: dataDate, predDate: pd.dataDate, hit10: hit(10), hit30: hit(30), bTotal: (pd.bCodes || []).length, bHit, actualLU: actual.size }, ...(scoreboard.history || [])].slice(0, 60);
+        scoreboard.history = [{ date: dataDate, predDate: pd.dataDate, hit10: hit(10), hit30: hit(30), bTotal: (pd.bCodes || []).length, bHit, actualLU: actual.size, limitRule: TW_LIMIT_RULE_VERSION }, ...(scoreboard.history || [])].slice(0, 60);
         const h = scoreboard.history;
         scoreboard.agg = {
           days: h.length,
@@ -14090,6 +14095,7 @@ async function computeLimitUpForecast({ canonical = false } = {}) {
   const luDoc = {
     updatedAt: Date.now(), mode, dataDate: today.date, mktLU, basis: luBasis,
     luVersion: LU_VERSION,   // 2026-09-18 D5／D9：lift 表版本章，記分板按版本分開看
+    limitRule: TW_LIMIT_RULE_VERSION,   // 漲停判定口徑（2026-10-09 起 2）；LU_VERSION.labelRule 是 lift 表訓練時的口徑
     aList: top, bList: bList.slice(0, 40),
     // 備位 31～60 名（2026-09-23）：多空同屏只列可當沖者，前 30 有不可當沖／處置股時由此遞補。
     //   不併入 aList——Top30 命中率、記分板、預測檔都以 aList 為準，口徑不動。

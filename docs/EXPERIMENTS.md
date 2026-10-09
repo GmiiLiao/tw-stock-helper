@@ -465,3 +465,23 @@ n=48 20 日淨 +7.71%／中位 +3.09%／勝率 56.3%／10 日 +7.2%；含倍量�
 - 鎖後審查（17 項，全部屬實、判定不變）：補 commit 12 份未進版控的登錄產出（大檔 gzip）＋產出清單、HO 逐位重現補成產物（17 檔全同）、Holm 改用精確 p 重算（拒絕相同）、出場日無收盤的選股揭露與敏感度、`tradable_status` 只代表處置狀態、轉市場股與 999 哨兵值留給下一輪登錄；DEV-004 冒充試跑的 patch 未留存，「未讀 HO 標籤」無法驗證（最壞只會先看到 HO 各軌事件數）。
 - 重跑前注意：HOLDOUT 已用掉，不得再拿來選模；R0 對隨機 p 0.0065 只是描述（當初依登錄選了 R1）；W 在 HO 的正報酬不是登錄檢定、HC 方向相反，不得當依據；落選挑戰者沒有 HO 記錄（DEV-006）。下一步是 G1：S0 與 S_FB 進前向影子（觀察／研究榜、不可交易）、R0 與 W 只做灰底觀察，要使用者核可。
 - **補記 2026-10-05：HO-BURNED（保留驗證期作廢）**——使用者裁定鎖後三次 HOLDOUT 讀取（DEV-008 第 1 點、DEV-012、DEV-010）全部計入兩次修正上限 ⇒ 依登錄 §8.3，HOLDOUT 不再確認任何事（DEV-014）：S 降為 **S-WATCH-ONLY**、S_FB 降為 **SFB-WATCH-ONLY**（R0、S0 對隨機的 HO 點估計 +0.93、+1.11pp > 0，不到 REJECT），Mp／R／DD／M／W 不變；上面的「S 代理 lift 時間外複製成功」改為只作描述。前向登錄另立封存修訂 v1.1（`tracks/REGISTRATION_t1_tracks_forward_v1_1.md`，JSON sha256 `db8e088b…a274`；FDEV-008）：S0、S_FB、R0、W 全部灰底只觀察，G250（Δprecision@5(S0 − RAND) 點估計 > 0 且 CI 下界 > 0）是唯一升級途徑。**除了前向資料，沒有任何乾淨的時間外證據**——之後不得再用 2023～2025 任何視窗宣稱確認。
+
+## 2026-10-09 漲停判定口徑統一成交易所規則（v1 → v2）——**只會多判漲停；LU_LIFT 待重算**
+
+- 使用者裁定：漲停價統一成交易所口徑並重算，舊結果另存對照。唯一實作 `scripts/lib/tw-limit-price.mjs`（`TW_LIMIT_RULE_VERSION = 2`）：
+  參考價 ×1.1 向下捨去到**漲停價本身所在級距**的升降單位；ETF 走 ETF 檔位表（<50 元 0.01、≥50 元 0.05）；官方 9995／9999.95＋跌停 0.01＝無漲跌幅佔位（`isNoLimitPlaceholder`）。
+  舊口徑 v1（前收所在級距、無浮點容差）保留為 `legacyLimitUpPriceV1`／`isLimitUpByRule(1, …)`，只供重現舊數字。
+- 改到的地方：daemon `luLimitPrice`／`luIsLimitUp`（族群板數 computeTopicPicks、法人布局 lu60、漲停預測 luSets／mktLU／順序流／luCnt5／limitPrice／B 榜／對答案 actual）、撿尾盤 `_teIsLimitUp`、`scripts/backtest-limitup.mjs`（`--rule 1|2`，預設 2）。
+  已是交易所口徑、不動：daytrade-signals、ai-stoploss-base、daily-heatmap、twse-api.ts、QuoteGrid、stock-readings、daemon 市場脈動／隔日沖等就地實作（測試以整數 oracle 全價位逐檔比對三支 mjs 實作 0 差異）。
+- 唯讀量測（本機 surge 快取 chipArchive 2022-07-18～2026-10-08，1,027 日；`limit-rule-diff.json` 在當次 scratchpad）：
+  - 兩口徑不同 1,447 檔日：v2 多判 1,445（全部是個股、收盤＝v2 漲停價）、v1 多判 2（2025-04-10 的 0053、0055：ETF 檔位下漲停價 83.15／26.62，收 83.1／26.6 不是漲停）。
+  - 與官方漲停價（`official_limits.npz`，至 2026-10-02）比對：有官方值的 1,439 筆**全部等於 v2**。
+  - 近 30 個交易日（08-26～10-08）43 檔日不同、19 日 mktLU 變多（最多 09-17 +7 家：34→41）；漲停預測宇宙（4 碼非 00、20 日均量 ≥100 張、≥5 元）內 38 個標籤由否翻是。
+  - 全期漲停預測宇宙 135.5 萬樣本：正例 23,572 → 24,820（+5.29%）；訓練窗（2022-08-15～2026-08-18）22,635 → 23,841，基準 1.727% → 1.819%。
+- LU_LIFT 局部重算（7 個只需收盤庫的價量因子；`lu-lift-partial-v1-vs-v2.json`）：v1 本機重算與 daemon 定版 28 格**逐格相同**（證實快取可重現訓練），v2 最大變動 luCnt5「5日1板」4.11→4.01、luCnt60「3月3-5板」2.69→2.61、chg0「已漲停」11.23→11.19，其餘 ≤0.04。
+  fShare／t0（需 Firestore `chipDaily`）、indLU5／indHot（需 openapi `t187ap03` 產業表）本機無法重現（chipArchive.instJson 口徑不同，試算不等於定版值），**待授權後以 `backtest-limitup.mjs` 全量重算**。
+- 舊結果另存對照：同一份資料跑兩次，輸出加口徑後綴——`node scripts/backtest-limitup.mjs --rule 1 > docs/LIMITUP-LIFT-<日>-rule1.txt`、`--rule 2 > docs/LIMITUP-LIFT-<日>-rule2.txt`；
+  rule1 的數字應與 2026-09-18 定版 LU_LIFT 相同（不同＝資料變了，先查資料再談口徑）。換表時 `LU_VERSION` 改新版本並 `labelRule: 2`、舊表留在 `prev`。
+- 已定版的不改寫：`limitUpForecast/pred-*`、`review-*`、`scoreboard.history` 舊列維持原樣；2026-10-09 之後新寫的 pred 檔與 history 列帶 `limitRule: 2`（沒有此欄＝v1）。
+  過渡期記分板 60 日彙總會混兩種口徑：v2 的「實際漲停」較多（約 +5%），命中率會略升，不是模型變好。
+- 重算後數字（待填）：全量 LU_LIFT v2 表 ＿＿、walk-forward 後 20 日 Top10／Top20／Top30 ＿＿／＿＿／＿＿（v1 定版 18.5／17.8／15.3）。
