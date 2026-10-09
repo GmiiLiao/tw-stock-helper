@@ -157,6 +157,9 @@ export const DATE_ALLOWLIST = new Set([
   //   ＝AI 從內文讀出、程式正規化的「法律事件（或其新進展）發生日」（'YYYY-MM-DD' 或 'YYYY-MM-DD~YYYY-MM-DD' 區間；
   //   scripts/lib/news-rule-evidence.mjs·2026-10-07 N1(b)）。欄位級的領域日期，不是文件資料日（文件仍看 date／targetDate），稽核契約不看它。
   'eventDate',
+  // auditDate：FinMind 閒置券商稽核（scripts/finmind/idle-audit.mjs·2026-10-09）要整天抓全部券商來核對的那個交易日——
+  //   CLI／函式參數，只在本機 second-brain/finmind 讀取，不寫 Firestore、不是文件資料日，稽核契約不看它。
+  'auditDate',
 ]);
 
 // 稽核別名清單必須涵蓋的「文件級新鮮度戳」全集——寫入端用了其中任何一個，

@@ -12,7 +12,8 @@
 //        [--priority recent-first|oldest-first] [--interleave] [--max-requests N] [--window main|idle] [--sample]
 //        [--route broker|stock] [--universe stocks|stocks+etf] [--retry-empty] [--dry-run] [--refresh-docs] [--log <path>] [--root <dir>]
 //        [--probe-brokers]       分點只抓探針日（每年 1／7 月第一個交易日＋最後一日），供下一項判定閒置券商
-//        [--skip-idle-brokers]   探針日（≥4 個）全部 0 列的券商，在探針日區間內不請求（省停業券商的額度；區間外照抓）
+//        [--skip-idle-brokers]   探針日（≥4 個）全部 0 列、且區間內其他已抓日也沒成交的券商，在探針日區間內不請求（省停業券商的額度；區間外與探針日本身照抓）
+//                                啟用前先跑 idle-audit.mjs（非探針日整天全券商抓一次，確認閒置券商當天也是 0 列）
 // 結束碼：0 完成／max-requests；1 錯誤停止；2 參數；3 閘門；4 SIGTERM 收尾（串接 && 時不會自動進下一步）
 import { existsSync, statfsSync } from 'node:fs';
 import { setPriority } from 'node:os';
@@ -98,14 +99,40 @@ export function brokerProbeDates(days, from, to) {
   return out;
 }
 
-const MIN_PROBES = 4;
-/** 閒置券商：在每個已收尾的探針日都有請求、且都 0 列（停業或長期無成交）。探針不足 MIN_PROBES 個就不判定（回空集合）。 */
-export function idleBrokers(root, spec, probeDates) {
+export const MIN_PROBES = 4;
+/**
+ * 閒置券商：在每個已收尾的探針日都有請求、且都 0 列（停業或長期無成交）。探針不足 MIN_PROBES 個就不判定（回空集合）。
+ * evidenceDays（佐證日）：探針區間內、非探針、已抓過的日子——候選券商在任一天有成交就排除（excluded 列出券商與日子）。
+ *   2026-10-09 實測：9279 凱基-忠孝（證券商清單 date 2026-09-29）9 個探針日全 0 列，但 09-30、10-01、10-05、10-07 有成交
+ *   ⇒ 只看探針會把它當閒置；已抓到的日子就是證據，不用白不用（只會少略過，不會多略過）。
+ */
+export function idleBrokers(root, spec, probeDates, { evidenceDays = [] } = {}) {
   const done = probeDates.map(d => ({ d, st: readDone(groupPaths(root, spec.name, d)) })).filter(x => x.st.final && x.st.rowsBy?.size);
-  if (done.length < MIN_PROBES) return { ids: [], from: null, to: null, probes: done.map(x => x.d) };
+  if (done.length < MIN_PROBES) return { ids: [], from: null, to: null, probes: done.map(x => x.d), excluded: [] };
   const [first, ...rest] = done;
-  const ids = [...first.st.rowsBy].filter(([id, n]) => n === 0 && rest.every(x => x.st.rowsBy.get(id) === 0)).map(([id]) => id).sort();
-  return { ids, from: done[0].d, to: done.at(-1).d, probes: done.map(x => x.d) };
+  const candidates = [...first.st.rowsBy].filter(([id, n]) => n === 0 && rest.every(x => x.st.rowsBy.get(id) === 0)).map(([id]) => id).sort();
+  const from = done[0].d; const to = done.at(-1).d;
+  const probeSet = new Set(probeDates);
+  const active = new Map();   // 候選券商 → 有成交的佐證日
+  for (const d of evidenceDays) {
+    if (d < from || d > to || probeSet.has(d)) continue;
+    const { rowsBy } = readDone(groupPaths(root, spec.name, d));
+    for (const id of candidates) if (rowsBy.get(id) > 0) active.set(id, [...(active.get(id) || []), d]);
+  }
+  return { ids: candidates.filter(id => !active.has(id)), from, to, probes: done.map(x => x.d),
+    excluded: [...active].map(([id, dates]) => ({ id, dates: [...dates].sort() })).sort((a, b) => a.id.localeCompare(b.id)) };
+}
+
+/**
+ * 目前的閒置券商集合——--skip-idle-brokers 與 idle-audit.mjs 共用（同一口徑）。
+ * 探針＝2023-01-01～今天以前最後交易日（brokerProbeDates）；佐證＝其餘交易日；holdOut 的日子不當佐證（稽核日留作檢驗，免得自己證明自己）。
+ */
+const IDLE_SPEC = 'TaiwanStockTradingDailyReport';
+export function idleBrokerSet(root, days, todayIso, { holdOut = [], fallbackTo = null } = {}) {
+  const planned = brokerProbeDates(days, MAIN_START, defaultTo(days, todayIso) || fallbackTo);
+  const skip = new Set([...planned, ...holdOut]);
+  // planned：應有的探針日（含還沒抓的）；probes：其中已收尾、拿來判定的
+  return { ...idleBrokers(root, getSpec(IDLE_SPEC), planned, { evidenceDays: days.filter(d => !skip.has(d)) }), planned };
 }
 
 /** 規劃環境：交易日、區間、各日代號、已完成成員。 */
@@ -127,8 +154,10 @@ export function buildContext(opts, ld, root, todayIso) {
         let b = ld.brokersFor(date);
         if (!b) return opts.dryRun || opts.status ? Array.from({ length: EST_BROKERS }, (_, i) => `est${i}`) : null;
         // --skip-idle-brokers：探針日全部 0 列的券商，在探針日區間內不請求（區間外、例如 2023 以前，照抓）
+        //   探針日本身照抓全部券商：最後一個探針常是暫定群組、會被重抓（replace），若此時略過閒置券商，下次判定就失去證據
+        //   （該探針日缺列 ⇒ 閒置集合整個變空）；閒置集合由分點資料表算出，只套用在分點資料表（2026-10-09 審查）
         const idle = ctx.idleFor();
-        if (idle.ids.length && date >= idle.from && date <= idle.to) { const skip = new Set(idle.ids); b = b.filter(x => !skip.has(x)); }
+        if (idle.ids.length && spec.name === IDLE_SPEC && date >= idle.from && date <= idle.to && !idle.planned?.includes(date)) { const skip = new Set(idle.ids); b = b.filter(x => !skip.has(x)); }
         return b.includes(PROBE_BROKER) ? [PROBE_BROKER, ...b.filter(x => x !== PROBE_BROKER)] : b;
       }
       return null;
@@ -142,9 +171,7 @@ export function buildContext(opts, ld, root, todayIso) {
     },
   };
   if (!ctx.to) throw new Error('本機沒有交易日資料（second-brain/backup/chipArchive），無法決定 --to');
-  if (opts.skipIdleBrokers && route === 'broker') {
-    ctx.idleBrokers = idleBrokers(root, getSpec('TaiwanStockTradingDailyReport'), brokerProbeDates(days, MAIN_START, defaultTo(days, todayIso) || ctx.to));
-  }
+  if (opts.skipIdleBrokers && route === 'broker') ctx.idleBrokers = idleBrokerSet(root, days, todayIso, { fallbackTo: ctx.to });
   return ctx;
 }
 
@@ -238,6 +265,10 @@ function printPlan(sum, ctx, opts, windowOpts, gates, skipped, allSum = sum) {
   if (allSum.requests !== sum.requests) console.log(`全部（含待驗證） 請求 ${fmtN(allSum.requests)}｜估 gz ${fmtGB(allSum.estGzBytes)}｜預估 ${eta(hAll)}`);
   for (const n of gates.notes) console.log(`ℹ ${n}`);
   for (const r of gates.refused) console.log(`✖ ${r}`);
+  const idle = ctx.idleBrokers;
+  if (idle) console.log(idle.ids.length
+    ? `ℹ 閒置券商延後（--skip-idle-brokers）：${idle.ids.length} 家在 ${idle.from}～${idle.to} 不請求（已收尾探針 ${idle.probes.length} 個）${idle.excluded.length ? `；探針全 0 列但其他日有成交、照抓：${idle.excluded.map(x => x.id).join('、')}` : ''}`
+    : `ℹ --skip-idle-brokers：已收尾探針 ${idle.probes.length} 個（需 ≥${MIN_PROBES}）或沒有閒置券商，不略過任何券商`);
   const bySkip = new Map();
   for (const x of skipped) { const k = `${x.dataset}：${x.reason}`; bySkip.set(k, [...(bySkip.get(k) || []), x.group]); }
   for (const [k, gs] of bySkip) console.log(`⚠ 略過 ${gs.length} 個群組（${gs[gs.length - 1]}～${gs[0]}）${k}`);

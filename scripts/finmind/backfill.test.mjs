@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { getSpec } from './datasets.mjs';
 import { groupPaths, openGroup, appendMember, finalizeGroup } from './store.mjs';
-import { parseArgs, approxWeeks, buildContext, planAll, applyGates, diskCheck, mainRemaining, exitCodeFor, brokerProbeDates, SAMPLE_MAX_REQUESTS } from './backfill.mjs';
+import { parseArgs, approxWeeks, buildContext, planAll, applyGates, diskCheck, mainRemaining, exitCodeFor, brokerProbeDates, idleBrokers, idleBrokerSet, SAMPLE_MAX_REQUESTS } from './backfill.mjs';
 
 const DAYS = ['2022-12-29', '2022-12-30', '2023-01-03', '2023-03-15', '2024-06-14', '2026-10-06', '2026-10-07', '2026-10-08'];
 const STOCKS = Array.from({ length: 30 }, (_, i) => String(1101 + i));
@@ -170,6 +170,22 @@ test('--skip-idle-brokers：探針日（≥4 個已收尾）全部 0 列的券�
   assert.deepEqual(buildContext({ dataset: 'x', root }, ld, root, '2026-10-08').membersFor(spec, '2024-06-14').length, 4, '沒帶旗標 ⇒ 全部券商');
 });
 
+test('--skip-idle-brokers：探針日本身永遠排全部券商（暫定群組重抓不可把閒置判定的證據抓掉）；閒置集合只用在分點資料表', () => {
+  const root = tmp();
+  const spec = getSpec('TaiwanStockTradingDailyReport');
+  const days = ['2023-01-03', '2023-03-15', '2023-07-03', '2024-01-02', '2024-06-14', '2024-07-01', '2026-10-07'];
+  const all = ['1020', '1001', '9A00', '5555'];
+  const ld = { ...fakeLd, tradingDays: () => days, brokersFor: () => all };
+  const probe = (d, rowsBy) => { const g = openGroup(groupPaths(root, spec.name, d)); for (const [m, n] of Object.entries(rowsBy)) appendMember(g, m, n ? gzipSync(`{"date":"${d}"}\n`) : null, n); finalizeGroup(g); };
+  for (const d of ['2023-01-03', '2023-07-03', '2024-01-02', '2024-07-01', '2026-10-07']) probe(d, { 1020: 5, 1001: 0, '9A00': 3, 5555: 2 });
+  const ctx = buildContext({ dataset: 'x', root, skipIdleBrokers: true }, ld, root, '2026-10-08');
+  assert.deepEqual(ctx.idleBrokers.ids, ['1001']);
+  assert.deepEqual(ctx.membersFor(spec, '2024-06-14'), ['1020', '9A00', '5555'], '區間內非探針日 ⇒ 略過閒置');
+  assert.deepEqual(ctx.membersFor(spec, '2024-07-01'), all, '探針日 ⇒ 全部券商（重抓時不可漏掉閒置券商，否則下次判定失去證據）');
+  assert.deepEqual(ctx.membersFor(spec, '2026-10-07'), all, '最後一個探針日（常是暫定群組、會被重抓）⇒ 全部券商');
+  assert.deepEqual(ctx.membersFor(getSpec('TaiwanStockWarrantTradingDailyReport'), '2024-06-14'), all, '閒置集合由分點資料表算出，不套到其他券商路線資料集');
+});
+
 test('planAll --probe-brokers：分點只排探針日；其他資料集照常', () => {
   const root = tmp();
   const days = ['2023-01-03', '2023-03-15', '2023-07-03', '2024-01-02', '2026-10-07'];
@@ -179,4 +195,36 @@ test('planAll --probe-brokers：分點只排探針日；其他資料集照常', 
   const p = planAll(['TaiwanStockTradingDailyReport', 'TaiwanStockMarginMaintenance'].map(getSpec), ctx, opts);
   assert.deepEqual(p.groups.filter(g => g.dataset === 'TaiwanStockTradingDailyReport').map(g => g.group), ['2026-10-07', '2024-01-02', '2023-07-03', '2023-01-03']);
   assert.equal(p.groups.filter(g => g.dataset === 'TaiwanStockMarginMaintenance').length, 5);
+});
+
+test('idleBrokers：探針日全 0 列、但探針區間內其他已抓日有成交的券商不算閒置（2026-10-09 實測：9279 凱基-忠孝 09-29 設立，探針全 0、09-30 起有成交）', () => {
+  const root = tmp();
+  const spec = getSpec('TaiwanStockTradingDailyReport');
+  const day = (d, rowsBy) => { const g = openGroup(groupPaths(root, spec.name, d)); for (const [m, n] of Object.entries(rowsBy)) appendMember(g, m, n ? gzipSync(`{"date":"${d}"}\n`) : null, n); finalizeGroup(g); };
+  const probes = ['2023-01-03', '2023-07-03', '2024-01-02', '2024-07-01'];
+  for (const d of probes) day(d, { 1020: 5, 1001: 0, 5555: 0, 7777: 0 });
+  day('2024-03-15', { 1020: 5, 1001: 0, 5555: 2, 7777: 0 });   // 區間內、非探針：5555 有成交 ⇒ 排除
+  day('2022-12-30', { 1020: 5, 1001: 9, 5555: 0, 7777: 0 });   // 區間外（略過只在探針區間內生效）⇒ 不當佐證
+  const r = idleBrokers(root, spec, probes, { evidenceDays: ['2022-12-30', '2024-03-15', '2024-07-01'] });
+  assert.deepEqual(r.ids, ['1001', '7777']);
+  assert.deepEqual(r.excluded, [{ id: '5555', dates: ['2024-03-15'] }]);
+  assert.deepEqual([r.from, r.to], ['2023-01-03', '2024-07-01']);
+  assert.deepEqual(idleBrokers(root, spec, probes).ids, ['1001', '5555', '7777'], '沒給佐證日＝只看探針（舊行為）');
+});
+
+test('idleBrokerSet：探針＝2023 起每年 1／7 月首個交易日＋今天以前最後交易日；佐證＝其他交易日；holdOut 的日子不當佐證（稽核日留作檢驗）', () => {
+  const root = tmp();
+  const spec = getSpec('TaiwanStockTradingDailyReport');
+  const days = ['2022-12-30', '2023-01-03', '2023-07-03', '2024-01-02', '2024-03-15', '2024-07-01', '2024-10-08', '2025-01-02'];
+  const day = (d, rowsBy) => { const g = openGroup(groupPaths(root, spec.name, d)); for (const [m, n] of Object.entries(rowsBy)) appendMember(g, m, n ? gzipSync(`{"date":"${d}"}\n`) : null, n); finalizeGroup(g); };
+  for (const d of ['2023-01-03', '2023-07-03', '2024-01-02', '2024-07-01', '2025-01-02']) day(d, { 1020: 5, 1001: 0, 5555: 0 });
+  day('2024-10-08', { 1020: 5, 1001: 0, 5555: 3 });
+  const all = idleBrokerSet(root, days, '2025-01-03');
+  assert.deepEqual(all.probes, ['2023-01-03', '2023-07-03', '2024-01-02', '2024-07-01', '2025-01-02']);
+  assert.deepEqual(all.ids, ['1001'], '5555 在 2024-10-08 有成交 ⇒ 不略過');
+  const held = idleBrokerSet(root, days, '2025-01-03', { holdOut: ['2024-10-08'] });
+  assert.deepEqual(held.ids, ['1001', '5555'], '稽核日不當佐證 ⇒ 5555 仍是候選，稽核才抓得到它');
+  const ctx = buildContext({ dataset: 'x', root, skipIdleBrokers: true }, { ...fakeLd, tradingDays: () => days, brokersFor: () => ['1020', '1001', '5555'] }, root, '2025-01-03');
+  assert.deepEqual(ctx.idleBrokers.ids, all.ids, '--skip-idle-brokers 與 idleBrokerSet 同一口徑');
+  assert.deepEqual(ctx.membersFor(spec, '2024-03-15'), ['1020', '5555']);
 });
