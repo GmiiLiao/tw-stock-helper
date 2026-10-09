@@ -1,6 +1,6 @@
 // 部署身分（wm-deploy-drift-watchdog·WM-SCAN F10·2026-09-04）
 // 「已部署」的定義＝線上回的 sha 等於本機 HEAD；部署腳本比對後才可宣稱。
-// GIT_SHA 由 next.config.ts 在 build 時從 git 讀入（App Hosting 由本機 build 上傳，故有 git）。
+// GIT_SHA 由 next.config.mjs 在 build 時從 git 讀入（App Hosting 由本機 build 上傳，故有 git）。
 // ?debug=1 且管理員：回 x-forwarded-for 全串與跳數，供 R6（限流取哪一跳）線上取樣；匿名只回跳數。
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/require-admin';

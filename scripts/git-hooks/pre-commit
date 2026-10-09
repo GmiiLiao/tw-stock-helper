@@ -19,7 +19,7 @@ OUT="$SNAP.out"
 trap 'rm -rf "$SNAP" "$OUT"' EXIT INT TERM
 mkdir -p "$OUT"
 # index 中 src/、scripts/ 與根目錄設定檔的 staged 內容（staged 刪除的檔不會出現；未追蹤檔不在 index）
-git ls-files -z -- src scripts package.json tsconfig.json next.config.ts \
+git ls-files -z -- src scripts package.json tsconfig.json next.config.mjs \
   | git checkout-index -z --stdin --prefix="$SNAP/" || { echo "❌ 匯出 staged 快照失敗"; exit 1; }
 [ -e "$REPO/node_modules" ] && ln -s "$REPO/node_modules" "$SNAP/node_modules"
 [ -f "$SNAP/scripts/check-field-conventions.mjs" ] || { echo "❌ staged 快照缺 scripts/check-field-conventions.mjs——快照異常，視為失敗"; exit 1; }
