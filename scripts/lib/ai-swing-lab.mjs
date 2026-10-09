@@ -146,6 +146,27 @@ export function buildPickPrompt({ date, pool, market, swingPicksMeta, holdings =
   ].join('\n');
 }
 
+/**
+ * 開盤鎖漲停買不到後的當天重選 prompt（2026-10-09 使用者：一字漲停買不到時委託日可讓 AI 再重新選買）。
+ * failed＝[{code,name}] 鎖漲停未成交的原委託；pool＝前一晚候選池（已排除持有／已委託／目前鎖漲停／無即時報價者），
+ *   每檔另帶 live＝{ price, chgPct }（重選當下即時價與今日漲跌）；cash＝可用於重選的資金（原委託預算、上限為可用現金）。
+ * 輸出格式與每日決策的 picks 相同（parseDecision 可直接解析；sells 一律空）。
+ */
+export function buildRepickPrompt({ date, timeTxt, failed, pool, cash, maxPicks = 1 }) {
+  const f1x = v => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}`);
+  return [
+    `你是台股波段交易員。今天 ${date}，你昨晚盤後決定買進的 ${failed.map(x => `${x.code} ${x.name}`).join('、')} 開盤即鎖漲停，到 ${timeTxt} 仍未打開，委託買不到、已取消。`,
+    `現在可以從昨晚的候選池改買其他股票（最多 ${maxPicks} 檔；沒有合適的可以不買，資金留到今天盤後再決定）。以「現在的即時價」成交，可用資金 ${Math.round(cash).toLocaleString()} 元（依檔數平均分配）。`,
+    `注意：開盤後追價的成本較高；今天已大漲的股票追高對買方是較差的進場點。只能根據提供的資料，不得編造新聞或數字。`,
+    ``,
+    `【候選池 ${pool.length} 檔】（昨晚資料＋現在的即時價）`,
+    pool.map(c => `${line(c)}｜現在 ${c.live?.price ?? '—'}（今日 ${f1x(c.live?.chgPct)}%）`).join('\n'),
+    ``,
+    `只輸出 JSON，不要其他文字：`,
+    `{"sells":[],"picks":[{"code":"四位數代號","confidence":0到100,"horizon":"預期持有期（5/10/20/60/120 擇一）","reason":"50字內買進原因，引用上面的數據","risk":"30字內最大風險"}],"note":"30字內重選思路（不買也要說明）"}`,
+  ].join('\n');
+}
+
 /** 解析選股：代號必須在池內、去重、最多 5 檔；格式錯回 null（不猜） */
 export function parsePicks(text, poolCodes) {
   const m = text?.match(/\{[\s\S]*\}/);

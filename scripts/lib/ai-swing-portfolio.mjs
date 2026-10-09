@@ -6,6 +6,10 @@
 //   · 每個交易日盤後（資料日 D 收盤後），AI 同時檢視現有持股（可賣出）與當天候選池（可買進）。
 //   · 買單與賣單都在 D 之後第一個交易日 09:00 開盤成交（盤後才決定，買賣不到 D 的收盤＝防偷看）；
 //     該日無開盤價用收盤 13:30 並標記；該日沒有該股資料（停牌等）：買單作廢釋出資金、賣單順延到下一個有成交的交易日。
+//   · 一字鎖死（2026-10-09 使用者：一字漲停買不到時委託日不可設為已買到，並讓 AI 當天重新選買）：
+//     買單成交日開盤在漲停且全日最低＝開盤（整天鎖漲停）⇒ 未成交、委託作廢；賣單遇一字跌停（全日最高＝開盤）⇒ 順延到下一個交易日。
+//     開盤在漲跌停但盤中打開者，排隊委託以開盤價（漲跌停價）成交。盤中即時版（runner.executeOpen）：開盤鎖漲停到 09:30 仍未打開
+//     ⇒ 記未成交、取消委託，並由 AI 從前一晚候選池當場重選（d.repick；以重選當下即時價成交，成交記錄 source:'live-repick'）。
 //   · 部位（lot）＝某一天買進的一檔；以 lotKey(買進決策日, 代號) 識別。同一檔同時只會有一個 lot（持有中不可重複買）。
 //   · 可用現金＝50 萬＋已實現損益（含獲利）－未平倉成本 ⇒ 賣出後本金與獲利可再投入。
 //   · 成交記錄寫回決策文件：買進 buyFills[代號]、賣出 sellFills[lotKey]（寫一次不改）；沒記錄時以日線即時推算（同一套函式）。
@@ -14,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { ledgerOf, twAt, feeOf, FEE_RATE, validDiscount } from './sim-ledger.mjs';
 import { accountOf, sizeShares, ACCOUNT_INITIAL, SWING_MIN_POSITION } from './sim-account.mjs';
+import { limitUpPrice, limitDownPrice } from './tw-limit-price.mjs';
 
 export const SWING_SELL_TAX = 0.003;
 export const SETTLE_DAYS = 2;   // T+2 交割
@@ -35,6 +40,22 @@ export function buyCostOf(px, shares, disc = 1) {
   return amount + feeOf(amount, shares, disc);
 }
 
+const isEtfCode = c => /^00/.test(String(c));
+/**
+ * 一字鎖死：開盤在漲停（buy）／跌停（sell）且全日最低（最高）＝開盤 ⇒ 整天鎖住，排隊委託成交不了。
+ * r＝[收,量,開,高,低,(昨收)]；昨收優先用 r[5]（盤中暫定日由即時報價推回），否則用前一交易日收盤（還原後同一口徑）。
+ * 還原價會有非檔位的小數 ⇒ 漲跌停判定取「交易所漲停價」與「昨收×1.094」較寬者（跌停對稱），避免四捨五入差一檔就漏判。
+ */
+export function lockedAtLimit(days, d0, code, side) {
+  const r = days[d0]?.m?.[code]; if (!r) return false;
+  const prev = r[5] > 0 ? r[5] : days[d0 - 1]?.m?.[code]?.[0];
+  const open = r[2], hi = r[3] > 0 ? r[3] : open, lo = r[4] > 0 ? r[4] : open;
+  if (!(prev > 0) || !(open > 0)) return false;
+  const eps = open * 1e-6;
+  if (side === 'buy') return open >= Math.min(limitUpPrice(prev, isEtfCode(code)), prev * 1.094) - eps && lo >= open - eps;
+  return open <= Math.max(limitDownPrice(prev, isEtfCode(code)), prev * 0.906) + eps && hi <= open + eps;
+}
+
 /**
  * 決策日之後第一個交易日的成交：開盤 09:00（無開盤用收盤 13:30 並標記）。
  * days：還原後日線「舊→新」[{date, m:{code:[收,量,開,高,低]}}]。回傳 null＝成交日還沒到；{failed}＝成交日該股無資料。
@@ -42,8 +63,9 @@ export function buyCostOf(px, shares, disc = 1) {
 export function nextFill(days, decisionDate, code, { skipMissing = false } = {}) {
   let d0 = days.findIndex(d => d.date > decisionDate);
   if (d0 < 0) return null;
-  // 賣單：成交日該股無資料（停牌）就順延到下一個有成交的交易日；買單不追（作廢）
-  if (skipMissing) { while (d0 < days.length && !(days[d0].m[code]?.[0] > 0)) d0++; if (d0 >= days.length) return null; }
+  // 賣單：成交日該股無資料（停牌）或一字跌停就順延到下一個有成交的交易日；買單不追（作廢），一字漲停＝未成交
+  if (skipMissing) { while (d0 < days.length && (!(days[d0].m[code]?.[0] > 0) || lockedAtLimit(days, d0, code, 'sell'))) d0++; if (d0 >= days.length) return null; }
+  else if (lockedAtLimit(days, d0, code, 'buy')) return { failed: true, date: days[d0].date, reason: '一字漲停（全日鎖在漲停價）委託未成交', locked: 'limit-up' };
   const r = days[d0].m[code];
   const openMissing = !(r?.[2] > 0);
   const px = openMissing ? r?.[0] : r[2];
@@ -96,9 +118,10 @@ export function portfolioState(docs, days = null, beforeDate = null, { initial =
     orders.set(s.key, { date: d.date, reason: s.reason || '', decidedAt: d.frozenAt ?? null, recorded: d.sellFills?.[s.key] || null });
   }
   const lots = [];
-  for (const d of ds) for (const p of d.picks || []) {
+  // d.repick.picks（2026-10-09）：開盤鎖漲停買不到後、AI 當天重選的委託；只認已寫入的成交記錄（重選當下即時價），不由日線推算
+  for (const d of ds) for (const p of [...(d.picks || []), ...(d.repick?.picks || []).map(x => ({ ...x, repick: true }))]) {
     const shares = p.position?.shares; if (!(shares > 0)) continue;
-    lots.push({ key: lotKey(d.date, p.code), date: d.date, code: p.code, name: p.name || p.code, shares, plannedShares: shares, reason: p.reason || '',
+    lots.push({ key: lotKey(d.date, p.code), date: d.date, code: p.code, name: p.name || p.code, shares, plannedShares: shares, reason: p.reason || '', repick: !!p.repick,
       horizon: p.horizon ?? p.position?.exitH ?? null, priceAtDecision: p.priceAtDecision ?? null, estCost: p.position?.estCost ?? null,
       // budget：舊記錄無預算欄 ⇒ 不以預算裁減（estCost 不含手續費，拿來當上限會誤裁）
       budget: p.position?.budget ?? null, prefund: !!p.position?.prefund, decidedAt: d.frozenAt ?? null,
@@ -147,6 +170,7 @@ export function portfolioState(docs, days = null, beforeDate = null, { initial =
       // ② 買單（後）：依決策日、選股順序
       for (const l of lots) {
         if (l.status !== 'pending') continue;
+        if (l.repick && !l.recordedBuy) { l.buyFailed = { failed: true, date: t, reason: 'AI 重選委託未寫入成交記錄' }; l.status = 'void'; continue; }
         const f = l.recordedBuy || (ro ? null : nextFill(days, l.date, l.code));
         if (!f || f.date !== t) continue;
         if (f.failed) { l.buyFailed = f; l.status = 'void'; continue; }

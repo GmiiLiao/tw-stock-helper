@@ -164,7 +164,7 @@ export default function AiSwingLab() {
   );
 }
 
-/** 成交來源標記：live-open＝開盤當下以即時開盤價成交並記錄；archive-open＝開盤時未即時記錄、盤後依官方開盤價補記 */
+/** 成交來源標記：live-open＝開盤當下以即時開盤價成交並記錄；archive-open＝開盤時未即時記錄、盤後依官方開盤價補記；live-repick＝鎖漲停後 AI 當天重選 */
 /** 每日戰績（每列：現金＋持倉淨市值＝帳戶總值）。會員帳戶有入金／提領時多一欄，累計報酬為時間加權（2026-10-01） */
 export function DailyHistory({ history }: { history: HistRow[] }) {
   const hist = [...history].reverse();
@@ -269,6 +269,8 @@ export function ClosedTrades({ closed }: { closed: Closed[] }) {
 function FillTag({ src, at }: { src?: string | null; at?: number | null }) {
   if (src === 'live-open') return <span title="開盤當下以即時報價的今日開盤價成交並寫入記錄" style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#22c55e' }}>⚡即時{at ? `·記錄 ${tw(at, false)}` : ''}</span>;
   if (src === 'archive-open') return <span title="開盤時常駐服務未即時記錄，盤後依官方開盤價補記" style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#f59e0b' }}>⚠盤後補記</span>;
+  // 2026-10-09：原委託開盤鎖漲停到 09:30 仍未打開（買不到、取消）⇒ AI 從前一晚候選池當天重選，以重選當下即時價成交
+  if (src === 'live-repick') return <span title="原委託開盤鎖漲停買不到，AI 當天重選並以當下即時價成交" style={{ marginLeft: 6, fontSize: 'calc(12.5px * var(--fz))', color: '#38bdf8' }}>🔁AI重選{at ? `·記錄 ${tw(at, false)}` : ''}</span>;
   return null;
 }
 

@@ -177,3 +177,46 @@ test('委託中：同日賣單回收款可抵委託中買單——可用現金�
   assert.ok(mid.account.reservedBuys > mid.account.cash, '買單金額超過現有現金（靠同日賣出款）');
   assert.ok(mid.account.freeCash >= 0, `可用現金 ${mid.account.freeCash} 不為負`);
 });
+
+// ── 一字鎖死（2026-10-09 使用者：一字漲停買不到時委託日不可設為已買到；賣出遇一字跌停順延）──
+const lockDays = () => [
+  { date: '2026-10-01', m: { 4444: [20, 1000, 20, 20.2, 19.8], 5555: [50, 1000, 50, 50.5, 49.5], 6666: [30, 1000, 30, 30.3, 29.7] } },
+  // 4444 一字漲停（開＝高＝低＝收＝22）；5555 開盤漲停 55 但盤中打開（低 53）；6666 一字跌停 27
+  { date: '2026-10-02', m: { 4444: [22, 300, 22, 22, 22], 5555: [54, 9000, 55, 55, 53], 6666: [27, 200, 27, 27, 27] } },
+  { date: '2026-10-05', m: { 4444: [23, 5000, 22.5, 24, 22], 5555: [55, 5000, 54, 56, 53.5], 6666: [26, 5000, 26.5, 27, 25.5] } },
+];
+test('一字漲停：買單未成交（failed·locked）；開盤漲停但盤中打開＝以開盤（漲停）價成交', () => {
+  const days = lockDays();
+  const f = nextFill(days, '2026-10-01', '4444');
+  assert.equal(f.failed, true); assert.equal(f.locked, 'limit-up'); assert.equal(f.date, '2026-10-02');
+  const g = nextFill(days, '2026-10-01', '5555');
+  assert.equal(g.failed, undefined); assert.equal(g.px, 55, '排隊在漲停價、打開後成交');
+  const s = portfolioState([buyDoc('2026-10-01', '4444', 1000, 20)], days);
+  assert.equal(s.lots[0].status, 'void', '委託日不可設為已買到');
+  assert.equal(s.account.cash, 500000, '資金釋出');
+  const u = settleFills([buyDoc('2026-10-01', '4444', 1000, 20)], days);
+  assert.equal(u[0].upd['buyFills.4444'].failed, true, '寫回的是未成交記錄');
+});
+test('一字跌停：賣單順延到下一個交易日開盤', () => {
+  const days = lockDays();
+  assert.equal(nextFill(days, '2026-10-01', '6666', { skipMissing: true }).date, '2026-10-05');
+  const docs = [buyDoc('2026-09-30', '6666', 1000, 30), { date: '2026-10-01', frozenAt: at('2026-10-01', '18:00'), picks: [], review: { sells: [{ code: '6666', key: lotKey('2026-09-30', '6666'), reason: '停損' }] } }];
+  const s = portfolioState(docs, days);
+  assert.equal(s.lots[0].sell.fill.date, '2026-10-05'); assert.equal(s.lots[0].sell.fill.px, 26.5);
+});
+test('盤中暫定日：昨收由第 6 欄（即時報價推回）判斷；未鎖住照常成交', () => {
+  const days = [{ date: '2026-10-01', m: {} }, { date: '2026-10-02', provisional: true, m: { 4444: [22, 300, 22, 22, 22, 20], 7777: [10.5, 300, 10.5, 10.6, 10.4, 10] } }];
+  assert.equal(nextFill(days, '2026-10-01', '4444').locked, 'limit-up');
+  assert.equal(nextFill(days, '2026-10-01', '7777').px, 10.5);
+});
+test('AI 重選（d.repick）：只認已寫入的成交；未寫入＝作廢、不由日線推算', () => {
+  const days = lockDays();
+  const rp = { date: '2026-10-02', picks: [{ code: '5555', name: '5555', priceAtDecision: 54, position: { shares: 1000, budget: 60000 } }] };
+  const fill = { date: '2026-10-02', at: at('2026-10-02', '09:31'), px: 54, shares: 1000, source: 'live-repick' };
+  const withFill = portfolioState([buyDoc('2026-10-01', '4444', 1000, 20, { repick: rp, buyFills: { 4444: { failed: true, date: '2026-10-02', locked: 'limit-up' }, 5555: fill } })], days);
+  const lot = withFill.lots.find(l => l.code === '5555');
+  assert.equal(lot.status, 'held'); assert.equal(lot.buy.px, 54); assert.equal(lot.repick, true);
+  assert.equal(withFill.lots.find(l => l.code === '4444').status, 'void');
+  const noFill = portfolioState([buyDoc('2026-10-01', '4444', 1000, 20, { repick: rp })], days);
+  assert.equal(noFill.lots.find(l => l.code === '5555').status, 'void');
+});

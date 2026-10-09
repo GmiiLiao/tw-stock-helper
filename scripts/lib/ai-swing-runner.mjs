@@ -12,9 +12,12 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { dropUndefined } from './firestore-clean.mjs';
-import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
+import { SWING_LAB_VERSION, SWING_HORIZONS, buildPool, buildPickPrompt, buildRepickPrompt, horizonOutcome, poolBaseline, renderSwingMarkdown, swingLedger, sizePicks, swingAccountSnapshot } from './ai-swing-lab.mjs';
 import { accountSummary, rebuildHistory } from './ai-swing-history.mjs';
-import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds } from './ai-swing-portfolio.mjs';
+import { portfolioState, reviewHoldings, parseDecision, settleFills, estSellProceeds, lockedAtLimit } from './ai-swing-portfolio.mjs';
+import { limitUpPrice } from './tw-limit-price.mjs';
+import { twAt } from './sim-ledger.mjs';
+import { SWING_MIN_POSITION } from './sim-account.mjs';
 import { dailyFeatures, holdingFeatures, matchLessons, lessonText, sumDailyRet } from './ai-lab-learn.mjs';
 import { riskTiersOf } from './attention-risk.mjs';
 import { validDiscount } from './sim-ledger.mjs';
@@ -43,7 +46,9 @@ function liveDay(lots, date, getLive) {
   for (const l of lots) {
     if (l.status === 'void' || l.status === 'closed') continue;
     const q = liveQuoteOf(getLive, l.code, date); if (!q) continue;
-    m[l.code] = [q.price > 0 ? q.price : q.open, Math.round((q.volume || 0) / 1000), q.open, q.high > 0 ? q.high : q.open, q.low > 0 ? q.low : q.open];
+    // 第 6 欄＝昨收（現價－漲跌；判斷開盤是否鎖漲跌停用，2026-10-09）；推不出來就不給，改用前一交易日收盤
+    const prev = q.price > 0 && Number.isFinite(q.change) ? +(q.price - q.change).toFixed(2) : null;
+    m[l.code] = [q.price > 0 ? q.price : q.open, Math.round((q.volume || 0) / 1000), q.open, q.high > 0 ? q.high : q.open, q.low > 0 ? q.low : q.open, ...(prev > 0 ? [prev] : [])];
     liveAt = Math.max(liveAt ?? 0, q.liveAt);
   }
   return { date, m, provisional: true, liveAt };
@@ -312,21 +317,100 @@ export function createAiSwingLab({ db, askOllama, askOllamaEx = null, log, dir, 
       const missing = need.filter(l => !liveQuoteOf(getLive, l.code, today));
       if (missing.length && !deadline) return false;
       const daysPlus = [...days, liveDay(state.lots, today, getLive)];
-      let n = 0;
+      // 開盤鎖漲停（2026-10-09 使用者：一字漲停買不到時委託日不可設為已買到，並讓 AI 當天重新選買）：
+      //   09:30 前仍鎖在漲停的買單＝排隊中，先不寫（之後打開就以漲停價成交）；09:30 仍鎖住 ⇒ 記未成交、取消委託，並觸發 AI 當天重選。
+      //   賣單遇開盤鎖跌停：nextFill 視同當日無法成交、不寫，排隊到收盤（盤後 settle 依官方日線：打開過就以跌停價成交，一字跌停順延隔日）。
+      const dLive = daysPlus.length - 1;
+      const stillLocked = need.filter(l => l.status === 'pending' && lockedAtLimit(daysPlus, dLive, l.code, 'buy'));
+      let n = 0; const lockedFailed = [];
       for (const u of settleFills(docs, daysPlus, opts)) {
         const upd = {};
         for (const [k, v] of Object.entries(u.upd)) {
           if (v?.date !== today) { upd[k] = v; continue; }
+          if (v.locked === 'limit-up' && !deadline) continue;   // 09:30 前：排隊中，下一分鐘再看
           const q = getLive(v.code || k.split('.')[1]);
           upd[k] = { ...v, source: 'live-open', quoteAt: q?.revealAt ?? q?.liveAt ?? null, recordedAt: now,
-            ...(v.failed ? { reason: '開盤至 09:30 未取得即時開盤價（未成交）' } : {}) };
+            ...(v.failed ? { reason: v.locked === 'limit-up' ? '開盤即鎖漲停、至 09:30 仍未打開：委託未成交並取消（AI 當天重選）' : '開盤至 09:30 未取得即時開盤價（未成交）' } : {}) };
+          if (v.locked === 'limit-up') lockedFailed.push({ date: u.date, code: k.split('.')[1] });
           n++;
         }
+        if (!Object.keys(upd).length) continue;
         const d = snap.docs.find(x => x.data().date === u.date); if (d) await d.ref.update(dropUndefined(upd));
       }
-      log(`✓ 波段 AI 開盤即時成交${tag} ${today}：${n} 筆（委託 ${need.length}${missing.length ? `，無開盤價 ${missing.length}` : ''}）`);
-      await this.writeAccount(daysPlus);
-      return true;
+      const waiting = deadline ? [] : stillLocked;
+      log(`✓ 波段 AI 開盤即時成交${tag} ${today}：${n} 筆（委託 ${need.length}${missing.length ? `，無開盤價 ${missing.length}` : ''}${waiting.length ? `，鎖漲停排隊中 ${waiting.map(l => l.code).join('、')}` : ''}${lockedFailed.length ? `，鎖漲停未成交 ${lockedFailed.map(x => x.code).join('、')}` : ''}）`);
+      // 帳戶快照：今天只執行已寫入的成交（recordedOnly）——排隊中的鎖漲停委託不提前顯示成作廢
+      await this.writeAccount([...days, { ...liveDay(state.lots, today, getLive), recordedOnly: true }]);
+      if (lockedFailed.length) {
+        try { await this.repickLocked(today, lockedFailed, getLive, { now }); }
+        catch (e) { log(`✖ 波段 AI 鎖漲停重選${tag}:`, (e.message || '').slice(0, 80)); }
+      }
+      return waiting.length === 0;   // 還有排隊中的鎖漲停 ⇒ 回 false，daemon 下一分鐘再試（09:30 起以 deadline 收尾）
+    },
+
+    /**
+     * 開盤鎖漲停買不到 → AI 當天重選（2026-10-09 使用者裁定：盤中 09:30 確認後當天重選）。
+     * failedList＝[{ date: 決策日, code }]。每份決策文件只重選一次（寫 d.repick；已存在就跳過）。
+     * 候選＝該決策文件的候選池，排除：持有／委託中、該決策原本選過的、現在鎖在漲停、沒有今日即時報價者。
+     * 資金＝原委託預算合計，上限為現金扣除委託保留；以重選當下的即時價成交並寫入 buyFills（source:'live-repick'）。
+     * Ollama 連不上或回覆看不懂 ⇒ 記下原因、今天不重選（資金留到盤後決策）；不重試到盤後、不捏造選股。
+     */
+    async repickLocked(today, failedList, getLive, { now = Date.now() } = {}) {
+      const byDate = new Map();
+      for (const x of failedList) { if (!byDate.has(x.date)) byDate.set(x.date, []); byDate.get(x.date).push(x.code); }
+      for (const [dDate, codes] of byDate) {
+        const ref = col().doc(dDate); const dDoc = (await ref.get()).data();
+        if (!dDoc || dDoc.repick) continue;
+        const docs = (await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data());
+        const days = await loadDays(30);
+        const { opts } = await acctOf();
+        const lots0 = portfolioState(docs, days.length ? days : null, null, opts).lots;
+        const state = portfolioState(docs, [...days, { ...liveDay(lots0, today, getLive), recordedOnly: true }], null, opts);
+        const failedLots = state.lots.filter(l => l.date === dDate && codes.includes(l.code) && l.status === 'void');
+        const budget = failedLots.reduce((a, l) => a + (l.budget ?? l.estCost ?? 0), 0);
+        const cash = Math.max(0, Math.min(budget, state.account.cash - state.account.reservedBuys));
+        const busy = new Set([...state.lots.filter(l => l.status === 'pending' || l.status === 'held' || l.status === 'selling').map(l => l.code), ...(dDoc.picks || []).map(p => p.code)]);
+        const cands = (dDoc.pool || []).filter(c => !busy.has(c.code)).map(c => {
+          const q = liveQuoteOf(getLive, c.code, today); if (!(q?.price > 0)) return null;
+          const prev = Number.isFinite(q.change) ? q.price - q.change : null;
+          if (prev > 0 && q.price >= limitUpPrice(prev, /^00/.test(c.code)) - 1e-9) return null;   // 現在在漲停＝買不到
+          return { ...c, live: { price: q.price, chgPct: prev > 0 ? (q.price / prev - 1) * 100 : null } };
+        }).filter(Boolean);
+        const rec = { date: today, at: now, trigger: codes, budget: Math.round(budget), cash: Math.round(cash), candidates: cands.length };
+        if (cash < SWING_MIN_POSITION || !cands.length) {
+          await ref.update(dropUndefined({ repick: { ...rec, picks: [], note: cash < SWING_MIN_POSITION ? `可用資金 ${Math.round(cash).toLocaleString()} 元不足，不重選` : '候選池沒有可買的股票（已持有／委託中、現在鎖漲停或無即時報價）' } }));
+          log(`· 波段 AI 鎖漲停重選${tag} ${today}：${codes.join('、')} 未成交，${cash < SWING_MIN_POSITION ? '資金不足' : '無可買候選'}，不重選`);
+          continue;
+        }
+        const maxPicks = Math.max(1, codes.length);
+        const prompt = buildRepickPrompt({ date: today, timeTxt: '09:30', failed: failedLots.map(l => ({ code: l.code, name: l.name })), pool: cands, cash, maxPicks });
+        let parsed = null, raw = null, kind = null;
+        for (let a = 0; a < 2 && !parsed; a++) {
+          const r = await askWithOutcome({ askOllama, askOllamaEx }, prompt, { priority, temperature: 0.2 });
+          raw = r.text; kind = r.kind;
+          if (isInfraFailure(kind)) break;
+          parsed = parseDecision(raw, new Set(cands.map(c => c.code)), new Set(), busy, maxPicks);
+        }
+        const model = await getModelInfo().catch(() => null);
+        if (!parsed) {
+          const why = isInfraFailure(kind) ? `Ollama 未回應（${OLLAMA_KIND_LABEL[kind] || kind}）` : '回覆無法解析';
+          await ref.update(dropUndefined({ repick: { ...rec, model, picks: [], failure: why, note: `${why}，今天不重選（資金留到盤後決策）`, prompt, raw: raw ? String(raw).slice(0, 3000) : null } }));
+          log(`⚠ 波段 AI 鎖漲停重選${tag} ${today}：${why}，不重選`);
+          continue;
+        }
+        const byCode = new Map(cands.map(c => [c.code, c]));
+        const picks = sizePicks(parsed.picks.map(p => ({ ...p, name: byCode.get(p.code)?.name || p.code, sources: byCode.get(p.code)?.sources || [], priceAtDecision: byCode.get(p.code).live.price, prefund: false })), cash, { feeDiscount: opts.feeDiscount });
+        const hhmm = new Date(now + 8 * 3600e3).toISOString().slice(11, 16);
+        const upd = { repick: { ...rec, model, picks, note: parsed.note, rejected: parsed.rejected, prompt, raw: raw ? String(raw).slice(0, 3000) : null } };
+        for (const p of picks) {
+          if (!(p.position?.shares > 0)) continue;
+          const q = liveQuoteOf(getLive, p.code, today);
+          upd[`buyFills.${p.code}`] = { date: today, at: twAt(today, hhmm), px: p.priceAtDecision, openMissing: false, shares: p.position.shares, source: 'live-repick', quoteAt: q?.revealAt ?? q?.liveAt ?? null, recordedAt: now };
+        }
+        await ref.update(dropUndefined(upd));
+        log(`✓ 波段 AI 鎖漲停重選${tag} ${today}：${codes.join('、')} 未成交 → 改買 ${picks.filter(p => p.position?.shares).map(p => `${p.code}@${p.priceAtDecision}`).join('、') || '不買'}（${(parsed.note || '').slice(0, 30)}）`);
+        await this.writeAccount([...days, { ...liveDay(portfolioState((await col().orderBy('date', 'desc').limit(400).get()).docs.map(d => d.data()), days.length ? days : null, null, opts).lots, today, getLive), recordedOnly: true }]);
+      }
     },
 
     /** 到期才結算；每個持有期只寫一次 */

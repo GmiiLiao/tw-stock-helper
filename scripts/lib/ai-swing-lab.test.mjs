@@ -447,3 +447,36 @@ test('校準檔缺席：候選／持股仍有分級標籤，只是不印機率�
     assert.match(p, /【近5日漲跌合計】.*約 —、15~24% 約 —、≥24% 約 —/s);
   } finally { setAttentionCalibration(prev); }
 });
+
+test('執行器：開盤鎖漲停——09:30 前排隊不記；09:30 仍鎖住＝未成交並由 AI 當天重選、以即時價成交（2026-10-09 使用者）', async () => {
+  const days = mkDays(); const D0 = days[5].date, today = days[6].date;
+  const db = fakeDb({
+    [`aiSwingLab/${D0}`]: { date: D0, frozenAt: Date.parse(`${D0}T18:00:00+08:00`), outcomes: {},
+      picks: [{ code: '4444', name: 'L', priceAtDecision: 20, position: { shares: 5000, budget: 101000 } }],
+      pool: [{ code: '4444', name: 'L', price: 20, sources: ['波段起漲⭐'] }, { code: '3333', name: 'C', price: 30, chg: 1, sources: ['波段持有整合榜#3（上榜 2 張）'] }, { code: '5555', name: 'U', price: 40, sources: ['波段起漲⭐'] }] },
+  });
+  let prompt = '';
+  const lab = createAiSwingLab({ db, log: () => {}, dir: mkdtempSync(join(tmpdir(), 'swing-')), getModelInfo: async () => ({ name: 'm' }), getRisk: async () => ({ disp: new Set(), attention: new Set() }), getIndustry: async () => ({}), loadDays: async () => days.slice(0, 6),
+    askOllama: async p => { prompt = p; return '{"sells":[],"picks":[{"code":"3333","confidence":55,"horizon":"20","reason":"替代","risk":"追價"}],"note":"改買 3333"}'; } });
+  const t0 = Date.parse(`${today}T09:10:00+08:00`);
+  const live = { 4444: { price: 22, change: 2, open: 22, high: 22, low: 22, volume: 1e5, liveAt: t0, hasLive: true },
+    3333: { price: 30.5, change: 0.5, open: 30.2, high: 30.8, low: 30.1, volume: 2e5, liveAt: t0, hasLive: true },
+    5555: { price: 44, change: 4, open: 44, high: 44, low: 43, volume: 2e5, liveAt: t0, hasLive: true } };
+  assert.equal(await lab.executeOpen(today, c => live[c], { now: t0, deadline: false }), false, '鎖漲停排隊中 ⇒ 下一分鐘再試');
+  assert.equal(db.store[`aiSwingLab/${D0}`].buyFills, undefined, '09:30 前不記成交、也不記失敗');
+  const t1 = Date.parse(`${today}T09:30:20+08:00`);
+  for (const k in live) live[k] = { ...live[k], liveAt: t1 };
+  assert.equal(await lab.executeOpen(today, c => live[c], { now: t1, deadline: true }), true);
+  const d = db.store[`aiSwingLab/${D0}`];
+  assert.equal(d.buyFills['4444'].failed, true, '委託日不可設為已買到'); assert.equal(d.buyFills['4444'].locked, 'limit-up');
+  assert.match(d.buyFills['4444'].reason, /鎖漲停/);
+  assert.match(prompt, /4444 L 開盤即鎖漲停/); assert.match(prompt, /3333 C/); assert.doesNotMatch(prompt, /5555 U/, '現在在漲停的候選排除');
+  assert.equal(d.repick.trigger.join(), '4444'); assert.equal(d.repick.picks[0].code, '3333');
+  assert.equal(d.buyFills['3333'].source, 'live-repick'); assert.equal(d.buyFills['3333'].px, 30.5);
+  assert.ok(d.buyFills['3333'].shares >= 3000 && d.buyFills['3333'].shares * 30.5 <= 101000, '用原委託預算');
+  const h = db.store['aiLabAccounts/swing'].holdings.find(x => x.code === '3333');
+  assert.equal(h?.status, '持有中', '重選成交後帳戶立即反映');
+  // 重選只做一次
+  await lab.repickLocked(today, [{ date: D0, code: '4444' }], c => live[c], { now: t1 + 60000 });
+  assert.equal(db.store[`aiSwingLab/${D0}`].repick.at, t1);
+});
