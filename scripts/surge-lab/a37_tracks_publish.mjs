@@ -29,6 +29,7 @@ import {
   rawDocId, rawDocWrites, rawAssemble, rawReplaceProblems, rawVerifyStatus, TRACKS_INDEX_ID, TRACKS_KIND_DAY, TRACKS_KIND_RAW, TRACKS_KIND_RAW_SHARD,
 } from '../lib/surge-tracks-report.mjs';
 import { TRACKS_CORE_RE, TRACKS_GAP_RE } from '../lib/surge-tracks-daily.mjs';
+import { stampAfterPublish } from '../lib/writer-version.mjs';
 
 const COLLECTION = 'surgeShadow';
 const BATCH = 200;
@@ -214,6 +215,7 @@ async function main() {
     for (const [id, w] of todo.slice(i, i + BATCH)) batch.set(db.collection(COLLECTION).doc(id), { ...w, updatedAt: FieldValue.serverTimestamp() });
     await batch.commit();
   }
+  if (todo.length) await stampAfterPublish(db, COLLECTION, 'a37_tracks_publish', join(dirname(fileURLToPath(import.meta.url)), '..', '..'), ['scripts/surge-lab/a37_tracks_publish.mjs', 'scripts/lib/surge-tracks-report.mjs']);
   // 讀回驗證（這次寫的主文件＋還沒驗過的）：解壓後 sha256＝本機原檔才記進驗證帳
   const toVerify = [...new Set([...todo.filter(([, w]) => w.kind === TRACKS_KIND_RAW).map(([id]) => id), ...localRaw.filter(x => verified[x.id]?.sha256 !== x.sha256).map(x => x.id)])];
   const back = await readBackShas(async id => { const x = await db.collection(COLLECTION).doc(id).get(); return x.exists ? x.data() : null; }, toVerify);

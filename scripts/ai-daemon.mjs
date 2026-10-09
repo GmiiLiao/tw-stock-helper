@@ -22,9 +22,11 @@ import { readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp, applicationDefault, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, FieldPath, DocumentReference, WriteBatch, Transaction } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { applyPriceFactors, factorsFromItems } from './lib/price-factors.mjs';
+import { createWriterRegistry, installWriteRecorder, gitWriterStamp, WRITER_DOC } from './lib/writer-version.mjs';
+import { driftHealVerdict, DRIFT_SETTLE_MIN } from './lib/drift-heal.mjs';
 import { loadWikiStocks, wikiPromptBlock } from './lib/wiki-facts.mjs';
 import { scoreboardDoc, recentPicks } from './lib/picks-scoreboard.mjs';
 import { baseScoreOf, percentileOf, techScoreText, riskNoteText, riskTypeOf, thesisSupport } from './lib/risk-score.mjs';
@@ -152,6 +154,10 @@ try {
   process.exit(1);
 }
 const db = getFirestore(app);
+// ── 寫入端版本登記（2026-10-09·WM-SCAN G4-42；lib/writer-version.mjs）──────────────────────────────
+//   每個頂層 collection「最後由哪個 codeHash 寫入」彙整到 system/writerVersions（不動資料文件本身）。
+//   --run 單次模式跑的是磁碟碼、不是常駐 daemon，不登記（避免把單次執行記成 daemon 的版本）。
+const _writerRegistry = createWriterRegistry(() => _daemonCodeHash);
 // ── 通知去重（持久化·2026-10-02 第二期；lib/alert-dedup.mjs）──────────────────────
 //   舊版各通知的「已發過」只存在記憶體 Set、重啟即清空 ⇒ 開機重跑每日工作／盤中迴圈把當天已推過的 Web Push／Telegram 再推一次。
 //   alertDedup/{種類}_{scope}：keys 以 arrayUnion 累積（scope 通常是日期；跨日事件用固定 scope＋prune）。
@@ -199,6 +205,7 @@ const isPremiumUser = (docSnap, trial) => PAID_LEVELS.includes(docSnap.data().le
 // 於是「上線前驗證」變成猜謎（2026-08-03 為此卡了兩次，第一次還差點讓錯誤數字過夜）。
 // ONESHOT 時所有常駐迴圈都不啟動，只跑指定 job 然後退出。
 const ONESHOT = process.argv.includes('--run') ? (process.argv[process.argv.indexOf('--run') + 1] || '') : null;
+if (!ONESHOT) installWriteRecorder({ DocumentReference, WriteBatch, Transaction }, _writerRegistry);
 // --force（僅限手動 --run）：重寫「已定版」的事前存檔／當日記錄（修補用）；資料未到齊或已過下一個交易日開盤仍不寫（見 canonical-gate）
 const FORCE = !!ONESHOT && process.argv.includes('--force');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -234,13 +241,18 @@ function checkNumbers(tag, answer, sourceText) {
 //   更新 mtime ⇒ 假警報。第一版就是 mtime，寫完當場誤報。
 // ⚠ 宣告必須在使用之前（今天第五次踩到宣告順序）。
 let _daemonCodeHash = null;
+let _daemonCommit = { commit: null, dirty: null };
+const _daemonStartedAt = Date.now();
 async function _recordDaemonBuild() {
   try {
     // 含 scripts/lib 相依（G4-02）；audit-data-sources 用同一函式比對
     const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
-    _daemonCodeHash = daemonCodeHash(fileURLToPath(import.meta.url)).hash;
+    const built = daemonCodeHash(fileURLToPath(import.meta.url));
+    _daemonCodeHash = built.hash;
+    const stamp = gitWriterStamp(join(dirname(fileURLToPath(import.meta.url)), '..'), built.files);
+    _daemonCommit = stamp;
     await db.collection('system').doc('daemonBuild').set({
-      codeHash: _daemonCodeHash, startedAt: Date.now(), host: os.hostname(), updatedAt: Date.now(),
+      codeHash: _daemonCodeHash, commit: stamp.commit, dirty: stamp.dirty, startedAt: Date.now(), host: os.hostname(), updatedAt: Date.now(),
     });
   } catch (e) { log('⚠ 記錄 daemon 版本失敗:', (e.message || '').slice(0, 40)); }
 }
@@ -675,9 +687,11 @@ async function probeOllama() {
   return _ollamaHealth;
 }
 const _jobTimings = {};   // name → { ms, at, tag }（F14：08:30 前完成的硬要求需要量測每段耗時）
+let _inflightJobs = 0;   // 進行中的 timedJob／execScript 數（自動換碼只在 0 時動手，lib/drift-heal.mjs）
 async function timedJob(name, fn, tag = '') {
   const t0 = Date.now();
-  try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); }
+  _inflightJobs++;
+  try { await fn(); } catch (e) { log(`✖ ${name}${tag}:`, e.message); } finally { _inflightJobs--; }
   const ms = Date.now() - t0; _jobTimings[name] = { ms, at: Date.now(), tag };
   if (ms > 60_000) log(`⏱ ${name}${tag} 耗時 ${(ms / 1000).toFixed(0)}s`);
   return ms;
@@ -5234,6 +5248,54 @@ async function analyzeLoop() {
   }
 }
 if (!ONESHOT) _recordDaemonBuild();   // 記錄本次啟動載入的程式碼版本
+
+// 寫入端版本 flush：每 5 分鐘把有變動的 collection 寫進 system/writerVersions（merge；失敗下輪重寫）
+async function flushWriterVersions() {
+  if (!_daemonCodeHash || !_writerRegistry.hasChanges()) return;
+  const changes = _writerRegistry.takeChanges();
+  try {
+    await db.collection(WRITER_DOC[0]).doc(WRITER_DOC[1]).set({
+      daemon: { codeHash: _daemonCodeHash, commit: _daemonCommit.commit, dirty: _daemonCommit.dirty, startedAt: _daemonStartedAt, flushedAt: Date.now(), collections: changes },
+    }, { merge: true });
+  } catch (e) { _writerRegistry.restore(changes); log('⚠ 寫入端版本登記失敗:', (e.message || '').slice(0, 60)); }
+}
+
+// 跑舊碼自動換碼（2026-10-09 使用者裁定「跑舊碼就修正它」；判定見 lib/drift-heal.mjs）：每 10 分鐘比對磁碟碼，
+//   五道條件都成立才自行結束、由 launchd KeepAlive 拉起磁碟上的新碼。結束前先 flush 寫入端版本並記錄原因。
+let _driftSince = null, _driftLastReason = '';
+async function driftHealTick() {
+  try {
+    if (!_daemonCodeHash) return;
+    const { daemonCodeHash } = await import('./lib/daemon-code-hash.mjs');
+    const disk = daemonCodeHash(fileURLToPath(import.meta.url));
+    const nowMs = Date.now();
+    if (disk.hash === _daemonCodeHash) { if (_driftSince) log('✓ 磁碟碼與執行中一致（落後解除）'); _driftSince = null; _driftLastReason = ''; return; }
+    if (_driftSince == null) { _driftSince = nowMs; log(`⚠ daemon 跑舊碼：執行中 ${_daemonCodeHash}、磁碟 ${disk.hash}；落後滿 ${DRIFT_SETTLE_MIN} 分後於安全時段自動換碼`); }
+    const tw = taipei();
+    const base = {
+      runningHash: _daemonCodeHash, diskHash: disk.hash, driftSinceMs: _driftSince, nowMs, startedAtMs: _daemonStartedAt,
+      inflight: _inflightJobs, mins: tw.getHours() * 60 + tw.getMinutes(), isTradingDay: isTradingDay(tw),
+    };
+    // 便宜的條件先判，過了才查 git 與跑 can-restart（子程序）
+    const pre = driftHealVerdict({ ...base, clean: true, canRestart: true });
+    let v = pre;
+    if (pre.restart) {
+      const st = gitWriterStamp(join(dirname(fileURLToPath(import.meta.url)), '..'), disk.files);
+      const clean = st.dirty === null ? null : !st.dirty;
+      const canRestart = clean ? await execScript('can-restart-daemon.mjs', ['--quiet'], '自動換碼·can-restart', 2) : null;
+      v = driftHealVerdict({ ...base, clean, canRestart });
+    }
+    if (!v.restart) { if (v.reason !== _driftLastReason) { log(`  自動換碼暫緩：${v.reason}`); _driftLastReason = v.reason; } return; }
+    log(`🔄 自動換碼：執行中 ${_daemonCodeHash} → 磁碟 ${disk.hash}（${v.reason}）；結束程序交由 launchd 拉起新碼`);
+    await flushWriterVersions();
+    await db.collection('system').doc('daemonBuild').set({ selfRestart: { at: nowMs, from: _daemonCodeHash, to: disk.hash, reason: v.reason } }, { merge: true }).catch(() => {});
+    process.exit(0);
+  } catch (e) { log('⚠ 自動換碼檢查失敗:', (e.message || '').slice(0, 80)); }
+}
+if (!ONESHOT) {
+  setInterval(flushWriterVersions, 5 * 60000);
+  setInterval(driftHealTick, 10 * 60000);
+}
 if (!ONESHOT) analyzeLoop();
 
 // Manual test: FORCE_PREMARKET=1 publishes the brief immediately at startup.
@@ -15683,8 +15745,10 @@ function execScript(name, args, tag, timeoutMin = 10) {
     //   **一律會走到標記那行**——我當天早上「改為成功才標記」的修正
     //   因此完全無效，訓練失敗照樣整天不重試。
     //   改為 resolve(boolean)，呼叫端才有辦法判斷。
+    _inflightJobs++;
     return new Promise(resolve => {
       execFile(process.execPath, [script, ...args], { timeout: timeoutMin * 60000 }, (err, stdout) => {
+        _inflightJobs--;
         if (err) { log(`✖ ${tag}:`, err.message); resolve(false); }
         else { log(`${tag}:`, String(stdout).trim().split('\n').pop()); resolve(true); }
       });

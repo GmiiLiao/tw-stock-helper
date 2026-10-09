@@ -29,6 +29,7 @@ import {
   lastTradingDay, planCvTask, buildCvDoc, buildMirrorDoc, buildPipelineDoc, assertDocSizes, cvGateProblems, staleRowsToDelete, datasetUnit,
 } from '../lib/surge-lab-report.mjs';
 import { DATED } from '../official-mirror/adapters-dated.mjs';
+import { stampAfterPublish } from '../lib/writer-version.mjs';
 
 const COLLECTION = 'surgeShadow';
 const PARTS = ['cv', 'cvrows', 'mirror', 'pipeline'];
@@ -206,6 +207,7 @@ async function commitAll(db, FieldValue, writes) {
     bytes += w.bytes; n++;
   }
   if (n) await batch.commit();
+  if (writes.length) await stampAfterPublish(db, COLLECTION, 'surge_lab_publish', join(dirname(fileURLToPath(import.meta.url)), '..', '..'), ['scripts/surge-lab/surge_lab_publish.mjs', 'scripts/lib/surge-lab-report.mjs']);
 }
 
 const labWrite = (id, doc, extra = {}) => { const reportJson = JSON.stringify(doc); return { id, bytes: Buffer.byteLength(reportJson, 'utf8'), data: { schema: doc.schema, dataDate: doc.dataDate, reportJson }, ...extra }; };

@@ -24,7 +24,7 @@ interface RisingItem { code: string; ratio: number; change: number }
 interface RSItem { code: string; name: string; rs: number; ret60: number }
 interface TradeItem { code: string; name: string; close: number; changePct: number; amplitude: number; closePos: number }
 // basisVersion（2026-10-08）：沒有這欄的舊文件，foreignTxfNetOI 其實是外資 23 種期貨「交易」口數淨額合計（錯值）——不顯示，見 scripts/lib/taifex-basis.mjs
-interface Taifex { date?: string; basisVersion?: string; foreignTxfNetOI: number | null; putCallRatio: number | null }
+interface Taifex { date?: string; basisVersion?: string; foreignTxfNetOI: number | null; putCallRatio: number | null; oldBasis?: boolean }
 // date＝產生當天（日曆日）、dataDate＝內容的資料日；畫面標資料日（2026-10-01：凌晨重算的 09-30 總結被標成 10-01）
 interface DailyPost { date?: string; dataDate?: string; post: string; breadth?: { up: number; down: number } }
 interface ScanItem { code: string; name: string; close: number; changePct: number; volX?: number }
@@ -72,7 +72,7 @@ export default function MarketInsights() {
     const load = () => {
       get('/api/ai/institutional-streaks', (d: any) => d && setInst({ foreign: d.foreign || [], trust: d.trust || [], latestDate: d.latestDate }));
       get('/api/ai/backtest', (d: any) => setBt(d));
-      get('/api/ai/taifex', (d: any) => setTaifex(d && typeof d === 'object' ? { ...d, foreignTxfNetOI: isCurrentTaifexBasis(d) ? d.foreignTxfNetOI ?? null : null } : null));
+      get('/api/ai/taifex', (d: any) => setTaifex(d && typeof d === 'object' ? { ...d, foreignTxfNetOI: isCurrentTaifexBasis(d) ? d.foreignTxfNetOI ?? null : null, oldBasis: !isCurrentTaifexBasis(d) && d.foreignTxfNetOI != null } : null));
       get('/api/ai/daily-post', (d: any) => setPost(d));
       get('/api/ai/major-holders', (d: any) => { if (d) { setMajor({ date: d.date, top: d.top || [] }); setRising(d.rising || []); } });
       get('/api/ai/dividend-calendar', (d: any) => d && setDiv(d.upcoming || []));
@@ -331,7 +331,7 @@ export default function MarketInsights() {
                 <div style={{ fontSize: 'calc(1.1rem * var(--fz))', fontWeight: 800, color: col(taifex.foreignTxfNetOI ?? 0), fontFamily: "'JetBrains Mono', monospace" }}>
                   {taifex.foreignTxfNetOI != null ? `${sign(taifex.foreignTxfNetOI)}${taifex.foreignTxfNetOI.toLocaleString()}` : '—'}
                 </div>
-                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{taifex.foreignTxfNetOI == null ? '尚無資料' : taifex.foreignTxfNetOI >= 0 ? '淨多單(口)' : '淨空單(口)'}</div>
+                <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>{taifex.foreignTxfNetOI == null ? (taifex.oldBasis ? '口徑更新中（下次盤後更新）' : '尚無資料') : taifex.foreignTxfNetOI >= 0 ? '淨多單(口)' : '淨空單(口)'}</div>
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '12px 4px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
                 <div style={{ fontSize: 'calc(12.5px * var(--fz))', color: 'var(--text-muted)' }}>Put/Call 比</div>

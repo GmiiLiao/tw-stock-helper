@@ -18,6 +18,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
+import { stampAfterPublish } from '../lib/writer-version.mjs';
 import { buildDayDoc, buildIndexDoc, daySummary, dayDocId, forwardFreezeOk, historyConsistency } from '../lib/surge-shadow-report.mjs';
 
 const COLLECTION = 'surgeShadow';
@@ -132,6 +133,7 @@ async function main() {
     for (const [id, w] of writes.slice(i, i + BATCH)) batch.set(db.collection(COLLECTION).doc(id), { ...w, updatedAt: FieldValue.serverTimestamp() });
     await batch.commit();
   }
+  await stampAfterPublish(db, COLLECTION, 'a35_shadow_publish', join(dirname(fileURLToPath(import.meta.url)), '..', '..'), ['scripts/surge-lab/a35_shadow_publish.mjs', 'scripts/lib/surge-shadow-report.mjs']);
   console.log(`✓ 已寫入 ${COLLECTION}/（${writes.length} 份）`);
 }
 

@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { archiveDir, readLatest, readManifest, rowKey } from './lib/analyst-desk/archive.mjs';
 import { prepareDocs, decidePublish } from './lib/analyst-desk/publish-split.mjs';
+import { stampAfterPublish } from './lib/writer-version.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const COL_PUBLIC = 'dailyAnalyst';
@@ -69,6 +70,7 @@ async function cli() {
     db = admin.firestore();
   }
   const r = await publishDaily({ root, db, dry, force: argv.includes('--force'), day: opt('--day'), edition: opt('--edition'), log: m => console.log(m) });
+  if (r.status === 'published') await stampAfterPublish(db, COL_PUBLIC, 'publish-daily-analyst', join(HERE, '..'), ['scripts/publish-daily-analyst.mjs', 'scripts/analyst-desk-run.mjs', 'scripts/lib/analyst-desk']);
   const msg = { published: `✓ 已發佈 dailyAnalyst／dailyAnalystFocus（latest＋${r.dataDate}，${r.edition}）`, 'dry-run': `dry-run：${r.dataDate}/${r.edition}（未寫入）`, 'skip-same': `skip：${r.dataDate}/${r.edition}（canonicalAt 相同）已發佈`, 'skip-older': 'latest 已是較新的資料日，不覆蓋', 'skip-edition': '同資料日 latest 已是 morning 定版，evening 不覆蓋' }[r.status];
   if (msg) { console.log(msg); process.exit(0); }
   console.error(`✗ ${r.status}：${r.reason || ''}`);
