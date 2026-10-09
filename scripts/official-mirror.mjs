@@ -524,17 +524,41 @@ function cmdStatus({ quiet = false } = {}) {
   }
 }
 
+// daily 被開跑閘門擋下（整批或某機構）、或跑到一半遇封鎖／限流訊號停掉時，當晚自動再試（2026-10-09 使用者追問：
+//   10-06、10-07 daily 被擋後要等隔天 06:45 retry，而 retry 也被擋 ⇒ 兩天整晚沒抓）。
+//   每 NIGHT_RETRY_GAP_MS 再試一次、最多 NIGHT_RETRY_ROUNDS 輪；進入禁跑窗（平日 07:30–15:30、daemon 重任務窗）就停。
+//   重試期間持有鏡像鎖（同晚的 backfill 會讓路——當日資料優先於歷史回補）；每輪重新判斷閘門、重置家族佇列。
+const NIGHT_RETRY_GAP_MS = 30 * 60 * 1000;
+const NIGHT_RETRY_ROUNDS = 5;
+const FAMILY_HOSTS = ['www.twse.com.tw', 'www.tpex.org.tw', 'www.taifex.com.tw'];
+const hitBlockSignal = a => FAMILY_HOSTS.some(h => { const q = C.queueFor(h, queueOpts(a)); return q.stopped && /封鎖|限流/.test(q.stopReason || ''); });
+async function dailyWithNightRetry(a) {
+  for (let round = 0; ; round++) {
+    const pf = preflight(a);
+    if (!pf.ok) recordBlocked(a, pf.reason);
+    else await cmdDaily(a);
+    const blocked = !pf.ok || a.gate.blocked.length > 0 || hitBlockSignal(a);
+    if (!blocked) return;
+    if (a.date || round >= NIGHT_RETRY_ROUNDS) { log(`daily 仍有機構被擋，已達當晚重試上限（${round} 輪）——交給 06:45 retry／下次 daily 的 5 日補漏`); return; }
+    log(`daily 有機構被擋（${pf.ok ? (a.gate.blocked.join('、') || '執行中遇封鎖／限流') : '整批'}）——${NIGHT_RETRY_GAP_MS / 60000} 分鐘後當晚重試（第 ${round + 1}/${NIGHT_RETRY_ROUNDS} 輪）`);
+    await new Promise(r => setTimeout(r, NIGHT_RETRY_GAP_MS));
+    const quiet = C.blockedReason();
+    if (quiet) { log(`當晚重試停止：進入禁跑窗（${typeof quiet === 'string' ? quiet : '禁跑窗'}）`); return; }
+    C.resetQueues();
+  }
+}
+
 function writeRunLog(name, obj) { mkdirSync(join(ROOT, '_runs'), { recursive: true }); writeFileSync(join(ROOT, '_runs', `${name}.json`), JSON.stringify({ ...obj, at: new Date().toISOString() }, null, 1)); }
 
 async function main() {
   const a = args(process.argv.slice(2)); mkdirSync(ROOT, { recursive: true });
   const net = ['daily', 'retry', 'backfill', 'verify', 'ticks'].includes(a.cmd);
   if ((net || a.cmd === 'migrate') && !acquireLock(a.cmd)) return;
+  if (a.cmd === 'daily') return dailyWithNightRetry(a);
   if (net) {
     const pf = preflight(a);
     if (!pf.ok) { if (['daily', 'retry', 'ticks'].includes(a.cmd)) recordBlocked(a, pf.reason); return; }
   }
-  if (a.cmd === 'daily') return cmdDaily(a);
   if (a.cmd === 'retry') return cmdRetry(a);
   if (a.cmd === 'backfill') return cmdBackfill(a);
   if (a.cmd === 'verify') return cmdVerify(a);
