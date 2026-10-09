@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Yahoo 1/5/60 分K 原始資料收集（研究用·非官方）；2026-10-08 使用者核可。平日 18:10（避開盤中 07:30–14:00、daemon 重任務窗 16:25–16:55／21:40–22:35、起漲影子 17:30／19:30）。
+     安裝：cp 本檔 ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.gmii.twstock.intraday-yahoo.plist
+     由 node 起程序（launchd 直接起 bash 無法存取 ~/Documents）。 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.gmii.twstock.intraday-yahoo</string>
+  <key>ProgramArguments</key><array><string>/opt/homebrew/bin/node</string><string>scripts/intraday-yahoo/collect.mjs</string></array>
+  <key>WorkingDirectory</key><string>/Users/gmii/Documents/股票助手app/tw-stock-app</string>
+  <key>StartCalendarInterval</key><array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>10</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>10</integer></dict>
+  </array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>Nice</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/Users/gmii/Library/Logs/twstock-intraday-yahoo/daily.log</string>
+  <key>StandardErrorPath</key><string>/Users/gmii/Library/Logs/twstock-intraday-yahoo/daily.err.log</string>
+</dict>
+</plist>
