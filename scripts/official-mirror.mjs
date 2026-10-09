@@ -4,8 +4,9 @@
 //   daily   [--date D] [--slot main|snap|all]  盤後：上市 MI_INDEX 回聲確認 D 是交易日 → 帶日期資料（main）＋快照（snap）＋近 5 個交易日補漏
 //   retry   [--days 5]                        補抓近 N 個交易日未到／失敗的鍵＋最後交易日缺的興櫃每日快照；P1 必有表仍缺、交易日未確認、
 //                                             或興櫃兩個快照來源都缺 ⇒ 寫 _alerts
-//   backfill [--max 2500] [--only a,b]        先轉存研究快取（0 請求），再回補帶日期資料的歷史（P1→P3）；每個台北日上限 --max 個請求
-//   verify  [--only a,b] [--snapshots]        未驗證端點各打 1 次，通過才排進 daily／backfill
+//   backfill [--max 2500] [--only a,b] [--keys k1,k2]  先轉存研究快取（0 請求），再回補帶日期資料的歷史（P1→P3）；每個台北日上限 --max 個請求；
+//                                             --keys 只抓列出的鍵（例 2026-03.sii：新端點先探最舊＋目標月，節奏／鎖／額度照舊）
+//   verify  [--only a,b] [--snapshots]        未驗證端點各打 1 次，通過才排進 daily／backfill（算進每日額度；23:00～00:59 不驗 MOPS）
 //   migrate                                   研究快取（.surge-cache/official、MOPS t163sb04）與期交所 30 日逐筆一次性回補轉存進來，0 請求
 //   ticks   [--max-files 5] [--refetch D,…]   期交所 30 日逐筆 zip 每日歸檔（平日 17:10）：交易日表到最後收盤日都已歸檔 ⇒ 0 請求；
 //                                             否則清單 1＋待抓日檔（平常 1）。清單上更晚的日檔只有夜盤、略過。見 official-mirror/taifex-ticks.mjs
@@ -42,18 +43,19 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const MI = DATED.find(x => x.id === 'twse_mi_index');
 
 function args(argv) {
-  const a = { cmd: argv[0], date: null, slot: 'all', max: 2500, only: null, days: 5, snapshots: false, forceHours: false, allowConcurrent: false, ackOutage: false,
+  const a = { cmd: argv[0], date: null, slot: 'all', max: 2500, only: null, keys: null, days: 5, snapshots: false, forceHours: false, allowConcurrent: false, ackOutage: false,
     maxFiles: TICKS.maxFilesPerRun, refetch: [], forceList: false };
   for (let i = 1; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--date') a.date = argv[++i]; else if (k === '--slot') a.slot = argv[++i]; else if (k === '--max') a.max = Number(argv[++i]);
-    else if (k === '--only') a.only = argv[++i].split(','); else if (k === '--days') a.days = Number(argv[++i]);
+    else if (k === '--only') a.only = argv[++i].split(','); else if (k === '--keys') a.keys = argv[++i].split(','); else if (k === '--days') a.days = Number(argv[++i]);
     else if (k === '--snapshots') a.snapshots = true; else if (k === '--force-hours') a.forceHours = true;
     else if (k === '--allow-concurrent') a.allowConcurrent = true; else if (k === '--ack-outage') a.ackOutage = true;
     else if (k === '--max-files') a.maxFiles = Number(argv[++i]); else if (k === '--refetch') a.refetch = argv[++i].split(',');
     else if (k === '--force-list') a.forceList = true;
     else throw new Error(`未知參數：${k}`);
   }
+  if (a.keys && a.cmd !== 'backfill') throw new Error('--keys 只用於 backfill');   // 其他指令不看 --keys，不可讓人以為已限縮
   return a;
 }
 
@@ -191,6 +193,9 @@ const queueOpts = a => ({ quiet: a.forceHours ? () => false : C.blockedReason, l
 const budgetFile = (day = C.taipeiDate()) => join(ROOT, '_budget', `${day}.json`);
 function readBudget(day) { try { return JSON.parse(readFileSync(budgetFile(day), 'utf8')).requests || 0; } catch { return 0; } }
 function addBudget(n, day) { mkdirSync(join(ROOT, '_budget'), { recursive: true }); writeFileSync(budgetFile(day), JSON.stringify({ requests: readBudget(day) + n })); }
+const MOPS_HOST = 'mopsov.twse.com.tw';
+/** 23:00～00:59（台北）不碰 MOPS：daemon 重訊輪次、wiki 23:40 起的 t05st03 都在這段打同一個出口（backfill／verify 共用）。 */
+const inMopsQuiet = () => { const h = C.taipeiNow().getUTCHours(); return h === 23 || h === 0; };
 
 // ── 上櫃 openapi 收盤大檔（4.7MB 未壓縮）：先從共用快取收養（2026-10-08）────────────────────────
 //   daemon／收件匣已把同一支端點的原始回應存進 second-brain/tpex-close/（scripts/lib/tpex-close-quotes.mjs，已驗證、sha256 算在原始位元組上）。
@@ -226,6 +231,8 @@ async function runJobs(jobs, a, { budget = Infinity } = {}) {
   await Promise.all([...byFam.values()].map(async list => {
     for (const j of list) {
       if (requests >= budget) { bump('overBudget'); continue; }
+      // 23:00～00:59 不碰 MOPS（2026-10-09：daily 當晚重試最晚跑到 01:10，會落進這段；逐筆判斷，跨過 01:00 就恢復）
+      if (j.ad.host === MOPS_HOST && inMopsQuiet()) { bump('mopsQuiet'); continue; }
       const mk = `${j.ad.host}/${j.ad.id}`; if (!mans.has(mk)) mans.set(mk, C.loadManifest(ROOT, j.ad.host, j.ad.id));
       const man = mans.get(mk);
       if (j.snapshot && TPEX_CLOSE_ADOPT.has(j.ad.id)) {   // 0 請求：從共用快取收養（見上）
@@ -284,7 +291,7 @@ async function cmdDaily(a) {
     for (const ad of activeDated(a.only)) {
       if (ad.id === MI.id) continue;
       if (ad.unit !== 'month') { jobs.push(...jobsFor(ad, { day: D }, { must: !!ad.must })); continue; }
-      jobs.push(...jobsFor(ad, { y, m: mo }, { final: false, force: true }));                                   // 當月表逐日長大：每晚覆蓋、不定版
+      if (!ad.lagMonths) jobs.push(...jobsFor(ad, { y, m: mo }, { final: false, force: true }));               // 當月表逐日長大：每晚覆蓋、不定版（月營收當月還不存在：lagMonths）
       const [py, pm] = mo === 1 ? [y - 1, 12] : [y, mo - 1]; const man = C.loadManifest(ROOT, ad.host, ad.id);
       // 上月表：未定版就抓。月營收 t21sc03 兩表（ad.stable）由內容穩定定版（fetchAndStore 不採用這裡的 final），申報期後仍每晚抓到兩次觀測一致為止
       for (const j of jobsFor(ad, { y: py, m: pm }, { final: monthFinal(ad, py, pm, today), force: true })) if (!C.isFinalFor(ad, man, j.key)) jobs.push(j);
@@ -456,17 +463,17 @@ async function cmdBackfill(a) {
   cmdMigrate();
   const today = C.taipeiDate(); const info = dayInfo(today); const left = Math.max(0, a.max - readBudget(today));
   if (!left) { log(`今日（台北 ${today}）回補已達上限 ${a.max} 個請求`); return; }
-  const twh = C.taipeiNow().getUTCHours(); const mopsQuiet = twh === 23 || twh === 0;                         // 23:00～00:59 不碰 MOPS（daemon 重訊輪次、wiki 23:40）
+  const mopsQuiet = inMopsQuiet();
   const jobs = [];
   for (const pr of [1, 2, 3]) for (const ad of activeDated(a.only).filter(x => x.priority === pr)) {
-    if (mopsQuiet && ad.host === 'mopsov.twse.com.tw') continue;
+    if (mopsQuiet && ad.host === MOPS_HOST) continue;
     const from = resolveFrom(ad.from, today); const man = C.loadManifest(ROOT, ad.host, ad.id);
     const cand = ad.unit === 'month'
       ? months(from.slice(0, 7), today.slice(0, 7)).slice(0, -1).flatMap(([y, m]) => jobsFor(ad, { y, m }, { final: monthFinal(ad, y, m, today) }))
       : (ad.id === MI.id ? info.candidates : [...info.confirmed].sort()).filter(d => d >= from && d < today).flatMap(d => jobsFor(ad, { day: d }, { must: !!ad.must && ad.id !== MI.id }));
     // 3 次上限是給「抓不到」的鍵；內容穩定資料集「已有好資料、只是還在等穩定／名冊完整」的列不設上限（每輪回補 1 個請求），
     // 否則上月表在每日累積的嘗試次數會讓它跨月後永遠停在 final:false（2026-10-04 審查）
-    for (const j of cand) if (!C.isFinalFor(ad, man, j.key) && ((man.rows?.[j.key]?.attempts || 0) < 3 || (ad.stable && C.hasGood(man, j.key)))) jobs.push(j);
+    for (const j of cand) if ((!a.keys || a.keys.includes(j.key)) && !C.isFinalFor(ad, man, j.key) && ((man.rows?.[j.key]?.attempts || 0) < 3 || (ad.stable && C.hasGood(man, j.key)))) jobs.push(j);
   }
   log(`backfill：待抓 ${jobs.length} 個鍵；今日剩餘額度 ${left} 個請求`);
   const r = await runJobs(jobs, a, { budget: left });
@@ -480,21 +487,27 @@ async function cmdBackfill(a) {
 async function cmdVerify(a) {
   const ver = readVerify(); const today = C.taipeiDate(); const last = [...dayInfo(today).confirmed].sort().at(-1);
   const [y, mo] = today.split('-').map(Number); const [py, pm] = mo === 1 ? [y - 1, 12] : [y, mo - 1];
+  // 帶日期／快照端點的驗證請求算進每日額度（與 backfill 同一本帳，記在開跑台北日）；額度用完只略過這些，期交所逐筆驗證照做（走自己的佇列、不在額度內）
+  const left = Math.max(0, a.max - readBudget(today)); const mopsQuiet = inMopsQuiet();
+  if (!left) log(`今日（台北 ${today}）請求額度已達上限 ${a.max}——帶日期／快照端點本次不驗`);
   const jobs = [];
-  for (const ad of DATED) {
+  if (left) for (const ad of DATED) {
     if (ad.disabled || (a.only ? !a.only.includes(ad.id) : (ad.verified || ver[ad.id]?.ok))) continue;
+    if (mopsQuiet && ad.host === MOPS_HOST) { log(`  ${ad.id}：23:00～00:59 不碰 MOPS，本次不驗`); continue; }
     jobs.push(...jobsFor(ad, ad.unit === 'month' ? { y: py, m: pm } : { day: last }).slice(0, 1));
   }
-  if (a.snapshots) for (const ad of snapshotAdapters()) {
+  if (left && a.snapshots) for (const ad of snapshotAdapters()) {
     if (a.only && !a.only.includes(ad.id)) continue;
     if (Object.keys(C.loadManifest(ROOT, ad.host, ad.id).rows || {}).length) continue;
     jobs.push(...(ad.unit === 'quarter' ? jobsFor(ad, { y: 2026, q: 2 }, { final: quarterFinal(2026, 2, today) }).slice(0, 1) : [{ ad, key: last, ctx: C.ctxOf({ day: last }), snapshot: true }]));
   }
   const doTicks = a.only ? a.only.includes(TICKS.id) : !ver[TICKS.id]?.ok;   // 期交所 30 日逐筆：清單＋最新收盤日檔（本機已有就重下載比對 sha256）
-  log(`verify：${jobs.length} 個端點（各 1 次）${doTicks ? `＋${TICKS.id}（清單＋日檔 2 次）` : ''}`);
-  await runJobs(jobs, a);
+  log(`verify：${jobs.length} 個端點（各 1 次）${doTicks ? `＋${TICKS.id}（清單＋日檔 2 次）` : ''}；今日剩餘額度 ${left} 個請求`);
+  const run = await runJobs(jobs, a, { budget: left });
+  addBudget(run.requests, today);
   for (const j of jobs) {
     const r = C.loadManifest(ROOT, j.ad.host, j.ad.id).rows?.[j.key];
+    if (!r && run.stats.overBudget) continue;                                                                    // 額度用完沒送出的不記成未過
     // 帶日期端點要抓到真資料（ok）才算驗證通過：空表無法證明參數正確（2026-10-04 taifex_large_trader「查無」頁被當成通過）；快照的空表合法
     const pass = j.snapshot ? /^(ok|empty|unchanged)$/.test(r?.status || '') : r?.status === 'ok';
     ver[j.ad.id] = { ok: pass, status: r?.status || '未抓', note: r?.note || null, rows: r?.rows ?? null, echo: r?.echo ?? null, at: new Date().toISOString() };

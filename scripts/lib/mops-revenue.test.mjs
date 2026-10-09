@@ -217,3 +217,77 @@ test('既有列何時可覆蓋：已有申報期後觀測（fetchLog 或舊文�
   assert.equal(R.hasSettledObservation(id, { n: 1688, at: at('2026-09-10T08:33Z') }), false);
   assert.equal(R.hasSettledObservation('2023-08', { n: 1775, at: at('2026-08-10T12:14Z') }), true, '歷史月份');
 });
+
+// ── 官方「另存CSV」（2026-10-04）：列格式照 2026-03 上市官方檔（UTF-8 BOM、CRLF、每欄雙引號、14 欄）──
+const CSV_HDR = R.T21_CSV_HEADER.join(',');
+const csvRow = (c, n, { rev = '356169', mom = '5.7970670096508865', yoy = '57.153951031826224', ym = '115/3', day = '115/10/05', note = '-' } = {}) =>
+  [day, ym, c, n, '食品工業', rev, '336653', '226637', mom, yoy, '1140959', '735498', '55.12741027167987', note].map(v => `"${v.replace(/"/g, '""')}"`).join(',');
+const csvText = rows => `﻿${CSV_HDR}\r\n${rows.join('\r\n')}\r\n`;
+const CSV_MAR = csvText([
+  csvRow('1101', '台泥', { rev: '12412837', mom: '44.441310361592095', yoy: '-8.966002135913131' }),
+  csvRow('1256', '鮮活果汁-KY', { note: '直飲產品銷量增加，致本月營收較去年同期成長。' }),
+  csvRow('9955', '佳龍', { note: '營收較去年同期增加,主要係因本期\n貴金屬售量增加所致（"含"引號）' }),
+  csvRow('6785', '昱展新藥', { rev: '0', mom: '', yoy: '' }),
+  csvRow('9105', '泰金寶-DR'),
+  csvRow('912000', '晨訊科-DR'),
+]);
+
+test('parseCsv：引號內逗號／換行、"" 跳脫、CRLF、BOM；引號未閉合丟錯', () => {
+  const rows = R.parseCsv(CSV_MAR);
+  assert.equal(rows.length, 7); assert.equal(rows[0][0], '出表日期', 'BOM 去掉');
+  assert.ok(rows.every(r => r.length === 14));
+  assert.equal(rows[3][13], '營收較去年同期增加,主要係因本期\n貴金屬售量增加所致（"含"引號）');
+  assert.deepEqual(R.parseCsv('a,b\n1,2\n\n'), [['a', 'b'], ['1', '2']], 'LF、空行略過');
+  assert.throws(() => R.parseCsv('"a,b\n1'), /引號未閉合/);
+});
+
+test('truncPct2：向零截斷 2 位（=HTML 呈現）、科學記號、留白不補 0、-0 → 0', () => {
+  assert.equal(R.truncPct2('44.441310361592095'), 44.44);
+  assert.equal(R.truncPct2('-8.966002135913131'), -8.96, '負數向零，不是 -8.97');
+  assert.equal(R.truncPct2('1.15'), 1.15, '不經浮點乘法（1.15*100=114.999…）');
+  assert.equal(R.truncPct2('2175.609653015511'), 2175.6);
+  assert.equal(R.truncPct2('5.0E-4'), 0); assert.equal(R.truncPct2('1.23456789E7'), 12345678.9); assert.equal(R.truncPct2('-1.0E-3'), 0);
+  assert.ok(Object.is(R.truncPct2('-0.001'), 0), '-0.00 存成 0');
+  assert.equal(R.truncPct2('100'), 100); assert.equal(R.truncPct2('.5'), 0.5); assert.equal(R.truncPct2('1,234.567'), 1234.56);
+  for (const v of ['', '-', '--', 'N/A', null, undefined, 'abc']) assert.equal(R.truncPct2(v), null, `「${v}」`);
+});
+
+test('parseT21Csv：本國／外國分兩半（KY、4 碼 DR）、6 碼 DR 不收、營收 0 不收但在名冊、出表日期＝台北當日 00:00', () => {
+  const p = R.parseT21Csv(CSV_MAR, { roc: 115, month: 3 });
+  assert.deepEqual(p.dom.rows.map(r => r.c), ['1101', '9955']); assert.deepEqual(p.dom.codes, ['1101', '9955', '6785']);
+  assert.deepEqual(p.fgn.rows.map(r => r.c), ['1256', '9105']); assert.deepEqual(p.fgn.codes, ['1256', '9105']);
+  assert.deepEqual(p.dom.rows[0], { c: '1101', n: '台泥', rev: 12412837, prev: 336653, last: 226637, mom: 44.44, yoy: -8.96, cum: 1140959 });
+  assert.equal(p.gen, Date.parse('2026-10-05T00:00:00+08:00'));
+  assert.deepEqual(R.t21CsvCodes(CSV_MAR), ['1101', '1256', '9955', '6785', '9105']);
+  assert.deepEqual(R.t21CsvCodes('"壞'), [], '名冊解析失敗回空、不丟錯');
+});
+
+test('parseT21Csv 回音：資料年月逐列相符（1 月不配 11 月）、表頭、欄數、出表日期一致、沒有資料列都丟錯', () => {
+  assert.throws(() => R.parseT21Csv(CSV_MAR, { roc: 115, month: 2 }), /回音不符：資料年月 115\/3 ≠ 115\/2/);
+  const nov = csvText([csvRow('1101', '台泥', { ym: '115/11' })]);
+  assert.throws(() => R.parseT21Csv(nov, { roc: 115, month: 1 }), /回音不符/);
+  assert.equal(R.parseT21Csv(nov, { roc: 115, month: 11 }).dom.rows.length, 1);
+  const mixed = csvText([csvRow('1101', '台泥'), csvRow('1102', '亞泥', { ym: '115/4' })]);
+  assert.throws(() => R.parseT21Csv(mixed, { roc: 115, month: 3 }), /回音不符/, '一列不符就整檔不用');
+  assert.throws(() => R.parseT21Csv(CSV_MAR.replace('資料年月', '資料月份'), { roc: 115, month: 3 }), /表頭不符/);
+  assert.throws(() => R.parseT21Csv(`${CSV_HDR}\r\n"115/10/05","115/3","1101"\r\n`, { roc: 115, month: 3 }), /欄數不符/);
+  assert.throws(() => R.parseT21Csv(csvText([csvRow('1101', '台泥'), csvRow('1102', '亞泥', { day: '115/10/06' })]), { roc: 115, month: 3 }), /出表日期不一致/);
+  assert.throws(() => R.parseT21Csv(`﻿${CSV_HDR}\r\n`, { roc: 115, month: 3 }), /沒有資料列/);
+  assert.throws(() => R.parseT21Csv('', { roc: 115, month: 3 }), /表頭不符/, '0 bytes（MOPS 空頁）');
+});
+
+test('csvRefCheck：市場以參照名冊重疊率核對、本國／外國分類與參照 _0／_1 交叉核對；沒有參照＝無法證明', () => {
+  const p = R.parseT21Csv(CSV_MAR, { roc: 115, month: 3 });
+  assert.deepEqual(R.csvRefCheck(p, { dom: ['1101', '9955', '6785', '1102'], fgn: ['1256', '9105'] }), { ok: true, share: 1 });
+  const otc = R.csvRefCheck(p, { dom: ['3105', '5347'], fgn: ['2924'] });
+  assert.equal(otc.ok, false); assert.match(otc.note, /市場回音不符/);
+  const cls = R.csvRefCheck(p, { dom: ['1101', '9955', '6785', '1256'], fgn: ['9105'] });
+  assert.equal(cls.ok, false); assert.match(cls.note, /判外國但在 _0 \[1256\]/);
+  assert.equal(R.csvRefCheck(p, null).ok, false); assert.equal(R.csvRefCheck(p, { dom: ['1101'], fgn: [] }).ok, false);
+  // 門檻 90%：CSV 5 個代號中 4 個在參照＝80% 不過；新增上市（不在參照）佔 1/10＝90% 剛好過
+  assert.equal(R.csvRefCheck(p, { dom: ['1101', '9955', '6785'], fgn: ['1256'] }).ok, false);
+  const ten = R.parseT21Csv(csvText(['1101', '1102', '1103', '1104', '1105', '1106', '1107', '1108', '1109', '2330'].map(c => csvRow(c, `公司${c}`))), { roc: 115, month: 3 });
+  const t = R.csvRefCheck(ten, { dom: ['1101', '1102', '1103', '1104', '1105', '1106', '1107', '1108', '1109'], fgn: ['1256'] });
+  assert.equal(t.ok, true); assert.equal(t.share, 0.9);
+  assert.equal(R.isForeignIssuer('8341', '日友'), false); assert.equal(R.isForeignIssuer('6666', '羅麗芬-KY創'), true); assert.equal(R.isForeignIssuer('9110', '越南控-DR'), true);
+});

@@ -11,6 +11,10 @@
 //     唯一例外 --fix-fabricated-zero：歸檔是 0 而官方頁同代號該格留白 ⇒ 改 null（逐檔列出）。
 //   · 每頁都驗回音（市場＋民國年＋月＋本國／外國表尾）；鏡像缺頁（例 2026-03 上市 _0／_1 內容過短）⇒ **整月略過、不寫 v2**
 //     並列報（2026-10-04 審查：寫成 v2 會讓稽核組成閘門因上市KY 0 天天亮 THIN，而兩條補救路徑都依賴已壞的上市 HTML 頁）。
+//   · 官方 CSV 補頁（2026-10-04）：某市場的 _0／_1 頁缺（或回音不符）時，改用鏡像 mops_t21sc03_csv 同市場同月那份
+//     （本國＋外國同一檔，isForeignIssuer 分兩半）。CSV 的回音：表頭、逐列「資料年月」、出表日期（parseT21Csv）；
+//     沒有市場欄 ⇒ 拿鏡像相鄰月份同市場的 _0／_1 頁當參照，核對市場（代號重疊 ≥90%）與本國／外國分類（csvRefCheck）。
+//     CSV 頁同樣要鏡像定版；未定版時 dry-run 照算出差異（預覽），--write 略過。
 //   · 合併後筆數 < 既有、或 rowsJson > 900,000 bytes ⇒ 拒寫。寫入用 update＋lastUpdateTime 前置條件（daemon 同時改寫就放棄這個月）。
 //   · 定版看資料（lib isMonthFinal）：只有「4 頁皆可用且含本國補缺（--domestic-gaps）」的鏡像觀測才記入 fetchLog，
 //     觀測時刻＝4 頁中最早的「出表日期」（gen）；名冊比對的參照是上月文件（同一輪先寫的上月以寫入後的內容為準）。
@@ -28,12 +32,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as C from './lib/official-mirror.mjs';
 import {
   T21_PAGES, parseT21sc03, t21Codes, echoOk, t21Echo, combinePages, mergeRows, composition, rowsOf, appendFetchLog,
-  isMonthFinal, missingVsPrev, missingSummary, prevMonthId, fixFabricatedZeros, isOpenapiDoc, REV_DOC_VERSION, MAX_DOC_BYTES,
+  isMonthFinal, missingVsPrev, missingSummary, prevMonthId, nextMonthDay, fixFabricatedZeros, isOpenapiDoc, REV_DOC_VERSION, MAX_DOC_BYTES,
+  parseT21Csv, csvRefCheck,
 } from './lib/mops-revenue.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HOST = 'mopsov.twse.com.tw';
-const DATASET = { 0: 'mops_t21sc03', 1: 'mops_t21sc03_ky' };
+const DATASET = { 0: 'mops_t21sc03', 1: 'mops_t21sc03_ky', csv: 'mops_t21sc03_csv' };
+const UNUSABLE = new Set(['missing', 'echo']);     // 這兩種頁可由官方 CSV 補；nonfinal（申報期內／待穩定）不補
 
 export function parseArgs(argv) {
   const a = { write: false, domesticGaps: false, fixZero: false, from: '2023-08', to: null, out: null };
@@ -63,6 +69,50 @@ export function loadMirrorPage(root, mans, id, p) {
   return { state: 'ok', rows: parseT21sc03(html), codes: t21Codes(html), at: Number.isFinite(at) ? at : null, gen: echo.gen };
 }
 
+/** 'YYYY-MM' 的下個月。 */
+const nextMonthId = id => nextMonthDay(id, 1).slice(0, 7);
+
+/** 同市場參照名冊：上月、其次下月的 _0／_1 兩頁都可用（回音相符）的那個月 → {month, dom, fgn}（代號）；都沒有回 null。 */
+export function csvRefRoster(root, mans, id, mkt) {
+  for (const m of [prevMonthId(id), nextMonthId(id)]) {
+    const [p0, p1] = ['0', '1'].map(page => loadMirrorPage(root, mans, m, T21_PAGES.find(p => p.mkt === mkt && p.page === page)));
+    if (p0.state === 'ok' && p1.state === 'ok') return { month: m, dom: p0.codes, fgn: p1.codes };
+  }
+  return null;
+}
+
+/**
+ * 讀鏡像官方 CSV（某市場某月）→ {state: ok|nonfinal|missing|echo, dom, fgn, gen, at, file, sha256, refMonth, note}；只讀本機檔、0 請求。
+ * dom／fgn＝{rows, codes, at, gen}，可直接當 loadMirrorPage 的一頁用。未定版的照樣解析（給 dry-run 預覽差異）。
+ */
+export function loadMirrorCsv(root, man, id, mkt, ref) {
+  const row = man?.rows?.[`${id}.${mkt}`];
+  if (!row || row.status !== 'ok' || !row.file) return { state: 'missing', note: row ? `${row.status}${row.note ? `·${row.note}` : ''}` : '鏡像未抓' };
+  let text;
+  try { text = C.decodeBody(C.readEntry(root, HOST, DATASET.csv, row.file), 'utf-8'); }
+  catch (e) { return { state: 'missing', note: `讀檔失敗 ${e.message}` }; }
+  const [y, m] = id.split('-').map(Number);
+  let parsed;
+  try { parsed = parseT21Csv(text, { roc: y - 1911, month: m }); } catch (e) { return { state: 'echo', note: e.message }; }
+  const chk = csvRefCheck(parsed, ref);
+  if (!chk.ok) return { state: 'echo', note: `${chk.note}${ref?.month ? `（參照 ${ref.month}）` : ''}` };
+  const at = Date.parse(row.at); const meta = { at: Number.isFinite(at) ? at : null, gen: parsed.gen };
+  return {
+    state: row.final === false ? 'nonfinal' : 'ok', note: row.final === false ? '鏡像 CSV 未定版' : null,
+    dom: { ...meta, ...parsed.dom }, fgn: { ...meta, ...parsed.fgn }, ...meta, file: row.file, sha256: row.sha256 ?? null, refMonth: ref?.month ?? null,
+  };
+}
+
+/** HTML 頁不可用（缺／回音不符）時改用同市場官方 CSV 的本國或外國那一半（src:'csv'）；其餘頁照舊。回傳新陣列。 */
+export function withCsvPages(pages, csvByMkt) {
+  return T21_PAGES.map((p, i) => {
+    const h = pages[i]; const c = csvByMkt?.[p.mkt];
+    if (!UNUSABLE.has(h.state) || !c) return h;
+    if (c.state !== 'ok' && c.state !== 'nonfinal') return { ...h, note: `${h.note}；CSV ${c.state}（${c.note}）` };
+    return { ...(p.page === '1' ? c.fgn : c.dom), state: c.state, note: c.note, src: 'csv', file: c.file, sha256: c.sha256 };
+  });
+}
+
 /** 鏡像觀測（4 頁皆可用才算）：{at: 最晚抓取, gen: 最早出表日期}；任一頁缺時刻回 null。 */
 function mirrorObservation(ok) {
   if (ok.length !== T21_PAGES.length) return null;
@@ -72,16 +122,20 @@ function mirrorObservation(ok) {
 }
 
 /**
- * 一個月的計畫（純計算，不寫）：回傳 { action: write|skip|refuse, reason, doc, report }。
- * old：既有 revenueArchive 文件資料；pages：T21_PAGES 順序的 loadMirrorPage 結果；prev：上月文件（名冊比對的參照，可無）。
+ * 一個月的計畫（純計算，不寫）：回傳 { action: write|skip|refuse, reason, doc, report, preview }。
+ * old：既有 revenueArchive 文件資料；pages：T21_PAGES 順序的 loadMirrorPage／withCsvPages 結果；prev：上月文件（名冊比對的參照，可無）。
+ * preview：未定版但已解析出列的頁（鏡像 CSV）照樣算出差異，最後回 skip＋preview:true（給 dry-run 看，不寫）。
  */
-export function planMonth(id, old, pages, { domesticGaps, fixZero, now = Date.now(), prev = null }) {
-  const report = { id, oldN: old?.n ?? null, pages: Object.fromEntries(T21_PAGES.map((p, i) => [p.label, pages[i].state === 'ok' ? pages[i].rows.length : `${pages[i].state}（${pages[i].note}）`])) };
-  if (pages.some(p => p.state === 'nonfinal')) return { action: 'skip', reason: '鏡像頁未定版（整月略過）', report };
+export function planMonth(id, old, pages, { domesticGaps, fixZero, now = Date.now(), prev = null, preview = false }) {
+  const usable = pg => pg.state === 'ok' || (preview && pg.state === 'nonfinal' && Array.isArray(pg.rows));
+  const csvPages = T21_PAGES.filter((p, i) => pages[i].src === 'csv').map(p => p.label);
+  const report = { id, oldN: old?.n ?? null, pages: Object.fromEntries(T21_PAGES.map((p, i) => [p.label, usable(pages[i]) ? pages[i].rows.length : `${pages[i].state}（${pages[i].note}）`])), csvPages };
+  const nonfinal = T21_PAGES.filter((p, i) => pages[i].state === 'nonfinal').map(p => p.label);
+  if (nonfinal.length && !pages.filter(pg => pg.state === 'nonfinal').every(usable)) return { action: 'skip', reason: '鏡像頁未定版（整月略過）', report };
   if (isOpenapiDoc(old)) return { action: 'refuse', reason: '既有文件是 openapi 薄版（混未上市 _P）——改用 backfill-mops-revenue.mjs 整份重抓', report };
   let oldRows;
   try { oldRows = rowsOf(old); } catch (e) { return { action: 'refuse', reason: `既有 rowsJson 無法解析（${e.message}）`, report }; }
-  const ok = T21_PAGES.map((p, i) => ({ ...p, ...pages[i] })).filter(p => p.state === 'ok');
+  const ok = T21_PAGES.map((p, i) => ({ ...p, ...pages[i] })).filter(usable);
   const { rows: official, srcOf, dup } = combinePages(ok);
   const officialBy = new Map(official.map(r => [String(r.c), r]));
   const oldCodes = new Set(oldRows.map(r => String(r.c)));
@@ -111,8 +165,12 @@ export function planMonth(id, old, pages, { domesticGaps, fixZero, now = Date.no
   const final = isMonthFinal(id, { allPages, missing, fetchLog });
   Object.assign(report, { final, observed: obs != null, missingVsPrev: missingSummary(missing) });
   if (!changed && Number(old?.v) >= REV_DOC_VERSION && (obs == null || already)) return { action: 'skip', reason: '無變更（已是 v2）', report };
+  if (nonfinal.length) return { action: 'skip', reason: `鏡像頁未定版（${nonfinal.join('、')}）——只預覽差異、不寫`, report, preview: true };
+  const csvSrc = pages.filter(pg => pg.src === 'csv');
+  // 沒用 CSV 時寫 null：update 是欄位合併，不寫會留下上一次「CSV 補頁」的舊出處
+  const supplement = { supplement: csvPages.length ? { dataset: DATASET.csv, pages: csvPages, files: [...new Set(csvSrc.map(pg => pg.file))], sha256: [...new Set(csvSrc.map(pg => pg.sha256))] } : null };
   const doc = { n: merged.length, rowsJson, bytes, bySrc, kyN, retained, missingVsPrev: missingSummary(missing), fetchLog, final, v: REV_DOC_VERSION, at: now,
-    pages: Object.fromEntries(Object.entries(report.pages).map(([k, v]) => [k, typeof v === 'number' ? v : `鏡像 ${v}`])) };
+    pages: Object.fromEntries(Object.entries(report.pages).map(([k, v]) => [k, typeof v === 'number' ? v : `鏡像 ${v}`])), ...supplement };
   return { action: 'write', reason: '', doc, report };
 }
 
@@ -127,10 +185,29 @@ function getDb() {
 
 const short = (list, k = 12) => (list.length ? `${list.slice(0, k).join(',')}${list.length > k ? `…(+${list.length - k})` : ''}` : '');
 
+/** 某月 4 頁：HTML 頁照讀；某市場有頁不可用時才讀該市場的官方 CSV（含參照名冊核對）。 */
+function monthPages(root, mans, id) {
+  const html = T21_PAGES.map(p => loadMirrorPage(root, mans, id, p));
+  const csvByMkt = Object.fromEntries(['sii', 'otc']
+    .filter(mkt => T21_PAGES.some((p, i) => p.mkt === mkt && UNUSABLE.has(html[i].state)))
+    .map(mkt => [mkt, loadMirrorCsv(root, mans.csv, id, mkt, csvRefRoster(root, mans, id, mkt))]));
+  return withCsvPages(html, csvByMkt);
+}
+
+/** 一個月的差異摘要（寫入列與 dry-run 預覽共用）。 */
+function deltaLine(r, a) {
+  return `${r.oldN} → ${r.newN}（+KY 上市 ${r.add['上市KY'].length}／上櫃 ${r.add['上櫃KY'].length}`
+    + `${a.domesticGaps ? `｜+本國 上市 ${r.add['上市'].length} [${short(r.add['上市'])}]／上櫃 ${r.add['上櫃'].length} [${short(r.add['上櫃'])}]` : ''}）`
+    + `${a.fixZero ? `｜修 0→null yoy ${r.fixYoy.length} [${short(r.fixYoy, 8)}] mom ${r.fixMom.length} [${short(r.fixMom, 8)}]` : ''}`
+    + `｜留存 ${r.retained.length}${r.retained.length ? ` [${short(r.retained, 8)}]` : ''}`
+    + `｜較上月缺 ${r.missingVsPrev ? `${r.missingVsPrev.n}${r.missingVsPrev.n ? ` [${short(r.missingVsPrev.codes, 8)}]` : ''}` : '—（無參照）'}｜${r.bytes} B｜final ${r.final}`
+    + `${r.csvPages?.length ? `｜官方 CSV 補頁：${r.csvPages.join('、')}` : ''}`;
+}
+
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   const root = process.env.OFFICIAL_ROOT || join(REPO, 'second-brain', 'official');
-  const mans = { 0: C.loadManifest(root, HOST, DATASET[0]), 1: C.loadManifest(root, HOST, DATASET[1]) };
+  const mans = { 0: C.loadManifest(root, HOST, DATASET[0]), 1: C.loadManifest(root, HOST, DATASET[1]), csv: C.loadManifest(root, HOST, DATASET.csv) };
   if (!Object.keys(mans[0].rows || {}).length || !Object.keys(mans[1].rows || {}).length) throw new Error(`鏡像清單是空的：${root}/${HOST}/{${DATASET[0]},${DATASET[1]}}/_manifest.json（設 OFFICIAL_ROOT）`);
   console.log(`${a.write ? '寫入' : 'dry-run（不寫）'}｜鏡像 ${root}｜${a.from} ~ ${a.to || '最新'}｜補 KY${a.domesticGaps ? '＋本國缺漏' : ''}${a.fixZero ? '＋修捏造 0' : ''}`);
 
@@ -139,28 +216,25 @@ async function main() {
   const docs = snap.docs.filter(d => /^\d{4}-\d{2}$/.test(d.id) && d.id >= a.from && (!a.to || d.id <= a.to)).sort((x, y) => (x.id < y.id ? -1 : 1));
   // 名冊比對的參照（上月文件）：同一輪先處理的上月以「寫入後的內容」為準（含 retained），其餘用 Firestore 現值
   const byId = new Map(snap.docs.map(d => [d.id, d.data()]));
-  const reports = []; let maxBytes = 0; let maxId = null; const tot = { write: 0, skip: 0, refuse: 0, ky: 0, dom: 0, fixY: 0, fixM: 0 };
+  const reports = []; let maxBytes = 0; let maxId = null; const tot = { write: 0, skip: 0, refuse: 0, preview: 0, ky: 0, dom: 0, fixY: 0, fixM: 0 };
   for (const d of docs) {
-    const pages = T21_PAGES.map(p => loadMirrorPage(root, mans, d.id, p));
-    const plan = planMonth(d.id, d.data(), pages, { domesticGaps: a.domesticGaps, fixZero: a.fixZero, prev: byId.get(prevMonthId(d.id)) ?? null });
-    const r = plan.report; reports.push({ action: plan.action, reason: plan.reason, ...r });
+    const pages = monthPages(root, mans, d.id);
+    const plan = planMonth(d.id, d.data(), pages, { domesticGaps: a.domesticGaps, fixZero: a.fixZero, prev: byId.get(prevMonthId(d.id)) ?? null, preview: !a.write });
+    const r = plan.report; reports.push({ action: plan.action, reason: plan.reason, preview: !!plan.preview, ...r });
     tot[plan.action]++;
+    if (plan.preview) { tot.preview++; console.log(`◇ ${d.id} 預覽（不寫·${plan.reason}）：${deltaLine(r, a)}`); continue; }
     if (plan.action !== 'write') { console.log(`${plan.action === 'skip' ? '·' : '✗'} ${d.id} ${plan.action}：${plan.reason}｜頁 ${JSON.stringify(r.pages)}`); continue; }
     byId.set(d.id, { ...d.data(), ...plan.doc });
     const ky = r.add['上市KY'].length + r.add['上櫃KY'].length; const dom = r.add['上市'].length + r.add['上櫃'].length;
     tot.ky += ky; tot.dom += dom; tot.fixY += r.fixYoy.length; tot.fixM += r.fixMom.length;
     if (r.bytes > maxBytes) { maxBytes = r.bytes; maxId = d.id; }
-    console.log(`${a.write ? '✓' : '→'} ${d.id}：${r.oldN} → ${r.newN}（+KY 上市 ${r.add['上市KY'].length}／上櫃 ${r.add['上櫃KY'].length}`
-      + `${a.domesticGaps ? `｜+本國 上市 ${r.add['上市'].length} [${short(r.add['上市'])}]／上櫃 ${r.add['上櫃'].length} [${short(r.add['上櫃'])}]` : ''}）`
-      + `${a.fixZero ? `｜修 0→null yoy ${r.fixYoy.length} [${short(r.fixYoy, 8)}] mom ${r.fixMom.length} [${short(r.fixMom, 8)}]` : ''}`
-      + `｜留存 ${r.retained.length}${r.retained.length ? ` [${short(r.retained, 8)}]` : ''}`
-      + `｜較上月缺 ${r.missingVsPrev ? `${r.missingVsPrev.n}${r.missingVsPrev.n ? ` [${short(r.missingVsPrev.codes, 8)}]` : ''}` : '—（無參照）'}｜${r.bytes} B｜final ${r.final}`);
+    console.log(`${a.write ? '✓' : '→'} ${d.id}：${deltaLine(r, a)}`);
     if (!a.write) continue;
     try {
       await d.ref.update(plan.doc, { lastUpdateTime: d.updateTime });
     } catch (e) { console.log(`  ✗ ${d.id} 寫入失敗（${e.code || ''} ${e.message}）——可能 daemon 剛改寫，重跑即可`); tot.write--; tot.refuse++; }
   }
-  console.log(`\n合計：${a.write ? '寫入' : '可寫'} ${tot.write}、略過 ${tot.skip}、拒寫 ${tot.refuse}｜+KY ${tot.ky}、+本國 ${tot.dom}、修 yoy ${tot.fixY}／mom ${tot.fixM}｜最大 rowsJson ${maxBytes} bytes（${maxId}）`);
+  console.log(`\n合計：${a.write ? '寫入' : '可寫'} ${tot.write}、略過 ${tot.skip}（其中未定版預覽 ${tot.preview}）、拒寫 ${tot.refuse}｜+KY ${tot.ky}、+本國 ${tot.dom}、修 yoy ${tot.fixY}／mom ${tot.fixM}｜最大 rowsJson ${maxBytes} bytes（${maxId}）`);
   if (a.out) { writeFileSync(a.out, JSON.stringify({ args: a, at: new Date().toISOString(), tot, maxBytes, maxId, months: reports }, null, 1)); console.log(`逐月明細 → ${a.out}`); }
 }
 
