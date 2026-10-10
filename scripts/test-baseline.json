@@ -1,6 +1,6 @@
 {
-  "files": 151,
-  "tests": 1803,
+  "files": 152,
+  "tests": 1807,
   "measured": "2026-10-10",
   "_doc": "測試數下限（scripts/check-test-count.mjs 讀）。更新：node scripts/check-test-count.mjs --update && git add scripts/test-baseline.json。低於本值 pre-commit 會擋；刻意刪測試要在 commit 訊息寫理由。"
 }

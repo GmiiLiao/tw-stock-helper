@@ -32,4 +32,10 @@ if (mode === 'monthly') {
 step('AI 入庫', ['ai-ingest']);
 step('產品×國家入庫（依最新 AI 輪廓重驗名稱）', ['geo-ingest']);
 step('重建 wiki', ['build']);
+// 官方主要經營業務 → Firestore companyBusiness/latest（個股頁「公司資訊」讀它；內容沒變只更新 updatedAt·2026-10-10 使用者「上市/櫃主要業務的資料都沒有提供正確，請補齊」）
+{
+  console.log(`${ts()} ▶ 發佈主要經營業務（companyBusiness/latest）`);
+  const r = spawnSync(process.execPath, ['scripts/publish-company-business.mjs'], { cwd: ROOT, stdio: 'inherit' });
+  if (r.status !== 0) console.log(`${ts()} ⚠ 發佈主要經營業務未完成（exit ${r.status ?? r.signal}），下次續跑`);
+}
 console.log(`${ts()} ✓ 完成（${mode}）`);

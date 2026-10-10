@@ -951,12 +951,32 @@ export function nextLimitPrices(close: number, tick: (p: number) => number): { u
 
 export function industryLineOf(
   ind: { code: string; name: string; emoji?: string },
-  cp: { dataSource?: string } | null | undefined,
+  cp: { dataSource?: string; officialIndustry?: string | null } | null | undefined,
 ): string {
   if (ind.code === 'ETF') return '📈 ETF（基金，無產業別）';
-  if (ind.code === 'ESB') return '🌱 興櫃（官方產業別尚未接入）';
+  // 官方產業別（MOPS／證交所登記，companyBusiness·L13 2026-10-10）：興櫃與站內清單查無代碼者以它為準
+  const official = cp?.officialIndustry || null;
+  if (ind.code === 'ESB') return official ? `🌱 興櫃 · 產業別：${official}（公開資訊觀測站登記）` : '🌱 興櫃（官方產業別：來源未提供）';
   if (cp && cp.dataSource && cp.dataSource !== 'none' && /^\d{2}$/.test(ind.code) && ind.code !== '99') {
     return `${ind.emoji ? `${ind.emoji} ` : ''}產業別：${ind.name}（官方產業代碼 ${ind.code}）`;
   }
+  if (official) return `產業別：${official}（公開資訊觀測站登記）`;
   return '產業別：來源未提供';
+}
+
+/** 官方產業事實（L13）：檔數、站內同業表中位數、相關產業鏈——只寫事實、不含展望；查無時據實說「來源未提供」 */
+export function industryFactsText(
+  f: { name: string; count: number | null; pe: number | null; pb: number | null; yield: number | null; revYoY: number | null; chains: string[] } | null | undefined,
+): string {
+  if (!f) return '產業說明：來源未提供';
+  const med = [
+    f.pe != null ? `本益比 ${f.pe}` : null, f.pb != null ? `股價淨值比 ${f.pb}` : null,
+    f.yield != null ? `殖利率 ${f.yield}%` : null, f.revYoY != null ? `月營收年增 ${f.revYoY}%` : null,
+  ].filter(Boolean);
+  return [
+    `產業說明：${f.name}（官方產業別）${f.count != null ? `上市櫃興櫃共 ${f.count} 檔` : ''}`,
+    med.length ? `；產業中位數 ${med.join('、')}` : '',
+    f.chains.length ? `；相關產業鏈：${f.chains.join('、')}` : '',
+    '。',
+  ].join('');
 }

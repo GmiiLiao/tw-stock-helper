@@ -244,6 +244,8 @@ const CONTRACTS = [
   { c: 'surgeShadow',      kind: 'latest',  docId: 'index', label: 'surgeShadow/index', maxStale: 3 * DAY, session: 'always' },   // 文件只有 schema＋reportJson＋updatedAt（serverTimestamp），不計筆數
 
   // ── 低頻（週/月/季）──
+  // 主要經營業務（官方 MOPS t05st03 → companyBusiness/latest；股票 wiki 每晚 23:40 排程末段發佈，內容沒變也更新 updatedAt·2026-10-10）
+  { c: 'companyBusiness',  kind: 'latest',  maxStale: 3 * DAY, session: 'always' },
   { c: 'revenue',          kind: 'latest',  maxStale: 40 * DAY,  session: 'always' },
   { c: 'dividendCalendar', kind: 'latest',  maxStale: 10 * DAY,  session: 'always' },
   { c: 'dividendStocks',   kind: 'latest',  maxStale: 10 * DAY,  session: 'always' },

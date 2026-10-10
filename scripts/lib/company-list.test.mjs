@@ -172,10 +172,12 @@ test('備援檔靜態 import 進 bundle，不在執行期讀 src/（部署產物
   for (const [name, src] of [['company-list-server.ts', SERVER_SRC], ['trend-analysis/route.ts', ROUTE_SRC]]) {
     assert.doesNotMatch(code(src), /process\.cwd\(\)|readFile|from 'fs'|from 'node:fs'/, name);
   }
-  // 三個上游都要經 memoize（合流＋負快取），不可在 GET 裡直接 fetch
+  // 上游都要經 memoize（合流＋負快取），不可在 GET 裡直接 fetch
   assert.match(SERVER_SRC, /memoize<CompanyInfo\[\]>\('t187ap03_L'/);
   assert.match(SERVER_SRC, /memoize<CompanyInfo\[\]>\('t187ap03_O'/);
-  assert.match(ROUTE_SRC, /memoize<AnnouncementRow\[\]>\('twse-announcement'/);
+  // L24（2026-10-10）：公告改讀 Firestore mopsNews（上市櫃重大訊息）並經 memoize；route 不再直打證交所公告頁
+  assert.match(ROUTE_SRC, /memoize<MopsItem\[\]>\('mops-recent'/);
+  assert.doesNotMatch(code(ROUTE_SRC), /twse\.com\.tw\/rwd\/zh\/announcement/);
   const getBody = ROUTE_SRC.slice(ROUTE_SRC.indexOf('export async function GET'), ROUTE_SRC.indexOf('// ─── Types'));
   assert.doesNotMatch(getBody, /fetch\(/);
 });

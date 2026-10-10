@@ -256,7 +256,7 @@ export const ETF_INDUSTRY: IndustryInfo = {
 };
 export const ESB_INDUSTRY: IndustryInfo = {
   code: 'ESB', name: '興櫃', sector: '興櫃市場', emoji: '🌱',
-  description: '興櫃股票（無漲跌幅限制）。本頁的上市／上櫃公司清單不含興櫃，官方產業別尚未接入',
+  description: '興櫃股票（無漲跌幅限制）。本頁的上市／上櫃公司清單不含興櫃，官方產業別改讀公開資訊觀測站登記（個股頁公司資訊）',
 };
 export const UNKNOWN_INDUSTRY: IndustryInfo = {
   code: '99', name: '產業別未提供', sector: '其他', emoji: '📋',

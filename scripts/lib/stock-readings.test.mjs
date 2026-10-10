@@ -459,7 +459,9 @@ test('F14 industryLineOf：99 不稱官方、ETF／興櫃據實、兩碼代碼�
   const etf = lib.industryLineOf({ code: 'ETF', name: 'ETF', emoji: '📈' }, { dataSource: 'none' });
   assert.doesNotMatch(etf, /官方產業代碼/);
   assert.equal(etf, '📈 ETF（基金，無產業別）');
-  assert.equal(lib.industryLineOf({ code: 'ESB', name: '興櫃', emoji: '🌱' }, { dataSource: 'none' }), '🌱 興櫃（官方產業別尚未接入）');
+  assert.equal(lib.industryLineOf({ code: 'ESB', name: '興櫃', emoji: '🌱' }, { dataSource: 'none' }), '🌱 興櫃（官方產業別：來源未提供）');
+  assert.equal(lib.industryLineOf({ code: 'ESB', name: '興櫃', emoji: '🌱' }, { dataSource: 'none', officialIndustry: '生技醫療業' }), '🌱 興櫃 · 產業別：生技醫療業（公開資訊觀測站登記）');
+  assert.equal(lib.industryLineOf({ code: '99', name: '未分類', emoji: '🏢' }, { dataSource: 'none', officialIndustry: '光電業' }), '產業別：光電業（公開資訊觀測站登記）');
   assert.match(lib.industryLineOf({ code: '24', name: '半導體', emoji: '💻' }, { dataSource: 'live' }), /官方產業代碼 24/);
   assert.equal(lib.industryLineOf({ code: '24', name: '半導體', emoji: '💻' }, { dataSource: 'none' }), '產業別：來源未提供');
 });
@@ -735,4 +737,13 @@ test('收盤位置分段依畫面上的整數百分比：0.4996 印 50% 就是�
   const base = { close: 100, open: 0, prevClose: 99, limit: null, phase: 'close', tradeValue: null, quoteAsOfMs: null, dataDate: '2026-10-08', chgPct: 1, auditOutside: null };
   assert.ok(lib.reasonsOf({ ...base, closePos: 0.8496 }).some(r => /日內高位（85%）/.test(r.title)));
   assert.ok(!lib.reasonsOf({ ...base, closePos: 0.2996 }).some(r => /日線下半段/.test(r.title)));
+});
+
+test('L13 industryFactsText：只寫事實、缺值略過、查無據實', () => {
+  assert.equal(lib.industryFactsText(null), '產業說明：來源未提供');
+  assert.equal(lib.industryFactsText({ name: '光電業', count: 134, pe: 29.5, pb: 1.9, yield: 2.1, revYoY: 13.3, chains: ['面板', '蘋果鏈'] }),
+    '產業說明：光電業（官方產業別）上市櫃興櫃共 134 檔；產業中位數 本益比 29.5、股價淨值比 1.9、殖利率 2.1%、月營收年增 13.3%；相關產業鏈：面板、蘋果鏈。');
+  const t = lib.industryFactsText({ name: '其他', count: 50, pe: null, pb: 1.2, yield: null, revYoY: -3.5, chains: [] });
+  assert.equal(t, '產業說明：其他（官方產業別）上市櫃興櫃共 50 檔；產業中位數 股價淨值比 1.2、月營收年增 -3.5%。');
+  assert.doesNotMatch(t, /展望|看好|成長動能/);
 });

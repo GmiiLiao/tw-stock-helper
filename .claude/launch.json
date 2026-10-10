@@ -4,7 +4,21 @@
     {
       "name": "tw-stock-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "tw-stock-dev-sa",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "GOOGLE_APPLICATION_CREDENTIALS=/Users/gmii/Documents/GCP_憑證檔案/tw-stock-helper-firebase-adminsdk-fbsvc-1dd050d371.json",
+        "npm",
+        "run",
+        "dev"
+      ],
       "port": 3000
     }
   ]

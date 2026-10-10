@@ -33,7 +33,7 @@ interface CompanyProfile {
   foundedDate: string; listedDate: string;
   capitalAmount: string; capitalBillion: number;
   industryCategory: string; industryCode: string;
-  mainBusiness: string; keyProducts: string[];
+  mainBusiness: string; keyProducts: string[]; keyProductsSource?: string | null; officialIndustry?: string | null;
   scale?: 'large' | 'mid' | 'small' | null;
   dataSource?: string;
   ageYears: number; listingAgeYears: number;
@@ -140,16 +140,16 @@ export default function TrendPanel({ stockCode, stockName }: { stockCode: string
             )}
           </div>
 
-          {/* Main Business：官方業務欄位第二批接入（L13）；空值據實說明 */}
+          {/* Main Business（L13）：公開資訊觀測站登記原文；空值據實說明 */}
           <div className={styles.businessSection}>
             <div className={styles.businessLabel}>📋 主要業務</div>
-            <div className={styles.businessText}>{cp.mainBusiness || '尚無官方資料（官方公司輪廓第二批上線）'}</div>
+            <div className={styles.businessText}>{cp.mainBusiness || '來源未提供（公開資訊觀測站查無此公司登記資料）'}</div>
           </div>
 
           {/* Key Products（空陣列不渲染） */}
           {cp.keyProducts.length > 0 && (
             <div className={styles.productsSection}>
-              <div className={styles.businessLabel}>🔧 核心產品 / 服務項目</div>
+              <div className={styles.businessLabel}>🔧 核心產品 / 服務項目{cp.keyProductsSource ? `（${cp.keyProductsSource}）` : ''}</div>
               <div className={styles.productsList}>
                 {cp.keyProducts.map((p, i) => (
                   <span key={i} className={styles.productTag}>{p}</span>
@@ -280,14 +280,14 @@ export default function TrendPanel({ stockCode, stockName }: { stockCode: string
           </div>
 
           {/* ════════════════════════════════════════
-              SECTION 4: 交易所公告（只比對證交所最新一頁；未判別利多利空）
+              SECTION 4: 重大訊息（公開資訊觀測站近 7 日、上市櫃，L24；未判別利多利空）
               ════════════════════════════════════════ */}
           <div className={styles.section}>
-            <div className={styles.sectionTitle}>📰 交易所公告</div>
+            <div className={styles.sectionTitle}>📰 重大訊息（公開資訊觀測站）</div>
             <div className={styles.newsList}>
               {newsHeadlines.length === 0 ? (
                 <div className={styles.noNews}>
-                  證交所最新公告未提及本檔（只比對證交所最新一頁公告的前幾則；櫃買中心公告尚未接入）。新聞判別見「📊 因子 & 推薦」分頁（若本檔有）。
+                  近 7 日公開資訊觀測站重大訊息沒有本檔（上市櫃皆比對）。新聞判別見「📊 因子 & 推薦」分頁（若本檔有）。
                 </div>
               ) : (
                 newsHeadlines.map((news, i) => (

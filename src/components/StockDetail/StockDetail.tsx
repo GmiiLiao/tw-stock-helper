@@ -27,7 +27,7 @@ import {
   tickSize,
 } from '@/lib/twse-api';
 import {
-  todayMoveOf, closePosOf, industryLineOf, limitKindOf, etfTickSize, stopRefCellText, sessionStartMsOf,
+  todayMoveOf, closePosOf, industryLineOf, industryFactsText, limitKindOf, etfTickSize, stopRefCellText, sessionStartMsOf,
   type Reading, type ReadingKey, type QuotePhase, type TodayMove, type StopRef,
 } from '@/lib/stock-readings';
 import ReadingRow from '@/components/shared/ReadingRow';
@@ -110,6 +110,9 @@ interface TrendApiResponse {
     industryCategory: string;
     mainBusiness: string;
     keyProducts: string[];
+    keyProductsSource?: string | null;
+    officialIndustry?: string | null;
+    industryFacts?: { name: string; count: number | null; pe: number | null; pb: number | null; yield: number | null; revYoY: number | null; chains: string[]; source: string } | null;
     companyScale?: 'large' | 'mid' | 'small';
     scale?: 'large' | 'mid' | 'small' | null;
     dataSource?: string;
@@ -827,12 +830,13 @@ function CompanyTab({ trendData, loading, stockName, stockCode, instFlowNote }: 
           borderLeft: '3px solid #6366f1',
           fontSize: 'calc(13.5px * var(--fz))', lineHeight: 1.6, color: cp.mainBusiness ? 'var(--text-secondary)' : 'var(--text-muted)',
         }}>
-          {cp.mainBusiness || '主要業務：尚無官方資料（官方公司輪廓第二批上線）'}
+          {cp.mainBusiness || '主要業務：來源未提供（公開資訊觀測站查無此公司登記資料）'}
         </div>
 
-        {/* Key products */}
+        {/* Key products（L13：只列出自 2025 年報的產品，AI 知識補的不列） */}
         {cp.keyProducts && cp.keyProducts.length > 0 && (
-          <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+            <span style={{ fontSize: 'calc(12px * var(--fz))', color: 'var(--text-muted)' }}>核心產品{cp.keyProductsSource ? `（${cp.keyProductsSource}）` : ''}：</span>
             {cp.keyProducts.map((p, i) => (
               <span key={i} style={{
                 fontSize: 'calc(12.5px * var(--fz))', padding: '4px 10px', borderRadius: '6px',
@@ -900,7 +904,7 @@ function CompanyTab({ trendData, loading, stockName, stockCode, instFlowNote }: 
         );
       })()}
 
-      {/* 產業別（F14）：只顯示產業別一行；產業說明（舊版夾帶展望、無來源）不顯示，官方產業事實第二批上線 */}
+      {/* 產業別（F14）＋產業說明（L13：官方產業別的事實——檔數、站內同業表中位數、相關產業鏈；不含展望） */}
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)',
         borderRadius: '10px', padding: '14px 16px',
@@ -909,7 +913,7 @@ function CompanyTab({ trendData, loading, stockName, stockCode, instFlowNote }: 
           {industryLineOf(ind, cp)}
         </div>
         <div style={{ fontSize: 'calc(13px * var(--fz))', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          產業說明：尚無判讀結果（官方產業事實描述第二批上線）
+          {industryFactsText(cp.industryFacts)}
         </div>
       </div>
 

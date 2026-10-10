@@ -3,6 +3,8 @@ import { getStockDayAllDataInternal } from '@/lib/twse-api-server';
 import { rateLimit } from '@/lib/rate-limit';
 import { memoize } from '@/lib/singleflight';
 import { lookupCompany } from '@/lib/company-list-server';
+import { companyFactsOf, type CompanyFacts } from '@/lib/company-business-server';
+import { getAdminDb } from '@/lib/firebase-admin';
 import {
   fallbackNote, resolveIndustry, rocDateToIso,
   type CompanyLookup, type IndustryInfo,
@@ -39,22 +41,33 @@ const CODE_RE = /^\d{4}[0-9A-Z]{0,2}$/;
 // 超時規則（規格 §0.2）：法人籌碼動向若改走降級模式，把這個開關改 true（固定回「尚無判讀結果」降級文案）。
 const INST_FLOW_DEGRADED = false;
 
-// TWSE 公告：全市場同一份，memoize 5 分鐘（合流＋失敗冷卻 1 分鐘），不隨請求數放大（唯一不變式）。
-const ANNOUNCEMENT_URL = 'https://www.twse.com.tw/rwd/zh/announcement/announcement?response=json';
-const ANNOUNCEMENT_TTL_MS = 5 * 60_000;
-const ANNOUNCEMENT_NEGATIVE_TTL_MS = 60_000;
-const getAnnouncementRows = memoize<AnnouncementRow[]>('twse-announcement', ANNOUNCEMENT_TTL_MS, async () => {
-  const res = await fetch(ANNOUNCEMENT_URL, {
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-    next: { revalidate: 300 },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const body: unknown = await res.json();   // HTML 錯誤頁在此拋錯 ⇒ 負快取，不再讓整支 API 500
-  const data = (body as { data?: unknown } | null)?.data;
-  if (!Array.isArray(data)) throw new Error('announcement: data 不是陣列');
-  return data as AnnouncementRow[];
-}, { negativeTtlMs: ANNOUNCEMENT_NEGATIVE_TTL_MS, timeoutMs: 10_000 });
+// 公告（L24·2026-10-10）：改讀 daemon 寫的 Firestore mopsNews（公開資訊觀測站重大訊息，上市＋上櫃）近 MOPS_DAYS 個日曆日＋今日索引，
+//   取代直打證交所公告頁（web 層不打上游；舊版只有上市、只比對最新一頁）。全市場同一份，memoize 10 分鐘（合流＋失敗冷卻 1 分鐘），
+//   每個實例 10 分鐘最多讀 MOPS_DAYS+1 份文件，與人數脫鉤。
+const MOPS_DAYS = 7;
+const MOPS_TTL_MS = 10 * 60_000;
+const MOPS_NEGATIVE_TTL_MS = 60_000;
+interface MopsItem { code: string; name?: string; subject: string; at: number; market?: string }
+const getRecentMops = memoize<MopsItem[]>('mops-recent', MOPS_TTL_MS, async () => {
+  const db = getAdminDb();
+  if (!db) throw new Error('mopsNews：無 Firestore 連線');
+  const now = Date.now();
+  const ids = Array.from({ length: MOPS_DAYS }, (_, i) => new Date(now + 8 * 3600_000 - i * 86_400_000).toISOString().slice(0, 10));
+  const snaps = await Promise.all([...ids, 'latest'].map(id => db.collection('mopsNews').doc(id).get()));
+  const out = new Map<string, MopsItem>();
+  for (const sn of snaps) {
+    const d = sn.data();
+    if (!d) continue;
+    const items = (typeof d.itemsJson === 'string' ? Object.values(JSON.parse(d.itemsJson)) : (d.items ?? [])) as MopsItem[];
+    // 同一主旨跨日重發（例：面額變更公告期間每天都在）只留最新一次
+    for (const x of items) {
+      if (!(x?.code && x.subject && x.at > 0)) continue;
+      const k = `${x.code}|${x.subject}`;
+      if (!out.has(k) || out.get(k)!.at < x.at) out.set(k, x);
+    }
+  }
+  return [...out.values()].sort((a, b) => b.at - a.at);
+}, { negativeTtlMs: MOPS_NEGATIVE_TTL_MS, timeoutMs: 10_000 });
 
 /**
  * 從全市場日行情取這一檔（集中式 server helper，自帶快取與合流）。
@@ -98,18 +111,13 @@ async function loadStockDay(code: string): Promise<{ row: StockDayItem | null; f
 }
 
 /** 公告列 → 提到此代號或公司簡稱的前 3 則 */
-function pickAnnouncements(rows: AnnouncementRow[] | null, code: string, companyName: string): NewsItem[] {
-  if (!rows) return [];
-  return rows
-    .filter(row => {
-      const text = (row[3] || '').toString();
-      return text.includes(code) || (companyName && text.includes(companyName));
-    })
+/** 本檔近 MOPS_DAYS 日的重大訊息（代號精確比對、新→舊、最多 3 則）；日期＝台北時間 YYYY/MM/DD HH:mm */
+function pickAnnouncements(items: MopsItem[] | null, code: string): NewsItem[] {
+  if (!items) return [];
+  return items
+    .filter(x => x.code === code)
     .slice(0, 3)
-    .map(row => ({
-      date: (row[1] || '').toString().replace('中華民國', '').replace('年', '/').replace('月', '/').replace('日', ''),
-      text: (row[3] || '').toString(),
-    }));
+    .map(x => ({ date: new Date(x.at + 8 * 3600_000).toISOString().slice(0, 16).replace('T', ' ').replace(/-/g, '/'), text: x.subject }));
 }
 
 export async function GET(request: NextRequest) {
@@ -128,9 +136,9 @@ export async function GET(request: NextRequest) {
     // 快照中繼（資料日／盤中與否／掃描時刻）緊接在日行情之後讀：getStockDayAllDataInternal 剛讀過、3 秒實例快取必中，
     //   不增加 Firestore 讀取，也保證算資料日／盤中與否的快照和日行情列是同一份（放在 Promise.all 之後，
     //   公告或公司清單慢 3 秒以上就會重讀大文件、13:35 前後還可能讀到不同份——2026-10-08 審查 LOW）。
-    const [lookup, annoRows, day, instTable, clock] = await Promise.all([
+    const [lookup, mopsItems, day, instTable, clock] = await Promise.all([
       lookupCompany(code),
-      getAnnouncementRows(),
+      getRecentMops().catch(() => null),
       loadStockDay(code).then(async d => ({ ...d, snap: await readMarketSnapshot() })),
       getInstFlowTable(),
       readingClock(),
@@ -140,7 +148,7 @@ export async function GET(request: NextRequest) {
 
     // ETF／興櫃不在公司清單裡 ⇒ 名稱改用日行情的證券名稱（不再回空字串）
     const companyName = lookup.company?.['公司簡稱'] || stockData?.Name || '';
-    const relevantAnnouncements = pickAnnouncements(annoRows, code, companyName);
+    const relevantAnnouncements = pickAnnouncements(mopsItems, code);
 
     const industry = resolveIndustry(lookup, code, stockData?._market);
     const qc = quoteContextOf({
@@ -180,7 +188,10 @@ export async function GET(request: NextRequest) {
     const newsHeadlines = buildNewsHeadlines(relevantAnnouncements);
     const industryOutlook = buildLegacyIndustryOutlook(industry);
     const preMarketRecommendation = buildPreMarketRecommendation(q, qc, todayMove);
-    const companyProfile = buildCompanyProfile(code, lookup, industry, stockData);
+    // 公司事實（L13·2026-10-10）：官方主要經營業務（MOPS t05st03）、官方產業別、2025 年報產品、官方產業事實
+    //   （Firestore companyBusiness/latest，memoize 6 小時；讀不到回全空、不捏造）
+    const facts = await companyFactsOf(code);
+    const companyProfile = buildCompanyProfile(code, lookup, industry, stockData, facts);
     const pricePrediction = buildPricePrediction(code, q, qc, nextDay);
 
     const body = {
@@ -218,7 +229,6 @@ export async function GET(request: NextRequest) {
 
 // ─── Types ───────────────────────────────────────────────────
 
-type AnnouncementRow = (string | number)[];
 
 interface StockDayItem {
   // 'tse' 上市 ｜ 'otc' 上櫃 ｜ 'esb' 興櫃。
@@ -323,16 +333,16 @@ function buildTrendAnalysis(
   return { summary, reasons, momentum, momentumScore };
 }
 
-// ─── News Headlines Builder（F13：只留交易所公告；舊版的產業模板假新聞已刪除）──────
+// ─── News Headlines Builder（F13＋L24：公開資訊觀測站重大訊息（上市＋上櫃）；舊版的產業模板假新聞已刪除）──────
 
-function buildNewsHeadlines(twseAnnouncements: NewsItem[]): NewsHeadline[] {
-  return twseAnnouncements.map(anno => ({
-    source: '證交所公告',
+function buildNewsHeadlines(announcements: NewsItem[]): NewsHeadline[] {
+  return announcements.map(anno => ({
+    source: '公開資訊觀測站重大訊息',
     headline: anno.text.length > 80 ? `${anno.text.substring(0, 78)}…` : anno.text,
     date: anno.date,
     type: 'official' as const,
     sentiment: 'neutral' as const,   // 未判別：公告不等於利多或利空
-    url: 'https://www.twse.com.tw/rwd/zh/announcement/announcement',
+    url: 'https://mops.twse.com.tw/mops/#/web/t05sr01_1',
   }));
 }
 
@@ -529,8 +539,16 @@ export interface CompanyProfile {
   capitalBillion: number; // in 億
   industryCategory: string;
   industryCode: string;
-  /** 官方業務描述尚未接入（L13）：ETF／興櫃／99 為據實說明，其餘為 ''（舊的個股業務資料庫寫錯多檔，已刪） */
+  /** 主要經營業務：公開資訊觀測站 t05st03 官方登記原文（2026-10-10 接入）；查無時 ETF／興櫃／99 為據實說明，其餘為 ''（不捏造） */
   mainBusiness: string;
+  /** mainBusiness 的來源：mops＝官方登記；note＝非公司類別的據實說明；null＝查無 */
+  mainBusinessSource: 'mops' | 'note' | null;
+  /** keyProducts 的來源：'2025 年報'（只收年報萃取的產品；AI 知識補的不收）；沒有產品時 null */
+  keyProductsSource: string | null;
+  /** 官方產業別名稱（MOPS／證交所登記；興櫃也有）；查無 null */
+  officialIndustry: string | null;
+  /** 官方產業事實：檔數、站內同業表中位數（本益比／股價淨值比／殖利率／月營收年增 %）、相關產業鏈；不含展望；查無 null */
+  industryFacts: (CompanyFacts['industry'] & { source: string }) | null;
   keyProducts: string[];
   /** legacy（L20 刪除）：舊 TrendPanel 以它索引物件，null 會崩；新前端改讀 scale */
   companyScale: 'large' | 'mid' | 'small';
@@ -560,7 +578,8 @@ function buildCompanyProfile(
   code: string,
   lookup: CompanyLookup,
   industry: IndustryInfo,
-  stock: StockDayItem | null
+  stock: StockDayItem | null,
+  facts: CompanyFacts | null = null,
 ): CompanyProfile {
   const raw = lookup.company;
   const dataNote = fallbackNote(lookup);
@@ -594,8 +613,12 @@ function buildCompanyProfile(
     capitalBillion: 0,
     industryCategory,
     industryCode: industry.code,
-    mainBusiness: getMainBusiness(industry),
-    keyProducts: [],
+    mainBusiness: facts?.business || getMainBusiness(industry),
+    mainBusinessSource: facts?.business ? 'mops' : getMainBusiness(industry) ? 'note' : null,
+    keyProductsSource: facts?.products.length ? '2025 年報' : null,
+    officialIndustry: facts?.officialIndustry ?? null,
+    industryFacts: facts?.industry ? { ...facts.industry, source: '官方產業別（MOPS／證交所）＋站內同業表（MOPS 月營收）' } : null,
+    keyProducts: (facts?.products || []).map(p => (p.s ? `${p.n}（${p.s}）` : p.n)),
     companyScale: 'mid', // legacy L20：舊 TrendPanel 會以它索引物件；新前端讀 scale（此處為 null）
     scale: null,
     ageYears: 0,
@@ -674,8 +697,12 @@ function buildCompanyProfile(
     capitalBillion,
     industryCategory,
     industryCode: industry.code,
-    mainBusiness: getMainBusiness(industry),
-    keyProducts: [],
+    mainBusiness: facts?.business || getMainBusiness(industry),
+    mainBusinessSource: facts?.business ? 'mops' : getMainBusiness(industry) ? 'note' : null,
+    keyProductsSource: facts?.products.length ? '2025 年報' : null,
+    officialIndustry: facts?.officialIndustry ?? null,
+    industryFacts: facts?.industry ? { ...facts.industry, source: '官方產業別（MOPS／證交所）＋站內同業表（MOPS 月營收）' } : null,
+    keyProducts: (facts?.products || []).map(p => (p.s ? `${p.n}（${p.s}）` : p.n)),
     companyScale,
     scale: capitalBillion > 0 ? companyScale : null,
     ageYears: founded.year > 0 ? currentYear - founded.year : 0,
@@ -691,7 +718,7 @@ function buildCompanyProfile(
 // 官方業務欄位由第二批公司輪廓接入（L13）。這裡只留「不是一般公司／查無」的據實說明。
 const NON_COMPANY_BUSINESS: Record<string, string> = {
   ETF: 'ETF 是基金，不是營業公司，沒有主要業務與產品；追蹤指數與成分股請見發行投信的公開說明書。',
-  ESB: '興櫃公司：主要業務的官方資料尚未接入本頁（來源未提供）。',
+  ESB: '興櫃公司：公開資訊觀測站查無主要經營業務登記（來源未提供）。',
   '99': '主要業務：來源未提供。',
 };
 
