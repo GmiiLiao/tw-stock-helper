@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- FinMind 台股 1 分 K 每日收集（來源 FinMind·研究用；盤後分 K 以此為優先、Yahoo 為備援）；2026-10-09 使用者核可。
+     平日 17:00（FinMind 15:50 更新；避開 daemon 重任務窗 16:25–16:55）；與 finmind 大量回補共用額度，只用「上限×90%－已用」的空餘。
+     安裝：cp 本檔 ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.gmii.twstock.intraday-finmind.plist
+     由 node 起程序（launchd 直接起 bash 無法存取 ~/Documents）。 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.gmii.twstock.intraday-finmind</string>
+  <key>ProgramArguments</key><array><string>/opt/homebrew/bin/node</string><string>scripts/intraday-yahoo/finmind-kbar.mjs</string></array>
+  <key>WorkingDirectory</key><string>/Users/gmii/Documents/股票助手app/tw-stock-app</string>
+  <key>StartCalendarInterval</key><array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>17</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>Nice</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/Users/gmii/Library/Logs/twstock-intraday-finmind/daily.log</string>
+  <key>StandardErrorPath</key><string>/Users/gmii/Library/Logs/twstock-intraday-finmind/daily.err.log</string>
+</dict>
+</plist>
